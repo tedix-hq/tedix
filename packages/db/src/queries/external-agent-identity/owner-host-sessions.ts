@@ -1,3 +1,4 @@
+import { coreTable } from "../../core-store/client";
 /**
  * Owner-host Agent-Sessions: plugin-only MCP hosts authenticate as their human
  * owner, so their accountable principal is an `owner_user` binding to that
@@ -11,8 +12,8 @@ import type { DbClient } from "../../client";
 import {
 	type ExternalAgentPrincipal,
 	type ExternalAgentSession,
-	externalAgentPrincipals,
-	externalAgentSessions,
+	externalAgentPrincipals as d1ExternalAgentPrincipals,
+	externalAgentSessions as d1ExternalAgentSessions,
 } from "../../schema/external-agent-identity";
 import { prefixedColumns } from "../../utils/select";
 
@@ -22,6 +23,7 @@ export async function getOwnerUserExternalAgentPrincipal(
 	db: DbClient,
 	params: { organizationId: string; userId: string },
 ): Promise<ExternalAgentPrincipal | null> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const rows = await db
 		.select()
 		.from(externalAgentPrincipals)
@@ -66,6 +68,8 @@ export async function resolveOwnerHostSession(
 	db: DbClient,
 	params: ResolveOwnerHostSessionParams,
 ): Promise<ResolveOwnerHostSessionResult | null> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const rows = await db
 		.select({
 			principal: prefixedColumns(externalAgentPrincipals, "principal"),

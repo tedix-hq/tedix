@@ -1,10 +1,17 @@
 import {
+	jsonRead,
+	jsonWrite,
+	anyIds,
+	coreStore,
+	jsonParameter,
+} from "../../core-store/dialect";
+import { coreTable } from "../../core-store/client";
+import {
 	and,
 	desc,
 	eq,
 	exists,
 	gt,
-	inArray,
 	isNull,
 	lt,
 	lte,
@@ -14,23 +21,21 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
-import { apiKeys } from "../../schema/api-keys";
+import { apiKeys as d1ApiKeys } from "../../schema/api-keys";
 import {
 	type ExternalAgentMcpCredential,
 	type ExternalAgentPrincipal,
 	type ExternalAgentSession,
-	externalAgentMcpCredentials,
-	externalAgentMcpIssuanceLeases,
-	externalAgentPrincipals,
-	externalAgentSessions,
+	externalAgentMcpCredentials as d1ExternalAgentMcpCredentials,
+	externalAgentMcpIssuanceLeases as d1ExternalAgentMcpIssuanceLeases,
+	externalAgentPrincipals as d1ExternalAgentPrincipals,
+	externalAgentSessions as d1ExternalAgentSessions,
 } from "../../schema/external-agent-identity";
 import { ExternalAgentIdentityError } from "./principals";
 import { diagnoseMutableSession } from "./session-state";
 import { prefixedColumns } from "../../utils/select";
 
-const activeSession = alias(externalAgentSessions, "active_session");
 /** `activePrincipalKey` references this alias by name. */
-const activePrincipal = alias(externalAgentPrincipals, "active_principal");
 
 export async function acquireExternalAgentMcpIssuanceLease(
 	db: DbClient,
@@ -45,6 +50,14 @@ export async function acquireExternalAgentMcpIssuanceLease(
 		expiresAt: string;
 	},
 ): Promise<boolean> {
+	const externalAgentMcpIssuanceLeases = coreTable(
+		db,
+		d1ExternalAgentMcpIssuanceLeases,
+	);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const activeSession = alias(externalAgentSessions, "active_session");
+	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
 	const rows = await db
 		.insert(externalAgentMcpIssuanceLeases)
 		.select(
@@ -63,12 +76,12 @@ export async function acquireExternalAgentMcpIssuanceLease(
 					updatedAt: sql<string>`${input.now}`.as("updated_at"),
 				})
 				.from(activeSession)
-				.innerJoin(activePrincipal, joinActivePrincipal())
+				.innerJoin(activePrincipal, joinActivePrincipal(db))
 				.where(
 					and(
-						activeSessionScope(input),
+						activeSessionScope(db, input),
 						eq(activePrincipal.status, "active"),
-						activePrincipalKey(sql`${input.now}`),
+						activePrincipalKey(db, sql`${input.now}`),
 					),
 				),
 		)
@@ -101,6 +114,10 @@ export async function releaseExternalAgentMcpIssuanceLease(
 		ownerToken: string;
 	},
 ): Promise<void> {
+	const externalAgentMcpIssuanceLeases = coreTable(
+		db,
+		d1ExternalAgentMcpIssuanceLeases,
+	);
 	await db
 		.delete(externalAgentMcpIssuanceLeases)
 		.where(
@@ -130,6 +147,14 @@ export async function recordExternalAgentMcpCredential(
 		expiresAt: string;
 	},
 ): Promise<ExternalAgentMcpCredential> {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const activeSession = alias(externalAgentSessions, "active_session");
+	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
 	const inserted = await db
 		.insert(externalAgentMcpCredentials)
 		.select(
@@ -155,12 +180,12 @@ export async function recordExternalAgentMcpCredential(
 					revokedAt: sql<null>`NULL`.as("revoked_at"),
 				})
 				.from(activeSession)
-				.innerJoin(activePrincipal, joinActivePrincipal())
+				.innerJoin(activePrincipal, joinActivePrincipal(db))
 				.where(
 					and(
-						activeSessionScope(input),
+						activeSessionScope(db, input),
 						eq(activePrincipal.status, "active"),
-						activePrincipalKey(sql`${input.issuedAt}`),
+						activePrincipalKey(db, sql`${input.issuedAt}`),
 					),
 				),
 		)
@@ -212,6 +237,10 @@ export async function revokeExternalAgentMcpCredential(
 		revokedAt: string;
 	},
 ): Promise<ExternalAgentMcpCredential> {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
 	const rows = await db
 		.update(externalAgentMcpCredentials)
 		.set({ status: "revoked", revokedAt: params.revokedAt })
@@ -250,6 +279,11 @@ export async function listReapableExternalAgentMcpCredentials(
 	db: DbClient,
 	params: { expiredBefore: string; limit: number },
 ): Promise<Array<{ clientRecordId: string; mcpServerId: string }>> {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const reapable = and(
 		isNull(externalAgentMcpCredentials.providerCleanupAt),
 		or(
@@ -271,105 +305,135 @@ export async function listReapableExternalAgentMcpCredentials(
 		.groupBy(externalAgentMcpCredentials.mcpServerId);
 	// Smallest backlog first, so its unused share passes to the larger ones.
 	pendingByServer.sort((left, right) => left.pending - right.pending);
-	const rows: Array<{ clientRecordId: string; mcpServerId: string }> = [];
+	let available = params.limit;
 	let serversLeft = pendingByServer.length;
-	for (const { mcpServerId, pending } of pendingByServer) {
+	const quotas = pendingByServer.map(({ mcpServerId, pending }) => {
 		const share = Math.min(
-			pending,
-			Math.floor((params.limit - rows.length) / serversLeft--),
+			Number(pending),
+			Math.floor(available / serversLeft--),
 		);
-		if (share <= 0) continue;
-		rows.push(
-			...(await db
-				.select({
-					clientRecordId: externalAgentMcpCredentials.clientRecordId,
-					mcpServerId: externalAgentMcpCredentials.mcpServerId,
-				})
-				.from(externalAgentMcpCredentials)
-				.where(
-					and(
-						eq(externalAgentMcpCredentials.mcpServerId, mcpServerId),
-						reapable,
-					),
-				)
-				.orderBy(
-					sql`${externalAgentMcpCredentials.providerCleanupAttemptedAt} IS NOT NULL`,
-					externalAgentMcpCredentials.providerCleanupAttemptedAt,
-					externalAgentMcpCredentials.expiresAt,
-				)
-				.limit(share)),
+		available -= share;
+		return { mcpServerId, share };
+	});
+	if (!quotas.some(({ share }) => share > 0)) return [];
+	const ranked = db.$with("ranked_cleanup").as(
+		db
+			.select({
+				clientRecordId: externalAgentMcpCredentials.clientRecordId,
+				mcpServerId: externalAgentMcpCredentials.mcpServerId,
+				rank: sql<number>`row_number() OVER (PARTITION BY ${externalAgentMcpCredentials.mcpServerId} ORDER BY ${externalAgentMcpCredentials.providerCleanupAttemptedAt} IS NOT NULL, ${externalAgentMcpCredentials.providerCleanupAttemptedAt} ASC NULLS FIRST, ${externalAgentMcpCredentials.expiresAt})`.as(
+					"cleanup_rank",
+				),
+			})
+			.from(externalAgentMcpCredentials)
+			.where(reapable),
+	);
+	const quotaValues = quotas.map((quota, position) => ({ ...quota, position }));
+	const quotaSource =
+		coreStore(db) === "postgres"
+			? sql`jsonb_array_elements(${jsonParameter(db, quotaValues)})`
+			: sql`json_each(${JSON.stringify(quotaValues)})`;
+	return db
+		.with(ranked)
+		.select({
+			clientRecordId: ranked.clientRecordId,
+			mcpServerId: ranked.mcpServerId,
+		})
+		.from(ranked)
+		.innerJoin(
+			sql`${quotaSource} AS quota`,
+			eq(ranked.mcpServerId, jsonRead(db, sql`quota.value`, ["mcpServerId"])),
+		)
+		.where(
+			lte(ranked.rank, jsonRead(db, sql`quota.value`, ["share"], "number")),
+		)
+		.orderBy(
+			jsonRead(db, sql`quota.value`, ["position"], "number"),
+			ranked.rank,
 		);
-	}
-	return rows;
 }
 
 /**
  * Record a failed provider delete so these rows move to the back of the
- * reaper queue. Chunked to stay under D1's bound-parameter ceiling.
+ * reaper queue. Uses one bound set on either store.
  */
 export async function markExternalAgentMcpCredentialCleanupAttempted(
 	db: DbClient,
 	params: { clientRecordIds: string[]; attemptedAt: string },
 ): Promise<void> {
-	for (let i = 0; i < params.clientRecordIds.length; i += 50) {
-		const chunk = params.clientRecordIds.slice(i, i + 50);
-		await db
-			.update(externalAgentMcpCredentials)
-			.set({ providerCleanupAttemptedAt: params.attemptedAt })
-			.where(
-				and(
-					inArray(externalAgentMcpCredentials.clientRecordId, chunk),
-					isNull(externalAgentMcpCredentials.providerCleanupAt),
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+
+	await db
+		.update(externalAgentMcpCredentials)
+		.set({ providerCleanupAttemptedAt: params.attemptedAt })
+		.where(
+			and(
+				anyIds(
+					db,
+					externalAgentMcpCredentials.clientRecordId,
+					params.clientRecordIds,
 				),
-			);
-	}
+				isNull(externalAgentMcpCredentials.providerCleanupAt),
+			),
+		);
 }
 
 /**
  * Mark a batch of credential rows revoked by their Descope client-record id,
  * after the reaper has deleted (or confirmed gone) the corresponding client.
- * Chunked to stay under D1's bound-parameter ceiling. Returns the number of
+ * Uses one bound set on either store. Returns the number of
  * rows cleaned; existing revocation timestamps and history are preserved.
  */
 export async function markExternalAgentMcpCredentialsReaped(
 	db: DbClient,
 	params: { clientRecordIds: string[]; revokedAt: string },
 ): Promise<number> {
-	let revoked = 0;
-	for (let i = 0; i < params.clientRecordIds.length; i += 50) {
-		const chunk = params.clientRecordIds.slice(i, i + 50);
-		if (chunk.length === 0) continue;
-		const [rows] = await db.batch([
-			db
-				.update(externalAgentMcpCredentials)
-				.set({
-					status: "revoked",
-					revokedAt: sql`coalesce(${externalAgentMcpCredentials.revokedAt}, ${params.revokedAt})`,
-					providerCleanupAt: params.revokedAt,
-				})
-				.where(
-					and(
-						inArray(externalAgentMcpCredentials.clientRecordId, chunk),
-						isNull(externalAgentMcpCredentials.providerCleanupAt),
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const [rows] = await db.batch([
+		db
+			.update(externalAgentMcpCredentials)
+			.set({
+				status: "revoked",
+				revokedAt: sql`coalesce(${externalAgentMcpCredentials.revokedAt}, ${params.revokedAt})`,
+				providerCleanupAt: params.revokedAt,
+			})
+			.where(
+				and(
+					anyIds(
+						db,
+						externalAgentMcpCredentials.clientRecordId,
+						params.clientRecordIds,
 					),
-				)
-				.returning({ id: externalAgentMcpCredentials.id }),
-			db
-				.update(externalAgentPrincipals)
-				.set({
-					metadata: sql`json_set(${externalAgentPrincipals.metadata}, '$.providerCleanup', 'done')`,
-				})
-				.where(
-					and(
-						sql`json_extract(${externalAgentPrincipals.metadata}, '$.providerCleanup') IN ('pending', 'failed')`,
-						noOutstandingProviderCleanup(),
-						sql`EXISTS (SELECT 1 FROM ${externalAgentMcpCredentials} AS completed_cleanup WHERE completed_cleanup.organization_id = ${externalAgentPrincipals.organizationId} AND completed_cleanup.principal_id = ${externalAgentPrincipals.id} AND completed_cleanup.client_record_id IN (SELECT value FROM json_each(${JSON.stringify(chunk)})))`,
-					),
+					isNull(externalAgentMcpCredentials.providerCleanupAt),
 				),
-		]);
-		revoked += rows.length;
-	}
-	return revoked;
+			)
+			.returning({ id: externalAgentMcpCredentials.id }),
+		db
+			.update(externalAgentPrincipals)
+			.set({
+				metadata: jsonWrite(
+					db,
+					externalAgentPrincipals.metadata,
+					["providerCleanup"],
+					"done",
+				),
+			})
+			.where(
+				and(
+					sql`${jsonRead(db, externalAgentPrincipals.metadata, ["providerCleanup"])} IN ('pending', 'failed')`,
+					noOutstandingProviderCleanup(db),
+					sql`EXISTS (SELECT 1 FROM ${externalAgentMcpCredentials} AS completed_cleanup WHERE completed_cleanup.organization_id = ${externalAgentPrincipals.organizationId} AND completed_cleanup.principal_id = ${externalAgentPrincipals.id} AND ${anyIds(db, sql`completed_cleanup.client_record_id`, params.clientRecordIds)})`,
+				),
+			),
+	]);
+	return rows.length;
 }
 
 export async function listActiveExternalAgentMcpCredentials(
@@ -381,6 +445,10 @@ export async function listActiveExternalAgentMcpCredentials(
 		mcpServerId: string;
 	},
 ): Promise<ExternalAgentMcpCredential[]> {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
 	return db
 		.select()
 		.from(externalAgentMcpCredentials)
@@ -404,6 +472,10 @@ export async function listMachinePolicyInventoryCandidates(
 	db: DbClient,
 	input: { organizationId: string; now: string },
 ) {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
 	return db
 		.select({
 			principalId: externalAgentMcpCredentials.principalId,
@@ -431,6 +503,10 @@ export async function listActiveExternalAgentMcpCredentialsForSession(
 		sessionId: string;
 	},
 ): Promise<ExternalAgentMcpCredential[]> {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
 	return db
 		.select()
 		.from(externalAgentMcpCredentials)
@@ -452,6 +528,10 @@ export async function listActiveExternalAgentMcpCredentialsByServer(
 	db: DbClient,
 	mcpServerId: string,
 ): Promise<ExternalAgentMcpCredential[]> {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
 	return db
 		.select()
 		.from(externalAgentMcpCredentials)
@@ -480,6 +560,18 @@ export async function refreshExternalAgentMcpCredentialUnderLease(
 		leaseNow: string;
 	},
 ): Promise<ExternalAgentMcpCredential> {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+	const externalAgentMcpIssuanceLeases = coreTable(
+		db,
+		d1ExternalAgentMcpIssuanceLeases,
+	);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const activeSession = alias(externalAgentSessions, "active_session");
+	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
 	const issuanceLease = alias(externalAgentMcpIssuanceLeases, "issuance_lease");
 	const rows = await db
 		.update(externalAgentMcpCredentials)
@@ -521,7 +613,7 @@ export async function refreshExternalAgentMcpCredentialUnderLease(
 								eq(activePrincipal.status, "active"),
 								eq(activeSession.id, params.sessionId),
 								eq(activeSession.status, "active"),
-								activePrincipalKey(sql`${params.leaseNow}`),
+								activePrincipalKey(db, sql`${params.leaseNow}`),
 							),
 						),
 				),
@@ -564,6 +656,18 @@ export async function recordExternalAgentMcpCredentialUnderLease(
 		leaseNow: string;
 	},
 ): Promise<ExternalAgentMcpCredential> {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+	const externalAgentMcpIssuanceLeases = coreTable(
+		db,
+		d1ExternalAgentMcpIssuanceLeases,
+	);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const activeSession = alias(externalAgentSessions, "active_session");
+	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
 	const issuanceLease = alias(externalAgentMcpIssuanceLeases, "issuance_lease");
 	const inserted = await db
 		.insert(externalAgentMcpCredentials)
@@ -590,7 +694,7 @@ export async function recordExternalAgentMcpCredentialUnderLease(
 					revokedAt: sql<null>`NULL`.as("revoked_at"),
 				})
 				.from(activeSession)
-				.innerJoin(activePrincipal, joinActivePrincipal())
+				.innerJoin(activePrincipal, joinActivePrincipal(db))
 				.innerJoin(
 					issuanceLease,
 					and(
@@ -604,9 +708,9 @@ export async function recordExternalAgentMcpCredentialUnderLease(
 				)
 				.where(
 					and(
-						activeSessionScope(input),
+						activeSessionScope(db, input),
 						eq(activePrincipal.status, "active"),
-						activePrincipalKey(sql`${input.leaseNow}`),
+						activePrincipalKey(db, sql`${input.leaseNow}`),
 					),
 				),
 		)
@@ -640,6 +744,13 @@ export async function resolveAuthorizedExternalAgentMcpSession(
 	session: ExternalAgentSession;
 	credential: ExternalAgentMcpCredential;
 } | null> {
+	const apiKeys = coreTable(db, d1ApiKeys);
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const credential = alias(externalAgentMcpCredentials, "credential");
 	const agentSession = alias(externalAgentSessions, "agent_session");
 	const principal = alias(externalAgentPrincipals, "principal");
@@ -708,6 +819,10 @@ export async function findFederatedWorkloadCredential(
 	db: DbClient,
 	params: { clientRecordId: string; mcpServerId: string },
 ): Promise<ExternalAgentMcpCredential | null> {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
 	if (!/^wif:[0-9a-f]{64}$/.test(params.clientRecordId)) return null;
 	const rows = await db
 		.select()
@@ -722,7 +837,12 @@ export async function findFederatedWorkloadCredential(
 	return rows[0] ?? null;
 }
 
-function noOutstandingProviderCleanup() {
+function noOutstandingProviderCleanup(db: DbClient) {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	return sql`NOT EXISTS (SELECT 1 FROM ${externalAgentMcpCredentials} AS pending_cleanup WHERE pending_cleanup.organization_id = ${externalAgentPrincipals.organizationId} AND pending_cleanup.principal_id = ${externalAgentPrincipals.id} AND pending_cleanup.status = 'revoked' AND pending_cleanup.provider_cleanup_at IS NULL)`;
 }
 
@@ -730,6 +850,10 @@ export async function listPendingExternalAgentProviderCleanup(
 	db: DbClient,
 	params: { organizationId: string; principalId: string },
 ) {
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
 	return db
 		.select({
 			clientRecordId: externalAgentMcpCredentials.clientRecordId,
@@ -752,10 +876,11 @@ export async function finishExternalAgentProviderCleanup(
 	db: DbClient,
 	params: { organizationId: string; principalId: string; failed: boolean },
 ) {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const [row] = await db
 		.update(externalAgentPrincipals)
 		.set({
-			metadata: sql`json_set(${externalAgentPrincipals.metadata}, '$.providerCleanup', CASE WHEN ${noOutstandingProviderCleanup()} THEN 'done' ELSE ${params.failed ? "failed" : "pending"} END)`,
+			metadata: sql`CASE WHEN ${noOutstandingProviderCleanup(db)} THEN ${jsonWrite(db, externalAgentPrincipals.metadata, ["providerCleanup"], "done")} ELSE ${jsonWrite(db, externalAgentPrincipals.metadata, ["providerCleanup"], params.failed ? "failed" : "pending")} END`,
 		})
 		.where(
 			and(
@@ -772,18 +897,27 @@ export async function finishExternalAgentProviderCleanup(
 	return row;
 }
 
-function joinActivePrincipal() {
+function joinActivePrincipal(db: DbClient) {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const activeSession = alias(externalAgentSessions, "active_session");
+	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
 	return and(
 		eq(activePrincipal.organizationId, activeSession.organizationId),
 		eq(activePrincipal.id, activeSession.principalId),
 	);
 }
 
-function activeSessionScope(input: {
-	organizationId: string;
-	principalId: string;
-	sessionId: string;
-}) {
+function activeSessionScope(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		principalId: string;
+		sessionId: string;
+	},
+) {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
+	const activeSession = alias(externalAgentSessions, "active_session");
 	return and(
 		eq(activeSession.organizationId, input.organizationId),
 		eq(activeSession.principalId, input.principalId),
@@ -793,7 +927,8 @@ function activeSessionScope(input: {
 }
 
 /** References the `active_principal` alias of the enclosing statement. */
-function activePrincipalKey(now: ReturnType<typeof sql>) {
+function activePrincipalKey(db: DbClient, now: ReturnType<typeof sql>) {
+	const apiKeys = coreTable(db, d1ApiKeys);
 	return sql`(active_principal.credential_binding_type != 'api_key' OR EXISTS (
   SELECT 1 FROM ${apiKeys} AS issuance_key
   WHERE issuance_key.id = active_principal.credential_binding_id

@@ -1,5 +1,6 @@
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
-import { externalAgentWorkloadTokenUses } from "../../schema/external-agent-identity";
+import { externalAgentWorkloadTokenUses as d1ExternalAgentWorkloadTokenUses } from "../../schema/external-agent-identity";
 
 export interface ConsumeExternalAgentWorkloadTokenParams {
 	id: string;
@@ -20,6 +21,10 @@ export async function consumeExternalAgentWorkloadToken(
 	db: DbQueryClient,
 	params: ConsumeExternalAgentWorkloadTokenParams,
 ): Promise<boolean> {
+	const externalAgentWorkloadTokenUses = coreTable(
+		db,
+		d1ExternalAgentWorkloadTokenUses,
+	);
 	const rows = await db
 		.insert(externalAgentWorkloadTokenUses)
 		.values(params)

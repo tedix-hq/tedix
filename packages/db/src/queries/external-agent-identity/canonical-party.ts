@@ -1,3 +1,5 @@
+import { anyIds, jsonRead, coreStore } from "../../core-store/dialect";
+import { coreTable } from "../../core-store/client";
 /**
  * Canonical accountable PARTY for separation-of-duties comparisons.
  *
@@ -10,9 +12,9 @@
  * never makes an owner independent of their own agent.
  */
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { externalAgentPrincipals } from "../../schema/external-agent-identity";
+import { externalAgentPrincipals as d1ExternalAgentPrincipals } from "../../schema/external-agent-identity";
 
 export interface WorkPartyRef {
 	type: string;
@@ -52,6 +54,7 @@ export async function resolveCanonicalWorkParties(
 	db: DbQueryClient,
 	params: { organizationId: string; parties: readonly WorkPartyRef[] },
 ): Promise<CanonicalPartyMap> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const principalIds = [
 		...new Set(
 			params.parties
@@ -71,9 +74,9 @@ export async function resolveCanonicalWorkParties(
 			ownerUserId: sql<string | null>`CASE
 				WHEN ${externalAgentPrincipals.credentialBindingType} = 'owner_user' THEN ${externalAgentPrincipals.credentialBindingId}
 				WHEN ${externalAgentPrincipals.credentialBindingType} = 'api_key'
-					AND json_type(${externalAgentPrincipals.metadata}, '$.representedUserId') = 'text'
-					AND length(trim(json_extract(${externalAgentPrincipals.metadata}, '$.representedUserId'))) > 0
-				THEN json_extract(${externalAgentPrincipals.metadata}, '$.representedUserId')
+					AND ${coreStore(db) === "postgres" ? sql`jsonb_typeof(${externalAgentPrincipals.metadata} -> 'representedUserId')` : sql`json_type(${externalAgentPrincipals.metadata}, '$.representedUserId')`} = ${coreStore(db) === "postgres" ? "string" : "text"}
+					AND length(trim(${jsonRead(db, externalAgentPrincipals.metadata, ["representedUserId"])})) > 0
+				THEN ${jsonRead(db, externalAgentPrincipals.metadata, ["representedUserId"])}
 				ELSE NULL END`,
 		})
 		.from(externalAgentPrincipals)
@@ -81,7 +84,7 @@ export async function resolveCanonicalWorkParties(
 			and(
 				eq(externalAgentPrincipals.organizationId, params.organizationId),
 				// bound-params: capped to 50 distinct principal ids above.
-				inArray(externalAgentPrincipals.id, principalIds),
+				anyIds(db, externalAgentPrincipals.id, principalIds),
 			),
 		);
 	for (const row of rows) {

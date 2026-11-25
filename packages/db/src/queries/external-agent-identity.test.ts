@@ -1377,7 +1377,7 @@ describe("external-agent identity", () => {
 	});
 });
 
-it("reads legacy proposer harnesses in bounded tenant-scoped batches", async () => {
+it("reads legacy proposer harnesses in one tenant-scoped set query", async () => {
 	const statements: string[] = [];
 	const db = fixture((sql) => statements.push(sql));
 	const owner = await principal(db);
@@ -1402,7 +1402,7 @@ it("reads legacy proposer harnesses in bounded tenant-scoped batches", async () 
 			(row) => row.harness === "codex" && row.principalId === owner.id,
 		),
 	).toBe(true);
-	expect(statements).toHaveLength(2);
+	expect(statements).toHaveLength(1);
 	expect(
 		await listExternalAgentSessionHarnessesByIds(db, {
 			organizationId: "fictional-other-org",

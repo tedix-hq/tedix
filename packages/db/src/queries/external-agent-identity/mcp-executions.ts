@@ -1,12 +1,14 @@
+import { jsonParameter } from "../../core-store/dialect";
+import { coreTable } from "../../core-store/client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
 	type ExternalAgentAttribution,
-	externalAgentAttributions,
-	externalAgentMcpCredentials,
-	externalAgentSessions,
+	externalAgentAttributions as d1ExternalAgentAttributions,
+	externalAgentMcpCredentials as d1ExternalAgentMcpCredentials,
+	externalAgentSessions as d1ExternalAgentSessions,
 } from "../../schema/external-agent-identity";
 import { readMovedExternalAgentAttribution } from "./attribution";
 import { ExternalAgentIdentityError } from "./principals";
@@ -37,6 +39,12 @@ export async function recordVerifiedExternalAgentMcpExecution(
 		occurredAt: string;
 	},
 ): Promise<ExternalAgentAttribution> {
+	const externalAgentAttributions = coreTable(db, d1ExternalAgentAttributions);
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const {
 		provenanceCertification: _untrustedCertification,
 		...providedMetadata
@@ -87,7 +95,7 @@ export async function recordVerifiedExternalAgentMcpExecution(
 							workItemId: sql<null>`NULL`.as("work_item_id"),
 							metadata: sql<
 								Record<string, JsonValue>
-							>`${JSON.stringify(metadata)}`.as("metadata"),
+							>`${jsonParameter(db, metadata)}`.as("metadata"),
 							occurredAt: sql<string>`${input.occurredAt}`.as("occurred_at"),
 						})
 						.from(authorizedCredential)

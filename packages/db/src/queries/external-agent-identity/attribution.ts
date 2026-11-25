@@ -1,12 +1,14 @@
+import { jsonParameter } from "../../core-store/dialect";
+import { coreTable } from "../../core-store/client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
 	type ExternalAgentAttribution,
-	externalAgentAttributions,
-	externalAgentPrincipals,
-	externalAgentSessions,
+	externalAgentAttributions as d1ExternalAgentAttributions,
+	externalAgentPrincipals as d1ExternalAgentPrincipals,
+	externalAgentSessions as d1ExternalAgentSessions,
 } from "../../schema/external-agent-identity";
 import { readLogStores } from "../../utils/log-store";
 import { EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS } from "../d1-retention";
@@ -48,8 +50,12 @@ export async function readMovedExternalAgentAttribution(
 	if (Number.isFinite(occurredMs) && occurredMs > movableBeforeMs) return null;
 	const found = await readLogStores(
 		db,
-		(store) =>
-			store
+		(store) => {
+			const externalAgentAttributions = coreTable(
+				store,
+				d1ExternalAgentAttributions,
+			);
+			return store
 				.select()
 				.from(externalAgentAttributions)
 				.where(
@@ -61,7 +67,8 @@ export async function readMovedExternalAgentAttribution(
 						eq(externalAgentAttributions.principalId, key.principalId),
 					),
 				)
-				.limit(1),
+				.limit(1);
+		},
 		{ order: "logs-first" },
 	);
 	return found?.flat()[0] ?? null;
@@ -98,6 +105,9 @@ export async function recordExternalAgentAttribution(
 		sharedTargetOk?: boolean;
 	},
 ): Promise<ExternalAgentAttribution> {
+	const externalAgentAttributions = coreTable(db, d1ExternalAgentAttributions);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const {
 		provenanceCertification: _untrustedCertification,
 		...providedMetadata
@@ -141,7 +151,7 @@ export async function recordExternalAgentAttribution(
 							workItemId: sql<string | null>`${workItemId}`.as("work_item_id"),
 							metadata: sql<
 								Record<string, JsonValue>
-							>`${JSON.stringify(metadata)}`.as("metadata"),
+							>`${jsonParameter(db, metadata)}`.as("metadata"),
 							occurredAt: sql<string>`${input.occurredAt}`.as("occurred_at"),
 						})
 						.from(activeSession)

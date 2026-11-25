@@ -1,9 +1,10 @@
+import { coreTable } from "../../core-store/client";
 import { and, eq } from "drizzle-orm";
 import { areSameWorkParty } from "./canonical-party";
 import type { DbClient } from "../../client";
 import {
 	type ExternalAgentReviewEvidence,
-	externalAgentReviewEvidence,
+	externalAgentReviewEvidence as d1ExternalAgentReviewEvidence,
 } from "../../schema/external-agent-identity";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { ExternalAgentIdentityError } from "./principals";
@@ -47,6 +48,10 @@ export async function recordExternalAgentReviewEvidence(
 		occurredAt: string;
 	},
 ): Promise<ExternalAgentReviewEvidence> {
+	const externalAgentReviewEvidence = coreTable(
+		db,
+		d1ExternalAgentReviewEvidence,
+	);
 	const executionRow = await db.query.externalAgentAttributions.findFirst({
 		columns: {
 			id: true,
@@ -272,6 +277,10 @@ export async function remediateExternalAgentReviewEvidence(
 		resolvedAt: string;
 	},
 ): Promise<ExternalAgentReviewEvidence> {
+	const externalAgentReviewEvidence = coreTable(
+		db,
+		d1ExternalAgentReviewEvidence,
+	);
 	const rows = await db
 		.update(externalAgentReviewEvidence)
 		.set({

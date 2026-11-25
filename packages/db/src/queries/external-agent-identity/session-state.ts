@@ -1,9 +1,11 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { anyIds } from "../../core-store/dialect";
+import { coreTable } from "../../core-store/client";
+import { and, eq } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type ExternalAgentSession,
-	externalAgentSessions,
+	externalAgentSessions as d1ExternalAgentSessions,
 } from "../../schema/external-agent-identity";
 import {
 	ExternalAgentIdentityError,
@@ -14,6 +16,7 @@ export async function getExternalAgentSession(
 	db: DbClient,
 	params: { organizationId: string; principalId: string; sessionId: string },
 ): Promise<ExternalAgentSession | null> {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const rows = await db
 		.select()
 		.from(externalAgentSessions)
@@ -75,24 +78,19 @@ export async function listExternalAgentSessionHarnessesByIds(
 	db: DbQueryClient,
 	params: ListExternalAgentSessionHarnessesParams,
 ): Promise<ListExternalAgentSessionHarnessesResult[]> {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const ids = [...new Set(params.sessionIds)];
-	const rows: ListExternalAgentSessionHarnessesResult[] = [];
-	for (let offset = 0; offset < ids.length; offset += 50) {
-		rows.push(
-			...(await db
-				.select({
-					id: externalAgentSessions.id,
-					principalId: externalAgentSessions.principalId,
-					harness: externalAgentSessions.harness,
-				})
-				.from(externalAgentSessions)
-				.where(
-					and(
-						eq(externalAgentSessions.organizationId, params.organizationId),
-						inArray(externalAgentSessions.id, ids.slice(offset, offset + 50)),
-					),
-				)),
+	return db
+		.select({
+			id: externalAgentSessions.id,
+			principalId: externalAgentSessions.principalId,
+			harness: externalAgentSessions.harness,
+		})
+		.from(externalAgentSessions)
+		.where(
+			and(
+				eq(externalAgentSessions.organizationId, params.organizationId),
+				anyIds(db, externalAgentSessions.id, ids),
+			),
 		);
-	}
-	return rows;
 }

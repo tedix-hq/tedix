@@ -1,3 +1,5 @@
+import { jsonRead, coreStore, anyIds } from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
 /**
  * MCP tool-approval grant query helpers.
  *
@@ -19,18 +21,23 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import {
 	type McpToolApprovalGrant,
 	type McpToolApprovalGrantKind,
-	mcpToolApprovalGrants,
+	mcpToolApprovalGrants as d1McpToolApprovalGrants,
 } from "../schema/mcp-governance";
-import { apps } from "../schema/apps";
-import { organizations } from "../schema/organizations";
-import { projects } from "../schema/projects";
-import { tedis } from "../schema/tedis";
-import { appTools } from "../schema/tools";
-import { workAttempts, workEvents, workItems } from "../schema/work-items";
+import { apps as d1Apps } from "../schema/apps";
+import { organizations as d1Organizations } from "../schema/organizations";
+import { projects as d1Projects } from "../schema/projects";
+import { tedis as d1Tedis } from "../schema/tedis";
+import { appTools as d1AppTools } from "../schema/tools";
+import {
+	workAttempts as d1WorkAttempts,
+	workEvents as d1WorkEvents,
+	workItems as d1WorkItems,
+} from "../schema/work-items";
 
 export type { McpToolApprovalGrant, McpToolApprovalGrantKind };
 
@@ -105,6 +112,7 @@ export async function createGrant(
 	db: DbClient,
 	args: CreateGrantArgs,
 ): Promise<McpToolApprovalGrant> {
+	const mcpToolApprovalGrants = coreTable(db, d1McpToolApprovalGrants);
 	const id = args.id ?? crypto.randomUUID();
 	const scope = buildGrantScope(args.appSlug, args.toolId);
 	const [created] = await db
@@ -153,30 +161,31 @@ export async function findActiveGrant(
 	db: DbClient,
 	args: FindActiveGrantArgs,
 ): Promise<McpToolApprovalGrant | undefined> {
+	const mcpToolApprovalGrants = coreTable(db, d1McpToolApprovalGrants);
 	const now = args.nowIso ?? new Date().toISOString();
 	const candidates = buildGrantScopeCandidates(args.appSlug, args.toolId);
-	for (const scope of candidates) {
-		const rows = await db
-			.select()
-			.from(mcpToolApprovalGrants)
-			.where(
-				and(
-					eq(mcpToolApprovalGrants.organizationId, args.organizationId),
-					eq(mcpToolApprovalGrants.subjectId, args.subjectId),
-					eq(mcpToolApprovalGrants.toolId, scope),
-					eq(mcpToolApprovalGrants.grantKind, args.grantKind),
-					isNull(mcpToolApprovalGrants.consumedAt),
-					or(
-						isNull(mcpToolApprovalGrants.expiresAt),
-						gt(mcpToolApprovalGrants.expiresAt, now),
-					),
+	const rows = await db
+		.select()
+		.from(mcpToolApprovalGrants)
+		.where(
+			and(
+				eq(mcpToolApprovalGrants.organizationId, args.organizationId),
+				eq(mcpToolApprovalGrants.subjectId, args.subjectId),
+				anyIds(db, mcpToolApprovalGrants.toolId, candidates),
+				eq(mcpToolApprovalGrants.grantKind, args.grantKind),
+				isNull(mcpToolApprovalGrants.consumedAt),
+				or(
+					isNull(mcpToolApprovalGrants.expiresAt),
+					gt(mcpToolApprovalGrants.expiresAt, now),
 				),
-			)
-			.orderBy(mcpToolApprovalGrants.createdAt)
-			.limit(1);
-		if (rows[0]) return rows[0];
-	}
-	return undefined;
+			),
+		)
+		.orderBy(
+			sql`CASE ${mcpToolApprovalGrants.toolId} WHEN ${candidates[0]} THEN 0 WHEN ${candidates[1]} THEN 1 ELSE 2 END`,
+			mcpToolApprovalGrants.createdAt,
+		)
+		.limit(1);
+	return rows[0];
 }
 
 export interface ConsumeGrantArgs {
@@ -207,6 +216,7 @@ export async function consumeGrant(
 	db: DbClient,
 	args: ConsumeGrantArgs,
 ): Promise<ConsumeGrantResult> {
+	const mcpToolApprovalGrants = coreTable(db, d1McpToolApprovalGrants);
 	const consumedAt = args.consumedAtIso ?? new Date().toISOString();
 	const [updated] = await db
 		.update(mcpToolApprovalGrants)
@@ -284,7 +294,12 @@ function actionTypeScope(actionType: string): string {
 	return `${ACTION_TYPE_SCOPE_PREFIX}${normalizeScopeSegment(actionType)}`;
 }
 
-function activeActionTypeOptIns(organizationId: string, nowIso: string) {
+function activeActionTypeOptIns(
+	db: DbClient,
+	organizationId: string,
+	nowIso: string,
+) {
+	const mcpToolApprovalGrants = coreTable(db, d1McpToolApprovalGrants);
 	return and(
 		eq(mcpToolApprovalGrants.organizationId, organizationId),
 		eq(mcpToolApprovalGrants.subjectId, ACTION_TYPE_OPT_IN_SUBJECT),
@@ -309,12 +324,14 @@ export async function findActionTypeOptIn(
 	db: DbClient,
 	args: { organizationId: string; actionType: string; nowIso?: string },
 ): Promise<ActionTypeOptIn | undefined> {
+	const mcpToolApprovalGrants = coreTable(db, d1McpToolApprovalGrants);
 	const [row] = await db
 		.select()
 		.from(mcpToolApprovalGrants)
 		.where(
 			and(
 				activeActionTypeOptIns(
+					db,
 					args.organizationId,
 					args.nowIso ?? new Date().toISOString(),
 				),
@@ -337,12 +354,14 @@ export async function listActionTypeOptIns(
 	db: DbClient,
 	args: { organizationId: string; nowIso?: string },
 ): Promise<ActionTypeOptIn[]> {
+	const mcpToolApprovalGrants = coreTable(db, d1McpToolApprovalGrants);
 	const rows = await db
 		.select()
 		.from(mcpToolApprovalGrants)
 		.where(
 			and(
 				activeActionTypeOptIns(
+					db,
 					args.organizationId,
 					args.nowIso ?? new Date().toISOString(),
 				),
@@ -375,6 +394,7 @@ export async function setActionTypeOptIn(
 		nowIso?: string;
 	},
 ): Promise<ActionTypeOptIn | undefined> {
+	const mcpToolApprovalGrants = coreTable(db, d1McpToolApprovalGrants);
 	const nowIso = args.nowIso ?? new Date().toISOString();
 	const existing = await findActionTypeOptIn(db, { ...args, nowIso });
 	if (args.enabled) {
@@ -403,7 +423,7 @@ export async function setActionTypeOptIn(
 		.set({ expiresAt: nowIso })
 		.where(
 			and(
-				activeActionTypeOptIns(args.organizationId, nowIso),
+				activeActionTypeOptIns(db, args.organizationId, nowIso),
 				eq(mcpToolApprovalGrants.toolId, actionTypeScope(args.actionType)),
 			),
 		);
@@ -439,12 +459,14 @@ export async function listOrganizationAutoApproval(
 	db: DbClient,
 	args: { organizationId: string; nowIso?: string },
 ): Promise<OrganizationAutoApprovalEntries> {
+	const mcpToolApprovalGrants = coreTable(db, d1McpToolApprovalGrants);
 	const rows = await db
 		.select({ scope: mcpToolApprovalGrants.toolId })
 		.from(mcpToolApprovalGrants)
 		.where(
 			and(
 				activeActionTypeOptIns(
+					db,
 					args.organizationId,
 					args.nowIso ?? new Date().toISOString(),
 				),
@@ -494,6 +516,7 @@ export async function setOrganizationAutoApprovalEntry(
 		nowIso?: string;
 	},
 ): Promise<void> {
+	const mcpToolApprovalGrants = coreTable(db, d1McpToolApprovalGrants);
 	const nowIso = args.nowIso ?? new Date().toISOString();
 	const scope = autoApprovalScope(args.kind, args.value);
 	const opposite =
@@ -508,7 +531,7 @@ export async function setOrganizationAutoApprovalEntry(
 			.set({ expiresAt: nowIso })
 			.where(
 				and(
-					activeActionTypeOptIns(args.organizationId, nowIso),
+					activeActionTypeOptIns(db, args.organizationId, nowIso),
 					eq(mcpToolApprovalGrants.toolId, target),
 				),
 			);
@@ -522,7 +545,7 @@ export async function setOrganizationAutoApprovalEntry(
 		.from(mcpToolApprovalGrants)
 		.where(
 			and(
-				activeActionTypeOptIns(args.organizationId, nowIso),
+				activeActionTypeOptIns(db, args.organizationId, nowIso),
 				eq(mcpToolApprovalGrants.toolId, scope),
 			),
 		)
@@ -557,11 +580,13 @@ async function isOwnedChannelPublishRoute(
 	appSlug: string,
 	toolId: string,
 ): Promise<boolean> {
+	const apps = coreTable(db, d1Apps);
+	const appTools = coreTable(db, d1AppTools);
 	const rows = await db
 		.select({
 			routes: sql<
 				string | null
-			>`json_extract(${appTools.config}, '$.ownedChannelPublish.routes')`.as(
+			>`${jsonRead(db, appTools.config, ["ownedChannelPublish", "routes"])} `.as(
 				"owned_channel_publish_routes",
 			),
 		})
@@ -571,7 +596,7 @@ async function isOwnedChannelPublishRoute(
 			and(eq(apps.id, appTools.appId), eq(apps.organizationId, organizationId)),
 		)
 		.where(
-			sql`json_type(${appTools.config}, '$.ownedChannelPublish.routes') = 'array'`,
+			sql`${coreStore(db) === "postgres" ? sql`jsonb_typeof(${jsonRead(db, appTools.config, ["ownedChannelPublish", "routes"], "json")})` : sql`json_type(${appTools.config}, '$.ownedChannelPublish.routes')`} = 'array'`,
 		)
 		.limit(50);
 	const route = `${normalizeScopeSegment(appSlug)}:${normalizeScopeSegment(toolId)}`;
@@ -771,11 +796,12 @@ export async function getOrganizationOwnedChannel(
 	db: DbClient,
 	organizationId: string,
 ): Promise<OrganizationOwnedChannel | null> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({
 			config: sql<
 				string | null
-			>`json_extract(${organizations.metadata}, '$.ownedChannel')`.as(
+			>`${jsonRead(db, organizations.metadata, ["ownedChannel"])} `.as(
 				"owned_channel",
 			),
 		})
@@ -851,6 +877,11 @@ export async function resolveWorkItemAuthorization(
 	db: DbClient,
 	input: ResolveWorkItemAuthorizationArgs,
 ): Promise<ResolveWorkItemAuthorizationResult> {
+	const projects = coreTable(db, d1Projects);
+	const tedis = coreTable(db, d1Tedis);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workItems = coreTable(db, d1WorkItems);
 	if (
 		!(await isOwnedChannelPublishRoute(
 			db,
@@ -956,35 +987,95 @@ export async function resolveWorkItemAuthorization(
 			metadata: activeAttempt.metadata,
 		},
 	];
-	let parentWorkItemId = activeAttempt.parentWorkItemId ?? null;
-	for (let depth = 0; parentWorkItemId && depth < 5; depth += 1) {
-		const [parent] = await db
-			.select({
-				id: workItems.id,
-				parentWorkItemId: workItems.parentWorkItemId,
-				workKind: workItems.workKind,
-				status: workItems.disposition,
-				projectId: workItems.projectId,
-				metadata: workItems.metadata,
-			})
-			.from(workItems)
-			.where(
-				and(
-					eq(workItems.orgId, input.organizationId),
-					eq(workItems.id, parentWorkItemId),
-				),
-			)
-			.limit(1);
+	const parent0 = alias(workItems, "authorization_parent_0");
+	const parent1 = alias(workItems, "authorization_parent_1");
+	const parent2 = alias(workItems, "authorization_parent_2");
+	const parent3 = alias(workItems, "authorization_parent_3");
+	const parent4 = alias(workItems, "authorization_parent_4");
+	const parentFields = (
+		parent:
+			| typeof parent0
+			| typeof parent1
+			| typeof parent2
+			| typeof parent3
+			| typeof parent4,
+		prefix: string,
+	) => ({
+		id: sql<string>`${parent.id}`.as(`${prefix}_id`),
+		workKind: sql<typeof activeAttempt.workKind>`${parent.workKind}`.as(
+			`${prefix}_kind`,
+		),
+		status: sql<typeof activeAttempt.status>`${parent.disposition}`.as(
+			`${prefix}_status`,
+		),
+		projectId: sql<string | null>`${parent.projectId}`.as(`${prefix}_project`),
+		metadata: sql<typeof activeAttempt.metadata>`${parent.metadata}`
+			.mapWith(parent.metadata)
+			.as(`${prefix}_metadata`),
+	});
+	const [ancestry] = await db
+		.select({
+			first: parentFields(parent0, "p0"),
+			second: parentFields(parent1, "p1"),
+			third: parentFields(parent2, "p2"),
+			fourth: parentFields(parent3, "p3"),
+			fifth: parentFields(parent4, "p4"),
+		})
+		.from(parent0)
+		.leftJoin(
+			parent1,
+			and(
+				eq(parent1.id, parent0.parentWorkItemId),
+				eq(parent1.orgId, input.organizationId),
+			),
+		)
+		.leftJoin(
+			parent2,
+			and(
+				eq(parent2.id, parent1.parentWorkItemId),
+				eq(parent2.orgId, input.organizationId),
+			),
+		)
+		.leftJoin(
+			parent3,
+			and(
+				eq(parent3.id, parent2.parentWorkItemId),
+				eq(parent3.orgId, input.organizationId),
+			),
+		)
+		.leftJoin(
+			parent4,
+			and(
+				eq(parent4.id, parent3.parentWorkItemId),
+				eq(parent4.orgId, input.organizationId),
+			),
+		)
+		.where(
+			and(
+				eq(parent0.id, activeAttempt.parentWorkItemId ?? ""),
+				eq(parent0.orgId, input.organizationId),
+			),
+		)
+		.limit(1);
+	const ancestors = ancestry
+		? [
+				ancestry.first,
+				ancestry.second,
+				ancestry.third,
+				ancestry.fourth,
+				ancestry.fifth,
+			]
+		: [];
+	for (const parent of ancestors) {
 		if (
-			!parent ||
+			!parent?.id ||
 			authorizationScopes.some((scope) => scope.id === parent.id) ||
 			parent.projectId !== activeAttempt.projectId
-		) {
+		)
 			break;
-		}
 		authorizationScopes.push(parent);
-		parentWorkItemId = parent.parentWorkItemId;
 	}
+
 	const authorizationScopeIds = authorizationScopes.map((scope) => scope.id);
 
 	const comments = await db
@@ -993,7 +1084,7 @@ export async function resolveWorkItemAuthorization(
 			workItemId: workEvents.workItemId,
 			authorType: workEvents.actorType,
 			authorId: workEvents.actorId,
-			body: sql<string>`COALESCE(json_extract(${workEvents.payload}, '$.body'), '')`,
+			body: sql<string>`COALESCE(${jsonRead(db, workEvents.payload, ["body"])} , '')`,
 			createdAt: workEvents.occurredAt,
 			eventType: workEvents.eventType,
 			metadata: workEvents.payload,
@@ -1003,7 +1094,7 @@ export async function resolveWorkItemAuthorization(
 			and(
 				eq(workEvents.orgId, input.organizationId),
 				// bound-params: scope walk above caps the chain at 1 leaf + 5 parents
-				inArray(workEvents.workItemId, authorizationScopeIds),
+				anyIds(db, workEvents.workItemId, authorizationScopeIds),
 				inArray(workEvents.actorType, OWNED_CHANNEL_AUTHORIZATION_AUTHOR_TYPES),
 				isNotNull(workEvents.actorId),
 				inArray(workEvents.eventType, [
@@ -1133,7 +1224,7 @@ export async function resolveWorkItemAuthorization(
 		}
 
 		// Linearization point: all state that can invalidate the decision is
-		// re-read in one SQLite snapshot. This includes the exact signed receipt,
+		// re-read in one database snapshot. This includes the exact signed receipt,
 		// current ancestry/campaign metadata, the one active publisher leaf + attempt,
 		// project state, and every same-or-later reserved revocation event.
 		// Cryptographic verification happens only over rows returned by this
@@ -1155,20 +1246,20 @@ export async function resolveWorkItemAuthorization(
 					AND lineage.depth < 5
 			)
 			SELECT
-				authorization.id AS authorizationId,
-				authorization.work_item_id AS authorizationWorkItemId,
-				authorization.actor_id AS authorizationAuthorId,
-				json_extract(authorization.payload, '$.body') AS authorizationBody,
-				authorization.event_type AS authorizationEventType,
-				authorization.payload AS authorizationMetadata,
-				authorization.occurred_at AS authorizationCreatedAt,
-				revocation.id AS revocationId,
-				revocation.work_item_id AS revocationWorkItemId,
-				revocation.actor_id AS revocationAuthorId,
-				json_extract(revocation.payload, '$.body') AS revocationBody,
-				revocation.event_type AS revocationEventType,
-				revocation.payload AS revocationMetadata,
-				revocation.occurred_at AS revocationCreatedAt
+				receipt.id AS "authorizationId",
+				receipt.work_item_id AS "authorizationWorkItemId",
+				receipt.actor_id AS "authorizationAuthorId",
+				${jsonRead(db, sql`receipt.payload`, ["body"])} AS "authorizationBody",
+				receipt.event_type AS "authorizationEventType",
+				receipt.payload AS "authorizationMetadata",
+				receipt.occurred_at AS "authorizationCreatedAt",
+				revocation.id AS "revocationId",
+				revocation.work_item_id AS "revocationWorkItemId",
+				revocation.actor_id AS "revocationAuthorId",
+				${jsonRead(db, sql`revocation.payload`, ["body"])} AS "revocationBody",
+				revocation.event_type AS "revocationEventType",
+				revocation.payload AS "revocationMetadata",
+				revocation.occurred_at AS "revocationCreatedAt"
 			FROM work_items AS leaf
 			INNER JOIN projects AS project
 				ON project.id = leaf.project_id
@@ -1187,26 +1278,23 @@ export async function resolveWorkItemAuthorization(
 				AND attempt.executor_id = ${input.subjectId}
 				AND attempt.runtime_state IN ('queued', 'running', 'waiting', 'retrying')
 				AND (attempt.expires_at IS NULL OR attempt.expires_at > ${nowIso})
-			INNER JOIN work_events AS authorization
-				ON authorization.id = ${comment.id}
-				AND authorization.work_item_id = ${comment.workItemId}
-				AND authorization.org_id = ${input.organizationId}
-				AND authorization.actor_type = ${comment.authorType}
-				AND authorization.actor_id = ${comment.authorId}
-				AND authorization.event_type = ${OWNED_CHANNEL_AUTHORIZATION_EVENT}
-				AND json_extract(authorization.payload, '$.body') = ${comment.body}
-				AND authorization.occurred_at = ${comment.createdAt}
+			INNER JOIN work_events AS receipt
+				ON receipt.id = ${comment.id}
+				AND receipt.work_item_id = ${comment.workItemId}
+				AND receipt.org_id = ${input.organizationId}
+				AND receipt.actor_type = ${comment.authorType}
+				AND receipt.actor_id = ${comment.authorId}
+				AND receipt.event_type = ${OWNED_CHANNEL_AUTHORIZATION_EVENT}
+				AND ${jsonRead(db, sql`receipt.payload`, ["body"])} = ${comment.body}
+				AND receipt.occurred_at = ${comment.createdAt}
 			INNER JOIN lineage AS authorization_lineage
-				ON authorization_lineage.id = authorization.work_item_id
+				ON authorization_lineage.id = receipt.work_item_id
 			INNER JOIN work_items AS authorization_scope
-				ON authorization_scope.id = authorization.work_item_id
+				ON authorization_scope.id = receipt.work_item_id
 				AND authorization_scope.org_id = ${input.organizationId}
 				AND authorization_scope.project_id = leaf.project_id
 				AND authorization_scope.disposition = 'accepted'
-				AND json_extract(
-					authorization_scope.metadata,
-					'$.marketingCampaign.key'
-				) = ${parsed.data.campaignKey}
+				AND ${jsonRead(db, sql`authorization_scope.metadata`, ["marketingCampaign", "key"])} = ${parsed.data.campaignKey}
 			LEFT JOIN work_events AS revocation
 				ON revocation.org_id = ${input.organizationId}
 				AND revocation.work_item_id IN (SELECT id FROM lineage)
@@ -1218,7 +1306,7 @@ export async function resolveWorkItemAuthorization(
 				)})
 				AND revocation.actor_id IS NOT NULL
 				AND revocation.event_type = ${OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT}
-				AND revocation.occurred_at >= authorization.occurred_at
+				AND revocation.occurred_at >= receipt.occurred_at
 			WHERE leaf.id = ${workItemId}
 				AND leaf.org_id = ${input.organizationId}
 				AND leaf.accountable_owner_id = ${input.subjectId}
@@ -1363,6 +1451,7 @@ export async function recordOwnedChannelAuthorizationEvent(
 		occurredAt: string;
 	},
 ) {
+	const workEvents = coreTable(db, d1WorkEvents);
 	const [event] = await db
 		.insert(workEvents)
 		.values({

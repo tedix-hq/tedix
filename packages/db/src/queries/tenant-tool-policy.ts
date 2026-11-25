@@ -1,14 +1,16 @@
+import { anyIds, jsonParameter, coreStore } from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import {
 	type NewTenantToolPolicyRow,
-	tenantToolPolicies,
-	tenantToolPolicyMountRevisions,
-	tenantToolPolicyPreparations,
-	tenantToolPolicyResourceGenerations,
-	tenantProviderIdentityProfiles,
-	tenantProviderIdentityPreparations,
+	tenantToolPolicies as d1TenantToolPolicies,
+	tenantToolPolicyMountRevisions as d1TenantToolPolicyMountRevisions,
+	tenantToolPolicyPreparations as d1TenantToolPolicyPreparations,
+	tenantToolPolicyResourceGenerations as d1TenantToolPolicyResourceGenerations,
+	tenantProviderIdentityProfiles as d1TenantProviderIdentityProfiles,
+	tenantProviderIdentityPreparations as d1TenantProviderIdentityPreparations,
 } from "../schema/tenant-tool-policy";
 
 /** Subject keys are derived from the reviewed descriptor, never request metadata. */
@@ -45,8 +47,12 @@ export function tenantPolicySubjectKey(value: unknown): string | null {
 
 export async function createProviderIdentityPreparation(
 	db: DbQueryClient,
-	row: typeof tenantProviderIdentityPreparations.$inferInsert,
+	row: typeof d1TenantProviderIdentityPreparations.$inferInsert,
 ) {
+	const tenantProviderIdentityPreparations = coreTable(
+		db,
+		d1TenantProviderIdentityPreparations,
+	);
 	const [created] = await db
 		.insert(tenantProviderIdentityPreparations)
 		.values(row)
@@ -66,6 +72,10 @@ export async function consumeProviderIdentityPreparation(
 		now: string;
 	},
 ) {
+	const tenantProviderIdentityPreparations = coreTable(
+		db,
+		d1TenantProviderIdentityPreparations,
+	);
 	const [row] = await db
 		.update(tenantProviderIdentityPreparations)
 		.set({ consumedAt: input.now })
@@ -91,8 +101,12 @@ export async function consumeProviderIdentityPreparation(
 
 export async function createProviderIdentityProfile(
 	db: DbQueryClient,
-	row: typeof tenantProviderIdentityProfiles.$inferInsert,
+	row: typeof d1TenantProviderIdentityProfiles.$inferInsert,
 ) {
+	const tenantProviderIdentityProfiles = coreTable(
+		db,
+		d1TenantProviderIdentityProfiles,
+	);
 	const [created] = await db
 		.insert(tenantProviderIdentityProfiles)
 		.values(row)
@@ -105,6 +119,10 @@ export async function listProviderIdentityProfiles(
 	db: DbQueryClient,
 	organizationId: string,
 ) {
+	const tenantProviderIdentityProfiles = coreTable(
+		db,
+		d1TenantProviderIdentityProfiles,
+	);
 	return db
 		.select()
 		.from(tenantProviderIdentityProfiles)
@@ -117,6 +135,10 @@ export async function getProviderIdentityProfile(
 	db: DbQueryClient,
 	input: { organizationId: string; id: string },
 ) {
+	const tenantProviderIdentityProfiles = coreTable(
+		db,
+		d1TenantProviderIdentityProfiles,
+	);
 	const [row] = await db
 		.select()
 		.from(tenantProviderIdentityProfiles)
@@ -134,6 +156,10 @@ export async function revokeProviderIdentityProfile(
 	db: DbQueryClient,
 	input: { organizationId: string; id: string; now: string },
 ) {
+	const tenantProviderIdentityProfiles = coreTable(
+		db,
+		d1TenantProviderIdentityProfiles,
+	);
 	const [row] = await db
 		.update(tenantProviderIdentityProfiles)
 		.set({ revokedAt: input.now })
@@ -158,6 +184,10 @@ export async function getTenantToolPolicyResourceGenerations(
 		connectionInstanceId: string;
 	},
 ) {
+	const tenantToolPolicyResourceGenerations = coreTable(
+		db,
+		d1TenantToolPolicyResourceGenerations,
+	);
 	const requested = [
 		...input.appIds.map((id) => ({ kind: "app", id })),
 		{ kind: "tool", id: input.toolRowId },
@@ -173,7 +203,7 @@ export async function getTenantToolPolicyResourceGenerations(
 					tenantToolPolicyResourceGenerations.organizationId,
 					input.organizationId,
 				),
-				inArray(tenantToolPolicyResourceGenerations.resourceId, ids),
+				anyIds(db, tenantToolPolicyResourceGenerations.resourceId, ids),
 			),
 		);
 	const map = new Map(
@@ -190,8 +220,12 @@ export async function getTenantToolPolicyResourceGenerations(
 
 export async function createTenantToolPolicyPreparation(
 	db: DbQueryClient,
-	row: typeof tenantToolPolicyPreparations.$inferInsert,
+	row: typeof d1TenantToolPolicyPreparations.$inferInsert,
 ) {
+	const tenantToolPolicyPreparations = coreTable(
+		db,
+		d1TenantToolPolicyPreparations,
+	);
 	const [created] = await db
 		.insert(tenantToolPolicyPreparations)
 		.values(row)
@@ -211,6 +245,10 @@ export async function consumeTenantToolPolicyPreparation(
 		now: string;
 	},
 ) {
+	const tenantToolPolicyPreparations = coreTable(
+		db,
+		d1TenantToolPolicyPreparations,
+	);
 	const [row] = await db
 		.update(tenantToolPolicyPreparations)
 		.set({ consumedAt: input.now })
@@ -235,6 +273,11 @@ export async function createTenantToolPolicy(
 	db: DbQueryClient,
 	row: NewTenantToolPolicyRow,
 ) {
+	const tenantToolPolicies = coreTable(db, d1TenantToolPolicies);
+	const tenantToolPolicyMountRevisions = coreTable(
+		db,
+		d1TenantToolPolicyMountRevisions,
+	);
 	if (!row.rootAppId || !row.mountedToolId)
 		throw new Error("Mount identity is required");
 	const descriptor = row.mountDescriptor as {
@@ -277,6 +320,11 @@ export async function replaceTenantToolPolicy(
 	recoverUnknownRevisionId: string | null = null,
 	subjectRecoveryMode: "revoked" | "deleted" | null = null,
 ) {
+	const tenantToolPolicies = coreTable(db, d1TenantToolPolicies);
+	const tenantToolPolicyMountRevisions = coreTable(
+		db,
+		d1TenantToolPolicyMountRevisions,
+	);
 	if (!row.rootAppId || !row.mountedToolId)
 		throw new Error("Mount identity is required");
 	if (
@@ -298,6 +346,14 @@ export async function replaceTenantToolPolicy(
 	if (recoverUnknownRevisionId && !regrantRevoked && !recoverDeleted)
 		throw new Error("Select a recovery mode");
 	const unknownRecovery = recoverUnknownRevisionId !== null;
+	const expectedId =
+		coreStore(db) === "postgres"
+			? sql`${expectedRevisionId}::text`
+			: sql`${expectedRevisionId}`;
+	const recoveryId =
+		coreStore(db) === "postgres"
+			? sql`${recoverUnknownRevisionId}::text`
+			: sql`${recoverUnknownRevisionId}`;
 	if (subjectRecoveryMode && (!unknownRecovery || !expectedRevisionId))
 		throw new Error("Subject recovery requires both reviewed revisions");
 	const unknown = alias(tenantToolPolicyMountRevisions, "u");
@@ -306,7 +362,7 @@ export async function replaceTenantToolPolicy(
 			.insert(tenantToolPolicies)
 			.select(
 				// Raw: a FROM-less SELECT gated only by EXISTS fences; Drizzle selects need a FROM.
-				sql`SELECT ${row.id}, ${row.organizationId}, ${row.appId}, ${row.rootAppId}, ${row.mountedToolId}, ${row.toolRowId}, ${row.toolDigest}, ${row.ruleDigest}, ${JSON.stringify(row.mountDescriptor ?? null)}, ${row.mountDigest ?? null}, ${row.resourceGenerationDigest ?? null}, ${JSON.stringify(row.predicate)}, ${JSON.stringify(row.effect)}, ${JSON.stringify(row.policySet ?? null)}, ${row.createdBy}, ${row.createdAt}, ${row.revokedAt ?? null} WHERE ((${!unknownRecovery} AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS unknown WHERE unknown.organization_id = ${row.organizationId} AND unknown.root_app_id = ${row.rootAppId} AND unknown.mounted_tool_id = ${row.mountedToolId} AND unknown.subject_key IS NULL AND unknown.sequence = (SELECT MAX(u2.sequence) FROM tenant_tool_policy_mount_revisions AS u2 WHERE u2.organization_id = unknown.organization_id AND u2.root_app_id = unknown.root_app_id AND u2.mounted_tool_id = unknown.mounted_tool_id AND u2.subject_key IS NULL) AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS retired WHERE retired.organization_id = unknown.organization_id AND retired.root_app_id = unknown.root_app_id AND retired.mounted_tool_id = unknown.mounted_tool_id AND retired.retired_unknown_sequence = unknown.sequence))) OR (${unknownRecovery} AND EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS unknown LEFT JOIN tenant_tool_policies AS old ON old.id = unknown.policy_id AND old.organization_id = unknown.organization_id WHERE unknown.organization_id = ${row.organizationId} AND unknown.root_app_id = ${row.rootAppId} AND unknown.mounted_tool_id = ${row.mountedToolId} AND unknown.subject_key IS NULL AND unknown.policy_id = ${recoverUnknownRevisionId} AND unknown.sequence = (SELECT MAX(u2.sequence) FROM tenant_tool_policy_mount_revisions AS u2 WHERE u2.organization_id = unknown.organization_id AND u2.root_app_id = unknown.root_app_id AND u2.mounted_tool_id = unknown.mounted_tool_id AND u2.subject_key IS NULL) AND ((old.id IS NULL AND ${recoverDeleted}) OR (old.id IS NOT NULL AND old.revoked_at IS NOT NULL AND ${regrantRevoked})) AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS retired WHERE retired.organization_id = unknown.organization_id AND retired.root_app_id = unknown.root_app_id AND retired.mounted_tool_id = unknown.mounted_tool_id AND retired.retired_unknown_sequence = unknown.sequence)))) AND ((${expectedRevisionId} IS NULL AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS existing WHERE existing.organization_id = ${row.organizationId} AND existing.root_app_id = ${row.rootAppId} AND existing.mounted_tool_id = ${row.mountedToolId} AND existing.subject_key IS ${subjectKey})) OR (${expectedRevisionId} IS NOT NULL AND EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS fence LEFT JOIN tenant_tool_policies AS previous ON previous.id = fence.policy_id AND previous.organization_id = fence.organization_id WHERE fence.organization_id = ${row.organizationId} AND fence.root_app_id = ${row.rootAppId} AND fence.mounted_tool_id = ${row.mountedToolId} AND fence.subject_key IS ${subjectKey} AND fence.policy_id = ${expectedRevisionId} AND ((previous.id IS NOT NULL AND previous.revoked_at IS NULL AND ${unknownRecovery ? subjectRecoveryMode === null : !regrantRevoked && !recoverDeleted}) OR (previous.id IS NOT NULL AND previous.revoked_at IS NOT NULL AND ${unknownRecovery ? subjectRecoveryMode === "revoked" : regrantRevoked}) OR (previous.id IS NULL AND ${unknownRecovery ? subjectRecoveryMode === "deleted" : recoverDeleted})) AND fence.sequence = (SELECT MAX(newer.sequence) FROM tenant_tool_policy_mount_revisions AS newer WHERE newer.organization_id = fence.organization_id AND newer.root_app_id = fence.root_app_id AND newer.mounted_tool_id = fence.mounted_tool_id AND newer.subject_key IS fence.subject_key))))`,
+				sql`SELECT ${row.id}, ${row.organizationId}, ${row.appId}, ${row.rootAppId}, ${row.mountedToolId}, ${row.toolRowId}, ${row.toolDigest}, ${row.ruleDigest}, ${jsonParameter(db, row.mountDescriptor ?? null)}, ${row.mountDigest ?? null}, ${row.resourceGenerationDigest ?? null}, ${jsonParameter(db, row.predicate)}, ${jsonParameter(db, row.effect)}, ${jsonParameter(db, row.policySet ?? null)}, ${row.createdBy}, ${row.createdAt}, ${row.revokedAt ?? null} WHERE ((${!unknownRecovery} AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS unknown WHERE unknown.organization_id = ${row.organizationId} AND unknown.root_app_id = ${row.rootAppId} AND unknown.mounted_tool_id = ${row.mountedToolId} AND unknown.subject_key IS NULL AND unknown.sequence = (SELECT MAX(u2.sequence) FROM tenant_tool_policy_mount_revisions AS u2 WHERE u2.organization_id = unknown.organization_id AND u2.root_app_id = unknown.root_app_id AND u2.mounted_tool_id = unknown.mounted_tool_id AND u2.subject_key IS NULL) AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS retired WHERE retired.organization_id = unknown.organization_id AND retired.root_app_id = unknown.root_app_id AND retired.mounted_tool_id = unknown.mounted_tool_id AND retired.retired_unknown_sequence = unknown.sequence))) OR (${unknownRecovery} AND EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS unknown LEFT JOIN tenant_tool_policies AS old ON old.id = unknown.policy_id AND old.organization_id = unknown.organization_id WHERE unknown.organization_id = ${row.organizationId} AND unknown.root_app_id = ${row.rootAppId} AND unknown.mounted_tool_id = ${row.mountedToolId} AND unknown.subject_key IS NULL AND unknown.policy_id = ${recoveryId} AND unknown.sequence = (SELECT MAX(u2.sequence) FROM tenant_tool_policy_mount_revisions AS u2 WHERE u2.organization_id = unknown.organization_id AND u2.root_app_id = unknown.root_app_id AND u2.mounted_tool_id = unknown.mounted_tool_id AND u2.subject_key IS NULL) AND ((old.id IS NULL AND ${recoverDeleted}) OR (old.id IS NOT NULL AND old.revoked_at IS NOT NULL AND ${regrantRevoked})) AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS retired WHERE retired.organization_id = unknown.organization_id AND retired.root_app_id = unknown.root_app_id AND retired.mounted_tool_id = unknown.mounted_tool_id AND retired.retired_unknown_sequence = unknown.sequence)))) AND ((${expectedId} IS NULL AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS existing WHERE existing.organization_id = ${row.organizationId} AND existing.root_app_id = ${row.rootAppId} AND existing.mounted_tool_id = ${row.mountedToolId} AND existing.subject_key ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${subjectKey})) OR (${expectedId} IS NOT NULL AND EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS fence LEFT JOIN tenant_tool_policies AS previous ON previous.id = fence.policy_id AND previous.organization_id = fence.organization_id WHERE fence.organization_id = ${row.organizationId} AND fence.root_app_id = ${row.rootAppId} AND fence.mounted_tool_id = ${row.mountedToolId} AND fence.subject_key ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${subjectKey} AND fence.policy_id = ${expectedId} AND ((previous.id IS NOT NULL AND previous.revoked_at IS NULL AND ${unknownRecovery ? subjectRecoveryMode === null : !regrantRevoked && !recoverDeleted}) OR (previous.id IS NOT NULL AND previous.revoked_at IS NOT NULL AND ${unknownRecovery ? subjectRecoveryMode === "revoked" : regrantRevoked}) OR (previous.id IS NULL AND ${unknownRecovery ? subjectRecoveryMode === "deleted" : recoverDeleted})) AND fence.sequence = (SELECT MAX(newer.sequence) FROM tenant_tool_policy_mount_revisions AS newer WHERE newer.organization_id = fence.organization_id AND newer.root_app_id = fence.root_app_id AND newer.mounted_tool_id = fence.mounted_tool_id AND newer.subject_key ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} fence.subject_key))))`,
 			)
 			.returning(),
 		db
@@ -337,12 +393,12 @@ export async function replaceTenantToolPolicy(
 							.from(unknown)
 							.where(
 								and(
-									sql`${recoverUnknownRevisionId} IS NOT NULL`,
+									sql`${recoveryId} IS NOT NULL`,
 									eq(unknown.organizationId, row.organizationId),
 									eq(unknown.rootAppId, row.rootAppId),
 									eq(unknown.mountedToolId, row.mountedToolId),
 									isNull(unknown.subjectKey),
-									sql`${unknown.policyId} = ${recoverUnknownRevisionId}`,
+									sql`${unknown.policyId} = ${recoveryId}`,
 								),
 							)
 							.orderBy(desc(unknown.sequence))
@@ -365,6 +421,7 @@ export async function listTenantToolPolicies(
 	db: DbQueryClient,
 	organizationId: string,
 ) {
+	const tenantToolPolicies = coreTable(db, d1TenantToolPolicies);
 	return db
 		.select()
 		.from(tenantToolPolicies)
@@ -378,6 +435,11 @@ export async function listDeletedTenantPolicyFences(
 	db: DbQueryClient,
 	organizationId: string,
 ) {
+	const tenantToolPolicies = coreTable(db, d1TenantToolPolicies);
+	const tenantToolPolicyMountRevisions = coreTable(
+		db,
+		d1TenantToolPolicyMountRevisions,
+	);
 	const fence = tenantToolPolicyMountRevisions;
 	return db
 		.select({
@@ -401,7 +463,7 @@ export async function listDeletedTenantPolicyFences(
 				eq(fence.organizationId, organizationId),
 				isNull(tenantToolPolicies.id),
 				sql`(${fence.subjectKey} IS NOT NULL OR NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS retired WHERE retired.organization_id = ${fence.organizationId} AND retired.root_app_id = ${fence.rootAppId} AND retired.mounted_tool_id = ${fence.mountedToolId} AND retired.retired_unknown_sequence = ${fence.sequence}))`,
-				sql`${fence.sequence} = (SELECT MAX(newer.sequence) FROM tenant_tool_policy_mount_revisions AS newer WHERE newer.organization_id = ${fence.organizationId} AND newer.root_app_id = ${fence.rootAppId} AND newer.mounted_tool_id = ${fence.mountedToolId} AND newer.subject_key IS ${fence.subjectKey})`,
+				sql`${fence.sequence} = (SELECT MAX(newer.sequence) FROM tenant_tool_policy_mount_revisions AS newer WHERE newer.organization_id = ${fence.organizationId} AND newer.root_app_id = ${fence.rootAppId} AND newer.mounted_tool_id = ${fence.mountedToolId} AND newer.subject_key ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${fence.subjectKey})`,
 			),
 		)
 		.limit(500);
@@ -417,6 +479,11 @@ export async function findTenantToolPolicyRevisions(
 		subjectKey?: string;
 	},
 ) {
+	const tenantToolPolicies = coreTable(db, d1TenantToolPolicies);
+	const tenantToolPolicyMountRevisions = coreTable(
+		db,
+		d1TenantToolPolicyMountRevisions,
+	);
 	const latest = db
 		.select({ policyId: tenantToolPolicyMountRevisions.policyId })
 		.from(tenantToolPolicyMountRevisions)
@@ -449,6 +516,11 @@ export async function findTenantToolPolicySubjectFences(
 	db: DbQueryClient,
 	scope: { organizationId: string; rootAppId: string; mountedToolId: string },
 ) {
+	const tenantToolPolicies = coreTable(db, d1TenantToolPolicies);
+	const tenantToolPolicyMountRevisions = coreTable(
+		db,
+		d1TenantToolPolicyMountRevisions,
+	);
 	const fence = tenantToolPolicyMountRevisions;
 	return db
 		.select({
@@ -472,7 +544,7 @@ export async function findTenantToolPolicySubjectFences(
 				eq(fence.rootAppId, scope.rootAppId),
 				eq(fence.mountedToolId, scope.mountedToolId),
 				sql`(${fence.subjectKey} IS NOT NULL OR NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS retired WHERE retired.organization_id = ${fence.organizationId} AND retired.root_app_id = ${fence.rootAppId} AND retired.mounted_tool_id = ${fence.mountedToolId} AND retired.retired_unknown_sequence = ${fence.sequence}))`,
-				sql`${fence.sequence} = (SELECT MAX(other.sequence) FROM tenant_tool_policy_mount_revisions AS other WHERE other.organization_id = ${fence.organizationId} AND other.root_app_id = ${fence.rootAppId} AND other.mounted_tool_id = ${fence.mountedToolId} AND other.subject_key IS ${fence.subjectKey})`,
+				sql`${fence.sequence} = (SELECT MAX(other.sequence) FROM tenant_tool_policy_mount_revisions AS other WHERE other.organization_id = ${fence.organizationId} AND other.root_app_id = ${fence.rootAppId} AND other.mounted_tool_id = ${fence.mountedToolId} AND other.subject_key ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${fence.subjectKey})`,
 			),
 		)
 		.orderBy(fence.subjectKey, fence.sequence);
@@ -489,6 +561,11 @@ export async function findTenantToolPolicyCandidatesBySource(
 		subjectKeys?: string[];
 	},
 ) {
+	const tenantToolPolicies = coreTable(db, d1TenantToolPolicies);
+	const tenantToolPolicyMountRevisions = coreTable(
+		db,
+		d1TenantToolPolicyMountRevisions,
+	);
 	if (
 		scope.subjectKeys &&
 		(scope.subjectKeys.length < 1 || scope.subjectKeys.length > 2)
@@ -505,7 +582,7 @@ export async function findTenantToolPolicyCandidatesBySource(
 				scope.subjectKeys
 					? or(...scope.subjectKeys.map((key) => eq(fence.subjectKey, key)))
 					: undefined,
-				sql`${fence.sequence} = (SELECT MAX(other.sequence) FROM tenant_tool_policy_mount_revisions AS other WHERE other.organization_id = ${fence.organizationId} AND other.root_app_id = ${fence.rootAppId} AND other.mounted_tool_id = ${fence.mountedToolId} AND other.subject_key IS ${fence.subjectKey})`,
+				sql`${fence.sequence} = (SELECT MAX(other.sequence) FROM tenant_tool_policy_mount_revisions AS other WHERE other.organization_id = ${fence.organizationId} AND other.root_app_id = ${fence.rootAppId} AND other.mounted_tool_id = ${fence.mountedToolId} AND other.subject_key ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${fence.subjectKey})`,
 			),
 		);
 	return db
@@ -530,6 +607,10 @@ export async function hasTenantToolPolicyFenceInOrganization(
 	db: DbQueryClient,
 	organizationId: string,
 ) {
+	const tenantToolPolicyMountRevisions = coreTable(
+		db,
+		d1TenantToolPolicyMountRevisions,
+	);
 	const rows = await db
 		.select({ sequence: tenantToolPolicyMountRevisions.sequence })
 		.from(tenantToolPolicyMountRevisions)
@@ -550,6 +631,10 @@ export async function hasTenantToolPolicyFenceForSource(
 		sourceToolId: string;
 	},
 ) {
+	const tenantToolPolicyMountRevisions = coreTable(
+		db,
+		d1TenantToolPolicyMountRevisions,
+	);
 	const fence = tenantToolPolicyMountRevisions;
 	const rows = await db
 		.select({ sequence: fence.sequence })
@@ -558,7 +643,7 @@ export async function hasTenantToolPolicyFenceForSource(
 			and(
 				eq(fence.organizationId, scope.organizationId),
 				scope.rootAppId ? eq(fence.rootAppId, scope.rootAppId) : undefined,
-				sql`${fence.sequence} = (SELECT MAX(other.sequence) FROM tenant_tool_policy_mount_revisions AS other WHERE other.organization_id = ${fence.organizationId} AND other.root_app_id = ${fence.rootAppId} AND other.mounted_tool_id = ${fence.mountedToolId} AND other.subject_key IS ${fence.subjectKey})`,
+				sql`${fence.sequence} = (SELECT MAX(other.sequence) FROM tenant_tool_policy_mount_revisions AS other WHERE other.organization_id = ${fence.organizationId} AND other.root_app_id = ${fence.rootAppId} AND other.mounted_tool_id = ${fence.mountedToolId} AND other.subject_key ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${fence.subjectKey})`,
 				or(
 					isNull(fence.sourceAppId),
 					isNull(fence.sourceToolId),
@@ -581,6 +666,7 @@ export async function revokeTenantToolPolicy(
 	scope: { organizationId: string; id: string },
 	revokedAt: string,
 ) {
+	const tenantToolPolicies = coreTable(db, d1TenantToolPolicies);
 	const [row] = await db
 		.update(tenantToolPolicies)
 		.set({ revokedAt })

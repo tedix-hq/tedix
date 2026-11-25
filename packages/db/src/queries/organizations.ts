@@ -1,4 +1,12 @@
 import {
+	jsonRead,
+	jsonWrite,
+	coreStore,
+	anyIds,
+	jsonParameter,
+} from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
+import {
 	isOrganizationOffboarding as organizationIsOffboarding,
 	projectOrganizationWidgetQuota as organizationWidgetQuota,
 } from "../utils/organizations";
@@ -19,7 +27,7 @@ import {
  * - Descope integration for SSO
  */
 
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import {
 	buildInsertAuditEventStatement,
@@ -31,10 +39,10 @@ import type {
 } from "@tedix/api-contract/schemas/runtime-entitlements";
 import type { DbClient } from "../client";
 import { createDbQueryClient, type DbQueryClient } from "../query-client";
-import { apiKeys } from "../schema/api-keys";
-import { apps } from "../schema/apps";
-import { organizationMembers } from "../schema/organization-members";
-import { projects } from "../schema/projects";
+import { apiKeys as d1ApiKeys } from "../schema/api-keys";
+import { apps as d1Apps } from "../schema/apps";
+import { organizationMembers as d1OrganizationMembers } from "../schema/organization-members";
+import { projects as d1Projects } from "../schema/projects";
 import type {
 	NewOrganization,
 	Organization,
@@ -44,9 +52,9 @@ import type {
 } from "../schema/organizations";
 import {
 	DEFAULT_ORGANIZATION_FEATURES_BY_PLAN,
-	organizations,
+	organizations as d1Organizations,
 } from "../schema/organizations";
-import { tedis } from "../schema/tedis";
+import { tedis as d1Tedis } from "../schema/tedis";
 import {
 	buildProvisionBillingAccountStatement,
 	getBillingEntitlement,
@@ -85,6 +93,7 @@ export async function getOrganizationSecretEgressMode(
 	db: DbQueryClient,
 	id: string,
 ): Promise<"block" | "warn"> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -101,6 +110,7 @@ export async function getOrganizationPersonalDataRedaction(
 	db: DbQueryClient,
 	id: string,
 ): Promise<boolean> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -118,6 +128,7 @@ export async function getOrganizationAgentDefaults(
 	db: DbQueryClient,
 	id: string,
 ): Promise<{ readOnlyCommands: unknown; defaultApprovalMode: unknown }> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -133,6 +144,8 @@ export async function getOrganizationSessionProjectBindings(
 	db: DbQueryClient,
 	id: string,
 ) {
+	const projects = coreTable(db, d1Projects);
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -140,19 +153,11 @@ export async function getOrganizationSessionProjectBindings(
 		.limit(1);
 	const bindings = row?.metadata?.sessionProjectBindings ?? [];
 	const ids = [...new Set(bindings.map((binding) => binding.projectId))];
-	const valid = new Set<string>();
-	for (let offset = 0; offset < ids.length; offset += 50) {
-		const targets = await db
-			.select({ id: projects.id })
-			.from(projects)
-			.where(
-				and(
-					eq(projects.orgId, id),
-					inArray(projects.id, ids.slice(offset, offset + 50)),
-				),
-			);
-		for (const target of targets) valid.add(target.id);
-	}
+	const targets = await db
+		.select({ id: projects.id })
+		.from(projects)
+		.where(and(eq(projects.orgId, id), anyIds(db, projects.id, ids)));
+	const valid = new Set(targets.map((target) => target.id));
 	return bindings.filter((binding) => valid.has(binding.projectId));
 }
 
@@ -161,6 +166,7 @@ export async function getOrganizationDescopeTenantId(
 	db: DbClient,
 	id: string,
 ): Promise<string | null | undefined> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({ descopeTenantId: organizations.descopeTenantId })
 		.from(organizations)
@@ -178,6 +184,7 @@ export async function getOrganizationDisplayName(
 	db: DbClient,
 	id: string,
 ): Promise<string | undefined> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({ name: organizations.name })
 		.from(organizations)
@@ -208,6 +215,7 @@ export async function getOrganizationProfile(
 	db: DbQueryClient,
 	id: string,
 ): Promise<OrganizationProfileRow | null> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({
 			id: organizations.id,
@@ -241,18 +249,19 @@ export async function getOrganizationGuestProfile(
 	db: DbQueryClient,
 	id: string,
 ): Promise<OrganizationGuestProfileRow | null> {
-	const path = (jsonPath: string, alias: string) =>
-		sql<
-			string | null
-		>`CASE WHEN json_valid(${organizations.metadata}) THEN json_extract(${organizations.metadata}, ${jsonPath}) END`.as(
-			alias,
-		);
+	const organizations = coreTable(db, d1Organizations);
+	const path = (segments: string[], alias: string) =>
+		sql<string | null>`${
+			coreStore(db) === "postgres"
+				? jsonRead(db, organizations.metadata, segments)
+				: sql`CASE WHEN json_valid(${organizations.metadata}) THEN ${jsonRead(db, organizations.metadata, segments)} END`
+		}`.as(alias);
 	const [row] = await db
 		.select({
 			name: organizations.name,
 			logoUrl: organizations.logoUrl,
-			locale: path("$.tediWidget.locale", "guest_locale"),
-			translations: path("$.tediWidget.translations", "guest_translations"),
+			locale: path(["tediWidget", "locale"], "guest_locale"),
+			translations: path(["tediWidget", "translations"], "guest_translations"),
 		})
 		.from(organizations)
 		.where(eq(organizations.id, id))
@@ -282,6 +291,7 @@ export async function getOrganizationOsTheme(
 	db: DbClient,
 	id: string,
 ): Promise<OrganizationMetadata["osTheme"] | null> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -300,6 +310,7 @@ export async function getOrganizationBySlug(
 	db: DbClient | DbQueryClient | D1Database,
 	slug: string,
 ): Promise<Organization | undefined> {
+	const organizations = coreTable(db, d1Organizations);
 	const query = "prepare" in db ? createDbQueryClient(db) : db;
 	const [row] = await query
 		.select()
@@ -307,7 +318,7 @@ export async function getOrganizationBySlug(
 		.where(
 			and(
 				eq(organizations.slug, slug.toLowerCase()),
-				sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+				sql`${jsonRead(db, organizations.metadata, ["retiredAt"])} IS NULL`,
 			),
 		)
 		.limit(1);
@@ -325,13 +336,14 @@ export async function getOrganizationByDescopeId(
 	db: DbClient,
 	descopeTenantId: string,
 ): Promise<Organization | undefined> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select()
 		.from(organizations)
 		.where(
 			and(
 				eq(organizations.descopeTenantId, descopeTenantId),
-				sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+				sql`${jsonRead(db, organizations.metadata, ["retiredAt"])} IS NULL`,
 			),
 		)
 		.limit(1);
@@ -376,8 +388,9 @@ export async function listOrganizations(
 		offset?: number;
 	},
 ): Promise<Organization[]> {
+	const organizations = coreTable(db, d1Organizations);
 	const conditions = [
-		sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+		sql`${jsonRead(db, organizations.metadata, ["retiredAt"])} IS NULL`,
 	];
 
 	let query = db
@@ -409,6 +422,7 @@ export interface OrganizationWidgetQuotaStatus {
 export async function listOrganizationWidgetQuotaStatus(
 	db: DbClient,
 ): Promise<OrganizationWidgetQuotaStatus[]> {
+	const organizations = coreTable(db, d1Organizations);
 	const rows = await db
 		.select({
 			id: organizations.id,
@@ -417,7 +431,7 @@ export async function listOrganizationWidgetQuotaStatus(
 			metadata: organizations.metadata,
 		})
 		.from(organizations)
-		.where(sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`)
+		.where(sql`${jsonRead(db, organizations.metadata, ["retiredAt"])} IS NULL`)
 		.orderBy(organizations.slug);
 	return rows.map((row) => ({
 		id: row.id,
@@ -490,6 +504,7 @@ export async function createOrganization(
 		runtimeEntitlementGrants?: RuntimeEntitlementGrant[];
 	},
 ): Promise<Organization> {
+	const organizations = coreTable(db, d1Organizations);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -569,6 +584,7 @@ export async function updateOrganization(
 	data: Partial<Omit<NewOrganization, "id" | "createdAt">>,
 	audit?: InsertAuditEventParams | InsertAuditEventParams[],
 ): Promise<Organization> {
+	const organizations = coreTable(db, d1Organizations);
 	const now = new Date().toISOString();
 
 	const update = db
@@ -621,6 +637,11 @@ export async function retireOrganization(
 	db: DbClient,
 	params: RetireOrganizationParams,
 ): Promise<Organization | undefined> {
+	const apiKeys = coreTable(db, d1ApiKeys);
+	const apps = coreTable(db, d1Apps);
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const organizations = coreTable(db, d1Organizations);
+	const tedis = coreTable(db, d1Tedis);
 	const [, , , , retiredOrganizations] = await db.batch([
 		db
 			.update(tedis)
@@ -670,7 +691,7 @@ export async function retireOrganization(
 			.where(
 				and(
 					eq(organizations.id, params.id),
-					sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+					sql`${jsonRead(db, organizations.metadata, ["retiredAt"])} IS NULL`,
 				),
 			)
 			.returning(),
@@ -714,13 +735,17 @@ export function buildApplyOrganizationPlanFeaturesStatement(
 	now: string,
 	guard?: SQL,
 ) {
+	const organizations = coreTable(db, d1Organizations);
 	return db
 		.update(organizations)
 		.set({
 			// OS provisioning is an explicit lifecycle setting, not a plan
 			// entitlement. Preserve its boolean value atomically so a Stripe
 			// plan update cannot make an existing tenant hostname disappear.
-			features: sql`json_patch(${JSON.stringify(DEFAULT_ORGANIZATION_FEATURES_BY_PLAN[tier])}, CASE json_type(${organizations.features}, '$.os') WHEN 'true' THEN '{"os":true}' WHEN 'false' THEN '{"os":false}' ELSE '{}' END)`,
+			features:
+				coreStore(db) === "postgres"
+					? sql`${jsonParameter(db, DEFAULT_ORGANIZATION_FEATURES_BY_PLAN[tier])} || CASE WHEN jsonb_typeof(${organizations.features} -> 'os') = 'boolean' THEN jsonb_build_object('os', ${organizations.features} -> 'os') ELSE '{}'::jsonb END`
+					: sql`json_patch(${JSON.stringify(DEFAULT_ORGANIZATION_FEATURES_BY_PLAN[tier])}, CASE json_type(${organizations.features}, '$.os') WHEN 'true' THEN '{"os":true}' WHEN 'false' THEN '{"os":false}' ELSE '{}' END)`,
 			updatedAt: now,
 		})
 		.where(and(eq(organizations.id, id), guard));
@@ -874,6 +899,7 @@ export async function incrementAppCount(
 	db: DbClient,
 	id: string,
 ): Promise<void> {
+	const organizations = coreTable(db, d1Organizations);
 	const now = new Date().toISOString();
 
 	await db
@@ -896,12 +922,13 @@ export async function decrementAppCount(
 	db: DbClient,
 	id: string,
 ): Promise<void> {
+	const organizations = coreTable(db, d1Organizations);
 	const now = new Date().toISOString();
 
 	await db
 		.update(organizations)
 		.set({
-			appsCount: sql`MAX(0, ${organizations.appsCount} - 1)`,
+			appsCount: sql`${coreStore(db) === "postgres" ? sql`GREATEST` : sql`MAX`}(0, ${organizations.appsCount} - 1)`,
 			updatedAt: now,
 		})
 		.where(eq(organizations.id, id));
@@ -915,6 +942,8 @@ export async function decrementAppCount(
  * @param id - Organization ID
  */
 export async function syncAppCount(db: DbClient, id: string): Promise<number> {
+	const apps = coreTable(db, d1Apps);
+	const organizations = coreTable(db, d1Organizations);
 	const actualCount = await db.$count(apps, eq(apps.organizationId, id));
 	const now = new Date().toISOString();
 
@@ -967,22 +996,28 @@ export async function generateUniqueSlug(
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-|-$/g, "");
 
-	// Check if base slug is available
-	if (await isSlugAvailable(db, baseSlug)) {
-		return baseSlug;
-	}
-
-	// Try with random suffix
-	for (let i = 0; i < 10; i++) {
-		const suffix = Math.random().toString(36).substring(2, 6);
-		const slug = `${baseSlug}-${suffix}`;
-		if (await isSlugAvailable(db, slug)) {
-			return slug;
-		}
-	}
-
-	// Fallback to UUID suffix
-	return `${baseSlug}-${crypto.randomUUID().substring(0, 8)}`;
+	const organizations = coreTable(db, d1Organizations);
+	const candidates = [
+		baseSlug,
+		...Array.from(
+			{ length: 10 },
+			() => `${baseSlug}-${Math.random().toString(36).substring(2, 6)}`,
+		),
+	];
+	const rows = await db
+		.select({ slug: organizations.slug })
+		.from(organizations)
+		.where(
+			and(
+				anyIds(db, organizations.slug, candidates),
+				sql`${jsonRead(db, organizations.metadata, ["retiredAt"])} IS NULL`,
+			),
+		);
+	const taken = new Set(rows.map((row) => row.slug));
+	return (
+		candidates.find((candidate) => !taken.has(candidate)) ??
+		`${baseSlug}-${crypto.randomUUID().substring(0, 8)}`
+	);
 }
 
 /** Replace only platform-owned onboarding defaults without overwriting other metadata. */
@@ -991,10 +1026,16 @@ export async function setProviderOnboardingConfiguration(
 	organizationId: string,
 	config: NonNullable<OrganizationMetadata["providerOnboarding"]>,
 ) {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.update(organizations)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.providerOnboarding', json(${JSON.stringify(config)}))`,
+			metadata: jsonWrite(
+				db,
+				organizations.metadata,
+				["providerOnboarding"],
+				config,
+			),
 			updatedAt: new Date().toISOString(),
 		})
 		.where(eq(organizations.id, organizationId))
@@ -1004,7 +1045,7 @@ export async function setProviderOnboardingConfiguration(
 
 function connectionConsumerGrantsPath(providerId: string, instanceId?: string) {
 	const key = `${encodeURIComponent(providerId)}:${encodeURIComponent(instanceId ?? "")}`;
-	return `$.connectionConsumerGrants."${key}"`;
+	return ["connectionConsumerGrants", key];
 }
 
 export async function getConnectionConsumerGrants(
@@ -1013,11 +1054,12 @@ export async function getConnectionConsumerGrants(
 	providerId: string,
 	instanceId?: string,
 ): Promise<ConnectionConsumerGrants> {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({
 			policy: sql<
 				string | null
-			>`json_extract(${organizations.metadata}, ${connectionConsumerGrantsPath(providerId, instanceId)})`,
+			>`${jsonRead(db, organizations.metadata, connectionConsumerGrantsPath(providerId, instanceId))}`,
 		})
 		.from(organizations)
 		.where(eq(organizations.id, organizationId))
@@ -1036,11 +1078,17 @@ export async function setConnectionConsumerGrants(
 	policy: ConnectionConsumerGrants,
 	instanceId?: string,
 ) {
+	const organizations = coreTable(db, d1Organizations);
 	const validated = ConnectionConsumerGrantsSchema.parse(policy);
 	const [row] = await db
 		.update(organizations)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), ${connectionConsumerGrantsPath(providerId, instanceId)}, json(${JSON.stringify(validated)}))`,
+			metadata: jsonWrite(
+				db,
+				organizations.metadata,
+				connectionConsumerGrantsPath(providerId, instanceId),
+				validated,
+			),
 			updatedAt: new Date().toISOString(),
 		})
 		.where(eq(organizations.id, organizationId))

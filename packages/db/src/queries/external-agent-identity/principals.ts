@@ -1,23 +1,32 @@
+import {
+	anyIds,
+	jsonRead,
+	jsonWrite,
+	jsonParameter,
+	dateTime,
+	coreStore,
+} from "../../core-store/dialect";
+import { coreTable } from "../../core-store/client";
 import { withTransientD1ReadRetry } from "../../utils/d1-retry";
-import { auditEvents } from "../../schema/audit-events";
+import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
 import * as z from "zod";
 import {
 	ExternalAgentWorkManagementGrantSchema,
 	ExternalAgentPlatformSchema,
 } from "@tedix/api-contract/schemas/external-agent-identity";
-import { organizationMembers } from "../../schema/organization-members";
+import { organizationMembers as d1OrganizationMembers } from "../../schema/organization-members";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, getColumns, inArray, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import type { DbQueryClient } from "../../query-client";
-import { apiKeys } from "../../schema/api-keys";
+import { apiKeys as d1ApiKeys } from "../../schema/api-keys";
 import {
 	type ExternalAgentPrincipal,
-	externalAgentPrincipals,
-	externalAgentSessions,
-	externalAgentMcpCredentials,
-	externalAgentMcpIssuanceLeases,
+	externalAgentPrincipals as d1ExternalAgentPrincipals,
+	externalAgentSessions as d1ExternalAgentSessions,
+	externalAgentMcpCredentials as d1ExternalAgentMcpCredentials,
+	externalAgentMcpIssuanceLeases as d1ExternalAgentMcpIssuanceLeases,
 } from "../../schema/external-agent-identity";
 
 export type ExternalAgentIdentityErrorReason =
@@ -50,6 +59,7 @@ export async function getExternalAgentPrincipal(
 	db: DbClient,
 	params: { organizationId: string; principalId: string },
 ): Promise<ExternalAgentPrincipal | null> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const rows = await withTransientD1ReadRetry(
 		"external_agent.principal",
 		async () =>
@@ -74,6 +84,7 @@ export async function getExternalAgentPrincipalByCredential(
 	db: DbClient,
 	params: { organizationId: string; credentialBindingId: string },
 ): Promise<ExternalAgentPrincipal | null> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const rows = await db
 		.select()
 		.from(externalAgentPrincipals)
@@ -101,6 +112,7 @@ export async function listExternalAgentPrincipalsRepresentingUser(
 	db: DbQueryClient,
 	params: { organizationId: string; userId: string; limit?: number },
 ): Promise<ExternalAgentPrincipal[]> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	return db
 		.select()
 		.from(externalAgentPrincipals)
@@ -115,7 +127,7 @@ export async function listExternalAgentPrincipalsRepresentingUser(
 					and(
 						eq(externalAgentPrincipals.credentialBindingType, "api_key"),
 						eq(
-							sql`json_extract(${externalAgentPrincipals.metadata}, '$.representedUserId')`,
+							sql`${jsonRead(db, externalAgentPrincipals.metadata, ["representedUserId"])} `,
 							params.userId,
 						),
 					),
@@ -131,6 +143,7 @@ export async function getExternalAgentPrincipalById(
 	db: DbClient,
 	principalId: string,
 ): Promise<ExternalAgentPrincipal | null> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const rows = await db
 		.select()
 		.from(externalAgentPrincipals)
@@ -158,6 +171,8 @@ export async function createExternalAgentPrincipal(
 		createdAt: string;
 	},
 ): Promise<ExternalAgentPrincipal> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const representedUserId = input.metadata?.representedUserId;
 	if (representedUserId !== undefined) {
 		if (typeof representedUserId !== "string" || !representedUserId.trim())
@@ -190,7 +205,7 @@ export async function createExternalAgentPrincipal(
 						createdById: sql<string>`${input.createdById}`.as("created_by_id"),
 						metadata: sql<
 							Record<string, JsonValue>
-						>`${JSON.stringify(input.metadata)}`.as("metadata"),
+						>`${jsonParameter(db, input.metadata)}`.as("metadata"),
 						createdAt: sql<string>`${input.createdAt}`.as("created_at"),
 						updatedAt: sql<string>`${input.createdAt}`.as("updated_at"),
 					})
@@ -262,6 +277,8 @@ export async function setExternalAgentPrincipalStatus(
 		updatedAt: string;
 	},
 ): Promise<ExternalAgentPrincipal> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const principalUpdate = db
 		.update(externalAgentPrincipals)
 		.set({ status: params.status, updatedAt: params.updatedAt })
@@ -312,6 +329,8 @@ export async function setExternalAgentWorkManagement(
 		updatedAt: string;
 	},
 ): Promise<ExternalAgentPrincipal> {
+	const auditEvents = coreTable(db, d1AuditEvents);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const predicate = and(
 		eq(externalAgentPrincipals.organizationId, params.organizationId),
 		eq(externalAgentPrincipals.id, params.principalId),
@@ -336,13 +355,13 @@ export async function setExternalAgentWorkManagement(
 				resourceId: externalAgentPrincipals.id,
 				metadata: sql<
 					Record<string, JsonValue>
-				>`json_object('previousGrant', json_extract(${externalAgentPrincipals.metadata}, '$.workManagement'), 'grant', json(${JSON.stringify(grant)}))`.as(
+				>`${coreStore(db) === "postgres" ? sql`jsonb_build_object('previousGrant', ${jsonRead(db, externalAgentPrincipals.metadata, ["workManagement"], "json")}, 'grant', ${jsonParameter(db, grant)})` : sql`json_object('previousGrant', ${jsonRead(db, externalAgentPrincipals.metadata, ["workManagement"])}, 'grant', json(${JSON.stringify(grant)}))`}`.as(
 					"audit_metadata",
 				),
 				ipAddress: sql<string | null>`NULL`.as("audit_ip"),
 				userAgent: sql<string | null>`NULL`.as("audit_user_agent"),
 				timestamp:
-					sql<Date>`${Math.floor(Date.parse(params.updatedAt) / 1000)}`.as(
+					sql<Date>`${coreStore(db) === "postgres" ? dateTime(db, sql`${Math.floor(Date.parse(params.updatedAt) / 1000)}`) : sql`${Math.floor(Date.parse(params.updatedAt) / 1000)}`}`.as(
 						"audit_timestamp",
 					),
 			})
@@ -354,8 +373,15 @@ export async function setExternalAgentWorkManagement(
 		.set({
 			metadata:
 				grant === null
-					? sql`json_remove(${externalAgentPrincipals.metadata}, '$.workManagement')`
-					: sql`json_set(${externalAgentPrincipals.metadata}, '$.workManagement', json(${JSON.stringify(grant)}))`,
+					? coreStore(db) === "postgres"
+						? sql`${externalAgentPrincipals.metadata} - 'workManagement'`
+						: sql`json_remove(${externalAgentPrincipals.metadata}, '$.workManagement')`
+					: jsonWrite(
+							db,
+							externalAgentPrincipals.metadata,
+							["workManagement"],
+							grant,
+						),
 			updatedAt: params.updatedAt,
 		})
 		.where(predicate)
@@ -379,6 +405,7 @@ export async function renameExternalAgentPrincipal(
 		updatedAt: string;
 	},
 ): Promise<ExternalAgentPrincipal> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const [row] = await db
 		.update(externalAgentPrincipals)
 		.set({ displayName: params.displayName, updatedAt: params.updatedAt })
@@ -402,6 +429,9 @@ export async function listExternalAgentPrincipals(
 	db: DbClient,
 	params: { organizationId: string; limit?: number },
 ) {
+	const apiKeys = coreTable(db, d1ApiKeys);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	// Explicit outer names prevent single-table SELECT column dequalification in subqueries.
 	const rows = await db
 		.select({
@@ -444,6 +474,7 @@ export async function listExternalAgentPrincipalsByIds(
 	db: DbClient,
 	params: { principalIds: string[]; organizationId?: string },
 ): Promise<ExternalAgentPrincipal[]> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	if (params.principalIds.length === 0) return [];
 	return db
 		.select()
@@ -453,13 +484,18 @@ export async function listExternalAgentPrincipalsByIds(
 				? and(
 						eq(externalAgentPrincipals.organizationId, params.organizationId),
 						// bound-params: exact audit actor ids are capped to 50.
-						inArray(
+						anyIds(
+							db,
 							externalAgentPrincipals.id,
 							params.principalIds.slice(0, 50),
 						),
 					)
 				: // bound-params: exact platform audit actor ids are capped to 50.
-					inArray(externalAgentPrincipals.id, params.principalIds.slice(0, 50)),
+					anyIds(
+						db,
+						externalAgentPrincipals.id,
+						params.principalIds.slice(0, 50),
+					),
 		);
 }
 
@@ -473,6 +509,16 @@ export async function disableExternalAgentPrincipal(
 		now: string;
 	},
 ): Promise<ExternalAgentPrincipal> {
+	const apiKeys = coreTable(db, d1ApiKeys);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const externalAgentMcpCredentials = coreTable(
+		db,
+		d1ExternalAgentMcpCredentials,
+	);
+	const externalAgentMcpIssuanceLeases = coreTable(
+		db,
+		d1ExternalAgentMcpIssuanceLeases,
+	);
 	const scoped = and(
 		eq(externalAgentPrincipals.organizationId, params.organizationId),
 		eq(externalAgentPrincipals.id, params.principalId),
@@ -483,7 +529,17 @@ export async function disableExternalAgentPrincipal(
 			.set({
 				status: "suspended",
 				updatedAt: params.now,
-				metadata: sql`json_set(${externalAgentPrincipals.metadata}, '$.providerCleanup', 'pending', '$.disableReason', ${params.reason})`,
+				metadata: jsonWrite(
+					db,
+					jsonWrite(
+						db,
+						externalAgentPrincipals.metadata,
+						["providerCleanup"],
+						"pending",
+					),
+					["disableReason"],
+					params.reason,
+				),
 			})
 			.where(scoped)
 			.returning(),

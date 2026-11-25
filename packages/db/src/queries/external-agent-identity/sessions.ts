@@ -1,3 +1,5 @@
+import { anyIds, jsonParameter, booleanValue } from "../../core-store/dialect";
+import { coreTable } from "../../core-store/client";
 import { withTransientD1ReadRetry } from "../../utils/d1-retry";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, exists, inArray, lt, or, sql } from "drizzle-orm";
@@ -7,11 +9,11 @@ import type { DbQueryClient } from "../../query-client";
 import {
 	type ExternalAgentPrincipal,
 	type ExternalAgentSession,
-	externalAgentPrincipals,
-	externalAgentSessions,
-	externalAgentExchangeLimits,
+	externalAgentPrincipals as d1ExternalAgentPrincipals,
+	externalAgentSessions as d1ExternalAgentSessions,
+	externalAgentExchangeLimits as d1ExternalAgentExchangeLimits,
 } from "../../schema/external-agent-identity";
-import { workAttempts } from "../../schema/work-items";
+import { workAttempts as d1WorkAttempts } from "../../schema/work-items";
 import {
 	ExternalAgentIdentityError,
 	getExternalAgentPrincipal,
@@ -63,6 +65,8 @@ export async function openExternalAgentSession(
 		startedAt: string;
 	},
 ): Promise<ExternalAgentSession> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	// Reopening an immutable session is a read, not a write. Avoid sending
 	// every CLI invocation through the D1 primary write queue. The insert below
 	// still arbitrates concurrent first opens; all replays recheck the principal.
@@ -151,7 +155,7 @@ export async function openExternalAgentSession(
 						typeof input.identitySource
 					>`${input.identitySource}`.as("identity_source"),
 					status: sql<"active">`'active'`.as("status"),
-					creditEligible: sql<boolean>`${creditEligible ? 1 : 0}`.as(
+					creditEligible: sql<boolean>`${booleanValue(db, creditEligible)}`.as(
 						"credit_eligible",
 					),
 					startedAt: sql<string>`${input.startedAt}`.as("started_at"),
@@ -159,7 +163,7 @@ export async function openExternalAgentSession(
 					endedAt: sql<null>`NULL`.as("ended_at"),
 					metadata: sql<
 						Record<string, JsonValue>
-					>`${JSON.stringify(metadata)}`.as("metadata"),
+					>`${jsonParameter(db, metadata)}`.as("metadata"),
 				})
 				.from(activePrincipal)
 				.where(
@@ -193,6 +197,8 @@ export async function heartbeatExternalAgentSession(
 		seenAt: string;
 	},
 ): Promise<ExternalAgentSession> {
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
 	const updated = await db
 		.update(externalAgentSessions)
@@ -231,6 +237,7 @@ export async function hasExternalAgentWorkAttempt(
 		sessionId: string;
 	},
 ): Promise<boolean> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const rows = await db
 		.select({ id: workAttempts.id })
 		.from(workAttempts)
@@ -251,6 +258,7 @@ export async function hasExternalAgentSessionWorkAttempt(
 	db: DbClient,
 	params: { organizationId: string; principalId: string; sessionId: string },
 ): Promise<boolean> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const rows = await db
 		.select({ id: workAttempts.id })
 		.from(workAttempts)
@@ -274,6 +282,7 @@ export async function hasActiveExternalAgentSessionWorkAttempt(
 		sessionId: string;
 	},
 ): Promise<boolean> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const rows = await db
 		.select({ id: workAttempts.id })
 		.from(workAttempts)
@@ -299,6 +308,7 @@ export async function listExternalAgentSessions(
 	db: DbClient,
 	params: { organizationId: string; principalId: string; limit?: number },
 ): Promise<ExternalAgentSession[]> {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	return db
 		.select()
 		.from(externalAgentSessions)
@@ -321,6 +331,7 @@ export async function listExternalAgentSessionKeys(
 	db: DbQueryClient,
 	params: { organizationId: string; principalIds: string[]; limit?: number },
 ): Promise<string[]> {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	if (params.principalIds.length === 0) return [];
 	const rows = await db
 		.select({ key: externalAgentSessions.externalSessionKey })
@@ -329,7 +340,8 @@ export async function listExternalAgentSessionKeys(
 			and(
 				eq(externalAgentSessions.organizationId, params.organizationId),
 				// bound-params: callers cap principal ids at 50
-				inArray(
+				anyIds(
+					db,
 					externalAgentSessions.principalId,
 					params.principalIds.slice(0, 50),
 				),
@@ -368,6 +380,10 @@ export async function consumeExternalAgentExchangeBudget(
 	db: DbClient,
 	params: { organizationId: string; principalId: string; nowMs: number },
 ): Promise<boolean> {
+	const externalAgentExchangeLimits = coreTable(
+		db,
+		d1ExternalAgentExchangeLimits,
+	);
 	const windowStart = Math.floor(params.nowMs / 60_000);
 	const limits = externalAgentExchangeLimits;
 	const rows = await db

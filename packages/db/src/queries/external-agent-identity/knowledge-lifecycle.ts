@@ -1,20 +1,18 @@
+import { coreTable } from "../../core-store/client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type ExternalAgentSession,
-	externalAgentSessions,
+	externalAgentSessions as d1ExternalAgentSessions,
 } from "../../schema/external-agent-identity";
-import { workAttempts } from "../../schema/work-items";
+import { workAttempts as d1WorkAttempts } from "../../schema/work-items";
 import { ExternalAgentIdentityError } from "./principals";
 import {
 	diagnoseMutableSession,
 	getExternalAgentSession,
 } from "./session-state";
-import {
-	hasActiveExternalAgentSessionWorkAttempt,
-	hasExternalAgentSessionWorkAttempt,
-} from "./sessions";
+import { hasExternalAgentSessionWorkAttempt } from "./sessions";
 
 export type ExternalAgentKnowledgeCheckpoint = {
 	idempotencyKey: string;
@@ -81,6 +79,7 @@ export async function recordExternalAgentKnowledgeCheckpoint(
 		checkpoint: ExternalAgentKnowledgeCheckpoint;
 	},
 ): Promise<ExternalAgentKnowledgeCheckpoint> {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const session = await getExternalAgentSession(db, params);
 	if (session?.status !== "active") {
 		return diagnoseMutableSession(db, params);
@@ -135,6 +134,7 @@ export async function recordExternalAgentKnowledgeDisposition(
 		disposition: ExternalAgentKnowledgeDisposition;
 	},
 ): Promise<ExternalAgentKnowledgeDisposition> {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const session = await getExternalAgentSession(db, params);
 	if (session?.status !== "active") {
 		return diagnoseMutableSession(db, params);
@@ -191,6 +191,8 @@ export async function endExternalAgentSession(
 		};
 	},
 ): Promise<ExternalAgentSession> {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const session = await getExternalAgentSession(db, params);
 	const lifecycle = session ? knowledgeLifecycle(session.metadata) : null;
 	if (params.zeroWorkDisposition) {
@@ -333,6 +335,7 @@ export async function listStaleExternalAgentKnowledgeSessions(
 		limit: number;
 	},
 ): Promise<ExternalAgentSession[]> {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const rows = await db
 		.select()
 		.from(externalAgentSessions)
