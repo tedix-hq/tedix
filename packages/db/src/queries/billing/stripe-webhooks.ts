@@ -2,11 +2,13 @@
 
 import { and, eq, exists, gt, lte, or, type SQL, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import {
 	type BillingAccount,
-	billingAccounts,
+	billingAccounts as schemaBillingAccounts,
 	type StripeWebhookEvent,
-	stripeWebhookEvents,
+	stripeWebhookEvents as schemaStripeWebhookEvents,
 } from "../../schema/billing";
 import { buildApplyOrganizationPlanFeaturesStatement } from "../organizations";
 import {
@@ -25,6 +27,7 @@ export async function claimStripeWebhookEvent(
 		leaseExpiresAt: string;
 	},
 ): Promise<{ claimed: boolean; event: StripeWebhookEvent }> {
+	const stripeWebhookEvents = coreTable(db, schemaStripeWebhookEvents);
 	const [claimed] = await db
 		.insert(stripeWebhookEvents)
 		.values({
@@ -74,6 +77,7 @@ export async function hasNewerProcessedStripeWebhookEvent(
 		eventId: string;
 	},
 ): Promise<boolean> {
+	const stripeWebhookEvents = coreTable(db, schemaStripeWebhookEvents);
 	const [newer] = await db
 		.select({ eventId: stripeWebhookEvents.eventId })
 		.from(stripeWebhookEvents)
@@ -92,14 +96,20 @@ export async function hasNewerProcessedStripeWebhookEvent(
 type StripeWebhookLease = Pick<StripeWebhookEvent, "eventId" | "attemptCount">;
 export type StripeBillingWebhookOutcome = "applied" | "skipped_stale";
 
-function ownsStripeWebhookLease(lease: StripeWebhookLease) {
+function ownsStripeWebhookLease(
+	db: DbClient,
+	stripeWebhookEvents: typeof schemaStripeWebhookEvents,
+	lease: StripeWebhookLease,
+) {
 	return and(
 		eq(stripeWebhookEvents.eventId, lease.eventId),
 		eq(stripeWebhookEvents.status, "processing"),
 		eq(stripeWebhookEvents.attemptCount, lease.attemptCount),
 		gt(
 			stripeWebhookEvents.leaseExpiresAt,
-			sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+			coreStore(db) === "postgres"
+				? sql`now()`
+				: sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
 		),
 	);
 }
@@ -112,6 +122,7 @@ function buildMarkStripeWebhookEventProcessedStatement(
 	},
 	guard?: SQL,
 ) {
+	const stripeWebhookEvents = coreTable(db, schemaStripeWebhookEvents);
 	return db
 		.update(stripeWebhookEvents)
 		.set({
@@ -122,13 +133,14 @@ function buildMarkStripeWebhookEventProcessedStatement(
 			processedAt: input.now,
 			updatedAt: input.now,
 		})
-		.where(and(ownsStripeWebhookLease(input), guard));
+		.where(and(ownsStripeWebhookLease(db, stripeWebhookEvents, input), guard));
 }
 
 export async function markStripeWebhookEventProcessed(
 	db: DbClient,
 	input: StripeWebhookLease & { outcome: string; now: string },
 ): Promise<boolean> {
+	const stripeWebhookEvents = coreTable(db, schemaStripeWebhookEvents);
 	const [processed] = await buildMarkStripeWebhookEventProcessedStatement(
 		db,
 		input,
@@ -164,6 +176,8 @@ export async function applyStripeBillingWebhook(
 ): Promise<StripeBillingWebhookOutcome> {
 	const { organizationId } = input.account;
 	const customerKey = `${input.stripeEnvironment}:${input.stripeCustomerId}`;
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
+	const stripeWebhookEvents = coreTable(db, schemaStripeWebhookEvents);
 	const plan = await requireActiveBillingPlan(db, input.planKey, input.now);
 	const account = () =>
 		db
@@ -186,8 +200,8 @@ export async function applyStripeBillingWebhook(
 					billingAccounts.entitlementVersion,
 					input.account.entitlementVersion,
 				),
-				sql`${billingAccounts.stripeCustomerId} IS ${input.account.stripeCustomerId}`,
-				sql`${billingAccounts.stripeEnvironment} IS ${input.account.stripeEnvironment}`,
+				sql`${billingAccounts.stripeCustomerId} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${input.account.stripeCustomerId}`,
+				sql`${billingAccounts.stripeEnvironment} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${input.account.stripeEnvironment}`,
 			),
 		),
 	);
@@ -256,6 +270,7 @@ export async function markStripeWebhookEventFailed(
 		now: string;
 	},
 ): Promise<void> {
+	const stripeWebhookEvents = coreTable(db, schemaStripeWebhookEvents);
 	await db
 		.update(stripeWebhookEvents)
 		.set({
@@ -264,5 +279,5 @@ export async function markStripeWebhookEventFailed(
 			lastError: input.error.slice(0, 2_000),
 			updatedAt: input.now,
 		})
-		.where(ownsStripeWebhookLease(input));
+		.where(ownsStripeWebhookLease(db, stripeWebhookEvents, input));
 }

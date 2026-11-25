@@ -1,12 +1,14 @@
 /** Daily ledger-vs-AI-Gateway cost reconciliation rows. */
 
-import { and, asc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { billingUsageCharges } from "../../schema/billing";
+import { coreTable } from "../../core-store/client";
+import { anyIds, jsonRead } from "../../core-store/dialect";
+import { billingUsageCharges as schemaBillingUsageCharges } from "../../schema/billing";
 import {
 	type BillingGatewayReconciliationRow,
 	type NewBillingGatewayReconciliationRow,
-	billingGatewayReconciliations,
+	billingGatewayReconciliations as schemaBillingGatewayReconciliations,
 } from "../../schema/billing-gateway-reconciliations";
 import { chunkForBoundParams } from "../../utils/batch";
 
@@ -33,6 +35,7 @@ export async function sumLedgerCostByProviderModel(
 	db: DbQueryClient,
 	params: LedgerCostByProviderModelParams,
 ): Promise<LedgerCostByProviderModelResult[]> {
+	const billingUsageCharges = coreTable(db, schemaBillingUsageCharges);
 	const rows = await db
 		.select({
 			provider: billingUsageCharges.provider,
@@ -48,7 +51,7 @@ export async function sumLedgerCostByProviderModel(
 			and(
 				gte(billingUsageCharges.occurredAt, params.sinceInclusive),
 				lt(billingUsageCharges.occurredAt, params.untilExclusive),
-				sql`COALESCE(json_extract(${billingUsageCharges.metadata}, '$.gatewayId'), ${params.gatewayId}) = ${params.gatewayId}`,
+				sql`COALESCE(${jsonRead(db, billingUsageCharges.metadata, ["gatewayId"])}, ${params.gatewayId}) = ${params.gatewayId}`,
 			),
 		)
 		.groupBy(billingUsageCharges.provider, billingUsageCharges.model);
@@ -65,6 +68,7 @@ export async function getGatewayLedgerCharges(
 	db: DbQueryClient,
 	params: { gatewayId: string; gatewayLogIds: string[] },
 ) {
+	const billingUsageCharges = coreTable(db, schemaBillingUsageCharges);
 	const rows = [];
 	for (const ids of chunkForBoundParams(params.gatewayLogIds, 50)) {
 		rows.push(
@@ -77,8 +81,8 @@ export async function getGatewayLedgerCharges(
 				.from(billingUsageCharges)
 				.where(
 					and(
-						inArray(billingUsageCharges.gatewayLogId, ids),
-						sql`COALESCE(json_extract(${billingUsageCharges.metadata}, '$.gatewayId'), ${params.gatewayId}) = ${params.gatewayId}`,
+						anyIds(db, billingUsageCharges.gatewayLogId, ids),
+						sql`COALESCE(${jsonRead(db, billingUsageCharges.metadata, ["gatewayId"])}, ${params.gatewayId}) = ${params.gatewayId}`,
 					),
 				)),
 		);
@@ -107,6 +111,10 @@ export async function replaceGatewayReconciliationDay(
 		if (row.day !== params.day || row.gatewayId !== params.gatewayId)
 			throw new Error("Reconciliation row does not belong to the replaced day");
 	}
+	const billingGatewayReconciliations = coreTable(
+		db,
+		schemaBillingGatewayReconciliations,
+	);
 	const remove = db
 		.delete(billingGatewayReconciliations)
 		.where(
@@ -125,6 +133,10 @@ export async function replaceGatewayReconciliationDay(
 export async function getLatestGatewayReconciliation(
 	db: DbQueryClient,
 ): Promise<BillingGatewayReconciliationRow[]> {
+	const billingGatewayReconciliations = coreTable(
+		db,
+		schemaBillingGatewayReconciliations,
+	);
 	return db
 		.select()
 		.from(billingGatewayReconciliations)

@@ -1,9 +1,11 @@
 import { DYNAMIC_WORKER_PROVIDER } from "@tedix/api-contract/utils/credit-pricing";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import { anyIds, coreStore, jsonRead } from "../../core-store/dialect";
 import {
-	billingUsageCharges,
-	billingUsageReservations,
+	billingUsageCharges as schemaBillingUsageCharges,
+	billingUsageReservations as schemaBillingUsageReservations,
 } from "../../schema/billing";
 import { chunkForBoundParams } from "../../utils/batch";
 
@@ -28,14 +30,14 @@ export async function sumRunCreditsByRun(
 ): Promise<Map<string, RunCreditTotal>> {
 	const byRun = new Map<string, RunCreditTotal>();
 	const workspaceChat = input.workspaceChat;
-	const charge = billingUsageCharges;
-	const reservation = billingUsageReservations;
+	const charge = coreTable(db, schemaBillingUsageCharges);
+	const reservation = coreTable(db, schemaBillingUsageReservations);
 	const runId = sql<
 		string | null
-	>`COALESCE(${reservation.runId}, json_extract(${charge.metadata}, '$.runId'))`;
+	>`COALESCE(${reservation.runId}, ${jsonRead(db, charge.metadata, ["runId"])})`;
 	const requestField = (field: string) =>
-		sql`COALESCE(json_extract(${reservation.metadata}, ${`$.${field}`}), json_extract(${charge.metadata}, ${`$.reservation.${field}`}))`;
-	const chargeRunId = sql<string>`json_extract(${charge.metadata}, '$.runId')`;
+		sql`COALESCE(${jsonRead(db, reservation.metadata, [field])}, ${jsonRead(db, charge.metadata, ["reservation", field])})`;
+	const chargeRunId = sql<string>`${jsonRead(db, charge.metadata, ["runId"])}`;
 	// Each run ID is bound in both candidate branches and the effective-run check.
 	for (const runIds of chunkForBoundParams([...new Set(input.runIds)], 28)) {
 		const reservations = db
@@ -44,7 +46,7 @@ export async function sumRunCreditsByRun(
 			.where(
 				and(
 					eq(reservation.organizationId, input.organizationId),
-					inArray(reservation.runId, runIds),
+					anyIds(db, reservation.runId, runIds),
 				),
 			);
 		const rows = await db
@@ -65,21 +67,25 @@ export async function sumRunCreditsByRun(
 				and(
 					// Keep the outer tenant guard out of index selection: the OR
 					// branches seek by reservation or wallet run, never the whole org.
-					sql`+${charge.organizationId} = ${input.organizationId}`,
+					coreStore(db) === "postgres"
+						? sql`${charge.organizationId} = ${input.organizationId}`
+						: sql`+${charge.organizationId} = ${input.organizationId}`,
 					or(
 						// bound-params: SQL subquery; its run IDs use the 28-value chunk above.
 						inArray(charge.reservationId, reservations),
 						and(
 							eq(charge.organizationId, input.organizationId),
-							inArray(chargeRunId, runIds),
+							anyIds(db, chargeRunId, runIds),
 						),
 					),
 					sql`${charge.provider} <> ${DYNAMIC_WORKER_PROVIDER}`,
-					inArray(runId, runIds),
+					anyIds(db, runId, runIds),
 					workspaceChat
 						? and(
 								// Filter the period after seeking runs, not via an org-period scan.
-								sql`+${charge.occurredAt} >= ${workspaceChat.periodStart}`,
+								coreStore(db) === "postgres"
+									? sql`${charge.occurredAt} >= ${workspaceChat.periodStart}`
+									: sql`+${charge.occurredAt} >= ${workspaceChat.periodStart}`,
 								sql`${requestField("source")} = 'workspace_chat'`,
 								sql`${requestField("workspaceId")} = ${workspaceChat.workspaceId}`,
 							)

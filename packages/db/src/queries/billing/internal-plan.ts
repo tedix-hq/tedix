@@ -1,10 +1,15 @@
 import { and, eq, exists, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
-import { auditEvents } from "../../schema/audit-events";
-import { billingAccounts } from "../../schema/billing";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonParameter, jsonRead } from "../../core-store/dialect";
+import { auditEvents as schemaAuditEvents } from "../../schema/audit-events";
+import {
+	billingAccounts as schemaBillingAccounts,
+	billingUsageReservations as schemaBillingUsageReservations,
+} from "../../schema/billing";
 import {
 	DEFAULT_ORGANIZATION_FEATURES_BY_PLAN,
-	organizations,
+	organizations as schemaOrganizations,
 	type OrganizationFeaturePlanKey,
 } from "../../schema/organizations";
 import { getOrganizationById } from "../organizations";
@@ -23,6 +28,12 @@ export async function assignInternalPlan(
 ) {
 	const auditId = `internal-plan:${input.organizationId}:${input.idempotencyKey}`;
 	const request = JSON.stringify(input);
+	const auditEvents = coreTable(db, schemaAuditEvents);
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	const [receipt] = await db
 		.select()
 		.from(auditEvents)
@@ -57,7 +68,7 @@ export async function assignInternalPlan(
 			assignedAt: now,
 		},
 	};
-	const noReservations = sql`NOT EXISTS (SELECT 1 FROM billing_usage_reservations WHERE organization_id = ${input.organizationId} AND status = 'reserved' AND expires_at > ${now})`;
+	const noReservations = sql`NOT EXISTS (SELECT 1 FROM ${billingUsageReservations} WHERE ${billingUsageReservations.organizationId} = ${input.organizationId} AND ${billingUsageReservations.status} = 'reserved' AND ${billingUsageReservations.expiresAt} > ${now})`;
 	const accountFence = and(
 		eq(
 			billingAccounts.entitlementVersion,
@@ -69,7 +80,7 @@ export async function assignInternalPlan(
 	);
 	const assignedAccount = and(
 		eq(billingAccounts.organizationId, input.organizationId),
-		sql`json_extract(${billingAccounts.metadata}, '$.internalPlanAssignment.request') = ${request}`,
+		sql`${jsonRead(db, billingAccounts.metadata, ["internalPlanAssignment", "request"])} = ${request}`,
 		eq(
 			billingAccounts.entitlementVersion,
 			(current?.account.entitlementVersion ?? 0) + 1,
@@ -82,6 +93,10 @@ export async function assignInternalPlan(
 			.where(assignedAccount),
 	);
 	// Each dependent write shares the successful account CAS inside D1's atomic batch.
+	const organizations = coreTable(db, schemaOrganizations);
+	const defaults = JSON.stringify(
+		DEFAULT_ORGANIZATION_FEATURES_BY_PLAN[input.planKey],
+	);
 	await db.batch([
 		db
 			.insert(billingAccounts)
@@ -115,7 +130,10 @@ export async function assignInternalPlan(
 		db
 			.update(organizations)
 			.set({
-				features: sql`json_patch(${JSON.stringify(DEFAULT_ORGANIZATION_FEATURES_BY_PLAN[input.planKey])}, CASE json_type(${organizations.features}, '$.os') WHEN 'true' THEN '{"os":true}' WHEN 'false' THEN '{"os":false}' ELSE '{}' END)`,
+				features:
+					coreStore(db) === "postgres"
+						? sql`(${defaults}::jsonb || CASE WHEN jsonb_typeof(${organizations.features} -> 'os') = 'boolean' THEN jsonb_build_object('os', ${organizations.features} -> 'os') ELSE '{}'::jsonb END)`
+						: sql`json_patch(${defaults}, CASE json_type(${organizations.features}, '$.os') WHEN 'true' THEN '{"os":true}' WHEN 'false' THEN '{"os":false}' ELSE '{}' END)`,
 				updatedAt: now,
 			})
 			.where(and(eq(organizations.id, input.organizationId), assigned)),
@@ -135,7 +153,7 @@ export async function assignInternalPlan(
 						resourceType: sql<string>`'billing_account'`.as("resource_type"),
 						resourceId: sql<string>`${input.organizationId}`.as("resource_id"),
 						metadata:
-							sql<string>`${JSON.stringify({ request, planVersionId: plan.id, previousPlanVersionId: current?.plan.id ?? null, actor, reason: input.reason })}`.as(
+							sql<string>`${jsonParameter(db, { request, planVersionId: plan.id, previousPlanVersionId: current?.plan.id ?? null, actor, reason: input.reason })}`.as(
 								"metadata",
 							),
 						ipAddress: sql<null>`NULL`.as("ip_address"),
