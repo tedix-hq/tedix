@@ -70,6 +70,7 @@ function planRow(planKey: string, offersPayAsYouGo: boolean) {
 		planKey,
 		name: planKey,
 		allowOverage: offersPayAsYouGo,
+		metadata: { stripeCatalogVersion: 7 },
 	};
 }
 
@@ -112,10 +113,10 @@ describe("subscription checkout", () => {
 			expect(result.stripeEnvironment).toBe(mode);
 			expect(
 				stripe.prices.list.mock.calls.map(([params]) => params.lookup_keys),
-			).toEqual([["tedix_growth_year_v4"], ["tedix_credits_payg_eur_v1"]]);
+			).toEqual([["tedix_growth_year_v7"], ["tedix_credits_payg_eur_v1"]]);
 			const [params] = stripe.checkout.sessions.create.mock.calls[0];
 			expect(params.line_items).toEqual([
-				{ price: "price_for_tedix_growth_year_v4", quantity: 1 },
+				{ price: "price_for_tedix_growth_year_v7", quantity: 1 },
 				{ price: "price_for_tedix_credits_payg_eur_v1" },
 			]);
 		});
@@ -147,10 +148,10 @@ describe("subscription checkout", () => {
 
 		expect(
 			stripe.prices.list.mock.calls.map(([params]) => params.lookup_keys),
-		).toEqual([["tedix_enterprise_month_v4"]]);
+		).toEqual([["tedix_enterprise_month_v7"]]);
 		const [params] = stripe.checkout.sessions.create.mock.calls[0];
 		expect(params.line_items).toEqual([
-			{ price: "price_for_tedix_enterprise_month_v4", quantity: 1 },
+			{ price: "price_for_tedix_enterprise_month_v7", quantity: 1 },
 		]);
 	});
 
@@ -164,7 +165,7 @@ describe("subscription checkout", () => {
 		await expect(
 			client.createCheckout({ tier: "business", interval: "month" }),
 		).rejects.toThrow(
-			"Stripe has no active price with lookup key tedix_business_month_v4",
+			"Stripe has no active price with lookup key tedix_business_month_v7",
 		);
 		expect(stripe.checkout.sessions.create).not.toHaveBeenCalled();
 	});

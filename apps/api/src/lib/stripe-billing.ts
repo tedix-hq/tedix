@@ -10,16 +10,31 @@ import type Stripe from "stripe";
  * installation only needs a Stripe account whose active prices carry these
  * keys (`scripts/billing/reconcile-stripe.ts` creates them).
  */
-const STRIPE_CATALOG_VERSION = 4;
 
 /** The metered pay-as-you-go credit price (EUR 0.01 per credit). */
 export const STRIPE_CREDIT_PAYG_LOOKUP_KEY = "tedix_credits_payg_eur_v1";
 
+/**
+ * The catalog version is operator data carried on the plan row as
+ * `metadata.stripeCatalogVersion`: the ops billing-catalog apply writes it
+ * beside the prices it sells, and public seeds mark only their example rows.
+ * A plan without it cannot name a lookup key.
+ */
 export function stripePlanPriceLookupKey(
-	planKey: BillingPlanKey,
+	plan: Pick<BillingPlanVersion, "planKey" | "metadata">,
 	interval: "month" | "year",
 ): string {
-	return `tedix_${planKey}_${interval}_v${STRIPE_CATALOG_VERSION}`;
+	const catalogVersion = plan.metadata?.stripeCatalogVersion;
+	if (
+		typeof catalogVersion !== "number" ||
+		!Number.isInteger(catalogVersion) ||
+		catalogVersion < 1
+	) {
+		throw new Error(
+			`Billing plan ${plan.planKey} has no Stripe catalog version`,
+		);
+	}
+	return `tedix_${plan.planKey}_${interval}_v${catalogVersion}`;
 }
 
 const PLAN_PRICE_LOOKUP_KEY = new RegExp(

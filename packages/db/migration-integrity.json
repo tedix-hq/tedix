@@ -2068,6 +2068,10 @@
 		{
 			"name": "20261125222213_external-agent-session-scopes/migration.sql",
 			"sha256": "d5c33fd2b3b915f3135847b676fc395fd45ba92396737338d70150f59f082dd8"
+		},
+		{
+			"name": "20261125224500_example-billing-catalog/migration.sql",
+			"sha256": "a505030209de86fc1638c9af1dd942bcb53cd0cf3328f17305f01cd90e0b183d"
 		}
 	]
 }

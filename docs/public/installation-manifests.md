@@ -32,16 +32,16 @@ the manifest's entitlement grants through the non-secret
 
 Managed settlement finds every Stripe price by lookup key; no Stripe product
 or price id is stored in the installation. The Stripe account (live or test,
-matching `TEDIX_STRIPE_MODE`) needs an active EUR price for each key:
+matching `TEDIX_STRIPE_MODE`) needs an active EUR price for each plan the
+catalog sells, one per billing interval. Plan lookup keys carry the catalog
+version recorded on the plan row (`metadata.stripeCatalogVersion`), which the
+operator catalog apply writes; public seeds mark only their example catalog.
+Two keys are fixed public contract and do not vary with the catalog:
 
-- plans: `tedix_growth_month_v4`, `tedix_growth_year_v4`,
-  `tedix_business_month_v4`, `tedix_business_year_v4`,
-  `tedix_enterprise_month_v4`, `tedix_enterprise_year_v4`;
 - pay-as-you-go credits (metered, EUR 0.01 per credit):
   `tedix_credits_payg_eur_v1`;
-- one-time credit packs: `tedix_credits_1000_eur_v1`,
-  `tedix_credits_5000_eur_v1`, `tedix_credits_10000_eur_v1`,
-  `tedix_credits_25000_eur_v1`, `tedix_credits_50000_eur_v1`.
+- one-time credit packs: `tedix_credits_<credits>_eur_v1` for each pack size
+  the catalog offers (for example `tedix_credits_1000_eur_v1`).
 
 The reconciler requires an operator-owned JSON catalog: run
 `apps/api/scripts/billing/reconcile-stripe.ts --catalog /private/billing.json`

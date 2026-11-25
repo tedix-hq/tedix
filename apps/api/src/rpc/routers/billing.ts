@@ -375,7 +375,7 @@ const createCheckoutContract = os.createCheckout
 		// plan that offers it. Nothing is metered until an admin opts in.
 		const priceId = await requireStripePriceByLookupKey(
 			stripe,
-			stripePlanPriceLookupKey(plan.planKey, input.interval),
+			stripePlanPriceLookupKey(plan, input.interval),
 		);
 		const lineItems: Array<{ price: string; quantity?: number }> = [
 			{ price: priceId, quantity: 1 },
