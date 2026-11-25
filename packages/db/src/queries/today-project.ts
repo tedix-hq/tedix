@@ -49,6 +49,10 @@ export async function getTodayProjectTotals(
 	const o = alias(workspaceOutputIndex, "o");
 	const l = alias(osWorkspaceProjects, "l");
 	const s = alias(osWorkspaces, "s");
+	// CROSS JOIN fixes the loop order: the project's workspace links drive the
+	// workspace and output seeks. Starting from workspace_output_index made the
+	// planner scan every index row of the organization (15k rows a call on
+	// 20 Nov 2026) before the project and workspace filters applied.
 	const documents = db.$with("documents").as(
 		db
 			.selectDistinct({
@@ -59,29 +63,24 @@ export async function getTodayProjectTotals(
 						"updated_at",
 					),
 			})
-			.from(o)
-			.innerJoin(
-				l,
-				and(
-					eq(l.workspaceId, o.workspaceId),
-					eq(l.organizationId, o.organizationId),
-				),
-			)
-			.innerJoin(
-				s,
-				and(eq(s.id, l.workspaceId), eq(s.organizationId, l.organizationId)),
-			)
+			.from(l)
+			.crossJoin(s)
+			.crossJoin(o)
 			.where(
 				and(
-					eq(o.organizationId, p.orgId),
+					eq(l.organizationId, p.orgId),
 					eq(l.projectId, p.projectId),
 					eq(l.status, "active"),
-					ne(o.outputId, p.excludeOutputId),
+					eq(s.id, l.workspaceId),
+					eq(s.organizationId, l.organizationId),
+					eq(o.organizationId, l.organizationId),
+					eq(o.workspaceId, l.workspaceId),
 					eq(s.visibility, "org"),
 					eq(s.status, "active"),
 					eq(o.outputKind, "document"),
 					eq(o.status, "active"),
 					eq(o.isCurrent, 1),
+					ne(o.outputId, p.excludeOutputId),
 				),
 			),
 	);
