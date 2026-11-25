@@ -59,6 +59,7 @@ import { readRunners, setRunnerField } from "./runners-file";
 import {
 	type AppSignIn,
 	onSetupChange,
+	readAgentStatus,
 	refreshSetup,
 	saveSettings,
 	setAppSignIn,
@@ -117,6 +118,7 @@ const PANEL_LINKS: Record<
 	Exclude<PanelLink, keyof typeof APP_LINKS>,
 	string
 > = {
+	"claude-connectors": "https://claude.ai/settings/connectors",
 	"install-claude-code": "https://claude.com/product/claude-code",
 	"install-codex": "https://openai.com/codex/",
 };
@@ -2548,6 +2550,7 @@ else if (process.argv.includes("--local-model")) {
 			// While a browser sign-in is waiting, notice when it ends.
 			if (appSignIn.waiting) void readAppSignIn();
 		}, 5000);
+		setInterval(() => void refreshSetup(false).then(readAgentStatus), 60_000);
 		onSetupChange(() => void publish());
 		onCliChange(() => void refreshSetup(false).then(refresh));
 		void refreshSetup(true).then(async () => {

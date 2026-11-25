@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	agentConnectionProblem,
+	agentGrant,
+	duplicateClaudeConnection,
 	devinConnection,
 	opencodeConnection,
 	recentConnectionCheck,
@@ -121,5 +124,83 @@ test("Devin's Tedix connection has to finish successfully", () => {
 	assert.equal(
 		devinConnection(`${origin}Connecting to MCP server 'tedix'`),
 		undefined,
+	);
+});
+
+test("an expired or expiring grant wins over a recent successful call", () => {
+	const now = Date.parse("2026-11-25T12:00:00Z");
+	const grant = {
+		status: "active" as const,
+		providerStatus: "present" as const,
+		expiresAt: new Date(now + 600_000).toISOString(),
+		lastSuccessfulCallAt: new Date(now - 1000).toISOString(),
+	};
+	const input = {
+		connection: "signed-in" as const,
+		mismatch: false,
+		grant,
+		now,
+	};
+	assert.equal(agentConnectionProblem(input)?.action, "signin");
+	assert.equal(
+		agentConnectionProblem({ ...input, now: now + 600_000 })?.action,
+		"signin",
+	);
+	assert.equal(
+		agentConnectionProblem({ ...input, grant: { ...grant, expiresAt: null } }),
+		undefined,
+	);
+	assert.equal(
+		agentConnectionProblem({
+			...input,
+			grant: { ...grant, expiresAt: null, providerStatus: "unavailable" },
+		})?.action,
+		"check",
+	);
+	assert.equal(
+		agentConnectionProblem({ ...input, mismatch: true })?.action,
+		"account",
+	);
+	assert.equal(
+		agentConnectionProblem({ ...input, duplicate: true })?.action,
+		"remove",
+	);
+});
+
+test("only an unambiguous agent grant is used and an unrelated connector is not a duplicate", () => {
+	const grant = {
+		mcpServerId: "connect",
+		clientId: "client",
+		clientName: "Claude Code",
+		revision: "00000000-0000-4000-8000-000000000001",
+		status: "active" as const,
+		providerStatus: "present" as const,
+		selectedTenantIds: ["example"],
+		approvedScopes: [],
+		updatedAt: "today",
+	};
+	assert.equal(agentGrant("claude", [grant]), grant);
+	assert.equal(
+		agentGrant("claude", [grant, { ...grant, clientId: "other" }]),
+		undefined,
+	);
+	assert.equal(agentGrant("codex", [grant]), undefined);
+	assert.equal(
+		duplicateClaudeConnection(
+			"claude.ai Tedix: https://connect.mcp.tedix.dev/mcp (HTTP) - Connected",
+		),
+		true,
+	);
+	assert.equal(
+		duplicateClaudeConnection(
+			"claude.ai Other: https://other.example/mcp - Connected",
+		),
+		false,
+	);
+	assert.equal(
+		duplicateClaudeConnection(
+			"plugin:tedix:tedix: https://connect.mcp.tedix.dev/mcp - Connected",
+		),
+		false,
 	);
 });

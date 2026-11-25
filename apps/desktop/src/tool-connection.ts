@@ -1,3 +1,4 @@
+import type { McpAuthorization } from "@tedix/api-contract/schemas/mcp-grant";
 export type Connection = "signed-in" | "signed-out" | "unknown";
 
 /** Only compare emails; an opaque ID cannot be compared to the app's email. */
@@ -76,4 +77,86 @@ export function toolConnection(
 ): Connection {
 	if (live === "signed-out") return live;
 	return verified || live === "signed-in" ? "signed-in" : "unknown";
+}
+
+export type AgentGrant = Pick<
+	McpAuthorization,
+	"status" | "providerStatus" | "expiresAt" | "lastSuccessfulCallAt"
+>;
+
+/** A client name is not an installation id; never pick one of several matches. */
+export function agentGrant(
+	id: string,
+	grants: McpAuthorization[],
+): AgentGrant | undefined {
+	const names: Record<string, RegExp> = {
+		claude: /^claude[ -]code$/i,
+		codex: /^codex(?: cli)?$/i,
+		devin: /^devin$/i,
+		opencode: /^opencode$/i,
+	};
+	const matches = grants.filter((grant) =>
+		names[id]?.test(grant.clientName ?? ""),
+	);
+	return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function duplicateClaudeConnection(output: string): boolean {
+	const lines = output.replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/);
+	return lines.some(
+		(line) =>
+			/claude\.ai/i.test(line) &&
+			/https:\/\/connect\.mcp\.tedix\.dev\/mcp(?:[\s)]|$)/.test(line),
+	);
+}
+
+export type ConnectionProblem = {
+	text: string;
+	action: "signin" | "account" | "remove" | "check";
+};
+export function agentConnectionProblem(input: {
+	connection: Connection | "checking";
+	mismatch: boolean;
+	duplicate?: boolean;
+	grant?: AgentGrant;
+	grantUnavailable?: boolean;
+	now: number;
+}): ConnectionProblem | undefined {
+	if (input.mismatch)
+		return {
+			text: "This agent is signed in to a different Tedix account.",
+			action: "account",
+		};
+	if (input.duplicate)
+		return {
+			text: "Two Tedix connections: the Claude connector can replace the plugin. Check connection uses the plugin. Remove the extra Tedix connector in Claude to use the plugin in your chats too.",
+			action: "remove",
+		};
+	const grant = input.grant;
+	const expiry = grant?.expiresAt ? Date.parse(grant.expiresAt) : NaN;
+	if (
+		input.connection === "signed-out" ||
+		grant?.status === "revoked" ||
+		grant?.providerStatus === "missing" ||
+		expiry <= input.now
+	)
+		return {
+			text: "Your Tedix sign-in has ended. Sign in again before running tasks.",
+			action: "signin",
+		};
+	if (expiry <= input.now + 10 * 60_000)
+		return {
+			text: "Your Tedix sign-in ends within 10 minutes.",
+			action: "signin",
+		};
+	if (
+		input.grantUnavailable ||
+		grant?.providerStatus === "unavailable" ||
+		grant?.providerStatus === "not_checked"
+	)
+		return {
+			text: "Tedix could not check this sign-in right now.",
+			action: "check",
+		};
+	return undefined;
 }

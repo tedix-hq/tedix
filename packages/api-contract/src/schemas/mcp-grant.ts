@@ -167,6 +167,7 @@ export const VerifyHumanMcpGrantResultSchema = z.strictObject({
 });
 
 export const ListMcpAuthorizationsInputSchema = z.strictObject({
+	resourceUrl: z.url().max(2048).optional(),
 	limit: z.number().int().min(1).max(50).default(20),
 	offset: z.number().int().min(0).max(10000).default(0),
 });
@@ -177,6 +178,10 @@ export const McpAuthorizationSchema = z.strictObject({
 	revision: z.uuid(),
 	status: z.enum(["active", "revoked"]),
 	providerStatus: z.enum(["present", "missing", "unavailable", "not_checked"]),
+	/** Null when the provider supplies no expiry, or cannot be checked. */
+	expiresAt: z.string().nullable().optional(),
+	/** Most recent successful call observed in the last day, not a fresh probe. */
+	lastSuccessfulCallAt: z.string().nullable().optional(),
 	selectedTenantIds: z.array(z.string()),
 	approvedScopes: z.array(z.string()),
 	updatedAt: z.string(),

@@ -64,7 +64,7 @@ export const listMcpAuthorizationsContract =
 				context.db,
 				context.env,
 				context.user.sub,
-				input,
+				{ ...input, organizationId: context.organizationId },
 			);
 		});
 /**

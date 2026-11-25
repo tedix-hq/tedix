@@ -172,6 +172,7 @@
       "name": "@tedix/desktop",
       "version": "0.1.0",
       "devDependencies": {
+        "@tedix/api-contract": "workspace:*",
         "@tedix/auth": "workspace:*",
         "@tedix/tsconfig": "workspace:*",
         "@types/node": "catalog:",

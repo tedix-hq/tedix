@@ -37,6 +37,7 @@ import {
 	recordInboundClientVerdict,
 } from "./mcp-inbound-client-policy";
 import { ProviderFactsCache } from "./provider-facts-cache";
+import { listAnalyticsAuditActivityWindow } from "@tedix/db/queries/analytics-audit";
 
 export interface SelectedMcpOrganization {
 	organizationId: string;
@@ -884,12 +885,35 @@ export async function listHumanMcpAuthorizations(
 	db: DbClient,
 	env: CloudflareEnv,
 	descopeUserId: string,
-	input: { limit: number; offset: number },
+	input: {
+		limit: number;
+		offset: number;
+		resourceUrl?: string;
+		organizationId?: string;
+	},
 ) {
+	const resource = input.resourceUrl
+		? await getMcpConsentResource(db, { resourceUrl: input.resourceUrl })
+		: null;
+	const serverId = resource?.metadata?.mcpConfig?.descopeResourceId;
+	if (input.resourceUrl && typeof serverId !== "string")
+		return { items: [], hasMore: false };
+	const activity =
+		input.organizationId && resource
+			? await listAnalyticsAuditActivityWindow(db, {
+					organizationId: input.organizationId,
+					appId: resource.appId,
+					actorId: descopeUserId,
+					startSeconds: Math.floor(Date.now() / 1000) - 86400,
+					endSeconds: Math.floor(Date.now() / 1000),
+					limit: 100,
+				}).catch(() => [])
+			: [];
 	const rows = await listMcpConsentSelections(db, {
 		descopeUserId,
 		limit: input.limit + 1,
 		offset: input.offset,
+		...(typeof serverId === "string" ? { mcpServerId: serverId } : {}),
 	});
 	const management = env.DESCOPE_MANAGEMENT_KEY
 		? getManagementClient(env)
@@ -897,6 +921,7 @@ export async function listHumanMcpAuthorizations(
 	const items = await Promise.all(
 		rows.slice(0, input.limit).map(async (row) => {
 			let clientName: string | null = null;
+			let expiresAt: string | null = null;
 			let providerStatus:
 				| "present"
 				| "missing"
@@ -940,21 +965,50 @@ export async function listHumanMcpAuthorizations(
 						consents.value?.ok &&
 						Array.isArray(consents.value.data)
 					) {
+						const matching =
+							registered.length === 1
+								? consents.value.data.filter(
+										(consent) =>
+											consent.appId === row.appId &&
+											consent.userId === descopeUserId &&
+											!consent.blocked &&
+											row.approvedScopes.every((scope) =>
+												consent.scopes.includes(scope),
+											),
+									)
+								: [];
+						// Any non-expiring matching consent keeps this client authorized.
+						const unlimited = matching.some((consent) => !consent.ExpireTime);
+						const expiry = Math.max(
+							0,
+							...matching.map((consent) => consent.ExpireTime ?? 0),
+						);
+						expiresAt =
+							!unlimited && expiry > 0
+								? new Date(expiry * 1000).toISOString()
+								: null;
 						providerStatus =
-							registered.length === 1 &&
-							consents.value.data.some(
-								(consent) =>
-									consent.appId === row.appId &&
-									consent.userId === descopeUserId &&
-									row.approvedScopes.every((scope) =>
-										consent.scopes.includes(scope),
-									),
-							)
+							matching.length && (unlimited || expiry * 1000 > Date.now())
 								? "present"
 								: "missing";
 					}
 				}
 			}
+			const lastCall = activity.find(
+				(event) =>
+					event.action === "mcp.tool.execute" &&
+					!event.errorCode &&
+					event.actorType === "user" &&
+					event.actorId === descopeUserId &&
+					(event.oauthClientId ?? event.clientId) === row.clientId,
+			);
+			const lastSuccessfulCallAt = lastCall
+				? new Date(
+						typeof lastCall.timestamp === "number"
+							? lastCall.timestamp * 1000
+							: lastCall.timestamp,
+					).toISOString()
+				: null;
 			return {
 				mcpServerId: row.mcpServerId,
 				clientId: row.clientId,
@@ -962,6 +1016,8 @@ export async function listHumanMcpAuthorizations(
 				revision: row.revision,
 				status: row.status,
 				providerStatus,
+				expiresAt,
+				lastSuccessfulCallAt,
 				selectedTenantIds: row.selectedTenantIds,
 				approvedScopes: row.approvedScopes,
 				updatedAt: row.updatedAt,

@@ -2,6 +2,7 @@ import type { PanelApi, PanelState } from "./api";
 import { icon, type IconName } from "./icons";
 import type { SessionProject, StepRun, ToolRow } from "./setup";
 import type { RunnerRow } from "./status";
+import { agentConnectionProblem, tedixAccountSummary } from "./tool-connection";
 
 /**
  * What Settings and the first-run setup share: small element
@@ -337,6 +338,40 @@ export function toolView(
 			tone: "warn",
 			sub: `Tedix is turned off in ${tool.name}`,
 			action: checkAgain(),
+		};
+	const problem = agentConnectionProblem({
+		connection: tool.connection,
+		duplicate: tool.duplicateConnection,
+		grant: tool.grant,
+		grantUnavailable: tool.grantUnavailable,
+		mismatch: tedixAccountSummary(
+			tool.tedixAccount,
+			state.setup.app.state === "in" ? state.setup.app.email : "",
+		).mismatch,
+		now: Date.now(),
+	});
+	if (problem)
+		return {
+			...base,
+			ready: false,
+			tone: "warn",
+			sub: problem.text,
+			action:
+				problem.action === "remove"
+					? button("Remove", "plain", () =>
+							tedixShell.open("claude-connectors"),
+						)
+					: problem.action === "check"
+						? checkAgain()
+						: tool.canSignIn
+							? plain(
+									problem.action === "account"
+										? "Sign in as you"
+										: "Sign in again",
+									"connect",
+									"Signing in…",
+								)
+							: openAgentApp(state, tool),
 		};
 	const needsConnection =
 		tool.connection === "signed-out" ||

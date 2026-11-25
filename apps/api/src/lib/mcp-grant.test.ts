@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 	loadDescopeMcpServer: vi.fn(),
 	allowDescopeClientPartialScopes: vi.fn(async () => undefined),
 	listMcpConsentSelections: vi.fn(),
+	listAnalyticsAuditActivityWindow: vi.fn(),
 	disableMcpConsentSelection: vi.fn(),
 	getMcpConsentSelection: vi.fn(),
 	getMcpConsentGrant: vi.fn(),
@@ -44,6 +45,10 @@ vi.mock("cloudflare:workers", () => ({
 			}) => Promise<unknown>,
 		) => callback({ setAttribute: mocks.setAttribute }),
 	},
+}));
+
+vi.mock("@tedix/db/queries/analytics-audit", () => ({
+	listAnalyticsAuditActivityWindow: mocks.listAnalyticsAuditActivityWindow,
 }));
 
 vi.mock("@tedix/db/queries/mcp-consent", () => ({
@@ -2172,6 +2177,99 @@ describe("human authorization management", () => {
 				name: "ChatGPT",
 			},
 		]);
+	});
+	it("reports expiry and blocked grants despite recent successful calls, scoped to this person and resource", async () => {
+		const { listHumanMcpAuthorizations } = await import("./mcp-grant");
+		mocks.getMcpConsentResource.mockResolvedValue({
+			appId: "gateway",
+			metadata: { mcpConfig: { descopeResourceId: "server-1" } },
+		});
+		const now = Math.floor(Date.now() / 1000);
+		mocks.listAnalyticsAuditActivityWindow.mockResolvedValue([
+			{
+				action: "mcp.tool.error",
+				actorType: "user",
+				actorId: "user-1",
+				clientId: "client-1",
+				timestamp: now,
+			},
+			{
+				action: "mcp.tool.execute",
+				actorType: "user",
+				actorId: "other",
+				clientId: "client-1",
+				timestamp: now,
+			},
+			{
+				action: "mcp.tool.execute",
+				actorType: "user",
+				actorId: "user-1",
+				clientId: "other",
+				timestamp: now,
+			},
+			{
+				action: "mcp.tool.execute",
+				actorType: "user",
+				actorId: "user-1",
+				clientId: "client-1",
+				timestamp: now - 60,
+			},
+		]);
+		const consent = {
+			appId: "app-1",
+			userId: "user-1",
+			scopes: ["mcp:apps.read"],
+			ExpireTime: now + 300,
+		};
+		mocks.searchConsents.mockResolvedValue({ ok: true, data: [consent] });
+		const read = () =>
+			listHumanMcpAuthorizations({} as never, env, "user-1", {
+				limit: 20,
+				offset: 0,
+				resourceUrl: "https://connect.example.com/mcp",
+				organizationId: "org-1",
+			});
+		expect((await read()).items[0]).toMatchObject({
+			providerStatus: "present",
+			expiresAt: new Date(consent.ExpireTime * 1000).toISOString(),
+			lastSuccessfulCallAt: new Date((now - 60) * 1000).toISOString(),
+		});
+		expect(mocks.listAnalyticsAuditActivityWindow).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({
+				organizationId: "org-1",
+				actorId: "user-1",
+				appId: "gateway",
+				limit: 100,
+			}),
+		);
+		expect(mocks.listMcpConsentSelections).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({
+				descopeUserId: "user-1",
+				mcpServerId: "server-1",
+			}),
+		);
+		mocks.searchConsents.mockResolvedValue({
+			ok: true,
+			data: [{ ...consent, ExpireTime: now - 1 }],
+		});
+		expect((await read()).items[0]).toMatchObject({
+			providerStatus: "missing",
+		});
+		mocks.searchConsents.mockResolvedValue({
+			ok: true,
+			data: [{ ...consent, blocked: true }],
+		});
+		expect((await read()).items[0]).toMatchObject({
+			providerStatus: "missing",
+			expiresAt: null,
+		});
+		mocks.searchConsents.mockRejectedValue(new Error("offline"));
+		expect((await read()).items[0]).toMatchObject({
+			providerStatus: "unavailable",
+			expiresAt: null,
+		});
 	});
 	it("does not call a staged row connected before exact provider consent exists", async () => {
 		const { listHumanMcpAuthorizations } = await import("./mcp-grant");

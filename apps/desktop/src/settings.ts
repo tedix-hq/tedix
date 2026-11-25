@@ -414,6 +414,13 @@ function tools(now: PanelState): Group[] {
 				"span",
 				"",
 				el("div", "", identity.text),
+				!identity.mismatch &&
+					tool.grant?.lastSuccessfulCallAt &&
+					el(
+						"div",
+						"",
+						`Last successful call: ${new Date(tool.grant.lastSuccessfulCallAt).toLocaleString()}`,
+					),
 				el(
 					"div",
 					"",
@@ -451,13 +458,18 @@ function tools(now: PanelState): Group[] {
 					tool.connection === "signed-in" &&
 					tool.readVerified &&
 					!view.working &&
+					!view.action &&
 					button("Check account", "quiet", () => act("verify", tool.id)),
 				// Held back from tasks, its connection still works: say so, so the
 				// row does not look broken beside the line that says why.
 				view.ready ? READY_MARK(limit ? "Connected" : "Ready") : view.action,
 				// Takes Tedix out so it can be connected fresh; it asks first.
 				// Only once the agent no longer takes tasks.
-				tool.tedix === "added" && !on && !view.working && removeButton(tool),
+				tool.tedix === "added" &&
+					!on &&
+					!view.working &&
+					!view.action &&
+					removeButton(tool),
 				toggle(
 					`Use ${tool.name} for tasks`,
 					on,

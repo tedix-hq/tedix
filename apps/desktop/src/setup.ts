@@ -10,6 +10,10 @@ import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
 import { app } from "electron";
+import {
+	ListMcpAuthorizationsResultSchema,
+	type McpAuthorization,
+} from "@tedix/api-contract/schemas/mcp-grant";
 import { type CliState, manageCli, readCli, restoreCli } from "./cli";
 import { codexAccount } from "./codex-account";
 import { checkDevinConnection } from "./devin-connection";
@@ -34,6 +38,9 @@ import {
 	toolPath,
 } from "./shell";
 import {
+	agentGrant,
+	duplicateClaudeConnection,
+	type AgentGrant,
 	type Connection,
 	tedixAccountSummary,
 	opencodeConnection,
@@ -307,6 +314,9 @@ export interface ToolRow {
 	account: Connection;
 	/** Last profile read from this agent's Tedix connection, when available. */
 	tedixAccount?: string;
+	grant?: AgentGrant;
+	grantUnavailable?: boolean;
+	duplicateConnection?: boolean;
 	desktop: boolean;
 	/** Both versions can be installed, but setup uses the desktop app's executable. */
 	bothInstalled: boolean;
@@ -471,6 +481,7 @@ let toolFacts: Record<
 		hasTedix: boolean;
 		connection: Connection;
 		providerAccount?: Connection;
+		duplicateConnection?: boolean;
 		signInWorks: boolean;
 		/** The standalone command, when Tedix uses the Mac app's own tool. */
 		other?: { command: string; version: string; connection?: Connection };
@@ -480,6 +491,8 @@ let toolFacts: Record<
 const verifiedPath = () => join(configDir(), "desktop-verified.json");
 type Verified = Partial<Record<Harness, VerifiedConnection>>;
 let verified: Verified | undefined;
+let serverGrants: McpAuthorization[] | undefined;
+let grantIdentity = "";
 // The connection may change outside this app. Never persist its account identity.
 const checkedAccounts: Partial<
 	Record<Harness, VerifiedConnection & { account: string }>
@@ -822,7 +835,7 @@ async function readRouting(): Promise<void> {
 
 /** The running read of the tools' status, so two refreshes share one. */
 let readingStatus: Promise<void> | undefined;
-function readAgentStatus(): Promise<void> {
+export function readAgentStatus(): Promise<void> {
 	readingStatus ??= readAgentStatusNow().finally(() => {
 		readingStatus = undefined;
 	});
@@ -850,6 +863,7 @@ async function readAgentStatusNow(): Promise<void> {
 				log(`setup: tool facts not read (${String(error)})`),
 			),
 		),
+		timed("grants", readConnectionGrants()),
 		timed(
 			"routing",
 			readRouting().catch((error: unknown) =>
@@ -880,6 +894,57 @@ async function readAgentStatusNow(): Promise<void> {
 	changed();
 }
 
+/** Reads the person's grants through Connect; never starts an agent or a model. */
+async function readConnectionGrants(): Promise<void> {
+	serverGrants = undefined;
+	const org = organization();
+	const identity = `${loginIdentity}:${org}`;
+	if (!signedIn || !org) return;
+	try {
+		const discovery = await tedix(
+			[
+				"-w",
+				"connect",
+				"--organization",
+				org,
+				"code",
+				'async () => await discover.search({query: "list_mcp_authorizations", limit: 5, includeMetadata: true})',
+				"--json",
+			],
+			{ timeoutMs: 30_000 },
+		);
+		if (!discovery.ok) return;
+		const listed = JSON.parse(discovery.output);
+		const rows = Array.isArray(listed) ? listed : listed.results;
+		const tool = rows?.find(
+			(row: {
+				authorized?: boolean;
+				schemaFreshness?: { sourceRef?: string };
+			}) =>
+				row.authorized === true &&
+				row.schemaFreshness?.sourceRef ===
+					"organizations/listMcpAuthorizations",
+		);
+		if (!tool || !/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*$/.test(tool.callable))
+			return;
+		const source = `async () => await ${tool.callable}({resourceUrl: ${JSON.stringify(CONNECT_URL)}, limit: 50, offset: 0})`;
+		const result = await tedix(
+			["-w", "connect", "--organization", org, "code", source, "--json"],
+			{ timeoutMs: 30_000 },
+		);
+		if (!result.ok) return;
+		const data = ListMcpAuthorizationsResultSchema.parse(
+			JSON.parse(result.output),
+		);
+		if (identity === `${loginIdentity}:${organization()}` && !data.hasMore) {
+			serverGrants = data.items;
+			grantIdentity = identity;
+		}
+	} catch {
+		// A failed background read must not report a cached grant as current.
+	}
+}
+
 /** Asks each tool that is here what it knows about its own Tedix connection. */
 async function readToolFacts(): Promise<void> {
 	const facts: typeof toolFacts = {};
@@ -904,6 +969,7 @@ async function readToolFacts(): Promise<void> {
 				providerAccount,
 				otherVersion,
 				otherConnection,
+				connections,
 			] = await Promise.all([
 				tool.hasTedix?.(command) ?? false,
 				tool.connection?.(command) ?? ("unknown" as const),
@@ -914,6 +980,9 @@ async function readToolFacts(): Promise<void> {
 					: undefined,
 				other ? versionOf(other) : "",
 				other && tool.separateSignIns ? tool.connection?.(other) : undefined,
+				tool.id === "claude"
+					? run(command, ["mcp", "list"], { timeoutMs: 45_000 })
+					: undefined,
 			]);
 			facts[tool.id] = {
 				command,
@@ -921,6 +990,9 @@ async function readToolFacts(): Promise<void> {
 				connection,
 				signInWorks,
 				providerAccount,
+				duplicateConnection: connections?.ok
+					? duplicateClaudeConnection(connections.output)
+					: undefined,
 				version,
 				other: other
 					? {
@@ -1059,6 +1131,20 @@ function toolRows(): ToolRow[] {
 			)
 		)
 			row.tedixAccount = checked?.account;
+		row.duplicateConnection =
+			row.tedix === "added" && facts.duplicateConnection;
+		row.grantUnavailable =
+			signedIn &&
+			(!serverGrants || grantIdentity !== `${loginIdentity}:${organization()}`);
+		if (grantIdentity === `${loginIdentity}:${organization()}` && serverGrants)
+			row.grant = agentGrant(
+				tool.id,
+				serverGrants.filter(
+					(grant) =>
+						grant.status === "revoked" ||
+						grant.selectedTenantIds.includes(organization()),
+				),
+			);
 		return row;
 	});
 }
@@ -1223,7 +1309,7 @@ export async function refreshSetup(deep: boolean): Promise<void> {
 	const was = signedIn;
 	await readSignIn();
 	changed();
-	if (deep || !agentStatus) void readAgentStatus();
+	if (deep || !agentStatus || signedIn !== was) void readAgentStatus();
 	if (deep || (signedIn && !was) || sessionOrganization !== organization())
 		void readSessionProjects();
 	if (deep || (signedIn && !was)) void checkReach();
