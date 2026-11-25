@@ -1,6 +1,7 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 
+import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import {
@@ -118,7 +119,7 @@ export async function assertWorkApprovalWakeAccepted(
 
 export async function wakePendingWorkApproval(
 	env: CloudflareEnv,
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	candidate: PendingTediWorkApproval,
 	nowMs = Date.now(),
 ): Promise<boolean> {

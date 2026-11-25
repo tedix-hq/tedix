@@ -25,6 +25,7 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 
+import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { listBaseAppsForCatalogApp } from "@tedix/db/queries/apps";
 import {
@@ -885,7 +886,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 	}
 
 	private async syncAutoSyncBaseApps(
-		db: ReturnType<typeof createDbClient>,
+		db: DbClient,
 		app: AppScanInfo,
 		firstPartyRelease?: FirstPartyRelease,
 	): Promise<void> {
@@ -1305,7 +1306,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 	 */
 	private async projectApp(
 		app: AppScanInfo,
-		db: ReturnType<typeof createDbClient>,
+		db: DbClient,
 	): Promise<McpScanResult> {
 		const startedAt = Date.now();
 		const checkedAt = new Date().toISOString();

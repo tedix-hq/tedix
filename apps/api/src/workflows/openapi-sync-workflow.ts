@@ -15,6 +15,7 @@ import type {
 	OpenApiImportResult,
 } from "@tedix/api-contract/schemas/catalog";
 
+import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { getAppById } from "@tedix/db/queries/app-records";
 import {
@@ -36,7 +37,7 @@ export type OpenApiSyncWorkflowInput = Partial<OpenApiImportInput> & {
 };
 
 async function projectLinkedOpenApiCatalogSnapshot(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	appId: string,
 ) {
 	const linked = await getLinkedOpenApiCatalogSnapshot(db, appId);

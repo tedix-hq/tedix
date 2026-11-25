@@ -56,6 +56,7 @@ import {
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 
+import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { syncCatalogMcpTools } from "@tedix/db/queries/catalog/mcp-tools";
 import {
@@ -967,7 +968,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 	}
 
 	private async reconcileSearch(
-		db: ReturnType<typeof createDbClient>,
+		db: DbClient,
 		step: WorkflowStep,
 		enabledCount: number,
 		/** Refresh only apps written since this time; all enabled apps when absent. */
@@ -1134,11 +1135,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 	/**
 	 * Helper to fail sync with error
 	 */
-	private async failSync(
-		db: ReturnType<typeof createDbClient>,
-		syncLogId: string,
-		error: string,
-	) {
+	private async failSync(db: DbClient, syncLogId: string, error: string) {
 		await updateAppCatalogSyncLog(db, syncLogId, {
 			status: "failed",
 			completedAt: new Date().toISOString(),
@@ -1276,7 +1273,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 	}
 
 	private async processAndCheckpointR2FileBatch(
-		db: ReturnType<typeof createDbClient>,
+		db: DbClient,
 		syncLogId: string,
 		filePath: string,
 		detectedSource: DetectedSource,

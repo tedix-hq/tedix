@@ -5,6 +5,7 @@ import {
 	OsReviewFeedbackSchema,
 } from "@tedix/api-contract/contracts/os-shares";
 
+import type { DbQueryClient } from "@tedix/db/query-client";
 import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	createOsReviewBatch,
@@ -223,7 +224,7 @@ type FeedbackFields = {
 /** One write path for both entry points: same record, fences and conflict rule. */
 async function writeFeedback(
 	state: {
-		db: ReturnType<typeof createDbQueryClient>;
+		db: DbQueryClient;
 		organizationId: string;
 		reviewerId: string;
 		batch: OsReviewBatchRow | undefined;

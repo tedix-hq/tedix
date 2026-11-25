@@ -13,6 +13,7 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 
+import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { getAppById } from "@tedix/db/queries/app-records";
 import { getAppBySlug, getAppsByOrganization } from "@tedix/db/queries/apps";
@@ -53,7 +54,7 @@ type OrgWorkflowResult =
 	  };
 
 async function loadOrganizations(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	params: TediMcpAccessHealthWorkflowParams,
 ) {
 	if (params.organizationIds?.length) {

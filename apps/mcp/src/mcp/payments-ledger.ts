@@ -1,3 +1,4 @@
+import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import {
@@ -82,7 +83,7 @@ function paymentDecisionRationale(params: {
 }
 
 async function writeAuditAndRationale(params: {
-	db: ReturnType<typeof createDbClient>;
+	db: DbClient;
 	agent: ServerContext;
 	tool: AppTool;
 	policy: TedixToolPaymentPolicy;
@@ -416,7 +417,7 @@ export async function reservePaymentRequirement(params: {
 }
 
 async function updatePaymentReservationForEvent(params: {
-	db: ReturnType<typeof createDbClient>;
+	db: DbClient;
 	agent: ServerContext;
 	requirementId: string;
 	status: McpPaymentStatus;

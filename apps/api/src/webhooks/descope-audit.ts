@@ -21,6 +21,7 @@ import {
 	type DescopeAuditEvent,
 } from "@tedix/api-contract/schemas/descope-webhook";
 
+import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { getOrganizationByDescopeId } from "@tedix/db/queries/organizations";
@@ -188,7 +189,7 @@ function mapDescopeEvent(
  * Uses a per-request cache to avoid duplicate lookups within a batch.
  */
 async function resolveOrganizationId(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	descopeTenantId: string,
 	cache: OrgCache,
 ): Promise<string | null> {

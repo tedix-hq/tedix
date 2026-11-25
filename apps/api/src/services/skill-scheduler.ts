@@ -6,6 +6,7 @@ import {
 	type OsDerivedAccessEnvelope,
 } from "@tedix/api-contract/schemas/os-workspaces";
 
+import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { listActiveSkillPersonalResourceDelegations } from "@tedix/db/queries/personal-resource-delegations";
 import type { PersonalResourceDelegationRow } from "@tedix/db/schema/personal-resource-delegations";
@@ -107,7 +108,7 @@ export function scheduledBudgetClassForSkillSlug(
  */
 export async function makeTediBudgetProbe(
 	env: CloudflareEnv,
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 ): Promise<
 	(
 		tediId: string,
@@ -248,7 +249,7 @@ type ScheduleAdmission =
 /** Check the skill, its budget and its manifest, then hand the run to the skill runtime. */
 async function admitScheduledRun(
 	env: CloudflareEnv & { SKILL_RUNTIME: Fetcher },
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	schedule: SkillSchedule,
 	input: {
 		observedAt: string;
