@@ -520,7 +520,9 @@ export async function findRepositoryPushObservations(
 		),
 	];
 	if (!shas.length) return [];
-	const list = sql`SELECT value FROM json_each(${JSON.stringify(shas)})`;
+	const list = db
+		.select({ value: sql<string>`value` })
+		.from(sql`json_each(${JSON.stringify(shas)})`);
 	const rows = await db
 		.select({
 			id: workItems.id,
@@ -599,7 +601,9 @@ export async function findWorkImplementationPushes(
 		),
 	];
 	if (!shas.length) return [];
-	const list = sql`SELECT value FROM json_each(${JSON.stringify(shas)})`;
+	const list = db
+		.select({ value: sql<string>`value` })
+		.from(sql`json_each(${JSON.stringify(shas)})`);
 	return db
 		.select({
 			id: workItems.id,
