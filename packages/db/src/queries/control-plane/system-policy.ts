@@ -26,6 +26,11 @@ const snapshots = new WeakMap<
 	{ expiresAt: number; rows: Promise<PolicyRow[]> }
 >();
 
+/** Call after policy writes so every client sharing this binding sees the new head. */
+export function invalidateSystemPolicySnapshot(db: DbQueryClient) {
+	snapshots.delete(getD1BindingKey(db.$client));
+}
+
 /** Ownerless system heads share a 60-second snapshot, including revocations and drafts. */
 export async function getActiveSystemPolicy(db: DbQueryClient, slug: string) {
 	const key = getD1BindingKey(db.$client);

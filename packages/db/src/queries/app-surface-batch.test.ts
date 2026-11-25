@@ -22,6 +22,7 @@ import {
 	getAppBySlugWithTools,
 	getAppsBySlugsWithTools,
 } from "./app-records";
+import { invalidateSystemPolicySnapshot } from "./control-plane/system-policy";
 
 /**
  * `getAppsBySlugsWithTools` is the batched form of `getAppBySlugWithTools`.
@@ -568,6 +569,7 @@ describe("getAppsBySlugsWithTools with id-linked entries", () => {
 			BASE_ID,
 		]);
 		sqlite.exec("DELETE FROM policy_packs");
+		invalidateSystemPolicySnapshot(client);
 		surfaces = await getAppsBySlugsWithTools(client, requests);
 		expect(surfaces.map((row) => row?.app.id ?? null)).toEqual([
 			null,
@@ -629,6 +631,7 @@ describe("getAppsBySlugsWithTools with id-linked entries", () => {
 	it("refuses unconfigured names even when an organization matches an old platform name", async () => {
 		const { client, sqlite } = ownershipDb();
 		sqlite.exec("DELETE FROM policy_packs");
+		invalidateSystemPolicySnapshot(client);
 		expect(
 			await getAppsBySlugsWithTools(client, [
 				{ slug: "crm", appId: BASE_ID, hostOrganizationId: "org-acme" },
@@ -658,6 +661,7 @@ describe("getAppsBySlugsWithTools with id-linked entries", () => {
 		for (const sql of statements())
 			expect((sql.match(/\?/g) ?? []).length).toBeLessThanOrEqual(100);
 		sqlite.exec("DELETE FROM policy_packs");
+		invalidateSystemPolicySnapshot(client);
 		expect(
 			await getAggregateAllowedSourceOrganizationIds(
 				client,

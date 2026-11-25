@@ -30,6 +30,7 @@ import {
 	publishRuntimeProfileRevision,
 	publishWorkspaceTemplateSetRevision,
 } from "./revisions";
+import { invalidateSystemPolicySnapshot } from "./system-policy";
 
 function normalizeSlug(value: string): string {
 	return value.trim().toLowerCase();
@@ -253,6 +254,7 @@ export async function createPolicyPack(
 		updatedAt: now,
 		publishedAt: now,
 	});
+	invalidateSystemPolicySnapshot(db);
 	const created = await getPolicyPackById(db, id);
 	if (!created) throw new Error(`Failed to create policy pack: ${id}`);
 	return created;

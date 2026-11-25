@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../../client";
+import { createDbQueryClient } from "../../query-client";
 import { tediControlPlaneBindingHistory } from "../../schema/control-plane-history";
 import {
 	policyPacks,
@@ -13,13 +14,19 @@ import { organizations } from "../../schema/organizations";
 import { tedis } from "../../schema/tedis";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
-import { getRuntimeProfileById } from "./definitions";
+import {
+	createPolicyPack,
+	deletePolicyPack,
+	getRuntimeProfileById,
+} from "./definitions";
 import {
 	listRuntimeProfileRevisions,
 	listTediControlPlaneBindingHistory,
+	publishPolicyPackRevision,
 	publishRuntimeProfileRevision,
 	rollbackRuntimeProfileRevision,
 } from "./revisions";
+import { getActiveSystemPolicy } from "./system-policy";
 
 function setup(): DbClient {
 	const sqlite = new DatabaseSync(":memory:");
@@ -47,6 +54,40 @@ function setup(): DbClient {
 }
 
 describe("immutable control-plane revisions", () => {
+	it("refreshes ownerless system snapshots across clients on creation, publication and revocation", async () => {
+		const db = setup();
+		const reader = createDbQueryClient(db.$client);
+		const input = {
+			name: "Trust",
+			slug: "installation-trust",
+			scope: "system" as const,
+			target: "shared" as const,
+			status: "active" as const,
+			version: 1,
+			publishedBy: "operator",
+			definition: { marker: "first" },
+		};
+		await createPolicyPack(db, { ...input, organizationId: "org-1" });
+		expect(await getActiveSystemPolicy(reader, input.slug)).toBeNull();
+		const policy = await createPolicyPack(db, { ...input, version: 2 });
+		expect(await getActiveSystemPolicy(reader, input.slug)).toEqual({
+			version: 2,
+			definition: input.definition,
+		});
+		const published = await publishPolicyPackRevision(db, {
+			revisionId: policy.id,
+			publishedBy: "operator",
+			definition: { marker: "second" },
+		});
+		if (!published.ok) throw new Error("expected policy publication");
+		expect(await getActiveSystemPolicy(reader, input.slug)).toEqual({
+			version: 3,
+			definition: { marker: "second" },
+		});
+		expect(await deletePolicyPack(db, published.revision.id)).toBe(true);
+		expect(await getActiveSystemPolicy(reader, input.slug)).toBeNull();
+	});
+
 	it("migrates all stored Auto slots with recovery values and keeps a later Auto choice", async () => {
 		const sqlite = new DatabaseSync(":memory:");
 		try {
