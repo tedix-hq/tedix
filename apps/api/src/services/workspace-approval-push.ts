@@ -12,9 +12,7 @@
  * The message names the workspace and the kind of change in fixed words. It
  * never carries a title, an argument or content.
  *
- * Nothing calls the API when a request starts waiting, so a schedule reads
- * the workspace activity feed for new requests and tedi chat posts every two
- * minutes.
+ * The owning workspace's alarm calls this after publishing its activity.
  */
 
 import { operationAllowed } from "@tedix/api-contract/schemas/os-collaborators";
@@ -37,9 +35,7 @@ import {
 	savePushConfig,
 } from "@tedix/db/queries/web-push";
 import {
-	listWorkspaceFeedsMovedSince,
-	listWorkspaceUnreadFeeds,
-	WORKSPACE_UNREAD_ROW_LIMIT,
+	listWorkspaceUnreadFeed,
 	type WorkspaceUnreadFeedRow,
 } from "@tedix/db/queries/workspace-unread";
 import type { DbQueryClient } from "@tedix/db/query-client";
@@ -53,9 +49,8 @@ import {
 
 /** A request older than this no longer notifies; the in-app notice remains. */
 export const APPROVAL_PUSH_REQUEST_AGE_MS = 10 * 60_000;
-/** How far back a sweep looks for workspaces with new activity. */
+/** How far back a chat post can notify. */
 const MOVED_WINDOW_MS = 5 * 60_000;
-const WORKSPACE_LIMIT = 50;
 const RECIPIENT_LIMIT = 20;
 /** Longest kind-of-change wording a message repeats. */
 const KIND_MAX = 80;
@@ -162,7 +157,7 @@ async function notifyWaitingApprovals(
 		rows: readonly WorkspaceUnreadFeedRow[];
 		now: number;
 	},
-): Promise<number> {
+): Promise<{ notified: number; retryAt?: number }> {
 	const { workspace, waiting, now } = input;
 	const organizationId = workspace.organizationId;
 	const candidates = new Set<string>();
@@ -193,6 +188,7 @@ async function notifyWaitingApprovals(
 	const claimKey = `approval:${workspace.id}`;
 	const seen = new Set<string>();
 	let notified = 0;
+	let retryAt: number | undefined;
 	for (const id of [...candidates].slice(0, RECIPIENT_LIMIT)) {
 		const member =
 			(await getMemberByUserId(context.db, organizationId, id)) ??
@@ -223,8 +219,10 @@ async function notifyWaitingApprovals(
 		if (
 			preferences.success &&
 			workspaceMuteState(preferences.data, workspace.id, now).muted
-		)
+		) {
+			retryAt = now + 60_000;
 			continue;
+		}
 		if (
 			await hasVisiblePushConversation(
 				db,
@@ -232,9 +230,11 @@ async function notifyWaitingApprovals(
 				workspacePushVisibilityKey(workspace.id),
 				now,
 			)
-		)
+		) {
+			retryAt = now + 60_000;
 			continue;
-		// Claim the request before sending so the next sweep does not repeat it.
+		}
+		// Claim the request before sending so an alarm retry does not repeat it.
 		await savePushConfig(db, scope, claimKey, { seq: waiting.seq });
 		await sendPushToDevices(context, scope, keys, {
 			title: workspace.name,
@@ -250,54 +250,50 @@ async function notifyWaitingApprovals(
 		});
 		notified += 1;
 	}
-	return notified;
+	return { notified, ...(retryAt ? { retryAt } : {}) };
 }
 
-/** One sweep over the workspaces that had activity in the last minutes. */
+/** Notify one workspace after its object publishes approval or chat activity. */
 export async function pushWaitingWorkspaceApprovals(
 	context: Pick<BaseContext, "db" | "env">,
 	db: DbQueryClient,
 	now: number,
-): Promise<{ workspaces: number; notified: number }> {
+	scope: { organizationId: string; workspaceId: string },
+): Promise<{ workspaces: number; notified: number; retryAt?: number }> {
 	const keys = webPushKeys(context.env);
 	if (!keys) return { workspaces: 0, notified: 0 };
-	const moved = await listWorkspaceFeedsMovedSince(db, {
-		appliedAfter: new Date(now - MOVED_WINDOW_MS).toISOString(),
-		limit: WORKSPACE_LIMIT,
+	const workspace = await getOsWorkspace(db, scope);
+	if (!workspace || workspace.status !== "active")
+		return { workspaces: 0, notified: 0 };
+	const rows = await listWorkspaceUnreadFeed(db, {
+		...scope,
+		afterSeq: 0,
+		readerIds: [],
+		runsOnly: true,
 	});
-	const feeds = await listWorkspaceUnreadFeeds(
+	let notified = await notifyWorkspaceTediChats(
+		context,
 		db,
-		moved.map((entry) => ({
-			organizationId: entry.organizationId,
-			workspaceId: entry.workspaceId,
-			afterSeq: Math.max(0, entry.lastSeq - WORKSPACE_UNREAD_ROW_LIMIT),
-			readerIds: [],
-			runsOnly: true,
-		})),
+		workspace,
+		rows,
+		new Date(now - MOVED_WINDOW_MS).toISOString(),
 	);
 	const since = new Date(now - APPROVAL_PUSH_REQUEST_AGE_MS).toISOString();
-	let workspaces = 0;
-	let notified = 0;
-	for (const [index, entry] of moved.entries()) {
-		const rows = feeds[index] ?? [];
-		const workspace = await getOsWorkspace(db, entry);
-		if (!workspace || workspace.status !== "active") continue;
-		notified += await notifyWorkspaceTediChats(
-			context,
-			db,
-			workspace,
-			rows,
-			new Date(now - MOVED_WINDOW_MS).toISOString(),
-		);
-		const waiting = waitingApprovalRequests(rows, since);
-		if (!waiting) continue;
-		workspaces += 1;
-		notified += await notifyWaitingApprovals(context, db, keys, {
+	const waiting = waitingApprovalRequests(rows, since);
+	let retryAt: number | undefined;
+	if (waiting) {
+		const result = await notifyWaitingApprovals(context, db, keys, {
 			workspace,
 			waiting,
 			rows,
 			now,
 		});
+		notified += result.notified;
+		retryAt = result.retryAt;
 	}
-	return { workspaces, notified };
+	return {
+		workspaces: waiting ? 1 : 0,
+		notified,
+		...(retryAt ? { retryAt } : {}),
+	};
 }

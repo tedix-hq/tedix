@@ -200,6 +200,7 @@ async function setup() {
 			},
 			createDbQueryClient(d1),
 			Date.parse(now),
+			{ organizationId: "org-a", workspaceId: WS },
 		);
 	await db.insert(tedis).values({
 		id: "tedi-ada",

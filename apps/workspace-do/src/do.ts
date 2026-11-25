@@ -846,6 +846,21 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#activityRecords = new SqlActivityRecords(this.#store);
 		this.#events = new SqlEventLedger(this.#store, (event) => {
 			this.#recordConversationActivity(event);
+			if (
+				event.type === "turn.started" ||
+				(event.type === "approval.requested" && !event.automatic)
+			) {
+				if (!this.#store.get<string>("pending-activity-push"))
+					this.#store.put("activity-push-queued-at", Date.now());
+				this.#store.put("pending-activity-push", crypto.randomUUID());
+				this.#store.put("activity-push-through-seq", event.seq);
+				workspaceLog.info("Workspace activity push scheduled", {
+					event: "workspace.activity_push_scheduled",
+					latestSeq: event.seq,
+					...this.#diagnostics(),
+				});
+				this.ctx.waitUntil(this.#scheduleAlarm(Date.now() + 1_000));
+			}
 			// Home lists each participant's chats; they change with these.
 			const listed =
 				event.type === "turn.started" ||
@@ -1569,7 +1584,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					targetWorkspaceId,
 					transferId: crypto.randomUUID(),
 				};
-				await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
+				await this.#scheduleAlarm(Date.now() + KEEPALIVE_MS);
 				this.#store.put("output-transfers", {
 					...this.#outputTransfers(),
 					[outputId]: pending,
@@ -1868,7 +1883,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			.join("");
 		const controller = new AbortController();
 		this.#running.set(turnId, controller);
-		await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
+		await this.#scheduleAlarm(Date.now() + KEEPALIVE_MS);
 		this.ctx.waitUntil(
 			this.#execute(
 				scope,
@@ -2038,8 +2053,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				turnId,
 			});
 		});
-		const alarm = await this.ctx.storage.getAlarm();
-		if (alarm === null || alarm > due) await this.ctx.storage.setAlarm(due);
+		await this.#scheduleAlarm(due);
 		return true;
 	}
 
@@ -4214,11 +4228,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		}
 		await this.#serializePublish(() => this.#flushOutputProjections());
 		await this.#flushActivity();
+		await this.#flushActivityPush();
 		const nextReportRetry = Math.min(
 			...Object.values(this.#runReportRetries()),
 		);
 		if (
 			Number.isFinite(nextReportRetry) ||
+			this.#store.get<string>("pending-activity-push") ||
 			this.#running.size > 0 ||
 			Object.keys(this.#outputTransfers()).length > 0 ||
 			Object.keys(this.#pendingOutputProjections()).length > 0 ||
@@ -4234,7 +4250,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			}).length > 0 ||
 			this.#usageUnpublished()
 		) {
-			await this.ctx.storage.setAlarm(
+			await this.#scheduleAlarm(
 				Math.min(nextReportRetry, Date.now() + KEEPALIVE_MS),
 			);
 			return;
@@ -4243,6 +4259,61 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	// ------------------------------------------------------------- internals
+
+	async #scheduleAlarm(due: number) {
+		await this.ctx.storage.transaction(async (storage) => {
+			const alarm = await storage.getAlarm();
+			if (alarm === null || alarm > due) await storage.setAlarm(due);
+		});
+	}
+
+	async #flushActivityPush() {
+		const generation = this.#store.get<string>("pending-activity-push");
+		const scope = this.#store.get<WorkspaceScope>("activity-scope");
+		if (!generation || !scope) return;
+		// A failed or paginated publication must reach the feed before notification.
+		if (
+			this.#activityRecords.list({
+				afterSequence: this.#store.get<number>("event-activity-sequence") ?? 0,
+				limit: 1,
+			}).length
+		)
+			return;
+		const started = Date.now();
+		const queuedAt =
+			this.#store.get<number>("activity-push-queued-at") ?? started;
+		const throughEventSeq = this.#store.get<number>(
+			"activity-push-through-seq",
+		);
+		// Keep a durable retry even if the platform exhausts its alarm retries.
+		await this.#scheduleAlarm(started + KEEPALIVE_MS);
+		const result = await this.pushActivity(scope);
+		if (
+			!result.retryAt &&
+			this.#store.get<string>("pending-activity-push") === generation
+		)
+			this.#store.delete("pending-activity-push");
+		workspaceLog.info("Workspace activity push checked", {
+			event: "workspace.activity_push_checked",
+			durationMs: Date.now() - started,
+			queuedAt,
+			lagMs: Date.now() - queuedAt,
+			latestSeq: throughEventSeq,
+			...scope,
+			...result,
+		});
+	}
+
+	protected async pushActivity(scope: WorkspaceScope) {
+		const api = this.env.API_SERVICE as unknown as {
+			pushWorkspaceActivity(scope: WorkspaceScope): Promise<{
+				workspaces: number;
+				notified: number;
+				retryAt?: number;
+			}>;
+		};
+		return api.pushWorkspaceActivity(scope);
+	}
 
 	#serializeActivity<T>(operation: () => Promise<T>): Promise<T> {
 		const next = this.#activitySerial.then(operation);
@@ -4545,7 +4616,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			...this.#pendingOutputProjections(),
 			[outputId]: { scope, generation: crypto.randomUUID() },
 		});
-		await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
+		await this.#scheduleAlarm(Date.now() + KEEPALIVE_MS);
 	}
 
 	/**
@@ -5390,7 +5461,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						append: async (input) => {
 							this.#store.put("activity-scope", scope);
 							const record = await this.#ledger.append(input);
-							await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
+							await this.#scheduleAlarm(Date.now() + KEEPALIVE_MS);
 							await this.#flushActivity();
 							return record;
 						},

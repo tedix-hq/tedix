@@ -197,6 +197,27 @@ export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 
 /** Dedicated RPC capability for the workspace store; no public HTTP route. */
 export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
+	async pushWorkspaceActivity(scope: {
+		organizationId: string;
+		workspaceId: string;
+	}) {
+		const [
+			{ createDbClient },
+			{ createDbQueryClient },
+			{ pushWaitingWorkspaceApprovals },
+		] = await Promise.all([
+			import("@tedix/db/client"),
+			import("@tedix/db/query-client"),
+			import("./services/workspace-approval-push"),
+		]);
+		return pushWaitingWorkspaceApprovals(
+			{ db: createDbClient(this.env.DB), env: this.env },
+			createDbQueryClient(this.env.DB),
+			Date.now(),
+			scope,
+		);
+	}
+
 	async availableConnections(
 		input: import("@tedix/api-contract/schemas/workspace-available-connections").WorkspaceConnectionDiscoveryInput,
 	): Promise<

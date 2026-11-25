@@ -185,6 +185,7 @@ async function setup() {
 			},
 			createDbQueryClient(d1),
 			now,
+			{ organizationId: "org-a", workspaceId: WS },
 		);
 	const people = () =>
 		sent.map((entry) => entry.endpoint.split("/").at(-1)).sort();
@@ -285,8 +286,18 @@ describe("workspace approval push", () => {
 			value: { conversationId: `workspace:${WS}` },
 			updatedAt: new Date(NOW - 5_000).toISOString(),
 		} as typeof userConfigs.$inferInsert);
-		expect(await sweep()).toEqual({ workspaces: 1, notified: 0 });
+		expect(await sweep()).toEqual({
+			workspaces: 1,
+			notified: 0,
+			retryAt: NOW + 60_000,
+		});
 		expect(people()).toEqual([]);
+		// Leaving the workspace must still notify without another chat event.
+		expect(await sweep(NOW + 120_000)).toMatchObject({
+			workspaces: 1,
+			notified: 1,
+		});
+		expect(people()).toEqual(["ada"]);
 
 		const old = await setup();
 		await old.record("turn.started", { by: "ben" });

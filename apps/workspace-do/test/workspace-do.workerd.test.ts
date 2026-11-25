@@ -501,6 +501,33 @@ const READ_ONLY_CODE = `export default async (env) => {
 }`;
 
 describe("WorkspaceDO", () => {
+	test("notification alarms survive failed delivery and eviction without keepalive postponement", async () => {
+		await seedCore();
+		const ws = workspace();
+		await ws.scriptModel(scope, [{ text: "Ready." }]);
+		const started = Date.now();
+		const { turnId } = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Hello",
+		});
+		await ws.awaitTurn(scope, turnId, 20_000);
+		await runInDurableObject(ws, async (instance, state) => {
+			expect(await state.storage.getAlarm()).toBeLessThan(started + 5_000);
+			expect(state.storage.kv.get("pending-activity-push")).toBeTruthy();
+			await state.storage.put("test:pushFailure", true);
+			await expect(instance.alarm!()).rejects.toThrow("Injected push outage");
+			expect(state.storage.kv.get("pending-activity-push")).toBeTruthy();
+		});
+		await evictDurableObject(ws);
+		await runInDurableObject(ws, async (instance, state) => {
+			await state.storage.delete("test:pushFailure");
+			await instance.alarm!();
+			expect(await state.storage.get("test:pushedScope")).toEqual(scope);
+			expect(state.storage.kv.get("pending-activity-push")).toBeUndefined();
+		});
+	});
+
 	test("production keeps workspace objects and their bodies in the EU jurisdiction", () => {
 		const production = wranglerConfig.slice(
 			wranglerConfig.indexOf('"production"'),

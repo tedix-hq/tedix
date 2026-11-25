@@ -33,6 +33,8 @@ export type WorkspaceLogFields = {
 	interrupted: number;
 	retryCount: number;
 	durationMs: number;
+	queuedAt: number;
+	lagMs: number;
 };
 
 export const workspaceLog = createLogger<WorkspaceLogFields>({

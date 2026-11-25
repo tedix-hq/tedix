@@ -47,6 +47,13 @@ export type ScriptStep =
 	| { text: string; tokensPerSecond?: number; expectedImage?: string };
 
 export class WorkspaceDO extends ProductionWorkspaceDO {
+	protected override async pushActivity(scope: WorkspaceScope) {
+		if (await this.ctx.storage.get("test:pushFailure"))
+			throw new Error("Injected push outage");
+		await this.ctx.storage.put("test:pushedScope", scope);
+		return { workspaces: 1, notified: 1 };
+	}
+
 	#script: ScriptStep[] = [];
 	#nextModelError: string | undefined;
 	#projectionFailures = 0;
