@@ -6,6 +6,7 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, gte, inArray, lte, lt, or } from "drizzle-orm";
 import { getLogStores, type DbClient } from "../client";
+import { coreTable } from "../core-store/client";
 import { auditEvents } from "../schema/audit-events";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { chunkForBoundParams } from "../utils/batch";
@@ -121,9 +122,10 @@ export async function insertMcpAuditEventsBatch(
 	if (events.some((event) => !MCP_TELEMETRY_ACTIONS.has(event.action)))
 		throw new Error("Only MCP execution telemetry may use the log batch");
 	const target = getLogStores(db)?.logs ?? db;
+	const table = coreTable(target, auditEvents);
 	// Eleven bound columns per row; eight rows stay below D1's 100-param cap.
 	const [first, ...rest] = chunkForBoundParams(events, 8).map((chunk) =>
-		target.insert(auditEvents).values(
+		target.insert(table).values(
 			chunk.map((event) => ({
 				id: event.id ?? crypto.randomUUID(),
 				organizationId: event.organizationId,
@@ -272,7 +274,7 @@ export function buildInsertAuditEventStatement(
 ) {
 	const id = event.id ?? crypto.randomUUID();
 	const metadata = compactAuditMetadata(event);
-	const insert = db.insert(auditEvents).values({
+	const insert = db.insert(coreTable(db, auditEvents)).values({
 		id,
 		organizationId: event.organizationId,
 		actorId: event.actorId,
