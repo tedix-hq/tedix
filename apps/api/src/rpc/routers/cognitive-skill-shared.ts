@@ -2,6 +2,7 @@ import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /** Shared skill-entry mechanics for the cognitive router slices. */
 
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
+import { readRunsAt } from "../../services/workspace-schedules";
 import {
 	type SkillSchedulePolicy,
 	validateSkillSchedulePolicy,
@@ -315,11 +316,13 @@ export async function syncSkillScheduleProjection(
 			message: "scheduled skill lost its owning tedi identity",
 		});
 	}
+	const runsAt = readRunsAt({}, entry.content ?? "");
 	const nextFireAt =
+		!runsAt &&
 		existing?.cron === schedule.cron &&
 		existing.nextFireAt > new Date().toISOString()
 			? existing.nextFireAt
-			: nextSkillScheduleFireAt(schedule.cron, Date.now());
+			: nextSkillScheduleFireAt(schedule.cron, Date.now(), runsAt);
 	await upsertSkillSchedule(context.db, {
 		organizationId: entry.organizationId,
 		skillId: entry.id,

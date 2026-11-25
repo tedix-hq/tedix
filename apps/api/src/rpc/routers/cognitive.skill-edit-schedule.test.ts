@@ -272,6 +272,36 @@ describe("skills.improve keeps a scheduled skill running", () => {
 		},
 	);
 
+	it("migrates a stored UTC fire when an edit declares local slots without changing cron", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-25T18:00:00Z"));
+		try {
+			useSkill(skillFixture());
+			mocks.getSkillSchedule.mockResolvedValue({
+				...STORED_SCHEDULE,
+				nextFireAt: "2026-11-26T02:00:00.000Z",
+			});
+			const client = createRouterClient(skillsContractRouter, {
+				context: ownerContext(),
+			});
+			await client.improve({
+				...EDIT,
+				content: EDIT.content.replace(
+					"capabilities:",
+					'runsAt: {timeZone: Europe/Berlin, times: ["09:00"]}\ncapabilities:',
+				),
+			});
+			expect(mocks.upsertSkillSchedule).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					cron: "0 2 * * *",
+					nextFireAt: "2026-11-26T08:00:00.000Z",
+				}),
+			);
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
+
 	it("an edit of a draft pauses its schedule", async () => {
 		useSkill(skillFixture({ lifecycleState: "draft" }));
 		const client = createRouterClient(skillsContractRouter, {
