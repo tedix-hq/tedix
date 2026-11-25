@@ -19,6 +19,17 @@ async function openWhy(page: Page) {
 	await page.getByRole("menuitem", { name: "Why am I seeing this" }).click();
 }
 
+async function waitForClosure(page: Page, scenario: string) {
+	try {
+		await page.locator(".fd-closure").waitFor();
+	} catch (cause) {
+		throw new Error(
+			`${scenario}: closure missing at ${page.url()}\n${await page.locator("body").innerText()}`,
+			{ cause },
+		);
+	}
+}
+
 const server = await startFixtureServer("/browser-tests/feed-deck-polish.html");
 const { origin } = server;
 let browser: Browser | undefined;
@@ -369,11 +380,25 @@ try {
 			throw new Error("Mouse drag could not select title text");
 		await page.locator(".fd-decision").focus();
 		await page.keyboard.press("y");
-		await page.locator(".fd-closure").waitFor();
+		await waitForClosure(page, `Keyboard practice ${width}`);
 		// 3616fc8d3 removed the Details trigger; b809a154c9 restored access
 		// through Details for agents. Read the rail's full prompt before acting.
 		{
 			const responses: Record<string, unknown>[] = [];
+			// Saving invalidates the inbox. The shared demo API has other cards,
+			// so its response would replace this fixture instead of showing closure.
+			await page.route("**/api/rpc/workInteractions/listInbox**", (route) =>
+				route.fulfill({
+					json: {
+						json: {
+							data: [],
+							hasMore: false,
+							nextCursor: null,
+							observedAt: new Date().toISOString(),
+						},
+					},
+				}),
+			);
 			await page.route("**/api/rpc/workInteractions/respond", async (route) => {
 				responses.push(route.request().postDataJSON().json);
 				await route.fulfill({ json: { json: {} } });
@@ -414,6 +439,12 @@ try {
 				`${width}: approval consequence is not readable`,
 			);
 			assert.equal(responses.length, 0, "Reading details submitted approval");
+			if (process.env.TEDIX_SCREENSHOT_DIR) {
+				await settleAnimations(page);
+				await page.screenshot({
+					path: `${process.env.TEDIX_SCREENSHOT_DIR}/approval-details-${width}-${theme}.png`,
+				});
+			}
 			await page.keyboard.press("Escape");
 			await context.waitFor({ state: "hidden" });
 			await settleAnimations(page);
@@ -433,8 +464,14 @@ try {
 				(response) =>
 					response.url().endsWith("/workInteractions/respond") && response.ok(),
 			);
+			const refreshed = page.waitForResponse(
+				(response) =>
+					response.url().includes("/workInteractions/listInbox") &&
+					response.ok(),
+			);
 			await page.getByRole("button", { name: "Approve", exact: true }).click();
 			await submitted;
+			await (await refreshed).finished();
 			assert.equal(responses.length, 1, "Approval must be submitted once");
 			const response = responses[0]!;
 			assert.equal(response.requestId, "11111111-1111-4111-8111-111111111111");
@@ -444,7 +481,7 @@ try {
 				"Approve tests_write.GenerateMagicLinkForTestUser for viewer@example.com.",
 			);
 			assert.equal(response.resolvesRequest, true);
-			await page.locator(".fd-closure").waitFor();
+			await waitForClosure(page, `Fictional approval ${width}`);
 		}
 		await page.goto(
 			`${origin}/browser-tests/feed-deck-polish.html?surface=feed&theme=${theme}`,
@@ -1087,11 +1124,11 @@ try {
 		.catch((error) => {
 			throw new Error("Touch swipe did not finish", { cause: error });
 		});
-	await touch.locator(".fd-closure").waitFor();
+	await waitForClosure(touch, "Touch practice");
 	await touch.close();
 	const reduced = await browser.newPage({ reducedMotion: "reduce" });
 	await reduced.goto(`${origin}/browser-tests/feed-deck-polish.html`);
-	await reduced.locator(".fd-closure").waitFor();
+	await waitForClosure(reduced, "System reduced motion");
 	if (
 		(await reduced
 			.locator(".fd-closure-mark path")
@@ -1108,7 +1145,7 @@ try {
 	await explicitReduced.goto(
 		`${origin}/browser-tests/feed-deck-polish.html?motion=reduced&cards=one`,
 	);
-	await explicitReduced.locator(".fd-closure").waitFor();
+	await waitForClosure(explicitReduced, "Explicit reduced motion");
 	const closureMotion = await explicitReduced
 		.locator(".fd-closure")
 		.evaluate((el) => ({
