@@ -134,6 +134,23 @@ export function moveAppFolders(folders: AppFolders): string[] {
 		say(`~/.local/bin/tedix now points at ${next}`);
 	});
 	step("logs", () => moveInto(oldLogs, join(userData, "logs"), say));
+	if (packaged) {
+		// The folders of a copy run from source move to its dev/ folder too,
+		// unless such a copy has them open now; it moves them itself later.
+		const oldDev = join(appData, "Tedix Dev");
+		const devPid = openedBy(oldDev);
+		if (devPid)
+			say(`kept ${oldDev}: a copy run from source (pid ${devPid}) has it open`);
+		else
+			step("source copy folders", () => {
+				moveInto(oldDev, join(userData, "dev"), say);
+				moveInto(
+					join(home, "Library", "Logs", "Tedix Dev"),
+					join(userData, "dev", "logs"),
+					say,
+				);
+			});
+	}
 	if (packaged)
 		step("old folders", () => {
 			// Electron's own default logs folder, and folders of test builds.

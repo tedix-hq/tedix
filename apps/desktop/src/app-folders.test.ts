@@ -44,9 +44,13 @@ test("the first start moves the app's data, logs and tool link into one folder",
 	const f = oldMac();
 	// A copy run from source made its dev/ folder there first.
 	mkdirSync(join(f.appData, "Tedix", "dev"), { recursive: true });
+	// An older copy from source left its own folder beside the app's.
+	mkdirSync(join(f.appData, "Tedix Dev"));
+	writeFileSync(join(f.appData, "Tedix Dev", "settings.json"), "{}");
 	moveAppFolders(f.folders);
 	const data = userDataFolder(f.folders);
 	expect(data).toBe(join(f.appData, "Tedix"));
+	expect(existsSync(join(data, "dev", "settings.json"))).toBe(true);
 	expect(readFileSync(join(data, "Partitions", "Cookies"), "utf8")).toBe(
 		"signed in",
 	);
@@ -57,6 +61,7 @@ test("the first start moves the app's data, logs and tool link into one folder",
 	expect(readFileSync(join(data, "logs", "tedix.log"), "utf8")).toBe("line\n");
 	for (const gone of [
 		join(f.appData, "@tedix"),
+		join(f.appData, "Tedix Dev"),
 		join(f.appData, "Tedix dialog test"),
 		join(f.home, "Library", "Logs", "Tedix"),
 		join(f.home, "Library", "Logs", "@tedix"),
