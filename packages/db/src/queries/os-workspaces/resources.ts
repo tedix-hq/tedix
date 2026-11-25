@@ -1,16 +1,18 @@
 import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import type { TenantStoreDb } from "../durable-sqlite/tenant-store";
-import { skillEntries } from "../../schema/cognitive";
-import { projects } from "../../schema/projects";
-import { workspaceOutputIndex } from "../../schema/workspace-feed";
+import { skillEntries as d1SkillEntries } from "../../schema/cognitive";
+import { projects as d1Projects } from "../../schema/projects";
+import { workspaceOutputIndex as d1WorkspaceOutputIndex } from "../../schema/workspace-feed";
 import {
 	type NewOsWorkspaceResourceRow,
 	type OsWorkspaceResourceRow,
-	osWorkspaceProjects,
-	osWorkspaceResources,
-	osWorkspaceSkillDraftGrants,
-	osWorkspaceSkillDraftProposals,
+	osWorkspaceProjects as d1OsWorkspaceProjects,
+	osWorkspaceResources as d1OsWorkspaceResources,
+	osWorkspaceSkillDraftGrants as d1OsWorkspaceSkillDraftGrants,
+	osWorkspaceSkillDraftProposals as d1OsWorkspaceSkillDraftProposals,
 } from "../../schema/os-workspaces";
 
 export interface OsWorkspaceSkillDraftGrantIdentity extends OsWorkspaceResourceIdentity {
@@ -21,6 +23,10 @@ export async function getOsWorkspaceSkillDraftGrant(
 	db: DbQueryClient,
 	params: OsWorkspaceSkillDraftGrantIdentity,
 ) {
+	const osWorkspaceSkillDraftGrants = coreTable(
+		db,
+		d1OsWorkspaceSkillDraftGrants,
+	);
 	const [row] = await db
 		.select()
 		.from(osWorkspaceSkillDraftGrants)
@@ -38,8 +44,12 @@ export async function getOsWorkspaceSkillDraftGrant(
 
 export async function setOsWorkspaceSkillDraftGrant(
 	db: DbQueryClient,
-	grant: typeof osWorkspaceSkillDraftGrants.$inferInsert,
+	grant: typeof d1OsWorkspaceSkillDraftGrants.$inferInsert,
 ) {
+	const osWorkspaceSkillDraftGrants = coreTable(
+		db,
+		d1OsWorkspaceSkillDraftGrants,
+	);
 	const [row] = await db
 		.insert(osWorkspaceSkillDraftGrants)
 		.values(grant)
@@ -73,6 +83,10 @@ export async function getOsWorkspaceSkillDraftProposal(
 	db: DbQueryClient,
 	input: OsWorkspaceResourceIdentity & { proposalId: string },
 ) {
+	const osWorkspaceSkillDraftProposals = coreTable(
+		db,
+		d1OsWorkspaceSkillDraftProposals,
+	);
 	const [row] = await db
 		.select()
 		.from(osWorkspaceSkillDraftProposals)
@@ -90,8 +104,12 @@ export async function getOsWorkspaceSkillDraftProposal(
 
 export async function createOsWorkspaceSkillDraftProposal(
 	db: DbQueryClient,
-	proposal: typeof osWorkspaceSkillDraftProposals.$inferInsert,
+	proposal: typeof d1OsWorkspaceSkillDraftProposals.$inferInsert,
 ) {
+	const osWorkspaceSkillDraftProposals = coreTable(
+		db,
+		d1OsWorkspaceSkillDraftProposals,
+	);
 	await db
 		.insert(osWorkspaceSkillDraftProposals)
 		.values(proposal)
@@ -106,6 +124,10 @@ export async function listOsWorkspaceSkillDraftProposals(
 	db: DbQueryClient,
 	input: OsWorkspaceResourceIdentity & { memberId?: string },
 ) {
+	const osWorkspaceSkillDraftProposals = coreTable(
+		db,
+		d1OsWorkspaceSkillDraftProposals,
+	);
 	return db
 		.select({
 			id: osWorkspaceSkillDraftProposals.id,
@@ -140,6 +162,10 @@ export async function withdrawOsWorkspaceSkillDraftProposal(
 		now: string;
 	},
 ) {
+	const osWorkspaceSkillDraftProposals = coreTable(
+		db,
+		d1OsWorkspaceSkillDraftProposals,
+	);
 	await db
 		.update(osWorkspaceSkillDraftProposals)
 		.set({ status: "withdrawn", withdrawnAt: input.now })
@@ -164,6 +190,7 @@ export async function createOsWorkspaceResource(
 	db: DbQueryClient | TenantStoreDb,
 	resource: NewOsWorkspaceResourceRow,
 ): Promise<OsWorkspaceResourceRow> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const [row] = await db
 		.insert(osWorkspaceResources)
 		.values(resource)
@@ -176,6 +203,7 @@ export async function getOsWorkspaceResource(
 	db: DbQueryClient | TenantStoreDb,
 	params: OsWorkspaceResourceIdentity,
 ): Promise<OsWorkspaceResourceRow | undefined> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const [row] = await db
 		.select()
 		.from(osWorkspaceResources)
@@ -198,7 +226,10 @@ export async function getOsWorkspaceResource(
  * Files live in their workspace's own store; the feed's index carries each
  * file's current status here.
  */
-const referencesInactiveOutput = sql`(
+function referencesInactiveOutput(db: DbQueryClient) {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
+	return sql`(
 	${osWorkspaceResources.providerId} = 'tedix'
 	and (
 		(${osWorkspaceResources.resourceType} = 'file' and exists (
@@ -217,6 +248,7 @@ const referencesInactiveOutput = sql`(
 		))
 	)
 )`;
+}
 
 export async function listOsWorkspaceResources(
 	db: DbQueryClient,
@@ -227,6 +259,7 @@ export async function listOsWorkspaceResources(
 		hideInactiveOutputs?: boolean;
 	},
 ): Promise<OsWorkspaceResourceRow[]> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const conditions = [
 		eq(osWorkspaceResources.organizationId, params.organizationId),
 		eq(osWorkspaceResources.workspaceId, params.workspaceId),
@@ -235,7 +268,7 @@ export async function listOsWorkspaceResources(
 		conditions.push(eq(osWorkspaceResources.status, params.status));
 	}
 	if (params.hideInactiveOutputs) {
-		conditions.push(sql`not ${referencesInactiveOutput}`);
+		conditions.push(sql`not ${referencesInactiveOutput(db)}`);
 	}
 	return db
 		.select()
@@ -253,6 +286,7 @@ export async function listOsWorkspaceIdsLinkingSkill(
 	db: DbQueryClient,
 	params: { organizationId: string; skillId: string },
 ): Promise<string[]> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const rows = await db
 		.select({ workspaceId: osWorkspaceResources.workspaceId })
 		.from(osWorkspaceResources)
@@ -279,12 +313,17 @@ export async function listOsWorkspaceLinkedTediIds(
 	db: DbQueryClient,
 	params: OsWorkspaceResourceScope,
 ): Promise<string[]> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
+	const skillEntries = coreTable(db, d1SkillEntries);
 	const rows = await db
 		.select({ linkedTediId: skillEntries.tediId })
 		.from(osWorkspaceResources)
 		.innerJoin(
 			skillEntries,
-			eq(skillEntries.id, osWorkspaceResources.providerResourceId),
+			and(
+				eq(skillEntries.id, osWorkspaceResources.providerResourceId),
+				eq(skillEntries.organizationId, osWorkspaceResources.organizationId),
+			),
 		)
 		.where(
 			and(
@@ -313,6 +352,7 @@ export async function updateOsWorkspaceResourceMetadata(
 		now: string;
 	},
 ): Promise<OsWorkspaceResourceRow | undefined> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const [row] = await db
 		.update(osWorkspaceResources)
 		.set({ metadata: params.metadata, updatedAt: params.now })
@@ -337,6 +377,7 @@ export async function renameOsWorkspaceResource(
 		now: string;
 	},
 ): Promise<OsWorkspaceResourceRow | undefined> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const [row] = await db
 		.update(osWorkspaceResources)
 		.set({
@@ -370,6 +411,7 @@ export async function rebindOsWorkspaceResource(
 		now: string;
 	},
 ): Promise<OsWorkspaceResourceRow | undefined> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const [row] = await db
 		.update(osWorkspaceResources)
 		.set({
@@ -402,6 +444,7 @@ export async function removeOsWorkspaceResource(
 		now: string;
 	},
 ): Promise<OsWorkspaceResourceRow | undefined> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const [row] = await db
 		.update(osWorkspaceResources)
 		.set({ status: "removed", removedAt: params.now, updatedAt: params.now })
@@ -427,6 +470,7 @@ export async function findOsWorkspaceTenantResource(
 		providerResourceId: string;
 	},
 ): Promise<OsWorkspaceResourceRow | undefined> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const [row] = await db
 		.select()
 		.from(osWorkspaceResources)
@@ -461,6 +505,7 @@ export async function restoreOsWorkspaceResource(
 		>;
 	},
 ): Promise<OsWorkspaceResourceRow | undefined> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const [row] = await db
 		.update(osWorkspaceResources)
 		.set({
@@ -490,13 +535,6 @@ export interface OsWorkspaceSkillLinkCandidate {
 	reason: OsWorkspaceSkillLinkReason;
 }
 
-const factorySkillId = sql<
-	string | null
->`json_extract(${projects.metadata}, '$.factory.skillId')`;
-const factoryWorkspaceId = sql<
-	string | null
->`json_extract(${projects.metadata}, '$.factory.workspaceId')`;
-
 /**
  * The organization's skills that run a Workspace by its existing data: the
  * lane skill of a factory project bound to it (`metadata.factory.workspaceId`)
@@ -508,6 +546,18 @@ export async function listOsWorkspaceSkillLinkCandidates(
 	db: DbQueryClient,
 	params: OsWorkspaceResourceScope,
 ): Promise<OsWorkspaceSkillLinkCandidate[]> {
+	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
+	const projects = coreTable(db, d1Projects);
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
+	const factorySkillId = jsonRead(db, projects.metadata, [
+		"factory",
+		"skillId",
+	]);
+	const factoryWorkspaceId = jsonRead(db, projects.metadata, [
+		"factory",
+		"workspaceId",
+	]);
 	const linkedProjectIds = db
 		.select({ projectId: osWorkspaceProjects.projectId })
 		.from(osWorkspaceProjects)
@@ -578,6 +628,7 @@ export async function listAllOsWorkspaceResourceRows(
 	db: DbQueryClient,
 	scope: OsWorkspaceResourceScope,
 ): Promise<OsWorkspaceResourceRow[]> {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	return db
 		.select()
 		.from(osWorkspaceResources)
@@ -595,6 +646,7 @@ export async function projectOsWorkspaceResource(
 	db: DbQueryClient,
 	row: OsWorkspaceResourceRow,
 ) {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	await db
 		.insert(osWorkspaceResources)
 		.values(row)
@@ -606,6 +658,7 @@ export async function ensureOsWorkspaceResource(
 	db: DbQueryClient | TenantStoreDb,
 	resource: NewOsWorkspaceResourceRow,
 ) {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	await db.insert(osWorkspaceResources).values(resource).onConflictDoNothing();
 	return getOsWorkspaceResource(db, {
 		organizationId: resource.organizationId,

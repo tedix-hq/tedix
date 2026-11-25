@@ -17,6 +17,8 @@ import {
 	osGadgetRevisions,
 	osGadgets,
 	osWorkspaceResources,
+	osWorkspaceSkillDraftGrants,
+	osWorkspaceSkillDraftProposals,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
 import { workspaceOutputIndex } from "../../schema/workspace-feed";
@@ -33,6 +35,20 @@ import {
 	buildOsGadgetRevisionCodeStatements,
 	osGadgetCodeSha256,
 } from "./gadget-code";
+import {
+	createOsWorkspaceResource,
+	createOsWorkspaceSkillDraftProposal,
+	getOsWorkspaceResource,
+	getOsWorkspaceSkillDraftGrant,
+	listOsWorkspaceResources,
+	listOsWorkspaceSkillDraftProposals,
+	rebindOsWorkspaceResource,
+	removeOsWorkspaceResource,
+	restoreOsWorkspaceResource,
+	setOsWorkspaceSkillDraftGrant,
+	updateOsWorkspaceResourceMetadata,
+	withdrawOsWorkspaceSkillDraftProposal,
+} from "./resources";
 import {
 	choosePersonalOsWorkspace,
 	createOsWorkspace,
@@ -57,6 +73,8 @@ for (const store of ["d1", "postgres"] as const) {
 				for (const table of [
 					osWorkspaces,
 					osWorkspaceResources,
+					osWorkspaceSkillDraftGrants,
+					osWorkspaceSkillDraftProposals,
 					workspaceOutputIndex,
 					osWorkspaceAccessEdges,
 					osWorkspaceCollaborators,
@@ -264,6 +282,185 @@ for (const store of ["d1", "postgres"] as const) {
 					})
 				).map((row) => row.id),
 			).toEqual(["archived"]);
+		});
+
+		it("keeps resource CAS and output visibility scoped to the organization", async () => {
+			const resource = await createOsWorkspaceResource(db, {
+				id: "linked-output",
+				organizationId: "org",
+				workspaceId: "public",
+				providerId: "tedix",
+				connectionScope: "tenant",
+				resourceType: "output",
+				providerResourceId: "linked-document",
+				name: "Linked document",
+				createdByKind: "user",
+				createdById: "owner",
+				createdAt: at,
+				updatedAt: at,
+			});
+			const identity = {
+				organizationId: "org",
+				workspaceId: "public",
+				resourceId: resource.id,
+			};
+			expect(
+				await getOsWorkspaceResource(db, {
+					...identity,
+					organizationId: "other",
+				}),
+			).toBeUndefined();
+			expect(
+				(
+					await listOsWorkspaceResources(db, {
+						...identity,
+						hideInactiveOutputs: true,
+					})
+				).map((row) => row.id),
+			).not.toContain(resource.id);
+			await db.insert(coreTable(db, workspaceOutputIndex)).values({
+				id: "linked-document:1",
+				organizationId: "org",
+				workspaceId: "public",
+				outputId: "linked-document",
+				revision: 1,
+				revisionId: "linked-r1",
+				isCurrent: 1,
+				outputKind: "document",
+				title: "Linked document",
+				status: "active",
+				outputCreatedByKind: "user",
+				outputCreatedById: "owner",
+				outputCreatedAt: at,
+				revisionCreatedByKind: "user",
+				revisionCreatedById: "owner",
+				revisionCreatedAt: at,
+				updatedAt: at,
+			});
+			expect(
+				(
+					await listOsWorkspaceResources(db, {
+						...identity,
+						hideInactiveOutputs: true,
+					})
+				).map((row) => row.id),
+			).toContain(resource.id);
+			const now = "2026-11-20T12:01:00.000Z";
+			const update = {
+				...identity,
+				expectedUpdatedAt: at,
+				now,
+				metadata: '{"title":"雪"}',
+			};
+			expect(
+				await updateOsWorkspaceResourceMetadata(db, {
+					...update,
+					organizationId: "other",
+				}),
+			).toBeUndefined();
+			expect(await updateOsWorkspaceResourceMetadata(db, update)).toMatchObject(
+				{ metadata: update.metadata },
+			);
+			expect(
+				await updateOsWorkspaceResourceMetadata(db, update),
+			).toBeUndefined();
+			const rebound = await rebindOsWorkspaceResource(db, {
+				...identity,
+				expectedUpdatedAt: now,
+				now: "2026-11-20T12:02:00.000Z",
+				connectionScope: "user",
+				personalOwnerUserId: "owner",
+				connectionInstanceId: "account",
+				providerAccess: { canRead: true, canWrite: false },
+			});
+			expect(rebound?.providerAccess).toEqual({
+				canRead: true,
+				canWrite: false,
+			});
+			expect(
+				await removeOsWorkspaceResource(db, {
+					...identity,
+					expectedUpdatedAt: rebound!.updatedAt,
+					now: "2026-11-20T12:03:00.000Z",
+				}),
+			).toMatchObject({ status: "removed" });
+			expect(
+				await restoreOsWorkspaceResource(db, {
+					...identity,
+					now: "2026-11-20T12:04:00.000Z",
+				}),
+			).toMatchObject({ status: "active", removedAt: null });
+		});
+
+		it("preserves draft grant booleans, proposal replay and exact withdrawal identity", async () => {
+			const scope = {
+				organizationId: "org",
+				workspaceId: "public",
+				resourceId: "draft",
+				memberId: "member",
+			};
+			const grant = {
+				...scope,
+				skillId: "skill",
+				enabled: true,
+				expiresAt: at,
+				grantedBy: "owner",
+				updatedAt: at,
+			};
+			expect(await setOsWorkspaceSkillDraftGrant(db, grant)).toMatchObject({
+				enabled: true,
+			});
+			expect(
+				await setOsWorkspaceSkillDraftGrant(db, { ...grant, enabled: false }),
+			).toMatchObject({ enabled: false });
+			expect(
+				await getOsWorkspaceSkillDraftGrant(db, {
+					...scope,
+					organizationId: "other",
+				}),
+			).toBeUndefined();
+			const proposal = {
+				...scope,
+				id: "draft-proposal",
+				skillId: "skill",
+				sourceRevision: 1,
+				baseContent: "Old",
+				baseFiles: { "server.js": "old" },
+				content: "New",
+				files: { "server.js": "雪" },
+				reason: "Change",
+				payloadDigest: "digest",
+				createdAt: at,
+			};
+			expect(
+				await createOsWorkspaceSkillDraftProposal(db, proposal),
+			).toMatchObject({ files: proposal.files });
+			expect(
+				await createOsWorkspaceSkillDraftProposal(db, {
+					...proposal,
+					content: "Replay",
+				}),
+			).toMatchObject({ content: "New" });
+			expect(
+				await listOsWorkspaceSkillDraftProposals(db, {
+					...scope,
+					memberId: "another",
+				}),
+			).toEqual([]);
+			const withdrawal = {
+				...scope,
+				proposalId: proposal.id,
+				now: "2026-11-20T12:05:00.000Z",
+			};
+			expect(
+				await withdrawOsWorkspaceSkillDraftProposal(db, {
+					...withdrawal,
+					memberId: "another",
+				}),
+			).toMatchObject({ status: "pending" });
+			expect(
+				await withdrawOsWorkspaceSkillDraftProposal(db, withdrawal),
+			).toMatchObject({ status: "withdrawn", withdrawnAt: withdrawal.now });
 		});
 
 		it("guards code writes on their revision and rolls back blobs on a later pointer failure", async () => {
