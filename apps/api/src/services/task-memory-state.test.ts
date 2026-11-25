@@ -11,14 +11,14 @@ const mocks = vi.hoisted(() => ({
 	update: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/work-items/crud", () => ({
-	getWorkItemById: mocks.work,
+	getWorkItemsByIds: mocks.work,
 	listWorkItemsPage: mocks.owned,
 }));
 vi.mock("@tedix/db/queries/work-items/approvals", () => ({
-	listWorkApprovalInbox: mocks.approvals,
+	listTaskMemoryApprovals: mocks.approvals,
 }));
 vi.mock("@tedix/db/queries/approvals", () => ({
-	getApprovalRequestById: mocks.runtime,
+	getApprovalRequestsByIds: mocks.runtime,
 }));
 vi.mock("@tedix/db/queries/memory-graph/fact-search", () => ({
 	searchFactsWithVisibility: mocks.preferences,
@@ -41,10 +41,10 @@ const approvalId = "22222222-2222-4222-8222-222222222222";
 beforeEach(() => {
 	vi.resetAllMocks();
 	writing.read.mockResolvedValue("");
-	mocks.work.mockResolvedValue(null);
+	mocks.work.mockResolvedValue([]);
 	mocks.owned.mockResolvedValue({ data: [], total: 0 });
-	mocks.approvals.mockResolvedValue({ data: [], hasMore: false });
-	mocks.runtime.mockResolvedValue(undefined);
+	mocks.approvals.mockResolvedValue([]);
+	mocks.runtime.mockResolvedValue([]);
 	mocks.preferences.mockResolvedValue([]);
 	mocks.lessons.mockResolvedValue([]);
 });
@@ -83,7 +83,10 @@ it("retains preferences verbatim and finds owned work without semantic recall", 
 		state: "accepted",
 		deadline: "2026-10-18T12:00:00Z",
 	});
-	expect(mocks.work).not.toHaveBeenCalled();
+	expect(mocks.work).toHaveBeenCalledWith(db, {
+		orgId: "org-fiction",
+		ids: [],
+	});
 	expect(mocks.preferences).toHaveBeenCalledWith(
 		db,
 		expect.objectContaining({
@@ -93,21 +96,17 @@ it("retains preferences verbatim and finds owned work without semantic recall", 
 	);
 });
 it("reads terminal work and expires a pending approval against the current clock", async () => {
-	mocks.work.mockImplementation(async (_db, id) =>
-		id === workId
-			? { id, title: "Sample review", disposition: "completed" }
-			: null,
-	);
-	mocks.runtime.mockImplementation(async (_db, id) =>
-		id === approvalId
-			? {
-					id,
-					description: "Sample approval",
-					status: "pending",
-					expiresAt: "2026-10-16T10:00:00Z",
-				}
-			: undefined,
-	);
+	mocks.work.mockResolvedValue([
+		{ id: workId, title: "Sample review", disposition: "completed" },
+	]);
+	mocks.runtime.mockResolvedValue([
+		{
+			id: approvalId,
+			description: "Sample approval",
+			status: "pending",
+			expiresAt: "2026-10-16T10:00:00Z",
+		},
+	]);
 	const tasks = await readTaskMemoryState(
 		db,
 		"org-fiction",
@@ -115,7 +114,10 @@ it("reads terminal work and expires a pending approval against the current clock
 		"2026-10-17T10:00:00Z",
 	);
 	expect(tasks.map((row) => row.state)).toEqual(["completed", "expired"]);
-	expect(mocks.runtime).toHaveBeenCalledWith(db, approvalId, "org-fiction");
+	expect(mocks.runtime).toHaveBeenCalledWith(db, {
+		orgId: "org-fiction",
+		ids: [workId, approvalId],
+	});
 });
 it("does not turn missing source rows into completion", async () => {
 	const result = await readTurnMemory(db, "org-fiction", "tedi-fiction", [
@@ -125,12 +127,14 @@ it("does not turn missing source rows into completion", async () => {
 	expect(result.unresolvedReferences).toEqual([workId]);
 });
 it("corrects old transient state from live work while preserving durable preferences", async () => {
-	mocks.work.mockResolvedValue({
-		id: workId,
-		title: "Sample review",
-		disposition: "completed",
-		deadline: null,
-	});
+	mocks.work.mockResolvedValue([
+		{
+			id: workId,
+			title: "Sample review",
+			disposition: "completed",
+			deadline: null,
+		},
+	]);
 	const stale = {
 		id: "fact",
 		organizationId: "org-fiction",
@@ -162,17 +166,19 @@ it("corrects old transient state from live work while preserving durable prefere
 
 it("reads fresh writing preferences only for a canonically assigned person's work", async () => {
 	writing.read.mockResolvedValue("Prefer shorter introductions.");
-	mocks.work.mockResolvedValue({
-		id: workId,
-		orgId: "org-fiction",
-		title: "Draft support response",
-		disposition: "accepted",
-		metadata: {},
-		accountableOwnerType: "user",
-		accountableOwnerId: "mira",
-		stewardType: "tedi",
-		stewardId: "tedi-fiction",
-	});
+	mocks.work.mockResolvedValue([
+		{
+			id: workId,
+			orgId: "org-fiction",
+			title: "Draft support response",
+			disposition: "accepted",
+			metadata: {},
+			accountableOwnerType: "user",
+			accountableOwnerId: "mira",
+			stewardType: "tedi",
+			stewardId: "tedi-fiction",
+		},
+	]);
 	const result = await readTurnMemory(db, "org-fiction", "tedi-fiction", [
 		workId,
 	]);
@@ -181,14 +187,16 @@ it("reads fresh writing preferences only for a canonically assigned person's wor
 		id: "decision-learning:mira",
 		content: "Prefer shorter introductions.",
 	});
-	mocks.work.mockResolvedValue({
-		id: workId,
-		metadata: {},
-		accountableOwnerType: "user",
-		accountableOwnerId: "mira",
-		stewardType: "tedi",
-		stewardId: "other-tedi",
-	});
+	mocks.work.mockResolvedValue([
+		{
+			id: workId,
+			metadata: {},
+			accountableOwnerType: "user",
+			accountableOwnerId: "mira",
+			stewardType: "tedi",
+			stewardId: "other-tedi",
+		},
+	]);
 	writing.read.mockClear();
 	await readTurnMemory(db, "org-fiction", "tedi-fiction", [workId]);
 	expect(writing.read).not.toHaveBeenCalledWith(db, "org-fiction", "mira");

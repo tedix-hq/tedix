@@ -1,3 +1,5 @@
+import { chunkForBoundParams } from "../utils/batch";
+import { prefixedColumns } from "../utils/select";
 import type { z } from "zod";
 import type { DelegatedApprovalReceiptSchema } from "@tedix/api-contract/schemas/delegated-approvals";
 /**
@@ -217,6 +219,30 @@ export async function getApprovalRequestById(
 			),
 		);
 	return results[0];
+}
+
+export async function getApprovalRequestsByIds(
+	db: DbClient,
+	p: { orgId: string; ids: string[] },
+): Promise<TediApprovalRequest[]> {
+	const rows: TediApprovalRequest[] = [];
+	// Production statistics otherwise choose an organization-only scan for 50 IDs.
+	for (const ids of chunkForBoundParams([...new Set(p.ids)], 50)) {
+		rows.push(
+			...(await db
+				.select(prefixedColumns(tediApprovalRequests, "runtime_approval"))
+				.from(
+					sql`${tediApprovalRequests} INDEXED BY sqlite_autoindex_tedi_approval_requests_1`,
+				)
+				.where(
+					and(
+						eq(tediApprovalRequests.orgId, p.orgId),
+						inArray(tediApprovalRequests.id, ids),
+					),
+				)),
+		);
+	}
+	return rows;
 }
 
 export async function listProvisionalOutcomes(

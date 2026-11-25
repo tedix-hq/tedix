@@ -100,7 +100,11 @@ function fixture(userId = "canonical-user-id") {
 			"INSERT INTO tedis (id,organization_id,name,slug,status,mcp_capability_profile) VALUES (?,?,?,?,'active','standard')",
 		)
 		.run("tedi-approver-id", ORG_ID, "Approver", "approver");
-	const facade = createD1Facade(sqlite);
+	const statements: string[] = [];
+	const facade = createD1Facade(sqlite, {
+		maxBoundParams: 100,
+		onPrepare: (query) => statements.push(query),
+	});
 	const context = {
 		authType: "user",
 		db: createDbClient(facade),
@@ -153,6 +157,7 @@ function fixture(userId = "canonical-user-id") {
 			} as BaseContext,
 		});
 	return {
+		statements,
 		context,
 		sqlite,
 		client: createRouterClient(workApprovalsContractRouter, { context }),
@@ -1014,5 +1019,58 @@ describe("Independent tedi routine acceptance", () => {
 			}),
 		).rejects.toThrow(/no longer resolvable/);
 		expect(f.item().disposition).toBe("proposed");
+	});
+});
+
+it("loads the Deck approval inbox in fixed statements per 50 Work Items, preserving admission summaries", async () => {
+	const { client, sqlite, statements, context } = fixture();
+	const insertWork = sqlite.prepare(
+		"INSERT INTO work_items(id,org_id,title,created_at,admission_spec_revision) VALUES (?,?,'Example','2026-01-01T00:00:00.000Z','revision')",
+	);
+	const insertProposal = sqlite.prepare(
+		"INSERT INTO work_approval_proposals(id,org_id,work_item_id,work_item_version,authority_key,action,proposal,requester_type,requester_id,approver_type,approver_id,status,rationale,expires_at,created_at) VALUES (?,?,?,1,'risk:high','admission','{}','system','tedix','user','canonical-user-id','pending','Review',?,'2026-01-01T00:00:00.000Z')",
+	);
+	for (let i = 0; i < 100; i++) {
+		const workId = `10000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+		const proposalId = `20000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+		insertWork.run(workId, ORG_ID);
+		insertProposal.run(proposalId, ORG_ID, workId, EXPIRES_AT);
+	}
+	const firstWork = "10000000-0000-4000-8000-000000000099";
+	for (const key of ["z-last", "a-first"])
+		sqlite
+			.prepare(
+				"INSERT INTO work_resource_requirements(org_id,work_item_id,resource_key,quantity,created_at,updated_at) VALUES (?,?,?,2,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')",
+			)
+			.run(ORG_ID, firstWork, key);
+	sqlite
+		.prepare(
+			"INSERT INTO work_budget_envelopes(id,org_id,scope_type,scope_id,limit_micros,reservation_micros,created_at) VALUES ('budget',?,'work_item',?,500,20,'2026-01-01T00:00:00.000Z')",
+		)
+		.run(ORG_ID, firstWork);
+	statements.length = 0;
+	const single = await client.listInbox({ limit: 1 });
+	expect(statements).toHaveLength(4);
+	statements.length = 0;
+	const full = await client.listInbox({ limit: 100 });
+	expect(statements).toHaveLength(6);
+	expect(full.data).toHaveLength(100);
+	expect(full.data[0]).toEqual(single.data[0]);
+	const { getWorkAdmissionSpecification } =
+		await import("@tedix/db/queries/work-items/admissions");
+	for (const row of full.data)
+		expect(row.admissionSpecification).toEqual(
+			await getWorkAdmissionSpecification(context.db, {
+				orgId: ORG_ID,
+				workItemId: row.workItem.id,
+			}),
+		);
+	expect(full.data[0]?.admissionSpecification.resources).toEqual([
+		{ resourceKey: "a-first", quantity: 2 },
+		{ resourceKey: "z-last", quantity: 2 },
+	]);
+	expect(full.data[0]?.admissionSpecification.budget).toEqual({
+		limitMicros: 500,
+		reservationMicros: 20,
 	});
 });

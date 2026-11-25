@@ -1153,6 +1153,72 @@ function describeCause(error: unknown): string {
 	}
 	return parts.join(" | ");
 }
+/** Read Deck admission summaries without a separate round trip per approval. */
+export async function getWorkAdmissionSpecifications(
+	db: DbQueryClient,
+	p: { orgId: string; workItemIds: string[] },
+) {
+	const result = new Map<
+		string,
+		Awaited<ReturnType<typeof getWorkAdmissionSpecification>>
+	>();
+	for (const ids of chunkForBoundParams([...new Set(p.workItemIds)], 50)) {
+		const rows = await db
+			.select({
+				workItemId: workItems.id,
+				workItemVersion: workItems.version,
+				admissionSpecRevision: workItems.admissionSpecRevision,
+				resourceKey: workResourceRequirements.resourceKey,
+				quantity: workResourceRequirements.quantity,
+				limitMicros: workBudgetEnvelopes.limitMicros,
+				reservationMicros: workBudgetEnvelopes.reservationMicros,
+			})
+			.from(workItems)
+			.leftJoin(
+				workResourceRequirements,
+				and(
+					eq(workResourceRequirements.orgId, workItems.orgId),
+					eq(workResourceRequirements.workItemId, workItems.id),
+				),
+			)
+			.leftJoin(
+				workBudgetEnvelopes,
+				and(
+					eq(workBudgetEnvelopes.orgId, workItems.orgId),
+					eq(workBudgetEnvelopes.scopeType, "work_item"),
+					eq(workBudgetEnvelopes.scopeId, workItems.id),
+				),
+			)
+			.where(and(eq(workItems.orgId, p.orgId), inArray(workItems.id, ids)))
+			.orderBy(workItems.id, workResourceRequirements.resourceKey);
+		for (const row of rows) {
+			let specification = result.get(row.workItemId);
+			if (!specification) {
+				specification = {
+					workItemId: row.workItemId,
+					workItemVersion: row.workItemVersion,
+					admissionSpecRevision: row.admissionSpecRevision,
+					resources: [],
+					budget:
+						row.limitMicros === null
+							? null
+							: {
+									limitMicros: row.limitMicros,
+									reservationMicros: row.reservationMicros!,
+								},
+				};
+				result.set(row.workItemId, specification);
+			}
+			if (row.resourceKey !== null)
+				specification.resources.push({
+					resourceKey: row.resourceKey,
+					quantity: row.quantity!,
+				});
+		}
+	}
+	return result;
+}
+
 export async function getWorkAdmissionSpecification(
 	db: DbQueryClient,
 	p: { orgId: string; workItemId: string },

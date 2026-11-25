@@ -5,7 +5,10 @@ import {
 	AgentRequestProposalSchema,
 } from "@tedix/api-contract/schemas/agent-requests";
 import { WorkPrincipalTypeSchema } from "@tedix/api-contract/schemas/work-items";
-import { getWorkAdmissionSpecification } from "@tedix/db/queries/work-items/admissions";
+import {
+	getWorkAdmissionSpecification,
+	getWorkAdmissionSpecifications,
+} from "@tedix/db/queries/work-items/admissions";
 import { implement } from "@orpc/server";
 import { workApprovalsContract } from "@tedix/api-contract/contracts/work-approvals";
 import {
@@ -355,33 +358,37 @@ const listInboxProcedure = readOs.listInbox.handler(
 			limit: input.limit,
 			observedAt,
 		});
-		const objectives = await listDeckSourceObjectives(
-			context.db,
-			orgId,
-			page.data.map((row) => row.workItem.id),
-		);
-		return {
-			data: await Promise.all(
-				page.data.map(async (row) => {
-					const objective = objectives.get(row.workItem.id);
-					return {
-						proposal: proposalOutput(row.proposal),
-						effectiveStatus: row.effectiveStatus,
-						canDecide:
-							row.effectiveStatus === "pending" &&
-							row.proposal.approverType === actor.type &&
-							row.proposal.approverId === actor.id,
-						decision:
-							row.decision.id === null ? null : decisionOutput(row.decision),
-						workItem: row.workItem,
-						admissionSpecification: await getWorkAdmissionSpecification(
-							context.db,
-							{ orgId, workItemId: row.workItem.id },
-						),
-						...(objective ? { objective } : {}),
-					};
-				}),
+		const [objectives, specifications] = await Promise.all([
+			listDeckSourceObjectives(
+				context.db,
+				orgId,
+				page.data.map((row) => row.workItem.id),
 			),
+			getWorkAdmissionSpecifications(context.db, {
+				orgId,
+				workItemIds: page.data.map((row) => row.workItem.id),
+			}),
+		]);
+		return {
+			data: page.data.map((row) => {
+				const objective = objectives.get(row.workItem.id);
+				const admissionSpecification = specifications.get(row.workItem.id);
+				if (!admissionSpecification)
+					throw createError(ErrorCodes.NOT_FOUND, "Work Item not found");
+				return {
+					proposal: proposalOutput(row.proposal),
+					effectiveStatus: row.effectiveStatus,
+					canDecide:
+						row.effectiveStatus === "pending" &&
+						row.proposal.approverType === actor.type &&
+						row.proposal.approverId === actor.id,
+					decision:
+						row.decision.id === null ? null : decisionOutput(row.decision),
+					workItem: row.workItem,
+					admissionSpecification,
+					...(objective ? { objective } : {}),
+				};
+			}),
 			nextCursor: page.nextCursor,
 			hasMore: page.hasMore,
 			observedAt,

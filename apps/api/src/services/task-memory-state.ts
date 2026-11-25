@@ -7,11 +7,11 @@ import type {
 } from "@tedix/api-contract/schemas/turn-memory";
 import { memorySourceReferences } from "@tedix/context-core/memory-freshness";
 import {
-	getWorkItemById,
+	getWorkItemsByIds,
 	listWorkItemsPage,
 } from "@tedix/db/queries/work-items/crud";
-import { listWorkApprovalInbox } from "@tedix/db/queries/work-items/approvals";
-import { getApprovalRequestById } from "@tedix/db/queries/approvals";
+import { listTaskMemoryApprovals } from "@tedix/db/queries/work-items/approvals";
+import { getApprovalRequestsByIds } from "@tedix/db/queries/approvals";
 import { searchFactsWithVisibility } from "@tedix/db/queries/memory-graph/fact-search";
 import { listApprovedAgentLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
 import { updateFact } from "@tedix/db/queries/memory-graph/facts";
@@ -25,18 +25,38 @@ export async function readTaskMemoryState(
 	references: string[],
 	checkedAt: string,
 ): Promise<TaskStateSnapshot[]> {
+	const workRows = await getWorkItemsByIds(db, {
+		orgId,
+		ids: [...new Set(references)],
+	});
+	return taskMemoryFromRows(db, orgId, references, checkedAt, workRows);
+}
+
+async function taskMemoryFromRows(
+	db: DbClient,
+	orgId: string,
+	references: string[],
+	checkedAt: string,
+	workRows: Awaited<ReturnType<typeof getWorkItemsByIds>>,
+): Promise<TaskStateSnapshot[]> {
+	const [approvalRows, runtimeRows] = await Promise.all([
+		listTaskMemoryApprovals(db, { orgId, references, observedAt: checkedAt }),
+		getApprovalRequestsByIds(db, { orgId, ids: references }),
+	]);
+	const works = new Map(workRows.map((row) => [row.id, row]));
+	const approvals = new Map(approvalRows.map((row) => [row.id, row]));
+	const runtime = new Map(runtimeRows.map((row) => [row.id, row]));
+	const linked = new Map<string, typeof approvalRows>();
+	for (const row of approvalRows) {
+		if (!row.linked) continue;
+		const rows = linked.get(row.workItemId) ?? [];
+		rows.push(row);
+		linked.set(row.workItemId, rows);
+	}
 	const tasks = new Map<string, TaskStateSnapshot>();
 	for (const id of new Set(references)) {
-		const [work, approvals, runtimeApproval] = await Promise.all([
-			getWorkItemById(db, id, orgId),
-			listWorkApprovalInbox(db, {
-				orgId,
-				proposalId: id,
-				observedAt: checkedAt,
-				limit: 1,
-			}),
-			getApprovalRequestById(db, id, orgId),
-		]);
+		const work = works.get(id);
+		const runtimeApproval = runtime.get(id);
 		if (work) {
 			tasks.set(work.id, {
 				id: work.id,
@@ -45,28 +65,23 @@ export async function readTaskMemoryState(
 				state: work.disposition,
 				deadline: work.deadline ?? work.dueDate ?? null,
 			});
-			const linked = await listWorkApprovalInbox(db, {
-				orgId,
-				workItemId: id,
-				observedAt: checkedAt,
-				limit: 100,
-			});
-			for (const row of linked.data)
-				tasks.set(row.proposal.id, {
-					id: row.proposal.id,
+			for (const row of linked.get(id) ?? [])
+				tasks.set(row.id, {
+					id: row.id,
 					kind: "approval",
-					title: row.proposal.action,
+					title: row.action,
 					state: row.effectiveStatus,
-					deadline: row.proposal.expiresAt,
+					deadline: row.expiresAt,
 				});
 		}
-		for (const row of approvals.data)
-			tasks.set(row.proposal.id, {
-				id: row.proposal.id,
+		const approval = approvals.get(id);
+		if (approval)
+			tasks.set(approval.id, {
+				id: approval.id,
 				kind: "approval",
-				title: row.proposal.action,
-				state: row.effectiveStatus,
-				deadline: row.proposal.expiresAt,
+				title: approval.action,
+				state: approval.effectiveStatus,
+				deadline: approval.expiresAt,
 			});
 		if (runtimeApproval)
 			tasks.set(runtimeApproval.id, {
@@ -106,15 +121,21 @@ export async function readTurnMemory(
 			limit: 100,
 		}),
 	]);
-	const referenced = await readTaskMemoryState(
+	const workRows = await getWorkItemsByIds(db, {
+		orgId,
+		ids: [...new Set(references)],
+	});
+	const referenced = await taskMemoryFromRows(
 		db,
 		orgId,
 		references,
 		checkedAt,
+		workRows,
 	);
+	const works = new Map(workRows.map((row) => [row.id, row]));
 	const writers = new Set<string>();
 	for (const id of [...new Set(references)].slice(0, 10)) {
-		const work = await getWorkItemById(db, id, orgId);
+		const work = works.get(id);
 		if (!work) continue;
 		const outbound = OutboundStateSchema.safeParse(work.metadata?.outbound);
 		if (

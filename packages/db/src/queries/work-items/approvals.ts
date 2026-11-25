@@ -9,6 +9,7 @@ import {
 	agentRequestAction,
 	type AgentRequestExecution,
 } from "@tedix/api-contract/schemas/agent-requests";
+import { chunkForBoundParams } from "../../utils/batch";
 import { organizations } from "../../schema/organizations";
 import { organizationMembers } from "../../schema/organization-members";
 import { normalizeWorkItemRow } from "./normalization";
@@ -709,6 +710,95 @@ export async function finishAgentRequestExecution(
 				sql`json_extract(${workApprovalExecutions.execution}, '$.status') = 'running'`,
 			),
 		);
+}
+
+/** Task memory needs state only, with the same newest-100 window per Work. */
+export async function listTaskMemoryApprovals(
+	db: DbQueryClient,
+	p: { orgId: string; references: string[]; observedAt: string },
+) {
+	const columns = {
+		id: sql`${workApprovalProposals.id}`
+			.mapWith(workApprovalProposals.id)
+			.as("memory_approval_id"),
+		workItemId: sql`${workApprovalProposals.workItemId}`
+			.mapWith(workApprovalProposals.workItemId)
+			.as("memory_approval_workItemId"),
+		action: sql`${workApprovalProposals.action}`
+			.mapWith(workApprovalProposals.action)
+			.as("memory_approval_action"),
+		expiresAt: sql`${workApprovalProposals.expiresAt}`
+			.mapWith(workApprovalProposals.expiresAt)
+			.as("memory_approval_expiresAt"),
+		effectiveStatus:
+			sql<string>`CASE WHEN ${workApprovalProposals.status}='pending' AND ${workApprovalProposals.expiresAt}<=${p.observedAt} THEN 'expired' ELSE ${workApprovalProposals.status} END`.as(
+				"effective_status",
+			),
+	};
+	const result: Array<{
+		id: string;
+		workItemId: string;
+		action: string;
+		expiresAt: string;
+		effectiveStatus: string;
+		rank: number;
+		linked: boolean;
+	}> = [];
+	for (const ids of chunkForBoundParams([...new Set(p.references)], 50)) {
+		const ranked = db.$with("task_memory_approvals").as(
+			db
+				.select({
+					...columns,
+					rank: sql<number>`row_number() OVER (PARTITION BY ${workApprovalProposals.workItemId} ORDER BY ${workApprovalProposals.createdAt} DESC, ${workApprovalProposals.id} DESC)`.as(
+						"approval_rank",
+					),
+				})
+				.from(workApprovalProposals)
+				.innerJoin(
+					workItems,
+					and(
+						eq(workItems.orgId, workApprovalProposals.orgId),
+						eq(workItems.id, workApprovalProposals.workItemId),
+					),
+				)
+				.where(
+					and(
+						eq(workApprovalProposals.orgId, p.orgId),
+						inArray(workApprovalProposals.workItemId, ids),
+					),
+				),
+		);
+		const linked = await db
+			.with(ranked)
+			.select()
+			.from(ranked)
+			.where(sql`${ranked.rank}<=100`)
+			.orderBy(ranked.workItemId, ranked.rank);
+		// Production statistics otherwise choose a tenant-wide scan for 50 IDs.
+		const direct = await db
+			.select(columns)
+			.from(
+				sql`${workApprovalProposals} INDEXED BY sqlite_autoindex_work_approval_proposals_1`,
+			)
+			.innerJoin(
+				workItems,
+				and(
+					eq(workItems.orgId, workApprovalProposals.orgId),
+					eq(workItems.id, workApprovalProposals.workItemId),
+				),
+			)
+			.where(
+				and(
+					eq(workApprovalProposals.orgId, p.orgId),
+					inArray(workApprovalProposals.id, ids),
+				),
+			);
+		result.push(
+			...linked.map((row) => ({ ...row, linked: true })),
+			...direct.map((row) => ({ ...row, rank: 0, linked: false })),
+		);
+	}
+	return result;
 }
 
 export async function listWorkApprovalInbox(
