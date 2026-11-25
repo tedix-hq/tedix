@@ -459,6 +459,27 @@ describe("workspace app supervisor in workerd", () => {
 			"Workspace host scope mismatch",
 		);
 	});
+	it("schedules trace-token expiry at its deadline and leaves no idle alarm", async () => {
+		const stub = createHost();
+		await call(stub, { callId: "fixture-quiet-call" });
+		await runInDurableObject(stub, async (_instance, state) => {
+			const links = [
+				...state.storage.kv.list<{ expiresAt: number }>({
+					prefix: "app-call:",
+				}),
+			];
+			expect(links).toHaveLength(1);
+			expect(await state.storage.getAlarm()).toBe(links[0][1].expiresAt);
+			state.storage.kv.put(links[0][0], { expiresAt: Date.now() - 1 });
+		});
+		await runDurableObjectAlarm(stub);
+		await runInDurableObject(stub, async (_instance, state) => {
+			expect([...state.storage.kv.list({ prefix: "app-call:" })]).toHaveLength(
+				0,
+			);
+			expect(await state.storage.getAlarm()).toBeNull();
+		});
+	});
 	it("durably queues failed trace writes and redrives them through an alarm", async () => {
 		const stub = createHost();
 		await call(stub);

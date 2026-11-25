@@ -68,6 +68,12 @@ authenticates every request at its own edge before it reaches the DO. The public
 identity/runtime separation; `apps/tedi/README.md` describes this repository's
 edge/runtime/workstation split.
 
+The daily-log flush runs every five minutes while entries, an unresolved push,
+or image cleanup remain. It cancels its timer after draining and wakes again
+when a turn queues new entries. Unresolved maintenance effects keep their retry
+schedule. Workspace app trace delivery retries pending writes after one minute;
+trace tokens without pending writes schedule only their expiration cleanup.
+
 ### Entry points (`src/index.ts`)
 
 - `email()` — Cloudflare Email Routing inbound handler. `email-ingress.ts`

@@ -118,8 +118,15 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		// An alarm must read fresh rows after an in-flight delivery finishes.
 		if (this.#flushing) await this.#flushing;
 		await this.#flushTails();
-		if ([...this.ctx.storage.kv.list({ prefix: "app-call:", limit: 1 })].length)
-			await this.ctx.storage.setAlarm(Date.now() + 60000);
+		for (const [, link] of this.ctx.storage.kv.list<{ expiresAt: number }>({
+			prefix: "app-call:",
+		}))
+			await this.#scheduleExpiry(link.expiresAt);
+	}
+	async #scheduleExpiry(expiresAt: number) {
+		const alarm = await this.ctx.storage.getAlarm();
+		if (alarm === null || alarm > expiresAt)
+			await this.ctx.storage.setAlarm(expiresAt);
 	}
 	#flushTails(): Promise<void> {
 		return (this.#flushing ??= (async () => {
@@ -367,13 +374,14 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		};
 		const traceToken = input.callId ? crypto.randomUUID() : undefined;
 		if (traceToken) {
+			const expiresAt = Date.now() + 3_600_000;
 			this.ctx.storage.kv.put(`app-call:${traceToken}`, {
 				callId: input.callId,
 				gadgetId: session.gadgetId,
 				revisionId: session.revisionId,
-				expiresAt: Date.now() + 3_600_000,
+				expiresAt,
 			});
-			await this.ctx.storage.setAlarm(Date.now() + 60000);
+			await this.#scheduleExpiry(expiresAt);
 		}
 		try {
 			if (this.#cutOff(session)) throw new Error("App access changed");

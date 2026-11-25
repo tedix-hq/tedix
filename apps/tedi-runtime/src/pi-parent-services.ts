@@ -152,6 +152,7 @@ interface MaintenanceHost extends ParentServiceAdmissionHost {
 	listSchedules(): Promise<Schedule<unknown>[]>;
 	/** False only when the canonical-owner lookup proves this DO is orphaned. */
 	isCanonical(): Promise<boolean>;
+	dailyLogHasWork(): boolean;
 	run(
 		taskId: ParentMaintenanceTask,
 		operation: ParentServiceOperation,
@@ -169,6 +170,7 @@ interface MaintenanceRecord {
 /** Native Agents scheduling; no Think class, declarations or alarm override. */
 export class ParentMaintenanceServices {
 	private readonly inFlight = new Map<string, Promise<void>>();
+	private ensuring: Promise<boolean> = Promise.resolve(true);
 	constructor(private readonly host: MaintenanceHost) {}
 
 	private key(taskId: ParentMaintenanceTask): string {
@@ -196,7 +198,33 @@ export class ParentMaintenanceServices {
 			.toArray();
 	}
 
-	async ensure(): Promise<boolean> {
+	ensure(): Promise<boolean> {
+		const next = this.ensuring
+			.catch(() => true)
+			.then(() => this.ensureSchedules());
+		this.ensuring = next;
+		return next;
+	}
+
+	wakeDailyLogFlush(): Promise<boolean> {
+		const next = this.ensuring
+			.catch(() => true)
+			.then(async () => {
+				const record = await this.host.storage.get<MaintenanceRecord>(
+					this.key("isolate-daily-log-flush"),
+				);
+				for (const id of [
+					record?.nativeScheduleId,
+					record?.recurringScheduleId,
+				])
+					if (id && (await this.host.getScheduleById(id))) return true;
+				return this.ensureSchedules();
+			});
+		this.ensuring = next;
+		return next;
+	}
+
+	private async ensureSchedules(): Promise<boolean> {
 		// Maintenance is owned by the canonical parent DO.
 		await this.host.assertRuntimeActive();
 		if (!(await this.host.isCanonical())) return false;
@@ -249,6 +277,39 @@ export class ParentMaintenanceServices {
 				record.legacyCancelled = true;
 				await this.host.assertRuntimeActive();
 				await this.host.storage.put(this.key(taskId), record);
+			}
+			if (
+				taskId === "isolate-daily-log-flush" &&
+				!this.host.dailyLogHasWork()
+			) {
+				// An empty queue is insufficient while an original effect needs recovery.
+				const pending = [
+					...this.host.storage.kv.list<MaintenanceFire>({
+						prefix: "tedix:pi:maintenance:fire:",
+					}),
+				].some(
+					([, fire]) =>
+						fire.operation.input.taskId === taskId &&
+						fire.stage !== "completed",
+				);
+				if (!pending) {
+					for (const row of await this.host.listSchedules()) {
+						if (
+							row.callback === "onParentMaintenance" &&
+							(row.payload as MaintenancePayload | null)?.taskId === taskId
+						) {
+							await this.host.assertRuntimeActive();
+							await this.host.cancelSchedule(row.id);
+						}
+					}
+					await this.host.storage.put(this.key(taskId), {
+						...record,
+						nativeScheduleId: undefined,
+						recurringScheduleId: undefined,
+						nextRunAt: Date.now() + PARENT_MAINTENANCE_TASKS[taskId] * 1000,
+					});
+					continue;
+				}
 			}
 			if (
 				record.recurringScheduleId &&
@@ -365,6 +426,11 @@ export class ParentMaintenanceServices {
 				stoppedForRecovery || page.size >= 100 ? cursor : "",
 			);
 		await this.runFire(payload, schedule);
+		if (
+			payload.taskId === "isolate-daily-log-flush" &&
+			!this.host.dailyLogHasWork()
+		)
+			await this.ensure();
 	}
 	private async runFire(
 		payload: MaintenancePayload,

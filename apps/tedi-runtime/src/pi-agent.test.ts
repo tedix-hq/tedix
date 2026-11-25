@@ -65,6 +65,10 @@ const {
 
 class Storage {
 	rows = new Map<string, any>();
+	kv = {
+		list: ({ prefix }: { prefix: string }) =>
+			new Map([...this.rows].filter(([key]) => key.startsWith(prefix))),
+	};
 	crash?: (key: string, value: any) => "before" | "after" | undefined;
 	sql: any = { exec: () => ({ toArray: () => [] }) };
 	async get<T>(key: string): Promise<T | undefined> {
@@ -360,6 +364,7 @@ function maintenanceFixture() {
 			completions++;
 		},
 		storage: storage as any,
+		dailyLogHasWork: () => true,
 		isCanonical: async () => canonical,
 		run: async (
 			taskId: ParentMaintenanceTask,
@@ -729,6 +734,63 @@ function legacySqlFixture() {
 		} as any,
 	};
 }
+
+test("daily log schedules pause when drained, preserve unresolved effects, and resume on enqueue", async () => {
+	const f = maintenanceFixture();
+	const service = f.create();
+	f.host.dailyLogHasWork = () => false;
+	await service.ensure();
+	assert.equal(
+		[...f.rows.values()].filter(
+			(row) => row.payload.taskId === "isolate-daily-log-flush",
+		).length,
+		0,
+	);
+	f.host.dailyLogHasWork = () => true;
+	await service.wakeDailyLogFlush();
+	const row = [...f.rows.values()].find(
+		(row) => row.payload.taskId === "isolate-daily-log-flush",
+	);
+	const run = f.host.run;
+	f.host.run = async (...args) => {
+		const result = await run(...args);
+		f.host.dailyLogHasWork = () => false;
+		return result;
+	};
+	await service.run(row.payload, row);
+	assert.equal(
+		[...f.rows.values()].filter(
+			(row) => row.payload.taskId === "isolate-daily-log-flush",
+		).length,
+		0,
+	);
+	const fireKey = "tedix:pi:maintenance:fire:older";
+	f.storage.rows.set(fireKey, {
+		operation: { input: { taskId: "isolate-daily-log-flush" } },
+		stage: "uncertain",
+	});
+	await service.ensure();
+	assert.ok(
+		[...f.rows.values()].some(
+			(row) => row.payload.taskId === "isolate-daily-log-flush",
+		),
+	);
+	f.storage.rows.delete(fireKey);
+	await service.ensure();
+	assert.equal(
+		[...f.rows.values()].filter(
+			(row) => row.payload.taskId === "isolate-daily-log-flush",
+		).length,
+		0,
+	);
+	f.host.dailyLogHasWork = () => true;
+	await service.wakeDailyLogFlush();
+	assert.ok(
+		[...f.rows.values()].some(
+			(row) => row.payload.taskId === "isolate-daily-log-flush",
+		),
+	);
+});
 
 for (const [name, fn] of tests) {
 	locks.clear();

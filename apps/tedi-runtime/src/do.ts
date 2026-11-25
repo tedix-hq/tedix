@@ -1,4 +1,5 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { dailyLogHasWork } from "./runtime-memory-effects";
 import { readOwnedRuntimeWorkflow } from "./runtime-workflow-diagnostic";
 import {
 	recordEvaluationEvidence,
@@ -1536,6 +1537,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		getScheduleById: (id) => this.getScheduleById(id),
 		cancelSchedule: (id) => this.cancelSchedule(id),
 		listSchedules: () => this.listSchedules(),
+		dailyLogHasWork: () => dailyLogHasWork(this.memoryHost()),
 		isCanonical: async () => {
 			try {
 				return !(await this.cleanupOrphanSchedules()).orphaned;
@@ -3628,11 +3630,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		);
 	}
 	private enqueueDailyLogPair(user: RecentTurn, assistant: RecentTurn): void {
-		return runtimeMemory.enqueueDailyLogPair.call(
-			this.memoryHost(),
-			user,
-			assistant,
-		);
+		runtimeMemory.enqueueDailyLogPair.call(this.memoryHost(), user, assistant);
+		this.ctx.waitUntil(this.maintenance.wakeDailyLogFlush());
 	}
 	async onDailyLogFlush(
 		admittedRunId?: string,

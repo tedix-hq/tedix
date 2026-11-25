@@ -42,6 +42,7 @@ mock.module("./artifacts-git", () => ({
 }));
 const {
 	enqueueDailyLogPair,
+	dailyLogHasWork,
 	onDailyLogFlush,
 	readDailyLogQueue,
 	DAILY_LOG_QUEUE_CAP,
@@ -262,4 +263,19 @@ console.log(
 		},
 	);
 	assert.equal(result?.factCount, 30);
+}
+
+{
+	const f = fixture();
+	assert.equal(dailyLogHasWork(f.host), false);
+	f.enqueue(30000);
+	assert.equal(dailyLogHasWork(f.host), true);
+	await onDailyLogFlush.call(f.host, "idle-check");
+	assert.equal(dailyLogHasWork(f.host), false);
+	f.rows.set("workflow-image-cleanup:pending", { completed: false });
+	assert.equal(dailyLogHasWork(f.host), true);
+	f.rows.set("workflow-image-cleanup:pending", { completed: true });
+	assert.equal(dailyLogHasWork(f.host), false);
+	f.rows.set("runtime-admission-artifacts-pending", { stage: "uncertain" });
+	assert.equal(dailyLogHasWork(f.host), true);
 }

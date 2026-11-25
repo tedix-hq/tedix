@@ -330,6 +330,19 @@ export function readDailyLogQueue(host: DailyQueueHost): DailyQueueRow[] {
 		});
 	return queueRows(host);
 }
+export function dailyLogHasWork(host: DailyQueueHost): boolean {
+	return Boolean(
+		host.state.pendingDailyEntries?.length ||
+		host.ctx.storage.kv.get(PENDING_PUSH) ||
+		[...host.ctx.storage.kv.list({ prefix: DAILY_QUEUE_PREFIX, limit: 1 })]
+			.length ||
+		[
+			...host.ctx.storage.kv.list<{ completed?: boolean }>({
+				prefix: "workflow-image-cleanup:",
+			}),
+		].some(([, row]) => !row.completed),
+	);
+}
 export function enqueueDailyLogPair(
 	this: RuntimeMemoryHost,
 	user: RecentTurn,

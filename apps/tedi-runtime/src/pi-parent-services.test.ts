@@ -392,6 +392,7 @@ function maintenance() {
 	const host = {
 		...gate,
 		storage,
+		dailyLogHasWork: () => true,
 		isCanonical: async () => true,
 		schedule: async () => {
 			throw new Error("unused");
