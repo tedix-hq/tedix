@@ -531,6 +531,18 @@ executor on the server before paging, so a large backlog for other executors
 cannot hide its own Work. Each lane starts as its own agent session, with its
 own Attempt and request budget.
 
+Runner routing receipts are stored on the server in each Attempt's
+`metadata.routing`: the rule, executor, actual and configured models, skipped routes and
+matching Clef choice. Clef choices are also saved as Work comments before a
+handoff, including the decision model, raw confidence, probabilities and fallback
+threshold. A null choice means no recorded Clef decision for that Work revision.
+Admission and settlement are Work events; tool calls and run failures are
+Attempt steps. Read them through `workItems/listAttempts`, `workItems/listEvents`
+and `workItems/listAttemptSteps`, respectively.
+These Work records are retained for at least 30 days;
+rotating the local dispatcher log does not delete them. Runs made before the
+runner update may have no routing receipt.
+
 If admission fails three times in a row for the same reason on the same Work
 revision, the dispatcher stops retrying, posts one comment explaining why and
 holds that Work until its revision changes. The hold survives a restart. Edit

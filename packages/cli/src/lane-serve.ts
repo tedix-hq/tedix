@@ -1268,6 +1268,26 @@ function permanentSkillProofFailure(error: unknown): boolean {
 	);
 }
 
+/** Read the newest persisted choice for this revision, including after a restart. */
+export function runnerChoice(
+	comments: Pick<WorkItemComment, "body" | "createdAt">[],
+	version: number,
+): Record<string, unknown> | null {
+	for (const comment of [...comments].sort((a, b) =>
+		b.createdAt.localeCompare(a.createdAt),
+	)) {
+		const line = comment.body
+			.split("\n")
+			.find((line) => line.startsWith("Runner choice: "));
+		if (!line) continue;
+		try {
+			const choice: unknown = JSON.parse(line.slice("Runner choice: ".length));
+			if (isRecord(choice) && choice.workVersion === version) return choice;
+		} catch {}
+	}
+	return null;
+}
+
 interface Receipt {
 	itemId: string;
 	/** The task's title, so the Tedix app can name what runs on this Mac. */
@@ -1285,6 +1305,7 @@ interface Receipt {
 	processIdentity?: string;
 	session?: string;
 	model?: string;
+	routing?: Record<string, unknown>;
 	interrupted?: boolean;
 	transportInterrupted?: boolean;
 	approvalWait?: { id: string; expiresAt: string };
@@ -5983,9 +6004,13 @@ export class LaneDispatcher {
 		}
 		const metadata = item.metadata ?? {};
 		const comment = (body: string) =>
-			this.call(["work", "comment", item.id, "--body", body]).catch((error) =>
-				this.log("tool-choice-note-failed", item.id, String(error)),
-			);
+			this.call([
+				"work",
+				"comment",
+				item.id,
+				"--body",
+				`${body}\nRunner choice: ${JSON.stringify(choice)}`,
+			]);
 		let answer: {
 			status: "ok" | "unavailable";
 			executor: LocalExecutor | null;
@@ -6049,7 +6074,13 @@ export class LaneDispatcher {
 				reason: String(error).slice(0, 120),
 			};
 		}
-		remember();
+		const choice = {
+			workVersion: item.version,
+			at: new Date(now).toISOString(),
+			...answer,
+			offered,
+			minimumConfidence: this.policy.clefMinConfidence ?? 0.35,
+		};
 		// How likely the model rates its own pick among the offered tools; its
 		// separate confidence figure stays near 0.1 even for clear picks.
 		const likely = answer.executor
@@ -6070,6 +6101,7 @@ export class LaneDispatcher {
 			const body = `${why}, so the routing rules decide${from === "any-local" ? "" : ` and the task stays with ${fromName}`}.`;
 			this.log("tool-choice", item.id, body);
 			await comment(body);
+			remember();
 			return false;
 		}
 		const name = AGENT_NAMES[answer.executor] ?? answer.executor;
@@ -6079,8 +6111,12 @@ export class LaneDispatcher {
 		if (answer.executor === from) {
 			this.log("tool-choice", item.id, detail);
 			await comment(`${detail}. ${receiptLine}`);
+			remember();
 			return false;
 		}
+		// Persist before reassignment: the receiving runner reads this same choice.
+		await comment(`${detail}. ${receiptLine}`);
+		remember();
 		try {
 			await this.call([
 				"work",
@@ -6458,6 +6494,14 @@ export class LaneDispatcher {
 				: routed;
 			const executor = selection.executor;
 			receipt.model = selection.model;
+			receipt.routing = (adopted && previous?.routing) || {
+				at: new Date().toISOString(),
+				rule: selection.rule,
+				skipped: selection.skipped,
+				executor,
+				configuredModel: selection.model ?? null,
+				clef: runnerChoice(detail.comments ?? [], item.version),
+			};
 			// Work that names no tool records which one the rules picked, and why.
 			const pickNote =
 				!adopted && assignedExecutor(item) === "any-local"
@@ -6775,6 +6819,8 @@ export class LaneDispatcher {
 				}
 				throw error;
 			});
+			receipt.routing.model = thread.model;
+			receipt.routing.modelProvider = thread.modelProvider;
 			codexServer = thread.codexServer;
 			this.ownToolUnavailableSince = undefined;
 			if (this.budgets[executor]?.backoffKind === "preparation") {
@@ -6931,6 +6977,7 @@ export class LaneDispatcher {
 						JSON.stringify({
 							metadata: {
 								dispatchVersion: item.version,
+								routing: receipt.routing,
 								runnerRulesVersion: rules.runnerRulesVersion,
 								...(rules.rulesId
 									? {
@@ -9286,6 +9333,7 @@ ${firstBrief}`;
 						...(complete ? { complete } : {}),
 						metadata: {
 							dispatchVersion: receipt.version,
+							routing: receipt.routing ?? null,
 							session: receipt.session,
 							usage: receipt.telemetry?.usage ?? null,
 							runnerTelemetry: receipt.telemetry

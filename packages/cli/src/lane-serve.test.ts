@@ -43,6 +43,7 @@ import {
 	dispatchSkip,
 	FAILOVER_WAIT_MS,
 	routingPickNote,
+	runnerChoice,
 	laneDelegationRequest,
 	parseServeOptions,
 	runLaneServe,
@@ -3317,6 +3318,16 @@ describe("dispatcher admission", () => {
 		expect(start.input?.metadata).toEqual({
 			dispatchVersion: 2,
 			runnerRulesVersion: 3,
+			routing: {
+				at: expect.any(String),
+				rule: "unconfigured",
+				skipped: [],
+				executor: "codex",
+				configuredModel: null,
+				model: "test-model",
+				modelProvider: "test-provider",
+				clef: null,
+			},
 		});
 		expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
 			"is archived: runs start with the shared runner rules only",
@@ -3325,7 +3336,20 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 	});
 	it("starts every ready item, claims the native child before launch and persists settlement", async () => {
-		const { dispatcher, events, releases, dir } = fixture();
+		const { dispatcher, events, releases, dir, control } = fixture();
+		const choice = {
+			workVersion: 2,
+			status: "ok",
+			executor: "codex",
+			model: "clef",
+			confidence: 0.12,
+			probabilities: { codex: 0.73 },
+			minimumConfidence: 0.35,
+		};
+		control.comments.push({
+			body: `Runner choice: ${JSON.stringify(choice)}`,
+			createdAt: "2026-11-01T00:00:00Z",
+		});
 		await dispatcher.tick();
 		await until(() => releases.length === 3);
 		await dispatcher.tick();
@@ -3334,6 +3358,13 @@ describe("dispatcher admission", () => {
 			(event) => event.verb === "start" && event.input,
 		);
 		expect(starts).toHaveLength(3);
+		const routing = {
+			rule: expect.any(String),
+			executor: "codex",
+			model: expect.any(String),
+			clef: choice,
+		};
+		expect(starts[0]!.input).toMatchObject({ metadata: { routing } });
 		expect(starts[0]!.env.TEDIX_AGENT_SESSION).toMatch(/^codex:33333333/);
 		expect(starts[0]!.env.TEDIX_EXTERNAL_AGENT).toBe("local-acme");
 		expect(starts[0]!.input).toMatchObject({
@@ -3350,6 +3381,7 @@ describe("dispatcher admission", () => {
 			events.find((event) => event.verb === "settle")!.input,
 		).toMatchObject({
 			metadata: {
+				routing,
 				usage: { input: 100, cached: 40, output: 30, reasoning: 10 },
 			},
 		});
@@ -13301,4 +13333,27 @@ describe("watching and steering a run", () => {
 			},
 		});
 	});
+});
+
+it("reads the newest server choice only for the admitted Work revision", () => {
+	const comments = [
+		{
+			body: 'Runner choice: {"workVersion":2,"confidence":0.6}',
+			createdAt: "2026-11-01",
+		},
+		{
+			body: 'Runner choice: {"workVersion":3,"confidence":0.9}',
+			createdAt: "2026-11-03",
+		},
+		{ body: "Runner choice: invalid", createdAt: "2026-11-04" },
+		{
+			body: 'Runner choice: {"workVersion":2,"confidence":0.7}',
+			createdAt: "2026-11-02",
+		},
+	];
+	expect(runnerChoice(comments, 2)).toEqual({
+		workVersion: 2,
+		confidence: 0.7,
+	});
+	expect(runnerChoice(comments, 1)).toBeNull();
 });
