@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.19 (2026-11-25)
+
+### Patch Changes
+
+- fad4696: You can now take Tedix out of one agent and connect it fresh. In the Mac app, Settings > Agents has "Remove Tedix" on each connected agent; on the command line, run `tedix setup agents --remove --codex` (or `--claude`, `--devin`, `--opencode`). It removes the Tedix plugin, its marketplace, hooks and connection, and signs that agent out of Tedix where the agent allows it. The agent's own account and other settings stay as they are.
+
 ## 0.37.18 (2026-11-25)
 
 ### Patch Changes
