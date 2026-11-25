@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openLocalTedix, reloadLocalTedix } from "./local-mode";
-import { bundledLocalAvailable } from "./local-service";
+import { bundledLocalAvailable, removeOldRuntimes } from "./local-service";
 import { openLocalModelChat } from "./local-model-window";
 import { configDir } from "./shell";
 import {
@@ -81,19 +81,23 @@ import {
 	restartToUpdate,
 } from "./update";
 import { isNewer } from "./version";
+import { moveAppFolders, userDataFolder } from "./app-folders";
 
 // The copy run from source keeps its own name and data folder and leaves the
 // `tedix://` link type to the installed app, so the two never share a session
-// or take each other's sign-in links.
-// The installed app's menus say Tedix, not the package name; its data stays
-// in the folder named after the package, where existing sign-ins live.
-if (!app.isPackaged) {
-	app.setName("Tedix Dev");
-	app.setPath("userData", join(app.getPath("appData"), "Tedix Dev"));
-} else {
-	app.setPath("userData", join(app.getPath("appData"), "@tedix", "desktop"));
-	app.setName("Tedix");
-}
+// or take each other's sign-in links. All of the app's data, logs included,
+// lives in ~/Library/Application Support/Tedix; the copy from source uses its
+// dev/ folder. Folders of earlier versions move there before the profile opens.
+const appFolders = {
+	appData: app.getPath("appData"),
+	home: app.getPath("home"),
+	packaged: app.isPackaged,
+};
+const folderMoves = moveAppFolders(appFolders);
+app.setName(app.isPackaged ? "Tedix" : "Tedix Dev");
+app.setPath("userData", userDataFolder(appFolders));
+app.setAppLogsPath(join(userDataFolder(appFolders), "logs"));
+for (const line of folderMoves) log(line);
 
 /**
  * Tedix OS lives at `os.tedix.dev`, where the sign-in picks the organization,
@@ -2161,6 +2165,7 @@ else if (process.argv.includes("--local-model")) {
 		const atLogin = await openedAtLogin();
 		const first = firstRun();
 		createMainWindow();
+		void removeOldRuntimes();
 		if (first) {
 			log("start: first run; the setup opens first");
 			openSetup();

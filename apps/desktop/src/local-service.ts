@@ -12,6 +12,7 @@ import {
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { app } from "electron";
+import { log } from "./log";
 
 const run = promisify(execFile);
 const payload = () => join(process.resourcesPath, "local-workspace.tar.gz");
@@ -64,6 +65,21 @@ async function unpack(directory: string) {
 	} finally {
 		await rm(temporary, { recursive: true, force: true });
 	}
+}
+
+/**
+ * Deletes the Local Workspace runtimes of earlier app versions (about 3 GB
+ * each). Runs once at every start, so an update frees the space even when
+ * Local Workspace is never opened again.
+ */
+export async function removeOldRuntimes(): Promise<void> {
+	const state = localData();
+	const current = `runtime-${app.getVersion()}`;
+	for (const name of await readdir(state).catch(() => []))
+		if (name.startsWith("runtime-") && name !== current) {
+			await rm(join(state, name), { recursive: true, force: true });
+			log(`local: removed the old runtime ${name}`);
+		}
 }
 
 function prepareRuntime(): Promise<string> {
