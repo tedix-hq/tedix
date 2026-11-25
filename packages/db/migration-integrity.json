@@ -2052,6 +2052,10 @@
 		{
 			"name": "20261125162023_commitment_wake_outbox/migration.sql",
 			"sha256": "e08a3d841e761c6ced9fa9b6a25c0281c9c59b5f74694006988f2ee2cace7c6c"
+		},
+		{
+			"name": "20261125171212_automation_inventory/migration.sql",
+			"sha256": "5fe33e3444a0dfd761676533dfe326edc9ee6e979555c8407de5a422e19043d6"
 		}
 	]
 }

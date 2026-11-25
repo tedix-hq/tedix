@@ -217,6 +217,7 @@ describe("reviewed RPC endpoint scopes", () => {
 			"tediEmail/provisionAddress",
 			"organizations/cancel",
 			"organizations/listWidgetQuotaStatus",
+			"organizations/listAutomationInventory",
 			"tediEmail/listAddressRequests",
 			"billing/grantTopUpCredits",
 			"billing/assignInternalPlan",

@@ -1,3 +1,4 @@
+import { listAutomationInventory as listAutomationInventoryDb } from "@tedix/db/queries/automation-inventory";
 import {
 	getCustomDomain,
 	beginCustomDomain,
@@ -156,6 +157,13 @@ export const listOrganizations = authedOrganizationsOs.list
 			},
 		};
 	});
+
+export const listAutomationInventory =
+	authedOrganizationsOs.listAutomationInventory
+		.use(AUTHZ.platformAdmin)
+		.handler(({ input, context }) =>
+			listAutomationInventoryDb(context.db, input),
+		);
 
 /**
  * Platform-operator drift read. Unlike `list`, machine principals holding
@@ -913,6 +921,7 @@ export const organizationsContractRouter = organizationsOs.router({
 	completeOsOnboarding: completeOsOnboardingContract,
 	list: listOrganizations,
 	listWidgetQuotaStatus,
+	listAutomationInventory,
 	get: getOrganization,
 	getBySlug: getOrganizationBySlugContract,
 	isSlugAvailable: isSlugAvailableContract,

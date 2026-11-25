@@ -1250,6 +1250,9 @@ export const commitmentWakeOutbox = sqliteTable(
 		index("idx_commitment_wake_outbox_pending")
 			.on(table.nextSendAt, table.id)
 			.where(sql`${table.completedAt} IS NULL`),
+		index("idx_commitment_wake_outbox_org_pending")
+			.on(table.orgId)
+			.where(sql`${table.completedAt} IS NULL`),
 		index("idx_commitment_wake_outbox_completed")
 			.on(table.completedAt)
 			.where(sql`${table.completedAt} IS NOT NULL`),

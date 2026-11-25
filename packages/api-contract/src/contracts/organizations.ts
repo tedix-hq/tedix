@@ -1,4 +1,8 @@
 import {
+	AutomationInventoryInputSchema,
+	AutomationInventoryResultSchema,
+} from "../schemas/automation-inventory";
+import {
 	OrganizationDomainSchema,
 	OrganizationDomainBeginSchema,
 	OrganizationDomainKeySchema,
@@ -372,6 +376,18 @@ export const organizationsContract = oc
 			})
 			.input(PaginationSchema)
 			.output(createPaginatedResponseSchema(OrganizationListItemSchema)),
+
+		listAutomationInventory: oc
+			.route({
+				method: "GET",
+				path: "/automation-inventory",
+				tags: ["internal"],
+				summary: "Count organization automations (platform admin)",
+				description:
+					"Read-only keyset page of automation counts. Returns organization IDs and counts only. Factory health uses delivery verdicts; disabledSchedules counts skill schedules. Expired MCP subscriptions are excluded.",
+			})
+			.input(AutomationInventoryInputSchema)
+			.output(AutomationInventoryResultSchema),
 
 		/**
 		 * Platform-operator drift view: which organizations set an embedded

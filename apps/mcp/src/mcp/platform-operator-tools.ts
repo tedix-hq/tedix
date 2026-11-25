@@ -1599,6 +1599,14 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 			"Start the durable tedi MCP access-health workflow for this organization. Use repairInvalid=true only when you want the workflow to repair invalid Descope AIH clients.",
 	},
 
+	{
+		toolId: "list_automation_inventory",
+		endpoint: "organizations/listAutomationInventory",
+		kind: "read",
+		description:
+			"Platform-admin read-only automation counts by organization, with a bounded keyset page. No row contents. Follow nextCursor for the next page.",
+	},
+
 	// Embedded widget quota drift (platform operator, read-only).
 	{
 		toolId: "list_organization_widget_quotas",

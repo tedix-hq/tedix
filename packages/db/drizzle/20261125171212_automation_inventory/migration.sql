@@ -1,0 +1,1 @@
+CREATE INDEX `idx_commitment_wake_outbox_org_pending` ON `commitment_wake_outbox` (`org_id`) WHERE "commitment_wake_outbox"."completed_at" IS NULL;
