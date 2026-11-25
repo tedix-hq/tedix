@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -58,8 +58,8 @@ export function buildEnsureOsGadgetCodeBlobStatement(
 /**
  * The two statements that record a revision's code inside a batch which also
  * writes that revision: the blob (skipped when the content exists) and the
- * pointer row. Both select from the revision just written, so neither lands
- * when a guarded revision insert earlier in the batch did not.
+ * pointer row. For a D1 CAS chain, write the pointer first with the preceding
+ * write's changes() fence, then fence the blob on that pointer insert.
  */
 export function buildOsGadgetRevisionCodeStatements(
 	db: DbQueryClient,
@@ -67,13 +67,18 @@ export function buildOsGadgetRevisionCodeStatements(
 		revisionId: string;
 		sha256: string;
 		createdAt: string;
+		/** The preceding D1 statement must have changed one row. */
+		guardD1PreviousWrite?: boolean;
 	},
 ) {
 	const osGadgetCode = coreTable(db, d1OsGadgetCode);
 	const osGadgetCodeBlobs = coreTable(db, d1OsGadgetCodeBlobs);
 	const osGadgetRevisions = coreTable(db, d1OsGadgetRevisions);
-	const fromRevision = eq(osGadgetRevisions.id, params.revisionId);
-	return [
+	const fromRevision = and(
+		eq(osGadgetRevisions.id, params.revisionId),
+		params.guardD1PreviousWrite ? sql`changes() = 1` : undefined,
+	);
+	const statements = [
 		db
 			.insert(osGadgetCodeBlobs)
 			.select(
@@ -104,6 +109,9 @@ export function buildOsGadgetRevisionCodeStatements(
 				.where(fromRevision),
 		),
 	] as const;
+	return params.guardD1PreviousWrite
+		? ([statements[1], statements[0]] as const)
+		: statements;
 }
 
 /**
