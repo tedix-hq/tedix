@@ -3,6 +3,7 @@ import {
 	eq,
 	exists,
 	gt,
+	inArray,
 	isNull,
 	lte,
 	notExists,
@@ -14,6 +15,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import { chunkForBoundParams } from "../../utils/batch";
 import { memoryFacts } from "../../schema/memory-graph";
 import { organizationMembers } from "../../schema/organization-members";
 import {
@@ -22,7 +24,12 @@ import {
 } from "../../schema/platform-cron-executions";
 import { tedis } from "../../schema/tedis";
 import { workInteractions } from "../../schema/work-factory";
-import { workAttempts, workItems } from "../../schema/work-items";
+import {
+	workAttempts,
+	workItems,
+	commitmentWakeOutbox,
+	type CommitmentWakeSource,
+} from "../../schema/work-items";
 
 export interface CommitmentChange {
 	key: string;
@@ -226,30 +233,44 @@ export async function recordCommitmentFollowupAttention(
 		AND json_extract(${workInteractions.metadata}, '$.approvalOperation') IS NULL`);
 }
 
-/** Global scheduler read; each row joins its active tedi in the same tenant. */
+/** Queue reads seek one canonical source; catch-up reads indexed time windows. */
 export async function listCommitmentChanges(
 	db: DbClient,
 	after: string,
 	through: string,
 	environment: string,
-	page?: { limit: number; cursor: CommitmentWakeCursor | null },
+	page?: {
+		limit: number;
+		cursor: CommitmentWakeCursor | null;
+		source?: Pick<
+			CommitmentWakeDueRow,
+			"orgId" | "sourceKind" | "sourceId" | "changeKey"
+		>;
+	},
 ): Promise<CommitmentChange[]> {
 	const limit = page ? Math.max(1, Math.min(100, Math.floor(page.limit))) : 100;
 	const cursor = page?.cursor;
-	const pageFilter = cursor
-		? sql`WHERE (changedAt, key, tediId) > (${cursor.changedAt}, ${cursor.key}, ${cursor.tediId})`
-		: sql``;
+	const source = page?.source;
+	const sourceFilter = (kind: CommitmentWakeSource, orgColumn: string) =>
+		!source
+			? sql`1`
+			: source.sourceKind !== kind
+				? sql`0`
+				: sql`${sql.identifier(orgColumn)} = ${source.orgId} AND id = ${source.sourceId}`;
+
+	const pageFilter = sql`WHERE ${source?.changeKey ? sql`key = ${source.changeKey}` : sql`1`}
+		AND ${cursor ? sql`(changedAt, key, tediId) > (${cursor.changedAt}, ${cursor.key}, ${cursor.tediId})` : sql`1`}`;
 	// D1 rejects the eight-term compound scan; keep each statement to four terms.
 	// Raw: these compound scans need AS MATERIALIZED windows and CROSS JOIN order, which Drizzle cannot emit.
 	const statements = [
 		sql`
 		WITH recent_work_events AS MATERIALIZED (
 			SELECT * FROM work_events
-			WHERE occurred_at > ${after} AND occurred_at <= ${through}
+			WHERE occurred_at > ${after} AND occurred_at <= ${through} AND ${sourceFilter("work_event", "org_id")}
 		), resolved_work_approvals AS MATERIALIZED (
-			SELECT * FROM work_approval_proposals WHERE resolved_at > ${after} AND resolved_at <= ${through}
+			SELECT * FROM work_approval_proposals WHERE resolved_at > ${after} AND resolved_at <= ${through} AND ${sourceFilter("work_approval", "org_id")}
 		), resolved_tedi_approvals AS MATERIALIZED (
-			SELECT * FROM tedi_approval_requests WHERE resolved_at > ${after} AND resolved_at <= ${through}
+			SELECT * FROM tedi_approval_requests WHERE resolved_at > ${after} AND resolved_at <= ${through} AND ${sourceFilter("tedi_approval", "org_id")}
 		), changes AS (
 			SELECT 'work:' || e.id AS key, w.org_id AS orgId, t.id AS tediId, t.slug,
 				'work' AS kind, w.id AS objectId,
@@ -299,13 +320,13 @@ export async function listCommitmentChanges(
 	`,
 		sql`
 		WITH recent_responses AS MATERIALIZED (
-			SELECT * FROM work_interaction_responses WHERE responded_at > ${after} AND responded_at <= ${through}
+			SELECT * FROM work_interaction_responses WHERE responded_at > ${after} AND responded_at <= ${through} AND ${sourceFilter("interaction_response", "org_id")}
 		), overdue_interactions AS MATERIALIZED (
-			SELECT * FROM work_interactions WHERE due_at > ${after} AND due_at <= ${through}
+			SELECT * FROM work_interactions WHERE due_at > ${after} AND due_at <= ${through} AND ${sourceFilter("interaction", "org_id")}
 		), completed_gadgets AS MATERIALIZED (
-			SELECT * FROM os_gadget_executions WHERE completed_at > ${after} AND completed_at <= ${through}
+			SELECT * FROM os_gadget_executions WHERE completed_at > ${after} AND completed_at <= ${through} AND ${sourceFilter("gadget", "organization_id")}
 		), completed_skills AS MATERIALIZED (
-			SELECT * FROM skill_runs WHERE completed_at > ${after} AND completed_at <= ${through}
+			SELECT * FROM skill_runs WHERE completed_at > ${after} AND completed_at <= ${through} AND ${sourceFilter("skill", "organization_id")}
 		), changes AS (
 			SELECT 'interaction:' || r.id AS key, i.org_id AS orgId, t.id AS tediId, t.slug,
 				'interaction' AS kind, i.id AS objectId, 'answered' AS state, r.responded_at AS changedAt
@@ -343,11 +364,11 @@ export async function listCommitmentChanges(
 	`,
 		sql`
 		WITH overdue_work AS MATERIALIZED (
-			SELECT * FROM work_items WHERE deadline > ${after} AND deadline <= ${through}
+			SELECT * FROM work_items WHERE deadline > ${after} AND deadline <= ${through} AND ${sourceFilter("work_item", "org_id")}
 			UNION ALL
 			-- A plain OR lets SQLite scan every NULL deadline instead of seeking due_date.
 			SELECT * FROM work_items INDEXED BY idx_work_items_due_date
-			WHERE due_date > ${after} AND due_date <= ${through} AND deadline IS NULL
+			WHERE due_date > ${after} AND due_date <= ${through} AND deadline IS NULL AND ${sourceFilter("work_item", "org_id")}
 		), changes AS (
 			SELECT 'overdue:' || w.id || ':' || coalesce(w.deadline, w.due_date) AS key, w.org_id AS orgId, t.id AS tediId, t.slug,
 				'work' AS kind, w.id AS objectId, 'overdue' AS state, coalesce(w.deadline, w.due_date) AS changedAt
@@ -365,7 +386,9 @@ export async function listCommitmentChanges(
 		eq(m.userId, t.ownerUserId),
 		eq(m.status, "active"),
 	);
-	const memberWork = sql`${workItems} INDEXED BY idx_work_items_accountable_owner`;
+	const memberWork = source
+		? workItems
+		: sql`${workItems} INDEXED BY idx_work_items_accountable_owner`;
 	const memberOwnsWork = and(
 		eq(workItems.orgId, m.organizationId),
 		eq(workItems.accountableOwnerType, "user"),
@@ -412,6 +435,14 @@ export async function listCommitmentChanges(
 					eq(t.scope, "personal"),
 					eq(t.status, "active"),
 					notInArray(workItems.disposition, ["completed", "cancelled"]),
+					source
+						? source.sourceKind === "work_item"
+							? and(
+									eq(workItems.orgId, source.orgId),
+									eq(workItems.id, source.sourceId),
+								)
+							: sql`0`
+						: undefined,
 					sql`${workDue} > ${after}`,
 					sql`${workDue} <= ${through}`,
 				),
@@ -435,6 +466,14 @@ export async function listCommitmentChanges(
 					eq(t.scope, "personal"),
 					eq(t.status, "active"),
 					eq(workItems.disposition, "accepted"),
+					source
+						? source.sourceKind === "work_item"
+							? and(
+									eq(workItems.orgId, source.orgId),
+									eq(workItems.id, source.sourceId),
+								)
+							: sql`0`
+						: undefined,
 					sql`${workTouched} > ${idleAfter}`,
 					sql`${workTouched} <= ${idleThrough}`,
 					notExists(
@@ -466,7 +505,9 @@ export async function listCommitmentChanges(
 			.from(t)
 			.innerJoin(m, personalMembers)
 			.innerJoin(
-				sql`${workInteractions} INDEXED BY idx_work_interactions_target_status`,
+				source
+					? workInteractions
+					: sql`${workInteractions} INDEXED BY idx_work_interactions_target_status`,
 				and(
 					eq(workInteractions.orgId, m.organizationId),
 					eq(workInteractions.targetType, "user"),
@@ -478,6 +519,14 @@ export async function listCommitmentChanges(
 				and(
 					eq(t.scope, "personal"),
 					eq(t.status, "active"),
+					source
+						? source.sourceKind === "interaction"
+							? and(
+									eq(workInteractions.orgId, source.orgId),
+									eq(workInteractions.id, source.sourceId),
+								)
+							: sql`0`
+						: undefined,
 					isNull(workInteractions.dueAt),
 					gt(workInteractions.createdAt, idleAfter),
 					lte(workInteractions.createdAt, idleThrough),
@@ -516,7 +565,11 @@ export async function listCommitmentChanges(
 					sql`json_extract(${memoryFacts.metadata}, '$.dueAt')`,
 				),
 			)
-			.from(sql`${memoryFacts} INDEXED BY idx_memory_facts_type`)
+			.from(
+				source
+					? memoryFacts
+					: sql`${memoryFacts} INDEXED BY idx_memory_facts_type`,
+			)
 			.innerJoin(
 				t,
 				and(
@@ -528,6 +581,14 @@ export async function listCommitmentChanges(
 			.where(
 				and(
 					// Not in the typed fact-type enum, but stored by commitment capture.
+					source
+						? source.sourceKind === "memory"
+							? and(
+									eq(memoryFacts.organizationId, source.orgId),
+									eq(memoryFacts.id, source.sourceId),
+								)
+							: sql`0`
+						: undefined,
 					sql`${memoryFacts.factType} = 'commitment'`,
 					isNull(memoryFacts.archivedAt),
 					isNull(memoryFacts.validTo),
@@ -542,22 +603,41 @@ export async function listCommitmentChanges(
 			),
 	];
 	const groups: CommitmentChange[][] = [];
-	for (const statement of statements)
+	for (const [index, statement] of statements.entries()) {
+		if (
+			source &&
+			![
+				["work_event", "work_approval", "tedi_approval"],
+				["interaction_response", "interaction", "gadget", "skill"],
+				["work_item"],
+			][index]!.includes(source.sourceKind)
+		)
+			continue;
 		groups.push(
 			await db.all<CommitmentChange>(
 				sql`SELECT * FROM (${statement}) ${pageFilter} ORDER BY changedAt COLLATE BINARY, key COLLATE BINARY, tediId COLLATE BINARY LIMIT ${limit}`,
 			),
 		);
-	for (const builder of builders) {
+	}
+	for (const [index, builder] of builders.entries()) {
+		if (
+			source &&
+			["work_item", "work_item", "interaction", "memory"][index] !==
+				source.sourceKind
+		)
+			continue;
 		const changes = builder.as("changes");
 		groups.push(
 			await db
 				.select()
 				.from(changes)
 				.where(
-					cursor
-						? sql`(${changes.changedAt}, ${changes.key}, ${changes.tediId}) > (${cursor.changedAt}, ${cursor.key}, ${cursor.tediId})`
-						: undefined,
+					and(
+						source?.changeKey ? eq(changes.key, source.changeKey) : undefined,
+						cursor
+							? sql`(${changes.changedAt}, ${changes.key}, ${changes.tediId}) > (${cursor.changedAt}, ${cursor.key}, ${cursor.tediId})`
+							: undefined,
+					),
 				)
 				.orderBy(
 					sql`${changes.changedAt} COLLATE BINARY`,
@@ -687,4 +767,154 @@ export async function advanceCommitmentWakeCheckpoint(
 			set: { through, cursor: null },
 			setWhere: sql`${platformCronCheckpoints.through} < ${through}`,
 		});
+}
+
+export type CommitmentWakeDueRow = typeof commitmentWakeOutbox.$inferSelect;
+
+function commitmentWakeSource(change: CommitmentChange): {
+	sourceKind: CommitmentWakeSource;
+	sourceId: string;
+} {
+	const prefix = change.key.slice(0, change.key.indexOf(":"));
+	const kinds: Record<string, CommitmentWakeSource> = {
+		work: "work_event",
+		approval: "work_approval",
+		"tedi-approval": "tedi_approval",
+		interaction: "interaction_response",
+		"interaction-overdue": "interaction",
+		"interaction-idle": "interaction",
+		factory: "gadget",
+		skill: "skill",
+		memory: "memory",
+	};
+	const sourceKind = kinds[prefix] ?? "work_item";
+	return {
+		sourceKind,
+		sourceId:
+			sourceKind === "work_event" || sourceKind === "interaction_response"
+				? change.key.slice(prefix.length + 1)
+				: change.objectId,
+	};
+}
+
+/** Same identity as the atomic writer triggers, including overdue/idle crossings. */
+export async function retainCommitmentWakeChanges(
+	db: DbClient,
+	changes: CommitmentChange[],
+) {
+	const rows = changes.map((change) => {
+		const source = commitmentWakeSource(change);
+		const changeKey =
+			source.sourceKind === "gadget" || source.sourceKind === "skill"
+				? change.key
+				: null;
+		return {
+			id: `${source.sourceKind}:${source.sourceId}:${change.changedAt}${changeKey ? `:${changeKey}` : ""}`,
+			changeKey,
+			kind: "commitment_wake" as const,
+			orgId: change.orgId,
+			...source,
+			dueAt: change.changedAt,
+			nextSendAt: new Date(Date.parse(change.changedAt) + 30_000).toISOString(),
+		};
+	});
+	// Stay below D1's 100-parameter limit, including the revision key.
+	for (let at = 0; at < rows.length; at += 10)
+		await db
+			.insert(commitmentWakeOutbox)
+			.values(rows.slice(at, at + 10))
+			.onConflictDoNothing();
+}
+
+function commitmentWakeEnvironment(environment: string) {
+	return sql`(${commitmentWakeOutbox.sourceKind} NOT IN ('gadget', 'skill')
+		OR (${commitmentWakeOutbox.sourceKind} = 'gadget' AND EXISTS (SELECT 1 FROM os_gadget_executions g WHERE g.id = ${commitmentWakeOutbox.sourceId} AND g.organization_id = ${commitmentWakeOutbox.orgId} AND g.runtime_environment = ${environment}))
+		OR (${commitmentWakeOutbox.sourceKind} = 'skill' AND EXISTS (SELECT 1 FROM skill_runs s WHERE s.id = ${commitmentWakeOutbox.sourceId} AND s.organization_id = ${commitmentWakeOutbox.orgId} AND s.runtime_environment = ${environment})))`;
+}
+
+export async function listDueCommitmentWakes(
+	db: DbClient,
+	now: string,
+	environment: string,
+) {
+	return db
+		.select()
+		.from(commitmentWakeOutbox)
+		.where(
+			and(
+				isNull(commitmentWakeOutbox.completedAt),
+				lte(commitmentWakeOutbox.nextSendAt, now),
+				commitmentWakeEnvironment(environment),
+			),
+		)
+		.orderBy(commitmentWakeOutbox.nextSendAt, commitmentWakeOutbox.id)
+		.limit(25);
+}
+
+export async function getDueCommitmentWake(
+	db: DbClient,
+	id: string,
+	environment: string,
+) {
+	const [row] = await db
+		.select()
+		.from(commitmentWakeOutbox)
+		.where(
+			and(
+				eq(commitmentWakeOutbox.id, id),
+				isNull(commitmentWakeOutbox.completedAt),
+				commitmentWakeEnvironment(environment),
+			),
+		)
+		.limit(1);
+	return row ?? null;
+}
+
+export async function recordCommitmentWakesQueued(
+	db: DbClient,
+	ids: string[],
+	now: string,
+) {
+	for (const chunk of chunkForBoundParams(ids, 50))
+		await db
+			.update(commitmentWakeOutbox)
+			.set({ nextSendAt: new Date(Date.parse(now) + 600_000).toISOString() })
+			.where(
+				and(
+					isNull(commitmentWakeOutbox.completedAt),
+					inArray(commitmentWakeOutbox.id, chunk),
+				),
+			);
+}
+
+export async function recordCommitmentWakeProgress(
+	db: DbClient,
+	row: CommitmentWakeDueRow,
+	cursor: CommitmentWakeCursor | null,
+	now: string,
+) {
+	await db
+		.update(commitmentWakeOutbox)
+		.set(cursor ? { cursor } : { completedAt: now })
+		.where(
+			and(
+				eq(commitmentWakeOutbox.id, row.id),
+				isNull(commitmentWakeOutbox.completedAt),
+				// A duplicate queue delivery cannot move the page cursor backwards.
+				cursor
+					? sql`${commitmentWakeOutbox.cursor} IS NULL OR
+				(json_extract(${commitmentWakeOutbox.cursor}, '$.changedAt'), json_extract(${commitmentWakeOutbox.cursor}, '$.key'), json_extract(${commitmentWakeOutbox.cursor}, '$.tediId')) < (${cursor.changedAt}, ${cursor.key}, ${cursor.tediId})`
+					: sql`${commitmentWakeOutbox.cursor} IS ${row.cursor ? JSON.stringify(row.cursor) : null}`,
+			),
+		);
+}
+
+export async function pruneCommitmentWakeReceipts(
+	db: DbClient,
+	before: string,
+) {
+	await db.delete(commitmentWakeOutbox)
+		.where(sql`${commitmentWakeOutbox.id} IN (
+		SELECT id FROM commitment_wake_outbox WHERE completed_at IS NOT NULL AND completed_at < ${before}
+		ORDER BY completed_at LIMIT 100)`);
 }

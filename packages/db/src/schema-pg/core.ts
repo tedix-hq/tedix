@@ -2814,6 +2814,30 @@ export const cmsSites = pgTable(
 			.onUpdate("no action"),
 	],
 );
+export const commitmentWakeOutbox = pgTable(
+	"commitment_wake_outbox",
+	{
+		id: text("id").primaryKey(),
+		kind: text("kind").notNull(),
+		orgId: text("org_id").notNull(),
+		sourceKind: text("source_kind").notNull(),
+		sourceId: text("source_id").notNull(),
+		changeKey: text("change_key"),
+		dueAt: text("due_at").notNull(),
+		nextSendAt: text("next_send_at").notNull(),
+		cursor: jsonb("cursor"),
+		completedAt: text("completed_at"),
+	},
+	(t) => [
+		foreignKey({
+			name: "commitment_wake_outbox_org_id_organizations_id_fk",
+			columns: [t["orgId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
 export const competencyObservationAttestations = pgTable(
 	"competency_observation_attestations",
 	{
@@ -15746,6 +15770,7 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(cmsRestoreFences), cmsRestoreFences],
 	[getTableName(cmsRestorePermits), cmsRestorePermits],
 	[getTableName(cmsSites), cmsSites],
+	[getTableName(commitmentWakeOutbox), commitmentWakeOutbox],
 	[
 		getTableName(competencyObservationAttestations),
 		competencyObservationAttestations,

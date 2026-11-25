@@ -2048,6 +2048,10 @@
 		{
 			"name": "20261125161527_remove_default_cognitive_crons/migration.sql",
 			"sha256": "4c3304fc907e4527840701a81df7c5b9cf9670394b654027550fdb9ea164ef91"
+		},
+		{
+			"name": "20261125162023_commitment_wake_outbox/migration.sql",
+			"sha256": "e08a3d841e761c6ced9fa9b6a25c0281c9c59b5f74694006988f2ee2cace7c6c"
 		}
 	]
 }

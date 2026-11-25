@@ -102,6 +102,16 @@ export async function handleAutomationEventMessage(
 		body &&
 		typeof body === "object" &&
 		"kind" in body &&
+		(body.kind === "commitment_wake" || body.kind === "commitment_wake_catchup")
+	) {
+		const { handleCommitmentWakeMessage } =
+			await import("../services/commitment-wake-queue");
+		return handleCommitmentWakeMessage(env, body);
+	}
+	if (
+		body &&
+		typeof body === "object" &&
+		"kind" in body &&
 		body.kind === "agent_session_events"
 	) {
 		const { AgentSessionEventQueueSchema, processAgentSessionEventQueue } =
@@ -258,16 +268,32 @@ export async function consumeAutomationEvents(
 	opts: { waitUntil?: (p: Promise<unknown>) => void } = {},
 	deps: AutomationEventDeps = {},
 ): Promise<void> {
+	const settle = async (message: AutomationQueueMessage) => {
+		const outcome = await handleAutomationEventMessage(
+			env,
+			message.body,
+			opts,
+			deps,
+		);
+		if (outcome === "ack") message.ack();
+		else message.retry();
+	};
+	// Let a preceding wake's ingress receipt become visible before checking
+	// whether the next commitment for that session must wait. Other work stays concurrent.
+	let commitmentTail = Promise.resolve();
 	await Promise.all(
-		messages.map(async (message) => {
-			const outcome = await handleAutomationEventMessage(
-				env,
-				message.body,
-				opts,
-				deps,
-			);
-			if (outcome === "ack") message.ack();
-			else message.retry();
+		messages.map((message) => {
+			const body = message.body;
+			if (
+				body &&
+				typeof body === "object" &&
+				"kind" in body &&
+				body.kind === "commitment_wake"
+			) {
+				commitmentTail = commitmentTail.then(() => settle(message));
+				return commitmentTail;
+			}
+			return settle(message);
 		}),
 	);
 }

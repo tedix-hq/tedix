@@ -26,6 +26,8 @@ import {
 	listCommitmentChanges,
 	type CommitmentChange,
 	type CommitmentWakeCursor,
+	type CommitmentWakeDueRow,
+	recordCommitmentWakeProgress,
 } from "@tedix/db/queries/work-items/commitment-changes";
 import type { TediHostEnv } from "../lib/platform-hosts";
 
@@ -72,9 +74,14 @@ export function buildCommitmentWakeRequest(
 	});
 }
 
-export async function dispatchCommitmentWakes(
+export async function processCommitmentWakePage(
 	env: CloudflareEnv,
 	scheduledTime: number,
+	options: {
+		source?: CommitmentWakeDueRow;
+		collect?: (changes: CommitmentChange[]) => Promise<void>;
+		maxPages?: number;
+	} = {},
 ): Promise<Record<string, number>> {
 	const db = createDbClient(env.DB);
 	const deadline = Date.now() + RUN_BUDGET_MS;
@@ -103,7 +110,10 @@ export async function dispatchCommitmentWakes(
 			clearTimeout(timer);
 		}
 	}
-	const checkpoint = await bounded(() => lastCommitmentWakeCheckpoint(db));
+	const source = options.source;
+	const checkpoint = source
+		? null
+		: await bounded(() => lastCommitmentWakeCheckpoint(db));
 	let observed = 0;
 	let dispatched = 0;
 	let deduplicated = 0;
@@ -130,12 +140,21 @@ export async function dispatchCommitmentWakes(
 		...(checkpointMs !== undefined ? { checkpointMs } : {}),
 	});
 	const oldestWakeMs = Math.max(scheduledTime, Date.now()) - MAX_WAKE_AGE_MS;
-	const windows = commitmentWakeWindows(checkpoint, scheduledTime);
+	const windows = source
+		? [
+				{
+					after: new Date(Date.parse(source.dueAt) - 1).toISOString(),
+					through: source.dueAt,
+				},
+			]
+		: commitmentWakeWindows(checkpoint, scheduledTime);
 	// Preserve the initial boundary even if the very first acceptance fails.
-	if (windows[0] && checkpoint !== windows[0].after)
+	if (!source && windows[0] && checkpoint !== windows[0].after)
 		await bounded(() => advanceCommitmentWakeCheckpoint(db, windows[0]!.after));
 	// Fresh work runs first so a poison retry cannot consume every run's budget.
-	const retryPages = await bounded(() => listCommitmentWakeRetryPages(db));
+	const retryPages = source
+		? []
+		: await bounded(() => listCommitmentWakeRetryPages(db));
 	const pages: Array<{
 		after: string;
 		through: string;
@@ -150,24 +169,32 @@ export async function dispatchCommitmentWakes(
 			retryCursor: page.cursor,
 		})),
 	];
+	// Drain pre-outbox retry pointers before the single catch-up page.
+	if (options.collect)
+		pages.sort(
+			(a, b) => Number(Boolean(b.retryId)) - Number(Boolean(a.retryId)),
+		);
 	const failures: unknown[] = [];
-	try {
-		await bounded(() => routeEngineeringCommitmentReminders(db));
-	} catch (error) {
-		failures.push(error);
+	if (!source) {
+		try {
+			await bounded(() => routeEngineeringCommitmentReminders(db));
+		} catch (error) {
+			failures.push(error);
+		}
+		// A reminder whose Work moved on since it was filed no longer needs anyone.
+		try {
+			remindersClosed = (
+				await bounded(() =>
+					closeSettledCommitmentReminders(db, {
+						now: new Date(scheduledTime).toISOString(),
+					}),
+				)
+			).length;
+		} catch (error) {
+			failures.push(error);
+		}
 	}
-	// A reminder whose Work moved on since it was filed no longer needs anyone.
-	try {
-		remindersClosed = (
-			await bounded(() =>
-				closeSettledCommitmentReminders(db, {
-					now: new Date(scheduledTime).toISOString(),
-				}),
-			)
-		).length;
-	} catch (error) {
-		failures.push(error);
-	}
+	let pagesRead = 0;
 	for (const window of pages) {
 		if (
 			Date.now() >= deliveryDeadline ||
@@ -177,7 +204,7 @@ export async function dispatchCommitmentWakes(
 			break;
 		}
 		// Historical notifications start model turns even when the prompt says to stop quietly.
-		if (Date.parse(window.through) < oldestWakeMs) {
+		if (!source && Date.parse(window.through) < oldestWakeMs) {
 			if (window.retryId)
 				await bounded(() => removeCommitmentWakeRetryPage(db, window.retryId!));
 			else
@@ -189,15 +216,20 @@ export async function dispatchCommitmentWakes(
 			if (!window.retryId) checkpointMs = Date.parse(window.through);
 			continue;
 		}
-		const cursor = window.retryId
-			? (window.retryCursor ?? null)
-			: await bounded(() => getCommitmentWakeCursor(db, window.after));
+		if (options.maxPages !== undefined && pagesRead >= options.maxPages) break;
+		pagesRead++;
+		const cursor = source
+			? source.cursor
+			: window.retryId
+				? (window.retryCursor ?? null)
+				: await bounded(() => getCommitmentWakeCursor(db, window.after));
 		// Page membership must stay fixed across retries, even after earlier windows finish.
 		const limit = MAX_COMMITMENT_CHANGES_PER_RUN;
 		const changes = await bounded(() =>
 			listCommitmentChanges(db, window.after, window.through, env.ENVIRONMENT, {
 				limit,
 				cursor,
+				source,
 			}),
 		);
 		if (observed + changes.length > MAX_COMMITMENT_CHANGES_PER_RUN) {
@@ -205,8 +237,9 @@ export async function dispatchCommitmentWakes(
 			break;
 		}
 		observed += changes.length;
+		if (options.collect) await bounded(() => options.collect!(changes));
 		const batches = new Map<string, CommitmentChange[]>();
-		for (const change of changes) {
+		for (const change of options.collect ? [] : changes) {
 			const key = `${change.orgId}:${change.tediId}`;
 			const batch = batches.get(key) ?? [];
 			batch.push(change);
@@ -223,8 +256,9 @@ export async function dispatchCommitmentWakes(
 			}
 			const first = batch[0]!;
 			// Partial windows need distinct, repeatable ingress keys for each page.
-			const deliveryBoundary =
-				cursor || changes.length === limit
+			const deliveryBoundary = source
+				? `${source.id}:${JSON.stringify(cursor)}`
+				: cursor || changes.length === limit
 					? `${window.through}:${JSON.stringify([changes[0]!.key, changes.at(-1)!.key, changes.at(-1)!.tediId])}`
 					: window.through;
 			try {
@@ -320,6 +354,27 @@ export async function dispatchCommitmentWakes(
 			if (window.retryId) continue;
 			break;
 		}
+		if (source) {
+			if (failures.length === failuresBeforePage && pageDelivered) {
+				const last = changes.at(-1);
+				await bounded(() =>
+					recordCommitmentWakeProgress(
+						db,
+						source,
+						changes.length === limit && last
+							? {
+									changedAt: last.changedAt,
+									key: last.key,
+									tediId: last.tediId,
+								}
+							: null,
+						new Date(Math.max(Date.now(), scheduledTime)).toISOString(),
+					),
+				);
+				if (changes.length === limit) budgetExhausted = 1;
+			}
+			break;
+		}
 		if (failures.length > failuresBeforePage || !pageDelivered)
 			await bounded(() => retainCommitmentWakePage(db, window.through, cursor));
 		if (window.retryId) {
@@ -350,4 +405,14 @@ export async function dispatchCommitmentWakes(
 			counts(),
 		);
 	return counts();
+}
+
+/** The cron path only publishes due IDs; canonical reads and delivery run on the queue. */
+export async function dispatchCommitmentWakes(
+	env: CloudflareEnv,
+	scheduledTime: number,
+) {
+	const { enqueueDueCommitmentWakes } =
+		await import("../services/commitment-wake-queue");
+	return enqueueDueCommitmentWakes(env, scheduledTime);
 }

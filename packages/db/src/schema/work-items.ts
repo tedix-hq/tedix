@@ -1208,3 +1208,50 @@ export const workAttemptMessages = sqliteTable(
 
 export type WorkAttemptMessageRow = typeof workAttemptMessages.$inferSelect;
 export type NewWorkAttemptMessageRow = typeof workAttemptMessages.$inferInsert;
+
+export const COMMITMENT_WAKE_SOURCE_VALUES = [
+	"work_event",
+	"work_approval",
+	"tedi_approval",
+	"interaction_response",
+	"interaction",
+	"gadget",
+	"skill",
+	"work_item",
+	"memory",
+] as const;
+export type CommitmentWakeSource =
+	(typeof COMMITMENT_WAKE_SOURCE_VALUES)[number];
+
+/** Atomic writer outbox; completed rows retain receipts for catch-up deduplication. */
+export const commitmentWakeOutbox = sqliteTable(
+	"commitment_wake_outbox",
+	{
+		id: text("id").primaryKey(),
+		kind: text("kind", { enum: ["commitment_wake"] }).notNull(),
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		sourceKind: text("source_kind", {
+			enum: COMMITMENT_WAKE_SOURCE_VALUES,
+		}).notNull(),
+		sourceId: text("source_id").notNull(),
+		changeKey: text("change_key"),
+		dueAt: text("due_at").notNull(),
+		nextSendAt: text("next_send_at").notNull(),
+		cursor: text("cursor", { mode: "json" }).$type<{
+			changedAt: string;
+			key: string;
+			tediId: string;
+		}>(),
+		completedAt: text("completed_at"),
+	},
+	(table) => [
+		index("idx_commitment_wake_outbox_pending")
+			.on(table.nextSendAt, table.id)
+			.where(sql`${table.completedAt} IS NULL`),
+		index("idx_commitment_wake_outbox_completed")
+			.on(table.completedAt)
+			.where(sql`${table.completedAt} IS NOT NULL`),
+	],
+);

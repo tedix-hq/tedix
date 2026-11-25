@@ -48,7 +48,7 @@ import {
 	buildCommitmentWakeRequest,
 	MAX_COMMITMENT_CHANGES_PER_RUN,
 	commitmentWakeWindows,
-	dispatchCommitmentWakes,
+	processCommitmentWakePage as dispatchCommitmentWakes,
 } from "./commitment-wakes";
 import { ensureCommitmentFollowup } from "../services/tedi-context-wake";
 import { listWorkInteractionInbox } from "@tedix/db/queries/work-items/interactions";
