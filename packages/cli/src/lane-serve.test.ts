@@ -7886,7 +7886,7 @@ it("defers a future planned start and reuses only a canonically failed Work's re
 	const dir = mkdtempSync(join(tmpdir(), "lane-resume-test-"));
 	dirs.push(dir);
 	const repo = join(dir, "runs", "old", "repo");
-	mkdirSync(repo, { recursive: true });
+	mkdirSync(join(repo, ".git"), { recursive: true });
 	writeFileSync(join(repo, "unfinished.txt"), "Preserve this work");
 	writeFileSync(
 		join(dir, "old.json"),
@@ -8714,6 +8714,84 @@ it("records and preserves an unpushed commit until origin/main contains it", asy
 	git(["push", "origin", "HEAD:main"], destination);
 	expect(await unpushedLaneCommits(destination)).toEqual([]);
 	expect(await cleanupLaneWorktree(repo, destination, () => false)).toBe(true);
+}, 30_000);
+
+it("replaces evicted checkouts, defers repeated preparation failures, and removes leftovers", async () => {
+	const { root, repo, git } = gitFixture(true);
+	git(["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "local"]);
+	const leftover = join(repo, "leftover");
+	mkdirSync(join(leftover, "node_modules"), { recursive: true });
+	expect(await unpushedLaneCommits(leftover)).toEqual([]);
+
+	const f = fixture({ executor: "devin" });
+	f.items.splice(1);
+	f.config.repo = repo;
+	f.deps.hasRepository = (folder) => existsSync(join(folder, ".git"));
+	f.deps.provision = provisionLaneWorktree;
+	const oldRepo = join(f.dir, "runs", `${item().id}-1`, "repo");
+	mkdirSync(join(oldRepo, "node_modules"), { recursive: true });
+	writeFileSync(
+		join(f.dir, `${item().id}-1.json`),
+		JSON.stringify({
+			itemId: item().id,
+			version: 1,
+			phase: "settled",
+			outcome: "expired",
+			attemptId: "evicted-attempt",
+			repo: oldRepo,
+			unpushedCommits: ["f".repeat(40)],
+		}),
+	);
+	f.control.history.data = [{ id: "evicted-attempt", outcome: "expired" }];
+	const installs: string[] = [];
+	f.deps.installDependencies = async (folder) => {
+		installs.push(folder);
+		expect(existsSync(join(folder, ".git"))).toBe(true);
+		throw new Error(
+			"bun install --frozen-lockfile: dependency download failed",
+		);
+	};
+	const path = join(f.dir, `${item().id}-2.json`);
+	for (let count = 1; count <= 2; count++) {
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await dispatcher.drain();
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved.phase).toBe("deferred");
+		expect(saved.repo).not.toBe(oldRepo);
+		expect(saved.unpushedCommits).toBeUndefined();
+		expect(saved.preparationFailure.count).toBe(count);
+		expect(saved.preparationFailure.retryAt - Date.now()).toBeGreaterThan(
+			count * 60_000 - 5000,
+		);
+		await f.restart().tick();
+		expect(installs).toHaveLength(count);
+		saved.preparationFailure.retryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+	}
+	expect(f.events.some((event) => event.verb === "start")).toBe(false);
+	expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+		'"run-folder-missing"',
+	);
+
+	const destination = await provisionLaneWorktree(
+		repo,
+		join(root, "evict", "repo"),
+	);
+	mkdirSync(join(destination, "node_modules", "leftover"), { recursive: true });
+	const stale = new Date(Date.now() - 2 * 60 * 60_000);
+	utimesSync(destination, stale, stale);
+	expect(await cleanupLaneWorktree(repo, destination, () => false, true)).toBe(
+		true,
+	);
+	expect(existsSync(destination)).toBe(false);
+	// An interrupted eviction can also leave only generated dependencies.
+	mkdirSync(join(destination, "node_modules"), { recursive: true });
+	utimesSync(destination, stale, stale);
+	expect(await cleanupLaneWorktree(repo, destination, () => false, true)).toBe(
+		true,
+	);
+	expect(existsSync(destination)).toBe(false);
 }, 30_000);
 
 it("evicts a stale checkout that still holds work, saving it under a ref first", async () => {

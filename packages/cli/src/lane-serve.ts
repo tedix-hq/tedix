@@ -1298,6 +1298,7 @@ interface Receipt {
 	admissionCheckFailures?: number;
 	admissionRefusals?: number;
 	admissionRetryAt?: number;
+	preparationFailure?: { message: string; count: number; retryAt: number };
 	sharedDeferral?: boolean;
 	admissionState?: "not_sent" | "unknown" | "rejected" | "admitted";
 	repo?: string;
@@ -1735,6 +1736,7 @@ function retainedCheckout(
 	directory: string,
 	candidate: { id: string; version: number },
 	previous?: Receipt,
+	hasRepository = (repo: string) => existsSync(join(repo, ".git")),
 ): Pick<
 	Receipt,
 	| "repo"
@@ -1749,7 +1751,8 @@ function retainedCheckout(
 		previous.version !== candidate.version ||
 		!previous.repo ||
 		!resolve(previous.repo).startsWith(resolve(directory, "runs") + sep) ||
-		!existsSync(previous.repo)
+		!existsSync(previous.repo) ||
+		(!previous.repoFree && !hasRepository(previous.repo))
 	)
 		return {};
 	return {
@@ -1819,6 +1822,7 @@ export function retainedLaneWorktree(
 		metadata?: Record<string, unknown> | null;
 	}>,
 	onMissing?: (repo: string) => void,
+	hasRepository = (repo: string) => existsSync(join(repo, ".git")),
 ) {
 	// A rejected Attempt is a run that ended incomplete (its push refused, a
 	// write denied): its checkout and session hold that work for the retry.
@@ -1855,7 +1859,10 @@ export function retainedLaneWorktree(
 				!row.repo?.startsWith(join(directory, "runs") + sep)
 			)
 				return false;
-			if (!existsSync(row.repo)) {
+			if (
+				!existsSync(row.repo) ||
+				(!row.repoFree && !hasRepository(row.repo))
+			) {
 				onMissing?.(row.repo);
 				return false;
 			}
@@ -2379,6 +2386,8 @@ export async function cleanupLaneWorktree(
 				env: detachedGitEnv(),
 			},
 		);
+		// A leaked installer can recreate ignored files during Git's removal.
+		await rm(destination, { recursive: true, force: true });
 		return true;
 	} catch {
 		if (locked) await run(source, lockLaneWorktreeArgs(destination));
@@ -4557,6 +4566,10 @@ export class LaneDispatcher {
 					observeSkip(item, previous?.note ?? "Admission retry is deferred");
 					continue;
 				}
+				if (Date.now() < (previous?.preparationFailure?.retryAt ?? 0)) {
+					observeSkip(item, previous?.note ?? "Preparation retry is deferred");
+					continue;
+				}
 				if (
 					previous?.phase === "settling" &&
 					!this.running.has(item.id) &&
@@ -6343,6 +6356,7 @@ export class LaneDispatcher {
 			previous.version === candidate.version &&
 			retainsInterruptedWork(previous) &&
 			previous.repo &&
+			(previous.repoFree || this.deps.hasRepository(previous.repo)) &&
 			resolve(previous.repo).startsWith(resolve(this.directory, "runs") + sep)
 				? previous
 				: undefined;
@@ -6359,7 +6373,12 @@ export class LaneDispatcher {
 					: undefined,
 			nativeResumeCount: previous?.nativeResumeCount,
 			admissionState: previous?.admissionState ?? "not_sent",
-			...retainedCheckout(this.directory, candidate, previous),
+			...retainedCheckout(
+				this.directory,
+				candidate,
+				previous,
+				this.deps.hasRepository,
+			),
 			...(adopted
 				? {
 						phase: "admitted" as const,
@@ -6557,6 +6576,13 @@ export class LaneDispatcher {
 			const missing: string[] = [];
 			// Checkouts from before main's history was replaced; never resumed.
 			const replaced: string[] = [];
+			if (
+				adopted &&
+				(!adopted.repo ||
+					!existsSync(adopted.repo) ||
+					(!adopted.repoFree && !this.deps.hasRepository(adopted.repo)))
+			)
+				throw new RestartResumeFallback("the recorded checkout is gone");
 			const foundLane = adopted
 				? adopted
 				: receipt.verification
@@ -6568,6 +6594,7 @@ export class LaneDispatcher {
 							(repo) => {
 								missing.push(repo);
 							},
+							this.deps.hasRepository,
 						);
 			if (
 				!adopted &&
@@ -7735,6 +7762,29 @@ ${firstBrief}`;
 			)
 				receipt.admissionState = "rejected";
 			receipt.note = String(error).slice(0, 1800);
+			if (
+				!admitted &&
+				!admissionSent &&
+				!(error instanceof WorkRevisedDuringPreparationError) &&
+				!(error instanceof DispatcherStoppingError)
+			) {
+				const count =
+					previous?.preparationFailure?.message === receipt.note
+						? previous.preparationFailure.count + 1
+						: 1;
+				receipt.preparationFailure = {
+					message: receipt.note,
+					count,
+					retryAt:
+						Date.now() +
+						Math.min(60 * 60_000, 60_000 * 2 ** Math.min(count - 1, 6)),
+				};
+				this.log(
+					"preparation-deferred",
+					candidate.id,
+					`Preparation failed ${count} time(s) the same way; retry after ${new Date(receipt.preparationFailure.retryAt).toISOString()}: ${receipt.note}`,
+				);
+			}
 			if (
 				!admitted &&
 				((admissionSent && /\bNOT_ELIGIBLE\b/.test(String(error))) ||
