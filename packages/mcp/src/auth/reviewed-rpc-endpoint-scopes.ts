@@ -534,6 +534,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"organizations/listAutomationInventory": "platform:admin",
 	"organizations/repairCmsDomainEntitlement": "platform:admin",
 	"organizations/resolveCliWorkspace": "platform:admin",
+	"organizations/revokeMcpInstallation": "platform:admin",
 	"organizations/revokeMultiOrgMcpConsent": "platform:admin",
 	"organizations/stageMultiOrgMcpConsent": "platform:admin",
 	"organizations/update": "platform:admin",

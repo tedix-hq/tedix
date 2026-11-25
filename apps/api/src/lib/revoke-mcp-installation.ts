@@ -48,5 +48,5 @@ export async function revokeMcpInstallation(
 	});
 	if (response.status !== 200)
 		throw new Error("Refresh token revocation unavailable");
-	return { revoked: true as const };
+	return { revoked: true as const, consentRevision: proof.revision };
 }

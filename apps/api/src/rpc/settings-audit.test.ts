@@ -33,6 +33,8 @@ const input = {
 	value: "PRIVATE-CREDENTIAL",
 	endpoint: "PRIVATE-ENDPOINT",
 	clientId: "PRIVATE-CLIENT",
+	accessToken: "PRIVATE-ACCESS-TOKEN",
+	refreshToken: "PRIVATE-REFRESH-TOKEN",
 };
 const output = {
 	id: "record-a",
@@ -41,6 +43,7 @@ const output = {
 	enabled: true,
 	mode: "eu",
 	revision: 2,
+	consentRevision: "00000000-0000-4000-8000-000000000001",
 	rawKey: "PRIVATE-KEY",
 };
 function setup() {

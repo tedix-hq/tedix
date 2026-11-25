@@ -162,7 +162,9 @@ export const organizationsContract = oc
 		revokeMcpInstallation: oc
 			.route({ method: "POST", tags: ["internal"] })
 			.input(RevokeMcpInstallationInputSchema)
-			.output(z.object({ revoked: z.literal(true) })),
+			.output(
+				z.object({ revoked: z.literal(true), consentRevision: z.uuid() }),
+			),
 
 		/**
 		 * Resolve the public MCP gateway used by first-run CLI login.

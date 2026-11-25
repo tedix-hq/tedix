@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import { auditEvents } from "@tedix/db/schema/audit-events";
 import {
 	replaceMcpConsentSelection,
 	stageMcpConsentPending,
@@ -144,6 +145,7 @@ function fixture() {
 	onTestFinished(() => views.forEach((view) => view.close()));
 	for (const view of views) {
 		for (const table of [
+			auditEvents,
 			mcpConsentGrants,
 			mcpConsentSelections,
 			mcpConsentPending,
@@ -182,7 +184,7 @@ function fixture() {
 	const client = createRouterClient(
 		{
 			verify: verifyHumanMcpGrantContract,
-			revoke: revokeMcpInstallationContract,
+			revokeMcpInstallation: revokeMcpInstallationContract,
 		},
 		{ context },
 	);
@@ -233,12 +235,23 @@ describe("grant verification across D1 replica lag", () => {
 			allowed: true,
 		});
 		await expect(
-			client.revoke({
+			client.revokeMcpInstallation({
 				resourceUrl: "https://example.test/mcp",
 				accessToken: "signed-install-proof",
 				refreshToken: "removed-install-refresh",
 			}),
-		).resolves.toEqual({ revoked: true });
+		).resolves.toEqual({
+			revoked: true,
+			consentRevision: input.consentRevision,
+		});
+		const audit = await primary.select().from(auditEvents);
+		expect(audit).toHaveLength(1);
+		expect(audit[0]).toMatchObject({
+			resourceType: "mcp_installation",
+			resourceId: input.consentRevision,
+		});
+		expect(JSON.stringify(audit)).not.toContain("signed-install-proof");
+		expect(JSON.stringify(audit)).not.toContain("removed-install-refresh");
 		expect(provider).toHaveBeenCalledOnce();
 		const [url, init] = provider.mock.calls[0] as unknown as [
 			string,

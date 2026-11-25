@@ -276,6 +276,7 @@ export const revokeHumanMcpConsentContract =
 export const revokeMcpInstallationContract =
 	organizationsOs.revokeMcpInstallation
 		.use(withServiceAuth)
+		.use(osAudit(ORGANIZATION_SETTINGS_AUDIT))
 		.handler(async ({ input, context }) => {
 			try {
 				const primary = createDbSession(context.env.DB, null, "first-primary");
