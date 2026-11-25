@@ -1781,6 +1781,7 @@ export async function sweepObsoleteWorkInteractions(
 				.select()
 				.from(platformCronCheckpoints)
 				.where(
+					// bound-params: the organization query above selects at most ten IDs.
 					inArray(
 						platformCronCheckpoints.scheduleId,
 						orgs.map((org) => `${EXPIRY_SCAN}:${org.id}`),
