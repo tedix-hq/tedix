@@ -2423,6 +2423,47 @@ async function gitOutput(repo: string, args: string[]): Promise<string> {
 	return result.stdout.trim();
 }
 
+export async function laneCommitChanges(repo: string, commits: string[]) {
+	if (!commits.length) return null;
+	try {
+		const files = new Set<string>();
+		let linesAdded = 0,
+			linesDeleted = 0;
+		let binary = false;
+		for (const sha of new Set(commits)) {
+			const stats = await gitOutput(repo, [
+				"diff-tree",
+				"--root",
+				"--first-parent",
+				"-m",
+				"--no-commit-id",
+				"--numstat",
+				"-r",
+				"--no-renames",
+				sha,
+			]);
+			for (const line of stats.split("\n").filter(Boolean)) {
+				const [added, deleted, ...name] = line.split("\t");
+				files.add(name.join("\t"));
+				if (added === "-" || deleted === "-") binary = true;
+				else {
+					linesAdded += Number(added);
+					linesDeleted += Number(deleted);
+				}
+			}
+		}
+		return {
+			commitShas: [...new Set(commits)],
+			filesChanged: files.size,
+			linesAdded: binary ? null : linesAdded,
+			linesDeleted: binary ? null : linesDeleted,
+		};
+	} catch {
+		// A missing local commit leaves change counts unknown.
+		return null;
+	}
+}
+
 async function gitSucceeds(repo: string, args: string[]): Promise<boolean> {
 	try {
 		await promisify(execFile)("git", ["-C", repo, ...args], {
@@ -9098,6 +9139,9 @@ ${firstBrief}`;
 				? { expectedWorkItemVersion: receipt.version }
 				: undefined;
 		this.save(path, receipt);
+		const runnerChanges = receipt.repo
+			? await laneCommitChanges(receipt.repo, receipt.commits ?? [])
+			: null;
 		// A renewal already waiting is sent before the settlement; none follows it.
 		lease.stop();
 		try {
@@ -9128,6 +9172,18 @@ ${firstBrief}`;
 							dispatchVersion: receipt.version,
 							session: receipt.session,
 							usage: receipt.telemetry?.usage ?? null,
+							runnerTelemetry: receipt.telemetry
+								? {
+										...receipt.telemetry,
+										brief: "",
+										finalMessage: "",
+										corrections: [],
+										tools: {},
+										shas: [],
+										workItems: [],
+									}
+								: null,
+							runnerChanges,
 							// No spawned child means the run ended before the agent
 							// turn; the marker keeps it out of the execution hold.
 							...(["failed", "expired", "cancelled"].includes(

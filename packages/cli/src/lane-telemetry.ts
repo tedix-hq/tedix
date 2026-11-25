@@ -1,10 +1,22 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type * as z from "zod";
-import type { LaneTelemetryInputSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
+import { LaneTelemetryInputSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import { scrubText } from "@tedix/context-core/trace-safety";
 
 export type LaneObservation = z.output<typeof LaneTelemetryInputSchema>;
+
+export function parseAtifUsage(
+	metrics: Record<string, unknown> | undefined,
+): LaneObservation["usage"] {
+	const result = LaneTelemetryInputSchema.shape.usage.safeParse({
+		input: metrics?.total_prompt_tokens,
+		output: metrics?.total_completion_tokens,
+		cached: metrics?.total_cached_tokens ?? 0,
+		reasoning: 0,
+	});
+	return result.success ? result.data : null;
+}
 export interface ParsedLane {
 	sessionKey: string;
 	cwd: string;

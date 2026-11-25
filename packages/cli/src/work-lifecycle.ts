@@ -565,6 +565,14 @@ function terminalWorkResult(
 			: value,
 		() => {
 			console.log(message);
+			const attempt =
+				isRecord(value) && isRecord(value.attempt) ? value.attempt : null;
+			const metadata =
+				attempt && isRecord(attempt.metadata) ? attempt.metadata : null;
+			if (metadata && isRecord(metadata.runnerMetrics))
+				console.log(
+					`Runner metrics: ${JSON.stringify(metadata.runnerMetrics)}`,
+				);
 			for (const result of cleanup) {
 				console.log(
 					`${result.removed ? "Removed" : "Kept"} ${result.path}${result.reason ? `: ${result.reason}` : ""}`,

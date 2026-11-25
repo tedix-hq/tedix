@@ -22,7 +22,7 @@ import type { CodexLaneServer } from "./codex-lane-thread";
 import type { DevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import { recordExecutorUsageSignal } from "./lane-budget";
-import type { LaneObservation } from "./lane-telemetry";
+import { parseAtifUsage, type LaneObservation } from "./lane-telemetry";
 import { laneTurnOutput } from "./lane-output";
 import { laneAgentSteps, type LaneStep } from "./lane-steps";
 import { transientReadFailure } from "./read-retry";
@@ -341,6 +341,8 @@ async function runLaneProcessWithReporter(
 				: undefined;
 	const sessionKey = deps.sessionKey ?? nativeThread?.thread.id ?? randomUUID();
 	const startedAt = new Date().toISOString();
+	const usageEventIds = new Set<string>();
+	let claudeResultUsage: LaneObservation["usage"] = null;
 	let telemetry: LaneObservation = {
 		executor: executor as LaneObservation["executor"],
 		model: nativeThread?.model ?? options.get("--model") ?? null,
@@ -372,7 +374,9 @@ async function runLaneProcessWithReporter(
 		source: "wrapper",
 		...(options.has("--rate-scope")
 			? { rateScope: options.get("--rate-scope")! }
-			: {}),
+			: process.env.TEDIX_LANE_RATE_SCOPE
+				? { rateScope: process.env.TEDIX_LANE_RATE_SCOPE }
+				: {}),
 	};
 	const label = (
 		deps.label?.trim() ||
@@ -696,6 +700,19 @@ async function runLaneProcessWithReporter(
 			for (const line of lines) {
 				try {
 					const event = JSON.parse(line);
+					if (claudeJson && event.type === "result" && event.usage) {
+						const usage = event.usage;
+						const parsed = LaneTelemetryInputSchema.shape.usage.safeParse({
+							input:
+								usage.input_tokens +
+								(usage.cache_read_input_tokens ?? 0) +
+								(usage.cache_creation_input_tokens ?? 0),
+							output: usage.output_tokens,
+							cached: usage.cache_read_input_tokens ?? 0,
+							reasoning: 0,
+						});
+						if (parsed.success) claudeResultUsage = parsed.data;
+					}
 					if (claudeJson && event?.rate_limit_info)
 						recordExecutorUsageSignal(
 							"claude-code",
@@ -748,6 +765,37 @@ async function runLaneProcessWithReporter(
 						if (event.type === "step_start") {
 							nativeMessageId = event.part?.messageID;
 							observeNativeActivity("provider_waiting");
+						}
+						if (
+							event.type === "step_finish" &&
+							event.part?.tokens &&
+							typeof event.part.id === "string" &&
+							!usageEventIds.has(event.part.id)
+						) {
+							const tokens = event.part.tokens;
+							const cacheWrite = tokens.cache?.write ?? 0;
+							const usage = LaneTelemetryInputSchema.shape.usage.safeParse({
+								input: tokens.input + (tokens.cache?.read ?? 0) + cacheWrite,
+								output: tokens.output,
+								cached: tokens.cache?.read ?? 0,
+								reasoning: tokens.reasoning ?? 0,
+							});
+							if (usage.success && usage.data) {
+								usageEventIds.add(event.part.id);
+								const prior = telemetry.usage;
+								telemetry.usage = {
+									input: (prior?.input ?? 0) + usage.data.input,
+									output: (prior?.output ?? 0) + usage.data.output,
+									cached: (prior?.cached ?? 0) + usage.data.cached,
+									reasoning: (prior?.reasoning ?? 0) + usage.data.reasoning,
+								};
+								if (telemetry.model)
+									(telemetry.usageSamples ??= []).push({
+										model: telemetry.model,
+										...usage.data,
+										cacheWrite,
+									});
+							}
 						}
 						if (
 							event.type === "permission.asked" ||
@@ -960,6 +1008,7 @@ async function runLaneProcessWithReporter(
 					throw new Error(
 						"Devin transcript identity differs from the admitted session",
 					);
+				telemetry.usage = parseAtifUsage(exported.final_metrics);
 				telemetry.shas = [
 					...new Set(telemetry.finalMessage.match(/\b[a-f0-9]{40}\b/g) ?? []),
 				].slice(0, 100);
@@ -1129,6 +1178,8 @@ async function runLaneProcessWithReporter(
 					? "succeeded"
 					: "failed",
 	};
+	if (!telemetry.usage && claudeResultUsage)
+		telemetry.usage = claudeResultUsage;
 	deps.onTelemetry?.(telemetry);
 	writeFileSync(
 		receipt,

@@ -170,6 +170,8 @@ export function renderContextBrief(
 		console.log(
 			`\n${dim("Last attempt:", color)} ${last.outcome}${last.summary ? ` — ${last.summary}` : ""}`,
 		);
+		if (last.runnerMetrics)
+			console.log(`  Runner metrics: ${JSON.stringify(last.runnerMetrics)}`);
 	}
 
 	const recent = comments.slice(-5);
@@ -191,12 +193,17 @@ export function renderContextBrief(
  * How the newest Attempt ended and the reason it stored, so a failed run says
  * why on the task. The runner writes its reason first in the summary.
  */
-function lastAttemptBrief(
-	attempt: unknown,
-): { outcome: string; summary: string | null } | null {
+function lastAttemptBrief(attempt: unknown): {
+	outcome: string;
+	summary: string | null;
+	runnerMetrics?: Record<string, unknown>;
+} | null {
 	if (!isRecord(attempt)) return null;
 	return {
 		outcome: String(attempt.outcome ?? attempt.runtimeState ?? "—"),
+		...(isRecord(attempt.runnerMetrics)
+			? { runnerMetrics: attempt.runnerMetrics }
+			: {}),
 		summary:
 			typeof attempt.summary === "string" && attempt.summary.trim()
 				? truncate(attempt.summary.trim().replace(/\s+/g, " "), 400)

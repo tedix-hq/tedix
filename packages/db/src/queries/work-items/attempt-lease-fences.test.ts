@@ -273,16 +273,52 @@ describe("Attempt lease write fences", () => {
 		},
 	);
 	it("settles inaccessible verification as finished without authorizing completion", async () => {
-		const { db } = await fixture();
+		const { db, sqlite } = await fixture();
+		sqlite.exec(
+			"UPDATE work_attempts SET attempt_number = 2 WHERE id = 'attempt'",
+		);
+		await db.insert(workAttempts).values({
+			id: "earlier",
+			orgId: "org",
+			workItemId: "work",
+			executorType: "human",
+			executorId: "owner",
+			attemptNumber: 1,
+			startedAt: "2026-09-30T23:00:00.000Z",
+			heartbeatAt: start,
+			finishedAt: start,
+			runtimeState: "expired",
+			outcome: "expired",
+		});
 		const settled = await settleWorkItemAttempt(db, {
 			...caller,
 			settledAt: "2026-10-01T00:01:00.000Z",
 			outcome: "landed_unverified",
+			metadata: {
+				runnerMetrics: {
+					tokensIn: null,
+					tokensOut: null,
+					firstAdmittedAt: start,
+					admissionCount: 99,
+					executorId: "spoof",
+				},
+			},
 		});
 		expect(settled.attempt).toMatchObject({
 			runtimeState: "finished",
 			outcome: "landed_unverified",
 			finishedAt: "2026-10-01T00:01:00.000Z",
+			metadata: {
+				runnerMetrics: {
+					tokensIn: null,
+					tokensOut: null,
+					executorId: "agent",
+					executorType: "external_agent",
+					firstAdmittedAt: "2026-09-30T23:00:00.000Z",
+					admissionCount: 2,
+					wallTimeMs: 3_660_000,
+				},
+			},
 		});
 		expect((await db.select().from(workResourceReservations))[0]?.state).toBe(
 			"released",

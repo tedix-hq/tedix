@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseLaneTranscript } from "./lane-telemetry";
+import { parseAtifUsage, parseLaneTranscript } from "./lane-telemetry";
 import { LaneTelemetryInputSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 
 async function transcript(
@@ -36,6 +36,19 @@ const meta = {
 		originator: "codex_exec",
 	},
 };
+it("retains reported ATIF totals and distinguishes absent usage from zero", () => {
+	expect(
+		parseAtifUsage({
+			total_prompt_tokens: 120,
+			total_completion_tokens: 30,
+			total_cached_tokens: 20,
+		}),
+	).toEqual({ input: 120, output: 30, cached: 20, reasoning: 0 });
+	expect(parseAtifUsage(undefined)).toBeNull();
+	expect(
+		parseAtifUsage({ total_prompt_tokens: 0, total_completion_tokens: 0 }),
+	).toEqual({ input: 0, output: 0, cached: 0, reasoning: 0 });
+});
 const tokens = (input: number) => ({
 	type: "event_msg",
 	payload: {

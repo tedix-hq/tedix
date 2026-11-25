@@ -115,6 +115,8 @@ async function fixture(sourceSessionKey?: string) {
 		session: {
 			externalSessionKey: "codex:run",
 			harness: "codex",
+			modelId: "fictional-model",
+			modelVersion: "fictional-version",
 			creditEligible: false,
 		},
 	});
@@ -135,6 +137,26 @@ async function fixture(sourceSessionKey?: string) {
 				attemptId: "attempt-1",
 				outcome,
 				summary: "Stopped by the person",
+				metadata: {
+					runnerTelemetry: {
+						executor: "codex",
+						model: "fictional-model",
+						provider: "openai",
+						reasoningEffort: null,
+						brief: "",
+						finalMessage: "",
+						tools: {},
+						usage: { input: 12, cached: 0, output: 3, reasoning: 0 },
+						startedAt: new Date(now).toISOString(),
+						finishedAt: new Date(now).toISOString(),
+						heartbeatAt: new Date(now).toISOString(),
+						outcome: "stopped",
+						shas: [],
+						workItems: [],
+						corrections: [],
+						source: "wrapper",
+					},
+				},
 			},
 			path: [],
 			procedure: settleAttemptProcedure,
@@ -176,7 +198,21 @@ describe("settling an agent run started from a tedi chat", () => {
 	it("sends nothing for Work that did not start in a chat", async () => {
 		const { settle } = await fixture();
 		await expect(settle("cancelled")).resolves.toMatchObject({
-			attempt: { outcome: "cancelled" },
+			attempt: {
+				outcome: "cancelled",
+				metadata: {
+					runnerMetrics: {
+						executorId: "bot",
+						harness: "codex",
+						modelId: "fictional-model",
+						modelVersion: "fictional-version",
+						tokensIn: 12,
+						tokensOut: 3,
+						estimatedCostUsd: null,
+						admissionCount: 1,
+					},
+				},
+			},
 		});
 		expect(enqueueMessage).not.toHaveBeenCalled();
 	});

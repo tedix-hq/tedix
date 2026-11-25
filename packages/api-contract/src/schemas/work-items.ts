@@ -2819,7 +2819,9 @@ export const WorkAttemptCliRowSchema = WorkAttemptSchema.pick({
 	expiresAt: true,
 	finishedAt: true,
 	summary: true,
-}).strict();
+})
+	.extend({ runnerMetrics: JsonRecordSchema.optional() })
+	.strict();
 export const WorkEvidenceCliRowSchema = WorkEvidenceSchema.pick({
 	id: true,
 	claimKey: true,

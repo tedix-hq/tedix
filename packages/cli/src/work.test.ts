@@ -2683,13 +2683,24 @@ describe("work context brief omits retired review leases", () => {
 	});
 
 	test("says how the last attempt ended and why", () => {
+		const runnerMetrics = {
+			tokensIn: null,
+			tokensOut: null,
+			wallTimeMs: 3660000,
+			admissionCount: 2,
+		};
 		const brief = contextBriefJson({
 			workItem: { id: "x" },
-			lastAttempt: { outcome: "failed", summary: "Failed: no commit\n" },
+			lastAttempt: {
+				outcome: "failed",
+				summary: "Failed: no commit\n",
+				runnerMetrics,
+			},
 		}) as Record<string, unknown>;
 		expect(brief.lastAttempt).toEqual({
 			outcome: "failed",
 			summary: "Failed: no commit",
+			runnerMetrics,
 		});
 	});
 });

@@ -646,7 +646,7 @@ it("reconciles Claude output only against the admitted native identity and trans
 		const executable = join(dir, "claude");
 		writeFileSync(
 			executable,
-			`#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>{console.log(JSON.stringify({type:'system',subtype:'init',session_id:${JSON.stringify(mode === "foreign-init" ? foreign : id)}}));setTimeout(()=>process.exit(0),20)});`,
+			`#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>{console.log(JSON.stringify({type:'system',subtype:'init',session_id:${JSON.stringify(mode === "foreign-init" ? foreign : id)}}));console.log(JSON.stringify({type:'result',usage:{input_tokens:5,output_tokens:2}}));setTimeout(()=>process.exit(0),20)});`,
 		);
 		chmodSync(executable, 0o700);
 		const reports: Record<string, unknown>[] = [];
@@ -678,6 +678,9 @@ it("reconciles Claude output only against the admitted native identity and trans
 		);
 		expect(result).toBe(mode === "ok" ? 0 : 1);
 		expect(reports.at(-1)?.sessionKey).toBe(id);
+		expect(reports.at(-1)?.telemetry).toMatchObject({
+			usage: { input: 5, output: 2 },
+		});
 		expect((reports.at(-1)?.telemetry as { outcome: string }).outcome).toBe(
 			mode === "ok" ? "succeeded" : "failed",
 		);

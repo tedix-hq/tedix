@@ -32,6 +32,7 @@ import {
 	cleanupLaneWorktree,
 	installLaneDependencies,
 	laneLandingBrief,
+	laneCommitChanges,
 	provisionLaneWorktree,
 	landedLaneCommits,
 	landedDeployments,
@@ -8052,6 +8053,21 @@ function gitFixture(withOrigin = false, autoCleanup = true) {
 	return { root, repo, git };
 }
 
+it("counts landed commit changes independently of dirty checkout files", async () => {
+	const { repo, git } = gitFixture();
+	writeFileSync(join(repo, "one.txt"), "one\ntwo\n");
+	git(["add", "."]);
+	git(["-c", "commit.gpgsign=false", "commit", "-m", "landed"]);
+	const sha = git(["rev-parse", "HEAD"]);
+	writeFileSync(join(repo, "one.txt"), "uncommitted\n");
+	expect(await laneCommitChanges(repo, [sha, sha])).toEqual({
+		commitShas: [sha],
+		filesChanged: 1,
+		linesAdded: 2,
+		linesDeleted: 0,
+	});
+});
+
 it("requires product deployment ancestry for the checkout's own repository", async () => {
 	const { root, repo, git } = gitFixture(true);
 	const previous = git(["rev-parse", "HEAD"]);
@@ -13099,5 +13115,11 @@ describe("watching and steering a run", () => {
 		expect(log.match(/"event":"run-steps-unavailable"/g)).toHaveLength(1);
 		const settle = f.events.find((event) => event.verb === "settle")!;
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+		expect(settle.input?.metadata).toMatchObject({
+			runnerTelemetry: {
+				model: "test-model",
+				usage: { input: 100, output: 30 },
+			},
+		});
 	});
 });

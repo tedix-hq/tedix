@@ -40,6 +40,8 @@ export interface VerifiedExternalAgent {
 	executor: ExternalWorkExecutor;
 	externalSessionKey: string;
 	harness: string;
+	modelId?: string;
+	modelVersion?: string;
 	clientRecordId: string;
 	creditEligible: boolean;
 	/**
@@ -117,6 +119,8 @@ export async function verifiedExternalAgent(
 			},
 			externalSessionKey: session.externalSessionKey,
 			harness: session.harness,
+			modelId: session.modelId,
+			modelVersion: session.modelVersion,
 			clientRecordId: ownerHostClientRecordId(session.id),
 			creditEligible: false,
 			ownerBound: true,
@@ -157,6 +161,8 @@ export async function verifiedExternalAgent(
 		executor: { type: "external_agent", id: principalId, sessionId },
 		externalSessionKey: resolved.session.externalSessionKey,
 		harness: resolved.session.harness,
+		modelId: resolved.session.modelId,
+		modelVersion: resolved.session.modelVersion,
 		clientRecordId,
 		creditEligible: resolved.session.creditEligible,
 	};

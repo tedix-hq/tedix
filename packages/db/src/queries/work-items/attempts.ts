@@ -1271,6 +1271,41 @@ export async function settleWorkItemAttempt(
 			attemptId: params.attemptId,
 			workItemId: params.workItemId,
 		});
+		const [history] = await db
+			.select({
+				firstAdmittedAt: sql<string>`min(${workAttempts.startedAt})`,
+				admissionCount: sql<number>`count(*)`,
+			})
+			.from(workAttempts)
+			.where(
+				and(
+					eq(workAttempts.orgId, params.orgId),
+					eq(workAttempts.workItemId, params.workItemId),
+				),
+			);
+		const suppliedMetrics = settlementMetadata.runnerMetrics;
+		settlementMetadata.runnerMetrics = {
+			harness: null,
+			modelId: null,
+			modelVersion: null,
+			tokensIn: null,
+			tokensOut: null,
+			estimatedCostUsd: null,
+			changes: null,
+			...(suppliedMetrics &&
+			typeof suppliedMetrics === "object" &&
+			!Array.isArray(suppliedMetrics)
+				? suppliedMetrics
+				: {}),
+			executorType: prior.executorType,
+			executorId: prior.executorId,
+			firstAdmittedAt: history!.firstAdmittedAt,
+			admissionCount: Number(history!.admissionCount),
+			wallTimeMs: Math.max(
+				0,
+				Date.parse(settledAt) - Date.parse(history!.firstAdmittedAt),
+			),
+		};
 		const closeWork = completion
 			? [
 					db

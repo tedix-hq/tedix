@@ -1319,7 +1319,17 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				outcome: input.outcome,
 				summary: input.summary,
 			});
-			const metadata = { ...receiptMetadata, feedSentence };
+			const { attemptRunnerMetrics } =
+				await import("../../../services/attempt-runner-metrics");
+			const metadata = {
+				...receiptMetadata,
+				feedSentence,
+				runnerMetrics: await attemptRunnerMetrics(
+					context,
+					external,
+					toJsonRecord(receiptMetadata),
+				),
+			};
 			const { laneNextStepNeedsPerson, routeLaneNextStepToAgent } =
 				await import("../../../services/lane-handoff-routing");
 			const agentNextStep =
@@ -1657,6 +1667,7 @@ export const listAttemptCliProjectionProcedure =
 				p.data.map(async (row) =>
 					WorkAttemptCliRowSchema.strip().parse({
 						...row,
+						runnerMetrics: row.metadata.runnerMetrics,
 						metadata: await canonicalSettlementMetadata(resolver, row.metadata),
 					}),
 				),
