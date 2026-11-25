@@ -469,8 +469,9 @@ describe("workspace app supervisor in workerd", () => {
 				}),
 			];
 			expect(links).toHaveLength(1);
-			expect(await state.storage.getAlarm()).toBe(links[0][1].expiresAt);
-			state.storage.kv.put(links[0][0], { expiresAt: Date.now() - 1 });
+			const [key, link] = links[0]!;
+			expect(await state.storage.getAlarm()).toBe(link.expiresAt);
+			state.storage.kv.put(key, { expiresAt: Date.now() - 1 });
 		});
 		await runDurableObjectAlarm(stub);
 		await runInDurableObject(stub, async (_instance, state) => {
