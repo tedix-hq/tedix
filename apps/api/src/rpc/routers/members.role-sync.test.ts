@@ -114,6 +114,27 @@ describe("members.updateMemberRole Descope synchronization", () => {
 		);
 	});
 
+	it("refuses a losing owner demotion without synchronizing Descope", async () => {
+		mocks.getMemberById.mockResolvedValue({ ...member, role: "owner" });
+		mocks.updateMemberRole.mockResolvedValue(undefined);
+
+		await expect(
+			createRouterClient(membersContractRouter, { context }).updateMemberRole(
+				input,
+			),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: "Cannot demote the last owner. Assign another owner first.",
+		});
+		expect(mocks.updateMemberRole).toHaveBeenCalledWith(
+			expect.anything(),
+			ORG_ID,
+			MEMBER_ID,
+			"admin",
+		);
+		expect(mocks.setTenantRoles).not.toHaveBeenCalled();
+	});
+
 	it("reports a partial update when Descope returns ok=false", async () => {
 		mocks.setTenantRoles.mockResolvedValue({
 			ok: false,

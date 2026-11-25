@@ -20,7 +20,6 @@ import { isAgentMemberKind } from "@tedix/api-contract/schemas/browser-agent-sea
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
 	acceptInvite,
-	countActiveOwners,
 	getMemberById,
 	getMembersByOrganization,
 	listMemberRepresentatives,
@@ -888,18 +887,6 @@ export const updateMemberRoleContract = authedMembersOs.updateMemberRole
 		// Cannot act on a member who outranks you (an admin must not modify an owner).
 		assertCanManageTarget(context, member.role);
 
-		// Last-owner invariant: never demote the final owner. (role is already
-		// narrowed to non-owner by the guard above, so this IS a demotion.)
-		if (member.role === "owner") {
-			const owners = await countActiveOwners(db, organizationId);
-			if (owners <= 1) {
-				throw createError(
-					ErrorCodes.FORBIDDEN,
-					"Cannot demote the last owner. Assign another owner first.",
-				);
-			}
-		}
-
 		const descopeTenantId = await getDescopeTenantId(db, organizationId);
 		const needsDescopeSync =
 			Boolean(descopeTenantId) &&
@@ -914,7 +901,18 @@ export const updateMemberRoleContract = authedMembersOs.updateMemberRole
 
 		// D1 is primary, but a failed provider sync must not look like full success.
 		// Retrying the same role reconciles a partial update without changing scope.
-		const updated = await updateMemberRoleD1(db, memberId, role);
+		const updated = await updateMemberRoleD1(
+			db,
+			organizationId,
+			memberId,
+			role,
+		);
+		if (!updated) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Cannot demote the last owner. Assign another owner first.",
+			);
+		}
 		if (mgmt && descopeTenantId) {
 			let synced;
 			try {

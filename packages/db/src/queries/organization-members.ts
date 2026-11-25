@@ -793,18 +793,45 @@ export async function updateMember(
 }
 
 /**
- * Update member role
+ * Update member role, refusing to demote the last active owner.
+ * Returns undefined when the guarded UPDATE changes no row.
  *
  * @param db - Database client
+ * @param organizationId - Organization ID
  * @param id - Member ID
  * @param role - New role
  */
 export async function updateMemberRole(
-	db: DbClient,
+	db: DbQueryClient,
+	organizationId: string,
 	id: string,
 	role: MemberRole,
-): Promise<OrganizationMember> {
-	return updateMember(db, id, { role });
+): Promise<OrganizationMember | undefined> {
+	const activeOwners = db
+		.select({ count: sql<number>`count(*)` })
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, organizationId),
+				eq(organizationMembers.role, "owner"),
+				eq(organizationMembers.status, "active"),
+			),
+		);
+
+	const [updated] = await db
+		.update(organizationMembers)
+		.set({ role, updatedAt: new Date().toISOString() })
+		.where(
+			and(
+				eq(organizationMembers.id, id),
+				eq(organizationMembers.organizationId, organizationId),
+				role === "owner"
+					? undefined
+					: sql`(${organizationMembers.role} <> 'owner' OR (${activeOwners}) > 1)`,
+			),
+		)
+		.returning();
+	return updated;
 }
 
 /**
