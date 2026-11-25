@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.23 (2026-11-25)
+
+### Patch Changes
+
+- 2343ce4: Checking the ChatGPT (Codex) connection now says which Tedix account it read, as the Claude Code check already does.
+
 ## 0.37.22 (2026-11-25)
 
 ### Patch Changes
