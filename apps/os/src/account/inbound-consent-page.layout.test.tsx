@@ -52,6 +52,7 @@ vi.mock("@descope/react-sdk/flows", () => ({
 const apiMock = vi.hoisted(() => ({
 	listMyWorkspaces: vi.fn(),
 	stageMultiOrgMcpConsent: vi.fn(),
+	getMcpConsentOptions: vi.fn(),
 	revokeMultiOrgMcpConsent: vi.fn(),
 	consentSessionJwt: null as null | (() => Promise<string>),
 }));
@@ -62,6 +63,7 @@ vi.mock("@/lib/api", () => ({
 		return {
 			listMyWorkspaces: apiMock.listMyWorkspaces,
 			stageMultiOrgMcpConsent: apiMock.stageMultiOrgMcpConsent,
+			getMcpConsentOptions: apiMock.getMcpConsentOptions,
 		};
 	},
 }));
@@ -126,6 +128,19 @@ beforeEach(() => {
 	);
 	apiMock.listMyWorkspaces.mockReset();
 	apiMock.stageMultiOrgMcpConsent.mockReset();
+	apiMock.getMcpConsentOptions.mockReset();
+	apiMock.getMcpConsentOptions.mockResolvedValue({
+		supportedScopes: [
+			"mcp:apps.read",
+			"mcp:apps.write",
+			"mcp:apps.admin",
+			"profile",
+			"email",
+			"platform:admin",
+		],
+		existingScopes: [],
+		selectedTenantIds: [],
+	});
 	apiMock.revokeMultiOrgMcpConsent.mockReset();
 	apiMock.listMyWorkspaces.mockResolvedValue({
 		data: [
@@ -256,14 +271,13 @@ describe("InboundConsentPage layout", () => {
 			expect(Boolean(checkbox)).toBe(visible);
 			if (visible) {
 				expect(checkbox?.getAttribute("aria-checked")).toBe("false");
-				await clickButton("All requested");
+				await clickButton("All");
 				expect(checkbox?.getAttribute("aria-checked")).toBe("false");
 			}
 		},
 	);
 
-	it("describes an all-read request as the requested permissions", async () => {
-		window.history.replaceState({}, "", "/oauth/consent?mode=multi-org");
+	it("defaults to Minimal independently of an all-read request", async () => {
 		await act(async () => renderConsentPage());
 		const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
 			screenName: string,
@@ -285,17 +299,26 @@ describe("InboundConsentPage layout", () => {
 			);
 		});
 		const allRequested = [...container.querySelectorAll("button")].find(
-			(button) => button.textContent === "All requested",
+			(button) => button.textContent === "All",
 		);
 		expect(allRequested?.getAttribute("aria-pressed")).toBe("false");
 		expect(container.textContent).not.toContain("Full access");
-		expect(container.textContent).toContain("2 of 2 selected");
+		expect(container.textContent).toContain("4 of 7 selected");
+		expect(
+			[...container.querySelectorAll("button")]
+				.find((button) => button.textContent === "Minimal")
+				?.getAttribute("aria-pressed"),
+		).toBe("true");
 	});
 
 	it.each([false, true])(
 		"batches organization lookups and fails closed when a later batch fails (%s)",
 		async (failLaterBatch) => {
-			window.history.replaceState({}, "", "/oauth/consent?mode=multi-org");
+			window.history.replaceState(
+				{},
+				"",
+				"/oauth/consent?mode=multi-org&third_party_app_id=TPAclient1&resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp",
+			);
 			const tenants = Array.from({ length: 21 }, (_, index) => ({
 				id: `org_fixture_${index}`,
 				name: `Fixture organization ${index}`,
@@ -466,7 +489,7 @@ describe("InboundConsentPage layout", () => {
 			);
 		});
 		expect(container.textContent).toContain("Custom");
-		expect(container.textContent).toContain("All requested");
+		expect(container.textContent).toContain("Minimal");
 		expect(container.textContent).not.toContain("Full access");
 		const click = async (label: string) => {
 			const button = [...container.querySelectorAll("button")].find(
@@ -505,10 +528,16 @@ describe("InboundConsentPage layout", () => {
 			clientId: "TPAclient1",
 			resourceUrl: "https://connect.mcp.tedix.dev/mcp",
 			selectedTenantIds: ["org_tedix", "org_sample"],
-			approvedScopes: ["mcp:apps.read"],
+			approvedScopes: ["mcp:apps.read", "email", "profile"],
 		});
 		expect(next).toHaveBeenCalledWith(INBOUND_CONSENT_AUTHORIZE_INTERACTION, {
-			thirdPartyAppApproveScopes: ["mcp:apps.read", "openid"],
+			thirdPartyAppApproveScopes: [
+				"mcp:apps.read",
+				"email",
+				"offline_access",
+				"openid",
+				"profile",
+			],
 			"form.tedixSelectedOrganizations": '["org_tedix","org_sample"]',
 			"form.tedixConsentRevision": consentRevision,
 		});
@@ -548,9 +577,139 @@ describe("InboundConsentPage layout", () => {
 		expect(apiMock.revokeMultiOrgMcpConsent).not.toHaveBeenCalled();
 		expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
 		expect(next).toHaveBeenCalledWith(INBOUND_CONSENT_CANCEL_INTERACTION, {
-			thirdPartyAppApproveScopes: ["mcp:apps.read"],
+			thirdPartyAppApproveScopes: [],
 			"form.tedixSelectedOrganizations": "[]",
 		});
+	});
+
+	it("preselects only the added permission and preserves already allowed scopes on step-up", async () => {
+		apiMock.getMcpConsentOptions.mockResolvedValue({
+			supportedScopes: [
+				"profile",
+				"email",
+				"mcp:apps.read",
+				"mcp:apps.write",
+				"mcp:work.write",
+			],
+			existingScopes: ["profile", "email", "mcp:apps.read"],
+			selectedTenantIds: ["org_tedix"],
+		});
+		await act(async () => renderConsentPage());
+		const update = descopeMock.flowProps?.onScreenUpdate as (
+			name: string,
+			context: Record<string, unknown>,
+			next: ReturnType<typeof vi.fn>,
+		) => boolean;
+		const next = vi.fn().mockResolvedValue({ ok: true });
+		await act(async () =>
+			update(
+				"Consent Screen - Verified App",
+				{
+					data: {
+						inboundAppApproveScopes: [
+							"openid",
+							"profile",
+							"email",
+							"mcp:apps.read",
+							"mcp:apps.write",
+						],
+					},
+				},
+				next,
+			),
+		);
+		expect(container.textContent).toContain("Already allowed");
+		expect(container.textContent).toContain("1 of 2 selected");
+		expect(
+			[...container.querySelectorAll('[role="checkbox"]')].filter(
+				(control) => control.getAttribute("aria-checked") === "true",
+			),
+		).toHaveLength(1);
+		await clickButton("Choose organizations");
+		await clickButton("Review access");
+		await clickButton("Authorize");
+		expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				approvedScopes: ["mcp:apps.read", "mcp:apps.write", "email", "profile"],
+				selectedTenantIds: ["org_tedix"],
+			}),
+		);
+		expect(next).toHaveBeenCalledWith(
+			INBOUND_CONSENT_AUTHORIZE_INTERACTION,
+			expect.objectContaining({
+				thirdPartyAppApproveScopes: [
+					"mcp:apps.read",
+					"mcp:apps.write",
+					"email",
+					"offline_access",
+					"openid",
+					"profile",
+				],
+			}),
+		);
+	});
+
+	it("lets All approve resource permissions absent from the request without platform authority", async () => {
+		await act(async () => renderConsentPage());
+		const update = descopeMock.flowProps?.onScreenUpdate as (
+			name: string,
+			context: Record<string, unknown>,
+			next: ReturnType<typeof vi.fn>,
+		) => boolean;
+		await act(async () =>
+			update(
+				"Consent Screen - Verified App",
+				{
+					data: { inboundAppApproveScopes: ["openid"] },
+				},
+				vi.fn(),
+			),
+		);
+		await clickButton("All");
+		expect(container.textContent).toContain("7 of 7 selected");
+		await clickButton("Choose organizations");
+		await clickButton("Review access");
+		await clickButton("Authorize");
+		expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				approvedScopes: [
+					"mcp:apps.admin",
+					"mcp:apps.read",
+					"mcp:apps.write",
+					"email",
+					"profile",
+				],
+			}),
+		);
+	});
+
+	it("blocks approval when permission choices cannot be verified", async () => {
+		apiMock.getMcpConsentOptions.mockRejectedValue(
+			new Error("Provider unavailable"),
+		);
+		await act(async () => renderConsentPage());
+		const update = descopeMock.flowProps?.onScreenUpdate as (
+			name: string,
+			context: Record<string, unknown>,
+			next: ReturnType<typeof vi.fn>,
+		) => boolean;
+		const next = vi.fn();
+		await act(async () =>
+			update(
+				"Consent Screen - Verified App",
+				{
+					data: { inboundAppApproveScopes: ["mcp:apps.write"] },
+				},
+				next,
+			),
+		);
+		await clickButton("All");
+		await clickButton("Choose organizations");
+		expect(container.textContent).toContain(
+			"Could not verify permission choices",
+		);
+		expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
+		expect(next).not.toHaveBeenCalled();
 	});
 
 	it.each([
@@ -785,10 +944,11 @@ it("narrows a tenant-bound authorization to the selected scopes and hinted organ
 	];
 	// The SDK removes provider query values before the user presses Authorize.
 	window.history.replaceState({}, "", "/oauth/consent?tenant=org_tedix");
-	expect(controls).toHaveLength(3);
-	expect(container.textContent).toContain("All requested");
-	expect(container.textContent).toContain("2 of 3 selected");
+	expect(controls).toHaveLength(7);
+	expect(container.textContent).toContain("Minimal");
+	expect(container.textContent).toContain("4 of 7 selected");
 	expect(container.textContent).toContain("Signed in as member@example.test");
+	await clickButton("Read only");
 	await clickButton("Choose organizations");
 	expect(
 		container.querySelector('[role="checkbox"]')?.getAttribute("aria-checked"),
@@ -800,7 +960,13 @@ it("narrows a tenant-bound authorization to the selected scopes and hinted organ
 	expect(authorize).toBeDefined();
 	await act(async () => authorize?.click());
 	expect(next).toHaveBeenCalledWith(INBOUND_CONSENT_AUTHORIZE_INTERACTION, {
-		thirdPartyAppApproveScopes: ["mcp:apps.read", "openid"],
+		thirdPartyAppApproveScopes: [
+			"mcp:apps.read",
+			"email",
+			"offline_access",
+			"openid",
+			"profile",
+		],
 		"form.tedixSelectedOrganizations": JSON.stringify(["org_tedix"]),
 		"form.tedixConsentRevision": consentRevision,
 	});

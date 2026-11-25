@@ -1,4 +1,14 @@
 import { CONNECTION_SCOPE_DESCRIPTIONS } from "@tedix/api-contract/utils/mcp-scope-catalog";
+import { MCP_GRANULAR_CAPABILITY_SCOPES } from "@tedix/api-contract/schemas/mcp-capability-scopes";
+
+const scopeDescriptions: Record<string, string> = {
+	...MCP_GRANULAR_CAPABILITY_SCOPES,
+	...CONNECTION_SCOPE_DESCRIPTIONS,
+	openid: "Identify your Tedix account",
+	profile: "Read your profile and list your organizations and workspaces",
+	email: "Read your email address",
+	offline_access: "Stay signed in between visits",
+};
 
 export type ConsentPermission = {
 	name: string;
@@ -105,7 +115,7 @@ export function normalizeConsentPermissions(
 			name,
 			description:
 				CONNECTION_SCOPE_DESCRIPTIONS[name] ??
-				scopeDescription(raw, titleCase(capability)),
+				scopeDescription(raw, scopeDescriptions[name] ?? titleCase(capability)),
 			group: group || "Other",
 			authority,
 			admin: name === "platform:admin" || authority === "admin",

@@ -78,9 +78,20 @@ export function ConsentPermissionGroups({
 								aria-hidden
 								className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
 							/>
-							<Text as="span" role="body" weight="semibold">
-								{group.name}
-							</Text>
+							<span className="grid min-w-0 gap-0.5 text-left">
+								<Text as="span" role="body" weight="semibold">
+									{group.name}
+								</Text>
+								<Text as="span" role="label" tone="secondary">
+									{
+										(
+											group.permissions.find(
+												(permission) => permission.authority === "read",
+											) ?? group.permissions[0]
+										)?.description
+									}
+								</Text>
+							</span>
 							<span className="ml-auto inline-flex items-center gap-1.5">
 								<Badge variant="secondary">
 									{onSelectionChange

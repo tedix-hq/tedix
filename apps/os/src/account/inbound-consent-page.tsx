@@ -1,7 +1,7 @@
 import { LoadingArea } from "@/components/loading-area";
 import { Loader } from "@/components/kumo/loader";
 import {
-	CONSENT_PROTOCOL_SCOPES,
+	type HumanConsentPreset,
 	isReadOnlyConsentSelection,
 	selectConsentPreset,
 } from "@tedix/mcp-shared/auth/consent-scopes";
@@ -482,10 +482,39 @@ function GroupedConsentScreen({
 	const descope = useDescope();
 	const { user } = useUser();
 	const consentApi = useInboundConsentApi();
-	const selectableScopes = state.scopes.filter(
-		(scope) => scope.name !== "platform:admin",
+	const [consentOptions, setConsentOptions] = useState<{
+		supportedScopes: string[];
+		existingScopes: string[];
+		selectedTenantIds: string[];
+	} | null>(null);
+	const [optionsError, setOptionsError] = useState(false);
+	const [optionsReload, setOptionsReload] = useState(0);
+	const offeredScopes = useMemo(
+		() =>
+			normalizeConsentPermissions(
+				consentOptions
+					? [
+							...new Set([
+								...consentOptions.supportedScopes,
+								"openid",
+								"offline_access",
+							]),
+						]
+					: [],
+			),
+		[consentOptions],
 	);
-	const platformPermission = state.scopes.find(
+	const existingScopes = consentOptions?.existingScopes.length
+		? [...consentOptions.existingScopes, "openid", "offline_access"]
+		: [];
+	const existingPermissions = offeredScopes.filter((scope) =>
+		existingScopes.includes(scope.name),
+	);
+	const selectableScopes = offeredScopes.filter(
+		(scope) =>
+			scope.name !== "platform:admin" && !existingScopes.includes(scope.name),
+	);
+	const platformPermission = offeredScopes.find(
 		(scope) => scope.name === "platform:admin",
 	);
 	const consentEmail = user?.email?.trim().toLowerCase() ?? "";
@@ -529,21 +558,52 @@ function GroupedConsentScreen({
 	const [step, setStep] = useState<"permissions" | "organizations" | "review">(
 		"permissions",
 	);
-	const [selectedScopes, setSelectedScopes] = useState<string[]>(() =>
-		selectConsentPreset(selectableScopes, "read"),
-	);
+	const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
 	const approvedPermissions = selectedConsentPermissions(
-		state.scopes,
-		selectedScopes,
+		offeredScopes,
+		[...existingScopes, ...selectedScopes],
 		platformEligible,
-		platformAdministration,
+		platformAdministration || existingScopes.includes("platform:admin"),
 	);
-	const requiredScopes = selectableScopes
-		.filter((scope) => scope.required)
-		.map((scope) => scope.name);
-	const [scopePreset, setScopePreset] = useState<"read" | "full" | "custom">(
-		"read",
-	);
+	const [scopePreset, setScopePreset] = useState<HumanConsentPreset>("minimal");
+	useEffect(() => {
+		let active = true;
+		setConsentOptions(null);
+		setOptionsError(false);
+		if (!clientId || !resourceUrl) {
+			setOptionsError(true);
+			return;
+		}
+		void consentApi
+			.getMcpConsentOptions({ clientId, resourceUrl })
+			.then((options) => {
+				if (!active) return;
+				setConsentOptions(options);
+				const offered = normalizeConsentPermissions([
+					...new Set([...options.supportedScopes, "openid", "offline_access"]),
+				]).filter((scope) => scope.name !== "platform:admin");
+				const stepUp = options.existingScopes.length > 0;
+				setScopePreset(stepUp ? "custom" : "minimal");
+				setSelectedScopes(
+					stepUp
+						? state.scopes
+								.filter(
+									(scope) =>
+										!["openid", "offline_access"].includes(scope.name) &&
+										!options.existingScopes.includes(scope.name) &&
+										offered.some((candidate) => candidate.name === scope.name),
+								)
+								.map((scope) => scope.name)
+						: selectConsentPreset(offered, "minimal"),
+				);
+			})
+			.catch(() => {
+				if (active) setOptionsError(true);
+			});
+		return () => {
+			active = false;
+		};
+	}, [consentApi, clientId, resourceUrl, state.scopes, optionsReload]);
 	const [organizations, setOrganizations] = useState<
 		Array<{ id: string; name: string }>
 	>([]);
@@ -614,7 +674,7 @@ function GroupedConsentScreen({
 		let active = true;
 		setOrganizations([]);
 		setSelectedTenantIds([]);
-		if (!currentDirectory?.eligibleTenants) {
+		if (!currentDirectory?.eligibleTenants || !consentOptions) {
 			setOrganizationsLoading(false);
 			setOrganizationsError(false);
 			return;
@@ -646,7 +706,13 @@ function GroupedConsentScreen({
 				if (!active) return;
 				setOrganizations(tenants.map(({ id, name }) => ({ id, name })));
 				// A tenant-bound request (the CLI's `tenant` hint) starts selected.
-				if (tenants.some(({ id }) => id === tenant)) {
+				if (consentOptions?.selectedTenantIds.length) {
+					setSelectedTenantIds(
+						consentOptions.selectedTenantIds.filter((id) =>
+							tenants.some((organization) => organization.id === id),
+						),
+					);
+				} else if (tenants.some(({ id }) => id === tenant)) {
 					setSelectedTenantIds([tenant!]);
 				}
 				setOrganizationsError(false);
@@ -662,7 +728,13 @@ function GroupedConsentScreen({
 		return () => {
 			active = false;
 		};
-	}, [descope, tenant, organizationsReload, currentDirectory?.eligibleTenants]);
+	}, [
+		descope,
+		tenant,
+		organizationsReload,
+		currentDirectory?.eligibleTenants,
+		consentOptions,
+	]);
 	const [submitting, setSubmitting] = useState<"authorize" | "cancel" | null>(
 		null,
 	);
@@ -699,7 +771,9 @@ function GroupedConsentScreen({
 						resourceUrl,
 						selectedTenantIds,
 						approvedScopes: approvedPermissions
-							.filter((scope) => !CONSENT_PROTOCOL_SCOPES.includes(scope.name))
+							.filter(
+								(scope) => !["openid", "offline_access"].includes(scope.name),
+							)
 							.map((scope) => scope.name),
 					});
 					consentRevision = staged.revision;
@@ -757,8 +831,8 @@ function GroupedConsentScreen({
 								{platformEligible ? (
 									<Text role="body" tone="secondary">
 										{platformPermission
-											? "This application requested platform administration."
-											: "This application did not request platform administration. Update its permissions before reconnecting."}
+											? "This resource offers platform administration with separate approval."
+											: "This resource does not offer platform administration."}
 									</Text>
 								) : null}
 								{platformRole.status === "unavailable" ? (
@@ -791,6 +865,23 @@ function GroupedConsentScreen({
 					) : null}
 					{step === "permissions" ? (
 						<>
+							{!consentOptions && !optionsError ? (
+								<LoadingArea label="Loading permission choices" />
+							) : null}
+							{optionsError ? (
+								<>
+									<Text role="body" tone="error">
+										Could not verify permission choices. Nothing has been
+										approved.
+									</Text>
+									<Button
+										variant="outline"
+										onClick={() => setOptionsReload((count) => count + 1)}
+									>
+										Retry permission choices
+									</Button>
+								</>
+							) : null}
 							<Text role="body">
 								You can change permissions later by reconnecting this
 								application.
@@ -801,26 +892,16 @@ function GroupedConsentScreen({
 									fill
 									value={scopePreset}
 									options={[
-										{
-											value: "read",
-											label: isReadOnlyConsentSelection(
-												selectConsentPreset(selectableScopes, "read"),
-											)
-												? "Read only"
-												: "Read and required access",
-										},
-										{ value: "full", label: "All requested" },
+										{ value: "minimal", label: "Minimal" },
+										{ value: "read", label: "Read only" },
+										{ value: "all", label: "All" },
 										{ value: "custom", label: "Custom" },
 									]}
 									onValueChange={(preset) => {
 										setScopePreset(preset);
-										if (preset === "read")
+										if (preset !== "custom")
 											setSelectedScopes(
-												selectConsentPreset(selectableScopes, "read"),
-											);
-										if (preset === "full")
-											setSelectedScopes(
-												selectableScopes.map((scope) => scope.name),
+												selectConsentPreset(selectableScopes, preset),
 											);
 									}}
 								/>
@@ -828,7 +909,7 @@ function GroupedConsentScreen({
 									variant="ghost"
 									onClick={() => {
 										setScopePreset("custom");
-										setSelectedScopes(requiredScopes);
+										setSelectedScopes([]);
 									}}
 								>
 									Deselect all
@@ -837,6 +918,17 @@ function GroupedConsentScreen({
 							<Text role="label" tone="secondary">
 								{selectedScopes.length} of {selectableScopes.length} selected
 							</Text>
+							<Text role="body" tone="secondary">
+								Minimal identifies you, lists your organizations and workspaces,
+								and keeps you signed in. Other access needs your permission.
+							</Text>
+							{existingPermissions.length ? (
+								<>
+									<Text role="label">Already allowed</Text>
+									<ConsentPermissionGroups permissions={existingPermissions} />
+									<Text role="label">Additional permissions</Text>
+								</>
+							) : null}
 							<ConsentPermissionGroups
 								permissions={selectableScopes}
 								selectedScopes={selectedScopes}
@@ -845,7 +937,9 @@ function GroupedConsentScreen({
 									setSelectedScopes(scopes);
 								}}
 							/>
-							{platformPermission && platformEligible ? (
+							{platformPermission &&
+							platformEligible &&
+							!existingScopes.includes("platform:admin") ? (
 								<div className="grid gap-2">
 									<Checkbox
 										label="Platform administration"
@@ -876,7 +970,11 @@ function GroupedConsentScreen({
 									Cancel
 								</Button>
 								<Button
-									disabled={selectedScopes.length === 0}
+									disabled={
+										!consentOptions ||
+										optionsError ||
+										approvedPermissions.length === 0
+									}
 									onClick={() => setStep("organizations")}
 								>
 									Choose organizations
@@ -1053,7 +1151,9 @@ function GroupedConsentScreen({
 								<Button
 									disabled={
 										Boolean(submitting) ||
-										selectedScopes.length === 0 ||
+										!consentOptions ||
+										optionsError ||
+										approvedPermissions.length === 0 ||
 										selectedTenantIds.length === 0 ||
 										!selectedOrganizationsValid
 									}

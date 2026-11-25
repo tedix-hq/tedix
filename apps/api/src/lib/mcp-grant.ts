@@ -24,6 +24,7 @@ import {
 	getMcpConsentResource,
 	disableMcpConsentSelection,
 	listMcpConsentSelections,
+	listMcpConsentGrants,
 	getMcpConsentGrant,
 	getMcpConsentSelection,
 	getMcpConsentPending,
@@ -192,6 +193,58 @@ async function verifiedHumanClient(
 		clientName: matches[0]!.name ?? null,
 		mcpServerId,
 		supportedScopes,
+	};
+}
+
+/** Read-only presentation data, bound to the signed-in person and verified client. */
+export async function getHumanMcpConsentOptions(
+	db: DbClient,
+	env: CloudflareEnv,
+	descopeUserId: string,
+	input: { clientId: string; resourceUrl: string },
+) {
+	if (!env.DESCOPE_MANAGEMENT_KEY) return null;
+	const registered = await verifiedHumanClient(
+		db,
+		env,
+		input.clientId,
+		input.resourceUrl,
+	);
+	if (!registered) return null;
+	const key = {
+		descopeUserId,
+		mcpServerId: registered.mcpServerId,
+		clientId: registered.clientId,
+	};
+	const [selection, grants] = await Promise.all([
+		getMcpConsentSelection(db, key),
+		listMcpConsentGrants(db, key),
+	]);
+	const active =
+		selection?.status === "active" && selection.appId === registered.appId
+			? selection
+			: null;
+	const existingScopes = active
+		? [
+				...new Set(
+					[
+						active,
+						...grants.filter(
+							(grant) =>
+								grant.appId === registered.appId &&
+								sameCanonicalSet(
+									grant.selectedTenantIds,
+									active.selectedTenantIds,
+								),
+						),
+					].flatMap((grant) => grant.approvedScopes),
+				),
+			].filter((scope) => registered.supportedScopes.has(scope))
+		: [];
+	return {
+		supportedScopes: [...registered.supportedScopes],
+		existingScopes,
+		selectedTenantIds: active?.selectedTenantIds ?? [],
 	};
 }
 

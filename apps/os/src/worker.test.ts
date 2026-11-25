@@ -1515,6 +1515,7 @@ describe("Tedix OS origin router", () => {
 		for (const path of [
 			"/api/rpc/directory/listMyWorkspaces",
 			"/api/rpc/organizations/stageMultiOrgMcpConsent",
+			"/api/rpc/organizations/getMcpConsentOptions",
 		]) {
 			const consent = await handleOsRequest(
 				new Request(`https://os.tedix.dev${path}`, {
@@ -1530,12 +1531,13 @@ describe("Tedix OS origin router", () => {
 				"Bearer consent-flow-descope-jwt",
 			);
 		}
-		expect(seen).toHaveLength(6);
+		expect(seen).toHaveLength(7);
 		for (const path of [
 			"/api/rpc/organizations/revokeMultiOrgMcpConsent",
 			"/api/rpc/organizations/listOsMine",
 			"/cli/api/rpc/directory/listMyWorkspaces",
 			"/cli/api/rpc/organizations/stageMultiOrgMcpConsent",
+			"/cli/api/rpc/organizations/getMcpConsentOptions",
 		]) {
 			const refused = await handleOsRequest(
 				new Request(`https://os.tedix.dev${path}`, {
@@ -1548,7 +1550,7 @@ describe("Tedix OS origin router", () => {
 			);
 			expect(refused.status, path).toBe(401);
 		}
-		expect(seen).toHaveLength(6);
+		expect(seen).toHaveLength(7);
 	});
 
 	it("requires a product session for ordinary API routes at the launcher", async () => {

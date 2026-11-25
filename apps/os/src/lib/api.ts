@@ -190,7 +190,7 @@ export function prepareFirstOsOrganization(sessionJwt?: string) {
 }
 
 /**
- * The two OS calls the OAuth consent page makes, authenticated by the Descope
+ * The OS calls the OAuth consent page makes, authenticated by the Descope
  * session of the consent flow itself, so `tedix login` works without a prior
  * Tedix OS sign-in. The OS proxy accepts this bearer only on these launcher
  * paths. Cookies are omitted so an OS session for another account can never
@@ -208,5 +208,6 @@ export function createInboundConsentApi(getSessionJwt: () => Promise<string>) {
 	return {
 		listMyWorkspaces: consentApi.directory.listMyWorkspaces,
 		stageMultiOrgMcpConsent: consentApi.organizations.stageMultiOrgMcpConsent,
+		getMcpConsentOptions: consentApi.organizations.getMcpConsentOptions,
 	};
 }

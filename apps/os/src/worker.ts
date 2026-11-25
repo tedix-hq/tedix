@@ -186,6 +186,7 @@ const DESCOPE_SESSION_LAUNCHER_API_PATHS = new Set([
 	"/api/rpc/members/acceptInvitation",
 	"/api/rpc/directory/listMyWorkspaces",
 	"/api/rpc/organizations/stageMultiOrgMcpConsent",
+	"/api/rpc/organizations/getMcpConsentOptions",
 ]);
 const OUTBOUND_APP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 

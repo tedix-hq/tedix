@@ -85,7 +85,7 @@ The Tedix plugin gives the host a remote MCP connection to
 Cowork, the same URL is added as a custom connector, which carries the tools
 but not the skills. The human installs it and signs in once through the host's
 own OAuth flow: a browser opens, the owner signs in, selects one or more
-organizations in the organization picker and reviews the requested access. The
+organizations in the organization picker and chooses access. The
 human completes this consent; the agent cannot. The host stores the grant, and
 each host and device keeps its own grant, so signing in elsewhere does not
 invalidate it; do not ask for a password, browser cookie, or token. The human
@@ -95,6 +95,41 @@ packaged skills and host guides are in the
 [plugin README](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/README.md),
 and the published marketplace is
 [tedix-hq/tedix-plugins](https://github.com/tedix-hq/tedix-plugins).
+
+#### Consent presets and added permissions
+
+Tedix starts on **Minimal**: `openid` identifies the account, `profile` reads
+the profile and lists the caller's organizations and their workspace surfaces,
+`email` reads the email address, and `offline_access` keeps the host signed in.
+There are no Work, document, app, memory, skill, messaging, settings or connected
+provider permissions in Minimal. The resource must register `profile` and
+`email`; Tedix keeps these two scopes in its verified grant ceiling.
+
+**Read only** selects the resource's known read permissions. **All** selects
+all its ordinary permissions, including write and administration. **Custom**
+lets the person choose individually. These choices come from the resource's
+registered catalog, not the scopes the agent requested. Platform administration
+is a separate, unchecked choice requiring the person's current platform role.
+Clients still support partial consent, including self-registered clients.
+
+On a reconnect with an existing grant, Tedix shows **Already allowed** and
+preselects only the requested additions. Cancelling leaves existing access
+unchanged. The gateway still verifies the provider consent, the installation
+revision and organization membership before allowing a call.
+
+With Minimal, the scope resolver permits an installed tool bound to
+`directory/listMyWorkspaces` using `profile`; it lists only the caller's own
+organization/workspace directory, not documents or workspace contents.
+`get_profile` and `get_connection_info`, when installed as the resource's
+bootstrap tools, provide account and connection details without organization
+content. `list_work_items`, `show_deck`, `show_feed`, document reads and provider
+tools need their own permissions. Tool names and availability depend on the
+resource's installed catalog. These boundaries are checked in source tests;
+they are not a claim that a particular host or deployed catalog was tested.
+
+When a tool needs more access, supported hosts can ask the person to approve
+the missing permission. Otherwise the person reconnects and allows the named
+permission. An agent must never complete that consent for them.
 
 For Devin CLI, Desktop and cloud, install from the source subdirectory with
 `devin plugins install tedix-hq/tedix#plugins/tedix -y`. Inspect it with

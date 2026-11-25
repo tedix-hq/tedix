@@ -5,7 +5,12 @@ import {
 	HUMAN_CONNECT_CONSENT_SCOPES,
 	MEMBER_CLIENT_SCOPE,
 	selectConnectConsentRequestScopes,
+	MINIMAL_CONSENT_SCOPES,
 } from "./consent-scopes";
+import {
+	resolveMcpToolRequiredScopes,
+	isMcpToolVisibleToCaller,
+} from "./tool-scopes";
 describe("human consent presets", () => {
 	it("offers optional Connect actions but selects only reads by default", () => {
 		const offered = selectConnectConsentRequestScopes([
@@ -43,7 +48,7 @@ describe("human consent presets", () => {
 			),
 		).toEqual(["mcp:apps.read", "connections.read"]);
 	});
-	it("preserves required authority without calling it read only", () => {
+	it("does not let requested required writes change the read preset", () => {
 		const selected = selectConsentPreset(
 			[
 				{ name: "mcp:apps.read" },
@@ -51,8 +56,18 @@ describe("human consent presets", () => {
 			],
 			"read",
 		);
-		expect(selected).toEqual(["mcp:apps.read", "connections.execute"]);
-		expect(isReadOnlyConsentSelection(selected)).toBe(false);
+		expect(selected).toEqual(["mcp:apps.read"]);
+		expect(isReadOnlyConsentSelection(selected)).toBe(true);
+	});
+	it("keeps Minimal to identity and staying signed in, even when writes are requested", () => {
+		const offered = [
+			...MINIMAL_CONSENT_SCOPES,
+			"mcp:work.write",
+			"connections.execute",
+		].map((name) => ({ name, required: true }));
+		expect(selectConsentPreset(offered, "minimal")).toEqual(
+			MINIMAL_CONSENT_SCOPES,
+		);
 	});
 	it("retains identity and background access and bounds all to requested scopes", () => {
 		expect(
@@ -92,4 +107,39 @@ it("declares a member client scope with reads and writes but no administration",
 			(scope) => scope.endsWith(".admin") || scope === "platform:admin",
 		),
 	).toEqual([]);
+});
+
+it("allows only the caller-owned directory with Minimal, not workspaces or Work", () => {
+	const tool = {
+		toolId: "tedix_unified__list_my_workspaces",
+		toolTypeId: "rpc",
+		config: { endpoint: "directory/listMyWorkspaces" },
+		annotations: { readOnlyHint: true },
+	};
+	expect(
+		resolveMcpToolRequiredScopes(tool, "tedix_unified", {
+			authMode: "authenticated",
+		}),
+	).toEqual(["profile"]);
+	expect(
+		isMcpToolVisibleToCaller(
+			tool,
+			"tedix_unified",
+			{ authMode: "authenticated" },
+			{ authType: "oauth", scopes: [...MINIMAL_CONSENT_SCOPES] },
+		),
+	).toBe(true);
+	for (const endpoint of [
+		"osWorkspaces/workspaces/list",
+		"workItems/listCliProjection",
+	]) {
+		expect(
+			isMcpToolVisibleToCaller(
+				{ ...tool, config: { endpoint } },
+				"tedix_unified",
+				{ authMode: "authenticated" },
+				{ authType: "oauth", scopes: [...MINIMAL_CONSENT_SCOPES] },
+			),
+		).toBe(false);
+	}
 });

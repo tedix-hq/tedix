@@ -160,7 +160,7 @@ const listMyWorkspaces = authed.listMyWorkspaces
 				handlerOwnedUserAuthorization:
 					"The handler requires a human subject and enumerates only that subject's organization memberships.",
 			},
-			"apps:read",
+			"profile",
 		),
 	)
 	.handler(async ({ input, context }) => {

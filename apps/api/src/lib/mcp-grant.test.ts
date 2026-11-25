@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 	loadDescopeMcpServer: vi.fn(),
 	allowDescopeClientPartialScopes: vi.fn(async () => undefined),
 	listMcpConsentSelections: vi.fn(),
+	listMcpConsentGrants: vi.fn(),
 	listAnalyticsAuditActivityWindow: vi.fn(),
 	disableMcpConsentSelection: vi.fn(),
 	getMcpConsentSelection: vi.fn(),
@@ -53,6 +54,7 @@ vi.mock("@tedix/db/queries/analytics-audit", () => ({
 
 vi.mock("@tedix/db/queries/mcp-consent", () => ({
 	listMcpConsentSelections: mocks.listMcpConsentSelections,
+	listMcpConsentGrants: mocks.listMcpConsentGrants,
 	disableMcpConsentSelection: mocks.disableMcpConsentSelection,
 	getMcpConsentSelection: mocks.getMcpConsentSelection,
 	getMcpConsentGrant: mocks.getMcpConsentGrant,
@@ -239,6 +241,106 @@ describe("verifyHumanMcpGrant", () => {
 			selectedTenantIds: tenantIds,
 			approvedScopes: input.tokenScopes,
 		});
+	});
+
+	it("reads the resource catalog independently of the request and only this client's active grants", async () => {
+		const { getHumanMcpConsentOptions } = await import("./mcp-grant");
+		mocks.listMcpConsentGrants.mockResolvedValue([
+			{
+				appId: "app-1",
+				selectedTenantIds: tenantIds,
+				approvedScopes: ["mcp:work.read"],
+			},
+			{
+				appId: "other-app",
+				selectedTenantIds: tenantIds,
+				approvedScopes: ["mcp:apps.write"],
+			},
+			{
+				appId: "app-1",
+				selectedTenantIds: ["other-tenant"],
+				approvedScopes: ["mcp:apps.write"],
+			},
+		]);
+		expect(
+			await getHumanMcpConsentOptions(
+				{} as never,
+				env,
+				input.descopeUserId,
+				input,
+			),
+		).toEqual({
+			supportedScopes: ["mcp:apps.read", "mcp:work.read"],
+			existingScopes: ["mcp:apps.read", "mcp:work.read"],
+			selectedTenantIds: tenantIds,
+		});
+		expect(mocks.listMcpConsentGrants).toHaveBeenCalledWith(
+			{},
+			{
+				descopeUserId: input.descopeUserId,
+				mcpServerId: input.mcpServerId,
+				clientId: input.clientId,
+			},
+		);
+		mocks.getMcpConsentSelection.mockResolvedValue({ status: "revoked" });
+		expect(
+			await getHumanMcpConsentOptions(
+				{} as never,
+				env,
+				input.descopeUserId,
+				input,
+			),
+		).toMatchObject({
+			existingScopes: [],
+			selectedTenantIds: [],
+		});
+		mocks.searchDescopeMcpServerClients.mockResolvedValue([]);
+		expect(
+			await getHumanMcpConsentOptions(
+				{} as never,
+				env,
+				input.descopeUserId,
+				input,
+			),
+		).toBeNull();
+	});
+
+	it("verifies a Minimal profile/email grant without granting operational scopes", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		mocks.loadDescopeMcpServer.mockResolvedValue({
+			id: input.mcpServerId,
+			type: "mcp",
+			audienceWhitelist: [input.resourceUrl],
+			approvedScopes: {
+				permissionsScopes: [],
+				connectionsScopes: [{ name: "profile" }, { name: "email" }],
+			},
+		});
+		mocks.getMcpConsentSelection.mockResolvedValue({
+			appId: "app-1",
+			revision: input.consentRevision,
+			status: "active",
+			selectedTenantIds: tenantIds,
+			approvedScopes: ["profile", "email"],
+		});
+		mocks.searchConsents.mockResolvedValue({
+			ok: true,
+			data: [
+				{
+					id: input.consentId,
+					appId: "app-1",
+					userId: input.descopeUserId,
+					scopes: ["openid", "profile", "email", "offline_access"],
+				},
+			],
+		});
+		expect(
+			await verifyHumanMcpGrant({} as never, env, {
+				...input,
+				tokenScopes: ["profile", "email"],
+				supportsConsentScopeCeiling: true,
+			}),
+		).toMatchObject({ allowed: true, effectiveScopes: ["profile", "email"] });
 	});
 
 	it("keeps the same grant usable after deleting one organization's gateway", async () => {

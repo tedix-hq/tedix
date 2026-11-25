@@ -29,6 +29,12 @@ export const RevokeHumanMcpConsentInputSchema = z.strictObject({
 	clientId: z.string().min(1).max(2048),
 });
 
+export const HumanMcpConsentOptionsSchema = z.strictObject({
+	supportedScopes: z.array(z.string()),
+	existingScopes: z.array(z.string()),
+	selectedTenantIds: z.array(z.string()),
+});
+
 export const HumanMcpConsentRevisionSchema = z.strictObject({
 	revision: z.uuid(),
 });

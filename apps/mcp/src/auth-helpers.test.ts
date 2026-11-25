@@ -121,6 +121,37 @@ describe("multi-organization MCP consent", () => {
 		expect(fetch).not.toHaveBeenCalled();
 	});
 
+	it("retains Minimal profile/email authority for the live grant check", async () => {
+		const fetch = vi.fn(async (request: Request) => {
+			expect(await request.json()).toMatchObject({
+				json: { tokenScopes: ["profile", "email"] },
+			});
+			return Response.json({
+				json: {
+					allowed: true,
+					effectiveScopes: ["profile", "email"],
+					organizations: [
+						{
+							organizationId: "id-1",
+							descopeTenantId: "org_tedix",
+							gatewaySlug: "tedix",
+						},
+					],
+				},
+			});
+		});
+		const result = await resolveHumanMcpSelection(
+			{
+				...payload,
+				scope: "openid profile email offline_access",
+			},
+			{ API_SERVICE: { fetch } } as unknown as CloudflareEnv,
+			config,
+		);
+		expect(result).toMatchObject({ ok: true });
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
 	it.each(["Authorization", "X-API-Key"])(
 		"checks revoked and unversioned human grants identically through %s",
 		async (header) => {

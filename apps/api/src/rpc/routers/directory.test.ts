@@ -144,6 +144,21 @@ describe("directory.listMyWorkspaces", () => {
 		});
 	});
 
+	it("allows the caller directory with Minimal profile but refuses a missing identity grant", async () => {
+		mocks.getUserOrganizationMemberships.mockResolvedValue([membership()]);
+		const context = createContext("user-1");
+		context.oidcScopes = ["profile", "email"];
+		context.user!.permissions = [];
+		expect(
+			(await createClient(context).listMyWorkspaces({})).data,
+		).toHaveLength(1);
+		context.oidcScopes = ["email"];
+		await expect(createClient(context).listMyWorkspaces({})).rejects.toThrow(
+			"OIDC scope required",
+		);
+		expect(mocks.getUserOrganizationMemberships).toHaveBeenCalledTimes(1);
+	});
+
 	it("rejects a machine principal with no verified subject", async () => {
 		const client = createClient(createContext(undefined));
 		await expect(client.listMyWorkspaces({})).rejects.toThrow();

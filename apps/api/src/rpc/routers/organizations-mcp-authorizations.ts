@@ -24,6 +24,7 @@ import {
 	disableHumanMcpAuthorization,
 	revokeHumanMcpConsent,
 	stageHumanMcpConsent,
+	getHumanMcpConsentOptions,
 	verifyHumanMcpGrant,
 } from "../../lib/mcp-grant";
 import {
@@ -237,6 +238,31 @@ export const stageHumanMcpConsentContract =
 			if (!revision)
 				throw createError(ErrorCodes.FORBIDDEN, "Consent selection invalid");
 			return { revision };
+		});
+
+export const getMcpConsentOptionsContract =
+	authedOrganizationsOs.getMcpConsentOptions
+		.use(
+			withAuthorization(
+				{
+					handlerOwnedUserAuthorization:
+						"Reads only the signed-in human subject's exact verified OAuth client and resource consent choices.",
+				},
+				"profile",
+			),
+		)
+		.handler(async ({ input, context }) => {
+			if (context.authType !== "user" || !context.user?.sub)
+				throw createError(ErrorCodes.FORBIDDEN, "Human sign-in required");
+			const options = await getHumanMcpConsentOptions(
+				context.db,
+				context.env,
+				context.user.sub,
+				input,
+			);
+			if (!options)
+				throw createError(ErrorCodes.FORBIDDEN, "Connect client invalid");
+			return options;
 		});
 
 export const revokeHumanMcpConsentContract =

@@ -2,10 +2,16 @@ import { MCP_SCOPE_POLICY } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import { CAPABILITY_SCOPES, TEDI_MCP_SCOPES } from "./scopes";
 
 /** Human consent presets are bounded by the resource's offered permissions. */
-export type HumanConsentPreset = "read" | "all" | "custom";
+export type HumanConsentPreset = "minimal" | "read" | "all" | "custom";
 export const CONSENT_PROTOCOL_SCOPES = Object.keys(
 	MCP_SCOPE_POLICY.protocolScopes,
 );
+export const MINIMAL_CONSENT_SCOPES = [
+	"openid",
+	"profile",
+	"email",
+	"offline_access",
+] as const;
 /** Optional human Connect choices, not the permissions selected or issued. */
 export const HUMAN_CONNECT_CONSENT_SCOPES: readonly string[] = [
 	...CAPABILITY_SCOPES,
@@ -38,7 +44,7 @@ const humanCapabilityScopes = new Set<string>([
 	...TEDI_MCP_SCOPES,
 ]);
 /**
- * The default human grant: read and write, never administration. Unknown
+ * The member request envelope: read and write, never administration. Unknown
  * scopes are excluded even when their prefix looks harmless. A host that needs
  * more steps up through an insufficient_scope challenge.
  */
@@ -67,9 +73,10 @@ export function selectConsentPreset(
 			offered
 				.filter(
 					(scope) =>
-						scope.required ||
 						preset === "all" ||
-						isReadConsentScope(scope.name),
+						(preset === "minimal"
+							? MINIMAL_CONSENT_SCOPES.some((name) => name === scope.name)
+							: isReadConsentScope(scope.name)),
 				)
 				.map((scope) => scope.name),
 		),

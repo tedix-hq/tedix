@@ -29,6 +29,7 @@ import {
 	ListMcpAuthorizationsResultSchema,
 	DisableMcpAuthorizationInputSchema,
 	HumanMcpConsentRevisionSchema,
+	HumanMcpConsentOptionsSchema,
 	RevokeHumanMcpConsentInputSchema,
 	RevokeMcpInstallationInputSchema,
 	StageHumanMcpConsentInputSchema,
@@ -143,6 +144,11 @@ export const organizationsContract = oc
 			})
 			.input(StageHumanMcpConsentInputSchema)
 			.output(HumanMcpConsentRevisionSchema),
+		getMcpConsentOptions: oc
+			.route({ method: "GET", tags: ["internal"] })
+			.route({ summary: "Read permission choices for your OAuth consent" })
+			.input(RevokeHumanMcpConsentInputSchema)
+			.output(HumanMcpConsentOptionsSchema),
 		revokeMultiOrgMcpConsent: oc
 			.route({ method: "POST" })
 			.route({ summary: "Revoke a human MCP consent selection" })

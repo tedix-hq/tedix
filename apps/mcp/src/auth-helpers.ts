@@ -269,8 +269,7 @@ export async function resolveHumanMcpSelection(
 		return invalid("token_claims_invalid");
 	}
 	const scopes = extractJwtScopes(payload).filter(
-		(scope) =>
-			!["openid", "offline_access", "profile", "email"].includes(scope),
+		(scope) => !["openid", "offline_access"].includes(scope),
 	);
 	if (scopes.length === 0) return invalid("scope_missing");
 	if (
