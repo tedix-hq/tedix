@@ -7,10 +7,17 @@
 	"exports": {
 		"./record": "./dist/record.js",
 		"./seal": "./dist/seal.js",
-		"./evidence": "./dist/evidence.js"
+		"./evidence": "./dist/evidence.js",
+		"./memory-mcp": "./dist/memory-mcp.js",
+		"./memory-review": "./dist/memory-review.js"
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/client": "2.4.0",
+		"@modelcontextprotocol/server": "2.4.0",
+		"@modelcontextprotocol/server-memory": "2.2.1"
 	},
 	"devDependencies": {
 		"typescript": "^7.0.2"

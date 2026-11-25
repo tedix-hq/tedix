@@ -74,7 +74,8 @@ event's truth, authority, time, completeness, or successful downstream effects.
 ## Build the portable modules
 
 Copy `standalone/package.json` as `package.json`, `tsconfig.build.json` and
-`src/{record,seal,evidence,hash,types}.ts` into an independent directory.
+`src/{record,seal,evidence,hash,types,compliance,in-memory,memory-mcp,memory-review}.ts`
+into an independent directory, keeping the `src/` directory.
 The extraction manifest has no workspace or catalog dependency versions.
 The build config is self-contained and the modules have no runtime dependencies.
 With TypeScript 7.0.2 installed, run:
@@ -83,9 +84,67 @@ With TypeScript 7.0.2 installed, run:
 tsc -p tsconfig.build.json
 ```
 
-This emits runnable ESM and declarations for `record`, `seal`, `evidence`
-and their local `hash`/`types` dependencies into `dist/`. Tests and unrelated
-governance modules are outside this build. The package's normal type check
+This emits runnable ESM and declarations for the record and memory review
+modules into `dist/`. Tests are outside this build. The package's normal type check
 still covers all its source modules. The workspace manifest and normal
 `tsconfig.json` retain the repository's shared development tooling; neither
 is needed by the extracted modules.
+
+## Review external memory
+
+The private alpha uses the
+[MCP reference memory server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory)
+at version 2.2.1. Copy `memory-review-server.mjs` into `examples/` in the
+independent directory above, install its manifest dependencies, and build.
+Use Node 24 or later to launch it as a private stdio MCP server:
+
+```sh
+MEMORY_FILE_PATH=/absolute/path/to/pilot.jsonl MEMORY_REVIEW_SCOPE=pilot \
+  node examples/memory-review-server.mjs
+```
+
+The launching operator has `propose_memory`, `approve_memory`, `reject_memory`
+and `rollback_memory`, plus `recall_memory` for approved retrieval. Proposal
+arguments contain only `key` and `value`; review takes a `revisionId` and an
+optional `note`; rollback takes `key` and `toRevisionId`. Identity and source
+come from the host, never tool arguments. A shared host must supply its own
+authentication and authorization before calling `createMemoryReview`.
+
+Each tool returns a revision and a step-3 `ChangeStatement`: actor, source,
+operation, argument hash, before/after pointers, outcome and an undo pointer
+when there was a previous approved value. Save that statement with the result;
+`signStatement` can sign it with the operator's own key. No signature, approval
+receipt, trusted time or policy decision is invented. Uncertain storage errors
+return an error with an `unknown` record outcome.
+
+The adapter stores an append-only event history in an external graph entity
+and replays it using the existing memory semantics. Reads and mutations go to
+that server; a failed call never falls back to local storage. Writes are read
+back before success. `recallMemory` projects only each key's newest approved
+revision; pending and rejected values remain available to reviewers in history.
+Rollback through the review tool requires an approved target and appends a
+new approved revision. Review decisions cannot be changed after approval or
+rejection.
+
+Keep the raw server private to the review host. Its native `read_graph`,
+`search_nodes` and resources contain review history, including rejected values,
+and must never be exposed as recall. Scope names separate adapter histories;
+they do not authenticate a tenant. Use an isolated file and one review writer
+for each pilot. Concurrent processes writing one scope are unsupported because
+the reference server has no conditional append. File rewrites and full history
+replay also make this an alpha for bounded stores, not a scale benchmark.
+
+Run the existing memory conformance cases and the end-to-end stdio proof:
+
+```sh
+bun run --cwd packages/agent-governance type-check
+bun run --cwd packages/agent-governance test:run src/memory-mcp.test.ts src/conformance.test.ts
+```
+
+The external-store test covers write/read/list/history, immutable review,
+append rollback and export/import metadata. Its tool proof approves two values,
+rejects another, restores the first approved value, restarts the host, and
+checks recall again. It also refuses rollback to rejected content and attempts
+to bypass proposal review. The per-operation result table belongs in the
+matching Work evidence. Tenant store selection and existing tenant migration
+are outside this alpha.

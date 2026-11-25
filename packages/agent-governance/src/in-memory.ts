@@ -3,8 +3,12 @@
  * runtime before it has storage. The decision logic is the shared
  * `evaluateCall`, not something private to this file.
  */
-import { evaluateCall, budgetForTier, type ApprovalState } from "./compliance";
-import { hashValue } from "./hash";
+import {
+	evaluateCall,
+	budgetForTier,
+	type ApprovalState,
+} from "./compliance.js";
+import { hashValue } from "./hash.js";
 import type {
 	AccountabilityAdapter,
 	Actor,
@@ -23,7 +27,7 @@ import type {
 	MemoryWriteInput,
 	PolicyDisposition,
 	RiskTier,
-} from "./types";
+} from "./types.js";
 
 export interface InMemoryToolPolicy {
 	riskTier?: RiskTier;

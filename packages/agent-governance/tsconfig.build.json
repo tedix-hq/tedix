@@ -14,5 +14,11 @@
 		"outDir": "dist",
 		"rootDir": "src"
 	},
-	"include": ["src/record.ts", "src/seal.ts", "src/evidence.ts"]
+	"include": [
+		"src/record.ts",
+		"src/seal.ts",
+		"src/evidence.ts",
+		"src/memory-mcp.ts",
+		"src/memory-review.ts"
+	]
 }

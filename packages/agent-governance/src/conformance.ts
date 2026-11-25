@@ -5,6 +5,7 @@ import type {
 	ApprovalEvidence,
 	CallDescription,
 	GovernanceAdapters,
+	MemoryAdapter,
 } from "./types";
 
 const actor = { id: "agent-1", kind: "agent", organizationId: "org-test" };
@@ -24,13 +25,13 @@ const readCall: CallDescription = {
 };
 
 /** Supply fresh isolated storage for each contract test. */
-export function describeGovernanceConformance(
+export function describeMemoryConformance(
 	name: string,
-	build: () => GovernanceAdapters,
+	build: () => MemoryAdapter,
 ) {
 	describe(name, () => {
 		it("writes provenance, reviews once, preserves approved values, and rolls back by append", async () => {
-			const { memory } = build();
+			const memory = build();
 			expect(await memory.read("missing")).toBeNull();
 			expect(await memory.history("missing")).toEqual([]);
 			const r1 = await memory.write({
@@ -82,7 +83,7 @@ export function describeGovernanceConformance(
 			]);
 		});
 		it("copies memory history with hashes, review metadata and local rollback links", async () => {
-			const source = build().memory;
+			const source = build();
 			const first = await source.write({
 				key: "key",
 				value: { mode: "careful" },
@@ -90,7 +91,7 @@ export function describeGovernanceConformance(
 			});
 			await source.review(first.revisionId, "approve", actor, "Checked");
 			await source.rollback("key", first.revisionId, provenance);
-			const destination = build().memory;
+			const destination = build();
 			expect(
 				await importMemory(
 					destination,
@@ -121,6 +122,15 @@ export function describeGovernanceConformance(
 				rolledBackFrom: history[0]!.revisionId,
 			});
 		});
+	});
+}
+
+export function describeGovernanceConformance(
+	name: string,
+	build: () => GovernanceAdapters,
+) {
+	describeMemoryConformance(name, () => build().memory);
+	describe(name, () => {
 		it("records allowed, refused and uncertain calls in an immutable ordered ledger", async () => {
 			const adapters = build();
 			// A write: a ledger may leave out reads that applied.

@@ -15,7 +15,9 @@
 		"./seal": "./src/seal.ts",
 		"./evidence": "./src/evidence.ts",
 		"./memory-transfer": "./src/memory-transfer.ts",
-		"./record": "./src/record.ts"
+		"./record": "./src/record.ts",
+		"./memory-mcp": "./src/memory-mcp.ts",
+		"./memory-review": "./src/memory-review.ts"
 	},
 	"scripts": {
 		"clean": "true",
@@ -27,6 +29,9 @@
 		"build": "tsc -p tsconfig.build.json"
 	},
 	"devDependencies": {
+		"@modelcontextprotocol/client": "catalog:",
+		"@modelcontextprotocol/server": "catalog:",
+		"@modelcontextprotocol/server-memory": "2.2.1",
 		"@tedix/tsconfig": "workspace:*",
 		"typescript": "catalog:",
 		"vite": "catalog:",

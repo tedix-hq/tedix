@@ -14,7 +14,7 @@ import type {
 	RateState,
 	RiskTier,
 	BlastRadius,
-} from "./types";
+} from "./types.js";
 
 /** Default budgets per risk tier (calls per window for one actor). */
 export const RISK_TIER_BUDGETS: Record<
