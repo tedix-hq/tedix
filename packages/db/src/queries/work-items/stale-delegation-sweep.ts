@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { anyIds } from "../../core-store/dialect";
 import { workAttempts, workItems } from "../../schema/work-items";
 import { cancelWorkItem } from "./crud";
 import { WorkFactoryError } from "./factory-state";
@@ -57,7 +58,7 @@ export async function sweepStaleFailedDelegationWorkItems(
 				options.scope
 					? and(
 							eq(workItems.orgId, options.scope.orgId),
-							inArray(workItems.id, options.scope.ids),
+							anyIds(db, workItems.id, options.scope.ids),
 						)
 					: undefined,
 				eq(workItems.disposition, "accepted"),
@@ -114,7 +115,7 @@ export async function sweepUncontractedChildWorkItems(
 				options.scope
 					? and(
 							eq(workItems.orgId, options.scope.orgId),
-							inArray(workItems.id, options.scope.ids),
+							anyIds(db, workItems.id, options.scope.ids),
 						)
 					: undefined,
 				inArray(workItems.disposition, ["accepted", "proposed"]),

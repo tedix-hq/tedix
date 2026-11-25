@@ -83,7 +83,15 @@ describe("server lane lifecycle", () => {
 	it("detects a stopped lane with no local reporter, records once, and expires at 2N", async () => {
 		const { db } = await fixture();
 		expect(await recordStaleLanes(db, "2026-10-17T12:02:29.999Z")).toBe(0);
-		expect(await recordStaleLanes(db, stale)).toBe(1);
+		expect(
+			await recordStaleLanes(db, stale, {
+				orgId: "org-example",
+				ids: [
+					"attempt",
+					...Array.from({ length: 150 }, (_, i) => `absent-${i}`),
+				],
+			}),
+		).toBe(1);
 		expect(await recordStaleLanes(db, stale)).toBe(0);
 		expect(await notifyStoppedLanes(db, stale)).toBe(1);
 		expect(await notifyStoppedLanes(db, stale)).toBe(0);

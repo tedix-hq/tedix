@@ -119,6 +119,13 @@ describe("outbound work on migrated D1", () => {
 				await sweepStuckOutboundReviews(db, {
 					now: "2026-10-17T10:30:00.000Z",
 					limit: 10,
+					scope: {
+						orgId: "org",
+						ids: [
+							WORK,
+							...Array.from({ length: 150 }, (_, i) => `absent-${i}`),
+						],
+					},
 				})
 			).outboundReviewsTimedOut,
 		).toBe(1);

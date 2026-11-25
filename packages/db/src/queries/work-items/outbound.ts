@@ -14,6 +14,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { batchNonEmpty, chunkForBoundParams } from "../../utils/batch";
 import type { DbQueryClient } from "../../query-client";
+import { anyIds } from "../../core-store/dialect";
 import { organizations } from "../../schema/organizations";
 import { workItems, workEvents } from "../../schema/work-items";
 import {
@@ -468,7 +469,7 @@ export async function sweepStuckOutboundReviews(
 				p.scope
 					? and(
 							eq(workItems.orgId, p.scope.orgId),
-							inArray(workItems.id, p.scope.ids),
+							anyIds(db, workItems.id, p.scope.ids),
 						)
 					: undefined,
 				eq(workItems.workKind, "outbound"),

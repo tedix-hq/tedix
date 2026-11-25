@@ -127,7 +127,13 @@ describe("sweepStaleFailedDelegationWorkItems", () => {
 		seedItem({ id: "stale" });
 		seedAttempt({ workItemId: "stale" });
 
-		const result = await sweepStaleFailedDelegationWorkItems(db, { now: NOW });
+		const result = await sweepStaleFailedDelegationWorkItems(db, {
+			now: NOW,
+			scope: {
+				orgId: "org-1",
+				ids: ["stale", ...Array.from({ length: 150 }, (_, i) => `absent-${i}`)],
+			},
+		});
 
 		expect(result).toEqual({ observed: 1, cancelled: 1, skipped: 0 });
 		expect(disposition("stale")).toBe("cancelled");
@@ -279,7 +285,21 @@ it("cancels legacy children with a reason, preserving allocated children, ordina
 		)
 		.run(JSON.stringify({ taskContract: { version: 2 } }), NOW);
 	seedAttempt({ workItemId: "active", state: "running", finishedAt: null });
-	expect(await sweepUncontractedChildWorkItems(db, { now: NOW })).toEqual({
+	expect(
+		await sweepUncontractedChildWorkItems(db, {
+			now: NOW,
+			scope: {
+				orgId: "org-1",
+				ids: [
+					"legacy",
+					"allocated",
+					"active",
+					"ordinary",
+					...Array.from({ length: 150 }, (_, i) => `absent-${i}`),
+				],
+			},
+		}),
+	).toEqual({
 		observed: 1,
 		cancelled: 1,
 		skipped: 0,

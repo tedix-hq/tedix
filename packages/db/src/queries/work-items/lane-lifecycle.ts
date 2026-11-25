@@ -1,6 +1,7 @@
 import { advancePlatformCronCheckpoint } from "../platform-cron-executions";
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { anyIds } from "../../core-store/dialect";
 import { workAttempts, workEvents, workItems } from "../../schema/work-items";
 import { workInteractions } from "../../schema/work-factory";
 import { tedis } from "../../schema/tedis";
@@ -50,7 +51,7 @@ export async function recordStaleLanes(
 		scope
 			? and(
 					eq(workAttempts.orgId, scope.orgId),
-					inArray(workAttempts.id, scope.ids),
+					anyIds(db, workAttempts.id, scope.ids),
 				)
 			: undefined,
 		eq(workAttempts.executorType, "external_agent"),
