@@ -1,4 +1,5 @@
 import { and, desc, eq, getColumns, sql } from "drizzle-orm";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { coreTable } from "../../core-store/client";
 import { coreStore } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
@@ -8,6 +9,10 @@ import {
 	docsReleases as d1DocsReleases,
 	docsSites as d1DocsSites,
 } from "../../schema/docs-sites";
+import {
+	docsSites as pgDocsSites,
+	docsReleases as pgDocsReleases,
+} from "../../schema-pg/core";
 import { getDocsBuild } from "./builds";
 import { getDocsSiteById } from "./sites";
 import { docsNow } from "./clock";
@@ -138,6 +143,67 @@ export async function activateDocsBuild(
 					.limit(1)}) = ${guard.previousReleaseId}`,
 			),
 	);
+	const releaseValues = {
+		id: sql<string>`${releaseId}`.as("id"),
+		siteId: sql<string>`${params.siteId}`.as("site_id"),
+		buildId: sql<string>`${params.buildId}`.as("build_id"),
+		previousBuildId: sql<string | null>`${site.activeBuildId}`.as(
+			"previous_build_id",
+		),
+		action: sql<DocsRelease["action"]>`${params.action}`.as("action"),
+		actorType: sql<string>`${params.actor.type}`.as("actor_type"),
+		actorId: sql<string>`${params.actor.id}`.as("actor_id"),
+		actorSessionId: sql<string | null>`${params.actor.sessionId}`.as(
+			"actor_session_id",
+		),
+		createdAt: sql<string>`${docsNow(db)}`.as("created_at"),
+	};
+
+	if (coreStore(db) === "postgres") {
+		// The shared D1 type omits data-modifying CTEs supported by both Pg drivers.
+		const pgDb = db as unknown as PostgresJsDatabase;
+		// Consume exactly the CAS-returned row; no connection-local changes() or
+		// later snapshot can create a receipt for another activation.
+		const activated = pgDb.$with("activated").as(
+			pgDb
+				.update(pgDocsSites)
+				.set({ activeBuildId: params.buildId, updatedAt: docsNow(db) })
+				.where(activationScope)
+				.returning({
+					...getColumns(pgDocsSites),
+					receiptId:
+						sql<string>`${docsSites}.${sql.identifier("active_release_id")}`.as(
+							"receipt_id",
+						),
+				}),
+		);
+		const recorded = pgDb.$with("recorded").as(
+			pgDb
+				.insert(pgDocsReleases)
+				.select(
+					pgDb
+						.select({ ...releaseValues, id: activated.receiptId })
+						.from(activated),
+				)
+				.returning(),
+		);
+		const [result] = await pgDb
+			.with(activated, recorded)
+			.select({
+				site: sql<DocsSite>`${pgRow("activated", d1DocsSites)}`.as("site"),
+				release: sql<DocsRelease>`${pgRow("recorded", d1DocsReleases)}`.as(
+					"release",
+				),
+			})
+			.from(activated)
+			.innerJoin(recorded, sql`true`);
+		if (!result)
+			throw new Error(
+				"Documentation release lost a concurrent activation race",
+			);
+		return result;
+	}
+
 	const activateSite = db
 		.update(docsSites)
 		.set({ activeBuildId: params.buildId, updatedAt: docsNow(db) })
@@ -146,54 +212,11 @@ export async function activateDocsBuild(
 		.insert(docsReleases)
 		.select(
 			db
-				.select({
-					id: sql<string>`${releaseId}`.as("id"),
-					siteId: sql<string>`${params.siteId}`.as("site_id"),
-					buildId: sql<string>`${params.buildId}`.as("build_id"),
-					previousBuildId: sql<string | null>`${site.activeBuildId}`.as(
-						"previous_build_id",
-					),
-					action: sql<DocsRelease["action"]>`${params.action}`.as("action"),
-					actorType: sql<string>`${params.actor.type}`.as("actor_type"),
-					actorId: sql<string>`${params.actor.id}`.as("actor_id"),
-					actorSessionId: sql<string | null>`${params.actor.sessionId}`.as(
-						"actor_session_id",
-					),
-					createdAt: sql<string>`${docsNow(db)}`.as("created_at"),
-				})
-				.from(coreStore(db) === "postgres" ? sql`activated` : docsSites)
-				.where(
-					coreStore(db) === "postgres"
-						? undefined
-						: and(eq(docsSites.id, params.siteId), sql`changes() = 1`),
-				),
+				.select(releaseValues)
+				.from(docsSites)
+				.where(and(eq(docsSites.id, params.siteId), sql`changes() = 1`)),
 		)
 		.returning();
-
-	if (coreStore(db) === "postgres") {
-		// Consume exactly the CAS-returned row; no connection-local changes() or
-		// later snapshot can create a receipt for another activation.
-		const result = await db.get<ActivateDocsBuildResult>(sql`
-			WITH activated AS (
-				UPDATE ${docsSites}
-				SET "active_build_id" = ${params.buildId},
-					"active_release_id" = ${releaseId},
-					"updated_at" = ${docsNow(db)}
-				WHERE ${activationScope}
-				RETURNING *
-			),
-			recorded AS (${recordRelease.getSQL()})
-			SELECT ${pgRow("activated", d1DocsSites)} AS site,
-				${pgRow("recorded", d1DocsReleases)} AS release
-			FROM activated CROSS JOIN recorded
-		`);
-		if (!result)
-			throw new Error(
-				"Documentation release lost a concurrent activation race",
-			);
-		return result;
-	}
-
 	const [, releaseRows] = await db.batch([activateSite, recordRelease]);
 	const release = releaseRows[0];
 	if (!release) {

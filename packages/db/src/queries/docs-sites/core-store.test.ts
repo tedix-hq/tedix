@@ -257,6 +257,17 @@ for (const store of ["d1", "postgres"] as const)
 				await expect(activateDocsBuild(db, params)).rejects.toThrow();
 				expect(await getDocsSiteById(db, created.id)).toEqual(before);
 				expect(await listDocsReleases(db, created.id)).toEqual([]);
+				if (store === "postgres") {
+					const table = coreTable(db, docsSites);
+					expect(
+						await db
+							.select({
+								marker: sql<string | null>`${table}.active_release_id`,
+							})
+							.from(table)
+							.where(eq(table.id, created.id)),
+					).toEqual([{ marker: null }]);
+				}
 			} finally {
 				await exec(
 					store === "d1"
@@ -351,6 +362,16 @@ for (const store of ["d1", "postgres"] as const)
 					},
 				};
 				const table = coreTable(db, docsSites);
+				await db
+					.update(table)
+					.set({ activeBuildId: "marker-baseline" })
+					.where(eq(table.id, created.id));
+				expect(
+					await db
+						.select({ marker: sql<string>`${table}.active_release_id` })
+						.from(table)
+						.where(eq(table.id, created.id)),
+				).toEqual([{ marker: baseline.release.id }]);
 				// Model the post-lock source tuple alongside a stale latest-receipt
 				// snapshot. This is not a real multi-connection lock-wait measurement.
 				await db.run(
@@ -365,20 +386,14 @@ for (const store of ["d1", "postgres"] as const)
 				await db.run(
 					sql`UPDATE ${table} SET active_release_id = ${baseline.release.id} WHERE ${table.id} = ${created.id}`,
 				);
-				const get = vi.spyOn(db, "get");
-				try {
-					const result = await activateDocsBuild(db, guarded);
-					expect(get).toHaveBeenCalledTimes(1);
-					expect(result.site).toMatchObject({ activeBuildId: "marker-next" });
-					expect(result.site).not.toHaveProperty("active_release_id");
-					expect(
-						await db.get(
-							sql`SELECT active_release_id FROM ${table} WHERE ${table.id} = ${created.id}`,
-						),
-					).toEqual({ active_release_id: result.release.id });
-				} finally {
-					get.mockRestore();
-				}
+				const result = await activateDocsBuild(db, guarded);
+				expect(result.site).toMatchObject({ activeBuildId: "marker-next" });
+				expect(result.site).not.toHaveProperty("active_release_id");
+				expect(
+					await db.get(
+						sql`SELECT active_release_id FROM ${table} WHERE ${table.id} = ${created.id}`,
+					),
+				).toEqual({ active_release_id: result.release.id });
 			},
 		);
 	});
