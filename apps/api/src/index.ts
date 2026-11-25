@@ -109,13 +109,20 @@ async function serveFetch(
 			timestamp: new Date().toISOString(),
 		});
 	}
-	const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
-		loadApp(),
-		import("@tedix/db/slow-query"),
-	]);
+	const [{ default: handlers }, { withD1Ledger }, { withCoreStore }] =
+		await Promise.all([
+			loadApp(),
+			import("@tedix/db/slow-query"),
+			import("@tedix/db/core-store/scope"),
+		]);
 	return withD1Ledger(
 		`${request.method} ${new URL(request.url).pathname}`,
-		async () => handlers.fetch(request, env, ctx),
+		() =>
+			withCoreStore(
+				env,
+				() => handlers.fetch(request, env, ctx),
+				(promise) => ctx.waitUntil(promise),
+			),
 		{
 			maxInFlight: 6,
 			analytics: { sink: env.D1_REQUESTS, worker: "tedix-api" },
@@ -131,6 +138,17 @@ async function serveFetch(
  */
 export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	async reserveRuntimeVoice(
+		input: import("@tedix/voice/billing").RuntimeVoiceAdmission,
+	): Promise<import("@tedix/voice/billing").RuntimeVoiceAdmissionResult> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => this.reserveRuntimeVoiceInner(input),
+			(promise) => this.ctx.waitUntil(promise),
+		);
+	}
+
+	private async reserveRuntimeVoiceInner(
 		input: import("@tedix/voice/billing").RuntimeVoiceAdmission,
 	): Promise<import("@tedix/voice/billing").RuntimeVoiceAdmissionResult> {
 		const { reserveVoiceUsage, VoiceCreditRefusal } =
@@ -158,12 +176,28 @@ export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	async finishRuntimeVoice(
 		input: import("@tedix/voice/billing").RuntimeVoiceCompletion,
 	) {
-		const { finishRuntimeVoiceUsage } =
-			await import("./services/voice-billing");
-		await finishRuntimeVoiceUsage(this.env, input);
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			async () => {
+				const { finishRuntimeVoiceUsage } =
+					await import("./services/voice-billing");
+				await finishRuntimeVoiceUsage(this.env, input);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
-	override fetch(request: Request): Promise<Response> {
+	override async fetch(request: Request): Promise<Response> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => this.serveInternalFetch(request),
+			(promise) => this.ctx.waitUntil(promise),
+		);
+	}
+
+	private async serveInternalFetch(request: Request): Promise<Response> {
 		if (
 			new URL(request.url).pathname === "/__internal/identity-cache/invalidate"
 		) {
@@ -200,21 +234,29 @@ export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 
 /** Dedicated RPC capability for the workspace store; no public HTTP route. */
 export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
+	private withStore<T>(fn: () => T | Promise<T>): Promise<T> {
+		return import("@tedix/db/core-store/scope").then(({ withCoreStore }) =>
+			withCoreStore(this.env, fn, (promise) => this.ctx.waitUntil(promise)),
+		);
+	}
+
 	async pushWorkspaceActivity(scope: {
 		organizationId: string;
 		workspaceId: string;
 	}) {
-		const [{ coreDb, coreQueryDb }, { pushWaitingWorkspaceApprovals }] =
-			await Promise.all([
-				import("@tedix/db/core-store/scope"),
-				import("./services/workspace-approval-push"),
-			]);
-		return pushWaitingWorkspaceApprovals(
-			{ db: coreDb(this.env), env: this.env },
-			coreQueryDb(this.env),
-			Date.now(),
-			scope,
-		);
+		return this.withStore(async () => {
+			const [{ coreDb, coreQueryDb }, { pushWaitingWorkspaceApprovals }] =
+				await Promise.all([
+					import("@tedix/db/core-store/scope"),
+					import("./services/workspace-approval-push"),
+				]);
+			return pushWaitingWorkspaceApprovals(
+				{ db: coreDb(this.env), env: this.env },
+				coreQueryDb(this.env),
+				Date.now(),
+				scope,
+			);
+		});
 	}
 
 	async availableConnections(
@@ -222,9 +264,11 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	): Promise<
 		import("@tedix/api-contract/schemas/workspace-available-connections").AvailableWorkspaceConnection[]
 	> {
-		const { readAvailableWorkspaceConnections } =
-			await import("./services/workspace-available-connections");
-		return readAvailableWorkspaceConnections(this.env, input);
+		return this.withStore(async () => {
+			const { readAvailableWorkspaceConnections } =
+				await import("./services/workspace-available-connections");
+			return readAvailableWorkspaceConnections(this.env, input);
+		});
 	}
 
 	async readLinkedAccount(
@@ -232,9 +276,11 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	): Promise<
 		import("@tedix/api-contract/schemas/workspace-connection-read").WorkspaceConnectionReadResult
 	> {
-		const { readLinkedWorkspaceAccount } =
-			await import("./services/workspace-connection-read");
-		return readLinkedWorkspaceAccount(this.env, input);
+		return this.withStore(async () => {
+			const { readLinkedWorkspaceAccount } =
+				await import("./services/workspace-connection-read");
+			return readLinkedWorkspaceAccount(this.env, input);
+		});
 	}
 
 	/**
@@ -247,17 +293,19 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	): Promise<
 		import("@tedix/api-contract/schemas/runtime-entitlements").AuthorizeRuntimeInferenceResponse
 	> {
-		const [{ AuthorizeWorkspaceInferenceInputSchema }, { coreDb }] =
-			await Promise.all([
-				import("@tedix/api-contract/schemas/runtime-entitlements"),
-				import("@tedix/db/core-store/scope"),
-			]);
-		const { authorizeWorkspaceInference } =
-			await import("./services/workspace-inference-admission");
-		return authorizeWorkspaceInference({
-			db: coreDb(this.env),
-			env: this.env,
-			request: AuthorizeWorkspaceInferenceInputSchema.parse(input),
+		return this.withStore(async () => {
+			const [{ AuthorizeWorkspaceInferenceInputSchema }, { coreDb }] =
+				await Promise.all([
+					import("@tedix/api-contract/schemas/runtime-entitlements"),
+					import("@tedix/db/core-store/scope"),
+				]);
+			const { authorizeWorkspaceInference } =
+				await import("./services/workspace-inference-admission");
+			return authorizeWorkspaceInference({
+				db: coreDb(this.env),
+				env: this.env,
+				request: AuthorizeWorkspaceInferenceInputSchema.parse(input),
+			});
 		});
 	}
 
@@ -265,17 +313,19 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	async releaseInferenceReservation(
 		input: import("@tedix/api-contract/schemas/runtime-entitlements").ReleaseInferenceReservationInput,
 	): Promise<{ released: boolean }> {
-		const [{ ReleaseInferenceReservationInputSchema }, { coreDb }] =
-			await Promise.all([
-				import("@tedix/api-contract/schemas/runtime-entitlements"),
-				import("@tedix/db/core-store/scope"),
-			]);
-		const { releaseInferenceReservation } =
-			await import("./services/workspace-inference-admission");
-		return releaseInferenceReservation({
-			db: coreDb(this.env),
-			wallet: (await import("./lib/wallet-rpc")).walletRpc(this.env),
-			request: ReleaseInferenceReservationInputSchema.parse(input),
+		return this.withStore(async () => {
+			const [{ ReleaseInferenceReservationInputSchema }, { coreDb }] =
+				await Promise.all([
+					import("@tedix/api-contract/schemas/runtime-entitlements"),
+					import("@tedix/db/core-store/scope"),
+				]);
+			const { releaseInferenceReservation } =
+				await import("./services/workspace-inference-admission");
+			return releaseInferenceReservation({
+				db: coreDb(this.env),
+				wallet: (await import("./lib/wallet-rpc")).walletRpc(this.env),
+				request: ReleaseInferenceReservationInputSchema.parse(input),
+			});
 		});
 	}
 
@@ -285,9 +335,11 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	): Promise<
 		import("@tedix/api-contract/schemas/workspace-connection-read").WorkspaceConnectionDecisionResult
 	> {
-		const { decideLinkedWorkspaceAccountApproval } =
-			await import("./services/workspace-connection-read");
-		return decideLinkedWorkspaceAccountApproval(this.env, input);
+		return this.withStore(async () => {
+			const { decideLinkedWorkspaceAccountApproval } =
+				await import("./services/workspace-connection-read");
+			return decideLinkedWorkspaceAccountApproval(this.env, input);
+		});
 	}
 
 	/**
@@ -299,18 +351,22 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	): Promise<
 		import("@tedix/api-contract/schemas/workspace-machine").WorkspaceMachineResult
 	> {
-		const { useWorkspaceMachine } =
-			await import("./services/workspace-machine");
-		return useWorkspaceMachine(this.env, input);
+		return this.withStore(async () => {
+			const { useWorkspaceMachine } =
+				await import("./services/workspace-machine");
+			return useWorkspaceMachine(this.env, input);
+		});
 	}
 
 	/** Publish the sender's conversation draft through the app author procedures. */
 	async publishWorkspaceAppDraft(
 		input: import("@tedix/api-contract/schemas/workspace-app-draft").WorkspacePublishAppDraft,
 	) {
-		const { publishWorkspaceAppDraft } =
-			await import("./services/workspace-app-draft");
-		return publishWorkspaceAppDraft(this.env, input);
+		return this.withStore(async () => {
+			const { publishWorkspaceAppDraft } =
+				await import("./services/workspace-app-draft");
+			return publishWorkspaceAppDraft(this.env, input);
+		});
 	}
 
 	/** Read personal memory only in a workspace nobody but the sender can open. */
@@ -319,9 +375,11 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	): Promise<
 		import("@tedix/api-contract/schemas/workspace-person-memory").WorkspacePersonMemoryResult
 	> {
-		const { readWorkspacePersonMemory } =
-			await import("./services/workspace-person-memory");
-		return readWorkspacePersonMemory(this.env, input);
+		return this.withStore(async () => {
+			const { readWorkspacePersonMemory } =
+				await import("./services/workspace-person-memory");
+			return readWorkspacePersonMemory(this.env, input);
+		});
 	}
 }
 
@@ -339,14 +397,21 @@ async function runScheduled(
 	env: CloudflareEnv,
 	ctx: ExecutionContext,
 ): Promise<void> {
-	const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
-		loadApp(),
-		import("@tedix/db/slow-query"),
-	]);
+	const [{ default: handlers }, { withD1Ledger }, { withCoreStore }] =
+		await Promise.all([
+			loadApp(),
+			import("@tedix/db/slow-query"),
+			import("@tedix/db/core-store/scope"),
+		]);
 	// D1 allows six simultaneous connections; all job clients share this budget.
 	await withD1Ledger(
 		`cron ${controller.cron}`,
-		async () => handlers.scheduled(controller, env, ctx),
+		() =>
+			withCoreStore(
+				env,
+				() => handlers.scheduled(controller, env, ctx),
+				(promise) => ctx.waitUntil(promise),
+			),
 		{
 			maxInFlight: 6,
 			analytics: { sink: env.D1_REQUESTS, worker: "tedix-api" },
@@ -360,13 +425,20 @@ async function runQueue(
 	env: CloudflareEnv,
 	ctx: { waitUntil: (p: Promise<unknown>) => void },
 ): Promise<void> {
-	const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
-		loadApp(),
-		import("@tedix/db/slow-query"),
-	]);
+	const [{ default: handlers }, { withD1Ledger }, { withCoreStore }] =
+		await Promise.all([
+			loadApp(),
+			import("@tedix/db/slow-query"),
+			import("@tedix/db/core-store/scope"),
+		]);
 	await withD1Ledger(
 		`queue ${batch.queue}`,
-		async () => handlers.queue(batch, env, ctx),
+		() =>
+			withCoreStore(
+				env,
+				() => handlers.queue(batch, env, ctx),
+				(promise) => ctx.waitUntil(promise),
+			),
 		{
 			maxInFlight: 6,
 			analytics: { sink: env.D1_REQUESTS, worker: "tedix-api" },
@@ -444,8 +516,15 @@ abstract class LazyWorkflow extends WorkflowEntrypoint<CloudflareEnv> {
 		event: Readonly<WorkflowEvent<unknown>>,
 		step: WorkflowStep,
 	): Promise<unknown> {
-		const Impl = await this.loadImpl();
-		return new Impl(this.ctx, this.env).run(event as never, step);
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			async () => {
+				const Impl = await this.loadImpl();
+				return new Impl(this.ctx, this.env).run(event as never, step);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 }
 
