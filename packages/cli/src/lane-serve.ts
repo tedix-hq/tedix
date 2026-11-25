@@ -43,7 +43,7 @@ import {
 	type LaneDeferral,
 } from "./lane-result";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -1818,7 +1818,6 @@ export function retainedLaneWorktree(
 		metadata?: Record<string, unknown> | null;
 	}>,
 	onMissing?: (repo: string) => void,
-	onReplacedHistory?: (repo: string) => void,
 ) {
 	// A rejected Attempt is a run that ended incomplete (its push refused, a
 	// write denied): its checkout and session hold that work for the retry.
@@ -1859,10 +1858,6 @@ export function retainedLaneWorktree(
 				onMissing?.(row.repo);
 				return false;
 			}
-			if (!sharesHistoryWithMain(row.repo)) {
-				onReplacedHistory?.(row.repo);
-				return false;
-			}
 			return true;
 		})
 		.sort((a, b) => b.version - a.version)[0];
@@ -1884,14 +1879,17 @@ export function retainedLaneWorktree(
  * Work resumed there would be rebased onto the new history and could publish
  * the replaced commits again. A folder that is no checkout counts as sharing.
  */
-function sharesHistoryWithMain(repo: string): boolean {
-	return (
-		spawnSync(
+export async function sharesHistoryWithMain(repo: string): Promise<boolean> {
+	try {
+		await promisify(execFile)(
 			"git",
 			["-C", repo, "merge-base", "HEAD", "refs/remotes/origin/main"],
-			{ stdio: "ignore", timeout: 30_000 },
-		).status !== 1
-	);
+			{ encoding: "utf8", timeout: 30_000 },
+		);
+		return true;
+	} catch (error) {
+		return (error as { code?: unknown }).code !== 1;
+	}
 }
 
 async function laneWorktreeInUse(destination: string): Promise<boolean> {
@@ -6515,7 +6513,7 @@ export class LaneDispatcher {
 			const missing: string[] = [];
 			// Checkouts from before main's history was replaced; never resumed.
 			const replaced: string[] = [];
-			const retainedLane = adopted
+			const foundLane = adopted
 				? adopted
 				: receipt.verification
 					? undefined
@@ -6526,10 +6524,15 @@ export class LaneDispatcher {
 							(repo) => {
 								missing.push(repo);
 							},
-							(repo) => {
-								replaced.push(repo);
-							},
 						);
+			if (
+				!adopted &&
+				foundLane?.repo &&
+				!foundLane.repoFree &&
+				!(await sharesHistoryWithMain(foundLane.repo))
+			)
+				replaced.push(foundLane.repo);
+			const retainedLane = replaced.length ? undefined : foundLane;
 			const wantsRepoFree =
 				!receipt.verification &&
 				(!this.deps.hasRepository(this.options.repo) ||

@@ -38,6 +38,7 @@ import {
 	mainLaneCommits,
 	existingLaneCommits,
 	retainedLaneWorktree,
+	sharesHistoryWithMain,
 	dispatchSkip,
 	FAILOVER_WAIT_MS,
 	routingPickNote,
@@ -7956,50 +7957,30 @@ it("defers a future planned start and reuses only a canonically failed Work's re
 	);
 });
 
-it("does not resume in a retained tree from before main's history was replaced", () => {
+it("tells a retained tree from before main's history was replaced apart", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "lane-replaced-history-test-"));
 	dirs.push(dir);
-	const repo = join(dir, "runs", "old", "repo");
-	mkdirSync(repo, { recursive: true });
+	// A task folder is no checkout: nothing to compare, so it stays usable.
+	expect(await sharesHistoryWithMain(dir)).toBe(true);
 	const git = (...args: string[]) =>
 		spawnSync(
 			"git",
 			["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args],
-			{ cwd: repo, encoding: "utf8" },
+			{ cwd: dir, encoding: "utf8" },
 		).stdout.trim();
 	git("init", "--quiet");
-	writeFileSync(join(repo, "unfinished.txt"), "Preserve this work");
+	writeFileSync(join(dir, "unfinished.txt"), "Preserve this work");
 	git("add", "unfinished.txt");
 	git("commit", "--quiet", "-m", "old history");
 	git("update-ref", "refs/remotes/origin/main", "HEAD");
-	writeFileSync(
-		join(dir, "old.json"),
-		JSON.stringify({
-			itemId: item().id,
-			version: 1,
-			phase: "settled",
-			attemptId: "failed-attempt",
-			repo,
-		}),
-	);
-	const history = [{ id: "failed-attempt", outcome: "failed" }];
-	expect(retainedLaneWorktree(dir, item().id, history)?.repo).toBe(repo);
+	expect(await sharesHistoryWithMain(dir)).toBe(true);
 	// The same tree as a new root commit: what a history rewrite leaves.
 	git(
 		"update-ref",
 		"refs/remotes/origin/main",
 		git("commit-tree", "HEAD^{tree}", "-m", "new history"),
 	);
-	const replaced: string[] = [];
-	expect(
-		retainedLaneWorktree(dir, item().id, history, undefined, (path) => {
-			replaced.push(path);
-		}),
-	).toBeUndefined();
-	expect(replaced).toEqual([repo]);
-	expect(readFileSync(join(repo, "unfinished.txt"), "utf8")).toBe(
-		"Preserve this work",
-	);
+	expect(await sharesHistoryWithMain(dir)).toBe(false);
 });
 
 it("any-local accepts local assignments and excludes human and cloud tedi Work", () => {
