@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { startFixtureServer } from "./fixture-server";
 import { openExamples, settleAnimations } from "./deck-controls";
 import { chromium, type Browser, type Page } from "playwright";
@@ -369,9 +370,16 @@ try {
 		await page.locator(".fd-decision").focus();
 		await page.keyboard.press("y");
 		await page.locator(".fd-closure").waitFor();
-		if (width === 390) {
+		// 3616fc8d3 removed the Details trigger; b809a154c9 restored access
+		// through Details for agents. Read the rail's full prompt before acting.
+		{
+			const responses: Record<string, unknown>[] = [];
+			await page.route("**/api/rpc/workInteractions/respond", async (route) => {
+				responses.push(route.request().postDataJSON().json);
+				await route.fulfill({ json: { json: {} } });
+			});
 			await page.goto(
-				`${origin}/browser-tests/feed-deck-polish.html?surface=approval&theme=${theme}`,
+				`${origin}/browser-tests/feed-deck-polish.html?shell&surface=approval&theme=${theme}`,
 			);
 			await page
 				.getByRole("heading", { name: "Approve fictional test login" })
@@ -388,8 +396,26 @@ try {
 			await page
 				.getByRole("button", { name: "Details for agents", exact: true })
 				.click();
-			await page.getByText("Prepared args:", { exact: false }).waitFor();
+			const context = page.locator("[data-decision-context]:visible");
+			const prompt = context
+				.locator('[data-context-section="details"]')
+				.getByText("Prepared args:", { exact: false });
+			await prompt.waitFor();
+			assert(
+				(await prompt.innerText()).includes(
+					"Prepared args: target=viewer@example.com",
+				),
+				`${width}: approval target is not readable in the details rail`,
+			);
+			assert(
+				(await prompt.innerText()).includes(
+					"This returns a non-delivered test-only link.",
+				),
+				`${width}: approval consequence is not readable`,
+			);
+			assert.equal(responses.length, 0, "Reading details submitted approval");
 			await page.keyboard.press("Escape");
+			await context.waitFor({ state: "hidden" });
 			await settleAnimations(page);
 			const footer = await page
 				.locator('[data-slot="card-footer"]')
@@ -403,6 +429,22 @@ try {
 				primaryBox.y + primaryBox.height > footer.y + footer.height + 1
 			)
 				throw new Error("Approval actions escaped the footer");
+			const submitted = page.waitForResponse(
+				(response) =>
+					response.url().endsWith("/workInteractions/respond") && response.ok(),
+			);
+			await page.getByRole("button", { name: "Approve", exact: true }).click();
+			await submitted;
+			assert.equal(responses.length, 1, "Approval must be submitted once");
+			const response = responses[0]!;
+			assert.equal(response.requestId, "11111111-1111-4111-8111-111111111111");
+			assert.equal(response.expectedRequestVersion, 1);
+			assert.equal(
+				response.body,
+				"Approve tests_write.GenerateMagicLinkForTestUser for viewer@example.com.",
+			);
+			assert.equal(response.resolvesRequest, true);
+			await page.locator(".fd-closure").waitFor();
 		}
 		await page.goto(
 			`${origin}/browser-tests/feed-deck-polish.html?surface=feed&theme=${theme}`,
