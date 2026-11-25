@@ -1,3 +1,7 @@
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { fileURLToPath } from "node:url";
+import { coreTable } from "../core-store/client";
+import { createPGliteFacade } from "../test/pglite-facade";
 import { gitCommitAliases } from "../schema/git-commit-aliases";
 import {
 	createCommitResolver,
@@ -778,3 +782,132 @@ it("bounds alias traversal to four hops, rejects cycles and resolves a dropped c
 		sqlite.close();
 	}
 });
+
+it("preserves observer diagnosis, tenant fences and retry claims on faithful Postgres DDL", async () => {
+	const fixture = await createPGliteFacade();
+	const { db, engine } = fixture;
+	try {
+		for (const migration of readMigrationFiles({
+			migrationsFolder: fileURLToPath(
+				new URL("../../drizzle-pg", import.meta.url),
+			),
+		}))
+			for (const ddl of migration.sql) await engine.exec(ddl);
+		await engine.query(
+			"INSERT INTO organizations(id,name,slug) VALUES ($1,'Example','example'),('other','Other','other')",
+			[event.orgId],
+		);
+		await engine.query(
+			"INSERT INTO projects(id,org_id,key,name,created_at) VALUES ($1,$2,'EX','Example',$3)",
+			[event.projectId, event.orgId, event.now],
+		);
+		await createRepositoryObservation(db, { ...event, objectiveId: null });
+		expect(
+			await pendingRepositoryObservations(db, event.orgId, event.projectId),
+		).toHaveLength(1);
+		expect(
+			await pendingRepositoryObservations(db, "other", event.projectId),
+		).toEqual([]);
+		expect(
+			await overdueRepositoryObservations(db, "2026-10-17T12:30:00Z"),
+		).toHaveLength(1);
+		const report = {
+			orgId: event.orgId,
+			id: event.id,
+			workItemId: event.id,
+			authorId: event.ownerTediId,
+			body: "First diagnosis",
+			report: { stillRed: true, diagnosis: "Provider outage" },
+			now: event.now,
+		};
+		const batches = vi.spyOn(db, "batch");
+		await reportRepositoryObservation(db, report);
+		expect(batches).toHaveBeenCalledTimes(1);
+		expect(await claimRepositoryRepair(db, "other", event.id, "lesson")).toBe(
+			false,
+		);
+		expect(
+			await claimRepositoryRepair(
+				db,
+				event.orgId,
+				event.id,
+				"lesson",
+				"recipe",
+				"retry",
+			),
+		).toBe(true);
+		expect(
+			await claimRepositoryRepair(db, event.orgId, event.id, "other-lesson"),
+		).toBe(false);
+		await reportRepositoryObservation(db, {
+			...report,
+			body: "Second diagnosis",
+			report: { stillRed: false },
+		});
+		const row = await getRepositoryObservation(db, event.orgId, event.id);
+		expect(row?.metadata?.report).toEqual(report.report);
+		expect(row?.metadata?.latestReport).toEqual({ stillRed: false });
+		expect(row?.metadata?.repairKey).toBe("recipe");
+		expect(row?.disposition).toBe("cancelled");
+		expect(
+			await db.select().from(coreTable(db, workItemComments)),
+		).toMatchObject([{ body: "First diagnosis" }]);
+		expect(
+			await overdueRepositoryObservations(db, "2026-10-17T12:36:00Z"),
+		).toEqual([]);
+		await createRepositoryObservation(db, {
+			...event,
+			id: "json-null",
+			objectiveId: null,
+			metadata: { ...event.metadata, report: null },
+		});
+		expect(
+			(
+				await pendingRepositoryObservations(db, event.orgId, event.projectId)
+			).map((row) => row.id),
+		).toEqual(["json-null"]);
+		const pushed = {
+			kind: "push",
+			repository: "example/app",
+			branch: "main",
+			sha: "a".repeat(40),
+		};
+		await createRepositoryObservation(db, {
+			...event,
+			id: "old-push",
+			objectiveId: null,
+			metadata: { repositoryObserver: 1, event: pushed },
+		});
+		await engine.query(
+			"UPDATE work_items SET disposition='proposed' WHERE id='old-push'",
+		);
+		await createRepositoryObservation(db, {
+			...event,
+			id: "red-followup",
+			objectiveId: null,
+			metadata: {
+				repositoryObserver: 1,
+				event: { ...pushed, kind: "ship_red", surface: "api" },
+			},
+		});
+		expect(
+			await settleAgedRepositoryPushObservations(db, "2026-10-19T12:00:00Z"),
+		).toEqual([]);
+		expect(
+			await settleRecoveredRepositoryShipObservations(db, {
+				orgId: event.orgId,
+				projectId: event.projectId,
+				repository: "example/app",
+				branch: "main",
+				surface: "api",
+				now: "2026-10-19T12:00:00Z",
+			}),
+		).toEqual([{ id: "red-followup" }]);
+		expect(
+			await settleAgedRepositoryPushObservations(db, "2026-10-19T12:00:00Z"),
+		).toEqual([{ id: "old-push" }]);
+	} finally {
+		vi.restoreAllMocks();
+		await fixture.close();
+	}
+}, 30000);

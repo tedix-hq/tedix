@@ -1,3 +1,8 @@
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { fileURLToPath } from "node:url";
+import { coreTable } from "../core-store/client";
+import { createPGliteFacade } from "../test/pglite-facade";
+import { workInteractions } from "../schema/work-factory";
 import { osWorkspaces, osGadgetExecutions } from "../schema/os-workspaces";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
@@ -404,3 +409,151 @@ it("keeps factory links tenant-scoped and private-workspace names owner-only", a
 			.sort(),
 	).toEqual(["private", "shared"]);
 });
+
+it("keeps Postgres Attention counts, waiting asks and private runs scoped on faithful DDL", async () => {
+	const fixture = await createPGliteFacade();
+	const { db, engine } = fixture;
+	const at = new Date().toISOString();
+	const since = new Date(Date.now() - 86_400_000).toISOString();
+	try {
+		for (const migration of readMigrationFiles({
+			migrationsFolder: fileURLToPath(
+				new URL("../../drizzle-pg", import.meta.url),
+			),
+		}))
+			for (const ddl of migration.sql) await engine.exec(ddl);
+		await engine.exec(
+			"INSERT INTO organizations(id,name,slug) VALUES ('org-example','Example','example'),('other','Other','other'); INSERT INTO tedis(id,organization_id,name,slug) VALUES ('tedi','org-example','Tedi','tedi')",
+		);
+		await db.insert(coreTable(db, tediObjectives)).values([
+			{
+				id: "objective",
+				orgId: "org-example",
+				tediId: "tedi",
+				title: "Active",
+				createdAt: at,
+			},
+			{
+				id: "empty",
+				orgId: "org-example",
+				tediId: "tedi",
+				title: "Empty",
+				createdAt: at,
+			},
+		]);
+		await db.insert(coreTable(db, projects)).values({
+			id: "project",
+			orgId: "org-example",
+			key: "EX",
+			name: "Example",
+			createdAt: at,
+			objectiveId: "objective",
+			metadata: { factory: { slug: "example" } },
+		});
+		await db.insert(coreTable(db, workItems)).values([
+			{
+				id: "item",
+				orgId: "org-example",
+				projectId: "project",
+				objectiveId: "objective",
+				title: "Running",
+				createdAt: at,
+			},
+			{
+				id: "red",
+				orgId: "org-example",
+				projectId: "project",
+				title: "Red Ship",
+				createdAt: at,
+				deadline: since,
+				metadata: {
+					repositoryObserver: 1,
+					report: { stillRed: true, diagnosis: "Provider outage" },
+				},
+			},
+		]);
+		await db.insert(coreTable(db, workAttempts)).values({
+			id: "attempt",
+			orgId: "org-example",
+			workItemId: "item",
+			executorType: "external_agent",
+			executorId: "agent",
+			attemptNumber: 1,
+			startedAt: at,
+			heartbeatAt: at,
+			expiresAt: new Date(Date.now() + 300_000).toISOString(),
+			metadata: { lane: 1 },
+		});
+		await db.insert(coreTable(db, kernelRuntimeRuns)).values({
+			id: "private-run",
+			organizationId: "org-example",
+			conversationId: "private",
+			createdAt: at,
+			updatedAt: at,
+		});
+		await db.insert(coreTable(db, kernelConversationGrants)).values({
+			id: "grant",
+			organizationId: "org-example",
+			conversationId: "private",
+			granteeDescopeUserId: "owner",
+			access: "owner",
+		});
+		await db.insert(coreTable(db, workInteractions)).values({
+			id: "ask",
+			orgId: "org-example",
+			workItemId: "red",
+			kind: "coordination",
+			subject: "Decision",
+			prompt: "Choose next step",
+			creatorType: "system",
+			creatorId: "system",
+			targetType: "user",
+			targetId: "person",
+			createdAt: at,
+			metadata: { followThrough: { laneHandoff: {} } },
+		});
+		expect(await attentionProjectExists(db, "other", "project")).toBe(false);
+		expect(
+			JSON.parse(
+				(await attentionProjectBriefs(db, "org-example"))[0]!.factory!,
+			),
+		).toEqual({ slug: "example" });
+		const owner = await readAttentionSources(
+			db,
+			"org-example",
+			since,
+			"owner",
+			"person",
+		);
+		expect(owner.projects).toMatchObject([{ active: 1, recent: 1 }]);
+		expect(owner.attempts).toMatchObject([
+			{ id: "attempt", registeredLane: true },
+		]);
+		expect(owner.backlog).toMatchObject([
+			{ id: "red", observer: 1, diagnosis: "Provider outage" },
+		]);
+		expect(owner.waiting.map((row) => row.id)).toEqual(["ask"]);
+		expect(owner.runs.map((row) => row.id)).toEqual(["private-run"]);
+		const visitor = await readAttentionSources(
+			db,
+			"org-example",
+			since,
+			"visitor",
+			"visitor",
+		);
+		expect(visitor.waiting).toEqual([]);
+		expect(visitor.runs).toEqual([]);
+		expect(
+			(await readAttentionSources(db, "other", since, "owner", "person"))
+				.projects,
+		).toEqual([]);
+		expect(await listUnattendedObjectives(db, "org-example", since)).toEqual([
+			{ id: "empty", title: "Empty", lastAttentionAt: null },
+		]);
+		expect(
+			await readAttentionFactoryLinks(db, "org-example", "owner", since),
+		).toEqual([]);
+	} finally {
+		await fixture.close();
+	}
+}, 30000);

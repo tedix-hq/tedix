@@ -1,16 +1,27 @@
-import { and, asc, eq, gte, sql, type SQL } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	getColumns,
+	gte,
+	sql,
+	type SQL,
+	type SQLWrapper,
+} from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { createCommitResolver } from "./git-commit-aliases";
 import type { DbQueryClient } from "../query-client";
 import type { RepositoryObserverConfig } from "@tedix/api-contract/schemas/repository-observer";
-import { projects } from "../schema/projects";
+import { projects as d1Projects } from "../schema/projects";
 import {
 	openRepositoryObservation,
-	workAttempts,
-	workItemComments,
-	workItems,
-	workItemStoredColumns,
+	workAttempts as d1WorkAttempts,
+	workItemComments as d1WorkItemComments,
+	workItems as d1WorkItems,
+	workItemStoredColumns as d1StoredColumns,
 } from "../schema/work-items";
+import { coreTable } from "../core-store/client";
+import { anyIds, coreStore, jsonRead, jsonWrite } from "../core-store/dialect";
 
 /** Observation state lives on canonical Work, with one deterministic item per commit/incident. */
 export async function createRepositoryObservation(
@@ -28,6 +39,7 @@ export async function createRepositoryObservation(
 		now: string;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const push =
 		input.metadata.repositoryObserver === 1 &&
 		(input.metadata.event as { kind?: string } | undefined)?.kind === "push";
@@ -44,7 +56,7 @@ export async function createRepositoryObservation(
 			workKind: "stewardship",
 			workClass: "objective",
 			riskLevel: "medium",
-			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+			admissionSpecRevision: crypto.randomUUID(),
 			disposition: push ? "cancelled" : "proposed",
 			cancelledAt: push ? input.now : null,
 			priority: input.deadline ? "high" : "low",
@@ -70,16 +82,17 @@ export async function getRepositoryObservation(
 	orgId: string,
 	id: string,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	return (
 		(
 			await db
-				.select(workItemStoredColumns)
+				.select(storedColumns(db))
 				.from(workItems)
 				.where(
 					and(
 						eq(workItems.orgId, orgId),
 						eq(workItems.id, id),
-						sql`${workItems.repositoryObserver} = 1`,
+						sql`${observerFlag(db)} = 1`,
 					),
 				)
 				.limit(1)
@@ -91,16 +104,17 @@ export async function pendingRepositoryObservations(
 	orgId: string,
 	projectId: string,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	return db
-		.select(workItemStoredColumns)
+		.select(storedColumns(db))
 		.from(workItems)
 		.where(
 			and(
 				eq(workItems.orgId, orgId),
 				eq(workItems.projectId, projectId),
-				sql`${workItems.repositoryObserver} = 1`,
-				sql`${workItems.report} IS NULL`,
-				pendingObservation(),
+				sql`${observerFlag(db)} = 1`,
+				sql`${observationReport(db)} IS NULL`,
+				pendingObservation(db),
 			),
 		)
 		.orderBy(workItems.createdAt)
@@ -119,10 +133,12 @@ export async function reportRepositoryObservation(
 		now: string;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	const predicate = and(
 		eq(workItems.orgId, input.orgId),
 		eq(workItems.id, input.id),
-		sql`${workItems.report} IS NULL`,
+		sql`${observationReport(db)} IS NULL`,
 	);
 	return db.batch([
 		db
@@ -141,14 +157,22 @@ export async function reportRepositoryObservation(
 		db
 			.update(workItems)
 			.set({
-				metadata: sql`json_set(${workItems.metadata}, '$.report', json((SELECT json_extract(c.metadata, '$.report') FROM work_item_comments c WHERE c.org_id = ${input.orgId} AND c.id = ${input.id})), '$.diagnosedAt', ${input.now})`,
+				metadata:
+					coreStore(db) === "d1"
+						? sql`json_set(${workItems.metadata}, '$.report', json((SELECT json_extract(c.metadata, '$.report') FROM work_item_comments c WHERE c.org_id = ${input.orgId} AND c.id = ${input.id})), '$.diagnosedAt', ${input.now})`
+						: sql`${workItems.metadata} || jsonb_build_object('report', (SELECT c.metadata -> 'report' FROM work_item_comments c WHERE c.org_id = ${input.orgId} AND c.id = ${input.id}), 'diagnosedAt', ${input.now}::text)`,
 				updatedAt: input.now,
 			})
 			.where(predicate),
 		db
 			.update(workItems)
 			.set({
-				metadata: sql`json_set(${workItems.metadata}, '$.latestReport', json(${JSON.stringify(input.report)}), '$.lastDiagnosedAt', ${input.now})`,
+				metadata: jsonWrite(
+					db,
+					jsonWrite(db, workItems.metadata, ["latestReport"], input.report),
+					["lastDiagnosedAt"],
+					input.now,
+				),
 				updatedAt: input.now,
 			})
 			.where(and(eq(workItems.orgId, input.orgId), eq(workItems.id, input.id))),
@@ -158,32 +182,36 @@ export async function reportRepositoryObservation(
 				disposition: "proposed",
 				cancelledAt: null,
 				version: sql`${workItems.version} + 1`,
-				metadata: sql`json_remove(${workItems.metadata}, '$.settleReason', '$.settledAt')`,
+				metadata:
+					coreStore(db) === "d1"
+						? sql`json_remove(${workItems.metadata}, '$.settleReason', '$.settledAt')`
+						: sql`${workItems.metadata} - 'settleReason' - 'settledAt'`,
 			})
 			.where(
 				and(
 					eq(workItems.orgId, input.orgId),
 					eq(workItems.id, input.id),
 					sql`${workItems.disposition} = 'cancelled'`,
-					sql`json_extract(${workItems.metadata}, '$.settleReason') = 'advisory push observation'`,
-					unappliedLesson(),
+					sql`${jsonRead(db, workItems.metadata, ["settleReason"])} = 'advisory push observation'`,
+					unappliedLesson(db),
 				),
 			),
 		db
 			.update(workItems)
 			.set(
 				settlementValues(
+					db,
 					input.now,
-					sql`CASE WHEN json_extract(${workItems.metadata}, '$.event.kind') = 'push' THEN 'push observation reported; diagnosis retained' ELSE 'no action needed: observer reported clear' END`,
+					sql`CASE WHEN ${jsonRead(db, workItems.metadata, ["event", "kind"])} = 'push' THEN 'push observation reported; diagnosis retained' ELSE 'no action needed: observer reported clear' END`,
 				),
 			)
 			.where(
 				and(
 					eq(workItems.orgId, input.orgId),
 					eq(workItems.id, input.id),
-					settleableObservation(input.now),
-					sql`NOT (${unappliedLesson()})`,
-					sql`(json_extract(${workItems.metadata}, '$.event.kind') = 'push' OR json_extract(${workItems.metadata}, '$.latestReport.stillRed') = 0)`,
+					settleableObservation(db, input.now),
+					sql`NOT (${unappliedLesson(db)})`,
+					sql`(${jsonRead(db, workItems.metadata, ["event", "kind"])} = 'push' OR ${reportFlag(db, workItems.metadata, ["latestReport", "stillRed"])} = 0)`,
 				),
 			),
 	]);
@@ -197,17 +225,28 @@ export async function claimRepositoryRepair(
 	recipeKey = lessonId,
 	kind = "source_patch",
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const rows = await db
 		.update(workItems)
 		.set({
-			metadata: sql`json_set(${workItems.metadata}, '$.repairLessonId', ${lessonId}, '$.repairKey', ${recipeKey}, '$.repairKind', ${kind})`,
+			metadata: jsonWrite(
+				db,
+				jsonWrite(
+					db,
+					jsonWrite(db, workItems.metadata, ["repairLessonId"], lessonId),
+					["repairKey"],
+					recipeKey,
+				),
+				["repairKind"],
+				kind,
+			),
 		})
 		.where(
 			and(
 				eq(workItems.orgId, orgId),
 				eq(workItems.id, id),
-				sql`json_extract(${workItems.metadata}, '$.repairLessonId') IS NULL`,
-				sql`${workItems.repositoryObserver} = 1`,
+				sql`${jsonRead(db, workItems.metadata, ["repairLessonId"])} IS NULL`,
+				sql`${observerFlag(db)} = 1`,
 			),
 		)
 		.returning({ id: workItems.id });
@@ -228,23 +267,26 @@ export async function overdueRepositoryObservations(
 	db: DbQueryClient,
 	now: string,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const candidates = db
 		.select({ id: workItems.id })
 		.from(workItems)
 		.where(
 			and(
-				openRepositoryObservation,
-				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'ship_red'`,
-				sql`+${workItems.deadline} <= ${now}`,
-				sql`coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 1) = 1`,
-				sql`json_extract(${workItems.metadata}, '$.observerEscalatedAt') IS NULL`,
-				sql`coalesce(json_extract(${workItems.metadata}, '$.observerRetryAt'), '') <= ${now}`,
+				openObservation(db),
+				sql`${jsonRead(db, workItems.metadata, ["event", "kind"])} = 'ship_red'`,
+				coreStore(db) === "d1"
+					? sql`+${workItems.deadline} <= ${now}`
+					: sql`${workItems.deadline} <= ${now}`,
+				sql`coalesce(${reportFlag(db, workItems.metadata, ["latestReport", "stillRed"])}, ${reportFlag(db, workItems.metadata, ["report", "stillRed"])}, 1) = 1`,
+				sql`${jsonRead(db, workItems.metadata, ["observerEscalatedAt"])} IS NULL`,
+				sql`coalesce(${jsonRead(db, workItems.metadata, ["observerRetryAt"])}, '') <= ${now}`,
 				// Skip deliveries made before durable maintenance progress existed.
-				sql`NOT EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id = ${workItems.orgId} AND i.work_item_id = ${workItems.id} AND i.kind = 'coordination' AND json_extract(i.metadata, '$.reason') = 'Red Ship needs a decision after diagnosis or the single repair attempt')`,
+				sql`NOT EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id = ${workItems.orgId} AND i.work_item_id = ${workItems.id} AND i.kind = 'coordination' AND ${jsonRead(db, sql`i.metadata`, ["reason"])} = 'Red Ship needs a decision after diagnosis or the single repair attempt')`,
 			),
 		)
 		.orderBy(
-			sql`coalesce(json_extract(${workItems.metadata}, '$.observerRetryAt'), '')`,
+			sql`coalesce(${jsonRead(db, workItems.metadata, ["observerRetryAt"])}, '')`,
 			workItems.deadline,
 			workItems.id,
 		)
@@ -253,10 +295,15 @@ export async function overdueRepositoryObservations(
 	return db
 		.update(workItems)
 		.set({
-			metadata: sql`json_set(${workItems.metadata}, '$.observerRetryAt', ${retryAt}, '$.observerMaintenanceReason', 'in_progress')`,
+			metadata: jsonWrite(
+				db,
+				jsonWrite(db, workItems.metadata, ["observerRetryAt"], retryAt),
+				["observerMaintenanceReason"],
+				"in_progress",
+			),
 		})
 		.where(sql`${workItems.id} IN (${candidates})`)
-		.returning(workItemStoredColumns);
+		.returning(storedColumns(db));
 }
 
 export async function finishRepositoryObserverEscalation(
@@ -265,13 +312,24 @@ export async function finishRepositoryObserverEscalation(
 	now: string,
 	reason: string,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	return db
 		.update(workItems)
 		.set({
 			metadata:
 				reason === "delivered"
-					? sql`json_set(${workItems.metadata}, '$.observerEscalatedAt', ${now}, '$.observerMaintenanceReason', ${reason})`
-					: sql`json_set(${workItems.metadata}, '$.observerMaintenanceReason', ${reason})`,
+					? jsonWrite(
+							db,
+							jsonWrite(db, workItems.metadata, ["observerEscalatedAt"], now),
+							["observerMaintenanceReason"],
+							reason,
+						)
+					: jsonWrite(
+							db,
+							workItems.metadata,
+							["observerMaintenanceReason"],
+							reason,
+						),
 		})
 		.where(and(eq(workItems.orgId, row.orgId), eq(workItems.id, row.id)));
 }
@@ -282,23 +340,29 @@ export async function claimRepositoryRetryDelivery(
 	orgId: string,
 	id: string,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const rows = await db
 		.update(workItems)
 		.set({
-			metadata: sql`json_set(${workItems.metadata}, '$.repairDeliveredAt', ${new Date().toISOString()})`,
+			metadata: jsonWrite(
+				db,
+				workItems.metadata,
+				["repairDeliveredAt"],
+				new Date().toISOString(),
+			),
 		})
 		.where(
 			and(
 				eq(workItems.orgId, orgId),
 				eq(workItems.id, id),
-				sql`json_extract(${workItems.metadata}, '$.repairKind') = 'retry'`,
-				sql`json_extract(${workItems.metadata}, '$.repairDeliveredAt') IS NULL`,
-				sql`coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed')) = 1`,
+				sql`${jsonRead(db, workItems.metadata, ["repairKind"])} = 'retry'`,
+				sql`${jsonRead(db, workItems.metadata, ["repairDeliveredAt"])} IS NULL`,
+				sql`coalesce(${reportFlag(db, workItems.metadata, ["latestReport", "stillRed"])}, ${reportFlag(db, workItems.metadata, ["report", "stillRed"])}) = 1`,
 			),
 		)
 		.returning({
 			evidenceUrl:
-				sql<string>`json_extract(${workItems.metadata}, '$.event.evidenceUrl')`.as(
+				sql<string>`${jsonRead(db, workItems.metadata, ["event", "evidenceUrl"])}`.as(
 					"evidence_url",
 				),
 		});
@@ -310,16 +374,17 @@ export async function claimRepositoryObserverWake(
 	db: DbQueryClient,
 	p: { orgId: string; id: string; now: string },
 ): Promise<boolean> {
+	const workItems = coreTable(db, d1WorkItems);
 	const rows = await db
 		.update(workItems)
 		.set({
-			metadata: sql`json_set(${workItems.metadata}, '$.observerWokenAt', ${p.now})`,
+			metadata: jsonWrite(db, workItems.metadata, ["observerWokenAt"], p.now),
 		})
 		.where(
 			and(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.id, p.id),
-				sql`${workItems.repositoryObserver} = 1`,
+				sql`${observerFlag(db)} = 1`,
 			),
 		)
 		.returning({ id: workItems.id });
@@ -331,10 +396,14 @@ export async function releaseRepositoryObserverWake(
 	db: DbQueryClient,
 	p: { orgId: string; id: string },
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	await db
 		.update(workItems)
 		.set({
-			metadata: sql`json_remove(${workItems.metadata}, '$.observerWokenAt')`,
+			metadata:
+				coreStore(db) === "d1"
+					? sql`json_remove(${workItems.metadata}, '$.observerWokenAt')`
+					: sql`${workItems.metadata} - 'observerWokenAt'`,
 		})
 		.where(and(eq(workItems.orgId, p.orgId), eq(workItems.id, p.id)));
 }
@@ -347,10 +416,16 @@ export async function configureRepositoryObserver(
 	config: RepositoryObserverConfig,
 	now: string,
 ) {
+	const projects = coreTable(db, d1Projects);
 	const rows = await db
 		.update(projects)
 		.set({
-			metadata: sql`json_set(coalesce(${projects.metadata}, '{}'), '$.repositoryObserver', json(${JSON.stringify(config)}))`,
+			metadata: jsonWrite(
+				db,
+				projects.metadata,
+				["repositoryObserver"],
+				config,
+			),
 			updatedAt: now,
 		})
 		.where(and(eq(projects.orgId, orgId), eq(projects.id, projectId)))
@@ -360,29 +435,43 @@ export async function configureRepositoryObserver(
 
 const PUSH_OBSERVATION_RETENTION_HOURS = 24;
 
-function unappliedLesson() {
-	return sql`EXISTS (SELECT 1 FROM json_each(${workItems.metadata}, '$.latestReport.lessons') lesson WHERE json_extract(lesson.value, '$.verdict') = 'not_applied')`;
+function unappliedLesson(db: DbQueryClient) {
+	const workItems = coreTable(db, d1WorkItems);
+	return coreStore(db) === "d1"
+		? sql`EXISTS (SELECT 1 FROM json_each(${workItems.metadata}, '$.latestReport.lessons') lesson WHERE json_extract(lesson.value, '$.verdict') = 'not_applied')`
+		: sql`EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(${jsonRead(db, workItems.metadata, ["latestReport", "lessons"], "json")}, '[]'::jsonb)) lesson(value) WHERE lesson.value ->> 'verdict' = 'not_applied')`;
 }
 
 /** Settled advisory records can still receive bounded reviews for one day. */
-function pendingObservation() {
-	return sql`(${workItems.disposition} IN ('proposed','accepted') OR (${workItems.disposition} = 'cancelled' AND json_extract(${workItems.metadata}, '$.settleReason') = 'advisory push observation' AND julianday(${workItems.createdAt}) >= julianday('now', '-24 hours')))`;
+function pendingObservation(db: DbQueryClient) {
+	const workItems = coreTable(db, d1WorkItems);
+	return sql`(${workItems.disposition} IN ('proposed','accepted') OR (${workItems.disposition} = 'cancelled' AND ${jsonRead(db, workItems.metadata, ["settleReason"])} = 'advisory push observation' AND ${observationTime(db, sql`${workItems.createdAt}`)} >= ${observationTime(db, sql`${new Date(Date.now() - 24 * 60 * 60_000).toISOString()}`)}))`;
 }
 
-function settleableObservation(now: string) {
+function settleableObservation(db: DbQueryClient, now: string) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	return and(
-		sql`${workItems.repositoryObserver} = 1`,
+		sql`${observerFlag(db)} = 1`,
 		sql`${workItems.disposition} IN ('proposed','accepted')`,
 		sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${workItems.orgId} AND active_attempt.work_item_id = ${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${now}))`,
 	);
 }
-function settlementValues(now: string, reason: string | SQL) {
+function settlementValues(
+	db: DbQueryClient,
+	now: string,
+	reason: string | SQL,
+) {
+	const workItems = coreTable(db, d1WorkItems);
 	return {
 		disposition: "cancelled" as const,
 		cancelledAt: now,
 		updatedAt: now,
 		version: sql`${workItems.version} + 1`,
-		metadata: sql`json_set(${workItems.metadata}, '$.settleReason', ${reason}, '$.settledAt', ${now})`,
+		metadata:
+			coreStore(db) === "d1"
+				? sql`json_set(${workItems.metadata}, '$.settleReason', ${reason}, '$.settledAt', ${now})`
+				: sql`${workItems.metadata} || jsonb_build_object('settleReason', ${reason}::text, 'settledAt', ${now}::text)`,
 	};
 }
 export async function settleRecoveredRepositoryShipObservations(
@@ -397,19 +486,20 @@ export async function settleRecoveredRepositoryShipObservations(
 		now: string;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	return db
 		.update(workItems)
-		.set(settlementValues(p.now, "no action needed: ship_green recovery"))
+		.set(settlementValues(db, p.now, "no action needed: ship_green recovery"))
 		.where(
 			and(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.projectId, p.projectId),
-				sql`json_extract(${workItems.metadata}, '$.event.kind')='ship_red'`,
-				sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
-				sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
-				sql`json_extract(${workItems.metadata}, '$.event.surface')=${p.surface}`,
-				sql`julianday(coalesce(json_extract(${workItems.metadata}, '$.event.occurredAt'), ${workItems.createdAt})) <= julianday(${p.occurredAt ?? p.now})`,
-				settleableObservation(p.now),
+				sql`${jsonRead(db, workItems.metadata, ["event", "kind"])}='ship_red'`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "repository"])}=${p.repository}`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "branch"])}=${p.branch}`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "surface"])}=${p.surface}`,
+				sql`${observationTime(db, sql`coalesce(${jsonRead(db, workItems.metadata, ["event", "occurredAt"])}, ${workItems.createdAt})`)} <= ${observationTime(db, sql`${p.occurredAt ?? p.now}`)}`,
+				settleableObservation(db, p.now),
 			),
 		)
 		.returning({ id: workItems.id });
@@ -427,28 +517,29 @@ export async function settleRecoveredRepositoryCiObservations(
 		now: string;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const scope = and(
 		eq(workItems.orgId, p.orgId),
 		eq(workItems.projectId, p.projectId),
-		sql`${workItems.repositoryObserver}=1`,
-		sql`json_extract(${workItems.metadata}, '$.event.kind')='ci_red'`,
-		sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
-		sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
-		sql`json_extract(${workItems.metadata}, '$.event.surface')=${p.surface}`,
-		sql`julianday(coalesce(json_extract(${workItems.metadata}, '$.event.occurredAt'), ${workItems.createdAt})) <= julianday(${p.occurredAt ?? p.now})`,
+		sql`${observerFlag(db)}=1`,
+		sql`${jsonRead(db, workItems.metadata, ["event", "kind"])}='ci_red'`,
+		sql`${jsonRead(db, workItems.metadata, ["event", "repository"])}=${p.repository}`,
+		sql`${jsonRead(db, workItems.metadata, ["event", "branch"])}=${p.branch}`,
+		sql`${jsonRead(db, workItems.metadata, ["event", "surface"])}=${p.surface}`,
+		sql`${observationTime(db, sql`coalesce(${jsonRead(db, workItems.metadata, ["event", "occurredAt"])}, ${workItems.createdAt})`)} <= ${observationTime(db, sql`${p.occurredAt ?? p.now}`)}`,
 	);
 	return db.batch([
 		// Active attempts keep their lifecycle, but their late reports cannot reopen alerts.
 		db
 			.update(workItems)
 			.set({
-				metadata: sql`json_set(${workItems.metadata}, '$.ciRecoveredAt', ${p.now})`,
+				metadata: jsonWrite(db, workItems.metadata, ["ciRecoveredAt"], p.now),
 			})
 			.where(scope),
 		db
 			.update(workItems)
-			.set(settlementValues(p.now, "no action needed: ci_green recovery"))
-			.where(and(scope, settleableObservation(p.now)))
+			.set(settlementValues(db, p.now, "no action needed: ci_green recovery"))
+			.where(and(scope, settleableObservation(db, p.now)))
 			.returning({ id: workItems.id }),
 	]);
 }
@@ -458,6 +549,7 @@ export async function settleAgedRepositoryPushObservations(
 	db: DbQueryClient,
 	now: string,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const cutoff = new Date(
 		Date.parse(now) - PUSH_OBSERVATION_RETENTION_HOURS * 60 * 60_000,
 	).toISOString();
@@ -468,13 +560,13 @@ export async function settleAgedRepositoryPushObservations(
 			and(
 				// Implied by the settleable check; stated so SQLite may use the
 				// open-observation index instead of walking every Work Item.
-				openRepositoryObservation,
-				settleableObservation(now),
-				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
-				sql`NOT (${unappliedLesson()})`,
-				sql`julianday(${workItems.createdAt}) < julianday(${cutoff})`,
-				sql`coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 0) = 0`,
-				sql`NOT EXISTS (SELECT 1 FROM work_items red WHERE red.org_id = ${workItems.orgId} AND red.project_id = ${workItems.projectId} AND red.repository_observer = 1 AND red.disposition IN ('proposed','accepted') AND json_extract(red.metadata, '$.event.kind') IN ('ship_red','ci_red') AND json_extract(red.metadata, '$.event.repository') = json_extract(${workItems.metadata}, '$.event.repository') AND json_extract(red.metadata, '$.event.branch') = json_extract(${workItems.metadata}, '$.event.branch') AND json_extract(red.metadata, '$.event.sha') = json_extract(${workItems.metadata}, '$.event.sha'))`,
+				openObservation(db),
+				settleableObservation(db, now),
+				sql`${jsonRead(db, workItems.metadata, ["event", "kind"])} = 'push'`,
+				sql`NOT (${unappliedLesson(db)})`,
+				sql`${observationTime(db, sql`${workItems.createdAt}`)} < ${observationTime(db, sql`${cutoff}`)}`,
+				sql`coalesce(${reportFlag(db, workItems.metadata, ["latestReport", "stillRed"])}, ${reportFlag(db, workItems.metadata, ["report", "stillRed"])}, 0) = 0`,
+				sql`NOT EXISTS (SELECT 1 FROM work_items red WHERE red.org_id = ${workItems.orgId} AND red.project_id = ${workItems.projectId} AND ${coreStore(db) === "d1" ? sql`red.repository_observer` : jsonRead(db, sql`red.metadata`, ["repositoryObserver"], "number")} = 1 AND red.disposition IN ('proposed','accepted') AND ${jsonRead(db, sql`red.metadata`, ["event", "kind"])} IN ('ship_red','ci_red') AND ${jsonRead(db, sql`red.metadata`, ["event", "repository"])} = ${jsonRead(db, workItems.metadata, ["event", "repository"])} AND ${jsonRead(db, sql`red.metadata`, ["event", "branch"])} = ${jsonRead(db, workItems.metadata, ["event", "branch"])} AND ${jsonRead(db, sql`red.metadata`, ["event", "sha"])} = ${jsonRead(db, workItems.metadata, ["event", "sha"])})`,
 			),
 		)
 		.orderBy(workItems.createdAt, workItems.id)
@@ -483,6 +575,7 @@ export async function settleAgedRepositoryPushObservations(
 		.update(workItems)
 		.set(
 			settlementValues(
+				db,
 				now,
 				`no action needed: push observation older than ${PUSH_OBSERVATION_RETENTION_HOURS} hours with no red follow-up`,
 			),
@@ -509,6 +602,7 @@ export async function findRepositoryPushObservations(
 	db: DbQueryClient,
 	p: { orgId: string; projectId: string; shas: string[]; since: string },
 ): Promise<RepositoryPushRecord[]> {
+	const workItems = coreTable(db, d1WorkItems);
 	const resolver = createCommitResolver(db);
 	const requested = [...new Set(p.shas)].slice(0, 30);
 	await resolver.resolveMany(requested);
@@ -516,9 +610,7 @@ export async function findRepositoryPushObservations(
 		...new Set((await Promise.all(requested.map(resolver.aliasesFor))).flat()),
 	];
 	if (!shas.length) return [];
-	const list = db
-		.select({ value: sql<string>`value` })
-		.from(sql`json_each(${JSON.stringify(shas)})`);
+
 	const rows = await db
 		.select({
 			id: workItems.id,
@@ -531,9 +623,9 @@ export async function findRepositoryPushObservations(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.projectId, p.projectId),
 				gte(workItems.createdAt, p.since),
-				sql`${workItems.repositoryObserver} = 1`,
-				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
-				sql`(json_extract(${workItems.metadata}, '$.event.sha') IN (${list}) OR EXISTS (SELECT 1 FROM json_each(${workItems.metadata}, '$.event.commitShas') c WHERE c.value IN (${list})))`,
+				sql`${observerFlag(db)} = 1`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "kind"])} = 'push'`,
+				sql`(${anyIds(db, jsonRead(db, workItems.metadata, ["event", "sha"]), shas)} OR EXISTS (SELECT 1 FROM ${coreStore(db) === "d1" ? sql`json_each(${workItems.metadata}, '$.event.commitShas')` : sql`jsonb_array_elements_text(coalesce(${jsonRead(db, workItems.metadata, ["event", "commitShas"], "json")}, '[]'::jsonb))`} c WHERE ${anyIds(db, sql`c.value`, shas)}))`,
 			),
 		)
 		.orderBy(asc(workItems.createdAt), asc(workItems.id))
@@ -593,6 +685,7 @@ export async function findWorkImplementationPushes(
 		since: string;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const resolver = createCommitResolver(db);
 	const requested = [...new Set(params.commitShas)].slice(0, 30);
 	await resolver.resolveMany(requested);
@@ -600,9 +693,7 @@ export async function findWorkImplementationPushes(
 		...new Set((await Promise.all(requested.map(resolver.aliasesFor))).flat()),
 	];
 	if (!shas.length) return [];
-	const list = db
-		.select({ value: sql<string>`value` })
-		.from(sql`json_each(${JSON.stringify(shas)})`);
+
 	return db
 		.select({
 			id: workItems.id,
@@ -614,12 +705,54 @@ export async function findWorkImplementationPushes(
 			and(
 				eq(workItems.orgId, params.orgId),
 				gte(workItems.createdAt, params.since),
-				sql`${workItems.repositoryObserver} = 1`,
-				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
-				sql`json_extract(${workItems.metadata}, '$.event.branch') = 'main'`,
-				sql`json_extract(${workItems.metadata}, '$.event.workItemId') = ${params.workItemId}`,
-				sql`json_extract(${workItems.metadata}, '$.event.sha') IN (${list})`,
+				sql`${observerFlag(db)} = 1`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "kind"])} = 'push'`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "branch"])} = 'main'`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "workItemId"])} = ${params.workItemId}`,
+				anyIds(db, jsonRead(db, workItems.metadata, ["event", "sha"]), shas),
 			),
 		)
 		.limit(30);
+}
+
+function storedColumns(db: DbQueryClient): typeof d1StoredColumns {
+	const columns = getColumns(coreTable(db, d1WorkItems));
+	return Object.fromEntries(
+		Object.keys(d1StoredColumns).map((key) => [
+			key,
+			columns[key as keyof typeof columns],
+		]),
+	) as typeof d1StoredColumns;
+}
+function observerFlag(db: DbQueryClient) {
+	const workItems = coreTable(db, d1WorkItems);
+	return coreStore(db) === "d1"
+		? sql`${workItems.repositoryObserver}`
+		: jsonRead(db, workItems.metadata, ["repositoryObserver"], "number");
+}
+function observationReport(db: DbQueryClient) {
+	const workItems = coreTable(db, d1WorkItems);
+	return coreStore(db) === "d1"
+		? sql`${workItems.report}`
+		: jsonRead(db, workItems.metadata, ["report"]);
+}
+function openObservation(db: DbQueryClient) {
+	const workItems = coreTable(db, d1WorkItems);
+	return coreStore(db) === "d1"
+		? openRepositoryObservation
+		: sql`${observerFlag(db)} = 1 AND ${workItems.disposition} IN ('proposed','accepted')`;
+}
+function reportFlag(
+	db: DbQueryClient,
+	column: SQLWrapper,
+	path: readonly string[],
+) {
+	return coreStore(db) === "d1"
+		? jsonRead(db, column, path)
+		: sql`coalesce(${jsonRead(db, column, path, "number")}, CASE ${jsonRead(db, column, path, "boolean")} WHEN true THEN 1 WHEN false THEN 0 END)`;
+}
+function observationTime(db: DbQueryClient, value: SQL) {
+	return coreStore(db) === "d1"
+		? sql`julianday(${value})`
+		: sql`${value}::timestamptz`;
 }

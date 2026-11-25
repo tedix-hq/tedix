@@ -27,14 +27,24 @@ import {
 	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias, type PgTable } from "drizzle-orm/pg-core";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonRead } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
-import { skillEntries, skillRuns, skillSchedules } from "../schema/cognitive";
-import { osWorkspaces } from "../schema/os-workspaces";
-import { workspaceOutputIndex } from "../schema/workspace-feed";
-import { projects } from "../schema/projects";
-import { tedis } from "../schema/tedis";
-import { workItemComments, workItems } from "../schema/work-items";
+import {
+	skillEntries as d1SkillEntries,
+	skillRuns as d1SkillRuns,
+	skillSchedules as d1SkillSchedules,
+} from "../schema/cognitive";
+import { osWorkspaces as d1OsWorkspaces } from "../schema/os-workspaces";
+import { workspaceOutputIndex as d1WorkspaceOutputIndex } from "../schema/workspace-feed";
+import { projects as d1Projects } from "../schema/projects";
+import { tedis as d1Tedis } from "../schema/tedis";
+import {
+	workItemComments as d1WorkItemComments,
+	workItems as d1WorkItems,
+} from "../schema/work-items";
 
 /** Project metadata key that binds a project to its factory lane. */
 export const FACTORY_METADATA_KEY = "factory";
@@ -142,13 +152,6 @@ export function factoryHealthIntentId(slug: string): string {
 	return `factory:${slug}:health`;
 }
 
-const bindingSlug = sql<
-	string | null
->`json_extract(${projects.metadata}, '$.factory.slug')`;
-const bindingSkillId = sql<
-	string | null
->`json_extract(${projects.metadata}, '$.factory.skillId')`;
-
 /** Non-secret inputs resolved from the owning project, skill and Workspace. */
 export interface FactoryRunContext {
 	workspaceId: string | null;
@@ -165,7 +168,20 @@ export async function resolveFactoryRunContext(
 	db: DbQueryClient,
 	params: { orgId: string; skillId: string },
 ): Promise<FactoryRunContext | null> {
-	const sourceSkill = alias(skillEntries, "factory_source_skill");
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
+	const projects = coreTable(db, d1Projects);
+	const bindingSkillId = jsonRead(db, projects.metadata, [
+		"factory",
+		"skillId",
+	]);
+	const sourceSkill =
+		coreStore(db) === "d1"
+			? sqliteAlias(skillEntries, "factory_source_skill")
+			: (pgAlias(
+					skillEntries as unknown as PgTable,
+					"factory_source_skill",
+				) as unknown as typeof skillEntries);
 	const rows = await db
 		.select({
 			projectId: projects.id,
@@ -192,7 +208,7 @@ export async function resolveFactoryRunContext(
 						eq(sourceSkill.tediId, skillEntries.tediId),
 						eq(sourceSkill.revision, skillEntries.sourceRevision),
 						eq(skillEntries.lifecycleState, "draft"),
-						sql`exists (select 1 from json_each(${skillEntries.tags}) as factory_proposal_tag where factory_proposal_tag.value = 'workflow-improvement')`,
+						sql`exists (select 1 from ${coreStore(db) === "d1" ? sql`json_each(${skillEntries.tags})` : sql`jsonb_array_elements_text(${skillEntries.tags})`} as factory_proposal_tag where factory_proposal_tag.value = 'workflow-improvement')`,
 					),
 				),
 			),
@@ -259,7 +275,7 @@ export interface FactoryBuildState {
 	} | null;
 	schedule: { cron: string; enabled: boolean; nextFireAt: string } | null;
 	/** The project already bound to this slug, else the project with the key. */
-	project: typeof projects.$inferSelect | null;
+	project: typeof d1Projects.$inferSelect | null;
 	healthWorkItemId: string | null;
 }
 
@@ -268,6 +284,15 @@ export async function loadFactoryBuildState(
 	db: DbQueryClient,
 	params: { orgId: string; slug: string; projectKey: string },
 ): Promise<FactoryBuildState> {
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillSchedules = coreTable(db, d1SkillSchedules);
+	const projects = coreTable(db, d1Projects);
+	const workItems = coreTable(db, d1WorkItems);
+	const bindingSlug = jsonRead(db, projects.metadata, ["factory", "slug"]);
+	const bindingSkillId = jsonRead(db, projects.metadata, [
+		"factory",
+		"skillId",
+	]);
 	const { orgId, slug } = params;
 	// The bound skill id wins over the slug: a lane created while an archived
 	// skill held the slug got a suffixed slug, and must still be found.
@@ -561,8 +586,12 @@ export function factoryVerdict(input: FactoryVerdictInput): {
 	};
 }
 
-const onOrAfter = (column: SQLWrapper, at: string) =>
-	sql`datetime(${column}) >= datetime(${at})`;
+const factoryTime = (db: DbQueryClient, column: SQLWrapper) =>
+	coreStore(db) === "d1"
+		? sql`datetime(${column})`
+		: sql`date_trunc('second', ${column}::timestamptz)`;
+const onOrAfter = (db: DbQueryClient, column: SQLWrapper, at: string) =>
+	sql`${factoryTime(db, column)} >= ${factoryTime(db, sql`${at}`)}`;
 
 export interface ListFactoryHealthParams {
 	orgId: string;
@@ -576,11 +605,27 @@ export async function listFactoryHealth(
 	db: DbQueryClient,
 	params: ListFactoryHealthParams,
 ): Promise<FactoryHealthEntry[]> {
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const skillSchedules = coreTable(db, d1SkillSchedules);
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
+	const projects = coreTable(db, d1Projects);
+	const tedis = coreTable(db, d1Tedis);
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const workItems = coreTable(db, d1WorkItems);
+	const bindingSlug = jsonRead(db, projects.metadata, ["factory", "slug"]);
+	const bindingSkillId = jsonRead(db, projects.metadata, [
+		"factory",
+		"skillId",
+	]);
 	const { orgId, now } = params;
 	const lookback = new Date(
 		now.getTime() - FACTORY_HEALTH_LOOKBACK_DAYS * 86_400_000,
 	).toISOString();
-	const probeFlag = sql<number>`coalesce(json_extract(${skillRuns.params}, '$.probe'), 0)`;
+	const probeFlag =
+		coreStore(db) === "d1"
+			? sql<number>`coalesce(${jsonRead(db, skillRuns.params, ["probe"])}, 0)`
+			: sql<number>`coalesce(${jsonRead(db, skillRuns.params, ["probe"], "number")}, CASE ${jsonRead(db, skillRuns.params, ["probe"], "boolean")} WHEN true THEN 1 WHEN false THEN 0 END, 0)`;
 	const boundSkillIds = db
 		.select({ skillId: sql<string>`${bindingSkillId}`.as("bound_skill_id") })
 		.from(projects)
@@ -594,7 +639,7 @@ export async function listFactoryHealth(
 			id: sql<string>`${skillRuns.id}`.as("ranked_run_id"),
 			skillId: sql<string>`${skillRuns.skillId}`.as("ranked_skill_id"),
 			status: sql<string>`CASE WHEN ${skillRuns.status} = 'completed'
-				AND json_extract(${skillRuns.result}, '$.status') IN ('off_slot', 'skipped')
+				AND ${jsonRead(db, skillRuns.result, ["status"])} IN ('off_slot', 'skipped')
 				THEN 'skipped' ELSE ${skillRuns.status} END`.as("ranked_status"),
 			startedAt: sql<string | null>`${skillRuns.startedAt}`.as(
 				"ranked_started_at",
@@ -610,15 +655,15 @@ export async function listFactoryHealth(
 				"ranked_error",
 			),
 			resultSummary: sql<string | null>`substr(coalesce(
-				json_extract(${skillRuns.result}, '$.noResultReason'),
-				json_extract(${skillRuns.result}, '$.backgroundOutcome.summary'),
-				CASE WHEN json_type(${skillRuns.result}, '$.summary') = 'text'
-					THEN json_extract(${skillRuns.result}, '$.summary') END,
-				json_extract(${skillRuns.result}, '$.report'),
-				json_extract(${skillRuns.result}, '$.scorecard'),
-				json_extract(${skillRuns.result}, '$.reason')
+				${jsonRead(db, skillRuns.result, ["noResultReason"])},
+				${jsonRead(db, skillRuns.result, ["backgroundOutcome", "summary"])},
+				CASE WHEN ${coreStore(db) === "d1" ? sql`json_type(${skillRuns.result}, '$.summary') = 'text'` : sql`jsonb_typeof(${jsonRead(db, skillRuns.result, ["summary"], "json")}) = 'string'`}
+					THEN ${jsonRead(db, skillRuns.result, ["summary"])} END,
+				${jsonRead(db, skillRuns.result, ["report"])},
+				${jsonRead(db, skillRuns.result, ["scorecard"])},
+				${jsonRead(db, skillRuns.result, ["reason"])}
 			), 1, 1500)`.as("ranked_result_summary"),
-			rank: sql<number>`row_number() OVER (PARTITION BY ${skillRuns.skillId}, ${probeFlag} ORDER BY datetime(${skillRuns.startedAt}) DESC, ${skillRuns.id} DESC)`.as(
+			rank: sql<number>`row_number() OVER (PARTITION BY ${skillRuns.skillId}, ${probeFlag} ORDER BY ${factoryTime(db, skillRuns.startedAt)} DESC, ${skillRuns.id} DESC)`.as(
 				"ranked_rank",
 			),
 		})
@@ -636,7 +681,7 @@ export async function listFactoryHealth(
 			completedAt: sql<string | null>`${skillRuns.completedAt}`.as(
 				"probe_completed_at",
 			),
-			rank: sql<number>`row_number() OVER (PARTITION BY ${skillRuns.skillId} ORDER BY datetime(${skillRuns.startedAt}) DESC, ${skillRuns.id} DESC)`.as(
+			rank: sql<number>`row_number() OVER (PARTITION BY ${skillRuns.skillId} ORDER BY ${factoryTime(db, skillRuns.startedAt)} DESC, ${skillRuns.id} DESC)`.as(
 				"probe_rank",
 			),
 		})
@@ -741,7 +786,7 @@ export async function listFactoryHealth(
 					eq(workItems.orgId, orgId),
 					// bound-params: a SQL subquery, not a bound list.
 					inArray(workItems.projectId, boundProjectIds),
-					onOrAfter(workItems.createdAt, lookback),
+					onOrAfter(db, workItems.createdAt, lookback),
 				),
 			)
 			.orderBy(desc(workItems.createdAt))
@@ -768,7 +813,7 @@ export async function listFactoryHealth(
 					eq(workItemComments.orgId, orgId),
 					// bound-params: a SQL subquery, not a bound list.
 					inArray(workItems.projectId, boundProjectIds),
-					onOrAfter(workItemComments.createdAt, lookback),
+					onOrAfter(db, workItemComments.createdAt, lookback),
 				),
 			)
 			.orderBy(desc(workItemComments.createdAt))
@@ -785,7 +830,7 @@ export async function listFactoryHealth(
 				and(
 					eq(workspaceOutputIndex.organizationId, orgId),
 					isNotNull(workspaceOutputIndex.skillRunId),
-					onOrAfter(workspaceOutputIndex.revisionCreatedAt, lookback),
+					onOrAfter(db, workspaceOutputIndex.revisionCreatedAt, lookback),
 				),
 			)
 			.groupBy(workspaceOutputIndex.skillRunId),

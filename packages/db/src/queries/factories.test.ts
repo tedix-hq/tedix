@@ -1,3 +1,10 @@
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { fileURLToPath } from "node:url";
+import { coreTable } from "../core-store/client";
+import { createPGliteFacade } from "../test/pglite-facade";
+import { skillEntries, skillRuns, skillSchedules } from "../schema/cognitive";
+import { projects } from "../schema/projects";
+import { workItems } from "../schema/work-items";
 import { DatabaseSync } from "node:sqlite";
 import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
@@ -491,3 +498,128 @@ describe("factory improvement context", () => {
 		sqlite.close();
 	});
 });
+
+it("resolves factory bindings and credits delivery separately from probes on faithful Postgres DDL", async () => {
+	const fixture = await createPGliteFacade();
+	const { db, engine } = fixture;
+	try {
+		for (const migration of readMigrationFiles({
+			migrationsFolder: fileURLToPath(
+				new URL("../../drizzle-pg", import.meta.url),
+			),
+		}))
+			for (const ddl of migration.sql) await engine.exec(ddl);
+		await engine.exec(
+			"INSERT INTO organizations(id,name,slug) VALUES ('org-1','Example','example'),('other','Other','other'); INSERT INTO tedis(id,organization_id,name,slug) VALUES ('tedi-nova','org-1','Nova','nova')",
+		);
+		await db.insert(coreTable(db, skillEntries)).values({
+			id: "sk-docs",
+			organizationId: ORG,
+			tediId: "tedi-nova",
+			title: "Docs",
+			slug: "docs",
+			content: "Factory",
+			lifecycleState: "active",
+			revision: 2,
+		});
+		await db.insert(coreTable(db, projects)).values({
+			id: "p-docs",
+			orgId: ORG,
+			key: "DOCS",
+			name: "Docs",
+			createdAt: "2026-10-01",
+			metadata: JSON.parse(binding("docs", "sk-docs", "health")),
+		});
+		await db.insert(coreTable(db, skillSchedules)).values({
+			id: "schedule",
+			organizationId: ORG,
+			tediId: "tedi-nova",
+			skillId: "sk-docs",
+			cron: "17 6 * * *",
+			params: {},
+			enabled: true,
+			nextFireAt: "2026-10-16T06:17:00.000Z",
+			createdAt: "2026-10-01",
+		});
+		await db.insert(coreTable(db, workItems)).values([
+			{
+				id: "health",
+				orgId: ORG,
+				projectId: "p-docs",
+				title: "Health",
+				sourceIntentId: "factory:docs:health",
+				createdAt: "2026-10-01",
+			},
+			{
+				id: "delivered",
+				orgId: ORG,
+				projectId: "p-docs",
+				title: "Delivery",
+				createdAt: "2026-10-15T06:20:00.000Z",
+			},
+		]);
+		for (const [id, probe, startedAt] of [
+			["scheduled", false, "2026-10-15 06:17:05"],
+			["proof", true, "2026-10-15T07:17:05.000Z"],
+		] as const)
+			await db.insert(coreTable(db, skillRuns)).values({
+				id,
+				organizationId: ORG,
+				tediId: "tedi-nova",
+				skillId: "sk-docs",
+				workflowInstanceId: id,
+				runtimeEnvironment: "development",
+				status: "completed",
+				params: { probe },
+				result: { summary: "Finished" },
+				createdBy: probe ? "manual" : "schedule",
+				startedAt,
+				completedAt: probe ? "2026-10-15T07:25:00Z" : "2026-10-15T06:25:00Z",
+			});
+		expect(
+			await resolveFactoryRunContext(db, { orgId: ORG, skillId: "sk-docs" }),
+		).toMatchObject({
+			projectId: "p-docs",
+			healthWorkItemId: "health",
+			ownerTediId: "tedi-nova",
+		});
+		expect(
+			await resolveFactoryRunContext(db, {
+				orgId: "other",
+				skillId: "sk-docs",
+			}),
+		).toBeNull();
+		expect(
+			await loadFactoryBuildState(db, {
+				orgId: ORG,
+				slug: "docs",
+				projectKey: "DOCS",
+			}),
+		).toMatchObject({
+			skill: { id: "sk-docs" },
+			schedule: { enabled: true },
+			project: { id: "p-docs" },
+			healthWorkItemId: "health",
+		});
+		const health = await listFactoryHealth(db, {
+			orgId: ORG,
+			now: NOW,
+			runLimit: 3,
+		});
+		expect(health).toMatchObject([
+			{
+				skillId: "sk-docs",
+				verdict: "healthy",
+				lastProofRun: { runId: "proof" },
+			},
+		]);
+		expect(
+			health[0]?.runs.find((run) => run.runId === "scheduled"),
+		).toMatchObject({ delivered: 1, outputs: { workItemsCreated: 1 } });
+		expect(
+			await listFactoryHealth(db, { orgId: "other", now: NOW, runLimit: 3 }),
+		).toEqual([]);
+	} finally {
+		await fixture.close();
+	}
+}, 30000);

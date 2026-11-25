@@ -74,6 +74,14 @@ export async function readAttentionSources(
 	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const tedis = coreTable(db, d1Tedis);
 	const workInteractions = coreTable(db, d1WorkInteractions);
+	const repositoryObserver =
+		coreStore(db) === "d1"
+			? sql`${workItems.repositoryObserver}`
+			: jsonRead(db, workItems.metadata, ["repositoryObserver"], "number");
+	const laneFlag =
+		coreStore(db) === "d1"
+			? jsonRead(db, workAttempts.metadata, ["lane"])
+			: sql`coalesce(${jsonRead(db, workAttempts.metadata, ["lane"], "boolean")}, ${jsonRead(db, workAttempts.metadata, ["lane"], "number")} = 1, false)`;
 	const now = new Date();
 	// Project activity comes from one grouped read of the organization's
 	// Attempts started in the last week, seeked on idx_work_attempt_org_started.
@@ -141,7 +149,7 @@ export async function readAttentionSources(
 					note: workAttempts.summary,
 					runId: workAttempts.runId,
 					registeredLane:
-						sql<boolean>`${jsonRead(db, workAttempts.metadata, ["lane"], "boolean")} = ${booleanValue(db, true)}`.mapWith(
+						sql<boolean>`${laneFlag} = ${booleanValue(db, true)}`.mapWith(
 							Boolean,
 						),
 				})
@@ -183,9 +191,9 @@ export async function readAttentionSources(
 					projectId: workItems.projectId,
 					createdAt: workItems.createdAt,
 					deadline: workItems.deadline,
-					observer: sql<number | null>`${workItems.repositoryObserver}`.as(
-						"observer",
-					),
+					observer: sql<number | null>`${repositoryObserver}`
+						.mapWith(Number)
+						.as("observer"),
 					diagnosis: sql<
 						string | null
 					>`coalesce(${jsonRead(db, workItems.metadata, ["latestReport", "diagnosis"])}, ${jsonRead(db, workItems.metadata, ["report", "diagnosis"])})`.as(
@@ -201,7 +209,7 @@ export async function readAttentionSources(
 					),
 				)
 				.orderBy(
-					sql`CASE WHEN ${workItems.repositoryObserver} = 1 AND ${workItems.deadline} IS NOT NULL AND coalesce(${jsonRead(db, workItems.metadata, ["latestReport", "stillRed"], "boolean")}, ${jsonRead(db, workItems.metadata, ["report", "stillRed"], "boolean")}, ${booleanValue(db, true)}) = ${booleanValue(db, true)} THEN ${workItems.deadline} ELSE '9999' END`,
+					sql`CASE WHEN ${repositoryObserver} = 1 AND ${workItems.deadline} IS NOT NULL AND coalesce(${jsonRead(db, workItems.metadata, ["latestReport", "stillRed"], "boolean")}, ${jsonRead(db, workItems.metadata, ["report", "stillRed"], "boolean")}, ${booleanValue(db, true)}) = ${booleanValue(db, true)} THEN ${workItems.deadline} ELSE '9999' END`,
 					desc(workItems.createdAt),
 				)
 				.limit(101),
@@ -375,7 +383,11 @@ export async function listUnattendedObjectives(
 			and(eq(tediObjectives.orgId, orgId), eq(tediObjectives.status, "active")),
 		)
 		.groupBy(tediObjectives.id)
-		.having(sql`${lastAttentionAt} is null or ${lastAttentionAt} < ${since}`)
+		.having(
+			coreStore(db) === "d1"
+				? sql`objective_last_attention_at is null or objective_last_attention_at < ${since}`
+				: sql`${lastAttentionAt} is null or ${lastAttentionAt} < ${since}`,
+		)
 		.orderBy(tediObjectives.priority)
 		.limit(100);
 }
