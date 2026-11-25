@@ -13,15 +13,16 @@ import {
 } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { createCommitResolver } from "../git-commit-aliases";
-import type { DbClient } from "../../client";
+import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
 import { DelegationFyiSchema } from "@tedix/api-contract/schemas/work-items";
 import type { DelegationFyi } from "./delegation-autonomy";
 import { personalWorkFeedPredicate } from "./personal-feed";
 import {
 	type WorkItemDisposition,
 	type WorkItemKind,
-	workEvents,
-	workItems,
+	workEvents as d1WorkEvents,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 
 /**
@@ -92,7 +93,7 @@ const ACTIVITY_MAX_LIMIT = 300;
  * sequence so late timestamps cannot skip an event.
  */
 export async function listWorkActivity(
-	db: DbClient,
+	db: DbQueryClient,
 	params: ListWorkActivityParams,
 ): Promise<{
 	events: WorkActivityRow[];
@@ -100,6 +101,8 @@ export async function listWorkActivity(
 	nextCursor: { at: string; id: string } | null;
 	nextSequence?: number;
 }> {
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workItems = coreTable(db, d1WorkItems);
 	if (params.cursor && params.afterSequence !== undefined)
 		throw new Error("cursor and afterSequence are mutually exclusive");
 	const cap = Math.min(

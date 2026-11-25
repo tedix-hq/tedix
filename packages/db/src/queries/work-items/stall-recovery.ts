@@ -1,5 +1,10 @@
 import {
 	and,
+	asc,
+	exists,
+	inArray,
+	notExists,
+	lte,
 	desc,
 	eq,
 	gt,
@@ -43,7 +48,14 @@ import {
 	workInteractionAttention as d1WorkInteractionAttention,
 	workInteractions as d1WorkInteractions,
 } from "../../schema/work-factory";
-import { workItems as d1WorkItems } from "../../schema/work-items";
+import {
+	workItems as d1WorkItems,
+	workAttempts as d1WorkAttempts,
+} from "../../schema/work-items";
+import { projects as d1Projects } from "../../schema/projects";
+import { tediObjectives as d1TediObjectives } from "../../schema/tedi-objectives";
+import { tedis as d1Tedis } from "../../schema/tedis";
+import { skillRuns as d1SkillRuns } from "../../schema/cognitive";
 
 export const CONTINUITY_SCOPE_BATCH_SIZE = 100;
 
@@ -1070,96 +1082,440 @@ function readContinuityScopeSlicePostgres(
 		continuations,
 	}: ContinuitySliceParams & { continuations?: ContinuityScopeSlice[] },
 ): Promise<ContinuityScopeSlice[]> {
-	const onlyProject = only?.startsWith("project:") ? only.slice(8) : undefined;
-	const onlyObjective = only?.startsWith("objective:")
-		? only.slice(10)
-		: undefined;
-	const pastWork = (name: string) =>
-		sql`AND (s."workAfter" IS NULL OR ${sql.identifier(name)}.id > s."workAfter")`;
-	const continuationPage = continuations
-		? JSON.stringify(
-				continuations.map((scope) => ({
-					key: scope.key,
-					id: scope.id,
-					orgId: scope.orgId,
-					kind: scope.kind,
-					name: scope.name,
-					policy: scope.policy,
-					createdAt: scope.createdAt,
-					owner: scope.hasOwner ? scope.tediId : null,
-					objectiveId: scope.objectiveId,
-					workAfter: scope.workEnd,
-				})),
+	const projects = coreTable(db, d1Projects);
+	const objectives = coreTable(db, d1TediObjectives);
+	const work = coreTable(db, d1WorkItems);
+	const attempts = coreTable(db, d1WorkAttempts);
+	const runs = coreTable(db, d1SkillRuns);
+	const tedis = coreTable(db, d1Tedis);
+	const policy = (column: SQL) =>
+		sql<
+			string | null
+		>`CASE WHEN jsonb_typeof(${column}->'continuity')='object' THEN (${column}->'continuity')::text END`;
+	const scopeCursor = (
+		kind: "project" | "objective",
+		column: AnySQLiteColumn,
+	) =>
+		and(
+			gt(
+				column,
+				after.startsWith(`${kind}:`) ? after.slice(kind.length + 1) : "",
+			),
+			after && !after.startsWith(`${kind}:`) && after > `${kind}:`
+				? lt(column, "")
+				: undefined,
+			only === undefined
+				? undefined
+				: only.startsWith(`${kind}:`)
+					? eq(column, only.slice(kind.length + 1))
+					: lt(column, ""),
+		);
+	const projectPage = db.$with("project_page").as(
+		db
+			.select({
+				key: sql<string>`'project:' || ${projects.id}`.as("key"),
+				id: projects.id,
+				orgId: projects.orgId,
+				kind: sql<"project" | "objective">`'project'`.as("kind"),
+				name: projects.name,
+				policy: policy(sql`${projects.metadata}`).as("policy"),
+				createdAt: projects.createdAt,
+				owner: sql<
+					string | null
+				>`coalesce(${projects.leadTediId},${objectives.tediId})`.as("owner"),
+				objectiveId: projects.objectiveId,
+			})
+			.from(projects)
+			.leftJoin(
+				objectives,
+				and(
+					eq(objectives.id, projects.objectiveId),
+					eq(objectives.orgId, projects.orgId),
+					eq(objectives.status, "active"),
+				),
 			)
-		: null;
-	return db.all<ContinuityScopeSlice>(sql`
- WITH project_page AS MATERIALIZED (
-  SELECT 'project:' || p.id AS key,p.id,p.org_id AS "orgId",'project' AS kind,p.name,
-   CASE WHEN jsonb_typeof(p.metadata->'continuity')='object' THEN (p.metadata->'continuity')::text END AS policy,
-   p.created_at AS "createdAt",coalesce(p.lead_tedi_id,o.tedi_id) AS owner,p.objective_id AS "objectiveId"
-  FROM projects p LEFT JOIN tedi_objectives o ON o.id=p.objective_id AND o.org_id=p.org_id AND o.status='active'
-  WHERE p.status='active'
-  ${recoveryOnly ? sql`AND (jsonb_typeof(p.metadata->'continuity')='object' OR EXISTS(SELECT 1 FROM work_items w WHERE w.org_id=p.org_id AND w.project_id=p.id AND w.disposition IN ('proposed','accepted')))` : sql``}
-  AND p.id > ${after.startsWith("project:") ? after.slice(8) : ""}
-  ${after && !after.startsWith("project:") && after > "project:" ? sql`AND p.id < ${""}` : sql``}
-  ${only === undefined ? sql`` : onlyProject === undefined ? sql`AND p.id < ${""}` : sql`AND p.id=${onlyProject}`}
-  ${orgId === undefined ? sql`` : sql`AND p.org_id=${orgId}`}
-  ORDER BY p.id LIMIT ${scopeLimit}
- ), objective_page AS MATERIALIZED (
-  SELECT 'objective:' || o.id,o.id,o.org_id,'objective',o.title,
-   CASE WHEN jsonb_typeof(o.gate_config->'continuity')='object' THEN (o.gate_config->'continuity')::text END,
-   o.created_at,o.tedi_id,o.id
-  FROM tedi_objectives o WHERE o.status='active'
-  ${recoveryOnly ? sql`AND (jsonb_typeof(o.gate_config->'continuity')='object' OR EXISTS(SELECT 1 FROM work_items w WHERE w.org_id=o.org_id AND w.objective_id=o.id AND w.disposition IN ('proposed','accepted')))` : sql``}
-  AND o.id > ${after.startsWith("objective:") ? after.slice(10) : ""}
-  ${after && !after.startsWith("objective:") && after > "objective:" ? sql`AND o.id < ${""}` : sql``}
-  ${only === undefined ? sql`` : onlyObjective === undefined ? sql`AND o.id < ${""}` : sql`AND o.id=${onlyObjective}`}
-  ${orgId === undefined ? sql`` : sql`AND o.org_id=${orgId}`}
-  AND NOT EXISTS(SELECT 1 FROM projects p WHERE p.org_id=o.org_id AND p.objective_id=o.id AND p.status='active')
-  ORDER BY o.id LIMIT ${scopeLimit}
- ), scopes AS (
-  SELECT * FROM project_page UNION ALL SELECT * FROM objective_page
- ), scope_page AS MATERIALIZED (
- ${
-		continuationPage === null
-			? sql`SELECT *, ${workAfter === null ? null : String(workAfter)}::text AS "workAfter" FROM scopes ORDER BY key LIMIT ${scopeLimit}`
-			: sql`SELECT * FROM jsonb_to_recordset(${continuationPage}::jsonb) AS s(key text,id text,"orgId" text,kind text,name text,policy text,"createdAt" text,owner text,"objectiveId" text,"workAfter" text)
- WHERE (s.kind='project' AND EXISTS(SELECT 1 FROM projects p WHERE p.id=s.id AND p.org_id=s."orgId" AND p.status='active'))
- OR (s.kind='objective' AND EXISTS(SELECT 1 FROM tedi_objectives o WHERE o.id=s.id AND o.org_id=s."orgId" AND o.status='active') AND NOT EXISTS(SELECT 1 FROM projects p WHERE p.org_id=s."orgId" AND p.objective_id=s.id AND p.status='active'))
- ORDER BY key LIMIT ${scopeLimit}`
- }
- ), page AS MATERIALIZED (
-  SELECT s.*,CASE s.kind
-   WHEN 'project' THEN (SELECT x.id FROM work_items x WHERE x.org_id=s."orgId" AND x.project_id=s.id ${pastWork("x")} ORDER BY x.id LIMIT 1 OFFSET ${workLimit - 1})
-   ELSE (SELECT x.id FROM work_items x WHERE x.org_id=s."orgId" AND x.objective_id=s.id ${pastWork("x")} ORDER BY x.id LIMIT 1 OFFSET ${workLimit - 1})
-   END AS "workEnd"
-  FROM scope_page s
- ), scope_work AS MATERIALIZED (
-  SELECT s.key,w.id AS "workItemId",w.org_id AS "orgId",w.disposition
-  FROM page s JOIN work_items w ON w.org_id=s."orgId" AND w.project_id=s.id ${pastWork("w")} AND (s."workEnd" IS NULL OR w.id<=s."workEnd") WHERE s.kind='project'
-  UNION ALL
-  SELECT s.key,w.id,w.org_id,w.disposition
-  FROM page s JOIN work_items w ON w.org_id=s."orgId" AND w.objective_id=s.id ${pastWork("w")} AND (s."workEnd" IS NULL OR w.id<=s."workEnd") WHERE s.kind='objective'
- ), work_counts AS (
-  SELECT key,sum(CASE WHEN disposition IN ('proposed','accepted') THEN 1 ELSE 0 END)::integer AS "pendingCount" FROM scope_work GROUP BY key
- ), attempt_activity AS MATERIALIZED (
-  SELECT w.key,max(${continuityPgTime(sql`coalesce(a.finished_at,a.heartbeat_at,a.started_at)`)}) AS activity,
-   sum(CASE WHEN a.outcome='failed' AND w.disposition NOT IN ('completed','cancelled') THEN 1 ELSE 0 END)::integer AS "failedCount"
-  FROM scope_work w JOIN work_attempts a ON a.org_id=w."orgId" AND a.work_item_id=w."workItemId" GROUP BY w.key
- ), activity AS (
-  SELECT key,activity FROM attempt_activity
-  UNION ALL
-  SELECT w.key,max(${continuityPgTime(sql`CASE WHEN r.status IN ('completed','failed','canceled') THEN coalesce(r.completed_at,r.started_at) ELSE coalesce(r.last_reconciled_at,r.started_at) END`)})
-  FROM scope_work w JOIN skill_runs r ON r.organization_id=w."orgId" AND r.work_item_id=w."workItemId" WHERE r.runtime_environment=${environment} GROUP BY w.key
- ), latest_activity AS (
-  SELECT key,max(activity) AS activity FROM activity GROUP BY key
- )
- SELECT s.key,s.id,s."orgId",s.kind,s.name,s.policy,${continuityPgTimestamp(continuityPgTime(sql`s."createdAt"`))} AS "createdAt",
- coalesce(t.id,c.id) AS "tediId",coalesce(t.slug,c.slug) AS slug,(t.id IS NOT NULL)::integer AS "hasOwner",
- ${continuityPgTimestamp(sql`greatest(${continuityPgTime(sql`s."createdAt"`)},l.activity)`)} AS "lastActivityAt",
- coalesce(w."pendingCount",0) AS "pendingCount",coalesce(a."failedCount",0) AS "failedCount",s."workEnd",s."objectiveId"
- FROM page s LEFT JOIN tedis t ON t.id=s.owner AND t.organization_id=s."orgId" AND t.status='active'
- LEFT JOIN tedis c ON c.id=s.policy::jsonb->>'coordinatorTediId' AND c.organization_id=s."orgId" AND c.status='active'
- LEFT JOIN latest_activity l ON l.key=s.key LEFT JOIN work_counts w ON w.key=s.key LEFT JOIN attempt_activity a ON a.key=s.key
- ORDER BY s.key`);
+			.where(
+				and(
+					eq(projects.status, "active"),
+					scopeCursor("project", projects.id),
+					orgId === undefined ? undefined : eq(projects.orgId, orgId),
+					recoveryOnly
+						? or(
+								sql`jsonb_typeof(${projects.metadata}->'continuity')='object'`,
+								exists(
+									db
+										.select({ id: work.id })
+										.from(work)
+										.where(
+											and(
+												eq(work.orgId, projects.orgId),
+												eq(work.projectId, projects.id),
+												inArray(work.disposition, ["proposed", "accepted"]),
+											),
+										),
+								),
+							)
+						: undefined,
+				),
+			)
+			.orderBy(asc(projects.id))
+			.limit(scopeLimit),
+	);
+	const objectivePage = db.$with("objective_page").as(
+		db
+			.select({
+				key: sql<string>`'objective:' || ${objectives.id}`.as("key"),
+				id: objectives.id,
+				orgId: objectives.orgId,
+				kind: sql<"project" | "objective">`'objective'`.as("kind"),
+				name: objectives.title,
+				policy: policy(sql`${objectives.gateConfig}`).as("policy"),
+				createdAt: objectives.createdAt,
+				owner: sql<string | null>`${objectives.tediId}`.as("owner"),
+				objectiveId: sql<string | null>`${objectives.id}`.as("objectiveId"),
+			})
+			.from(objectives)
+			.where(
+				and(
+					eq(objectives.status, "active"),
+					scopeCursor("objective", objectives.id),
+					orgId === undefined ? undefined : eq(objectives.orgId, orgId),
+					notExists(
+						db
+							.select({ id: projects.id })
+							.from(projects)
+							.where(
+								and(
+									eq(projects.orgId, objectives.orgId),
+									eq(projects.objectiveId, objectives.id),
+									eq(projects.status, "active"),
+								),
+							),
+					),
+					recoveryOnly
+						? or(
+								sql`jsonb_typeof(${objectives.gateConfig}->'continuity')='object'`,
+								exists(
+									db
+										.select({ id: work.id })
+										.from(work)
+										.where(
+											and(
+												eq(work.orgId, objectives.orgId),
+												eq(work.objectiveId, objectives.id),
+												inArray(work.disposition, ["proposed", "accepted"]),
+											),
+										),
+								),
+							)
+						: undefined,
+				),
+			)
+			.orderBy(asc(objectives.id))
+			.limit(scopeLimit),
+	);
+	const scopes = db
+		.$with("scopes")
+		.as(
+			db.select().from(projectPage).unionAll(db.select().from(objectivePage)),
+		);
+	const continuationPage = JSON.stringify(
+		continuations?.map((scope) => ({
+			key: scope.key,
+			id: scope.id,
+			orgId: scope.orgId,
+			kind: scope.kind,
+			name: scope.name,
+			policy: scope.policy,
+			createdAt: scope.createdAt,
+			owner: scope.hasOwner ? scope.tediId : null,
+			objectiveId: scope.objectiveId,
+			workAfter: scope.workEnd,
+		})) ?? [],
+	);
+	const records = sql`jsonb_to_recordset(${continuationPage}::jsonb) AS c(key text,id text,"orgId" text,kind text,name text,policy text,"createdAt" text,owner text,"objectiveId" text,"workAfter" text)`;
+	const continuationSelection = {
+		key: sql<string>`c.key`.as("key"),
+		id: sql<string>`c.id`.as("id"),
+		orgId: sql<string>`c."orgId"`.as("orgId"),
+		kind: sql<"project" | "objective">`c.kind`.as("kind"),
+		name: sql<string>`c.name`.as("name"),
+		policy: sql<string | null>`c.policy`.as("policy"),
+		createdAt: sql<string>`c."createdAt"`.as("createdAt"),
+		owner: sql<string | null>`c.owner`.as("owner"),
+		objectiveId: sql<string | null>`c."objectiveId"`.as("objectiveId"),
+		workAfter: sql<string | null>`c."workAfter"`.as("workAfter"),
+	};
+	const continued = db
+		.select(continuationSelection)
+		.from(records)
+		.where(
+			or(
+				and(
+					eq(sql`c.kind`, "project"),
+					exists(
+						db
+							.select({ id: projects.id })
+							.from(projects)
+							.where(
+								and(
+									eq(projects.id, sql`c.id`),
+									eq(projects.orgId, sql`c."orgId"`),
+									eq(projects.status, "active"),
+								),
+							),
+					),
+				),
+				and(
+					eq(sql`c.kind`, "objective"),
+					exists(
+						db
+							.select({ id: objectives.id })
+							.from(objectives)
+							.where(
+								and(
+									eq(objectives.id, sql`c.id`),
+									eq(objectives.orgId, sql`c."orgId"`),
+									eq(objectives.status, "active"),
+								),
+							),
+					),
+					notExists(
+						db
+							.select({ id: projects.id })
+							.from(projects)
+							.where(
+								and(
+									eq(projects.objectiveId, sql`c.id`),
+									eq(projects.orgId, sql`c."orgId"`),
+									eq(projects.status, "active"),
+								),
+							),
+					),
+				),
+			),
+		)
+		.orderBy(sql`c.key`)
+		.limit(scopeLimit);
+	const scopePage = db.$with("scope_page").as(
+		continuations
+			? continued
+			: db
+					.select({
+						key: sql<string>`${scopes.key}`.as("key"),
+						id: sql<string>`${scopes.id}`.as("id"),
+						orgId: sql<string>`${scopes.orgId}`.as("orgId"),
+						kind: sql<"project" | "objective">`${scopes.kind}`.as("kind"),
+						name: sql<string>`${scopes.name}`.as("name"),
+						policy: sql<string | null>`${scopes.policy}`.as("policy"),
+						createdAt: sql<string>`${scopes.createdAt}`.as("createdAt"),
+						owner: sql<string | null>`${scopes.owner}`.as("owner"),
+						objectiveId: sql<string | null>`${scopes.objectiveId}`.as(
+							"objectiveId",
+						),
+						workAfter: sql<
+							string | null
+						>`${workAfter === null ? null : String(workAfter)}::text`.as(
+							"workAfter",
+						),
+					})
+					.from(scopes)
+					.orderBy(asc(scopes.key))
+					.limit(scopeLimit),
+	);
+	const pastWork = (afterId: SQL | typeof scopePage.workAfter) =>
+		or(isNull(afterId), gt(work.id, afterId));
+	const workEnd = (scopeColumn: typeof work.projectId) =>
+		db
+			.select({ id: work.id })
+			.from(work)
+			.where(
+				and(
+					eq(work.orgId, scopePage.orgId),
+					eq(scopeColumn, scopePage.id),
+					pastWork(scopePage.workAfter),
+				),
+			)
+			.orderBy(asc(work.id))
+			.limit(1)
+			.offset(workLimit - 1);
+	const page = db.$with("page").as(
+		db
+			.select({
+				key: scopePage.key,
+				id: scopePage.id,
+				orgId: scopePage.orgId,
+				kind: scopePage.kind,
+				name: scopePage.name,
+				policy: scopePage.policy,
+				createdAt: scopePage.createdAt,
+				owner: scopePage.owner,
+				objectiveId: scopePage.objectiveId,
+				workAfter: scopePage.workAfter,
+				workEnd: sql<
+					string | null
+				>`CASE ${scopePage.kind} WHEN 'project' THEN (${workEnd(work.projectId)}) ELSE (${workEnd(work.objectiveId)}) END`.as(
+					"workEnd",
+				),
+			})
+			.from(scopePage),
+	);
+	const scopeWorkSelection = {
+		key: page.key,
+		workItemId: work.id,
+		orgId: work.orgId,
+		disposition: work.disposition,
+	};
+	const scopeWork = db.$with("scope_work").as(
+		db
+			.select(scopeWorkSelection)
+			.from(page)
+			.innerJoin(
+				work,
+				and(
+					eq(work.orgId, page.orgId),
+					eq(work.projectId, page.id),
+					pastWork(page.workAfter),
+					or(isNull(page.workEnd), lte(work.id, page.workEnd)),
+				),
+			)
+			.where(eq(page.kind, "project"))
+			.unionAll(
+				db
+					.select(scopeWorkSelection)
+					.from(page)
+					.innerJoin(
+						work,
+						and(
+							eq(work.orgId, page.orgId),
+							eq(work.objectiveId, page.id),
+							pastWork(page.workAfter),
+							or(isNull(page.workEnd), lte(work.id, page.workEnd)),
+						),
+					)
+					.where(eq(page.kind, "objective")),
+			),
+	);
+	const workCounts = db.$with("work_counts").as(
+		db
+			.select({
+				key: scopeWork.key,
+				pendingCount:
+					sql<number>`sum(CASE WHEN ${scopeWork.disposition} IN ('proposed','accepted') THEN 1 ELSE 0 END)::integer`.as(
+						"pendingCount",
+					),
+			})
+			.from(scopeWork)
+			.groupBy(scopeWork.key),
+	);
+	const attemptActivity = db.$with("attempt_activity").as(
+		db
+			.select({
+				key: scopeWork.key,
+				activity:
+					sql`max(${continuityPgTime(sql`coalesce(${attempts.finishedAt},${attempts.heartbeatAt},${attempts.startedAt})`)})`.as(
+						"activity",
+					),
+				failedCount:
+					sql<number>`sum(CASE WHEN ${attempts.outcome}='failed' AND ${scopeWork.disposition} NOT IN ('completed','cancelled') THEN 1 ELSE 0 END)::integer`.as(
+						"failedCount",
+					),
+			})
+			.from(scopeWork)
+			.innerJoin(
+				attempts,
+				and(
+					eq(attempts.orgId, scopeWork.orgId),
+					eq(attempts.workItemId, scopeWork.workItemId),
+				),
+			)
+			.groupBy(scopeWork.key),
+	);
+	const activity = db.$with("activity").as(
+		db
+			.select({ key: attemptActivity.key, activity: attemptActivity.activity })
+			.from(attemptActivity)
+			.unionAll(
+				db
+					.select({
+						key: scopeWork.key,
+						activity:
+							sql`max(${continuityPgTime(sql`CASE WHEN ${runs.status} IN ('completed','failed','canceled') THEN coalesce(${runs.completedAt},${runs.startedAt}) ELSE coalesce(${runs.lastReconciledAt},${runs.startedAt}) END`)})`.as(
+								"activity",
+							),
+					})
+					.from(scopeWork)
+					.innerJoin(
+						runs,
+						and(
+							eq(runs.organizationId, scopeWork.orgId),
+							eq(runs.workItemId, scopeWork.workItemId),
+						),
+					)
+					.where(sql`${runs.runtimeEnvironment}=${environment}`)
+					.groupBy(scopeWork.key),
+			),
+	);
+	const latestActivity = db.$with("latest_activity").as(
+		db
+			.select({
+				key: activity.key,
+				activity: sql`max(${activity.activity})`.as("activity"),
+			})
+			.from(activity)
+			.groupBy(activity.key),
+	);
+	const owner = stallAlias(db, tedis, "owner"),
+		coordinator = stallAlias(db, tedis, "coordinator");
+	return db
+		.with(
+			projectPage,
+			objectivePage,
+			scopes,
+			scopePage,
+			page,
+			scopeWork,
+			workCounts,
+			attemptActivity,
+			activity,
+			latestActivity,
+		)
+		.select({
+			key: page.key,
+			id: page.id,
+			orgId: page.orgId,
+			kind: page.kind,
+			name: page.name,
+			policy: page.policy,
+			createdAt: sql<string>`${continuityPgTimestamp(continuityPgTime(sql`${page.createdAt}`))}`,
+			tediId: sql<string | null>`coalesce(${owner.id},${coordinator.id})`,
+			slug: sql<string | null>`coalesce(${owner.slug},${coordinator.slug})`,
+			hasOwner: sql<number>`(${owner.id} IS NOT NULL)::integer`,
+			lastActivityAt: sql<string>`${continuityPgTimestamp(sql`greatest(${continuityPgTime(sql`${page.createdAt}`)},${latestActivity.activity})`)}`,
+			pendingCount: sql<number>`coalesce(${workCounts.pendingCount},0)`,
+			failedCount: sql<number>`coalesce(${attemptActivity.failedCount},0)`,
+			workEnd: page.workEnd,
+			objectiveId: page.objectiveId,
+		})
+		.from(page)
+		.leftJoin(
+			owner,
+			and(
+				eq(owner.id, page.owner),
+				eq(owner.organizationId, page.orgId),
+				eq(owner.status, "active"),
+			),
+		)
+		.leftJoin(
+			coordinator,
+			and(
+				eq(coordinator.id, sql`${page.policy}::jsonb->>'coordinatorTediId'`),
+				eq(coordinator.organizationId, page.orgId),
+				eq(coordinator.status, "active"),
+			),
+		)
+		.leftJoin(latestActivity, eq(latestActivity.key, page.key))
+		.leftJoin(workCounts, eq(workCounts.key, page.key))
+		.leftJoin(attemptActivity, eq(attemptActivity.key, page.key))
+		.orderBy(asc(page.key));
 }

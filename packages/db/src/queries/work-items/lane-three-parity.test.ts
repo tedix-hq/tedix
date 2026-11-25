@@ -1,3 +1,4 @@
+import { listWorkActivity } from "./activity";
 import { workAgentSessions } from "../../schema/work-agent-sessions";
 import {
 	createWorkCase,
@@ -615,6 +616,20 @@ for (const store of ["d1", "postgres"] as const)
 				}),
 			).toMatchObject({ disposition: "cancelled", version: 2 });
 
+			expect(
+				(
+					await listWorkActivity(db, {
+						orgId: "orchard",
+						workItemId: created.id,
+						afterSequence: 0,
+					})
+				).events.map((event) => event.eventType),
+			).toEqual([
+				"work.created",
+				"work.accepted",
+				"work.specification_updated",
+				"work.completed",
+			]);
 			const events = await db.all<{ event_type: string; payload: unknown }>(
 				sql`SELECT event_type,payload FROM work_events WHERE org_id='orchard' AND work_item_id='write-task' ORDER BY sequence`,
 			);
