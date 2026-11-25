@@ -640,19 +640,6 @@ export function normalizeAdvertisedScopeNames(
 	return [...normalized].sort();
 }
 
-/** The scopes an explicit protected-resource metadata document advertises. */
-export function protectedResourceScopes(metadata: {
-	scopes_supported?: unknown;
-}): string[] {
-	return normalizeAdvertisedScopeNames(
-		Array.isArray(metadata.scopes_supported)
-			? metadata.scopes_supported.filter(
-					(scope): scope is string => typeof scope === "string",
-				)
-			: [],
-	);
-}
-
 async function handleOAuthMetadata(
 	hostname: string,
 	env: CloudflareEnv,
@@ -705,9 +692,8 @@ async function handleOAuthMetadata(
 		const metadata = {
 			...mcpConfig.protectedResourceMetadata,
 			resource: `https://${hostname}/mcp`,
-			scopes_supported: protectedResourceScopes(
-				mcpConfig.protectedResourceMetadata,
-			),
+			// Hosts otherwise request every advertised permission before consent.
+			scopes_supported: [],
 		};
 		return new Response(JSON.stringify(metadata, null, 2), {
 			headers: {

@@ -38,11 +38,11 @@ describe("unauthenticated MCP challenge", () => {
 		});
 		expect(denial?.response.status).toBe(401);
 		expect(denial?.response.headers.get("WWW-Authenticate")).toBe(
-			'Bearer resource_metadata="https://gateway.example.test/.well-known/oauth-protected-resource", scope="mcp:work.read"',
+			'Bearer resource_metadata="https://gateway.example.test/.well-known/oauth-protected-resource"',
 		);
 	});
 
-	it("asks hosts for the member grant, never administration", async () => {
+	it("leaves permission selection to consent even with broad configured scopes", async () => {
 		const denial = await unauthenticated({
 			protectedResourceMetadata: {
 				scopes_supported: [
@@ -57,7 +57,7 @@ describe("unauthenticated MCP challenge", () => {
 			},
 		});
 		expect(denial?.response.headers.get("WWW-Authenticate")).toBe(
-			'Bearer resource_metadata="https://gateway.example.test/.well-known/oauth-protected-resource", scope="connections.execute mcp:work.read mcp:work.write"',
+			'Bearer resource_metadata="https://gateway.example.test/.well-known/oauth-protected-resource"',
 		);
 	});
 

@@ -556,7 +556,7 @@ describe("buildDescopeAihDriftReport", () => {
 						name: index === 0 ? "tedi:cto:abc" : "Codex",
 						mcpServerId: "server-live",
 						status: "verified",
-						scopes: ["platform:admin"],
+						scopes: index === 10 ? [] : ["platform:admin"],
 						tags: index === 0 ? ["tedi:abc", "app:tedix-unified"] : [],
 					})),
 				],
@@ -657,6 +657,9 @@ describe("buildDescopeAihDriftReport", () => {
 			],
 		});
 
+		expect(report.issues.map((issue) => issue.code)).not.toContain(
+			"mcp_client_empty_scopes",
+		);
 		expect(report.summary).toMatchObject({
 			mcpServers: 2,
 			mcpClients: 11,

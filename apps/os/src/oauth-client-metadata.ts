@@ -5,7 +5,6 @@ import {
 	TEDIX_OPENCODE_OAUTH_CLIENT_ID,
 	TEDIX_OPENCODE_OAUTH_REDIRECT_URI,
 } from "@tedix/auth/oauth-client-registration";
-import { MEMBER_CLIENT_SCOPE } from "@tedix/mcp-shared/auth/consent-scopes";
 
 export const TEDIX_CLI_REDIRECT_URI = TEDIX_CLI_OAUTH_REDIRECT_URI;
 
@@ -41,7 +40,6 @@ const CLIENT_METADATA = [
 		grant_types: ["authorization_code", "refresh_token"],
 		response_types: ["code"],
 		token_endpoint_auth_method: "none",
-		scope: MEMBER_CLIENT_SCOPE,
 	},
 	{
 		client_id: TEDIX_OPENCODE_OAUTH_CLIENT_ID,
@@ -51,7 +49,6 @@ const CLIENT_METADATA = [
 		grant_types: ["authorization_code", "refresh_token"],
 		response_types: ["code"],
 		token_endpoint_auth_method: "none",
-		scope: MEMBER_CLIENT_SCOPE,
 	},
 ];
 

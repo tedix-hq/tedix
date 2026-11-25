@@ -9,11 +9,7 @@
 					"auth": {
 						"type": "oauth",
 						"baseScopes": [],
-						"defaultScopes": [
-							"mcp:content.read",
-							"mcp:work.read",
-							"mcp:work.write"
-						]
+						"defaultScopes": []
 					}
 				}
 			}

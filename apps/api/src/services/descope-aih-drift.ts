@@ -200,12 +200,6 @@ function hasBroadScope(client: DescopeClient): boolean {
 	return (client.scopes ?? []).some((scope) => BROAD_SCOPE_NAMES.has(scope));
 }
 
-function hasBroadApprovedScope(server: DescopeServer): boolean {
-	return extractApprovedScopeNames(server.approvedScopes).some((scope) =>
-		BROAD_SCOPE_NAMES.has(scope),
-	);
-}
-
 function cimdDomainPolicies(server: DescopeServer): string[] {
 	const settings = asRecord(asRecord(server).cimdSettings);
 	const domainPolicies = asRecord(settings.domainPolicies);
@@ -573,9 +567,6 @@ export function buildDescopeAihDriftReport(
 		const codexClients = normalizedClients.filter(
 			(client) => client.name?.toLowerCase() === "codex",
 		);
-		const emptyScopeClients = normalizedClients.filter(
-			(client) => client.scopes.length === 0,
-		);
 		const unverifiedDevtoolClients = normalizedClients.filter(
 			(client) =>
 				client.status !== "verified" &&
@@ -811,25 +802,6 @@ export function buildDescopeAihDriftReport(
 			});
 		}
 
-		if (emptyScopeClients.length > 0) {
-			issue(report, {
-				severity: hasBroadApprovedScope(server) ? "critical" : "warning",
-				code: "mcp_client_empty_scopes",
-				resourceType: "mcp_client",
-				resourceId: server.id,
-				resourceName: server.name,
-				message: `Descope MCP server ${server.name} has ${emptyScopeClients.length} clients with no allowed scopes; consent screens for those clients will show no capabilities.`,
-				details: {
-					clients: emptyScopeClients.map((client) => ({
-						id: client.id,
-						name: client.name,
-						status: client.status,
-						tags: client.tags,
-					})),
-				},
-			});
-		}
-
 		if (unverifiedDevtoolClients.length > 0) {
 			issue(report, {
 				severity: "warning",
@@ -852,7 +824,7 @@ export function buildDescopeAihDriftReport(
 
 		// Client cardinality is not drift: Tedix intentionally creates one client
 		// per managed tedi and external-agent session, alongside CI and interactive
-		// devtools. The ownership, scope, verification, and empty-scope checks above
+		// devtools. The ownership, scope, and verification checks above
 		// identify unsafe clients without flagging a healthy multi-client server.
 	}
 	report.mcpServers.sort((a, b) => a.name.localeCompare(b.name));

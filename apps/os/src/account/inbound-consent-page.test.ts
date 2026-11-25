@@ -382,25 +382,26 @@ it("bounds bulk organization selection without disabling accounts with more than
 });
 
 describe("reloaded consent requests", () => {
-	it("treats a consent screen with no requested permissions as a lost request", () => {
+	it("distinguishes missing flow data from an explicit empty scope request", () => {
 		expect(inboundConsentRequestedPermissions({})).toBeNull();
 		expect(inboundConsentRequestedPermissions({ data: {} })).toBeNull();
 		expect(
 			inboundConsentRequestedPermissions({
 				data: { inboundAppApproveScopes: [] },
 			}),
-		).toBeNull();
+		).toEqual([]);
 	});
 
-	it("keeps every requested permission, including protocol scopes", () => {
+	it("keeps requested permissions optional, including protocol scopes", () => {
 		const scopes = inboundConsentRequestedPermissions({
 			data: {
 				inboundAppApproveScopes: [
 					{ name: "openid" },
-					{ name: "mcp:apps.read", description: "Read apps" },
+					{ name: "mcp:apps.read", description: "Read apps", required: true },
 				],
 			},
 		});
+		expect(scopes?.every((scope) => !scope.required)).toBe(true);
 		expect(scopes?.map((scope) => scope.name).sort()).toEqual([
 			"mcp:apps.read",
 			"openid",

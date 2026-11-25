@@ -332,17 +332,17 @@ function requestedScopes(context: Record<string, unknown>): unknown {
 	return data?.inboundAppApproveScopes;
 }
 
-/**
- * The permissions a consent screen asks for, or null when the request lost
- * them. A reloaded consent page resumes the Descope flow without
- * `inboundAppApproveScopes`; rendering that as a zero-permission approval
- * would let a user "approve" a request they never saw.
- */
+/** Missing flow data needs recovery; an explicit empty request is valid. */
 export function inboundConsentRequestedPermissions(
 	context: Record<string, unknown>,
 ): ReturnType<typeof normalizeConsentPermissions> | null {
-	const scopes = normalizeConsentPermissions(requestedScopes(context));
-	return scopes.length > 0 ? scopes : null;
+	const requested = requestedScopes(context);
+	if (requested === undefined || requested === null) return null;
+	// The request is a suggestion. Only the person chooses what to approve.
+	return normalizeConsentPermissions(requested).map((scope) => ({
+		...scope,
+		required: false,
+	}));
 }
 
 /** Bulk consent selection follows the displayed order and the organization cap. */

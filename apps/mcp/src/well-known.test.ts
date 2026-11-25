@@ -415,7 +415,7 @@ describe("OAuth metadata scope advertisement", () => {
 		expect(await response?.json()).toMatchObject({
 			resource: "https://acme.mcp.tedix.tech/mcp",
 			authorization_servers: ["https://auth.example.com"],
-			scopes_supported: ["platform:admin"],
+			scopes_supported: [],
 		});
 		expect(response?.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(response?.headers.has("Cache-Tag")).toBe(false);
