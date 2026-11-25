@@ -5,25 +5,35 @@ import {
 	asc,
 	desc,
 	eq,
+	getColumns,
 	inArray,
 	isNull,
-	like,
 	lt,
 	or,
+	type SQL,
 	sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreTable } from "../core-store/client";
+import {
+	anyIds,
+	containsText,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	likeText,
+} from "../core-store/dialect";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import {
-	chatDispatchIdempotency,
-	kernelRuntimeEvents,
-	kernelRuntimeRuns,
+	chatDispatchIdempotency as d1ChatDispatchIdempotency,
+	kernelRuntimeEvents as d1KernelRuntimeEvents,
+	kernelRuntimeRuns as d1KernelRuntimeRuns,
 	type TediRuntimeEventKind,
-	tediArtifacts,
-	tediRuntimeEvents,
+	tediArtifacts as d1TediArtifacts,
+	tediRuntimeEvents as d1TediRuntimeEvents,
 } from "../schema/cognitive-runtime";
-import { chunkForBoundParams } from "../utils/batch";
 import {
 	compareCreatedAtId,
 	mergeLogStoreRows,
@@ -34,13 +44,13 @@ import {
 	unindexedOrganizationId,
 } from "../utils/tedi-runtime-event-predicates";
 
-/** D1 caps bound parameters at 100 per statement; keep IN() lists ≤50. */
+/** Keep the existing public bound on conversation search batches. */
 const D1_IN_LIST_CHUNK = 50;
 
-export type KernelRuntimeEvent = typeof kernelRuntimeEvents.$inferSelect;
-export type TediRuntimeEventRow = typeof tediRuntimeEvents.$inferSelect;
-export type TediArtifactRow = typeof tediArtifacts.$inferSelect;
-export type NewKernelRuntimeEvent = typeof kernelRuntimeEvents.$inferInsert;
+export type KernelRuntimeEvent = typeof d1KernelRuntimeEvents.$inferSelect;
+export type TediRuntimeEventRow = typeof d1TediRuntimeEvents.$inferSelect;
+export type TediArtifactRow = typeof d1TediArtifacts.$inferSelect;
+export type NewKernelRuntimeEvent = typeof d1KernelRuntimeEvents.$inferInsert;
 
 export async function listHomeRunFinishedEvents(
 	db: DbQueryClient,
@@ -54,6 +64,16 @@ export async function listHomeRunFinishedEvents(
 		head?: boolean;
 	} & TenantScope,
 ) {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const tediRuntimeEvents = coreTable(db, d1TediRuntimeEvents);
+	const read = (column: string, path: string[]) =>
+		jsonRead(db, sql.raw(column), path);
+	const directJoin = coreStore(db) === "postgres" ? sql`JOIN` : sql`CROSS JOIN`;
+	const assignments =
+		coreStore(db) === "postgres"
+			? sql`LATERAL jsonb_array_elements(coalesce(p.metadata #> '{homePlan,assignments}', '[]'::jsonb))`
+			: sql`json_each(p.metadata, '$.homePlan.assignments')`;
 	input = { ...input, ...normalizeTenantScope(input) };
 	// Group repeated ledger writes into one stable notice per run/status.
 	// Child ACLs come from the parent conversation, including plan branches.
@@ -77,7 +97,7 @@ export async function listHomeRunFinishedEvents(
 			? sql`AND p.child_run_id = ${runId} AND e.run_id = ${runId}`
 			: none,
 		planned: runId
-			? sql`AND json_extract(a.value, '$.childRunId') = ${runId} AND e.run_id = ${runId}`
+			? sql`AND ${read("a.value", ["childRunId"])} = ${runId} AND e.run_id = ${runId}`
 			: none,
 		conversation: conversationId
 			? sql`AND p.conversation_id = ${conversationId}`
@@ -90,23 +110,23 @@ export async function listHomeRunFinishedEvents(
 			SELECT e.id AS event_id, e.created_at, e.conversation_id, e.run_id,
 			       NULL AS parent_run_id,
 			       CASE
-			         WHEN e.kind = 'run.failed' OR json_extract(e.payload, '$.status') = 'failed' THEN 'failed'
-			         WHEN e.kind = 'approval.requested' OR json_extract(e.payload, '$.status') IN ('requires_approval', 'needs_delegation') THEN 'needs_input'
+			         WHEN e.kind = 'run.failed' OR ${read("e.payload", ["status"])} = 'failed' THEN 'failed'
+			         WHEN e.kind = 'approval.requested' OR ${read("e.payload", ["status"])} IN ('requires_approval', 'needs_delegation') THEN 'needs_input'
 			         ELSE 'completed' END AS status,
-			       json_extract(r.metadata, '$.ownerHostSessionId') AS owner_host_session_id
+			       ${read("r.metadata", ["ownerHostSessionId"])} AS owner_host_session_id
 			FROM ${kernelRuntimeEvents} e
 			LEFT JOIN ${kernelRuntimeRuns} r
 			  ON r.organization_id = e.organization_id AND r.id = e.run_id
 			WHERE e.organization_id = ${input.organizationId} AND e.run_id IS NOT NULL
 			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
-			  AND (e.kind != 'run.completed' OR coalesce(json_extract(e.payload, '$.status'), 'completed') IN ('completed', 'failed', 'requires_approval', 'needs_delegation'))
+			  AND (e.kind != 'run.completed' OR coalesce(${read("e.payload", ["status"])}, 'completed') IN ('completed', 'failed', 'requires_approval', 'needs_delegation'))
 			  ${own.run} ${own.conversation}
 			UNION ALL
 			SELECT e.id, e.created_at, p.conversation_id, e.run_id, p.id,
 			       CASE e.kind WHEN 'run.completed' THEN 'completed'
 			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END,
-			       json_extract(p.metadata, '$.ownerHostSessionId')
-			FROM ${kernelRuntimeRuns} p CROSS JOIN ${tediRuntimeEvents} e
+			       ${read("p.metadata", ["ownerHostSessionId"])}
+			FROM ${kernelRuntimeRuns} p ${directJoin} ${tediRuntimeEvents} e
 			  ON e.organization_id = p.organization_id
 			    AND e.run_id = p.child_run_id AND e.tedi_id = p.delegated_tedi_id
 			WHERE p.organization_id = ${input.organizationId} AND p.child_run_id IS NOT NULL
@@ -116,14 +136,14 @@ export async function listHomeRunFinishedEvents(
 			SELECT e.id, e.created_at, p.conversation_id, e.run_id, p.id,
 			       CASE e.kind WHEN 'run.completed' THEN 'completed'
 			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END,
-			       json_extract(p.metadata, '$.ownerHostSessionId')
+			       ${read("p.metadata", ["ownerHostSessionId"])}
 			FROM ${kernelRuntimeRuns} p
-			CROSS JOIN json_each(p.metadata, '$.homePlan.assignments') a
+			CROSS JOIN ${assignments} a
 			CROSS JOIN ${tediRuntimeEvents} e
 			WHERE p.organization_id = ${input.organizationId}
 			  AND e.organization_id = p.organization_id
-			  AND e.run_id = json_extract(a.value, '$.childRunId')
-			  AND e.tedi_id = json_extract(a.value, '$.ownerTediId')
+			  AND e.run_id = ${read("a.value", ["childRunId"])}
+			  AND e.tedi_id = ${read("a.value", ["ownerTediId"])}
 			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
 			  ${child.planned} ${child.conversation}
 		) GROUP BY conversation_id, run_id, parent_run_id, status, owner_host_session_id
@@ -184,6 +204,7 @@ export async function listKernelRuntimeEvents(
 		offset?: number;
 	} & TenantScope,
 ): Promise<KernelRuntimeEvent[]> {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	if (
 		input.messageSearch &&
@@ -227,11 +248,20 @@ export async function listKernelRuntimeEvents(
 		...(input.messageSearch
 			? [
 					// bound-params: message search batches are checked against D1_IN_LIST_CHUNK above.
-					inArray(
+					anyIds(
+						db,
 						kernelRuntimeEvents.conversationId,
 						input.messageSearch.conversationIds,
 					),
-					sql`instr(lower(coalesce(${kernelRuntimeEvents.delta},json_extract(${kernelRuntimeEvents.payload},'$.content'),json_extract(${kernelRuntimeEvents.payload},'$.text'),json_extract(${kernelRuntimeEvents.payload},'$.message.content'),'')),lower(${input.messageSearch.query})) > 0`,
+					containsText(
+						db,
+						coreStore(db) === "postgres"
+							? sql`translate(coalesce(${kernelRuntimeEvents.delta}, ${jsonRead(db, kernelRuntimeEvents.payload, ["content"])}, ${jsonRead(db, kernelRuntimeEvents.payload, ["text"])}, ${jsonRead(db, kernelRuntimeEvents.payload, ["message", "content"])}, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`
+							: sql`lower(coalesce(${kernelRuntimeEvents.delta}, ${jsonRead(db, kernelRuntimeEvents.payload, ["content"])}, ${jsonRead(db, kernelRuntimeEvents.payload, ["text"])}, ${jsonRead(db, kernelRuntimeEvents.payload, ["message", "content"])}, ''))`,
+						input.messageSearch.query.replace(/[A-Z]/g, (char) =>
+							char.toLowerCase(),
+						),
+					),
 				]
 			: []),
 		...(input.id ? [eq(kernelRuntimeEvents.id, input.id)] : []),
@@ -258,7 +288,10 @@ export async function listKernelRuntimeEvents(
 		return query.limit(input.limit).offset(input.offset);
 	}
 	if (input.limit !== undefined) return query.limit(input.limit);
-	if (input.offset) return query.limit(-1).offset(input.offset);
+	if (input.offset)
+		return coreStore(db) === "postgres"
+			? query.offset(input.offset)
+			: query.limit(-1).offset(input.offset);
 	return query;
 }
 
@@ -276,6 +309,7 @@ export async function listTediRuntimeEvents(
 		offset?: number;
 	} & TenantScope,
 ): Promise<TediRuntimeEventRow[]> {
+	const tediRuntimeEvents = coreTable(db, d1TediRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.kinds?.length === 0) return [];
 	if (input.runIds?.length === 0) return [];
@@ -297,78 +331,67 @@ export async function listTediRuntimeEvents(
 		});
 	const order =
 		input.order === "asc" ? asc : input.order === "desc" ? desc : null;
-	const runQuery = (
-		runId: string | undefined,
-		limit: number | undefined,
-		offset: number | undefined,
-	) => {
-		const runScoped = Boolean(runId) && !input.runIdPrefix;
-		const conditions = [
-			...(input.organizationId
-				? [
-						runScoped
-							? unindexedOrganizationId(input.organizationId)
-							: eq(tediRuntimeEvents.organizationId, input.organizationId),
-					]
+	const runScoped = Boolean(input.runId || input.runIds) && !input.runIdPrefix;
+	const conditions = [
+		...(input.organizationId
+			? [
+					runScoped && coreStore(db) === "d1"
+						? unindexedOrganizationId(input.organizationId)
+						: eq(tediRuntimeEvents.organizationId, input.organizationId),
+				]
+			: []),
+		eq(tediRuntimeEvents.tediId, input.tediId),
+		...(input.runIds
+			? [anyIds(db, tediRuntimeEvents.runId, [...new Set(input.runIds)])]
+			: input.runId
+				? [eq(tediRuntimeEvents.runId, input.runId)]
 				: []),
-			eq(tediRuntimeEvents.tediId, input.tediId),
-			...(runId ? [eq(tediRuntimeEvents.runId, runId)] : []),
-			...(input.runIdPrefix
-				? [like(tediRuntimeEvents.runId, `${input.runIdPrefix}%`)]
-				: []),
-			...(input.kinds
-				? [
-						runScoped
-							? unindexedKindIn(input.kinds)
-							: // bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
-								inArray(tediRuntimeEvents.kind, input.kinds),
-					]
-				: []),
-		];
-		const base = db
-			.select()
-			.from(tediRuntimeEvents)
-			.where(and(...conditions));
-		const query = order
-			? base.orderBy(
-					order(tediRuntimeEvents.createdAt),
-					order(tediRuntimeEvents.id),
-				)
-			: base;
-		if (limit !== undefined && offset) return query.limit(limit).offset(offset);
-		if (limit !== undefined) return query.limit(limit);
-		if (offset) return query.limit(-1).offset(offset);
-		return query;
+		...(input.runIdPrefix
+			? [likeText(db, tediRuntimeEvents.runId, `${input.runIdPrefix}%`)]
+			: []),
+		...(input.kinds
+			? [
+					runScoped && coreStore(db) === "d1"
+						? unindexedKindIn(input.kinds)
+						: // bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
+							inArray(tediRuntimeEvents.kind, input.kinds),
+				]
+			: []),
+	];
+	const indexedSet = input.runIds && coreStore(db) === "d1";
+	const columns = getColumns(tediRuntimeEvents);
+	// A raw INDEXED BY source needs SQL projections, with the column decoders
+	// retained so JSON and numeric fields keep their row contract.
+	const projection = Object.fromEntries(
+		Object.entries(columns).map(([key, column]) => [
+			key,
+			sql`${column}`.mapWith(column).as(column.name),
+		]),
+	) as {
+		[K in keyof TediRuntimeEventRow]: SQL.Aliased<TediRuntimeEventRow[K]>;
 	};
-
-	const uniqueRunIds = input.runIds ? [...new Set(input.runIds)] : undefined;
-	if (!uniqueRunIds) return runQuery(input.runId, input.limit, input.offset);
-	if (uniqueRunIds.length === 1)
-		return runQuery(uniqueRunIds[0], input.limit, input.offset);
-
-	// One statement per run id: a `run_id IN (...)` list multiplies the run
-	// index estimate under production statistics and sends the planner to the
-	// tedi-only index (every event of the tedi). Ordering, offset, and limit
-	// apply to the MERGED set — each statement over-fetches (limit + offset)
-	// rows and the single-statement contract is re-established in memory.
-	const perRunLimit =
-		input.limit !== undefined ? input.limit + (input.offset ?? 0) : undefined;
-	const rows: TediRuntimeEventRow[] = [];
-	for (const runId of uniqueRunIds) {
-		rows.push(...(await runQuery(runId, perRunLimit, undefined)));
-	}
-	if (order) {
-		const direction = input.order === "desc" ? -1 : 1;
-		rows.sort(
-			(a, b) =>
-				direction *
-				(a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),
-		);
-	}
-	const offsetRows = input.offset ? rows.slice(input.offset) : rows;
-	return input.limit !== undefined
-		? offsetRows.slice(0, input.limit)
-		: offsetRows;
+	const base = db
+		.select(indexedSet ? projection : columns)
+		.from(
+			indexedSet
+				? sql`${tediRuntimeEvents} INDEXED BY idx_tedi_runtime_events_run_created`
+				: tediRuntimeEvents,
+		)
+		.where(and(...conditions));
+	const query = order
+		? base.orderBy(
+				order(tediRuntimeEvents.createdAt),
+				order(tediRuntimeEvents.id),
+			)
+		: base;
+	if (input.limit !== undefined && input.offset)
+		return query.limit(input.limit).offset(input.offset);
+	if (input.limit !== undefined) return query.limit(input.limit);
+	if (input.offset)
+		return coreStore(db) === "postgres"
+			? query.offset(input.offset)
+			: query.limit(-1).offset(input.offset);
+	return query;
 }
 
 export async function listTediArtifacts(
@@ -380,37 +403,23 @@ export async function listTediArtifacts(
 		limit: number;
 	} & TenantScope,
 ): Promise<TediArtifactRow[]> {
+	const tediArtifacts = coreTable(db, d1TediArtifacts);
 	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.runIds.length === 0) return [];
-	const rows: TediArtifactRow[] = [];
-	for (const chunk of chunkForBoundParams(
-		[...new Set(input.runIds)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		rows.push(
-			...(await db
-				.select()
-				.from(tediArtifacts)
-				.where(
-					and(
-						...(input.organizationId
-							? [eq(tediArtifacts.organizationId, input.organizationId)]
-							: []),
-						eq(tediArtifacts.tediId, input.tediId),
-						inArray(tediArtifacts.runId, chunk),
-					),
-				)
-				.orderBy(desc(tediArtifacts.createdAt))
-				.limit(input.limit)),
-		);
-	}
-	// Re-establish the single-statement contract across chunks: newest first,
-	// limited over the merged set.
-	rows.sort(
-		(a, b) =>
-			b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
-	);
-	return rows.slice(0, input.limit);
+	return db
+		.select()
+		.from(tediArtifacts)
+		.where(
+			and(
+				...(input.organizationId
+					? [eq(tediArtifacts.organizationId, input.organizationId)]
+					: []),
+				eq(tediArtifacts.tediId, input.tediId),
+				anyIds(db, tediArtifacts.runId, [...new Set(input.runIds)]),
+			),
+		)
+		.orderBy(desc(tediArtifacts.createdAt), desc(tediArtifacts.id))
+		.limit(input.limit);
 }
 
 /** Read one artifact by its stable id, organization and owning tedi. */
@@ -422,6 +431,7 @@ export async function getTediArtifactById(
 		artifactId: string;
 	} & TenantScope,
 ): Promise<TediArtifactRow | undefined> {
+	const tediArtifacts = coreTable(db, d1TediArtifacts);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select()
@@ -443,6 +453,7 @@ export async function getChatDispatchMappingByIdempotencyKey(
 	db: DbClient,
 	idempotencyKey: string,
 ) {
+	const chatDispatchIdempotency = coreTable(db, d1ChatDispatchIdempotency);
 	const [row] = await db
 		.select()
 		.from(chatDispatchIdempotency)
@@ -459,6 +470,7 @@ export async function countTediRuntimeEvents(
 		runId: string;
 	} & TenantScope,
 ): Promise<number> {
+	const tediRuntimeEvents = coreTable(db, d1TediRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	return db.$count(
 		tediRuntimeEvents,
@@ -476,6 +488,7 @@ export async function updateKernelRuntimeEventMetadata(
 	id: string,
 	runtimeMetadata: Record<string, JsonValue>,
 ): Promise<void> {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const metadataTraceId = runtimeMetadata.traceId;
 	await db
@@ -512,6 +525,7 @@ export function buildInsertKernelRuntimeEventIfAbsentStatement(
 	db: DbClient,
 	value: NewKernelRuntimeEvent & TenantScope,
 ) {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	value = { ...value, ...normalizeTenantScope(value) };
 	if (value.causeEventId !== undefined && value.causeEventId !== null)
 		throw new Error(
@@ -537,13 +551,17 @@ export function buildInsertKernelRuntimeEventStatement(
 	db: DbClient,
 	value: NewKernelRuntimeEvent & TenantScope,
 ) {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	value = { ...value, ...normalizeTenantScope(value) };
 	if (value.causeEventId === undefined || value.causeEventId === null)
 		return buildInsertKernelRuntimeEventIfAbsentStatement(db, value);
 	if (value.causeEventId.length === 0)
 		throw new KernelRuntimeEventConflictError();
 	const traceId = resolveEventTraceId(value);
-	const cause = alias(kernelRuntimeEvents, "cause");
+	const cause =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)(kernelRuntimeEvents, "cause")
+			: sqliteAlias(kernelRuntimeEvents, "cause");
 	return db
 		.insert(kernelRuntimeEvents)
 		.select(
@@ -574,7 +592,7 @@ export function buildInsertKernelRuntimeEventStatement(
 					delta: sql<string | null>`${value.delta ?? null}`.as("delta"),
 					payload: sql<
 						NewKernelRuntimeEvent["payload"]
-					>`${value.payload === undefined ? null : JSON.stringify(value.payload)}`.as(
+					>`${value.payload == null ? sql`NULL` : jsonParameter(db, value.payload)}`.as(
 						"payload",
 					),
 					runtimeBackend: sql<
@@ -588,7 +606,7 @@ export function buildInsertKernelRuntimeEventStatement(
 					>`${value.runtimeExternalUrl ?? null}`.as("runtime_external_url"),
 					runtimeMetadata: sql<
 						NewKernelRuntimeEvent["runtimeMetadata"]
-					>`${value.runtimeMetadata === undefined ? null : JSON.stringify(value.runtimeMetadata)}`.as(
+					>`${value.runtimeMetadata == null ? sql`NULL` : jsonParameter(db, value.runtimeMetadata)}`.as(
 						"runtime_metadata",
 					),
 					traceId: sql<string | null>`${traceId ?? null}`.as("trace_id"),
@@ -631,6 +649,7 @@ export async function resolveReplayedKernelRuntimeEvent(
 	db: DbClient,
 	value: NewKernelRuntimeEvent & TenantScope,
 ): Promise<{ row: KernelRuntimeEvent | undefined; inserted: boolean }> {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	value = { ...value, ...normalizeTenantScope(value) };
 	const [existing] = await db
 		.select()
@@ -659,6 +678,7 @@ export async function getKernelRuntimeEventById(
 	tenantScope: TenantScope,
 	id: string,
 ): Promise<KernelRuntimeEvent | undefined> {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const pages = await readLogStores(db, async (store) => {
 		const row = await getKernelRuntimeEventById(store, tenantScope, id);
@@ -686,6 +706,7 @@ export async function countKernelConversationTitleGuardEvents(
 		conversationId: string;
 	} & TenantScope,
 ): Promise<Map<TediRuntimeEventKind, number>> {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const rows = await db
 		.select({
@@ -701,7 +722,7 @@ export async function countKernelConversationTitleGuardEvents(
 					eq(kernelRuntimeEvents.kind, "message.completed"),
 					and(
 						eq(kernelRuntimeEvents.kind, "conversation.updated"),
-						sql`(json_extract(${kernelRuntimeEvents.payload}, '$.conversation.title') IS NOT NULL OR json_extract(${kernelRuntimeEvents.payload}, '$.title') IS NOT NULL)`,
+						sql`(${jsonRead(db, kernelRuntimeEvents.payload, ["conversation", "title"])} IS NOT NULL OR ${jsonRead(db, kernelRuntimeEvents.payload, ["title"])} IS NOT NULL)`,
 					),
 				),
 			),

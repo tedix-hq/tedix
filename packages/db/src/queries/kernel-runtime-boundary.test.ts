@@ -436,7 +436,7 @@ describe("run-scoped runtime event reads under production statistics", () => {
 		);
 	});
 
-	it("issues one run-index statement per run id and merges the tail", async () => {
+	it("reads a run set once and pages the combined tail on the run index", async () => {
 		const { db, sqlite } = fixture();
 		seedProductionRuntimeEventStatistics(sqlite);
 		sqlite.exec(`
@@ -456,10 +456,11 @@ describe("run-scoped runtime event reads under production statistics", () => {
 			limit: 1,
 		});
 		expect(rows.map((row) => row.id)).toEqual(["e-2"]);
-		expect(statements).toHaveLength(2);
+		expect(statements).toHaveLength(1);
 		for (const statement of statements) {
-			expect(statement).toContain('"tedi_runtime_events"."run_id" = ?');
-			expect(statement).not.toContain('"run_id" in (');
+			expect(statement).toContain(
+				'"tedi_runtime_events"."run_id" IN (SELECT value FROM json_each(?)',
+			);
 			expect(queryPlan(sqlite, statement)).toMatch(
 				/USING INDEX idx_tedi_runtime_events_run(_kind)?_created \(tedi_id=\? AND run_id=\?\)/,
 			);
@@ -473,8 +474,8 @@ describe("run-scoped runtime event reads under production statistics", () => {
 			limit: 5,
 		});
 		expect(routerRows.map((row) => row.id)).toEqual(["e-3", "e-2"]);
-		expect(statements.slice(2)).toHaveLength(2);
-		for (const statement of statements.slice(2)) {
+		expect(statements.slice(1)).toHaveLength(2);
+		for (const statement of statements.slice(1)) {
 			expect(statement).toContain('+"tedi_runtime_events"."kind" in (?)');
 			expect(statement).not.toContain('"run_id" in (');
 		}
