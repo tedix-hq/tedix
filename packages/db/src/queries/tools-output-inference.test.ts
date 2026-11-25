@@ -200,7 +200,7 @@ describe.each(["d1", "postgres"] as const)(
 					),
 				);
 				for (const id of ids) await insert(`tool-${id}`, { appId: id });
-				const write = vi.spyOn(db, "all");
+				const write = vi.spyOn(db, "with");
 				expect(
 					await inferCatalogToolOutputSchemas(
 						db,
@@ -222,22 +222,34 @@ describe.each(["d1", "postgres"] as const)(
 							),
 						);
 				expect(await generation()).toEqual([{ generation: 2 }]);
-				const all = db.all.bind(db);
-				const race = vi.spyOn(db, "all").mockImplementationOnce((query) => {
-					const statement = all(query);
-					const execute = statement.execute.bind(statement);
-					vi.spyOn(statement, "execute").mockImplementationOnce(async () => {
-						await db
-							.update(tools)
-							.set({ sensitiveData: true })
-							.where(eq(tools.id, "sampled"));
-						await db
-							.update(tools)
-							.set({ outputSchema: { type: "string" } })
-							.where(eq(tools.id, "tool-installed-0"));
-						return execute();
+				const withCte = db.with.bind(db);
+				const race = vi.spyOn(db, "with").mockImplementationOnce((...ctes) => {
+					const scope = withCte(...ctes);
+					const update = scope.update.bind(scope);
+					vi.spyOn(scope, "update").mockImplementationOnce((table) => {
+						const builder = update(table);
+						const set = builder.set.bind(builder);
+						vi.spyOn(builder, "set").mockImplementationOnce((values) => {
+							const statement = set(values);
+							const execute = statement.execute.bind(statement);
+							vi.spyOn(statement, "execute").mockImplementationOnce(
+								async () => {
+									await db
+										.update(tools)
+										.set({ sensitiveData: true })
+										.where(eq(tools.id, "sampled"));
+									await db
+										.update(tools)
+										.set({ outputSchema: { type: "string" } })
+										.where(eq(tools.id, "tool-installed-0"));
+									return execute();
+								},
+							);
+							return statement;
+						});
+						return builder;
 					});
-					return statement;
+					return scope;
 				});
 				expect(
 					await inferCatalogToolOutputSchemas(

@@ -15,7 +15,17 @@ import {
 	EMPTY_TOOL_INPUT_SCHEMA,
 	withDerivedToolOperationalRiskPolicy,
 } from "@tedix/api-contract/schemas/tools";
-import { and, asc, count, eq, isNotNull, ne, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	count,
+	eq,
+	exists,
+	isNotNull,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
 import {
 	inferOutputSchema,
 	mergeOutputSchemas,
@@ -887,22 +897,47 @@ export async function inferCatalogToolOutputSchemas(
 		return { id: row.id, previous: row.outputSchema, schema };
 	});
 	const payload = JSON.stringify(updates);
-	const candidates =
-		coreStore(db) === "postgres"
-			? sql`SELECT id, previous, schema FROM jsonb_to_recordset(${payload}::jsonb) AS candidate(id text, previous jsonb, schema jsonb)`
-			: sql`SELECT json_extract(value, '$.id') AS id, json_extract(value, '$.previous') AS previous, json_extract(value, '$.schema') AS schema FROM json_each(${payload})`;
-	// One set-based write; the previous schema and sensitivity are checked again
-	// under the write lock, so an intervening declaration cannot be overwritten.
+	const value = sql`input.value`;
+	const previous = jsonRead(db, value, ["previous"], "json");
+	const candidates = db.$with("candidate").as(
+		db
+			.select({
+				id: sql<string>`${jsonRead(db, value, ["id"])}`.as("id"),
+				previous: (coreStore(db) === "postgres"
+					? sql`NULLIF(${previous}, 'null'::jsonb)`
+					: previous
+				).as("previous"),
+				schema: jsonRead(db, value, ["schema"], "json").as("schema"),
+			})
+			.from(
+				coreStore(db) === "postgres"
+					? sql`jsonb_array_elements(${payload}::jsonb) AS input(value)`
+					: sql`json_each(${payload}) AS input`,
+			),
+	);
+	// Recheck the previous schema and sensitivity under the write lock.
 	const unchanged =
 		coreStore(db) === "postgres"
-			? sql`${appTools.outputSchema} IS NOT DISTINCT FROM candidate.previous`
-			: sql`${appTools.outputSchema} IS candidate.previous`;
-	const changed = await db.all<{
-		id: string;
-	}>(sql`WITH candidate AS (${candidates})
-		UPDATE ${appTools} SET output_schema = (SELECT schema FROM candidate WHERE candidate.id = ${appTools.id}), updated_at = ${now}
-		WHERE ${appTools.sensitiveData} = ${booleanValue(db, false)} AND ${appTools.id} IN (
-			SELECT candidate.id FROM candidate WHERE ${unchanged}
-		) RETURNING id`);
+			? sql`${appTools.outputSchema} IS NOT DISTINCT FROM ${candidates.previous}`
+			: sql`${appTools.outputSchema} IS ${candidates.previous}`;
+	const changed = await db
+		.with(candidates)
+		.update(appTools)
+		.set({
+			outputSchema: sql`(${db.select({ schema: candidates.schema }).from(candidates).where(eq(candidates.id, appTools.id))})`,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(appTools.sensitiveData, false),
+				exists(
+					db
+						.select({ id: candidates.id })
+						.from(candidates)
+						.where(and(eq(candidates.id, appTools.id), unchanged)),
+				),
+			),
+		)
+		.returning({ id: appTools.id });
 	return changed.length;
 }
