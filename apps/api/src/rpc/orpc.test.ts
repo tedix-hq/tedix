@@ -685,7 +685,29 @@ describe("forwarded MCP agentic-app user identity", () => {
 				serviceBindingPrincipal: "mcp-edge",
 				db: { query: { organizations: { findFirst: organizationRead } } },
 			} as unknown as BaseContext;
-			const handler = vi.fn(() => "ok");
+			const child = os
+				.$context<BaseContext>()
+				.use(withAuth)
+				.handler(() => "ok");
+			const denied = os
+				.$context<BaseContext>()
+				.use(withAuth)
+				.use(AUTHZ.platformAdmin)
+				.handler(() => "unexpected");
+			const handler = vi.fn(async ({ context }: { context: BaseContext }) => {
+				await Promise.all(
+					Array.from({ length: 20 }, () => call(child, undefined, { context })),
+				);
+				await expect(
+					call(denied, undefined, { context }),
+				).rejects.toMatchObject({ code: "FORBIDDEN" });
+				const headers = new Headers(context.headers);
+				headers.set("X-Forwarded-Authorization", "Bearer invalid");
+				await expect(
+					call(child, undefined, { context: { ...context, headers } }),
+				).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+				return "ok";
+			});
 			const guarded = os.$context<BaseContext>().use(withAuth).handler(handler);
 			try {
 				const pending = call(guarded, undefined, { context });

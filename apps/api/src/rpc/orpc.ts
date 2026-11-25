@@ -622,6 +622,8 @@ async function authenticateForwardedMcpUserJwt(
 	}
 
 	context.organizationId = forwardedContext.organizationId;
+	context.userMembershipKind =
+		member?.status === "active" ? member.kind : undefined;
 	if (member) {
 		context.organizationMembership = {
 			...member,
@@ -736,10 +738,31 @@ export function resolveForwardedMcpUserTenantContext({
  * a bare context via `createContext()` and run this middleware in the chain.
  * There is no Hono-level pre-authentication step for the REST surface — an
  * earlier `authenticateRequest()` helper described that design but was never
- * wired up, so it has been deleted. The early-return checks below are therefore
- * about service-binding transport and forwarded identities, not about deduping
- * against a prior pass.
+ * wired up, so it has been deleted. Nested in-process calls reuse the verified
+ * forwarded identity within the same request, but still run their own guards.
  */
+const forwardedIdentities = new WeakMap<JWTPayload, readonly unknown[]>();
+
+function forwardedIdentityBinding(context: BaseContext) {
+	return [
+		context.db,
+		context.env,
+		context.headers,
+		JSON.stringify([...context.headers]),
+		context.organizationId,
+		context.userId,
+		context.ownerHostSessionId,
+		context.browserAgentSeat,
+		context.organizationMembership,
+		context.userRole,
+		context.userMembershipKind,
+		context.userPermissionOverrides,
+		context.descopeUserId,
+		context.crossTenantOverrideActive,
+		JSON.stringify(context.user),
+	];
+}
+
 export const withAuth = base.middleware(async (options, input) => {
 	const { context } = options;
 	// `bun run-local --demo` serves sample data: sending and scheduling stay off.
@@ -839,6 +862,17 @@ export const withAuth = base.middleware(async (options, input) => {
 					"A forwarded user identity is accepted only from the MCP gateway",
 				);
 			}
+			const verified = context.user && forwardedIdentities.get(context.user);
+			if (
+				verified &&
+				context.authType === "user" &&
+				forwardedIdentityBinding(context).every(
+					(value, i) => value === verified[i],
+				) &&
+				(typeof context.user?.exp !== "number" ||
+					context.user.exp * 1000 > Date.now())
+			)
+				return next({ context });
 			try {
 				// Identity resolution only reads D1 and rewrites the same context
 				// fields, so a transient D1 failure is safe to retry as a whole.
@@ -852,6 +886,11 @@ export const withAuth = base.middleware(async (options, input) => {
 					},
 					{ attempts: 3, delayMs: 100 + Math.floor(Math.random() * 150) },
 				);
+				if (context.user)
+					forwardedIdentities.set(
+						context.user,
+						forwardedIdentityBinding(context),
+					);
 			} catch (error) {
 				if (error instanceof ORPCError) throw error;
 				// Token/permission failures above are explicit ORPCErrors. An

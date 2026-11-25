@@ -16,6 +16,7 @@ async function agentReviewProjectScope(context: BaseContext) {
 		context.agentReviewProject?.id === projectId
 			? context.agentReviewProject.project
 			: await getProjectById(context.db, projectId);
+	context.agentReviewProject = { id: projectId, project };
 	if (!project)
 		throw new ORPCError("SERVICE_UNAVAILABLE", {
 			message: "Private review policy unavailable",
