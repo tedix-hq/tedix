@@ -77,10 +77,10 @@ import {
 	downloadUpdate,
 	type FoundUpdate,
 	findUpdate,
-	isNewer,
 	readyVersion,
 	restartToUpdate,
 } from "./update";
+import { isNewer } from "./version";
 
 // The copy run from source keeps its own name and data folder and leaves the
 // `tedix://` link type to the installed app, so the two never share a session

@@ -14,6 +14,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { app, net } from "electron";
 import { log } from "./log";
+import { isNewer } from "./version";
 
 /**
  * The app's own updater. The app is not signed or notarized yet, so the
@@ -74,14 +75,6 @@ function cannotUpdate(): string | undefined {
 		return `Tedix cannot replace itself in ${dirname(bundle)}. Move Tedix to your Applications folder and open it from there.`;
 	}
 	return undefined;
-}
-
-export function isNewer(candidate: string, current: string): boolean {
-	const a = candidate.split(".").map(Number);
-	const b = current.split(".").map(Number);
-	for (let part = 0; part < 3; part++)
-		if (a[part] !== b[part]) return (a[part] ?? 0) > (b[part] ?? 0);
-	return false;
 }
 
 async function get(

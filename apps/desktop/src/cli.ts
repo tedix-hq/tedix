@@ -27,7 +27,7 @@ import {
 	shellHasLocalBin,
 } from "./shell";
 import { restartRunners, runnersRunning } from "./runners";
-import { isNewer } from "./update";
+import { newerTool, sameRelease } from "./version";
 
 /**
  * The command-line tool that ships inside the app. The app copies it to one
@@ -165,7 +165,7 @@ async function install(bytes: Buffer, want: string): Promise<void> {
 		writeFileSync(fresh, bytes, { mode: 0o755 });
 		chmodSync(fresh, 0o755);
 		const got = await versionOf(fresh);
-		if (got !== want)
+		if (!got || !sameRelease(got, want))
 			throw new Error(
 				`The new command-line tool did not start as version ${want}; the one in use was kept.`,
 			);
@@ -259,10 +259,7 @@ export function takeUpdateClick(): UpdateClick | undefined {
 async function offered(have: string): Promise<string | undefined> {
 	const source = bundled();
 	insideVersion ??= source ? versionOf(source) : Promise.resolve("");
-	const inside = await insideVersion;
-	const best =
-		inside && (!published || isNewer(inside, published)) ? inside : published;
-	return have && best && isNewer(best, have) ? best : undefined;
+	return newerTool(have, await insideVersion, published);
 }
 
 /**
