@@ -53,7 +53,11 @@ export async function processAgentSessionEventQueue(
 	);
 	if (member?.status !== "active") return;
 	const modelEnv = organizationModelEnv(env, db, owner.organizationId, {
-		billWorkersAiSurface: "agent-session-request-observer",
+		billWorkersAiSurface: [
+			"agent-session-request-observer",
+			"agent-session-status-gate",
+			"agent-session-lesson-gate",
+		],
 	});
 	const model = workersAiLedgerModel(
 		modelEnv,

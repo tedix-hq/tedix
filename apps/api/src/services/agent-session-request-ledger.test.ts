@@ -537,6 +537,89 @@ describe("sequential covered recovery qualification", () => {
 	});
 });
 
+it.each([
+	{ skip: true, processed: true },
+	{ skip: false, processed: true },
+	{ skip: true, processed: false },
+])(
+	"gates unchanged status and delivered lessons while preserving intake: %j",
+	async ({ skip, processed }) => {
+		const db = fixture();
+		await observe(
+			db,
+			scripted('{"requests":[{"kind":"request","text":"Repair the upload"}]}')
+				.model,
+			"Repair the upload",
+		);
+		const turn = "Upload saved successfully after fixing the payload limit";
+		const activity = "Failed upload: payload limit";
+		await acceptAgentSessionEvents(db, {
+			...SCOPE,
+			now: T0,
+			events: [{ ...SCOPE, kind: "turn", sourceAt: T0, text: turn, activity }],
+		});
+		const [prior] = await db
+			.select()
+			.from(agentSessionEvents)
+			.where(eq(agentSessionEvents.kind, "turn"));
+		await recordAgentSessionLessonReflection(db, {
+			...SCOPE,
+			id: prior!.id,
+			inputKey: "prior-success",
+			response: '{"lessons":[]}',
+		});
+		await db
+			.update(agentSessionEvents)
+			.set({ status: processed ? "processed" : "pending" })
+			.where(eq(agentSessionEvents.id, prior!.id));
+		const status = vi.fn(async () => '{"updates":[]}');
+		const intake = vi.fn(async () => '{"new":[]}');
+		const lessons = vi.fn(async () => '{"lessons":[]}');
+		const gate = vi.fn(async () => skip);
+		const model: LedgerProcessingModel = Object.assign(status, {
+			extractObligations: intake,
+			reflectLessons: lessons,
+			skipInference: gate,
+		});
+		const before = (await rows(db))[0]!;
+		expect(
+			(
+				await reflectAgentSessionRequests(db, model, {
+					...SCOPE,
+					turn: "The upload remains fixed; no further changes.",
+					activity: null,
+					repository: "example/app",
+					sourceAt: "2026-10-06T10:02:00.000Z",
+					now: T0,
+				})
+			).status,
+		).toBe("reflected");
+		expect(gate.mock.calls).toHaveLength(processed ? 2 : 1);
+		if (processed)
+			expect(gate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					surface: "lesson",
+					state: expect.objectContaining({
+						previous: expect.objectContaining({ response: '{"lessons":[]}' }),
+					}),
+				}),
+			);
+		expect(status).toHaveBeenCalledTimes(skip ? 0 : 1);
+		expect(lessons).toHaveBeenCalledTimes(skip && processed ? 0 : 1);
+		expect(intake).toHaveBeenCalledTimes(1);
+		const after = (await rows(db))[0]!;
+		expect({
+			text: after.text,
+			status: after.status,
+			evidence: after.evidence,
+		}).toEqual({
+			text: before.text,
+			status: before.status,
+			evidence: before.evidence,
+		});
+	},
+);
+
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
@@ -3024,7 +3107,15 @@ it("uses the qualified status prompt in real ledger orchestration and keeps less
 	).toBe(SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT);
 	for (const call of calls)
 		expect(call.metadata.orgId).toBe(SCOPE.organizationId);
-	expect(run).not.toHaveBeenCalled();
+	expect(run).toHaveBeenCalledWith(
+		"@cf/cloudflare/clef-flash",
+		expect.objectContaining({
+			questions: expect.objectContaining({
+				request_0_change: expect.any(Object),
+			}),
+		}),
+		expect.any(Object),
+	);
 });
 
 it.each([

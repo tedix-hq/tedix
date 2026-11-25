@@ -147,48 +147,60 @@ describe("auxiliary model egress under organization residency", () => {
 		expect(onDispatch).toHaveBeenCalledOnce();
 		expect(send).toHaveBeenCalledOnce();
 	});
-	it("sends the reservation and execution receipt only after managed credit admission", async () => {
-		policy.mockResolvedValue(null);
-		const send = vi.fn(
-			async (_model: string, _body: unknown, _options: AiOptions) => ({
-				response: "summary",
-			}),
-		);
-		const scoped = organizationModelEnv(
-			{
-				AI: { run: send },
-				AI_GATEWAY_ACCOUNT_ID: "example-account",
-				AI_GATEWAY_LLM_ID: "example-gateway",
-				TEDIX_BILLING_SETTLEMENT_MODE: "managed",
-			},
-			{} as never,
-			"org_lark",
-			{ billWorkersAiSurface: "activity-feed-outcome" },
-		);
-		const summarize = () =>
-			runDistillModel(scoped as never, "fixture", {
-				surface: "activity-feed-outcome",
+	it.each([undefined, "agent-session-status-gate"])(
+		"sends %s reservation and execution receipt only after managed credit admission",
+		async (gateSurface) => {
+			const surface = gateSurface ?? "activity-feed-outcome";
+			policy.mockResolvedValue(null);
+			const send = vi.fn(
+				async (_model: string, _body: unknown, _options: AiOptions) => ({
+					response: "summary",
+				}),
+			);
+			const scoped = organizationModelEnv(
+				{
+					AI: { run: send },
+					AI_GATEWAY_ACCOUNT_ID: "example-account",
+					AI_GATEWAY_LLM_ID: "example-gateway",
+					TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+				},
+				{} as never,
+				"org_lark",
+				{
+					billWorkersAiSurface: gateSurface
+						? [
+								"agent-session-request-observer",
+								"agent-session-status-gate",
+								"agent-session-lesson-gate",
+							]
+						: surface,
+				},
+			);
+			const summarize = () =>
+				runDistillModel(scoped as never, "fixture", {
+					surface,
+				});
+			reserve.mockRejectedValueOnce(new Error("billing denied"));
+			expect(await summarize()).toBeNull();
+			expect(send).not.toHaveBeenCalled();
+			reserve.mockResolvedValueOnce({
+				organizationId: "org_lark",
+				source: surface,
+				billingReservationId: "reservation-1",
+				executionId: "execution-1",
 			});
-		reserve.mockRejectedValueOnce(new Error("billing denied"));
-		expect(await summarize()).toBeNull();
-		expect(send).not.toHaveBeenCalled();
-		reserve.mockResolvedValueOnce({
-			organizationId: "org_lark",
-			source: "activity-feed-outcome",
-			billingReservationId: "reservation-1",
-			executionId: "execution-1",
-		});
-		expect(await summarize()).toBe("summary");
-		const gateway = send.mock.calls[0]?.[2].gateway;
-		expect(gateway?.metadata).toMatchObject({
-			orgId: "org_lark",
-			source: "activity-feed-outcome",
-		});
-		expect(
-			decodeAiGatewayAttribution(gateway?.metadata?.attribution),
-		).toMatchObject({
-			billingReservationId: "reservation-1",
-			executionId: "execution-1",
-		});
-	});
+			expect(await summarize()).toBe("summary");
+			const gateway = send.mock.calls[0]?.[2].gateway;
+			expect(gateway?.metadata).toMatchObject({
+				orgId: "org_lark",
+				source: surface,
+			});
+			expect(
+				decodeAiGatewayAttribution(gateway?.metadata?.attribution),
+			).toMatchObject({
+				billingReservationId: "reservation-1",
+				executionId: "execution-1",
+			});
+		},
+	);
 });

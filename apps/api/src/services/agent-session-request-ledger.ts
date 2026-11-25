@@ -77,6 +77,10 @@ import {
 } from "./ledger-gateway-completion";
 import { type DistillEnv, runDistillModel } from "./lesson-distiller";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
+import {
+	skipLedgerInference,
+	type LedgerInferenceGateInput,
+} from "./ledger-inference-gate";
 
 const LEDGER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const MODEL_TIMEOUT_MS = 15_000;
@@ -230,6 +234,7 @@ export interface LedgerModel {
 	) => Promise<string | null>;
 	bookkeepingReflectionIdentity?: { status: string; intake: string };
 	lessonReflectionIdentity?: { model: string; systemPrompt: string };
+	skipInference?: (input: LedgerInferenceGateInput) => Promise<boolean>;
 	learn?: (
 		lessons: LedgerLesson[],
 		scope: SessionScope & { sourceAt: string; repository: string | null },
@@ -295,6 +300,13 @@ export function workersAiLedgerModel(
 			"agent-session-lesson-reflector",
 		);
 	model.routeProjects = true;
+	model.skipInference = async (input) => {
+		await assertModelEgressAllowed(env);
+		return skipLedgerInference(
+			{ AI: env.AI, AI_GATEWAY_LLM_ID: env.AI_GATEWAY_LLM_ID ?? "" },
+			input,
+		);
+	};
 	model.bookkeepingReflectionIdentity = {
 		status: LEDGER_SOL_MODEL,
 		intake: LEDGER_TERRA_MODEL,
@@ -535,6 +547,7 @@ async function reflectSessionLessons(
 	input: SessionScope & { sourceEventId?: string; repository: string | null },
 	sources: readonly LedgerLessonSource[],
 	writeReceipt: (write: () => Promise<void>) => Promise<void>,
+	previous?: { response: string },
 ): Promise<string | null> {
 	const receipt =
 		input.sourceEventId && model.lessonReflectionIdentity
@@ -564,7 +577,24 @@ async function reflectSessionLessons(
 			return saved;
 		}
 	}
-	const raw = await model.reflectLessons(sources);
+	if (!previous && model.skipInference)
+		writeInferenceDiagnostic(() =>
+			console.info({
+				event: "agent_session.inference_gate",
+				surface: "lesson",
+				decision: "called",
+				reason: "no_previous_reflection",
+				latencyMs: 0,
+				requests: 0,
+			}),
+		);
+	const skip =
+		previous &&
+		(await model.skipInference?.({
+			surface: "lesson",
+			state: { previous, current: sources.at(-1) },
+		}));
+	const raw = skip ? '{"lessons":[]}' : await model.reflectLessons(sources);
 	if (!receipt || raw === null) return raw;
 	// Never checkpoint candidates the evidence parser would discard.
 	if (!isReusableLessonReflection(raw, sources)) return raw;
@@ -704,13 +734,20 @@ export async function reflectAgentSessionRequests(
 	const currentSource = `AGENT TURN:\n${input.turn}\nACTIVITY:\n${input.activity ?? ""}`;
 	const source = `USER MESSAGE:\n${userMessage ?? ""}\n${currentSource}\nSAVED ROW EVIDENCE:\n${[...active, ...resolved].map((row) => row.evidence ?? "").join("\n")}`;
 	const lessonSources = [
-		...recentTurns,
+		...recentTurns.map(({ id, body, activity }) => ({ id, body, activity })),
 		{
 			id: input.sourceEventId ?? "",
 			body: input.turn,
 			activity: input.activity,
 		},
 	];
+	const previousLessonTurn = recentTurns.at(-1);
+	const previousLessons = previousLessonTurn?.lessonReflection?.response;
+	const previousLessonReflection =
+		previousLessons &&
+		isReusableLessonReflection(previousLessons, lessonSources)
+			? { response: previousLessons }
+			: undefined;
 	const canReflectLessons = hasPotentialLessonRecovery(lessonSources);
 	// Keep every possible failure/fix ID. Only exact repeats without activity or
 	// success evidence add no new lesson source; new prose may clarify a recovery.
@@ -766,7 +803,14 @@ export async function reflectAgentSessionRequests(
 	};
 	const lessonsPending =
 		canReflectLessons && !coveredRecovery
-			? reflectSessionLessons(db, model, input, lessonSources, writeReceipt)
+			? reflectSessionLessons(
+					db,
+					model,
+					input,
+					lessonSources,
+					writeReceipt,
+					previousLessonReflection,
+				)
 			: Promise.resolve('{"lessons":[]}');
 	const statusPrompt = requestReflectorInput(
 		input.turn,
@@ -787,12 +831,26 @@ export async function reflectAgentSessionRequests(
 					input,
 					"status",
 					REQUEST_STATUS_REFLECTOR_SYSTEM_PROMPT,
-					() =>
-						model(
+					async () => {
+						if (
+							model.skipInference &&
+							(await model.skipInference({
+								surface: "status",
+								state: {
+									rows: prompt.slice(0, active.length),
+									turn: input.turn,
+									activity: input.activity,
+								},
+								rows: prompt.slice(0, active.length),
+							}))
+						)
+							return '{"updates":[]}';
+						return model(
 							REQUEST_STATUS_REFLECTOR_SYSTEM_PROMPT,
 							statusPrompt,
 							"agent-session-request-reflector",
-						),
+						);
+					},
 					(candidate) =>
 						parseReflectedUpdates(candidate, openRefs, source) !== null,
 					writeReceipt,

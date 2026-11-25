@@ -1113,7 +1113,13 @@ export async function listRecentAgentSessionTurns(
 		before: string;
 	},
 ): Promise<
-	Array<{ id: string; body: string; activity: string | null; sourceAt: string }>
+	Array<{
+		id: string;
+		body: string;
+		activity: string | null;
+		sourceAt: string;
+		lessonReflection?: AgentSessionEventRow["lessonReflection"];
+	}>
 > {
 	const rows = await db
 		.select({
@@ -1122,6 +1128,8 @@ export async function listRecentAgentSessionTurns(
 			bodyR2Key: agentSessionEvents.bodyR2Key,
 			activity: agentSessionEvents.activity,
 			sourceAt: agentSessionEvents.sourceAt,
+			lessonReflection: agentSessionEvents.lessonReflection,
+			status: agentSessionEvents.status,
 		})
 		.from(agentSessionEvents)
 		.where(
@@ -1147,6 +1155,9 @@ export async function listRecentAgentSessionTurns(
 				sourceAt: row.sourceAt,
 				body: body.body,
 				activity: body.activity,
+				...(row.status === "processed" && body.lessonReflection
+					? { lessonReflection: body.lessonReflection }
+					: {}),
 			};
 		}),
 	);

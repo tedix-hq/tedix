@@ -49,7 +49,10 @@ export function organizationModelEnv<
 	env: T,
 	db: DbQueryClient,
 	organizationId: string,
-	options: { onDispatch?: () => void; billWorkersAiSurface?: string } = {},
+	options: {
+		onDispatch?: () => void;
+		billWorkersAiSurface?: string | readonly string[];
+	} = {},
 ): T {
 	const check = () =>
 		requireUnrestrictedModelEgress(
@@ -68,7 +71,12 @@ export function organizationModelEnv<
 					return async (model: string, body: unknown, request?: AiOptions) => {
 						await check();
 						request?.signal?.throwIfAborted();
-						const source = options.billWorkersAiSurface;
+						const configured = options.billWorkersAiSurface;
+						const requested = request?.gateway?.metadata?.surface;
+						const source =
+							typeof configured === "string"
+								? configured
+								: configured?.find((surface) => surface === requested);
 						if (
 							source &&
 							env.TEDIX_BILLING_SETTLEMENT_MODE === "managed" &&
