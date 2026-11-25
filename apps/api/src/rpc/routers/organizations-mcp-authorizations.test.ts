@@ -4,6 +4,8 @@ import { createDbClient } from "@tedix/db/client";
 import {
 	replaceMcpConsentSelection,
 	stageMcpConsentPending,
+	getMcpConsentGrant,
+	getMcpConsentPending,
 } from "@tedix/db/queries/mcp-consent";
 import {
 	mcpConsentGrants,
@@ -22,7 +24,10 @@ import {
 } from "vite-plus/test";
 import { forgetHumanMcpProviderFacts } from "../../lib/mcp-grant";
 import { createContext } from "../context";
-import { verifyHumanMcpGrantContract } from "./organizations-mcp-authorizations";
+import {
+	revokeMcpInstallationContract,
+	verifyHumanMcpGrantContract,
+} from "./organizations-mcp-authorizations";
 
 const mocks = vi.hoisted(() => ({
 	loadServer: vi.fn(),
@@ -30,6 +35,11 @@ const mocks = vi.hoisted(() => ({
 	loadUser: vi.fn(),
 	searchConsents: vi.fn(),
 	resource: vi.fn(),
+	revocationProof: vi.fn(),
+}));
+
+vi.mock("@tedix/auth/mcp-installation-revocation", () => ({
+	verifyMcpRevocationProof: mocks.revocationProof,
 }));
 
 vi.mock("@tedix/auth/aih-client", () => ({
@@ -170,7 +180,10 @@ function fixture() {
 		} as CloudflareEnv,
 	);
 	const client = createRouterClient(
-		{ verify: verifyHumanMcpGrantContract },
+		{
+			verify: verifyHumanMcpGrantContract,
+			revoke: revokeMcpInstallationContract,
+		},
 		{ context },
 	);
 	return {
@@ -182,6 +195,90 @@ function fixture() {
 }
 
 describe("grant verification across D1 replica lag", () => {
+	it("revokes one install and its refresh token while another install sharing the same consent keeps working", async () => {
+		const { client, primary, replica } = fixture();
+		await replaceMcpConsentSelection(primary, selection);
+		await replaceMcpConsentSelection(replica, selection);
+		const second = {
+			...input,
+			consentRevision: "00000000-0000-4000-8000-000000000003",
+		};
+		await primary.insert(mcpConsentGrants).values([
+			{ ...selection, revision: second.consentRevision },
+			{ ...selection, clientId: "cli-client", revision: "cli-install" },
+			{
+				...selection,
+				descopeUserId: "another-user",
+				revision: "other-user-install",
+			},
+		]);
+		await stageMcpConsentPending(primary, {
+			...selection,
+			expectedActiveRevision: selection.revision,
+			expiresAt: "2099-01-01T00:00:00.000Z",
+		});
+		mocks.revocationProof.mockResolvedValue({
+			descopeUserId: input.descopeUserId,
+			clientId: input.clientId,
+			revision: input.consentRevision,
+			revocationEndpoint: "https://auth.example.test/revoke",
+		});
+		const provider = vi.fn(async () => new Response(null, { status: 200 }));
+		vi.stubGlobal("fetch", provider);
+		onTestFinished(() => vi.unstubAllGlobals());
+		await expect(client.verify(input)).resolves.toMatchObject({
+			allowed: true,
+		});
+		await expect(client.verify(second)).resolves.toMatchObject({
+			allowed: true,
+		});
+		await expect(
+			client.revoke({
+				resourceUrl: "https://example.test/mcp",
+				accessToken: "signed-install-proof",
+				refreshToken: "removed-install-refresh",
+			}),
+		).resolves.toEqual({ revoked: true });
+		expect(provider).toHaveBeenCalledOnce();
+		const [url, init] = provider.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("https://auth.example.test/revoke");
+		expect(new URLSearchParams(init.body as URLSearchParams).get("token")).toBe(
+			"removed-install-refresh",
+		);
+		expect(
+			new URLSearchParams(init.body as URLSearchParams).get("client_id"),
+		).toBe(input.clientId);
+		await expect(client.verify(input)).resolves.toMatchObject({
+			allowed: false,
+			reason: "selection_replaced",
+		});
+		await expect(client.verify(second)).resolves.toMatchObject({
+			allowed: true,
+		});
+		expect(
+			await getMcpConsentGrant(primary, {
+				...selection,
+				revision: "cli-install",
+				clientId: "cli-client",
+			}),
+		).not.toBeNull();
+		expect(
+			await getMcpConsentGrant(primary, {
+				...selection,
+				revision: "other-user-install",
+				descopeUserId: "another-user",
+			}),
+		).not.toBeNull();
+		expect(await getMcpConsentPending(primary, selection)).toBeNull();
+		expect(mocks.searchConsents).toHaveBeenCalledWith({
+			userId: input.descopeUserId,
+			consentId: input.consentId,
+		});
+	});
+
 	it.each(["missing", "expired pending"])(
 		"verifies a fresh primary grant when the replica has %s consent",
 		async (state) => {
@@ -205,13 +302,13 @@ describe("grant verification across D1 replica lag", () => {
 		},
 	);
 
-	it("keeps a positive replica verification on its original session", async () => {
+	it("refuses a removed grant even when the replica still allows it", async () => {
 		const { client, replica, withSession } = fixture();
 		await replaceMcpConsentSelection(replica, selection);
 		await expect(client.verify(input)).resolves.toMatchObject({
-			allowed: true,
+			allowed: false,
 		});
-		expect(withSession).toHaveBeenCalledTimes(1);
+		expect(withSession).toHaveBeenCalledTimes(2);
 	});
 
 	it("answers a real missing grant negatively after only one primary retry", async () => {

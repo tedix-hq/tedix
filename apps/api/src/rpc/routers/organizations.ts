@@ -80,6 +80,7 @@ import {
 	disableMcpAuthorizationContract,
 	stageHumanMcpConsentContract,
 	revokeHumanMcpConsentContract,
+	revokeMcpInstallationContract,
 	verifyHumanMcpGrantContract,
 	resolveCliWorkspaceContract,
 } from "./organizations-mcp-authorizations";
@@ -912,6 +913,7 @@ export const organizationsContractRouter = organizationsOs.router({
 	disableMcpAuthorization: disableMcpAuthorizationContract,
 	stageMultiOrgMcpConsent: stageHumanMcpConsentContract,
 	revokeMultiOrgMcpConsent: revokeHumanMcpConsentContract,
+	revokeMcpInstallation: revokeMcpInstallationContract,
 	verifyMultiOrgMcpGrant: verifyHumanMcpGrantContract,
 	resolveCliWorkspace: resolveCliWorkspaceContract,
 	listMine: listMineContract,

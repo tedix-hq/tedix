@@ -165,9 +165,7 @@ describe("multi-organization MCP consent", () => {
 		},
 	);
 
-	it("refreshes the grant for the exact selected organizations after two minutes", async () => {
-		let now = Date.now();
-		vi.spyOn(Date, "now").mockImplementation(() => now);
+	it("rechecks the exact selected organizations on the next request", async () => {
 		const fetch = vi.fn(async (request: Request) => {
 			const input = (await request.json()) as {
 				json?: Record<string, unknown>;
@@ -212,16 +210,6 @@ describe("multi-organization MCP consent", () => {
 		fetch.mockResolvedValueOnce(
 			Response.json({ json: { allowed: false, organizations: [] } }),
 		);
-		await expect(
-			validateHumanMcpSelection(payload, env, config),
-		).resolves.not.toBeNull();
-		expect(fetch).toHaveBeenCalledTimes(1);
-		now += 119_999;
-		await expect(
-			validateHumanMcpSelection(payload, env, config),
-		).resolves.not.toBeNull();
-		expect(fetch).toHaveBeenCalledTimes(1);
-		now += 1;
 		await expect(
 			validateHumanMcpSelection(payload, env, config),
 		).resolves.toBeNull();

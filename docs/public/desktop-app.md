@@ -37,7 +37,9 @@ at **Chip**.
 
 You can connect an app later in **Settings → Agents**. To start over with an
 app, switch off its **Use for tasks**, choose the trash icon on its row, then
-**Connect**.
+**Connect**. Removing Tedix ends only that install's Tedix sign-in. Other
+agents, installs and CLI logins stay signed in. If removal cannot reach the
+server, the connection stays so you can try again.
 If you installed both the Mac app and a separate coding tool for the same
 provider, Tedix uses the Mac app when its coding tool is ready.
 

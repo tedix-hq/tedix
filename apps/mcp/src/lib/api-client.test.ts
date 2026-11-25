@@ -172,21 +172,21 @@ describe("gateway authority read cache", () => {
 		});
 		await cached.fetch(request(path));
 		await cached.fetch(request(path));
-		expect(fetch).toHaveBeenCalledTimes(5);
+		expect(fetch).toHaveBeenCalledTimes(6);
 	});
 
-	it("keeps an allowed grant for two minutes", async () => {
-		let now = Date.now();
-		vi.spyOn(Date, "now").mockImplementation(() => now);
-		const fetch = vi.fn(async () => Response.json({ json: { allowed: true } }));
+	it("refuses a revoked grant on the next call without waiting for cache expiry", async () => {
+		let allowed = true;
+		const fetch = vi.fn(async () => Response.json({ json: { allowed } }));
 		const cached = gatewayReadBinding({ fetch });
 		const path = "organizations/verifyMultiOrgMcpGrant";
-		await cached.fetch(request(path));
-		now += 119_999;
-		await cached.fetch(request(path));
-		expect(fetch).toHaveBeenCalledOnce();
-		now += 1;
-		await cached.fetch(request(path));
+		expect(await (await cached.fetch(request(path))).json()).toEqual({
+			json: { allowed: true },
+		});
+		allowed = false;
+		expect(await (await cached.fetch(request(path))).json()).toEqual({
+			json: { allowed: false },
+		});
 		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 

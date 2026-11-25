@@ -313,10 +313,12 @@ its source and does not switch or delete it.
 
 To take Tedix out of one agent and connect it fresh, run
 `tedix setup agents --remove --codex` (or `--claude`, `--devin`, `--opencode`).
-It signs that agent out of Tedix where the agent can, removes the Tedix plugin
-and its marketplace, the Tedix hooks and the Tedix connection, and keeps the
-agent's own account and other settings. Plugins an agent syncs from its account
-in the cloud are left to that agent.
+It ends that install's Tedix grant and refresh token on the server before
+clearing its local sign-in, plugin, marketplace, hooks and connection. Other
+installs and CLI logins stay signed in, even when they share consent. If the
+server cannot confirm revocation, the local connection stays so you can retry.
+The agent's own account and other settings stay. Plugins an agent syncs from
+its account in the cloud are left to that agent.
 
 To bring a new member's history in, run `tedix learn onboard --dry-run`, then
 `tedix learn onboard`. The dry run quickly shows session counts per host and

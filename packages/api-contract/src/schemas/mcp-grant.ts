@@ -33,6 +33,13 @@ export const HumanMcpConsentRevisionSchema = z.strictObject({
 	revision: z.uuid(),
 });
 
+export const RevokeMcpInstallationInputSchema = z.strictObject({
+	resourceUrl: z.url().max(2048),
+	accessToken: z.string().min(1).max(32768),
+	refreshToken: z.string().min(1).max(32768),
+	clientSecret: z.string().max(4096).optional(),
+});
+
 /** A request from the trusted MCP edge to recheck a human OAuth grant. */
 export const VerifyHumanMcpGrantInputSchema = z.strictObject({
 	descopeUserId: z.string().min(1).max(256),

@@ -102,6 +102,49 @@ export async function replaceMcpConsentSelection(
 	return row;
 }
 
+/** Remove one installation, including the legacy fallback and an unactivated candidate. */
+export async function revokeMcpConsentGrant(
+	db: DbQueryClient,
+	key: McpConsentSelectionKey & { revision: string },
+) {
+	await db.batch([
+		db
+			.update(mcpConsentSelections)
+			.set({
+				status: "revoked",
+				selectedTenantIds: [],
+				approvedScopes: [],
+				updatedAt: new Date().toISOString(),
+			})
+			.where(
+				and(
+					eq(mcpConsentSelections.descopeUserId, key.descopeUserId),
+					eq(mcpConsentSelections.mcpServerId, key.mcpServerId),
+					eq(mcpConsentSelections.clientId, key.clientId),
+					eq(mcpConsentSelections.revision, key.revision),
+				),
+			),
+		db
+			.delete(mcpConsentGrants)
+			.where(
+				and(
+					grantKeyCondition(key),
+					eq(mcpConsentGrants.revision, key.revision),
+				),
+			),
+		db
+			.delete(mcpConsentPending)
+			.where(
+				and(
+					eq(mcpConsentPending.descopeUserId, key.descopeUserId),
+					eq(mcpConsentPending.mcpServerId, key.mcpServerId),
+					eq(mcpConsentPending.clientId, key.clientId),
+					eq(mcpConsentPending.revision, key.revision),
+				),
+			),
+	]);
+}
+
 export interface McpConsentGrantResult {
 	appId: string;
 	revision: string;

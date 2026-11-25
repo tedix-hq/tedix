@@ -754,6 +754,12 @@ const worker = {
 			}
 		}
 
+		// authz: signed installation proof; this route only revokes its own grant.
+		if (url.pathname === "/mcp/revoke") {
+			const { revokeInstallation } = await import("./revoke-installation");
+			return revokeInstallation(request, env);
+		}
+
 		// Step 2: Validate OAuth/auth for MCP routes
 		const hasAuthHeader = request.headers.get("Authorization");
 		const hasApiKeyHeader =

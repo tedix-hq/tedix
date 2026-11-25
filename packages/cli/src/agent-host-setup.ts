@@ -11,6 +11,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { REMOVABLE_HOSTS, removeTedix } from "./agent-host-remove";
+import { revokeAgentHostGrants } from "./agent-host-grant";
 import { credentialDirectory } from "./credential-store";
 import { devinConfigDirectory, setupDevin } from "./devin-config";
 import {
@@ -806,7 +807,9 @@ export async function runAgentHostSetup(
 			console.log("Nothing was removed.");
 			return 1;
 		}
+		const revoked = await revokeAgentHostGrants(host);
 		const done = removeTedix(host, (command, rest) => run(command, rest));
+		if (revoked) done.unshift("ended this agent's Tedix sign-in on the server");
 		console.log(
 			done.length
 				? `${host}: ${done.join("; ")}. Connect it again with tedix setup agents --${host}.`

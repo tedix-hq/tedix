@@ -30,6 +30,7 @@ import {
 	DisableMcpAuthorizationInputSchema,
 	HumanMcpConsentRevisionSchema,
 	RevokeHumanMcpConsentInputSchema,
+	RevokeMcpInstallationInputSchema,
 	StageHumanMcpConsentInputSchema,
 	VerifyHumanMcpGrantInputSchema,
 	VerifyHumanMcpGrantResultSchema,
@@ -157,6 +158,11 @@ export const organizationsContract = oc
 			})
 			.input(VerifyHumanMcpGrantInputSchema)
 			.output(VerifyHumanMcpGrantResultSchema),
+
+		revokeMcpInstallation: oc
+			.route({ method: "POST", tags: ["internal"] })
+			.input(RevokeMcpInstallationInputSchema)
+			.output(z.object({ revoked: z.literal(true) })),
 
 		/**
 		 * Resolve the public MCP gateway used by first-run CLI login.

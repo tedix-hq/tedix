@@ -18,6 +18,7 @@ import {
 	type InboundClientInventoryItem,
 } from "@tedix/api-contract/schemas/mcp-grant";
 import { evaluateInboundClientPolicy } from "../../lib/mcp-inbound-client-policy";
+import { revokeMcpInstallation } from "../../lib/revoke-mcp-installation";
 import {
 	listHumanMcpAuthorizations,
 	disableHumanMcpAuthorization,
@@ -272,6 +273,21 @@ export const revokeHumanMcpConsentContract =
 			return { revision };
 		});
 
+export const revokeMcpInstallationContract =
+	organizationsOs.revokeMcpInstallation
+		.use(withServiceAuth)
+		.handler(async ({ input, context }) => {
+			try {
+				const primary = createDbSession(context.env.DB, null, "first-primary");
+				return await revokeMcpInstallation(primary.db, context.env, input);
+			} catch {
+				throw createError(
+					ErrorCodes.SERVICE_UNAVAILABLE,
+					"Could not end this agent's sign-in. Its local connection was kept; try Remove again.",
+				);
+			}
+		});
+
 /** Internal authorization read used only after the MCP edge validates OAuth. */
 export const verifyHumanMcpGrantContract =
 	organizationsOs.verifyMultiOrgMcpGrant
@@ -280,16 +296,7 @@ export const verifyHumanMcpGrantContract =
 			// Inventory rows for clients the allowlist does not admit are written
 			// after the response; the decision never waits on them.
 			const options = { defer: context.waitUntil };
-			const decision = await verifyHumanMcpGrant(
-				context.db,
-				context.env,
-				input,
-				options,
-			);
-			// Positive replica answers can still reflect a revoke within the lag window.
-			if (decision.allowed) return decision;
-			// Consent may have just finished on the primary while this session still
-			// sees a missing grant or an older pending decision. Retry once there.
+			// A replica may still allow an installation just removed on the primary.
 			const primary = createDbSession(context.env.DB, null, "first-primary");
 			return verifyHumanMcpGrant(primary.db, context.env, input, options);
 		});
