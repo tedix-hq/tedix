@@ -157,6 +157,7 @@ import { mayDecideWorkspaceConnection } from "../../services/os-app-connection";
 import {
 	AUTHZ,
 	type BaseContext,
+	readGatewayAgentIdentityHeaders,
 	readGatewayIdentityHeaders,
 	resolveServiceBindingOrganizationId,
 	withAuth,
@@ -778,6 +779,8 @@ export async function resolveTenantToolPolicyForGateway(
 	context: BaseContext,
 	input: ResolveTenantToolPolicyInput,
 ): Promise<z.infer<typeof ResolveTenantToolPolicyResponseSchema>> {
+	// withServiceAuth does not copy these headers; withAuth does.
+	readGatewayAgentIdentityHeaders(context);
 	await assertGatewayOrganization(context, input.organizationId);
 	const none = { matched: false, revisionId: null, ruleDigest: null };
 	const descriptor = input.descriptor;
@@ -912,6 +915,8 @@ async function machinePolicySubjectKeys(
 	context: BaseContext,
 	organizationId: string,
 ) {
+	// withServiceAuth does not copy these headers; withAuth does.
+	readGatewayAgentIdentityHeaders(context);
 	const principalId = context.externalAgentPrincipalId,
 		sessionId = context.externalAgentSessionId,
 		clientRecordId = context.externalAgentClientRecordId;
@@ -1103,6 +1108,8 @@ async function requestMachineApproval(
 	context: BaseContext,
 	input: RequestMachineToolApprovalInput,
 ) {
+	// withServiceAuth does not copy these headers; withAuth does.
+	readGatewayAgentIdentityHeaders(context);
 	await assertGatewayOrganization(context, input.organizationId);
 	const principalId = context.externalAgentPrincipalId;
 	const sessionId = context.externalAgentSessionId;
@@ -4028,6 +4035,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	),
 	recordMachineProviderProbe: serviceOs.recordMachineProviderProbe.handler(
 		async ({ input, context }) => {
+			// withServiceAuth does not copy these headers; withAuth does.
+			readGatewayAgentIdentityHeaders(context);
 			await assertGatewayOrganization(context, input.organizationId);
 			if (
 				context.authType !== "service-binding" ||
@@ -4172,6 +4181,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 		}),
 	prepareMachineIdentityProbe: serviceOs.prepareMachineIdentityProbe.handler(
 		async ({ input, context }) => {
+			// withServiceAuth does not copy these headers; withAuth does.
+			readGatewayAgentIdentityHeaders(context);
 			const organizationId = requireOrgId(context);
 			const principalId = context.externalAgentPrincipalId,
 				sessionId = context.externalAgentSessionId,

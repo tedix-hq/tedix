@@ -240,6 +240,52 @@ export function readGatewayIdentityHeaders(context: BaseContext): void {
 }
 
 /**
+ * Copy the MCP gateway's machine identity onto a service-binding context: the
+ * end-user and scope headers, the verified external-agent principal, session
+ * and client record, and the declared-tool authorization. withServiceAuth
+ * leaves all of these unread; call this only after the request is known to
+ * arrive over the trusted service binding.
+ */
+export function readGatewayAgentIdentityHeaders(context: BaseContext): void {
+	if (!isServiceBinding(context.headers)) return;
+	readGatewayIdentityHeaders(context);
+	if (
+		context.headers.get("X-Tedix-Caller-Type") === "mcp-edge-external-agent"
+	) {
+		const principalId = context.headers.get(
+			"X-Tedix-External-Agent-Principal-Id",
+		);
+		const sessionId = context.headers.get("X-Tedix-External-Agent-Session-Id");
+		const clientRecordId = context.headers.get(
+			"X-Tedix-External-Agent-Client-Record-Id",
+		);
+		const uuid =
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+		if (
+			!principalId ||
+			!sessionId ||
+			!clientRecordId ||
+			!uuid.test(principalId) ||
+			!uuid.test(sessionId) ||
+			clientRecordId.length > 300 ||
+			!/^[A-Za-z0-9._:-]+$/.test(clientRecordId)
+		) {
+			throw createError(
+				ErrorCodes.UNAUTHORIZED,
+				"Malformed external-agent service-binding identity",
+			);
+		}
+		context.externalAgentPrincipalId = principalId;
+		context.externalAgentSessionId = sessionId;
+		context.externalAgentClientRecordId = clientRecordId;
+	}
+	context.serviceBindingAuthorization = resolveMcpServiceBindingAuthorization(
+		context.headers,
+		context,
+	);
+}
+
+/**
  * Service binding authentication (Worker-to-Worker only).
  *
  * Used for internal endpoints that should NOT be publicly accessible:
@@ -963,43 +1009,7 @@ export const withAuth = base.middleware(async (options, input) => {
 				context.headers.get("x-tedix-tedi-id");
 			if (tediIdHeader) context.tediId = tediIdHeader;
 		}
-		readGatewayIdentityHeaders(context);
-		if (
-			context.headers.get("X-Tedix-Caller-Type") === "mcp-edge-external-agent"
-		) {
-			const principalId = context.headers.get(
-				"X-Tedix-External-Agent-Principal-Id",
-			);
-			const sessionId = context.headers.get(
-				"X-Tedix-External-Agent-Session-Id",
-			);
-			const clientRecordId = context.headers.get(
-				"X-Tedix-External-Agent-Client-Record-Id",
-			);
-			const uuid =
-				/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-			if (
-				!principalId ||
-				!sessionId ||
-				!clientRecordId ||
-				!uuid.test(principalId) ||
-				!uuid.test(sessionId) ||
-				clientRecordId.length > 300 ||
-				!/^[A-Za-z0-9._:-]+$/.test(clientRecordId)
-			) {
-				throw createError(
-					ErrorCodes.UNAUTHORIZED,
-					"Malformed external-agent service-binding identity",
-				);
-			}
-			context.externalAgentPrincipalId = principalId;
-			context.externalAgentSessionId = sessionId;
-			context.externalAgentClientRecordId = clientRecordId;
-		}
-		context.serviceBindingAuthorization = resolveMcpServiceBindingAuthorization(
-			context.headers,
-			context,
-		);
+		readGatewayAgentIdentityHeaders(context);
 		// Token exchange pilot: a forwarded exchanged token must verify for this
 		// exact procedure and then narrows the call to its scopes. With the
 		// pilot off the header is ignored and nothing changes.

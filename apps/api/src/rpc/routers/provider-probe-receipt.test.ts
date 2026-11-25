@@ -186,33 +186,38 @@ describe("provider identity probe receipts", () => {
 		);
 	});
 	it("requires a machine scope and active matching credential before initiating a probe", async () => {
-		const machine = {
-			authType: "service-binding",
-			organizationId: "org-1",
-			externalAgentPrincipalId: "principal",
-			externalAgentSessionId: "session",
-			externalAgentClientRecordId: "record",
-			serviceBindingAuthorization: { source: "mcp-tool", toolId: "tool" },
-			tediScopes: ["connections.execute"],
-			db: {},
-			env: {
-				ENVIRONMENT: "test",
-				MCP_SERVICE: { fetch: async () => Response.json({ receiptId }) },
-			},
-			headers: new Headers({
-				"X-Service-Binding": "true",
-				"X-Tedix-External-Agent-OAuth-Client-Id": "client",
-				"X-Tedix-External-Agent-Mcp-Server-Id": "server",
-			}),
-			url: new URL("https://api.test/rpc"),
-			rateLimiter: { limit: async () => ({ success: true }) },
-		} as unknown as BaseContext;
+		// Identity arrives only as the gateway's headers, as in production.
+		const machine = (scopes: string) =>
+			createRouterClient(mcpGovernanceContractRouter, {
+				context: () =>
+					({
+						organizationId: "org-1",
+						db: {},
+						env: {
+							ENVIRONMENT: "test",
+							MCP_SERVICE: { fetch: async () => Response.json({ receiptId }) },
+						},
+						headers: new Headers({
+							"X-Service-Binding": "true",
+							"X-Tedix-Caller-Type": "mcp-edge-external-agent",
+							"X-Tedix-External-Agent-Principal-Id":
+								"11111111-1111-4111-8111-111111111111",
+							"X-Tedix-External-Agent-Session-Id":
+								"22222222-2222-4222-8222-222222222222",
+							"X-Tedix-External-Agent-Client-Record-Id": "record",
+							"X-Tedix-Mcp-Tool-Id": "tool",
+							"X-Tedix-Tedi-Scopes": scopes,
+							"X-Tedix-External-Agent-OAuth-Client-Id": "client",
+							"X-Tedix-External-Agent-Mcp-Server-Id": "server",
+						}),
+						url: new URL("https://api.test/rpc"),
+						rateLimiter: { limit: async () => ({ success: true }) },
+					}) as unknown as BaseContext,
+			});
 		mocks.activeMachine.mockResolvedValue({
 			credential: { mcpServerId: "server" },
 		});
-		const client = createRouterClient(mcpGovernanceContractRouter, {
-			context: machine,
-		});
+		const client = machine("connections.execute");
 		await expect(
 			client.prepareMachineIdentityProbe({
 				profileId: "profile",
@@ -220,9 +225,7 @@ describe("provider identity probe receipts", () => {
 			}),
 		).resolves.toEqual({ receiptId });
 		expect(mocks.machineAuthIssue).toHaveBeenCalledTimes(1);
-		const denied = createRouterClient(mcpGovernanceContractRouter, {
-			context: { ...machine, tediScopes: [] },
-		});
+		const denied = machine("connections.read");
 		await expect(
 			denied.prepareMachineIdentityProbe({
 				profileId: "profile",
@@ -264,8 +267,8 @@ describe("provider identity probe receipts", () => {
 		const row = await mocks.profile();
 		const input = {
 			organizationId: "org-1",
-			principalId: "principal",
-			sessionId: "session",
+			principalId: "11111111-1111-4111-8111-111111111111",
+			sessionId: "22222222-2222-4222-8222-222222222222",
 			clientRecordId: "record",
 			clientId: "client",
 			mcpServerId: "server",
@@ -274,24 +277,34 @@ describe("provider identity probe receipts", () => {
 			exampleArgs: args,
 			accountRevisionDigest: "e".repeat(64),
 		};
-		const context = {
-			authType: "service-binding",
-			organizationId: "org-1",
-			externalAgentPrincipalId: "principal",
-			externalAgentSessionId: "session",
-			externalAgentClientRecordId: "record",
-			db: {},
-			env: { ENVIRONMENT: "test" },
-			headers: new Headers({ "X-Service-Binding": "true" }),
-			url: new URL("https://api.test/rpc"),
-			rateLimiter: { limit: async () => ({ success: true }) },
-		} as BaseContext;
-		const client = createRouterClient(mcpGovernanceContractRouter, { context });
+		// Identity arrives only as the gateway's headers, as in production.
+		const machine = (principalId: string) =>
+			createRouterClient(mcpGovernanceContractRouter, {
+				context: () =>
+					({
+						organizationId: "org-1",
+						db: {},
+						env: { ENVIRONMENT: "test" },
+						headers: new Headers({
+							"X-Service-Binding": "true",
+							"X-Tedix-Caller-Type": "mcp-edge-external-agent",
+							"X-Tedix-External-Agent-Principal-Id": principalId,
+							"X-Tedix-External-Agent-Session-Id": input.sessionId,
+							"X-Tedix-External-Agent-Client-Record-Id": "record",
+						}),
+						url: new URL("https://api.test/rpc"),
+						rateLimiter: { limit: async () => ({ success: true }) },
+					}) as BaseContext,
+			});
+		const client = machine(input.principalId);
 		mocks.activeMachine.mockResolvedValue({
 			credential: { mcpServerId: "server" },
 		});
 		await expect(
-			client.recordMachineProviderProbe({ ...input, principalId: "other" }),
+			client.recordMachineProviderProbe({
+				...input,
+				principalId: "33333333-3333-4333-8333-333333333333",
+			}),
 		).rejects.toThrow(/gateway-verified/);
 		mocks.activeMachine.mockResolvedValueOnce(null);
 		await expect(client.recordMachineProviderProbe(input)).rejects.toThrow(
@@ -307,8 +320,8 @@ describe("provider identity probe receipts", () => {
 		expect(result.receiptId).toBeDefined();
 		expect(mocks.machineResult).toHaveBeenCalledTimes(1);
 		expect(mocks.machineResult.mock.calls[0]?.[1]).toMatchObject({
-			principalId: "principal",
-			sessionId: "session",
+			principalId: input.principalId,
+			sessionId: input.sessionId,
 			clientRecordId: "record",
 			profileId: "profile",
 		});

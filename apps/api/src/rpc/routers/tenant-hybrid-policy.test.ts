@@ -651,7 +651,7 @@ describe("profile-bound tenant policy", () => {
 			credentialScope: "tenant" as const,
 			subject: {
 				scope: "principal" as const,
-				principalId: "principal",
+				principalId: "11111111-1111-4111-8111-111111111111",
 				mcpServerId: "server",
 			},
 		};
@@ -678,26 +678,36 @@ describe("profile-bound tenant policy", () => {
 		};
 		mocks.revisions.mockResolvedValue([row]);
 		mocks.sourceCandidates.mockResolvedValue([row]);
-		const context = {
-			authType: "service-binding",
-			organizationId: "org",
-			externalAgentPrincipalId: "principal",
-			externalAgentSessionId: "session",
-			externalAgentClientRecordId: "client",
-			tediScopes: ["connections.execute"],
-			db: {},
-			env: { ENVIRONMENT: "production" },
-			headers: new Headers({ "X-Service-Binding": "true" }),
-			url: new URL("https://api.test/rpc"),
-			rateLimiter: { limit: async () => ({ success: true }) },
-		} as BaseContext;
+		// Identity arrives only as the gateway's headers, as in production.
+		const gateway = (
+			principalId = "11111111-1111-4111-8111-111111111111",
+			sessionId = "22222222-2222-4222-8222-222222222222",
+		) =>
+			createRouterClient(mcpGovernanceContractRouter, {
+				context: () =>
+					({
+						organizationId: "org",
+						db: {},
+						env: { ENVIRONMENT: "production" },
+						headers: new Headers({
+							"X-Service-Binding": "true",
+							"X-Tedix-Caller-Type": "mcp-edge-external-agent",
+							"X-Tedix-External-Agent-Principal-Id": principalId,
+							"X-Tedix-External-Agent-Session-Id": sessionId,
+							"X-Tedix-External-Agent-Client-Record-Id": "client",
+							"X-Tedix-Tedi-Scopes": "connections.execute",
+						}),
+						url: new URL("https://api.test/rpc"),
+						rateLimiter: { limit: async () => ({ success: true }) },
+					}) as BaseContext,
+			});
+		const client = gateway();
 		const input = {
 			organizationId: "org",
 			rootAppId: "root",
 			sourceAppId: "source",
 			sourceToolRowId: "tool",
 		};
-		const client = createRouterClient(mcpGovernanceContractRouter, { context });
 		expect(await client.resolveMachinePolicyDiscovery(input)).toEqual({
 			potential: true,
 		});
@@ -714,9 +724,9 @@ describe("profile-bound tenant policy", () => {
 			...descriptor,
 			subject: {
 				scope: "session" as const,
-				principalId: "principal",
+				principalId: "11111111-1111-4111-8111-111111111111",
 				mcpServerId: "server",
-				sessionId: "session",
+				sessionId: "22222222-2222-4222-8222-222222222222",
 				clientRecordId: "client",
 				clientId: "oauth-client",
 			},
@@ -742,14 +752,14 @@ describe("profile-bound tenant policy", () => {
 		};
 		const principalKey = JSON.stringify([
 			"machine-principal",
-			"principal",
+			"11111111-1111-4111-8111-111111111111",
 			"server",
 		]);
 		const sessionKey = JSON.stringify([
 			"machine-session",
-			"principal",
+			"11111111-1111-4111-8111-111111111111",
 			"server",
-			"session",
+			"22222222-2222-4222-8222-222222222222",
 			"client",
 		]);
 		mocks.revisions.mockImplementation(async (_db, scope) =>
@@ -909,18 +919,17 @@ describe("profile-bound tenant policy", () => {
 			status: "approved",
 			resolvedBy: "user:owner",
 		});
-		const otherPrincipal = createRouterClient(mcpGovernanceContractRouter, {
-			context: { ...context, externalAgentPrincipalId: "other" },
-		});
+		const otherPrincipal = gateway("33333333-3333-4333-8333-333333333333");
 		await expect(
 			otherPrincipal.requestMachineToolApproval({
 				...call,
 				approvalRequestId: parked.approvalRequestId,
 			}),
 		).rejects.toThrow();
-		const otherSession = createRouterClient(mcpGovernanceContractRouter, {
-			context: { ...context, externalAgentSessionId: "other-session" },
-		});
+		const otherSession = gateway(
+			undefined,
+			"44444444-4444-4444-8444-444444444444",
+		);
 		await expect(
 			otherSession.requestMachineToolApproval({
 				...call,
@@ -953,7 +962,7 @@ describe("profile-bound tenant policy", () => {
 				descriptorDigest: await canonicalDigest(effectiveMount),
 			});
 		mocks.activeMachine.mockResolvedValue({
-			principal: { id: "principal" },
+			principal: { id: "11111111-1111-4111-8111-111111111111" },
 			credential: { mcpServerId: "server" },
 		});
 		const owner = createRouterClient(mcpGovernanceContractRouter, {
@@ -972,8 +981,8 @@ describe("profile-bound tenant policy", () => {
 		const prepared = await owner.prepareNativeRpcPolicy({
 			rootAppId: "root",
 			mountedToolId: "write",
-			principalId: "principal",
-			sessionId: "session",
+			principalId: "11111111-1111-4111-8111-111111111111",
+			sessionId: "22222222-2222-4222-8222-222222222222",
 			clientRecordId: "client",
 			exampleArgs: args,
 		});
@@ -999,21 +1008,30 @@ describe("profile-bound tenant policy", () => {
 		};
 		mocks.revisions.mockResolvedValue([row]);
 		mocks.sourceCandidates.mockResolvedValue([row]);
-		const context = {
-			authType: "service-binding",
-			organizationId: "org",
-			externalAgentPrincipalId: "principal",
-			externalAgentSessionId: "session",
-			externalAgentClientRecordId: "client",
-			db: {},
-			env: { ENVIRONMENT: "production" },
-			headers: new Headers({ "X-Service-Binding": "true" }),
-			url: new URL("https://api.test/rpc"),
-			rateLimiter: { limit: async () => ({ success: true }) },
-		} as BaseContext;
-		const gateway = createRouterClient(mcpGovernanceContractRouter, {
-			context,
-		});
+		// Identity arrives only as the gateway's headers, as in production.
+		const asMachine = (
+			principalId = "11111111-1111-4111-8111-111111111111",
+			sessionId = "22222222-2222-4222-8222-222222222222",
+		) =>
+			createRouterClient(mcpGovernanceContractRouter, {
+				context: () =>
+					({
+						organizationId: "org",
+						db: {},
+						env: { ENVIRONMENT: "production" },
+						headers: new Headers({
+							"X-Service-Binding": "true",
+							"X-Tedix-Caller-Type": "mcp-edge-external-agent",
+							"X-Tedix-External-Agent-Principal-Id": principalId,
+							"X-Tedix-External-Agent-Session-Id": sessionId,
+							"X-Tedix-External-Agent-Client-Record-Id": "client",
+							"X-Tedix-Tedi-Scopes": "connections.execute",
+						}),
+						url: new URL("https://api.test/rpc"),
+						rateLimiter: { limit: async () => ({ success: true }) },
+					}) as BaseContext,
+			});
+		const gateway = asMachine();
 		const input = {
 			organizationId: "org",
 			rootAppId: "root",
@@ -1060,9 +1078,7 @@ describe("profile-bound tenant policy", () => {
 				})
 			).approved,
 		).toBe(false);
-		const wrong = createRouterClient(mcpGovernanceContractRouter, {
-			context: { ...context, externalAgentSessionId: "different" },
-		});
+		const wrong = asMachine(undefined, "55555555-5555-4555-8555-555555555555");
 		await expect(
 			wrong.requestNativeMachineToolApproval({
 				...call,
