@@ -312,7 +312,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"descopeAih/searchMcpClients": "platform:admin",
 	"descopeAih/updateMcpClient": "platform:admin",
 	"descopeAih/updateMcpServer": "platform:admin",
-	"directory/listMyWorkspaces": "mcp:apps.read",
+	// The caller's own organization/workspace directory is identity, not app data.
+	"directory/listMyWorkspaces": "profile",
 	"directory/resolveWorkspace": "mcp:apps.write",
 	"docs/commitChange": "mcp:content.admin",
 	"docs/getDiff": "mcp:content.read",
@@ -524,6 +525,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"organizations/getBySlug": "platform:admin",
 	"organizations/getFeatures": "platform:admin",
 	"organizations/getMyOrganization": "platform:admin",
+	// Browser-only consent presentation; the API independently requires a human.
+	"organizations/getMcpConsentOptions": "platform:admin",
 	"organizations/getSsoStatus": "platform:admin",
 	"organizations/isSlugAvailable": "platform:admin",
 	"organizations/list": "platform:admin",

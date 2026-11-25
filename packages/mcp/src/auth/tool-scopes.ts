@@ -929,8 +929,7 @@ export function resolveMcpToolRequiredScopes(
 	// Identity consent permits only this caller-owned directory, not workspace data.
 	if (
 		tool.toolTypeId === "rpc" &&
-		tool.config?.endpoint === "directory/listMyWorkspaces" &&
-		tool.annotations?.readOnlyHint === true
+		tool.config?.endpoint === "directory/listMyWorkspaces"
 	)
 		return ["profile"];
 	const durableCodeBinding =

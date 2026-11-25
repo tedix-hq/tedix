@@ -195,9 +195,13 @@ describe("reviewed RPC endpoint scopes", () => {
 		).toEqual(["mcp:memory.admin"]);
 	});
 
-	it("holds only valid tiered scopes", () => {
-		for (const scope of Object.values(REVIEWED_RPC_ENDPOINT_SCOPES)) {
-			expect(scope).toMatch(VALID);
+	it("holds valid tiered scopes with identity limited to the caller's directory", () => {
+		for (const [endpoint, scope] of Object.entries(
+			REVIEWED_RPC_ENDPOINT_SCOPES,
+		)) {
+			if (endpoint === "directory/listMyWorkspaces")
+				expect(scope).toBe("profile");
+			else expect(scope).toMatch(VALID);
 		}
 	});
 
@@ -218,6 +222,7 @@ describe("reviewed RPC endpoint scopes", () => {
 			"organizations/cancel",
 			"organizations/listWidgetQuotaStatus",
 			"organizations/listAutomationInventory",
+			"organizations/getMcpConsentOptions",
 			"tediEmail/listAddressRequests",
 			"billing/grantTopUpCredits",
 			"billing/assignInternalPlan",

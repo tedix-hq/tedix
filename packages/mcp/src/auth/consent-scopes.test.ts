@@ -122,6 +122,13 @@ it("allows only the caller-owned directory with Minimal, not workspaces or Work"
 		}),
 	).toEqual(["profile"]);
 	expect(
+		resolveMcpToolRequiredScopes(
+			{ ...tool, annotations: undefined },
+			"tedix_unified",
+			{ authMode: "authenticated" },
+		),
+	).toEqual(["profile"]);
+	expect(
 		isMcpToolVisibleToCaller(
 			tool,
 			"tedix_unified",
