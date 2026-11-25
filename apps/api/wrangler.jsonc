@@ -396,6 +396,10 @@
 			"binding": "WIDGET_ANALYTICS",
 			"dataset": "public_installation_dataset",
 		},
+		{
+			"binding": "D1_REQUESTS",
+			"dataset": "public_installation_dataset",
+		},
 	],
 	"services": [
 		{
@@ -803,6 +807,10 @@
 			"analytics_engine_datasets": [
 				{
 					"binding": "WIDGET_ANALYTICS",
+					"dataset": "public_installation_dataset",
+				},
+				{
+					"binding": "D1_REQUESTS",
 					"dataset": "public_installation_dataset",
 				},
 			],

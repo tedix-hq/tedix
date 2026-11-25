@@ -181,6 +181,10 @@
 			"binding": "RUNTIME_ANALYTICS",
 			"dataset": "public_installation_dataset",
 		},
+		{
+			"binding": "D1_REQUESTS",
+			"dataset": "public_installation_dataset",
+		},
 	],
 	"env": {
 		"development": {
@@ -337,6 +341,10 @@
 			"analytics_engine_datasets": [
 				{
 					"binding": "RUNTIME_ANALYTICS",
+					"dataset": "public_installation_dataset",
+				},
+				{
+					"binding": "D1_REQUESTS",
 					"dataset": "public_installation_dataset",
 				},
 			],
@@ -511,6 +519,10 @@
 			"analytics_engine_datasets": [
 				{
 					"binding": "RUNTIME_ANALYTICS",
+					"dataset": "public_installation_dataset",
+				},
+				{
+					"binding": "D1_REQUESTS",
 					"dataset": "public_installation_dataset",
 				},
 			],

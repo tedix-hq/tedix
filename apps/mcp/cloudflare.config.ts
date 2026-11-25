@@ -122,6 +122,9 @@ export default defineConfig(({ mode }) => {
 						"public_installation_dataset",
 					),
 				}),
+				D1_REQUESTS: bindings.analyticsEngineDataset({
+					name: live.analytics("d1Requests", "public_installation_dataset"),
+				}),
 				// Code Mode sandbox for the search and execute meta-tools.
 				LOADER: bindings.workerLoader(),
 				WORKER_VERSION: bindings.versionMetadata(),
