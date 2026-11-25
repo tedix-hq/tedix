@@ -10,13 +10,16 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { anyIds, coreStore } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import { announceOsWorkspaceChange } from "../os-workspace-events";
+import { osWorkspaceEvents as d1OsWorkspaceEvents } from "../../schema/os-collaborators";
 import {
 	type NewOsGadgetExecutionRow,
 	type OsGadgetExecutionRow,
-	osGadgetExecutions,
-	osWorkspaces,
+	osGadgetExecutions as d1OsGadgetExecutions,
+	osWorkspaces as d1OsWorkspaces,
 } from "../../schema/os-workspaces";
 
 export interface OsGadgetExecutionScopeParams {
@@ -80,6 +83,7 @@ export async function createOsGadgetExecution(
 	db: DbQueryClient,
 	execution: NewOsGadgetExecutionRow,
 ): Promise<OsGadgetExecutionRow> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const [row] = await db
 		.insert(osGadgetExecutions)
 		.values(execution)
@@ -100,6 +104,7 @@ export async function settleOsAppCallExecution(
 		error?: string;
 	},
 ): Promise<OsGadgetExecutionRow | undefined> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const [row] = await db
 		.update(osGadgetExecutions)
 		.set({
@@ -128,6 +133,8 @@ export async function cutOverOsGadgetExecutionOutput(
 	sha256: string,
 	phase: "publish" | "clear" | "archiveDetached",
 ): Promise<boolean> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const archiveDetached = phase === "archiveDetached";
 	const attachableWorkspace = db
 		.select({ id: osWorkspaces.id })
@@ -187,6 +194,7 @@ export async function getOsGadgetExecution(
 	db: DbQueryClient,
 	params: OsGadgetExecutionScopeParams,
 ): Promise<OsGadgetExecutionRow | undefined> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const [row] = await db
 		.select()
 		.from(osGadgetExecutions)
@@ -204,6 +212,7 @@ export async function getOsGadgetExecutionByRunId(
 	db: DbQueryClient,
 	params: { organizationId: string; tediId?: string; runId: string },
 ): Promise<OsGadgetExecutionRow | undefined> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const rows = await db
 		.select()
 		.from(osGadgetExecutions)
@@ -225,6 +234,20 @@ export async function listOsGadgetExecutions(
 	params: { organizationId: string; gadgetId: string },
 	options: ListOsGadgetExecutionsOptions = {},
 ): Promise<OsGadgetExecutionRow[]> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
+	const trace = sql`coalesce(${osGadgetExecutions.traceMetadata}, ${osGadgetExecutions.output})`;
+	const pgTrace = sql`(${trace})::jsonb`;
+	const finalTrace =
+		coreStore(db) === "postgres"
+			? sql`CASE jsonb_typeof(${pgTrace} #> '{events,0,live}')
+			WHEN 'boolean' THEN NOT (${pgTrace} #>> '{events,0,live}')::boolean
+			WHEN 'number' THEN (${pgTrace} #>> '{events,0,live}')::numeric = 0
+			ELSE (${pgTrace} #> '{events,0,live}') IS NULL OR (${pgTrace} #> '{events,0,live}') = 'null'::jsonb END`
+			: sql`coalesce(json_extract(${trace}, '$.events[0].live'), 0) = 0`;
+	const sequence =
+		coreStore(db) === "postgres"
+			? sql`CASE WHEN jsonb_typeof(${pgTrace} #> '{events,0,sequence}') = 'number' THEN (${pgTrace} #>> '{events,0,sequence}')::numeric END`
+			: sql`json_extract(${trace}, '$.events[0].sequence')`;
 	const conditions = [
 		eq(osGadgetExecutions.organizationId, params.organizationId),
 		eq(osGadgetExecutions.gadgetId, params.gadgetId),
@@ -234,7 +257,9 @@ export async function listOsGadgetExecutions(
 	}
 	if (options.callId) {
 		conditions.push(
-			sql`json_extract(coalesce(${osGadgetExecutions.traceMetadata}, ${osGadgetExecutions.output}), '$.callId') = ${options.callId}`,
+			coreStore(db) === "postgres"
+				? sql`${pgTrace} ->> 'callId' = ${options.callId}`
+				: sql`json_extract(${trace}, '$.callId') = ${options.callId}`,
 		);
 		conditions.push(eq(osGadgetExecutions.createdById, "workspace-app-host"));
 	}
@@ -248,12 +273,10 @@ export async function listOsGadgetExecutions(
 			.orderBy(
 				...(options.callId
 					? [
-							desc(
-								sql`coalesce(json_extract(coalesce(${osGadgetExecutions.traceMetadata}, ${osGadgetExecutions.output}), '$.events[0].live'), 0) = 0`,
-							),
-							desc(
-								sql`json_extract(coalesce(${osGadgetExecutions.traceMetadata}, ${osGadgetExecutions.output}), '$.events[0].sequence')`,
-							),
+							desc(finalTrace),
+							coreStore(db) === "postgres"
+								? sql`${sequence} DESC NULLS LAST`
+								: desc(sequence),
 						]
 					: []),
 				desc(osGadgetExecutions.createdAt),
@@ -273,6 +296,7 @@ export async function claimApprovedOsGadgetExecution(
 	db: DbQueryClient,
 	params: ClaimApprovedOsGadgetExecutionParams,
 ): Promise<OsGadgetExecutionRow | undefined> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const [row] = await db
 		.update(osGadgetExecutions)
 		.set({
@@ -303,6 +327,7 @@ export async function recordOsGadgetDispatch(
 	db: DbQueryClient,
 	params: RecordOsGadgetDispatchParams,
 ): Promise<OsGadgetExecutionRow | undefined> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const terminal =
 		params.status === "completed" ||
 		params.status === "failed" ||
@@ -334,6 +359,7 @@ export async function settleAwaitingApprovalOsGadgetExecution(
 	db: DbQueryClient,
 	params: SettleAwaitingApprovalOsGadgetExecutionParams,
 ): Promise<OsGadgetExecutionRow | undefined> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const [row] = await db
 		.update(osGadgetExecutions)
 		.set({
@@ -359,6 +385,7 @@ export async function failClaimedOsGadgetExecution(
 	db: DbQueryClient,
 	params: FailClaimedOsGadgetExecutionParams,
 ): Promise<OsGadgetExecutionRow | undefined> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const [row] = await db
 		.update(osGadgetExecutions)
 		.set({
@@ -392,6 +419,8 @@ export async function settleOsGadgetExecutionFromRun(
 	db: DbQueryClient,
 	params: SettleOsGadgetExecutionFromRunParams,
 ): Promise<OsGadgetExecutionRow[]> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
+	const osWorkspaceEvents = coreTable(db, d1OsWorkspaceEvents);
 	const terminal =
 		params.status === "completed" ||
 		params.status === "failed" ||
@@ -421,8 +450,26 @@ export async function settleOsGadgetExecutionFromRun(
 			),
 		)
 		.returning();
-	for (const workspaceId of new Set(rows.map((row) => row.workspaceId))) {
-		await announceOsWorkspaceChange(db, workspaceId, "runs");
+	if (rows.length) {
+		try {
+			await db.insert(osWorkspaceEvents).select(
+				db
+					.selectDistinct({
+						workspaceId: osGadgetExecutions.workspaceId,
+						kind: sql<"runs">`'runs'`.as("kind"),
+					})
+					.from(osGadgetExecutions)
+					.where(
+						anyIds(
+							db,
+							osGadgetExecutions.id,
+							rows.map((row) => row.id),
+						),
+					),
+			);
+		} catch {
+			// Hints follow committed writes and must not fail their settlement.
+		}
 	}
 	return rows;
 }
@@ -432,6 +479,7 @@ export function listOsGadgetExecutionBodiesToOffload(
 	db: DbQueryClient,
 	cutoff: string,
 ) {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	return db
 		.select()
 		.from(osGadgetExecutions)
@@ -457,6 +505,26 @@ export async function offloadOsGadgetExecutionBody(
 	bodyBytes: number,
 	cutoff: string,
 ): Promise<boolean> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
+	const output = sql`${osGadgetExecutions.output}::jsonb`;
+	const traceMetadata =
+		coreStore(db) === "postgres"
+			? sql`CASE WHEN ${osGadgetExecutions.createdById} = 'workspace-app-host'
+			AND pg_input_is_valid(${osGadgetExecutions.output}, 'jsonb')
+			THEN jsonb_build_object('callId', ${output} -> 'callId', 'events',
+				jsonb_build_array(jsonb_build_object(
+					'live', CASE jsonb_typeof(${output} #> '{events,0,live}')
+						WHEN 'boolean' THEN to_jsonb(CASE WHEN (${output} #>> '{events,0,live}')::boolean THEN 1 ELSE 0 END)
+						ELSE ${output} #> '{events,0,live}' END,
+					'sequence', ${output} #> '{events,0,sequence}')))::text ELSE NULL END`
+			: sql`CASE WHEN ${osGadgetExecutions.createdById} = 'workspace-app-host' AND json_valid(${osGadgetExecutions.output}) THEN json_object('callId', json_extract(${osGadgetExecutions.output}, '$.callId'), 'events', json_array(json_object('live', json_extract(${osGadgetExecutions.output}, '$.events[0].live'), 'sequence', json_extract(${osGadgetExecutions.output}, '$.events[0].sequence')))) ELSE NULL END`;
+	const same = (
+		column: typeof osGadgetExecutions.output,
+		value: string | null,
+	) =>
+		coreStore(db) === "postgres"
+			? sql`${column} IS NOT DISTINCT FROM ${value}`
+			: sql`${column} IS ${value}`;
 	const updated = await db
 		.update(osGadgetExecutions)
 		.set({
@@ -464,7 +532,7 @@ export async function offloadOsGadgetExecutionBody(
 			output: null,
 			bodyR2Key,
 			bodyBytes,
-			traceMetadata: sql`CASE WHEN ${osGadgetExecutions.createdById} = 'workspace-app-host' AND json_valid(${osGadgetExecutions.output}) THEN json_object('callId', json_extract(${osGadgetExecutions.output}, '$.callId'), 'events', json_array(json_object('live', json_extract(${osGadgetExecutions.output}, '$.events[0].live'), 'sequence', json_extract(${osGadgetExecutions.output}, '$.events[0].sequence')))) ELSE NULL END`,
+			traceMetadata,
 		})
 		.where(
 			and(
@@ -483,10 +551,13 @@ export async function offloadOsGadgetExecutionBody(
 				),
 				eq(osGadgetExecutions.executionEpoch, row.executionEpoch),
 				isNull(osGadgetExecutions.bodyR2Key),
-				sql`${osGadgetExecutions.input} IS ${row.input}`,
-				sql`${osGadgetExecutions.output} IS ${row.output}`,
-				sql`${osGadgetExecutions.completedAt} IS ${row.completedAt}`,
-				sql`${osGadgetExecutions.workspaceOutputSha256} IS ${row.workspaceOutputSha256}`,
+				same(osGadgetExecutions.input, row.input),
+				same(osGadgetExecutions.output, row.output),
+				same(osGadgetExecutions.completedAt, row.completedAt),
+				same(
+					osGadgetExecutions.workspaceOutputSha256,
+					row.workspaceOutputSha256,
+				),
 			),
 		)
 		.returning({ id: osGadgetExecutions.id });

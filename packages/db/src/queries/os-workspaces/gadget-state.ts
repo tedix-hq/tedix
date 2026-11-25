@@ -1,17 +1,19 @@
 import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { booleanValue, coreStore } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
-	osGadgetState,
-	osGadgetStateMutations,
+	osGadgetState as d1OsGadgetState,
+	osGadgetStateMutations as d1OsGadgetStateMutations,
 	type OsGadgetStateRow,
 	type OsGadgetStateMutationRow,
 } from "../../schema/os-gadget-state";
 import {
-	osGadgets,
-	osWorkspaces,
-	osGadgetExecutions,
+	osGadgets as d1OsGadgets,
+	osWorkspaces as d1OsWorkspaces,
+	osGadgetExecutions as d1OsGadgetExecutions,
 } from "../../schema/os-workspaces";
-import { skillRuns } from "../../schema/cognitive";
+import { skillRuns as d1SkillRuns } from "../../schema/cognitive";
 
 /** Tenant and application scope fixed by API authority, never inferred from the state key. */
 export interface GadgetStateScope {
@@ -19,7 +21,8 @@ export interface GadgetStateScope {
 	workspaceId: string;
 	gadgetId: string;
 }
-function scopeWhere(scope: GadgetStateScope) {
+function scopeWhere(db: DbQueryClient, scope: GadgetStateScope) {
+	const osGadgetState = coreTable(db, d1OsGadgetState);
 	return and(
 		eq(osGadgetState.organizationId, scope.organizationId),
 		eq(osGadgetState.workspaceId, scope.workspaceId),
@@ -32,10 +35,11 @@ export async function getGadgetState(
 	scope: GadgetStateScope,
 	key: string,
 ): Promise<OsGadgetStateRow | undefined> {
+	const osGadgetState = coreTable(db, d1OsGadgetState);
 	const [row] = await db
 		.select()
 		.from(osGadgetState)
-		.where(and(scopeWhere(scope), eq(osGadgetState.key, key)))
+		.where(and(scopeWhere(db, scope), eq(osGadgetState.key, key)))
 		.limit(1);
 	return row;
 }
@@ -45,12 +49,13 @@ export async function listGadgetState(
 	scope: GadgetStateScope,
 	input: { prefix?: string; after?: string; limit: number },
 ): Promise<OsGadgetStateRow[]> {
+	const osGadgetState = coreTable(db, d1OsGadgetState);
 	return db
 		.select()
 		.from(osGadgetState)
 		.where(
 			and(
-				scopeWhere(scope),
+				scopeWhere(db, scope),
 				input.prefix
 					? sql`substr(${osGadgetState.key}, 1, ${input.prefix.length}) = ${input.prefix}`
 					: undefined,
@@ -69,7 +74,19 @@ export interface GadgetStateFence extends GadgetStateScope {
 	runtimeEnvironment: string;
 	capability: string;
 }
-function liveFence(p: GadgetStateFence) {
+function liveFence(db: DbQueryClient, p: GadgetStateFence) {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
+	const osGadgets = coreTable(db, d1OsGadgets);
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const allowed =
+		coreStore(db) === "postgres"
+			? sql`(${osGadgetExecutions.policyDecision}::jsonb -> 'allowed') IN ('true'::jsonb, '1'::jsonb)`
+			: sql`json_extract(${osGadgetExecutions.policyDecision}, '$.allowed') = 1`;
+	const capability =
+		coreStore(db) === "postgres"
+			? sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${osGadgetExecutions.grantedCapabilities}::jsonb) AS capability(value) WHERE capability.value = to_jsonb(${p.capability}::text))`
+			: sql`EXISTS (SELECT 1 FROM json_each(${osGadgetExecutions.grantedCapabilities}) WHERE value = ${p.capability})`;
 	return sql`EXISTS (SELECT 1 FROM ${osGadgetExecutions}
  JOIN ${osGadgets} ON ${osGadgets.id} = ${osGadgetExecutions.gadgetId} AND ${osGadgets.organizationId} = ${osGadgetExecutions.organizationId}
  JOIN ${osWorkspaces} ON ${osWorkspaces.id} = ${osGadgets.workspaceId} AND ${osWorkspaces.organizationId} = ${osGadgets.organizationId}
@@ -83,22 +100,22 @@ function liveFence(p: GadgetStateFence) {
  AND ${skillRuns.workflowRetiredAt} IS NULL AND ${skillRuns.restartRequestedAt} IS NULL
  AND ${skillRuns.runtimeEnvironment} = ${p.runtimeEnvironment} AND ${osGadgetExecutions.runtimeEnvironment} = ${p.runtimeEnvironment}
  AND ${osGadgets.status} = 'active' AND ${osWorkspaces.status} = 'active'
- AND json_extract(${osGadgetExecutions.policyDecision}, '$.allowed') = 1
- AND EXISTS (SELECT 1 FROM json_each(${osGadgetExecutions.grantedCapabilities}) WHERE value = ${p.capability}))`;
+  AND ${allowed} AND ${capability})`;
 }
 /** Read the exact linked runtime ledger for service-layer identity validation. */
 export async function hasLiveGadgetStateFence(
 	db: DbQueryClient,
 	p: GadgetStateFence,
 ): Promise<boolean> {
+	const osGadgets = coreTable(db, d1OsGadgets);
 	const [row] = await db
 		.select({ id: osGadgets.id })
 		.from(osGadgets)
-		.where(and(eq(osGadgets.id, p.gadgetId), liveFence(p)))
+		.where(and(eq(osGadgets.id, p.gadgetId), liveFence(db, p)))
 		.limit(1);
 	return Boolean(row);
 }
-/** One CAS attempt; all receipt and value changes execute atomically in a D1 batch. */
+/** One CAS attempt; all receipt and value changes execute atomically in one batch. */
 export interface MutateGadgetStateParams extends GadgetStateFence {
 	key: string;
 	expectedRevision: number;
@@ -113,6 +130,9 @@ export async function mutateGadgetState(
 	db: DbQueryClient,
 	p: MutateGadgetStateParams,
 ): Promise<OsGadgetStateMutationRow> {
+	const osGadgetState = coreTable(db, d1OsGadgetState);
+	const osGadgetStateMutations = coreTable(db, d1OsGadgetStateMutations);
+	const osGadgets = coreTable(db, d1OsGadgets);
 	const receiptWhere = and(
 		eq(osGadgetStateMutations.organizationId, p.organizationId),
 		eq(osGadgetStateMutations.gadgetId, p.gadgetId),
@@ -143,7 +163,7 @@ export async function mutateGadgetState(
 					key: sql<string>`${p.key}`.as("key"),
 					revision: sql<number>`${p.expectedRevision + 1}`.as("revision"),
 					value: sql<string | null>`${p.value}`.as("value"),
-					deleted: sql<boolean>`${p.deleted ? 1 : 0}`.as("deleted"),
+					deleted: booleanValue(db, p.deleted).as("deleted"),
 					accessEnvelope: sql<string>`${p.accessEnvelope}`.as(
 						"access_envelope",
 					),
@@ -158,7 +178,7 @@ export async function mutateGadgetState(
 					and(
 						eq(osGadgets.id, p.gadgetId),
 						pending,
-						liveFence(p),
+						liveFence(db, p),
 						sql`(${p.expectedRevision}=0 OR EXISTS (SELECT 1 FROM ${osGadgetState} WHERE organization_id=${p.organizationId} AND gadget_id=${p.gadgetId} AND key=${p.key}))`,
 					),
 				),
@@ -182,15 +202,19 @@ export async function mutateGadgetState(
 				eq(osGadgetState.workspaceId, p.workspaceId),
 				eq(osGadgetState.revision, p.expectedRevision),
 				pending,
-				liveFence(p),
+				liveFence(db, p),
 			),
 		});
 	const applied = sql`EXISTS (SELECT 1 FROM ${osGadgetState} WHERE organization_id=${p.organizationId} AND gadget_id=${p.gadgetId} AND key=${p.key} AND last_mutation_id=${p.idempotencyKey})`;
+	const stateResult =
+		coreStore(db) === "postgres"
+			? sql`jsonb_build_object('key',key,'revision',revision,'value',value::jsonb,'deleted',deleted,'accessEnvelope',access_envelope::jsonb,'executionId',execution_id,'updatedAt',updated_at)::text`
+			: sql`json_object('key',key,'revision',revision,'value',json(value),'deleted',json(CASE WHEN deleted=1 THEN 'true' ELSE 'false' END),'accessEnvelope',json(access_envelope),'executionId',execution_id,'updatedAt',updated_at)`;
 	const settle = db
 		.update(osGadgetStateMutations)
 		.set({
 			status: sql`CASE WHEN ${applied} THEN 'applied' ELSE 'conflict' END`,
-			result: sql`CASE WHEN ${applied} THEN (SELECT json_object('key',key,'revision',revision,'value',json(value),'deleted',json(CASE WHEN deleted=1 THEN 'true' ELSE 'false' END),'accessEnvelope',json(access_envelope),'executionId',execution_id,'updatedAt',updated_at) FROM ${osGadgetState} WHERE organization_id=${p.organizationId} AND gadget_id=${p.gadgetId} AND key=${p.key}) ELSE NULL END`,
+			result: sql`CASE WHEN ${applied} THEN (SELECT ${stateResult} FROM ${osGadgetState} WHERE organization_id=${p.organizationId} AND gadget_id=${p.gadgetId} AND key=${p.key}) ELSE NULL END`,
 		})
 		.where(
 			and(
