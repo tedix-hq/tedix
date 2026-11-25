@@ -1775,6 +1775,19 @@ export async function sweepObsoleteWorkInteractions(
 		)
 		.limit(10);
 	if (!orgs.length) return empty;
+	const cursors = new Map(
+		(
+			await db
+				.select()
+				.from(platformCronCheckpoints)
+				.where(
+					inArray(
+						platformCronCheckpoints.scheduleId,
+						orgs.map((org) => `${EXPIRY_SCAN}:${org.id}`),
+					),
+				)
+		).map((row) => [row.scheduleId, row]),
+	);
 	const statements = [];
 	let writes = 1,
 		observed = 0,
@@ -1793,11 +1806,7 @@ export async function sweepObsoleteWorkInteractions(
 	for (const org of orgs) {
 		if (writes + 2 > budget) break;
 		const checkpointId = `${EXPIRY_SCAN}:${org.id}`;
-		const [cursor] = await db
-			.select()
-			.from(platformCronCheckpoints)
-			.where(eq(platformCronCheckpoints.scheduleId, checkpointId))
-			.limit(1);
+		const cursor = cursors.get(checkpointId);
 		const dryRun = p.dryRun !== false && (!cursor || p.dryRun === true);
 		// Do not rotate past an organization without enough budget to serve it.
 		if (!dryRun && writes + 4 > budget) break;
@@ -1939,7 +1948,9 @@ export async function sweepObsoleteWorkInteractions(
 						resourceType: sql<string>`'work_interaction'`.as("resourceType"),
 						resourceId: sql<string>`${runId}`.as("resourceId"),
 						metadata:
-							sql<string>`json_set(${JSON.stringify(metadata)},'$.expiredIds',json((SELECT json_group_array(id) FROM work_interactions WHERE org_id=${org.id} AND resolution_fence=${fence} AND status='expired')))`.as(
+							// Drive exact-ID probes from this bounded page, rather than
+							// scanning all of the organization's expired request history.
+							sql<string>`json_set(${JSON.stringify(metadata)},'$.expiredIds',json((SELECT json_group_array(expired.id) FROM json_each(${JSON.stringify(ids)}) candidates CROSS JOIN work_interactions expired ON expired.id=candidates.value WHERE expired.org_id=${org.id} AND expired.resolution_fence=${fence} AND expired.status='expired')))`.as(
 								"metadata",
 							),
 						timestamp: sql<number>`${Math.floor(Date.parse(p.now) / 1000)}`.as(

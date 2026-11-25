@@ -859,6 +859,38 @@ describe("obsolete Work interactions", () => {
 			limit,
 		});
 	};
+	it("builds expiry receipts with exact-ID probes instead of scanning tenant history", async () => {
+		const f = sweepFixture();
+		oldPerson(f);
+		const plans: string[] = [];
+		f.db = createDbQueryClient(
+			createD1Facade(f.sqlite, {
+				onPrepare(query) {
+					if (!query.startsWith('insert into "audit_events"')) return;
+					plans.push(
+						...f.sqlite
+							.prepare(`EXPLAIN QUERY PLAN ${query}`)
+							.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+							.map((row) => String(row.detail)),
+					);
+				},
+			}),
+		);
+		expect((await tick(f)).expired).toBe(0);
+		expect((await tick(f, 1)).expired).toBe(4);
+		expect(plans).toContainEqual(
+			expect.stringMatching(
+				/SEARCH expired USING INDEX .* \(org_id=\? AND id=\?\)/,
+			),
+		);
+		expect(
+			plans.some(
+				(plan) =>
+					/(?:SCAN|SEARCH) (?:expired|work_interactions)\b/.test(plan) &&
+					!/\bid=\?\)/.test(plan),
+			),
+		).toBe(false);
+	});
 	it.each(["question", "input", "handoff"])(
 		"stages %s expiry with exact durable ids, then enforces once",
 		async (kind) => {
