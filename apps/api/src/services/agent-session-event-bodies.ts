@@ -67,21 +67,27 @@ export async function retainAgentSessionEventBodies(
 	db: DbQueryClient,
 	eventBodies: AgentSessionEventBodyStore,
 	now: Date,
-	// Leave headroom below D1's 1,000-query invocation limit for other retention work.
-	limit = 500,
-	timeBudgetMs = 60_000,
+	limit = 150,
+	timeBudgetMs = 10_000,
 ) {
 	const before = new Date(now.getTime() - 14 * 86400_000).toISOString();
 	const deadline = Date.now() + timeBudgetMs;
+	// Two reads per page and one update per row; reserve headroom for the rest of the tick.
+	let statementsRemaining = 154;
 	let attempted = 0;
 	let moved = 0;
 	let inlineBytesMoved = 0;
-	while (attempted < limit && Date.now() < deadline) {
+	while (
+		attempted < limit &&
+		statementsRemaining > 2 &&
+		Date.now() < deadline
+	) {
 		const rows = await listAgentSessionBodiesForRetention(
 			db,
 			before,
-			limit - attempted,
+			Math.min(limit - attempted, statementsRemaining - 2),
 		);
+		statementsRemaining -= 2;
 		const movedBeforePage = moved;
 		for (const row of rows) {
 			if (Date.now() >= deadline) return { moved, inlineBytesMoved };
@@ -97,6 +103,7 @@ export async function retainAgentSessionEventBodies(
 				activity: body.activity,
 				lessonReflection: body.lessonReflection,
 			});
+			statementsRemaining--;
 			if (
 				await archiveAgentSessionEventBody(
 					db,

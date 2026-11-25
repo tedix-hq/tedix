@@ -3476,7 +3476,7 @@ it("backfills recent processed bodies and archives reflections after 14 days wit
 	});
 });
 
-it("drains more than one body page and resumes after time and row limits", async () => {
+async function bodyRetentionFixture() {
 	const db = fixture();
 	const eventBodies = agentSessionEventBodies(bodyBucket());
 	await recordAgentSessionEvents(db, {
@@ -3498,32 +3498,68 @@ it("drains more than one body page and resumes after time and row limits", async
 		lessonReflection: { inputKey: "lesson", response: "cached lesson" },
 	});
 	const now = new Date("2026-11-24T12:00:00.000Z");
-	const clock = vi.spyOn(Date, "now").mockReturnValue(0);
-	try {
-		const result = await retainAgentSessionEventBodies(
-			db,
-			{
-				...eventBodies,
-				async write(owner, body) {
-					const key = await eventBodies.write(owner, body);
-					clock.mockReturnValue(1000);
-					return key;
+	return { db, eventBodies, now };
+}
+
+it("stops body retention at the default wall budget within and between pages", async () => {
+	for (const rowTimeMs of [100, 125]) {
+		const { db, eventBodies, now } = await bodyRetentionFixture();
+		const selects = vi.spyOn(db, "select");
+		const clock = vi.spyOn(Date, "now").mockReturnValue(0);
+		let elapsed = 0;
+		try {
+			const result = await retainAgentSessionEventBodies(
+				db,
+				{
+					...eventBodies,
+					async write(owner, body) {
+						const key = await eventBodies.write(owner, body);
+						clock.mockReturnValue((elapsed += rowTimeMs));
+						return key;
+					},
 				},
-			},
-			now,
-			500,
-			1000,
-		);
-		expect(result.moved).toBe(1);
+				now,
+			);
+			expect(result.moved).toBe(10_000 / rowTimeMs);
+			expect(selects).toHaveBeenCalledTimes(1);
+		} finally {
+			clock.mockRestore();
+			selects.mockRestore();
+		}
+		expect(
+			(await retainAgentSessionEventBodies(db, eventBodies, now)).moved,
+		).toBe(205 - 10_000 / rowTimeMs);
+	}
+});
+
+it("caps body retention statements even when a caller requests more rows", async () => {
+	const { db, eventBodies, now } = await bodyRetentionFixture();
+	// Recent bodies require both page reads, so this exercises the full statement allowance.
+	await db.update(agentSessionEvents).set({ processedAt: now.toISOString() });
+	const selects = vi.spyOn(db, "select");
+	const updates = vi.spyOn(db, "update");
+	try {
+		expect(
+			(await retainAgentSessionEventBodies(db, eventBodies, now, 500)).moved,
+		).toBe(150);
+		expect(selects.mock.calls.length + updates.mock.calls.length).toBe(154);
 	} finally {
-		clock.mockRestore();
+		selects.mockRestore();
+		updates.mockRestore();
 	}
 	expect(
-		(await retainAgentSessionEventBodies(db, eventBodies, now, 150)).moved,
+		(await retainAgentSessionEventBodies(db, eventBodies, now)).moved,
+	).toBe(55);
+});
+
+it("drains more than one body page and resumes after the default row limit", async () => {
+	const { db, eventBodies, now } = await bodyRetentionFixture();
+	expect(
+		(await retainAgentSessionEventBodies(db, eventBodies, now)).moved,
 	).toBe(150);
 	expect(
 		(await retainAgentSessionEventBodies(db, eventBodies, now)).moved,
-	).toBe(54);
+	).toBe(55);
 	for (const row of await db.select().from(agentSessionEvents)) {
 		expect(row).toMatchObject({
 			body: "",
