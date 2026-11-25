@@ -16,13 +16,11 @@ export async function hasRecoveredCommitCustody(
 	const recovered = metadata.recoveredCommits;
 	if (recovered === undefined) return true;
 	if (!Array.isArray(recovered) || recovered.length === 0) return false;
-	const resolver = createCommitResolver(context.db);
-	const commits = await Promise.all(
-		workSettlementCommits(
-			WorkAttemptSettlementSchema.safeParse(metadata.settlement).data,
-		).map(resolver.canonicalCommit),
+	const settlementCommits = workSettlementCommits(
+		WorkAttemptSettlementSchema.safeParse(metadata.settlement).data,
 	);
-	if (!commits.length) return false;
+	if (!settlementCommits.length) return false;
+	const rows: { commitSha: string; attemptId: string; session: string }[] = [];
 	for (const row of recovered) {
 		if (
 			!row ||
@@ -31,10 +29,22 @@ export async function hasRecoveredCommitCustody(
 			typeof row.commitSha !== "string" ||
 			!/^[a-f\d]{40}$/i.test(row.commitSha) ||
 			typeof row.attemptId !== "string" ||
-			typeof row.session !== "string" ||
-			!commits.includes(await resolver.canonicalCommit(row.commitSha))
+			typeof row.session !== "string"
 		)
 			return false;
+		rows.push({
+			commitSha: row.commitSha,
+			attemptId: row.attemptId,
+			session: row.session,
+		});
+	}
+	const resolved = await createCommitResolver(context.db).resolveMany([
+		...settlementCommits,
+		...rows.map((row) => row.commitSha),
+	]);
+	const commits = new Set(resolved.slice(0, settlementCommits.length));
+	for (const [index, row] of rows.entries()) {
+		if (!commits.has(resolved[settlementCommits.length + index]!)) return false;
 		const original = await getRecordedWorkItemAttempt(context.db, {
 			orgId: attempt.orgId,
 			workItemId: attempt.workItemId,

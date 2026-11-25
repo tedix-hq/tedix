@@ -5,6 +5,7 @@ import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
 import { externalAgentPrincipals } from "@tedix/db/schema/external-agent-identity";
+import { gitCommitAliases } from "@tedix/db/schema/git-commit-aliases";
 import {
 	workAttempts,
 	workEvents,
@@ -23,6 +24,7 @@ import {
 } from "@tedix/db/queries/work-items/crud";
 import type { BaseContext } from "../../orpc";
 import { workItemStewardActor } from "./policy-helpers";
+import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
 import {
 	cancelFactoryWorkItemProcedure,
 	completeProcedure,
@@ -58,6 +60,7 @@ async function fixture({
 	sqlite.exec(
 		canonicalWorkFactoryDdl() +
 			schemaDdl(
+				gitCommitAliases,
 				externalAgentPrincipals,
 				workEvents,
 				workAttemptSteps,
@@ -216,6 +219,8 @@ describe("owner-granted external-agent Work management", () => {
 		"failed",
 		"expired",
 		"succeeded",
+		"aliased",
+		"aliased wrong session",
 		"other Work",
 		"other org",
 		"unadmitted",
@@ -229,6 +234,14 @@ describe("owner-granted external-agent Work management", () => {
 			const { db, sqlite, context } = await fixture();
 			const now = Date.now();
 			const sha = "a".repeat(40);
+			const aliased = state.startsWith("aliased");
+			const settlementSha = aliased ? "c".repeat(40) : sha;
+			if (aliased)
+				await db.insert(gitCommitAliases).values({
+					oldSha: sha,
+					newSha: settlementSha,
+					repository: "example/repo",
+				});
 			const contract = { version: 1, doneLooksLike: "The fix is on main." };
 			sqlite
 				.prepare(
@@ -299,8 +312,9 @@ describe("owner-granted external-agent Work management", () => {
 					{
 						commitSha: sha,
 						attemptId: state === "missing Attempt" ? "missing" : "original",
-						session:
-							state === "wrong session" ? "codex:unadmitted" : "codex:earlier",
+						session: state.endsWith("wrong session")
+							? "codex:unadmitted"
+							: "codex:earlier",
 					},
 				],
 			};
@@ -319,7 +333,7 @@ describe("owner-granted external-agent Work management", () => {
 									settlement: {
 										mode: "commit",
 										commitShas: [
-											state === "wrong commit" ? "b".repeat(40) : sha,
+											state === "wrong commit" ? "b".repeat(40) : settlementSha,
 										],
 									},
 								}),
@@ -338,7 +352,7 @@ describe("owner-granted external-agent Work management", () => {
 					signal: undefined,
 					lastEventId: undefined,
 				});
-			if (["failed", "expired", "succeeded"].includes(state)) {
+			if (["failed", "expired", "succeeded", "aliased"].includes(state)) {
 				await expect(settle(2)).rejects.toMatchObject({ code: "CONFLICT" });
 				expect(await getWorkItemById(db, id)).toMatchObject({
 					disposition: "accepted",
@@ -364,7 +378,7 @@ describe("owner-granted external-agent Work management", () => {
 				expect(result).toMatchObject({
 					workItem: { disposition: "completed", version: 2 },
 					attempt: { outcome: "succeeded", metadata: { closedWorkVersion: 1 } },
-					settlement: { mode: "commit", commitShas: [sha] },
+					settlement: { mode: "commit", commitShas: [settlementSha] },
 				});
 				await expect(settle()).resolves.toMatchObject({
 					workItem: { disposition: "completed", version: 2 },
@@ -401,6 +415,53 @@ describe("owner-granted external-agent Work management", () => {
 			}
 		},
 	);
+	it("refuses malformed recovery receipts before reading aliases", async () => {
+		const { db, sqlite, context } = await fixture();
+		const [attempt] = await db
+			.insert(workAttempts)
+			.values({
+				id: "current",
+				orgId: "org",
+				workItemId: id,
+				executorType: "external_agent",
+				executorId: "bot",
+				attemptNumber: 1,
+				startedAt: new Date().toISOString(),
+				heartbeatAt: new Date().toISOString(),
+			})
+			.returning();
+		sqlite.exec("DROP TABLE git_commit_aliases");
+		const row = {
+			commitSha: "a".repeat(40),
+			attemptId: "original",
+			session: "codex:earlier",
+		};
+		const settlement = { mode: "commit", commitShas: [row.commitSha] };
+		for (const recoveredCommits of [
+			null,
+			[],
+			[null],
+			[[]],
+			["receipt"],
+			[{ ...row, commitSha: "a".repeat(39) }],
+			[{ ...row, commitSha: "g".repeat(40) }],
+			[{ ...row, attemptId: null }],
+			[{ ...row, session: null }],
+			[row, { ...row, session: null }],
+		])
+			await expect(
+				hasRecoveredCommitCustody(context, attempt!, {
+					recoveredCommits,
+					settlement,
+				}),
+			).resolves.toBe(false);
+		await expect(
+			hasRecoveredCommitCustody(context, attempt!, {
+				recoveredCommits: [row],
+				settlement: { mode: "commit", commitShas: [] },
+			}),
+		).resolves.toBe(false);
+	});
 	it("persists assignment and progress only inside the granted intent namespace", async () => {
 		const { db, item, update, context } = await fixture();
 		await update({
