@@ -308,16 +308,47 @@ export async function listDueKernelRequestOrganizations(
 	db: DbQueryClient,
 	now: string,
 ) {
+	return (
+		db
+			.select({ organizationId: sql<string>`${kernelRequests.organizationId}` })
+			// GROUP BY otherwise favors a full scan of the tenant-leading index.
+			.from(sql`${kernelRequests} INDEXED BY kernel_requests_global_due_idx`)
+			.where(lte(kernelRequests.nextDueAt, now))
+			.groupBy(kernelRequests.organizationId)
+			.orderBy(
+				sql`min(${kernelRequests.nextDueAt})`,
+				asc(kernelRequests.organizationId),
+			)
+			.limit(5)
+	);
+}
+
+/** Advance only active repository timers after an authenticated observer event. */
+export async function wakeRepositoryKernelRequests(
+	db: DbQueryClient,
+	p: {
+		organizationId: string;
+		targetIds: string[];
+		workAttempts: boolean;
+		now: string;
+	},
+) {
+	// Only scheduling metadata changes: events are hints, never acceptance evidence.
 	return db
-		.select({ organizationId: kernelRequests.organizationId })
-		.from(kernelRequests)
-		.where(lte(kernelRequests.nextDueAt, now))
-		.groupBy(kernelRequests.organizationId)
-		.orderBy(
-			sql`min(${kernelRequests.nextDueAt})`,
-			asc(kernelRequests.organizationId),
+		.update(kernelRequests)
+		.set({ nextDueAt: p.now })
+		.where(
+			and(
+				eq(kernelRequests.organizationId, p.organizationId),
+				sql`${kernelRequests.nextDueAt} > ${p.now}`,
+				sql`(${p.workAttempts ? 1 : 0} = 1 and ${kernelRequests.sourceKind} = 'work_attempt' or exists (
+			select 1 from json_each(${kernelRequests.snapshot}, '$.checks') as c
+			where json_extract(c.value, '$.kind') = 'repository_delivery'
+			and json_extract(c.value, '$.targetId') in (select value from json_each(${JSON.stringify(p.targetIds)}))
+		))`,
+			),
 		)
-		.limit(5);
+		.run();
 }
 
 /** Atomically fence source publication against cancellation, rebriefing and successor Attempts. */

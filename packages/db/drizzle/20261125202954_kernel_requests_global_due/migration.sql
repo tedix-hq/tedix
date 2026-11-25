@@ -1,0 +1,1 @@
+CREATE INDEX `kernel_requests_global_due_idx` ON `kernel_requests` (`next_due_at`,`organization_id`);

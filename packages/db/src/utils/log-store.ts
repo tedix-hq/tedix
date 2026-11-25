@@ -35,6 +35,8 @@ export async function readLogStores<T>(
 	if (!stores) return null;
 	const partitions = await Promise.all(
 		stores.partitions.map(async ({ db }) => {
+			// Without time bounds every partition overlaps; no directory read can prune it.
+			if (!options.from && !options.to) return db;
 			// A lone legacy LOGS_DB has no directory migration requirement.
 			const row =
 				stores.partitions.length === 1 &&

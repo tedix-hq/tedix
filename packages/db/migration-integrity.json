@@ -2056,6 +2056,10 @@
 		{
 			"name": "20261125171212_automation_inventory/migration.sql",
 			"sha256": "5fe33e3444a0dfd761676533dfe326edc9ee6e979555c8407de5a422e19043d6"
+		},
+		{
+			"name": "20261125202954_kernel_requests_global_due/migration.sql",
+			"sha256": "e589e3ea63703cb223b12b90ee6f108113e9adf526e8a7a73c59deb0f1b199e4"
 		}
 	]
 }

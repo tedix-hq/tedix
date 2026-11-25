@@ -45,6 +45,9 @@ describe("log partition directory", () => {
 		const active = store({ from: "2026-03-01" });
 		const old = store({ from: "2026-01-01", to: "2026-01-31" });
 		const middle = store({ from: "2026-02-01", to: "2026-02-28" });
+		const directories = [active, old, middle].map((s) =>
+			vi.spyOn(s.binding, "prepare"),
+		);
 		configureLogStore(main.db, {
 			LOGS_DB_12: middle.binding,
 			LOGS_DB_2: old.binding,
@@ -69,6 +72,8 @@ describe("log partition directory", () => {
 			},
 		]);
 		expect(pages).toHaveLength(4);
+		for (const directory of directories)
+			expect(directory).not.toHaveBeenCalled();
 		const rows = mergeLogStoreRows(pages!);
 		expect(rows).toHaveLength(5);
 		expect(rows[0]).toEqual({ id: "duplicate", source: "main" });
@@ -120,12 +125,12 @@ describe("log partition directory", () => {
 		configureLogStore(main.db, { LOGS_DB_1: logs.binding });
 		configureLogStore(otherRequest, { LOGS_DB_1: logs.binding });
 		await Promise.all([
-			readLogStores(main.db, async () => []),
-			readLogStores(otherRequest, async () => []),
+			readLogStores(main.db, async () => [], { from: "2026-01-01" }),
+			readLogStores(otherRequest, async () => [], { from: "2026-01-01" }),
 		]);
 		expect(prepare).toHaveBeenCalledTimes(1);
 		await vi.advanceTimersByTimeAsync(30_001);
-		await readLogStores(main.db, async () => []);
+		await readLogStores(main.db, async () => [], { from: "2026-01-01" });
 		expect(prepare).toHaveBeenCalledTimes(2);
 	});
 
@@ -147,9 +152,13 @@ describe("log partition directory", () => {
 		const logs = store();
 		logs.sqlite.exec("DROP TABLE log_partition");
 		configureLogStore(main.db, { LOGS_DB_1: logs.binding });
-		await expect(readLogStores(main.db, async () => [])).rejects.toThrow();
+		await expect(
+			readLogStores(main.db, async () => [], { from: "2026-01-01" }),
+		).rejects.toThrow();
 		logs.sqlite.exec(schemaDdl(logPartition));
-		expect(await readLogStores(main.db, async () => [])).toEqual([[], []]);
+		expect(
+			await readLogStores(main.db, async () => [], { from: "2026-01-01" }),
+		).toEqual([[], []]);
 	});
 
 	it("rejects ambiguous directories and invalid sealed bounds", async () => {
@@ -159,15 +168,15 @@ describe("log partition directory", () => {
 			"INSERT INTO log_partition VALUES ('second', 'active', '2026-02-01', NULL, '2026-02-01')",
 		);
 		configureLogStore(main.db, { LOGS_DB_1: logs.binding });
-		await expect(readLogStores(main.db, async () => [])).rejects.toThrow(
-			"Multiple log_partition rows",
-		);
+		await expect(
+			readLogStores(main.db, async () => [], { from: "2026-01-01" }),
+		).rejects.toThrow("Multiple log_partition rows");
 		logs.sqlite.exec(
 			"DELETE FROM log_partition WHERE id = 'second'; UPDATE log_partition SET to_ts = NULL",
 		);
-		await expect(readLogStores(main.db, async () => [])).rejects.toThrow(
-			"Invalid log_partition",
-		);
+		await expect(
+			readLogStores(main.db, async () => [], { from: "2026-01-01" }),
+		).rejects.toThrow("Invalid log_partition");
 	});
 
 	it("supports historical-only bindings without redirecting writers and ignores duplicate bindings", async () => {

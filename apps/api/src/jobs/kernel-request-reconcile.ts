@@ -6,6 +6,7 @@ import {
 	listDueKernelRequestOrganizations,
 } from "@tedix/db/queries/kernel-requests";
 import { PlatformCronPathError } from "./platform-cron-receipts";
+import { KERNEL_RECONCILE_WORK_MS } from "../kernel/request-reconcile-budget";
 
 /**
  * Remote follow-through on the two-minute platform tick: one
@@ -25,6 +26,7 @@ export async function reconcileDueKernelRequests(
 	env: CloudflareEnv,
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
+	const deadline = Date.now() + KERNEL_RECONCILE_WORK_MS;
 	const counts = {
 		kernelReconcileOrganizations: 0,
 		requestsRecovered: 0,
@@ -56,6 +58,7 @@ export async function reconcileDueKernelRequests(
 				organizationId,
 			).reconcileRequests({
 				organizationId,
+				deadline,
 			}),
 		),
 	)) {

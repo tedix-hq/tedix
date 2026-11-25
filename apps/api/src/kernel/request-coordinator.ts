@@ -1,5 +1,9 @@
 import type { LaneCheckpoint } from "@tedix/api-contract/schemas/lane-execution";
 import {
+	KernelReconcileDeferred,
+	checkKernelReconcileDeadline,
+} from "./request-reconcile-budget";
+import {
 	KernelRequestSnapshotSchema,
 	KernelWorkOrderSchema,
 	type KernelWorkOrder,
@@ -401,7 +405,9 @@ export async function runKernelAcceptanceChecks(
 					limitations: null,
 				});
 			}
-		} catch {
+		} catch (error) {
+			checkKernelReconcileDeadline();
+			if (error instanceof KernelReconcileDeferred) throw error;
 			observations.push({
 				...base,
 				status: "unknown",

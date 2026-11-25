@@ -7,6 +7,11 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { KernelRequestPolicy } from "@tedix/api-contract/schemas/kernel-request";
 import type { BaseContext } from "../rpc/orpc";
 import {
+	KernelReconcileDeferred,
+	kernelReconcileRead,
+	withKernelReconcileBudget,
+} from "./request-reconcile-budget";
+import {
 	kernelAcceptanceReader,
 	readConfiguredRepositoryDelivery,
 } from "./request-target-readers";
@@ -72,6 +77,53 @@ const outputCheck = {
 	outputId: "output-one",
 	revisionId: "revision-one",
 };
+
+it("aborts a stalled repository fetch at the shared deadline and admits no later probe", async () => {
+	const network = vi.fn<typeof fetch>(
+		async (_input, init) =>
+			new Promise<Response>((_resolve, reject) => {
+				init!.signal!.addEventListener(
+					"abort",
+					() => reject(init!.signal!.reason),
+					{ once: true },
+				);
+			}),
+	);
+	await withKernelReconcileBudget(Date.now() + 100, async () => {
+		const probe = () =>
+			readConfiguredRepositoryDelivery(
+				context,
+				source.organizationId,
+				policy,
+				{
+					kind: "repository_delivery",
+					targetId: "repo-one",
+					surface: "app",
+					commitSha: sha,
+				},
+				network,
+			);
+		await expect(probe()).rejects.toThrow();
+		await expect(probe()).rejects.toBeInstanceOf(KernelReconcileDeferred);
+	});
+	expect(network).toHaveBeenCalledTimes(1);
+});
+
+it("defers a stalled read without letting its late result resume the caller", async () => {
+	let finish!: () => void;
+	const blocked = new Promise<void>((resolve) => {
+		finish = resolve;
+	});
+	const publish = vi.fn();
+	await withKernelReconcileBudget(Date.now() + 20, async () => {
+		await expect(
+			kernelReconcileRead(() => blocked).then(publish),
+		).rejects.toBeInstanceOf(KernelReconcileDeferred);
+	});
+	finish();
+	await blocked;
+	expect(publish).not.toHaveBeenCalled();
+});
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.member.mockResolvedValue({ status: "active" });

@@ -33,6 +33,13 @@ import {
 	kernelWorkOrder,
 } from "./request-coordinator";
 import { kernelAcceptanceReader } from "./request-target-readers";
+import {
+	KERNEL_RECONCILE_WORK_MS,
+	KernelReconcileDeferred,
+	kernelReconcileRead,
+	limitKernelReconcileDeadline,
+	withKernelReconcileBudget,
+} from "./request-reconcile-budget";
 
 export async function readKernelRequestPolicy(
 	context: Pick<BaseContext, "db">,
@@ -227,8 +234,9 @@ export async function reconcileHomeKernelRequest(
 		// Execution settlement can precede the ordinary child reply.
 		// Wait for that durable reply without spending the target-probe retry budget.
 		try {
-			await reader.readHomeResponse!();
-		} catch {
+			await kernelReconcileRead(() => reader.readHomeResponse!());
+		} catch (error) {
+			if (error instanceof KernelReconcileDeferred) throw error;
 			await project();
 			return row;
 		}
@@ -268,7 +276,9 @@ export async function reconcileHomeKernelRequest(
 					if (
 						current.snapshot.checks.every((c) => c.kind === "home_response")
 					) {
-						const receipt = await reader.readHomeResponse!();
+						const receipt = await kernelReconcileRead(() =>
+							reader.readHomeResponse!(),
+						);
 						if (receipt.attemptId !== current.snapshot.attemptId)
 							throw new Error("Home attempt superseded");
 						return { status: "acknowledged", receiptRef: receipt.receiptRef };
@@ -354,10 +364,25 @@ async function measureReconcileStage<T>(
 export async function reconcileDueHomeKernelRequests(
 	context: BaseContext,
 	organizationId: string,
+	deadline = Date.now() + KERNEL_RECONCILE_WORK_MS,
 ) {
+	return withKernelReconcileBudget(deadline, () =>
+		reconcileDueRequests(context, organizationId, deadline),
+	);
+}
+
+async function reconcileDueRequests(
+	context: BaseContext,
+	organizationId: string,
+	deadline: number,
+) {
+	const startedAt = Date.now();
 	const policy = await measureReconcileStage("policy", () =>
 		readKernelRequestPolicy(context, organizationId),
 	);
+	if (policy) deadline = Math.min(deadline, startedAt + policy.runBudgetMs);
+	limitKernelReconcileDeadline(deadline);
+	if (Date.now() >= deadline) return 0;
 	if (policy?.workAttemptDelivery)
 		await measureReconcileStage("capture", async () =>
 			(
@@ -395,38 +420,55 @@ export async function reconcileDueHomeKernelRequests(
 		await transitionKernelRequests(context.db, transitions);
 		return rows.length;
 	}
-	const deadline = Date.now() + policy.runBudgetMs;
 	let recovered = 0;
 	const transitions: TransitionKernelRequestParams[] = [];
 	const reconcile = async (row: KernelRequestRow) => {
 		if (Date.now() >= deadline) return;
+		const rowPolicy = {
+			...policy,
+			runBudgetMs: Math.max(1, deadline - Date.now()),
+			probeTimeoutMs: Math.max(
+				1,
+				Math.min(policy.probeTimeoutMs, deadline - Date.now()),
+			),
+		};
 		try {
 			const updated = await measureReconcileStage(row.sourceKind, async () =>
 				row.sourceKind === "home"
 					? await reconcileHomeKernelRequest(
 							context,
 							row,
-							policy,
+							rowPolicy,
 							sourcesByRequest.get(row.id)?.homeRun,
 							sourcesByRequest.get(row.id),
 						)
 					: row.sourceKind === "work_attempt"
 						? await (
 								await import("./request-work-attempt-source")
-							).reconcileWorkAttemptKernelRequest(context, row, policy)
+							).reconcileWorkAttemptKernelRequest(context, row, rowPolicy)
 						: await (
 								await import("./request-local-source")
-							).reconcileLocalKernelRequest(context, row, policy),
+							).reconcileLocalKernelRequest(context, row, rowPolicy),
 			);
 			if (updated.version !== row.version) recovered++;
-			if (updated.nextDueAt && updated.nextDueAt <= new Date().toISOString())
+			if (updated.nextDueAt && updated.nextDueAt <= new Date().toISOString()) {
+				// Unchanged sources need less polling; transitions reset this interval.
+				const previousRetryMs = Math.max(
+					policy.retryMs,
+					Date.parse(updated.nextDueAt) - Date.parse(updated.updatedAt),
+				);
+				const retryMs = Math.max(
+					policy.retryMs,
+					Math.min(15 * 60_000, 2 * previousRetryMs),
+				);
 				transitions.push({
 					...updated,
 					expectedVersion: updated.version,
 					eventId: `${updated.id}:${updated.version + 1}`,
-					nextDueAt: new Date(Date.now() + policy.retryMs).toISOString(),
+					nextDueAt: new Date(Date.now() + retryMs).toISOString(),
 					now: new Date().toISOString(),
 				});
+			}
 		} catch (error) {
 			// A reader can fail after a durable transition. Fence the current row,
 			// not the stale input, and never reopen a request closed meanwhile.
@@ -436,7 +478,10 @@ export async function reconcileDueHomeKernelRequests(
 					...current,
 					expectedVersion: current.version,
 					eventId: `${current.id}:${current.version + 1}`,
-					nextAction: "restore_request_reader",
+					nextAction:
+						error instanceof KernelReconcileDeferred
+							? current.nextAction
+							: "restore_request_reader",
 					nextDueAt: new Date(Date.now() + policy.retryMs).toISOString(),
 					now: new Date().toISOString(),
 				});
@@ -457,8 +502,17 @@ export async function reconcileDueHomeKernelRequests(
 	const results = await Promise.allSettled([
 		...rows.filter(databaseOnly).map(reconcile),
 		(async () => {
-			for (const row of rows.filter((row) => !databaseOnly(row)))
+			let repositoryRows = 0;
+			for (const row of rows.filter((row) => !databaseOnly(row))) {
+				const repository =
+					row.sourceKind === "work_attempt" ||
+					row.snapshot.checks.some(
+						(check) => check.kind === "repository_delivery",
+					);
+				// One repository source can require many sequential Ship and log reads.
+				if (repository && repositoryRows++ >= 1) continue;
 				await reconcile(row);
+			}
 		})(),
 	]);
 	await transitionKernelRequests(context.db, transitions);

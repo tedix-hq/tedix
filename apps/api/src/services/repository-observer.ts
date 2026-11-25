@@ -23,6 +23,7 @@ import type { BaseContext } from "../rpc/orpc";
 import { cognitiveRuntimeContractRouter } from "../rpc/routers/cognitive-runtime";
 import { skillsContractRouter } from "../rpc/routers/cognitive";
 import { triggersOf } from "./situational-recall";
+import { wakeKernelRequestsForRepository } from "../kernel/request-repository-wake";
 
 export async function observerId(key: string) {
 	const bytes = new Uint8Array(
@@ -95,6 +96,8 @@ export async function observeRepositoryEvent(
 		throw new ORPCError("BAD_REQUEST", {
 			message: "Event does not match the configured repository and branch",
 		});
+	const wakeRequests = () =>
+		wakeKernelRequestsForRepository(context, orgId, event);
 	if (event.kind === "ci_red" || event.kind === "ci_green") {
 		if (event.kind === "ci_green")
 			await observations.settleRecoveredRepositoryCiObservations(context.db, {
@@ -111,6 +114,7 @@ export async function observeRepositoryEvent(
 			now: new Date().toISOString(),
 		});
 		if (event.kind === "ci_green") {
+			await wakeRequests();
 			const id = await observerId(
 				`${orgId}:${event.projectId}:${event.repository}:${event.sha}:ci:${event.surface}`,
 			);
@@ -159,6 +163,7 @@ export async function observeRepositoryEvent(
 			orgId,
 			now: new Date().toISOString(),
 		});
+		await wakeRequests();
 		const row = await observations.getRepositoryObservation(
 			context.db,
 			orgId,
@@ -255,6 +260,7 @@ export async function observeRepositoryEvent(
 	// A push is recorded as delivery evidence for Work closeout. Its advisory
 	// review turn was dropped: its reports landed on already-settled items that
 	// nobody opened.
+	await wakeRequests();
 	if (event.kind === "push") return { ...receipt, status: "recorded" };
 	if (row.metadata?.report && event.kind !== "ship_red")
 		return { ...receipt, status: "reported" };

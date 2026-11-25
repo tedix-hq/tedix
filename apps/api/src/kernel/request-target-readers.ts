@@ -20,6 +20,10 @@ import type { BaseContext } from "../rpc/orpc";
 import { resolveKernelConversationAccess } from "./conversation-access";
 import type { KernelAcceptanceReader } from "./request-coordinator";
 import { readDefaultRepositoryCredential } from "../services/default-connection-reference";
+import {
+	admitKernelRepositoryCheck,
+	kernelReconcileFetch,
+} from "./request-reconcile-budget";
 
 const shaSchema = z.string().regex(/^[a-f0-9]{40}$/);
 const runSchema = z.object({
@@ -187,6 +191,8 @@ export async function readConfiguredRepositoryDelivery(
 	},
 	fetchFn: typeof fetch = fetch,
 ) {
+	admitKernelRepositoryCheck();
+	fetchFn = kernelReconcileFetch(fetchFn);
 	const target = policy.repositoryTargets.find(
 		(t) => t.id === check.targetId && t.surface === check.surface,
 	);

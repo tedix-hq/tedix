@@ -541,6 +541,47 @@ describe("Home request source adapter", () => {
 			localRecovery.reconcile.mockReset();
 		}
 	});
+	it("rotates repository sources across ticks and backs off unchanged requests", async () => {
+		const { context, db } = await fixture();
+		const row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		for (const id of ["repo-first", "repo-second"])
+			await db.insert(kernelRequests).values({
+				...row,
+				id,
+				sourceId: id,
+				sourceKind: "agent_session_request",
+				nextDueAt: now,
+				snapshot: {
+					...row.snapshot,
+					checks: [
+						{
+							kind: "repository_delivery",
+							targetId: "repo-one",
+							surface: "api",
+							commitSha: "a".repeat(40),
+						},
+					],
+				},
+			});
+		localRecovery.reconcile
+			.mockClear()
+			.mockImplementation(async (_context, row) => row);
+		try {
+			await reconcileDueHomeKernelRequests(context, "org-example");
+			expect(localRecovery.reconcile).toHaveBeenCalledTimes(1);
+			const first = (await db.select().from(kernelRequests)).find(
+				(r) => r.id === "repo-first",
+			)!;
+			expect(
+				Date.parse(first.nextDueAt!) - Date.parse(first.updatedAt),
+			).toBeGreaterThanOrEqual(2 * config.value.retryMs);
+			await reconcileDueHomeKernelRequests(context, "org-example");
+			expect(localRecovery.reconcile).toHaveBeenCalledTimes(2);
+			expect(localRecovery.reconcile.mock.calls[1]![1].id).toBe("repo-second");
+		} finally {
+			localRecovery.reconcile.mockReset();
+		}
+	});
 	it("keeps paused requests owned while yielding the bounded tenant recovery scan", async () => {
 		const { context, db } = await fixture();
 		await db.update(kernelRequests).set({

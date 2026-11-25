@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { kernelRequests, kernelRequestEvents } from "../schema/kernel-requests";
@@ -14,6 +15,8 @@ import {
 	transitionKernelRequests,
 	listDueKernelRequests,
 	listDueKernelRequestsWithHomeRuns,
+	wakeRepositoryKernelRequests,
+	listDueKernelRequestOrganizations,
 } from "./kernel-requests";
 
 const now = "2026-10-17T10:00:00.000Z";
@@ -23,9 +26,18 @@ function fixture() {
 	sqlite.exec(schemaDdl(kernelRequests));
 	sqlite.exec(schemaDdl(kernelRequestEvents));
 	sqlite.exec(schemaDdl(kernelRuntimeRuns, workItems, workAttempts));
+	const queries: string[] = [];
 	return {
 		sqlite,
-		db: createDbQueryClient(createD1Facade(sqlite, { maxBoundParams: 100 })),
+		queries,
+		db: createDbQueryClient(
+			createD1Facade(sqlite, {
+				maxBoundParams: 100,
+				onPrepare: (query) => {
+					queries.push(query);
+				},
+			}),
+		),
 	};
 }
 const scope = {
@@ -60,6 +72,65 @@ const intake = {
 };
 
 describe("kernel request persistence", () => {
+	it("discovers tenants through a due-time range instead of scanning future requests", async () => {
+		const { db, sqlite, queries } = fixture();
+		await receiveKernelRequest(db, intake);
+		queries.length = 0;
+		expect(await listDueKernelRequestOrganizations(db, now)).toEqual([
+			{ organizationId: scope.organizationId },
+		]);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${queries[0]}`)
+			.all(now, 5)
+			.map((row) => String(row.detail))
+			.join(" | ");
+		expect(plan).toContain(
+			"SEARCH kernel_requests USING COVERING INDEX kernel_requests_global_due_idx (next_due_at<?)",
+		);
+	});
+	it("advances matching repository timers without waking closed or other-tenant requests", async () => {
+		const { db } = fixture();
+		for (const [id, organizationId, nextDueAt, targetId] of [
+			["matching", scope.organizationId, "2026-10-18", "repo-one"],
+			["closed", scope.organizationId, null, "repo-one"],
+			["other-tenant", "other-org", "2026-10-18", "repo-one"],
+			["other-target", scope.organizationId, "2026-10-18", "repo-two"],
+		] as const)
+			await db.insert(kernelRequests).values({
+				...intake,
+				id,
+				sourceId: id,
+				organizationId,
+				nextDueAt,
+				snapshot: {
+					...snapshot,
+					checks: [
+						{
+							kind: "repository_delivery",
+							targetId,
+							surface: "api",
+							commitSha: "a".repeat(40),
+						},
+					],
+				},
+			});
+		await wakeRepositoryKernelRequests(db, {
+			organizationId: scope.organizationId,
+			targetIds: ["repo-one"],
+			workAttempts: false,
+			now,
+		});
+		expect(
+			await db
+				.select({ id: kernelRequests.id })
+				.from(kernelRequests)
+				.where(eq(kernelRequests.nextDueAt, now)),
+		).toEqual([{ id: "matching" }]);
+		expect(
+			(await getKernelRequest(db, { ...scope, id: "matching" }))?.snapshot
+				.checks,
+		).toHaveLength(1);
+	});
 	it("deduplicates intake by source and preserves its original owner and timer", async () => {
 		const { db } = fixture();
 		const first = await receiveKernelRequest(db, intake);

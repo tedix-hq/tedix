@@ -18,6 +18,7 @@ import type { BaseContext } from "../rpc/orpc";
 import { resolveKernelConversationAccess } from "./conversation-access";
 import { applyKernelRequestEvent, driveKernelRequest } from "./request-driver";
 import { kernelAcceptanceReader } from "./request-target-readers";
+import { kernelReconcileRead } from "./request-reconcile-budget";
 
 /** Direct Home turns already have admitted submissions; do not invent a tedi or Work Attempt. */
 export async function reconcileNativeHomeRequest(
@@ -174,7 +175,7 @@ export async function reconcileNativeHomeRequest(
 						fresh.snapshot.delivery?.intentId !== intentId
 					)
 						throw new Error("Home acknowledgment superseded");
-					const receipt = await readHomeResponse();
+					const receipt = await kernelReconcileRead(readHomeResponse);
 					if (receipt.attemptId !== current.snapshot.attemptId)
 						throw new Error("Home attempt superseded");
 					return { status: "acknowledged", receiptRef: receipt.receiptRef };

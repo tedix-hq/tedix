@@ -1003,9 +1003,27 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		);
 	}
 
+	/** Debounce repository hints without delaying them behind the recovery tick. */
+	async ensureRequestReconciliation(payload: {
+		organizationId: string;
+	}): Promise<void> {
+		const now = Math.floor(Date.now() / 1000);
+		if (
+			this.getSchedules().some(
+				(schedule) =>
+					schedule.callback === "reconcileRequests" &&
+					schedule.time > now &&
+					schedule.time <= now + 1,
+			)
+		)
+			return;
+		await this.schedule(1, "reconcileRequests", payload);
+	}
+
 	/** Existing maintenance invokes this independently of turn and execution settlement. */
 	async reconcileRequests(payload: {
 		organizationId: string;
+		deadline?: number;
 	}): Promise<number> {
 		const { reconcileDueHomeKernelRequests } =
 			await import("./request-home-source");
@@ -1017,6 +1035,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 				reconcileDueHomeKernelRequests(
 					await this.turnContext(),
 					payload.organizationId,
+					payload.deadline,
 				),
 			{
 				alwaysLog: true,

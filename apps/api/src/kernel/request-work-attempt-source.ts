@@ -38,6 +38,10 @@ import {
 } from "./request-coordinator";
 import { applyKernelRequestEvent, driveKernelRequest } from "./request-driver";
 import { readConfiguredRepositoryDelivery } from "./request-target-readers";
+import {
+	KernelReconcileDeferred,
+	checkKernelReconcileDeadline,
+} from "./request-reconcile-budget";
 
 const SHA = /^[a-f0-9]{40}$/;
 /** A pushed observation older than this cannot prove or disprove a new delivery. */
@@ -385,7 +389,9 @@ export function workCommitDeliveryReader(
 							live,
 						);
 					shipRefs = ship.evidenceRefs;
-				} catch {
+				} catch (error) {
+					checkKernelReconcileDeadline();
+					if (error instanceof KernelReconcileDeferred) throw error;
 					return pending("Managed Ship unavailable or not green", landed, live);
 				}
 			}
