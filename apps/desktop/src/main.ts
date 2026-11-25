@@ -55,7 +55,7 @@ import {
 	stopRunners,
 } from "./runners";
 import { startExitGuard } from "./quit-guard";
-import { setRunnerField } from "./runners-file";
+import { readRunners, setRunnerField } from "./runners-file";
 import {
 	type AppSignIn,
 	onSetupChange,
@@ -2054,6 +2054,21 @@ async function newChat(text: string): Promise<void> {
  * opens Tedix at login instead, so the runners still start at login. A Mac
  * without runners starts them from Set up this Mac.
  */
+/**
+ * Tasks run only while Tedix is open, so a Mac that runs tasks opens Tedix at
+ * login: switching on "Use for tasks" turns Open at login on, and switching
+ * off the last one turns it off again. Settings shows the result.
+ */
+function matchOpenAtLogin(): void {
+	if (process.platform !== "darwin" || !app.isPackaged) return;
+	const wanted = readRunners().some((entry) => entry.enabled);
+	if (app.getLoginItemSettings().openAtLogin === wanted) return;
+	app.setLoginItemSettings({ openAtLogin: wanted });
+	log(
+		`login: Open at login ${wanted ? "on: this Mac runs tasks" : "off: no agent runs tasks"}`,
+	);
+}
+
 async function takeOverRunners(): Promise<void> {
 	if (process.platform !== "darwin") return;
 	const tookOver = await removeLoginService();
@@ -2212,6 +2227,7 @@ else if (process.argv.includes("--local-model")) {
 					lastOutput = error instanceof Error ? error.message : String(error);
 					return refresh();
 				}
+				if (key === "enabled") matchOpenAtLogin();
 				// The supervisor reads the file on its next check and starts or
 				// stops only this runner; machine tools pick up a new name or
 				// write setting once idle. Nothing else restarts.
@@ -2276,7 +2292,11 @@ else if (process.argv.includes("--local-model")) {
 					return signInWithBrowser();
 				},
 				openSignIn: (url) => shell.openExternal(url),
-				startRunnersIfStopped,
+				// Called once an agent was switched on for tasks.
+				startRunnersIfStopped: async () => {
+					matchOpenAtLogin();
+					await startRunnersIfStopped();
+				},
 			});
 			await refresh();
 		});

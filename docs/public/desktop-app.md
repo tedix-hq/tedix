@@ -52,6 +52,8 @@ provider, Tedix uses the Mac app when its coding tool is ready.
   check an app you already connected.
 
 To let an agent run tasks on your Mac, use **Use for tasks** in Settings.
+Tasks run only while Tedix is open, so this also turns on **Open at login**
+in **Settings → General**. Switching off the last agent turns it off again.
 
 ## Try the demo
 
