@@ -12,14 +12,17 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import { batchNonEmpty } from "../../utils/batch";
 import {
 	type BillingAccount,
 	type BillingAccountStatus,
 	type BillingPlanVersion,
-	billingAccounts,
-	billingPlanVersions,
-	billingUsageReservations,
+	billingAccounts as schemaBillingAccounts,
+	billingPlanVersions as schemaBillingPlanVersions,
+	billingUsageReservations as schemaBillingUsageReservations,
 } from "../../schema/billing";
 
 export interface BillingEntitlement {
@@ -32,6 +35,7 @@ export async function getActiveBillingPlanByKey(
 	planKey: BillingPlanVersion["planKey"],
 	now: string,
 ): Promise<BillingPlanVersion | null> {
+	const billingPlanVersions = coreTable(db, schemaBillingPlanVersions);
 	const [plan] = await db
 		.select()
 		.from(billingPlanVersions)
@@ -90,6 +94,7 @@ export async function linkBillingAccountStripeCustomerIfUnbound(
 		now: string;
 	},
 ): Promise<boolean> {
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	const [account] = await db
 		.update(billingAccounts)
 		.set({
@@ -129,7 +134,10 @@ type ProvisionBillingAccountValues = {
 	metadata?: Record<string, JsonValue>;
 };
 
-function billingAccountUpdateValues(input: ProvisionBillingAccountValues) {
+function billingAccountUpdateValues(
+	billingAccounts: typeof schemaBillingAccounts,
+	input: ProvisionBillingAccountValues,
+) {
 	return {
 		planVersionId: input.planVersionId,
 		status: input.status,
@@ -167,6 +175,7 @@ export function buildProvisionBillingAccountStatement(
 	db: DbClient,
 	input: ProvisionBillingAccountValues,
 ) {
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	return db
 		.insert(billingAccounts)
 		.values({
@@ -186,7 +195,7 @@ export function buildProvisionBillingAccountStatement(
 		})
 		.onConflictDoUpdate({
 			target: billingAccounts.organizationId,
-			set: billingAccountUpdateValues(input),
+			set: billingAccountUpdateValues(billingAccounts, input),
 		})
 		.returning();
 }
@@ -199,10 +208,11 @@ export function buildUpdateStripeBillingAccountStatement(
 	},
 	guard: SQL,
 ) {
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	return db
 		.update(billingAccounts)
 		.set({
-			...billingAccountUpdateValues(input),
+			...billingAccountUpdateValues(billingAccounts, input),
 			stripeWebhookCustomerKey: input.stripeWebhookCustomerKey,
 			stripeWebhookEventCreatedAt: input.stripeWebhookEventCreatedAt,
 		})
@@ -293,6 +303,11 @@ export async function correctBillingAccountPeriod(
 		throw new Error("A billing period correction must record a reason");
 	if (Date.parse(input.periodEnd) <= Date.parse(input.periodStart))
 		throw new Error("Billing period must end after it starts");
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	const [account] = await db
 		.select()
 		.from(billingAccounts)
@@ -357,6 +372,7 @@ export async function rollBillingPeriods(
 	db: DbClient,
 	now: string,
 ): Promise<{ renewed: number; suspendedTrials: number }> {
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	const expired = await db
 		.select()
 		.from(billingAccounts)
@@ -369,21 +385,27 @@ export async function rollBillingPeriods(
 		.limit(500);
 	let renewed = 0;
 	let suspendedTrials = 0;
+	const statements: BatchItem<"sqlite">[] = [];
 	for (const account of expired) {
 		if (account.status === "trial") {
-			await db
-				.update(billingAccounts)
-				.set({
-					status: "suspended",
-					entitlementVersion: account.entitlementVersion + 1,
-					updatedAt: now,
-				})
-				.where(
-					and(
-						eq(billingAccounts.organizationId, account.organizationId),
-						eq(billingAccounts.entitlementVersion, account.entitlementVersion),
+			statements.push(
+				db
+					.update(billingAccounts)
+					.set({
+						status: "suspended",
+						entitlementVersion: account.entitlementVersion + 1,
+						updatedAt: now,
+					})
+					.where(
+						and(
+							eq(billingAccounts.organizationId, account.organizationId),
+							eq(
+								billingAccounts.entitlementVersion,
+								account.entitlementVersion,
+							),
+						),
 					),
-				);
+			);
 			suspendedTrials++;
 			continue;
 		}
@@ -392,23 +414,26 @@ export async function rollBillingPeriods(
 		nextEndDate.setUTCMonth(nextEndDate.getUTCMonth() + 1);
 		// Included credits belong to their period: advancing the window starts
 		// a fresh allowance. Top-up credits keep their own expiry.
-		await db
-			.update(billingAccounts)
-			.set({
-				periodStart: nextStart,
-				periodEnd: nextEndDate.toISOString(),
-				entitlementVersion: account.entitlementVersion + 1,
-				updatedAt: now,
-			})
-			.where(
-				and(
-					eq(billingAccounts.organizationId, account.organizationId),
-					eq(billingAccounts.entitlementVersion, account.entitlementVersion),
+		statements.push(
+			db
+				.update(billingAccounts)
+				.set({
+					periodStart: nextStart,
+					periodEnd: nextEndDate.toISOString(),
+					entitlementVersion: account.entitlementVersion + 1,
+					updatedAt: now,
+				})
+				.where(
+					and(
+						eq(billingAccounts.organizationId, account.organizationId),
+						eq(billingAccounts.entitlementVersion, account.entitlementVersion),
+					),
 				),
-			);
+		);
 
 		renewed++;
 	}
+	if (statements.length > 0) await db.batch(batchNonEmpty(statements));
 	return { renewed, suspendedTrials };
 }
 
@@ -423,6 +448,7 @@ export async function activateProviderCustomerBilling(
 		now: string;
 	},
 ): Promise<void> {
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	await db
 		.update(billingAccounts)
 		.set({

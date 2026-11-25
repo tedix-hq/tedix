@@ -33,23 +33,30 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
-import { auditEvents } from "../../schema/audit-events";
+import { coreTable } from "../../core-store/client";
+import {
+	booleanValue,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+} from "../../core-store/dialect";
+import { auditEvents as schemaAuditEvents } from "../../schema/audit-events";
 import {
 	type BillingAccount,
 	type BillingAccountStatus,
 	type BillingCreditKind,
 	type BillingPlanKey,
-	billingAccounts,
-	billingCreditCaps,
-	billingCreditConsumptions,
-	billingCreditMeterOutbox,
-	billingCreditNotices,
-	billingCreditTopUps,
-	billingCreditUsageTotals,
-	billingPlanVersions,
-	billingServiceCreditReservations,
-	billingTopUpPackVersions,
-	billingUsageReservations,
+	billingAccounts as schemaBillingAccounts,
+	billingCreditCaps as schemaBillingCreditCaps,
+	billingCreditConsumptions as schemaBillingCreditConsumptions,
+	billingCreditMeterOutbox as schemaBillingCreditMeterOutbox,
+	billingCreditNotices as schemaBillingCreditNotices,
+	billingCreditTopUps as schemaBillingCreditTopUps,
+	billingCreditUsageTotals as schemaBillingCreditUsageTotals,
+	billingPlanVersions as schemaBillingPlanVersions,
+	billingServiceCreditReservations as schemaBillingServiceCreditReservations,
+	billingTopUpPackVersions as schemaBillingTopUpPackVersions,
+	billingUsageReservations as schemaBillingUsageReservations,
 } from "../../schema/billing";
 import { liveAtSql } from "./usage-window";
 
@@ -68,15 +75,51 @@ export interface CreditSubject {
 
 type Ref = SQLWrapper | AnyColumn;
 
-const account = alias(billingAccounts, "account");
-const plan = alias(billingPlanVersions, "plan");
-const orgTotal = alias(billingCreditUsageTotals, "organization_total");
-const usedTotal = alias(billingCreditUsageTotals, "used_total");
-const topUp = alias(billingCreditTopUps, "top_up");
-const heldAi = alias(billingUsageReservations, "held_ai");
-const heldService = alias(billingServiceCreditReservations, "held_service");
-const tediCap = alias(billingCreditCaps, "tedi_cap");
-const memberCap = alias(billingCreditCaps, "member_cap");
+/** Scalar two-argument minimum: SQLite MIN(a, b), Postgres LEAST(a, b). */
+function sqlMin(db: DbClient, a: SQLWrapper, b: SQLWrapper): SQL {
+	return coreStore(db) === "postgres"
+		? sql`LEAST(${a}, ${b})`
+		: sql`MIN(${a}, ${b})`;
+}
+/** Scalar two-argument maximum: SQLite MAX(a, b), Postgres GREATEST(a, b). */
+function sqlMax(db: DbClient, a: SQLWrapper, b: SQLWrapper): SQL {
+	return coreStore(db) === "postgres"
+		? sql`GREATEST(${a}, ${b})`
+		: sql`MAX(${a}, ${b})`;
+}
+/** Ceiling division of non-negative safe integers, truncated like SQLite. */
+function sqlCeilDiv(
+	db: DbClient,
+	numerator: SQLWrapper,
+	denominator: SQLWrapper,
+): SQL {
+	return coreStore(db) === "postgres"
+		? sql`floor((${numerator})::numeric / (${denominator})::numeric)::bigint`
+		: sql`CAST((${numerator}) / (${denominator}) AS INTEGER)`;
+}
+
+function poolAliases(db: DbClient) {
+	return {
+		account: alias(coreTable(db, schemaBillingAccounts), "account"),
+		plan: alias(coreTable(db, schemaBillingPlanVersions), "plan"),
+		orgTotal: alias(
+			coreTable(db, schemaBillingCreditUsageTotals),
+			"organization_total",
+		),
+		usedTotal: alias(
+			coreTable(db, schemaBillingCreditUsageTotals),
+			"used_total",
+		),
+		topUp: alias(coreTable(db, schemaBillingCreditTopUps), "top_up"),
+		heldAi: alias(coreTable(db, schemaBillingUsageReservations), "held_ai"),
+		heldService: alias(
+			coreTable(db, schemaBillingServiceCreditReservations),
+			"held_service",
+		),
+		tediCap: alias(coreTable(db, schemaBillingCreditCaps), "tedi_cap"),
+		memberCap: alias(coreTable(db, schemaBillingCreditCaps), "member_cap"),
+	};
+}
 
 /**
  * Credits held by live reservations of one organization and period: AI and
@@ -88,6 +131,7 @@ function heldCredits(
 	now: string,
 	filter?: { kind: "tedi" | "member"; value: string | null },
 ): SQL {
+	const { heldAi, heldService } = poolAliases(db);
 	const ai = db
 		.select({ total: sql`SUM(${heldAi.credits})` })
 		.from(heldAi)
@@ -95,7 +139,7 @@ function heldCredits(
 			and(
 				sql`${heldAi.organizationId} = ${ref.organizationId}`,
 				eq(heldAi.status, "reserved"),
-				liveAtSql("held_ai.expires_at", now),
+				liveAtSql(db, "held_ai.expires_at", now),
 				sql`${heldAi.periodStart} = ${ref.periodStart}`,
 				sql`${heldAi.periodEnd} = ${ref.periodEnd}`,
 				filter?.kind === "tedi"
@@ -112,7 +156,7 @@ function heldCredits(
 			and(
 				sql`${heldService.organizationId} = ${ref.organizationId}`,
 				eq(heldService.status, "reserved"),
-				liveAtSql("held_service.expires_at", now),
+				liveAtSql(db, "held_service.expires_at", now),
 				sql`${heldService.periodStart} = ${ref.periodStart}`,
 				sql`${heldService.periodEnd} = ${ref.periodEnd}`,
 				filter?.kind === "tedi"
@@ -132,6 +176,7 @@ function subjectUsed(
 	kind: "tedi" | "member",
 	key: string | null,
 ): SQL {
+	const { usedTotal } = poolAliases(db);
 	const total = db
 		.select({
 			used: sql`${usedTotal.aiCredits} + ${usedTotal.codeRunCredits} + ${usedTotal.serviceCredits}`,
@@ -153,6 +198,8 @@ export function buildCreditPoolSelect(
 	db: DbClient,
 	input: { organizationId: string; now: string; subject?: CreditSubject },
 ) {
+	const { account, plan, orgTotal, topUp, tediCap, memberCap } =
+		poolAliases(db);
 	const tediId = input.subject?.tediId ?? null;
 	const userId = input.subject?.userId ?? null;
 	const topUpRemaining = db
@@ -164,7 +211,7 @@ export function buildCreditPoolSelect(
 			and(
 				eq(topUp.organizationId, account.organizationId),
 				sql`${topUp.consumedCredits} < ${topUp.credits}`,
-				liveAtSql("top_up.expires_at", input.now),
+				liveAtSql(db, "top_up.expires_at", input.now),
 			),
 		);
 	const cap = (
@@ -244,7 +291,7 @@ export function buildCreditPoolSelect(
 				"service_credits",
 			),
 			paygEnabled:
-				sql<number>`(${plan.allowOverage} = 1 AND ${account.overageEnabled} = 1 AND ${account.hardSpendLimitMicros} IS NOT NULL)`.as(
+				sql<number>`(${plan.allowOverage} = ${booleanValue(db, true)} AND ${account.overageEnabled} = ${booleanValue(db, true)} AND ${account.hardSpendLimitMicros} IS NOT NULL)`.as(
 					"payg_enabled",
 				),
 			paygOptedIn: sql<number>`${account.overageEnabled}`.as("payg_opted_in"),
@@ -343,11 +390,18 @@ export function buildCreditCapacitySelect(
 			heldCredits: pool.heldCredits,
 			tediCap: pool.tediCap,
 			memberCap: pool.memberCap,
-			availableCredits:
-				sql<number>`MAX(${pool.includedCredits} - ${pool.includedUsed}, 0)
+			availableCredits: sql<number>`${sqlMax(
+				db,
+				sql`${pool.includedCredits} - ${pool.includedUsed}`,
+				sql`0`,
+			)}
 				+ ${pool.topUpRemaining}
 				+ CASE WHEN ${pool.paygEnabled}
-					THEN MAX(CAST((${pool.paygCapMicros} - ${pool.paygChargeMicros}) / ${CREDIT_VALUE_EUR_MICROS} AS INTEGER), 0)
+					THEN ${sqlMax(
+						db,
+						sql`CAST((${pool.paygCapMicros} - ${pool.paygChargeMicros}) / ${CREDIT_VALUE_EUR_MICROS} AS BIGINT)`,
+						sql`0`,
+					)}
 					ELSE 0 END
 				- ${pool.heldCredits}`.as("available_credits"),
 			tediUsed: sql<number>`CASE WHEN ${pool.tediCap} IS NULL THEN 0 ELSE
@@ -560,6 +614,15 @@ export function buildCreditConsumptionStatements(
 		subject,
 	});
 	const capacity = creditCapacityCte(db, pool, { now: input.now, subject });
+	const billingCreditUsageTotals = coreTable(
+		db,
+		schemaBillingCreditUsageTotals,
+	);
+	const billingCreditConsumptions = coreTable(
+		db,
+		schemaBillingCreditConsumptions,
+	);
+	const billingCreditTopUps = coreTable(db, schemaBillingCreditTopUps);
 	const periodIncludedUsed = db
 		.select({ used: billingCreditUsageTotals.includedCredits })
 		.from(billingCreditUsageTotals)
@@ -586,14 +649,23 @@ export function buildCreditConsumptionStatements(
 				paygEnabled: capacity.paygEnabled,
 				topUpRemaining: capacity.topUpRemaining,
 				amount: sql<number>`${amount}`.as("amount"),
-				includedPart:
-					sql<number>`MIN(${amount}, MAX(${capacity.includedCredits} - COALESCE((${periodIncludedUsed}), 0), 0))`.as(
-						"included_part",
+				includedPart: sql<number>`${sqlMin(
+					db,
+					amount,
+					sqlMax(
+						db,
+						sql`${capacity.includedCredits} - COALESCE((${periodIncludedUsed}), 0)`,
+						sql`0`,
 					),
+				)}`.as("included_part"),
 			})
 			.from(capacity),
 	);
-	const topUpPart = sql<number>`MIN(${split.amount} - ${split.includedPart}, ${split.topUpRemaining})`;
+	const topUpPart = sql<number>`${sqlMin(
+		db,
+		sql`${split.amount} - ${split.includedPart}`,
+		split.topUpRemaining,
+	)}`;
 	const paygPart = sql<number>`${split.amount} - ${split.includedPart} - ${topUpPart}`;
 	const insert = db
 		.with(pool, capacity, split)
@@ -666,7 +738,7 @@ export function buildCreditConsumptionStatements(
 				and(
 					eq(billingCreditTopUps.organizationId, input.organizationId),
 					sql`${billingCreditTopUps.consumedCredits} < ${billingCreditTopUps.credits}`,
-					liveAtSql("billing_credit_top_ups.expires_at", input.now),
+					liveAtSql(db, "billing_credit_top_ups.expires_at", input.now),
 				),
 			),
 	);
@@ -674,7 +746,7 @@ export function buildCreditConsumptionStatements(
 		.with(ordered)
 		.update(billingCreditTopUps)
 		.set({
-			consumedCredits: sql`${billingCreditTopUps.consumedCredits} + MIN(${ordered.remaining}, (${need}) - ${ordered.before})`,
+			consumedCredits: sql`${billingCreditTopUps.consumedCredits} + ${sqlMin(db, ordered.remaining, sql`(${need}) - ${ordered.before}`)}`,
 			updatedAt: input.now,
 		})
 		.from(ordered)
@@ -744,8 +816,15 @@ export function buildCreditConsumptionStatements(
 			});
 
 	const total = alias(billingCreditUsageTotals, "notice_total");
-	const noticeAccount = alias(billingAccounts, "notice_account");
-	const noticePlan = alias(billingPlanVersions, "notice_plan");
+	const noticeAccount = alias(
+		coreTable(db, schemaBillingAccounts),
+		"notice_account",
+	);
+	const noticePlan = alias(
+		coreTable(db, schemaBillingPlanVersions),
+		"notice_plan",
+	);
+	const billingCreditNotices = coreTable(db, schemaBillingCreditNotices);
 	const raiseNotice = (threshold: CreditNoticeThreshold) =>
 		db
 			.insert(billingCreditNotices)
@@ -782,7 +861,14 @@ export function buildCreditConsumptionStatements(
 			)
 			.onConflictDoNothing();
 
-	const meterAccount = alias(billingAccounts, "meter_account");
+	const meterAccount = alias(
+		coreTable(db, schemaBillingAccounts),
+		"meter_account",
+	);
+	const billingCreditMeterOutbox = coreTable(
+		db,
+		schemaBillingCreditMeterOutbox,
+	);
 	const meter = db
 		.insert(billingCreditMeterOutbox)
 		.select(
@@ -857,6 +943,10 @@ export async function creditConsumptionRecorded(
 	db: DbClient,
 	id: string,
 ): Promise<boolean> {
+	const billingCreditConsumptions = coreTable(
+		db,
+		schemaBillingCreditConsumptions,
+	);
 	const rows = await db
 		.select({ id: billingCreditConsumptions.id })
 		.from(billingCreditConsumptions)
@@ -888,6 +978,10 @@ export async function admitCodeRun(
 	db: DbClient,
 	input: CodeRunAdmissionInput,
 ): Promise<CodeRunAdmissionDecision> {
+	const billingCreditConsumptions = coreTable(
+		db,
+		schemaBillingCreditConsumptions,
+	);
 	const [existing] = await db
 		.select({ credits: billingCreditConsumptions.credits })
 		.from(billingCreditConsumptions)
@@ -951,6 +1045,7 @@ export async function listCreditNotices(
 	db: DbClient,
 	input: { organizationId: string; periodStart: string },
 ): Promise<CreditNoticeRow[]> {
+	const billingCreditNotices = coreTable(db, schemaBillingCreditNotices);
 	const rows = await db
 		.select({
 			threshold: billingCreditNotices.threshold,
@@ -985,6 +1080,11 @@ export async function listCreditSubjectUsage(
 		subjectKind: "tedi" | "member";
 	},
 ): Promise<CreditSubjectUsageRow[]> {
+	const billingCreditUsageTotals = coreTable(
+		db,
+		schemaBillingCreditUsageTotals,
+	);
+	const billingCreditCaps = coreTable(db, schemaBillingCreditCaps);
 	const [totals, caps] = await db.batch([
 		db
 			.select({
@@ -1050,6 +1150,7 @@ export async function setCreditCaps(
 	db: DbClient,
 	input: SetCreditCapsInput,
 ): Promise<void> {
+	const billingCreditCaps = coreTable(db, schemaBillingCreditCaps);
 	const statements = input.caps.map((cap) => {
 		if (cap.monthlyCapCredits === null)
 			return db
@@ -1106,6 +1207,7 @@ export async function setPayAsYouGo(
 ): Promise<boolean> {
 	if (input.enabled && input.monthlyCapMicros === null)
 		throw new Error("Pay-as-you-go requires a monthly cap");
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	const rows = await db
 		.update(billingAccounts)
 		.set({
@@ -1141,6 +1243,8 @@ export async function setAccountCredits(
 			input.includedCreditsOverride < 0)
 	)
 		throw new Error("Included credits must be a non-negative integer");
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
+	const auditEvents = coreTable(db, schemaAuditEvents);
 	const [current] = await db
 		.select({
 			previous: billingAccounts.includedCreditsOverride,
@@ -1152,13 +1256,13 @@ export async function setAccountCredits(
 	if (!current) return null;
 	const nextVersion = current.version + 1;
 	const auditId = `billing-credits:${input.organizationId}:${nextVersion}`;
-	const metadata = JSON.stringify({
+	const metadata = {
 		previousIncludedCreditsOverride: current.previous,
 		includedCreditsOverride: input.includedCreditsOverride,
 		reason: input.reason,
 		actor: input.actor,
 		entitlementVersion: nextVersion,
-	});
+	};
 	await db.batch([
 		db
 			.update(billingAccounts)
@@ -1187,7 +1291,9 @@ export async function setAccountCredits(
 						resourceId: sql<string>`${billingAccounts.organizationId}`.as(
 							"resource_id",
 						),
-						metadata: sql<string>`${metadata}`.as("metadata"),
+						metadata: sql<string>`${jsonParameter(db, metadata)}`.as(
+							"metadata",
+						),
 						ipAddress: sql<null>`NULL`.as("ip_address"),
 						userAgent: sql<null>`NULL`.as("user_agent"),
 						timestamp:
@@ -1217,17 +1323,19 @@ export async function setAccountCredits(
 	return { entitlementVersion: nextVersion, previous: current.previous };
 }
 
-const topUpPackColumns = {
-	id: billingTopUpPackVersions.id,
-	packKey: billingTopUpPackVersions.packKey,
-	version: billingTopUpPackVersions.version,
-	name: billingTopUpPackVersions.name,
-	currency: billingTopUpPackVersions.currency,
-	priceMicros: billingTopUpPackVersions.priceMicros,
-	credits: billingTopUpPackVersions.credits,
-	validMonths: billingTopUpPackVersions.validMonths,
-	stripeLookupKey: billingTopUpPackVersions.stripeLookupKey,
-};
+function topUpPackColumns(pack: typeof schemaBillingTopUpPackVersions) {
+	return {
+		id: pack.id,
+		packKey: pack.packKey,
+		version: pack.version,
+		name: pack.name,
+		currency: pack.currency,
+		priceMicros: pack.priceMicros,
+		credits: pack.credits,
+		validMonths: pack.validMonths,
+		stripeLookupKey: pack.stripeLookupKey,
+	};
+}
 
 export interface TopUpPackRow {
 	id: string;
@@ -1246,9 +1354,13 @@ export async function listActiveTopUpPacks(
 	db: DbClient,
 	input: { stripeEnvironment: "test" | "live"; now: string },
 ): Promise<TopUpPackRow[]> {
+	const billingTopUpPackVersions = coreTable(
+		db,
+		schemaBillingTopUpPackVersions,
+	);
 	const newer = alias(billingTopUpPackVersions, "newer");
 	return db
-		.select(topUpPackColumns)
+		.select(topUpPackColumns(billingTopUpPackVersions))
 		.from(billingTopUpPackVersions)
 		.where(
 			and(
@@ -1281,8 +1393,12 @@ export async function getTopUpPackVersion(
 	db: DbClient,
 	input: { id: string; stripeEnvironment: "test" | "live" },
 ): Promise<TopUpPackRow | null> {
+	const billingTopUpPackVersions = coreTable(
+		db,
+		schemaBillingTopUpPackVersions,
+	);
 	const [row] = await db
-		.select(topUpPackColumns)
+		.select(topUpPackColumns(billingTopUpPackVersions))
 		.from(billingTopUpPackVersions)
 		.where(
 			and(
@@ -1314,6 +1430,8 @@ export async function grantTopUpCredits(
 ): Promise<{ id: string; credits: number; expiresAt: string }> {
 	if (!Number.isSafeInteger(input.credits) || input.credits <= 0)
 		throw new Error("Top-up credits must be a positive integer");
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
+	const billingCreditTopUps = coreTable(db, schemaBillingCreditTopUps);
 	await db
 		.insert(billingCreditTopUps)
 		.select(
@@ -1336,7 +1454,7 @@ export async function grantTopUpCredits(
 						"idempotency_key",
 					),
 					expiresAt: sql<string>`${input.expiresAt}`.as("expires_at"),
-					metadata: sql<string>`${JSON.stringify(input.metadata ?? {})}`.as(
+					metadata: sql<string>`${jsonParameter(db, input.metadata ?? {})}`.as(
 						"metadata",
 					),
 					createdAt: sql<string>`${input.now}`.as("created_at"),
@@ -1385,17 +1503,25 @@ export async function forfeitRefundedTopUp(
 	)
 		throw new Error("Refund amounts must be non-negative integers");
 	const refunded = Math.min(input.amountRefunded, input.amount);
+	const billingCreditTopUps = coreTable(db, schemaBillingCreditTopUps);
 	const rows = await db
 		.update(billingCreditTopUps)
 		.set({
-			consumedCredits: sql`MIN(${billingCreditTopUps.credits}, MAX(${billingCreditTopUps.consumedCredits},
-				CAST((${billingCreditTopUps.credits} * ${refunded} + ${input.amount} - 1) / ${input.amount} AS INTEGER)))`,
+			consumedCredits: sql`${sqlMin(
+				db,
+				billingCreditTopUps.credits,
+				sqlMax(
+					db,
+					billingCreditTopUps.consumedCredits,
+					sql`CAST((${billingCreditTopUps.credits} * ${refunded} + ${input.amount} - 1) / ${input.amount} AS ${sql.raw(coreStore(db) ? "BIGINT" : "INTEGER")})`,
+				),
+			)}`,
 			updatedAt: input.now,
 		})
 		.where(
 			and(
 				eq(billingCreditTopUps.sourceType, "stripe_checkout"),
-				sql`json_extract(${billingCreditTopUps.metadata}, '$.paymentIntentId') = ${input.paymentIntentId}`,
+				sql`${jsonRead(db, billingCreditTopUps.metadata, ["paymentIntentId"])} = ${input.paymentIntentId}`,
 			),
 		)
 		.returning({ id: billingCreditTopUps.id });

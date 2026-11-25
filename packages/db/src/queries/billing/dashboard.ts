@@ -1,8 +1,9 @@
 import { and, desc, eq, gte, gt, lt, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
 import {
-	billingCreditConsumptions,
-	billingCreditTopUps,
+	billingCreditConsumptions as schemaConsumptions,
+	billingCreditTopUps as schemaTopUps,
 } from "../../schema/billing";
 
 export async function listDailyCreditUsage(
@@ -14,7 +15,7 @@ export async function listDailyCreditUsage(
 		periodStart?: string;
 	},
 ) {
-	const consumption = billingCreditConsumptions;
+	const consumption = coreTable(db, schemaConsumptions);
 	const day = sql<string>`substr(${consumption.createdAt}, 1, 10)`;
 	return db
 		.select({
@@ -44,7 +45,7 @@ export async function listPurchasedCreditPacks(
 	db: DbQueryClient,
 	organizationId: string,
 ) {
-	const pack = billingCreditTopUps;
+	const pack = coreTable(db, schemaTopUps);
 	return db
 		.select({
 			id: pack.id,

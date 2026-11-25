@@ -2,11 +2,14 @@
 
 import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import { anyIds } from "../../core-store/dialect";
 import { chunkForBoundParams } from "../../utils/batch";
-import { billingCreditMeterOutbox } from "../../schema/billing";
+import { billingCreditMeterOutbox as schemaBillingCreditMeterOutbox } from "../../schema/billing";
 
 /** One queued export of pay-as-you-go credits to the Stripe meter. */
-export type CreditMeterOutboxRow = typeof billingCreditMeterOutbox.$inferSelect;
+export type CreditMeterOutboxRow =
+	typeof schemaBillingCreditMeterOutbox.$inferSelect;
 
 export async function claimStripeMeterOutbox(
 	db: DbClient,
@@ -17,6 +20,10 @@ export async function claimStripeMeterOutbox(
 		limit: number;
 	},
 ): Promise<CreditMeterOutboxRow[]> {
+	const billingCreditMeterOutbox = coreTable(
+		db,
+		schemaBillingCreditMeterOutbox,
+	);
 	const candidates = await db
 		.select({ id: billingCreditMeterOutbox.id })
 		.from(billingCreditMeterOutbox)
@@ -45,7 +52,7 @@ export async function claimStripeMeterOutbox(
 	// D1 caps bound parameters at 100 per statement; the drain batch is 100
 	// rows and the guard predicates bind params of their own, so the claim
 	// UPDATE is issued in id chunks. Each row's claim stays row-atomic.
-	const claimed: (typeof billingCreditMeterOutbox.$inferSelect)[] = [];
+	const claimed: CreditMeterOutboxRow[] = [];
 	for (const chunk of chunkForBoundParams(
 		candidates.map((row) => row.id),
 		50,
@@ -64,7 +71,7 @@ export async function claimStripeMeterOutbox(
 							billingCreditMeterOutbox.stripeEnvironment,
 							input.stripeEnvironment ?? "live",
 						),
-						inArray(billingCreditMeterOutbox.id, chunk),
+						anyIds(db, billingCreditMeterOutbox.id, chunk),
 						inArray(billingCreditMeterOutbox.status, [
 							"pending",
 							"failed",
@@ -91,6 +98,10 @@ export async function markStripeMeterOutboxSent(
 		now: string;
 	},
 ): Promise<void> {
+	const billingCreditMeterOutbox = coreTable(
+		db,
+		schemaBillingCreditMeterOutbox,
+	);
 	await db
 		.update(billingCreditMeterOutbox)
 		.set({
@@ -128,6 +139,10 @@ export async function markStripeMeterOutboxFailed(
 	},
 ): Promise<void> {
 	const maxAttempts = input.maxAttempts ?? STRIPE_METER_OUTBOX_MAX_ATTEMPTS;
+	const billingCreditMeterOutbox = coreTable(
+		db,
+		schemaBillingCreditMeterOutbox,
+	);
 	await db
 		.update(billingCreditMeterOutbox)
 		.set({

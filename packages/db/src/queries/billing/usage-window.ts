@@ -9,14 +9,18 @@
  */
 
 import { type SQL, sql } from "drizzle-orm";
+import { coreStore } from "../../core-store/dialect";
+import type { DbClient } from "../../client";
 
 /**
  * `column` is still live at `now`, as `datetime(column) > datetime(now)`
  * decided it. `datetime()` truncates both sides to whole seconds, so the text
  * threshold is the next whole second after `now`, in the stored format.
  */
-export function liveAtSql(column: string, now: string): SQL {
-	return sql`${columnRef(column)} >= strftime('%Y-%m-%dT%H:%M:%fZ', datetime(${now}, '+1 second'))`;
+export function liveAtSql(db: DbClient, column: string, now: string): SQL {
+	return coreStore(db) === "postgres"
+		? sql`${columnRef(column)} >= to_char(date_trunc('second', ${now}::timestamptz) + interval '1 second', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
+		: sql`${columnRef(column)} >= strftime('%Y-%m-%dT%H:%M:%fZ', datetime(${now}, '+1 second'))`;
 }
 
 /** `column` or `alias.column` as quoted identifiers. */

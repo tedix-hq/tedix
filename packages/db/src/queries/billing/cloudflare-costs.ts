@@ -1,13 +1,15 @@
 import { and, asc, gte, lte } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { billingCloudflareDailyCosts as costs } from "../../schema/billing";
+import { coreTable } from "../../core-store/client";
+import { billingCloudflareDailyCosts as schemaCosts } from "../../schema/billing";
 
-export type CloudflareDailyCost = typeof costs.$inferSelect;
+export type CloudflareDailyCost = typeof schemaCosts.$inferSelect;
 
 export async function upsertCloudflareDailyCost(
 	db: DbQueryClient,
 	row: CloudflareDailyCost,
 ) {
+	const costs = coreTable(db, schemaCosts);
 	await db
 		.insert(costs)
 		.values(row)
@@ -27,6 +29,7 @@ export async function listCloudflareDailyCosts(
 	from: string,
 	to: string,
 ) {
+	const costs = coreTable(db, schemaCosts);
 	return db
 		.select()
 		.from(costs)

@@ -9,24 +9,29 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { aiCreditsForProviderCost } from "@tedix/api-contract/utils/credit-pricing";
 import { and, eq, exists, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import { booleanValue, jsonParameter } from "../../core-store/dialect";
 import {
 	type BillingUsageCharge,
 	type BillingUsageSource,
-	billingAccounts,
-	billingCreditConsumptions,
-	billingPlanVersions,
-	billingUsageCharges,
-	billingUsagePeriods,
-	billingUsageReservations,
+	billingAccounts as schemaBillingAccounts,
+	billingCreditConsumptions as schemaBillingCreditConsumptions,
+	billingPlanVersions as schemaBillingPlanVersions,
+	billingUsageCharges as schemaBillingUsageCharges,
+	billingUsagePeriods as schemaBillingUsagePeriods,
+	billingUsageReservations as schemaBillingUsageReservations,
 } from "../../schema/billing";
 import { buildCreditConsumptionStatements, parseCreditFx } from "./credit-pool";
 
-function usageDuplicatePredicate(input: {
-	id: string;
-	reservationId?: string | null;
-	gatewayLogId?: string | null;
-	providerUsageId?: string | null;
-}) {
+function usageDuplicatePredicate(
+	billingUsageCharges: typeof schemaBillingUsageCharges,
+	input: {
+		id: string;
+		reservationId?: string | null;
+		gatewayLogId?: string | null;
+		providerUsageId?: string | null;
+	},
+) {
 	const predicates = [eq(billingUsageCharges.id, input.id)];
 	if (input.reservationId)
 		predicates.push(eq(billingUsageCharges.reservationId, input.reservationId));
@@ -50,10 +55,11 @@ async function findExistingBillingUsageCharge(
 		providerUsageId?: string | null;
 	},
 ): Promise<BillingUsageCharge | null> {
+	const billingUsageCharges = coreTable(db, schemaBillingUsageCharges);
 	const [existing] = await db
 		.select()
 		.from(billingUsageCharges)
-		.where(usageDuplicatePredicate(input))
+		.where(usageDuplicatePredicate(billingUsageCharges, input))
 		.limit(1);
 	return existing ?? null;
 }
@@ -118,6 +124,19 @@ export async function settleBillingUsage(
 		return duplicate;
 	}
 
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
+	const billingUsageCharges = coreTable(db, schemaBillingUsageCharges);
+	const billingUsagePeriods = coreTable(db, schemaBillingUsagePeriods);
+	const billingPlanVersions = coreTable(db, schemaBillingPlanVersions);
+	const billingCreditConsumptions = coreTable(
+		db,
+		schemaBillingCreditConsumptions,
+	);
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
+
 	const [reservation] = await db
 		.select()
 		.from(billingUsageReservations)
@@ -141,7 +160,7 @@ export async function settleBillingUsage(
 		.select({
 			reservationFx: billingPlanVersions.creditFx,
 			accountFx:
-				sql<unknown>`(SELECT account_plan.credit_fx FROM billing_accounts AS account JOIN billing_plan_versions AS account_plan ON account_plan.id = account.plan_version_id WHERE account.organization_id = ${input.organizationId})`.as(
+				sql<unknown>`(SELECT account_plan.credit_fx FROM ${billingAccounts} AS account JOIN ${billingPlanVersions} AS account_plan ON account_plan.id = account.plan_version_id WHERE account.organization_id = ${input.organizationId})`.as(
 					"account_fx",
 				),
 		})
@@ -182,7 +201,7 @@ export async function settleBillingUsage(
 	// so every later statement sees exactly this charge or nothing.
 	// Raw: an INSERT ... SELECT guarded by the claim, kept on the money path.
 	const insertCharge = db.run(sql`
-		INSERT INTO billing_usage_charges (
+		INSERT INTO ${billingUsageCharges} (
 			id, organization_id, tedi_id, reservation_id, usage_period_id,
 			gateway_log_id, provider_usage_id, provider, model, source,
 			input_tokens, output_tokens, included_tokens_applied, metered_overage_tokens,
@@ -195,31 +214,35 @@ export async function settleBillingUsage(
 			${input.provider}, ${input.model}, ${input.source},
 			${input.inputTokens}, ${input.outputTokens}, 0, 0,
 			${input.providerCostMicros}, 0, 0, ${credits},
-			${input.usageQuality}, ${input.providerCostQuality}, ${input.meteringReady ? 1 : 0},
+			${input.usageQuality}, ${input.providerCostQuality}, ${booleanValue(db, input.meteringReady)},
 			${input.rateCardVersion ?? null}, ${input.occurredAt},
-			${JSON.stringify(input.metadata ?? {})}, ${input.now}
-		FROM billing_usage_reservations AS reservation
+			${jsonParameter(db, input.metadata ?? {})}, ${input.now}
+		FROM ${billingUsageReservations} AS reservation
 		WHERE reservation.id = ${reservationId}
 			AND reservation.organization_id = ${input.organizationId}
 			AND reservation.status IN ('reserved', 'expired')
-			AND NOT EXISTS (SELECT 1 FROM billing_usage_charges WHERE reservation_id = reservation.id)
-			AND NOT EXISTS (SELECT 1 FROM billing_usage_charges WHERE
+			AND NOT EXISTS (SELECT 1 FROM ${billingUsageCharges} WHERE reservation_id = reservation.id)
+			AND NOT EXISTS (SELECT 1 FROM ${billingUsageCharges} WHERE
 				(${input.gatewayLogId ?? null} IS NOT NULL AND gateway_log_id = ${input.gatewayLogId ?? null})
 				OR (${input.providerUsageId ?? null} IS NOT NULL AND provider_usage_id = ${input.providerUsageId ?? null}))
 		ON CONFLICT DO NOTHING
 	`);
 
-	// changes() belongs to the immediately preceding INSERT in this atomic batch.
-	// Raw: the row-value SET (...) = (SELECT ...) has no Drizzle builder form.
+	// The period advances only when this batch's INSERT wrote its charge row;
+	// a replayed or refused insert leaves the period untouched.
 	const updatePeriod = db.run(sql`
-		UPDATE billing_usage_periods
+		UPDATE ${billingUsagePeriods}
 		SET (used_input_tokens, used_output_tokens, provider_cost_micros) = (
 			SELECT billing_usage_periods.used_input_tokens + charge.input_tokens,
 				billing_usage_periods.used_output_tokens + charge.output_tokens,
 				billing_usage_periods.provider_cost_micros + charge.provider_cost_micros
-			FROM billing_usage_charges AS charge WHERE charge.id = ${input.id}
+			FROM ${billingUsageCharges} AS charge WHERE charge.id = ${input.id}
 		), settlement_version = settlement_version + 1, last_settlement_id = ${input.id}, updated_at = ${input.now}
-		WHERE id = ${periodId} AND changes() = 1
+		WHERE id = ${periodId} AND EXISTS (
+			SELECT 1 FROM ${billingUsageCharges} AS charge
+			JOIN ${billingUsageReservations} AS reservation ON reservation.id = charge.reservation_id
+			WHERE charge.id = ${input.id} AND reservation.status IN ('reserved', 'expired')
+		)
 	`);
 
 	const settleReservation = db
@@ -332,6 +355,9 @@ export async function recordWalletUsageCharge(
 		now: string;
 	},
 ): Promise<void> {
+	const billingUsagePeriods = coreTable(db, schemaBillingUsagePeriods);
+	const billingUsageCharges = coreTable(db, schemaBillingUsageCharges);
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	const periodId = `${input.organizationId}:${input.periodStart}`;
 	await db.batch([
 		db
