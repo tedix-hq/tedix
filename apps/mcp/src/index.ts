@@ -2178,11 +2178,17 @@ async function fetchWithCorrelation(
 	ctx: ExecutionContext,
 ): Promise<Response> {
 	const traceId = requestTraceId(request.headers);
+	const { withCoreStore } = await import("@tedix/db/core-store/scope");
 	// The MCP handler owns SEP-414 body metadata; don't override it with a generated header.
 	const response = await correlatedErrorResponse(
 		await withD1Ledger(
 			`${request.method} ${new URL(request.url).pathname}`,
-			() => worker.fetch(request, env, ctx),
+			() =>
+				withCoreStore(
+					env,
+					() => worker.fetch(request, env, ctx),
+					(promise) => ctx.waitUntil(promise),
+				),
 			{ analytics: { sink: env.D1_REQUESTS, worker: "tedix-mcp" } },
 		).catch((error: unknown) => {
 			// An exception leaving the Worker is Cloudflare error 1101: an HTML

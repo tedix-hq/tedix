@@ -169,6 +169,20 @@ app.get("/preview/:buildId", (context) => handlePreview(context));
 app.on("HEAD", "/preview/:buildId", (context) => handlePreview(context));
 
 export default {
-	fetch: app.fetch,
-	scheduled: (_controller, env, ctx) => ctx.waitUntil(scheduleDocsRelease(env)),
+	fetch: async (request, env, ctx) => {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			env,
+			() => app.fetch(request, env, ctx),
+			(promise) => ctx.waitUntil(promise),
+		);
+	},
+	async scheduled(_controller, env, ctx) {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		await withCoreStore(
+			env,
+			() => scheduleDocsRelease(env),
+			(promise) => ctx.waitUntil(promise),
+		);
+	},
 } satisfies ExportedHandler<AppEnv["Bindings"]>;

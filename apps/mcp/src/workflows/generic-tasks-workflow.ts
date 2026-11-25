@@ -266,6 +266,18 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<GenericTasksWorkflowParams>,
 		step: WorkflowStep,
 	): Promise<void> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => this.runInner(event, step),
+			(promise) => this.ctx.waitUntil(promise),
+		);
+	}
+
+	private async runInner(
+		event: WorkflowEvent<GenericTasksWorkflowParams>,
+		step: WorkflowStep,
+	): Promise<void> {
 		const { taskId } = event.payload;
 		const db = coreDb(this.env);
 

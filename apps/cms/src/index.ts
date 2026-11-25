@@ -93,6 +93,15 @@ const app = new Hono<AppEnv>();
 
 installHonoErrorHandlers(app, { service: "cms" });
 
+app.use("*", async (c, next) => {
+	const { withCoreStore } = await import("@tedix/db/core-store/scope");
+	await withCoreStore(
+		c.env,
+		() => next(),
+		(promise) => c.executionCtx.waitUntil(promise),
+	);
+});
+
 app.use(
 	"*",
 	cors({

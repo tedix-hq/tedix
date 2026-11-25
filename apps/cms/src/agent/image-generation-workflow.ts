@@ -678,6 +678,18 @@ export class ImageGenerationWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<ImageGenerationWorkflowParams>,
 		step: WorkflowStep,
 	): Promise<ImageGenerationResult> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => this.runInner(event, step),
+			(promise) => this.ctx.waitUntil(promise),
+		);
+	}
+
+	private async runInner(
+		event: WorkflowEvent<ImageGenerationWorkflowParams>,
+		step: WorkflowStep,
+	): Promise<ImageGenerationResult> {
 		const params = event.payload;
 		const jobId = event.instanceId;
 		await recordImagePhase(this.env.SITE_BUILDER_STORAGE, {

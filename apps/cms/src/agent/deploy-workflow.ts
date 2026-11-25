@@ -308,6 +308,23 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 		url: string;
 		candidateId?: string;
 	}> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => this.runInner(event, step),
+			(promise) => this.ctx.waitUntil(promise),
+		);
+	}
+
+	private async runInner(
+		event: WorkflowEvent<DeployWorkflowParams>,
+		step: WorkflowStep,
+	): Promise<{
+		version: number;
+		etag: string;
+		url: string;
+		candidateId?: string;
+	}> {
 		const {
 			siteId,
 			restoreEpoch,

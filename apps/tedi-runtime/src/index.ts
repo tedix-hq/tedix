@@ -2541,11 +2541,23 @@ const worker = {
 };
 
 export default {
-	email: worker.email,
-	fetch(inbound: Request, env: Cloudflare.Env): Promise<Response> {
+	async email(
+		message: ForwardableEmailMessage,
+		env: CloudflareEnv,
+		ctx: ExecutionContext,
+	): Promise<void> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		await withCoreStore(
+			env,
+			() => worker.email(message, env, ctx),
+			(promise) => ctx.waitUntil(promise),
+		);
+	},
+	async fetch(inbound: Request, env: Cloudflare.Env): Promise<Response> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
 		return withD1Ledger(
 			`${inbound.method} ${new URL(inbound.url).pathname}`,
-			() => worker.fetch(inbound, env),
+			() => withCoreStore(env, () => worker.fetch(inbound, env)),
 			{ analytics: { sink: env.D1_REQUESTS, worker: "tedix-tedi-runtime" } },
 		);
 	},

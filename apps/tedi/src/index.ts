@@ -512,11 +512,22 @@ app.route("/api/admin", admin);
  */
 export class InternalEntrypoint extends WorkerEntrypoint<TediEnv> {
 	override async fetch(request: Request): Promise<Response> {
-		return app.fetch(request, this.env, this.ctx);
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => app.fetch(request, this.env, this.ctx),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 }
 
 export default {
-	fetch: (request: Request, env: TediEnv, ctx: ExecutionContext) =>
-		app.fetch(stripServiceBindingMarker(request), env, ctx),
+	fetch: async (request: Request, env: TediEnv, ctx: ExecutionContext) => {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			env,
+			() => app.fetch(stripServiceBindingMarker(request), env, ctx),
+			(promise) => ctx.waitUntil(promise),
+		);
+	},
 };

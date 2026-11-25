@@ -306,6 +306,15 @@ export class McpSubscriptionDurableObject {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => this.fetchInner(request),
+			(promise) => this.state.waitUntil(promise),
+		);
+	}
+
+	private async fetchInner(request: Request): Promise<Response> {
 		if (request.method !== "POST") {
 			return new Response("Method Not Allowed", { status: 405 });
 		}
@@ -381,6 +390,15 @@ export class McpSubscriptionDurableObject {
 	}
 
 	async alarm(): Promise<void> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		await withCoreStore(
+			this.env,
+			() => this.alarmInner(),
+			(promise) => this.state.waitUntil(promise),
+		);
+	}
+
+	private async alarmInner(): Promise<void> {
 		// Wallet objects (`wallet:v1:<org>`) never hold subscriptions.
 		if (BillingWallet.isWallet(this.state.storage))
 			return this.#billingWallet().alarm();
