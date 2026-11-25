@@ -1,4 +1,11 @@
-import { chunkForBoundParams } from "../../utils/batch";
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	containsText,
+	coreStore,
+	jsonRead,
+	jsonParameter,
+} from "../../core-store/dialect";
 import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
 import { laneDispatchHasNoSettledResult } from "./attempt-limit";
 import { runtimeSubmissions } from "../../schema/runtime-submissions";
@@ -22,6 +29,7 @@ import {
 	desc,
 	eq,
 	gte,
+	getColumns,
 	inArray,
 	isNotNull,
 	isNull,
@@ -121,13 +129,15 @@ export function lifecycleEventInsert(
 		payload?: Record<string, JsonValue>;
 	},
 ) {
+	const storeWorkEvents = coreTable(db, workEvents);
+	const storeWorkItems = coreTable(db, workItems);
 	const eventId = crypto.randomUUID();
-	return db.insert(workEvents).select(
+	return db.insert(storeWorkEvents).select(
 		db
 			.select({
 				id: sql<string>`${eventId}`.as("id"),
-				orgId: workItems.orgId,
-				workItemId: workItems.id,
+				orgId: storeWorkItems.orgId,
+				workItemId: storeWorkItems.id,
 				attemptId: sql<null>`NULL`.as("attempt_id"),
 				eventType: sql<string>`${params.eventType}`.as("event_type"),
 				actorType: sql<typeof params.actor.type>`${params.actor.type}`.as(
@@ -137,7 +147,7 @@ export function lifecycleEventInsert(
 				actorSessionId: sql<
 					string | null
 				>`${params.actor.sessionId ?? null}`.as("actor_session_id"),
-				payload: sql<Record<string, JsonValue>>`${JSON.stringify({
+				payload: sql<Record<string, JsonValue>>`${jsonParameter(db, {
 					...params.payload,
 					...(params.actor.delegatedCompletion
 						? {
@@ -149,17 +159,17 @@ export function lifecycleEventInsert(
 				})}`.as("payload"),
 				occurredAt: sql<string>`${params.occurredAt}`.as("occurred_at"),
 			})
-			.from(workItems)
+			.from(storeWorkItems)
 			.where(
 				and(
-					eq(workItems.orgId, params.orgId),
-					eq(workItems.id, params.workItemId),
-					eq(workItems.disposition, params.disposition),
-					eq(workItems.version, params.expectedVersion),
+					eq(storeWorkItems.orgId, params.orgId),
+					eq(storeWorkItems.id, params.workItemId),
+					eq(storeWorkItems.disposition, params.disposition),
+					eq(storeWorkItems.version, params.expectedVersion),
 					params.requiresPreviousWrite ? sql`changes() = 1` : undefined,
 					params.specificationUpdateId === undefined
 						? undefined
-						: sql`json_extract(${workItems.metadata}, '$.specificationUpdateId')=${params.specificationUpdateId}`,
+						: sql`${jsonRead(db, storeWorkItems.metadata, ["specificationUpdateId"])}=${params.specificationUpdateId}`,
 				),
 			),
 	);
@@ -172,26 +182,28 @@ function dispatchReceiptInsert(
 	at: string,
 	receiptId: string,
 ) {
-	return db.insert(workItemComments).select(
+	const storeWorkItemComments = coreTable(db, workItemComments);
+	const storeWorkItems = coreTable(db, workItems);
+	return db.insert(storeWorkItemComments).select(
 		db
 			.select({
 				id: sql<string>`${receiptId}`.as("id"),
-				workItemId: workItems.id,
-				orgId: workItems.orgId,
+				workItemId: storeWorkItems.id,
+				orgId: storeWorkItems.orgId,
 				authorType: sql<string>`'system'`.as("author_type"),
 				authorId: sql<string>`'lane-dispatch'`.as("author_id"),
 				body: sql<string>`${`Dispatched to ${executor} at ${at}`}`.as("body"),
 				metadata: sql<Record<string, JsonValue>>`'{}'`.as("metadata"),
 				createdAt: sql<string>`${at}`.as("created_at"),
 			})
-			.from(workItems)
+			.from(storeWorkItems)
 			.where(
 				and(
-					eq(workItems.orgId, item.orgId),
-					eq(workItems.id, item.id),
-					eq(workItems.version, item.version + 1),
-					eq(workItems.updatedAt, at),
-					sql`json_extract(${workItems.metadata}, '$.laneDispatchReceiptId') = ${receiptId}`,
+					eq(storeWorkItems.orgId, item.orgId),
+					eq(storeWorkItems.id, item.id),
+					eq(storeWorkItems.version, item.version + 1),
+					eq(storeWorkItems.updatedAt, at),
+					sql`${jsonRead(db, storeWorkItems.metadata, ["laneDispatchReceiptId"])} = ${receiptId}`,
 				),
 			),
 	);
@@ -201,10 +213,12 @@ export async function createWorkItem(
 	db: DbQueryClient,
 	params: CreateWorkItemParams,
 ): Promise<WorkItem> {
+	const storeWorkEvents = coreTable(db, workEvents);
+	const storeWorkItems = coreTable(db, workItems);
 	const stewardship = await resolveWorkItemSteward(db, params);
 	const { createdBy, ...values } = params;
 	const insert = db
-		.insert(workItems)
+		.insert(storeWorkItems)
 		.values({
 			...values,
 			...stewardship,
@@ -213,17 +227,17 @@ export async function createWorkItem(
 			riskLevel: params.riskLevel ?? "medium",
 			requiredCapabilities: params.requiredCapabilities ?? [],
 			requiredAuthorities: params.requiredAuthorities ?? [],
-			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+			admissionSpecRevision: crypto.randomUUID(),
 			priority: params.priority ?? "medium",
 			provenance: params.provenance ?? {},
 			metadata: params.metadata ?? {},
 		})
-		.returning(workItemStoredColumns);
+		.returning(workItemSelection(db));
 	const rows = createdBy
 		? (
 				await db.batch([
 					insert,
-					db.insert(workEvents).values({
+					db.insert(storeWorkEvents).values({
 						id: crypto.randomUUID(),
 						orgId: params.orgId,
 						workItemId: params.id,
@@ -247,15 +261,16 @@ export async function getWorkItemById(
 	workItemId: string,
 	orgId?: string,
 ): Promise<WorkItem | null> {
+	const storeWorkItems = coreTable(db, workItems);
 	const row =
 		(
 			await db
-				.select(workItemStoredColumns)
-				.from(workItems)
+				.select(workItemSelection(db))
+				.from(storeWorkItems)
 				.where(
 					and(
-						eq(workItems.id, workItemId),
-						orgId ? eq(workItems.orgId, orgId) : undefined,
+						eq(storeWorkItems.id, workItemId),
+						orgId ? eq(storeWorkItems.orgId, orgId) : undefined,
 					),
 				)
 				.limit(1)
@@ -267,17 +282,18 @@ export async function getWorkItemsByIds(
 	db: DbQueryClient,
 	params: { orgId: string; ids: string[] },
 ): Promise<WorkItem[]> {
-	const items: WorkItem[] = [];
-	for (const ids of chunkForBoundParams(params.ids, 50)) {
-		const rows = await db
-			.select(workItemStoredColumns)
-			.from(workItems)
-			.where(
-				and(eq(workItems.orgId, params.orgId), inArray(workItems.id, ids)),
-			);
-		items.push(...rows.map(normalizeWorkItemRow));
-	}
-	return items;
+	const storeWorkItems = coreTable(db, workItems);
+	if (!params.ids.length) return [];
+	const rows = await db
+		.select(workItemSelection(db))
+		.from(storeWorkItems)
+		.where(
+			and(
+				eq(storeWorkItems.orgId, params.orgId),
+				anyIds(db, storeWorkItems.id, params.ids),
+			),
+		);
+	return rows.map(normalizeWorkItemRow);
 }
 
 /** Resolve the idempotency key used by Home and other durable producers. */
@@ -285,15 +301,16 @@ export async function getWorkItemBySourceIntentId(
 	db: DbQueryClient,
 	params: { orgId: string; sourceIntentId: string },
 ): Promise<WorkItem | null> {
+	const storeWorkItems = coreTable(db, workItems);
 	const row =
 		(
 			await db
-				.select(workItemStoredColumns)
-				.from(workItems)
+				.select(workItemSelection(db))
+				.from(storeWorkItems)
 				.where(
 					and(
-						eq(workItems.orgId, params.orgId),
-						eq(workItems.sourceIntentId, params.sourceIntentId),
+						eq(storeWorkItems.orgId, params.orgId),
+						eq(storeWorkItems.sourceIntentId, params.sourceIntentId),
 					),
 				)
 				.limit(1)
@@ -314,29 +331,32 @@ export async function listWorkItems(
 	db: DbQueryClient,
 	options: ListWorkItemsOptions,
 ): Promise<WorkItem[]> {
+	const storeWorkItems = coreTable(db, workItems);
 	const rows = await db
-		.select(workItemStoredColumns)
-		.from(workItems)
+		.select(workItemSelection(db))
+		.from(storeWorkItems)
 		.where(
 			and(
-				eq(workItems.orgId, options.orgId),
+				eq(storeWorkItems.orgId, options.orgId),
 				options.projectId === undefined
 					? undefined
 					: options.projectId === null
-						? isNull(workItems.projectId)
-						: eq(workItems.projectId, options.projectId),
+						? isNull(storeWorkItems.projectId)
+						: eq(storeWorkItems.projectId, options.projectId),
 				options.parentWorkItemId === undefined
 					? undefined
 					: options.parentWorkItemId === null
-						? isNull(workItems.parentWorkItemId)
-						: eq(workItems.parentWorkItemId, options.parentWorkItemId),
+						? isNull(storeWorkItems.parentWorkItemId)
+						: eq(storeWorkItems.parentWorkItemId, options.parentWorkItemId),
 				options.disposition
-					? eq(workItems.disposition, options.disposition)
+					? eq(storeWorkItems.disposition, options.disposition)
 					: undefined,
-				options.workKind ? eq(workItems.workKind, options.workKind) : undefined,
+				options.workKind
+					? eq(storeWorkItems.workKind, options.workKind)
+					: undefined,
 			),
 		)
-		.orderBy(desc(workItems.createdAt))
+		.orderBy(desc(storeWorkItems.createdAt))
 		.limit(options.limit ?? 100);
 	return rows.map(normalizeWorkItemRow);
 }
@@ -363,19 +383,23 @@ export async function listWorkItemTitlesByShortIds(
 	db: DbQueryClient,
 	params: { orgId: string; shortIds: readonly string[] },
 ): Promise<Array<{ shortId: string; title: string }>> {
+	const storeWorkItems = coreTable(db, workItems);
 	const shortIds = [...new Set(params.shortIds.map((id) => id.toLowerCase()))]
 		.filter((id) => /^[0-9a-f]{8}$/.test(id))
 		.slice(0, 20);
 	if (!shortIds.length) return [];
 	const rows = await db
-		.select({ id: workItems.id, title: workItems.title })
-		.from(workItems)
+		.select({ id: storeWorkItems.id, title: storeWorkItems.title })
+		.from(storeWorkItems)
 		.where(
 			and(
-				eq(workItems.orgId, params.orgId),
+				eq(storeWorkItems.orgId, params.orgId),
 				or(
 					...shortIds.map((id) =>
-						and(gte(workItems.id, id), lt(workItems.id, prefixUpperBound(id))),
+						and(
+							gte(storeWorkItems.id, id),
+							lt(storeWorkItems.id, prefixUpperBound(id)),
+						),
 					),
 				),
 			),
@@ -430,18 +454,28 @@ export interface ListWorkItemsPageResult {
 	total: number;
 }
 
-function titleSubstringFilter(titleContains: string | undefined) {
+function titleSubstringFilter(
+	db: DbQueryClient,
+	titleContains: string | undefined,
+) {
+	const items = coreTable(db, workItems);
 	if (!titleContains) return undefined;
 	// MATCH phrases escape quotes, not LIKE wildcards, and have no D1 LIKE
 	// length cap. Trigrams cannot find strings shorter than three code points.
 	const indexed =
 		[...titleContains].length >= 3 && !titleContains.includes("\0");
 	return and(
-		indexed
-			? sql`${workItems}.rowid IN (SELECT rowid FROM work_item_title_search WHERE work_item_title_search MATCH ${`"${titleContains.replaceAll('"', '""')}"`})`
+		indexed && coreStore(db) === "d1"
+			? sql`${items}.rowid IN (SELECT rowid FROM work_item_title_search WHERE work_item_title_search MATCH ${`"${titleContains.replaceAll('"', '""')}"`})`
 			: undefined,
 		// Keep SQLite's existing lower/instr semantics, including literal % and _.
-		sql`instr(lower(${workItems.title}), ${titleContains}) > 0`,
+		containsText(
+			db,
+			coreStore(db) === "d1"
+				? sql`lower(${items.title})`
+				: sql`translate(${items.title}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`,
+			titleContains,
+		),
 	);
 }
 
@@ -460,6 +494,8 @@ export async function listWorkItemsPage(
 	db: DbQueryClient,
 	options: ListWorkItemsPageOptions,
 ): Promise<ListWorkItemsPageResult> {
+	const storeWorkItems = coreTable(db, workItems);
+	const storeWorkItemOrgCounts = coreTable(db, workItemOrgCounts);
 	const limit = Math.min(Math.max(Math.trunc(options.limit ?? 50), 1), 100);
 	const offset = Math.max(Math.trunc(options.offset ?? 0), 0);
 	const idPrefix = options.idPrefix?.trim().toLowerCase();
@@ -476,18 +512,18 @@ export async function listWorkItemsPage(
 		options.projectId === undefined
 			? undefined
 			: options.projectId === null
-				? isNull(workItems.projectId)
-				: eq(workItems.projectId, options.projectId),
+				? isNull(storeWorkItems.projectId)
+				: eq(storeWorkItems.projectId, options.projectId),
 		options.parentWorkItemId === undefined
 			? undefined
 			: options.parentWorkItemId === null
-				? isNull(workItems.parentWorkItemId)
-				: eq(workItems.parentWorkItemId, options.parentWorkItemId),
+				? isNull(storeWorkItems.parentWorkItemId)
+				: eq(storeWorkItems.parentWorkItemId, options.parentWorkItemId),
 		options.disposition
-			? eq(workItems.disposition, options.disposition)
+			? eq(storeWorkItems.disposition, options.disposition)
 			: undefined,
 		options.excludeDisposition
-			? ne(workItems.disposition, options.excludeDisposition)
+			? ne(storeWorkItems.disposition, options.excludeDisposition)
 			: undefined,
 		// One clause per executor, each on type and id, so a type filter keeps
 		// the shape the dispatch index already serves.
@@ -496,62 +532,69 @@ export async function listWorkItemsPage(
 					...executors.map((executor) => {
 						if (options.executorType)
 							return and(
-								eq(workItems.executorType, options.executorType),
-								eq(workItems.executorId, executor),
+								eq(storeWorkItems.executorType, options.executorType),
+								eq(storeWorkItems.executorId, executor),
 							);
 						const reference = workExecutorReference(executor);
 						if (executor === "human" || executor === "tedi")
-							return eq(workItems.executorType, reference.type);
+							return eq(storeWorkItems.executorType, reference.type);
 						return and(
-							eq(workItems.executorType, reference.type),
-							eq(workItems.executorId, reference.id),
+							eq(storeWorkItems.executorType, reference.type),
+							eq(storeWorkItems.executorId, reference.id),
 						);
 					}),
 				)
 			: options.executorType
-				? eq(workItems.executorType, options.executorType)
+				? eq(storeWorkItems.executorType, options.executorType)
 				: undefined,
 		options.dispatchReadyOnly
-			? sql`${workItems.dispatchState} = 'ready'`
+			? sql`${storeWorkItems.dispatchState} = 'ready'`
 			: undefined,
 		options.dispatchReadyOnly ? laneDispatchHasNoSettledResult() : undefined,
 		// Work whose start date is still ahead is not offered to a runner.
 		options.dispatchReadyOnly
-			? or(isNull(workItems.startAt), lte(workItems.startAt, dispatchNow))
+			? or(
+					isNull(storeWorkItems.startAt),
+					lte(storeWorkItems.startAt, dispatchNow),
+				)
 			: undefined,
-		options.workKind ? eq(workItems.workKind, options.workKind) : undefined,
+		options.workKind
+			? eq(storeWorkItems.workKind, options.workKind)
+			: undefined,
 		options.objectiveId
-			? eq(workItems.objectiveId, options.objectiveId)
+			? eq(storeWorkItems.objectiveId, options.objectiveId)
 			: undefined,
-		options.workClass ? eq(workItems.workClass, options.workClass) : undefined,
+		options.workClass
+			? eq(storeWorkItems.workClass, options.workClass)
+			: undefined,
 		// The org's dominant owner otherwise fills every page, so an owner's
 		// items must be selected before paging, not filtered from a page.
 		options.accountableOwnerId
-			? eq(workItems.accountableOwnerId, options.accountableOwnerId)
+			? eq(storeWorkItems.accountableOwnerId, options.accountableOwnerId)
 			: undefined,
 		options.objectiveLinked === undefined
 			? undefined
 			: options.objectiveLinked
-				? isNotNull(workItems.objectiveId)
-				: isNull(workItems.objectiveId),
+				? isNotNull(storeWorkItems.objectiveId)
+				: isNull(storeWorkItems.objectiveId),
 		// A complete id is an exact primary-key lookup; anything shorter is an
 		// index-backed range over the prefix. Neither depends on the row's age.
 		idPrefix
 			? FULL_UUID_PATTERN.test(idPrefix)
-				? eq(workItems.id, idPrefix)
+				? eq(storeWorkItems.id, idPrefix)
 				: and(
-						gte(workItems.id, idPrefix),
-						lt(workItems.id, prefixUpperBound(idPrefix)),
+						gte(storeWorkItems.id, idPrefix),
+						lt(storeWorkItems.id, prefixUpperBound(idPrefix)),
 					)
 			: undefined,
-		titleSubstringFilter(titleContains),
+		titleSubstringFilter(db, titleContains),
 		options.customerVisiblePreFilter
 			? and(
-					sql`json_extract(${workItems.metadata}, '$.agentSession') IS NULL`,
+					sql`${jsonRead(db, storeWorkItems.metadata, ["agentSession"])} IS NULL`,
 					or(
-						sql`json_extract(${workItems.metadata}, '$.purposeContext') IS NULL`,
+						sql`${jsonRead(db, storeWorkItems.metadata, ["purposeContext"])} IS NULL`,
 						notInArray(
-							sql`json_extract(${workItems.metadata}, '$.purposeContext')`,
+							sql`${jsonRead(db, storeWorkItems.metadata, ["purposeContext"])}`,
 							[...INTERNAL_WORK_PURPOSE_CONTEXTS],
 						),
 					),
@@ -559,41 +602,41 @@ export async function listWorkItemsPage(
 			: undefined,
 		options.mattersThrough
 			? or(
-					inArray(workItems.priority, ["critical", "high"]),
+					inArray(storeWorkItems.priority, ["critical", "high"]),
 					and(
-						isNotNull(workItems.deadline),
-						lte(workItems.deadline, options.mattersThrough),
+						isNotNull(storeWorkItems.deadline),
+						lte(storeWorkItems.deadline, options.mattersThrough),
 					),
 					and(
-						isNotNull(workItems.dueDate),
-						lte(workItems.dueDate, options.mattersThrough),
+						isNotNull(storeWorkItems.dueDate),
+						lte(storeWorkItems.dueDate, options.mattersThrough),
 					),
 				)
 			: undefined,
 		options.needsProject
 			? and(
-					isNull(workItems.projectId),
-					sql`json_extract(${workItems.metadata}, '$.needsProject') = 1`,
+					isNull(storeWorkItems.projectId),
+					sql`${jsonRead(db, storeWorkItems.metadata, ["needsProject"], "boolean")} = ${coreStore(db) === "d1" ? sql`1` : sql`true`}`,
 				)
 			: undefined,
 	];
-	const where = and(eq(workItems.orgId, options.orgId), ...filters);
+	const where = and(eq(storeWorkItems.orgId, options.orgId), ...filters);
 	// Runners take a run a person started in chat first, through a tedi or
 	// in a workspace, then the most important ready task: priority, then the
 	// nearest due date (undated last), then the oldest.
 	const listOrder = options.dispatchReadyOnly
 		? [
-				sql`coalesce(json_extract(${workItems.metadata}, '$.source'), '') NOT IN ('tedi.start_agent_run', 'os.workspace.start_run')`,
-				sql`CASE ${workItems.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`,
-				sql`${workItems.dueDate} IS NULL`,
-				asc(workItems.dueDate),
-				asc(workItems.createdAt),
-				asc(workItems.id),
+				sql`coalesce(${jsonRead(db, storeWorkItems.metadata, ["source"])}, '') NOT IN ('tedi.start_agent_run', 'os.workspace.start_run')`,
+				sql`CASE ${storeWorkItems.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`,
+				sql`${storeWorkItems.dueDate} IS NULL`,
+				asc(storeWorkItems.dueDate),
+				asc(storeWorkItems.createdAt),
+				asc(storeWorkItems.id),
 			]
-		: [desc(workItems.createdAt), desc(workItems.id)];
+		: [desc(storeWorkItems.createdAt), desc(storeWorkItems.id)];
 	const rows = await db
-		.select(workItemStoredColumns)
-		.from(workItems)
+		.select(workItemSelection(db))
+		.from(storeWorkItems)
 		.where(where)
 		.orderBy(...listOrder)
 		.limit(limit)
@@ -604,12 +647,12 @@ export async function listWorkItemsPage(
 	const [counted] = filters.some((filter) => filter !== undefined)
 		? await db
 				.select({ total: sql<number>`count(*)` })
-				.from(workItems)
+				.from(storeWorkItems)
 				.where(where)
 		: await db
-				.select({ total: workItemOrgCounts.total })
-				.from(workItemOrgCounts)
-				.where(eq(workItemOrgCounts.orgId, options.orgId));
+				.select({ total: storeWorkItemOrgCounts.total })
+				.from(storeWorkItemOrgCounts)
+				.where(eq(storeWorkItemOrgCounts.orgId, options.orgId));
 	return {
 		data: rows.map(normalizeWorkItemRow),
 		total: Number(counted?.total ?? 0),
@@ -630,6 +673,7 @@ export async function getGoalLoopWorkItemSnapshot(
 	outstandingCount: number;
 	outstandingIds: string[];
 }> {
+	const storeWorkItems = coreTable(db, workItems);
 	const previewLimit = Math.max(
 		0,
 		Math.min(Math.trunc(params.outstandingPreviewLimit ?? 100), 500),
@@ -637,15 +681,15 @@ export async function getGoalLoopWorkItemSnapshot(
 	const scoped = db.$with("scoped").as(
 		db
 			.select({
-				id: workItems.id,
-				disposition: workItems.disposition,
-				createdAt: workItems.createdAt,
+				id: storeWorkItems.id,
+				disposition: storeWorkItems.disposition,
+				createdAt: storeWorkItems.createdAt,
 			})
-			.from(workItems)
+			.from(storeWorkItems)
 			.where(
 				and(
-					eq(workItems.orgId, params.orgId),
-					eq(workItems.objectiveId, params.objectiveId),
+					eq(storeWorkItems.orgId, params.orgId),
+					eq(storeWorkItems.objectiveId, params.objectiveId),
 				),
 			),
 	);
@@ -728,16 +772,20 @@ export async function upsertWorkItemProjection(
 	db: DbQueryClient,
 	params: UpsertWorkItemProjectionParams,
 ): Promise<WorkItemProjection> {
+	const storeWorkItemProjections = coreTable(db, workItemProjections);
 	return (
 		await db
-			.insert(workItemProjections)
+			.insert(storeWorkItemProjections)
 			.values({
 				...params,
 				direction: params.direction ?? "projection",
 				status: params.status ?? "pending",
 			})
 			.onConflictDoUpdate({
-				target: [workItemProjections.workItemId, workItemProjections.provider],
+				target: [
+					storeWorkItemProjections.workItemId,
+					storeWorkItemProjections.provider,
+				],
 				set: {
 					direction: params.direction,
 					status: params.status,
@@ -760,10 +808,11 @@ export async function listWorkItemProjections(
 	db: DbQueryClient,
 	workItemId: string,
 ): Promise<WorkItemProjection[]> {
+	const storeWorkItemProjections = coreTable(db, workItemProjections);
 	return db
 		.select()
-		.from(workItemProjections)
-		.where(eq(workItemProjections.workItemId, workItemId));
+		.from(storeWorkItemProjections)
+		.where(eq(storeWorkItemProjections.workItemId, workItemId));
 }
 
 export interface OrgProjectionRow {
@@ -792,54 +841,61 @@ export async function listOrgWorkItemProjections(
 		offset?: number;
 	},
 ): Promise<{ data: OrgProjectionRow[]; total: number }> {
+	const storeWorkItems = coreTable(db, workItems);
+	const storeWorkItemProjections = coreTable(db, workItemProjections);
 	const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
 	const offset = Math.max(params.offset ?? 0, 0);
 	const where = and(
-		eq(workItemProjections.orgId, params.orgId),
+		eq(storeWorkItemProjections.orgId, params.orgId),
 		params.provider
-			? eq(workItemProjections.provider, params.provider)
+			? eq(storeWorkItemProjections.provider, params.provider)
 			: undefined,
-		params.projectId ? eq(workItems.projectId, params.projectId) : undefined,
+		params.projectId
+			? eq(storeWorkItems.projectId, params.projectId)
+			: undefined,
 	);
 	const rows = await db
 		.select({
-			id: workItemProjections.id,
-			workItemId: workItemProjections.workItemId,
-			workItemTitle: workItems.title,
-			workItemStatus: workItems.disposition,
-			projectId: workItems.projectId,
-			provider: workItemProjections.provider,
-			direction: workItemProjections.direction,
-			syncStatus: workItemProjections.status,
-			externalId: workItemProjections.externalId,
-			externalUrl: workItemProjections.externalUrl,
-			lastSyncedAt: workItemProjections.lastSyncedAt,
-			lastError: workItemProjections.lastError,
-			createdAt: workItemProjections.createdAt,
+			id: storeWorkItemProjections.id,
+			workItemId: storeWorkItemProjections.workItemId,
+			workItemTitle: storeWorkItems.title,
+			workItemStatus: storeWorkItems.disposition,
+			projectId: storeWorkItems.projectId,
+			provider: storeWorkItemProjections.provider,
+			direction: storeWorkItemProjections.direction,
+			syncStatus: storeWorkItemProjections.status,
+			externalId: storeWorkItemProjections.externalId,
+			externalUrl: storeWorkItemProjections.externalUrl,
+			lastSyncedAt: storeWorkItemProjections.lastSyncedAt,
+			lastError: storeWorkItemProjections.lastError,
+			createdAt: storeWorkItemProjections.createdAt,
 		})
-		.from(workItemProjections)
+		.from(storeWorkItemProjections)
 		.innerJoin(
-			workItems,
+			storeWorkItems,
 			and(
-				eq(workItems.id, workItemProjections.workItemId),
-				eq(workItems.orgId, workItemProjections.orgId),
+				eq(storeWorkItems.id, storeWorkItemProjections.workItemId),
+				eq(storeWorkItems.orgId, storeWorkItemProjections.orgId),
 			),
 		)
 		.where(where)
 		// `id` is a deterministic tie-break: without it two projections sharing a
 		// `created_at` order arbitrarily per statement, so an OFFSET page could
 		// repeat or skip rows.
-		.orderBy(desc(workItemProjections.createdAt), desc(workItemProjections.id))
+		.orderBy(
+			desc(storeWorkItemProjections.createdAt),
+			desc(storeWorkItemProjections.id),
+		)
 		.limit(limit)
 		.offset(offset);
 	const [counted] = await db
 		.select({ total: sql<number>`count(*)` })
-		.from(workItemProjections)
+		.from(storeWorkItemProjections)
 		.innerJoin(
-			workItems,
+			storeWorkItems,
 			and(
-				eq(workItems.id, workItemProjections.workItemId),
-				eq(workItems.orgId, workItemProjections.orgId),
+				eq(storeWorkItems.id, storeWorkItemProjections.workItemId),
+				eq(storeWorkItems.orgId, storeWorkItemProjections.orgId),
 			),
 		)
 		.where(where);
@@ -868,6 +924,7 @@ export async function acceptWorkItem(
 		allowMissingProject?: boolean;
 	},
 ): Promise<WorkItem> {
+	const storeWorkItems = coreTable(db, workItems);
 	const acceptedAt = params.acceptedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
 	// Acceptance is the exit from triage: it fixes where the work lives, what
@@ -900,7 +957,7 @@ export async function acceptWorkItem(
 		acceptedAt,
 	);
 	const acceptMutation = db
-		.update(workItems)
+		.update(storeWorkItems)
 		.set({
 			disposition: "accepted",
 			dispatchState: dispatch ? "ready" : undefined,
@@ -916,19 +973,21 @@ export async function acceptWorkItem(
 			acceptanceContract: params.acceptanceContract,
 			acceptedAt,
 			updatedAt: acceptedAt,
-			version: sql`${workItems.version} + 1`,
+			version: sql`${storeWorkItems.version} + 1`,
 		})
 		.where(
 			and(
-				eq(workItems.orgId, params.orgId),
-				eq(workItems.id, params.workItemId),
-				eq(workItems.disposition, "proposed"),
-				eq(workItems.version, prior.version),
-				isNotNull(workItems.accountableOwnerId),
-				params.allowMissingProject ? undefined : isNotNull(workItems.projectId),
+				eq(storeWorkItems.orgId, params.orgId),
+				eq(storeWorkItems.id, params.workItemId),
+				eq(storeWorkItems.disposition, "proposed"),
+				eq(storeWorkItems.version, prior.version),
+				isNotNull(storeWorkItems.accountableOwnerId),
+				params.allowMissingProject
+					? undefined
+					: isNotNull(storeWorkItems.projectId),
 			),
 		)
-		.returning(workItemStoredColumns);
+		.returning(workItemSelection(db));
 	const acceptEvent = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -1015,6 +1074,17 @@ export async function completeWorkItem(
 		};
 	},
 ): Promise<WorkItem> {
+	const storeKernelRuntimeRuns = coreTable(db, kernelRuntimeRuns);
+	const storeRuntimeSubmissions = coreTable(db, runtimeSubmissions);
+	const storeOrganizationMembers = coreTable(db, organizationMembers);
+	const storeTedis = coreTable(db, tedis);
+	const storePolicyPacks = coreTable(db, policyPacks);
+	const storeWorkAdmissions = coreTable(db, workAdmissions);
+	const storeKernelRequests = coreTable(db, kernelRequests);
+	const storeWorkAttempts = coreTable(db, workAttempts);
+	const storeWorkEvents = coreTable(db, workEvents);
+	const storeWorkItemComments = coreTable(db, workItemComments);
+	const storeWorkItems = coreTable(db, workItems);
 	const completedAt = params.completedAt ?? new Date().toISOString();
 	if (
 		params.closingComment &&
@@ -1086,13 +1156,13 @@ export async function completeWorkItem(
 			"Delegated completion proof is mismatched",
 		);
 	const completeMutation = db
-		.update(workItems)
+		.update(storeWorkItems)
 		.set({
 			disposition: "completed",
 			...(implementationId
 				? {
 						workKind: "coding" as const,
-						admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+						admissionSpecRevision: crypto.randomUUID(),
 					}
 				: {}),
 			completedAt,
@@ -1105,50 +1175,55 @@ export async function completeWorkItem(
 						},
 					}
 				: {}),
-			version: sql`${workItems.version} + 1`,
+			version: sql`${storeWorkItems.version} + 1`,
 		})
 		.where(
 			and(
-				eq(workItems.id, params.workItemId),
-				eq(workItems.orgId, params.orgId),
-				eq(workItems.version, params.expectedWorkItemVersion ?? item.version),
-				eq(workItems.disposition, "accepted"),
+				eq(storeWorkItems.id, params.workItemId),
+				eq(storeWorkItems.orgId, params.orgId),
+				eq(
+					storeWorkItems.version,
+					params.expectedWorkItemVersion ?? item.version,
+				),
+				eq(storeWorkItems.disposition, "accepted"),
 				params.actor.type === "external_agent"
 					? params.actor.delegatedCompletion
-						? sql`EXISTS (SELECT 1 FROM ${workAttempts} delegated_attempt WHERE delegated_attempt.org_id=${params.orgId} AND delegated_attempt.work_item_id=${params.workItemId} AND delegated_attempt.id=${params.actor.delegatedCompletion.attemptId} AND delegated_attempt.runtime_state='finished' AND (delegated_attempt.outcome='succeeded' OR (delegated_attempt.outcome='landed_unverified' AND json_extract(delegated_attempt.metadata,'$.settlement.mode') IN ('commit','existing_commits','local_branch','verified_existing','repository_commit'))) AND delegated_attempt.finished_at IS NOT NULL AND (delegated_attempt.expires_at IS NULL OR delegated_attempt.finished_at < delegated_attempt.expires_at) AND NOT EXISTS (SELECT 1 FROM ${workAttempts} delegated_newer WHERE delegated_newer.org_id=delegated_attempt.org_id AND delegated_newer.work_item_id=delegated_attempt.work_item_id AND delegated_newer.attempt_number>delegated_attempt.attempt_number))`
-						: sql`EXISTS (SELECT 1 FROM ${workAttempts} completed_attempt WHERE completed_attempt.org_id=${params.orgId} AND completed_attempt.work_item_id=${params.workItemId} AND (${implementationId ?? null} IS NULL OR completed_attempt.id=${implementationId ?? null}) AND completed_attempt.executor_type='external_agent' AND completed_attempt.executor_id=${params.actor.id} AND completed_attempt.executor_session_id=${params.actor.sessionId ?? null} AND completed_attempt.runtime_state='finished' AND completed_attempt.outcome='succeeded' AND completed_attempt.finished_at < completed_attempt.expires_at AND NOT EXISTS (SELECT 1 FROM ${workAttempts} successor WHERE successor.org_id=completed_attempt.org_id AND successor.work_item_id=completed_attempt.work_item_id AND successor.attempt_number>completed_attempt.attempt_number))`
+						? sql`EXISTS (SELECT 1 FROM ${storeWorkAttempts} delegated_attempt WHERE delegated_attempt.org_id=${params.orgId} AND delegated_attempt.work_item_id=${params.workItemId} AND delegated_attempt.id=${params.actor.delegatedCompletion.attemptId} AND delegated_attempt.runtime_state='finished' AND (delegated_attempt.outcome='succeeded' OR (delegated_attempt.outcome='landed_unverified' AND ${jsonRead(db, sql`delegated_attempt.metadata`, ["settlement", "mode"])} IN ('commit','existing_commits','local_branch','verified_existing','repository_commit'))) AND delegated_attempt.finished_at IS NOT NULL AND (delegated_attempt.expires_at IS NULL OR delegated_attempt.finished_at < delegated_attempt.expires_at) AND NOT EXISTS (SELECT 1 FROM ${storeWorkAttempts} delegated_newer WHERE delegated_newer.org_id=delegated_attempt.org_id AND delegated_newer.work_item_id=delegated_attempt.work_item_id AND delegated_newer.attempt_number>delegated_attempt.attempt_number))`
+						: sql`EXISTS (SELECT 1 FROM ${storeWorkAttempts} completed_attempt WHERE completed_attempt.org_id=${params.orgId} AND completed_attempt.work_item_id=${params.workItemId} AND (${implementationId ?? null} IS NULL OR completed_attempt.id=${implementationId ?? null}) AND completed_attempt.executor_type='external_agent' AND completed_attempt.executor_id=${params.actor.id} AND completed_attempt.executor_session_id=${params.actor.sessionId ?? null} AND completed_attempt.runtime_state='finished' AND completed_attempt.outcome='succeeded' AND completed_attempt.finished_at < completed_attempt.expires_at AND NOT EXISTS (SELECT 1 FROM ${storeWorkAttempts} successor WHERE successor.org_id=completed_attempt.org_id AND successor.work_item_id=completed_attempt.work_item_id AND successor.attempt_number>completed_attempt.attempt_number))`
 					: undefined,
 				native
 					? and(
-							eq(workItems.stewardType, "tedi"),
-							eq(workItems.stewardId, native.tediId),
-							sql`EXISTS (SELECT 1 FROM ${tedis} native_tedi WHERE native_tedi.id=${native.tediId} AND native_tedi.organization_id=${params.orgId} AND native_tedi.status='active' AND native_tedi.policy_pack_id IS ${native.tediPolicyPackId})`,
+							eq(storeWorkItems.stewardType, "tedi"),
+							eq(storeWorkItems.stewardId, native.tediId),
+							sql`EXISTS (SELECT 1 FROM ${storeTedis} native_tedi WHERE native_tedi.id=${native.tediId} AND native_tedi.organization_id=${params.orgId} AND native_tedi.status='active' AND native_tedi.policy_pack_id ${coreStore(db) === "d1" ? sql`IS` : sql`IS NOT DISTINCT FROM`} ${native.tediPolicyPackId})`,
 							native.tediPolicyPackId === null
-								? sql`1`
-								: sql`EXISTS (SELECT 1 FROM ${policyPacks} native_tedi_policy WHERE native_tedi_policy.id=${native.tediPolicyPackId} AND native_tedi_policy.status='active' AND (native_tedi_policy.organization_id IS NULL OR native_tedi_policy.organization_id=${params.orgId}) AND native_tedi_policy.definition=${native.tediPolicyDefinition})`,
-							sql`(SELECT count(DISTINCT json_extract(native_lesson.payload,'$.classId')) FROM ${workEvents} native_lesson WHERE native_lesson.org_id=${params.orgId} AND native_lesson.event_type='delegation.autonomy.corrected' AND native_lesson.actor_type='user' AND json_type(native_lesson.payload,'$.classId')='text')=${native.autonomyLessonClasses.length} AND NOT EXISTS (SELECT 1 FROM ${workEvents} native_lesson WHERE native_lesson.org_id=${params.orgId} AND native_lesson.event_type='delegation.autonomy.corrected' AND native_lesson.actor_type='user' AND json_type(native_lesson.payload,'$.classId')='text' AND json_extract(native_lesson.payload,'$.classId') NOT IN (SELECT value FROM json_each(${JSON.stringify(native.autonomyLessonClasses)})))`,
-							sql`EXISTS (SELECT 1 FROM ${organizationMembers} native_owner WHERE native_owner.organization_id=${params.orgId} AND native_owner.descope_user_id=${native.ownerUserId} AND native_owner.status='active' AND native_owner.role IN ('owner','admin'))`,
-							sql`EXISTS (SELECT 1 FROM ${kernelRuntimeRuns} native_home WHERE native_home.id=${native.homeRunId} AND native_home.organization_id=${params.orgId} AND native_home.status IN ('queued','running','waiting') AND native_home.delegated_tedi_id=${native.tediId} AND native_home.child_run_id=${native.runId} AND json_extract(native_home.metadata,'$.workItemId')=${native.linkedWorkItemId} AND json_extract(native_home.metadata,'$.redriveInput.descopeUserId')=${native.ownerUserId} AND json_extract(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan')=${native.capabilityPlanJson} AND EXISTS (SELECT 1 FROM json_each(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.allowedToolIds') native_read_tool WHERE native_read_tool.value='read_steward_work') AND EXISTS (SELECT 1 FROM json_each(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.allowedToolIds') native_complete_tool WHERE native_complete_tool.value='complete_steward_work') AND json_extract(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.stewardCloseoutTargets') = json_extract(native_home.metadata,'$.redriveInput.runtimeMetadata.stewardCloseoutTargets') AND EXISTS (SELECT 1 FROM json_each(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.stewardCloseoutTargets') native_target WHERE json_extract(native_target.value,'$.id')=${params.workItemId} AND json_extract(native_target.value,'$.expectedWorkItemVersion')=${native.targetWorkItemVersion} AND json_extract(native_target.value,'$.repositoryTargetId')=${native.repositoryTargetId}))`,
-							sql`EXISTS (SELECT 1 FROM ${workAttempts} native_coordinator WHERE native_coordinator.id=${native.coordinatorAttemptId} AND native_coordinator.org_id=${params.orgId} AND native_coordinator.work_item_id=${native.linkedWorkItemId} AND native_coordinator.admission_id=${native.coordinatorAdmissionId} AND native_coordinator.executor_type='tedi' AND native_coordinator.executor_id=${native.tediId} AND native_coordinator.run_id=${native.runId} AND native_coordinator.runtime_state IN ('running','waiting','retrying') AND EXISTS (SELECT 1 FROM ${workItems} native_coordinator_work WHERE native_coordinator_work.id=native_coordinator.work_item_id AND native_coordinator_work.org_id=native_coordinator.org_id AND native_coordinator_work.disposition='accepted' AND EXISTS (SELECT 1 FROM ${workAdmissions} native_admission WHERE native_admission.id=native_coordinator.admission_id AND native_admission.org_id=native_coordinator.org_id AND native_admission.work_item_id=native_coordinator.work_item_id AND native_admission.decision='admitted' AND native_admission.work_item_version=native_coordinator_work.version AND native_admission.admission_spec_revision=native_coordinator_work.admission_spec_revision)) AND native_coordinator.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-							sql`NOT EXISTS (SELECT 1 FROM ${runtimeSubmissions} native_abort WHERE native_abort.organization_id=${params.orgId} AND native_abort.run_id=${native.homeRunId} AND native_abort.abort_requested_at IS NOT NULL)`,
-							sql`EXISTS (SELECT 1 FROM ${workAttempts} native_source WHERE native_source.id=${native.sourceAttemptId} AND native_source.org_id=${params.orgId} AND native_source.work_item_id=${params.workItemId} AND native_source.runtime_state='finished' AND native_source.outcome='succeeded' AND native_source.finished_at IS NOT NULL AND native_source.metadata=${JSON.stringify(native.sourceAttemptMetadata)} AND CASE json_extract(native_source.metadata,'$.settlement.mode') WHEN 'commit' THEN json_extract(native_source.metadata,'$.settlement.commitShas[0]') WHEN 'existing_commits' THEN json_extract(native_source.metadata,'$.settlement.commitShas[0]') WHEN 'local_branch' THEN json_extract(native_source.metadata,'$.settlement.commitShas[0]') ELSE json_extract(native_source.metadata,'$.settlement.commitSha') END=${native.sourceCommit} AND NOT EXISTS (SELECT 1 FROM ${workAttempts} native_newer WHERE native_newer.org_id=native_source.org_id AND native_newer.work_item_id=native_source.work_item_id AND native_newer.attempt_number>native_source.attempt_number))`,
-							sql`EXISTS (SELECT 1 FROM ${policyPacks} native_policy WHERE native_policy.id=${native.policyPackId} AND native_policy.organization_id=${params.orgId} AND native_policy.status='active' AND native_policy.definition=${native.policyDefinition} AND NOT EXISTS (SELECT 1 FROM ${policyPacks} native_newer_policy WHERE native_newer_policy.organization_id=native_policy.organization_id AND native_newer_policy.status='active' AND native_newer_policy.version>native_policy.version))`,
+								? coreStore(db) === "d1"
+									? sql`1`
+									: sql`true`
+								: sql`EXISTS (SELECT 1 FROM ${storePolicyPacks} native_tedi_policy WHERE native_tedi_policy.id=${native.tediPolicyPackId} AND native_tedi_policy.status='active' AND (native_tedi_policy.organization_id IS NULL OR native_tedi_policy.organization_id=${params.orgId}) AND native_tedi_policy.definition=${native.tediPolicyDefinition})`,
+							sql`(SELECT count(DISTINCT ${jsonRead(db, sql`native_lesson.payload`, ["classId"])}) FROM ${storeWorkEvents} native_lesson WHERE native_lesson.org_id=${params.orgId} AND native_lesson.event_type='delegation.autonomy.corrected' AND native_lesson.actor_type='user' AND ${coreStore(db) === "d1" ? sql`json_type(native_lesson.payload,'$.classId')='text'` : sql`jsonb_typeof(${jsonRead(db, sql`native_lesson.payload`, ["classId"], "json")})='string'`})=${native.autonomyLessonClasses.length} AND NOT EXISTS (SELECT 1 FROM ${storeWorkEvents} native_lesson WHERE native_lesson.org_id=${params.orgId} AND native_lesson.event_type='delegation.autonomy.corrected' AND native_lesson.actor_type='user' AND ${coreStore(db) === "d1" ? sql`json_type(native_lesson.payload,'$.classId')='text'` : sql`jsonb_typeof(${jsonRead(db, sql`native_lesson.payload`, ["classId"], "json")})='string'`} AND NOT (${anyIds(db, jsonRead(db, sql`native_lesson.payload`, ["classId"]), native.autonomyLessonClasses)}))`,
+							sql`EXISTS (SELECT 1 FROM ${storeOrganizationMembers} native_owner WHERE native_owner.organization_id=${params.orgId} AND native_owner.descope_user_id=${native.ownerUserId} AND native_owner.status='active' AND native_owner.role IN ('owner','admin'))`,
+							sql`EXISTS (SELECT 1 FROM ${storeKernelRuntimeRuns} native_home WHERE native_home.id=${native.homeRunId} AND native_home.organization_id=${params.orgId} AND native_home.status IN ('queued','running','waiting') AND native_home.delegated_tedi_id=${native.tediId} AND native_home.child_run_id=${native.runId} AND ${jsonRead(db, sql`native_home.metadata`, ["workItemId"])}=${native.linkedWorkItemId} AND ${jsonRead(db, sql`native_home.metadata`, ["redriveInput", "descopeUserId"])}=${native.ownerUserId} AND ${jsonRead(db, sql`native_home.metadata`, ["homeDelegation", "workOrder", "capabilityPlan"], "json")}=${coreStore(db) === "d1" ? sql`${native.capabilityPlanJson}` : jsonParameter(db, JSON.parse(native.capabilityPlanJson))} AND EXISTS (SELECT 1 FROM ${coreStore(db) === "d1" ? sql`json_each(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.allowedToolIds')` : sql`jsonb_array_elements_text(${jsonRead(db, sql`native_home.metadata`, ["homeDelegation", "workOrder", "capabilityPlan", "allowedToolIds"], "json")})`} native_read_tool WHERE native_read_tool.value='read_steward_work') AND EXISTS (SELECT 1 FROM ${coreStore(db) === "d1" ? sql`json_each(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.allowedToolIds')` : sql`jsonb_array_elements_text(${jsonRead(db, sql`native_home.metadata`, ["homeDelegation", "workOrder", "capabilityPlan", "allowedToolIds"], "json")})`} native_complete_tool WHERE native_complete_tool.value='complete_steward_work') AND ${jsonRead(db, sql`native_home.metadata`, ["homeDelegation", "workOrder", "capabilityPlan", "stewardCloseoutTargets"], "json")} = ${jsonRead(db, sql`native_home.metadata`, ["redriveInput", "runtimeMetadata", "stewardCloseoutTargets"], "json")} AND EXISTS (SELECT 1 FROM ${coreStore(db) === "d1" ? sql`json_each(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.stewardCloseoutTargets')` : sql`jsonb_array_elements(${jsonRead(db, sql`native_home.metadata`, ["homeDelegation", "workOrder", "capabilityPlan", "stewardCloseoutTargets"], "json")})`} native_target WHERE ${jsonRead(db, sql`native_target.value`, ["id"])}=${params.workItemId} AND ${jsonRead(db, sql`native_target.value`, ["expectedWorkItemVersion"], "number")}=${native.targetWorkItemVersion} AND ${jsonRead(db, sql`native_target.value`, ["repositoryTargetId"])}=${native.repositoryTargetId}))`,
+							sql`EXISTS (SELECT 1 FROM ${storeWorkAttempts} native_coordinator WHERE native_coordinator.id=${native.coordinatorAttemptId} AND native_coordinator.org_id=${params.orgId} AND native_coordinator.work_item_id=${native.linkedWorkItemId} AND native_coordinator.admission_id=${native.coordinatorAdmissionId} AND native_coordinator.executor_type='tedi' AND native_coordinator.executor_id=${native.tediId} AND native_coordinator.run_id=${native.runId} AND native_coordinator.runtime_state IN ('running','waiting','retrying') AND EXISTS (SELECT 1 FROM ${storeWorkItems} native_coordinator_work WHERE native_coordinator_work.id=native_coordinator.work_item_id AND native_coordinator_work.org_id=native_coordinator.org_id AND native_coordinator_work.disposition='accepted' AND EXISTS (SELECT 1 FROM ${storeWorkAdmissions} native_admission WHERE native_admission.id=native_coordinator.admission_id AND native_admission.org_id=native_coordinator.org_id AND native_admission.work_item_id=native_coordinator.work_item_id AND native_admission.decision='admitted' AND native_admission.work_item_version=native_coordinator_work.version AND native_admission.admission_spec_revision=native_coordinator_work.admission_spec_revision)) AND native_coordinator.expires_at > ${coreStore(db) === "d1" ? sql`strftime('%Y-%m-%dT%H:%M:%fZ','now')` : sql`to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`})`,
+							sql`NOT EXISTS (SELECT 1 FROM ${storeRuntimeSubmissions} native_abort WHERE native_abort.organization_id=${params.orgId} AND native_abort.run_id=${native.homeRunId} AND native_abort.abort_requested_at IS NOT NULL)`,
+							sql`EXISTS (SELECT 1 FROM ${storeWorkAttempts} native_source WHERE native_source.id=${native.sourceAttemptId} AND native_source.org_id=${params.orgId} AND native_source.work_item_id=${params.workItemId} AND native_source.runtime_state='finished' AND native_source.outcome='succeeded' AND native_source.finished_at IS NOT NULL AND native_source.metadata=${jsonParameter(db, native.sourceAttemptMetadata)} AND CASE ${jsonRead(db, sql`native_source.metadata`, ["settlement", "mode"])} WHEN 'commit' THEN ${coreStore(db) === "d1" ? sql`json_extract(native_source.metadata,'$.settlement.commitShas[0]')` : sql`native_source.metadata #>> '{settlement,commitShas,0}'`} WHEN 'existing_commits' THEN ${coreStore(db) === "d1" ? sql`json_extract(native_source.metadata,'$.settlement.commitShas[0]')` : sql`native_source.metadata #>> '{settlement,commitShas,0}'`} WHEN 'local_branch' THEN ${coreStore(db) === "d1" ? sql`json_extract(native_source.metadata,'$.settlement.commitShas[0]')` : sql`native_source.metadata #>> '{settlement,commitShas,0}'`} ELSE ${jsonRead(db, sql`native_source.metadata`, ["settlement", "commitSha"])} END=${native.sourceCommit} AND NOT EXISTS (SELECT 1 FROM ${storeWorkAttempts} native_newer WHERE native_newer.org_id=native_source.org_id AND native_newer.work_item_id=native_source.work_item_id AND native_newer.attempt_number>native_source.attempt_number))`,
+							sql`EXISTS (SELECT 1 FROM ${storePolicyPacks} native_policy WHERE native_policy.id=${native.policyPackId} AND native_policy.organization_id=${params.orgId} AND native_policy.status='active' AND native_policy.definition=${native.policyDefinition} AND NOT EXISTS (SELECT 1 FROM ${storePolicyPacks} native_newer_policy WHERE native_newer_policy.organization_id=native_policy.organization_id AND native_newer_policy.status='active' AND native_newer_policy.version>native_policy.version))`,
 						)
 					: undefined,
 				delivery
 					? and(
-							eq(workItems.workKind, "coding"),
-							sql`EXISTS (SELECT 1 FROM ${policyPacks} policy WHERE policy.id=${delivery.policyPackId} AND json(policy.definition)=json(${delivery.policyDefinition}))`,
-							inArray(workItems.riskLevel, ["low", "medium"]),
-							sql`EXISTS (SELECT 1 FROM ${policyPacks} p WHERE p.id=${delivery.policyPackId} AND p.organization_id=${params.orgId} AND p.status='active' AND json_extract(p.definition,'$.kernelRequestCoordinator.enabled')=1 AND EXISTS (SELECT 1 FROM json_each(p.definition,'$.kernelRequestCoordinator.workAttemptDelivery.completion.projectIds') project WHERE project.value=${workItems.projectId}) AND NOT EXISTS (SELECT 1 FROM ${policyPacks} newer WHERE newer.organization_id=p.organization_id AND newer.status='active' AND newer.version>p.version))`,
-							sql`EXISTS (SELECT 1 FROM ${kernelRequests} r WHERE r.id=${delivery.requestId} AND r.organization_id=${params.orgId} AND r.owner_user_id=${delivery.ownerUserId} AND r.version=${delivery.requestVersion} AND r.source_kind='work_attempt' AND r.source_id=${delivery.attemptId} AND json_extract(r.snapshot,'$.workItemId')=${params.workItemId} AND json_extract(r.snapshot,'$.attemptId')=${delivery.attemptId} AND json_extract(r.snapshot,'$.state')='verifying' AND json_extract(r.snapshot,'$.outcome')='verified' AND json_extract(r.snapshot,'$.delivery.status')='pending')`,
-							sql`EXISTS (SELECT 1 FROM ${workAttempts} a WHERE a.org_id=${params.orgId} AND a.work_item_id=${params.workItemId} AND a.id=${delivery.attemptId} AND a.outcome='succeeded' AND a.runtime_state='finished' AND a.finished_at IS NOT NULL AND json_extract(a.metadata,'$.dispatchVersion') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ${workAttempts} successor WHERE successor.org_id=a.org_id AND successor.work_item_id=a.work_item_id AND successor.attempt_number>a.attempt_number))`,
+							eq(storeWorkItems.workKind, "coding"),
+							sql`EXISTS (SELECT 1 FROM ${storePolicyPacks} policy WHERE policy.id=${delivery.policyPackId} AND ${coreStore(db) === "d1" ? sql`json(policy.definition)=json(${delivery.policyDefinition})` : sql`policy.definition=${delivery.policyDefinition}::jsonb`})`,
+							inArray(storeWorkItems.riskLevel, ["low", "medium"]),
+							sql`EXISTS (SELECT 1 FROM ${storePolicyPacks} p WHERE p.id=${delivery.policyPackId} AND p.organization_id=${params.orgId} AND p.status='active' AND ${jsonRead(db, sql`p.definition`, ["kernelRequestCoordinator", "enabled"], "boolean")}=${coreStore(db) === "d1" ? sql`1` : sql`true`} AND EXISTS (SELECT 1 FROM ${coreStore(db) === "d1" ? sql`json_each(p.definition,'$.kernelRequestCoordinator.workAttemptDelivery.completion.projectIds')` : sql`jsonb_array_elements_text(${jsonRead(db, sql`p.definition`, ["kernelRequestCoordinator", "workAttemptDelivery", "completion", "projectIds"], "json")})`} project WHERE project.value=${storeWorkItems.projectId}) AND NOT EXISTS (SELECT 1 FROM ${storePolicyPacks} newer WHERE newer.organization_id=p.organization_id AND newer.status='active' AND newer.version>p.version))`,
+							sql`EXISTS (SELECT 1 FROM ${storeKernelRequests} r WHERE r.id=${delivery.requestId} AND r.organization_id=${params.orgId} AND r.owner_user_id=${delivery.ownerUserId} AND r.version=${delivery.requestVersion} AND r.source_kind='work_attempt' AND r.source_id=${delivery.attemptId} AND ${jsonRead(db, sql`r.snapshot`, ["workItemId"])}=${params.workItemId} AND ${jsonRead(db, sql`r.snapshot`, ["attemptId"])}=${delivery.attemptId} AND ${jsonRead(db, sql`r.snapshot`, ["state"])}='verifying' AND ${jsonRead(db, sql`r.snapshot`, ["outcome"])}='verified' AND ${jsonRead(db, sql`r.snapshot`, ["delivery", "status"])}='pending')`,
+							sql`EXISTS (SELECT 1 FROM ${storeWorkAttempts} a WHERE a.org_id=${params.orgId} AND a.work_item_id=${params.workItemId} AND a.id=${delivery.attemptId} AND a.outcome='succeeded' AND a.runtime_state='finished' AND a.finished_at IS NOT NULL AND ${jsonRead(db, sql`a.metadata`, ["dispatchVersion"])} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ${storeWorkAttempts} successor WHERE successor.org_id=a.org_id AND successor.work_item_id=a.work_item_id AND successor.attempt_number>a.attempt_number))`,
 						)
 					: undefined,
-				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${completedAt}))`,
+				sql`NOT EXISTS (SELECT 1 FROM ${storeWorkAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${completedAt}))`,
 			),
 		)
-		.returning(workItemStoredColumns);
+		.returning(workItemSelection(db));
 	const completeEvent = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -1164,32 +1239,32 @@ export async function completeWorkItem(
 		completeEvent,
 		...(comment
 			? [
-					db.insert(workItemComments).select(
+					db.insert(storeWorkItemComments).select(
 						db
 							.select({
 								id: sql<string>`${comment.id}`.as("id"),
-								workItemId: workItems.id,
-								orgId: workItems.orgId,
+								workItemId: storeWorkItems.id,
+								orgId: storeWorkItems.orgId,
 								authorType: sql<string>`${params.actor.type}`.as("author_type"),
 								authorId: sql<string>`${params.actor.id}`.as("author_id"),
 								body: sql<string>`${comment.body}`.as("body"),
 								metadata: sql<
 									Record<string, JsonValue>
-								>`${JSON.stringify(comment.metadata ?? {})}`.as("metadata"),
+								>`${jsonParameter(db, comment.metadata ?? {})}`.as("metadata"),
 								createdAt: sql<string>`${completedAt}`.as("created_at"),
 							})
-							.from(workItems)
+							.from(storeWorkItems)
 							.where(
 								and(
-									eq(workItems.orgId, params.orgId),
-									eq(workItems.id, params.workItemId),
-									eq(workItems.disposition, "completed"),
+									eq(storeWorkItems.orgId, params.orgId),
+									eq(storeWorkItems.id, params.workItemId),
+									eq(storeWorkItems.disposition, "completed"),
 									eq(
-										workItems.version,
+										storeWorkItems.version,
 										(params.expectedWorkItemVersion ?? item.version) + 1,
 									),
-									eq(workItems.completedAt, completedAt),
-									sql`json_extract(${workItems.metadata}, '$.completionCommentId') = ${comment.id}`,
+									eq(storeWorkItems.completedAt, completedAt),
+									sql`${jsonRead(db, storeWorkItems.metadata, ["completionCommentId"])} = ${comment.id}`,
 								),
 							),
 					),
@@ -1233,6 +1308,10 @@ export async function cancelWorkItem(
 			  };
 	},
 ): Promise<WorkItem> {
+	const storeWorkAttempts = coreTable(db, workAttempts);
+	const storeWorkItemComments = coreTable(db, workItemComments);
+	const storeWorkItemRelations = coreTable(db, workItemRelations);
+	const storeWorkItems = coreTable(db, workItems);
 	const cancelledAt = params.cancelledAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
 	const humanCutoff = params.hygiene
@@ -1242,31 +1321,34 @@ export async function cancelWorkItem(
 			).toISOString()
 		: null;
 	const cancelMutation = db
-		.update(workItems)
+		.update(storeWorkItems)
 		.set({
 			disposition: "cancelled",
 			cancelledAt,
 			updatedAt: cancelledAt,
-			version: sql`${workItems.version} + 1`,
+			version: sql`${storeWorkItems.version} + 1`,
 		})
 		.where(
 			and(
-				eq(workItems.orgId, params.orgId),
-				eq(workItems.id, params.workItemId),
-				eq(workItems.version, params.expectedWorkItemVersion ?? prior.version),
+				eq(storeWorkItems.orgId, params.orgId),
+				eq(storeWorkItems.id, params.workItemId),
+				eq(
+					storeWorkItems.version,
+					params.expectedWorkItemVersion ?? prior.version,
+				),
 				params.triage
-					? eq(workItems.disposition, "proposed")
-					: inArray(workItems.disposition, ["proposed", "accepted"]),
-				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${cancelledAt}))`,
+					? eq(storeWorkItems.disposition, "proposed")
+					: inArray(storeWorkItems.disposition, ["proposed", "accepted"]),
+				sql`NOT EXISTS (SELECT 1 FROM ${storeWorkAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${cancelledAt}))`,
 				params.hygiene
-					? sql`NOT EXISTS (SELECT 1 FROM ${workItemComments} human_comment WHERE human_comment.org_id = ${params.orgId} AND human_comment.work_item_id = ${params.workItemId} AND human_comment.author_type = 'user' AND (julianday(human_comment.created_at) IS NULL OR julianday(human_comment.created_at) >= julianday(${humanCutoff})))`
+					? sql`NOT EXISTS (SELECT 1 FROM ${storeWorkItemComments} human_comment WHERE human_comment.org_id = ${params.orgId} AND human_comment.work_item_id = ${params.workItemId} AND human_comment.author_type = 'user' AND (${coreStore(db) === "d1" ? sql`julianday(human_comment.created_at) IS NULL OR julianday(human_comment.created_at) >= julianday(${humanCutoff})` : sql`CASE WHEN pg_input_is_valid(human_comment.created_at, 'timestamp with time zone') THEN (CASE WHEN human_comment.created_at ~ '(Z|[+-][0-9]{2}:[0-9]{2})$' THEN human_comment.created_at::timestamptz ELSE human_comment.created_at::timestamp AT TIME ZONE 'UTC' END) >= ${humanCutoff}::timestamptz ELSE true END`}))`
 					: undefined,
 				params.hygiene?.noAttempts
-					? sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} prior_attempt WHERE prior_attempt.org_id = ${params.orgId} AND prior_attempt.work_item_id = ${params.workItemId})`
+					? sql`NOT EXISTS (SELECT 1 FROM ${storeWorkAttempts} prior_attempt WHERE prior_attempt.org_id = ${params.orgId} AND prior_attempt.work_item_id = ${params.workItemId})`
 					: undefined,
 			),
 		)
-		.returning(workItemStoredColumns);
+		.returning(workItemSelection(db));
 	const cancelEvent = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -1291,13 +1373,13 @@ export async function cancelWorkItem(
 		...(duplicate
 			? [
 					db
-						.insert(workItemRelations)
+						.insert(storeWorkItemRelations)
 						.select(
 							db
 								.select({
 									id: sql<string>`${duplicate.relationId}`.as("id"),
-									orgId: workItems.orgId,
-									fromWorkItemId: sql<string>`${workItems.id}`.as(
+									orgId: storeWorkItems.orgId,
+									fromWorkItemId: sql<string>`${storeWorkItems.id}`.as(
 										"from_work_item_id",
 									),
 									toWorkItemId:
@@ -1310,13 +1392,13 @@ export async function cancelWorkItem(
 									metadata: sql<Record<string, JsonValue>>`'{}'`.as("metadata"),
 									createdAt: sql<string>`${cancelledAt}`.as("created_at"),
 								})
-								.from(workItems)
+								.from(storeWorkItems)
 								.where(
 									and(
-										eq(workItems.orgId, params.orgId),
-										eq(workItems.id, params.workItemId),
-										eq(workItems.version, prior.version + 1),
-										eq(workItems.disposition, "cancelled"),
+										eq(storeWorkItems.orgId, params.orgId),
+										eq(storeWorkItems.id, params.workItemId),
+										eq(storeWorkItems.version, prior.version + 1),
+										eq(storeWorkItems.disposition, "cancelled"),
 									),
 								),
 						)
@@ -1436,6 +1518,8 @@ export async function updateWorkItemSpecification(
 		updatedAt?: string;
 	},
 ): Promise<WorkItem> {
+	const storeWorkAttempts = coreTable(db, workAttempts);
+	const storeWorkItems = coreTable(db, workItems);
 	const updatedAt = params.updatedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
 	const requestedExecutor =
@@ -1473,11 +1557,11 @@ export async function updateWorkItemSpecification(
 				.select({
 					version: planningApprovalVersion(prior).as("approval_version"),
 				})
-				.from(workItems)
+				.from(storeWorkItems)
 				.where(
 					and(
-						eq(workItems.orgId, params.orgId),
-						eq(workItems.id, params.workItemId),
+						eq(storeWorkItems.orgId, params.orgId),
+						eq(storeWorkItems.id, params.workItemId),
 					),
 				)
 				.limit(1)
@@ -1488,7 +1572,7 @@ export async function updateWorkItemSpecification(
 	const { needsProject, ...sortedMetadata } = prior.metadata ?? {};
 	const clearNeedsProject = Boolean(projectMove?.to) && needsProject === true;
 	const updateMutation = db
-		.update(workItems)
+		.update(storeWorkItems)
 		.set({
 			metadata: {
 				...(clearNeedsProject ? sortedMetadata : prior.metadata),
@@ -1535,32 +1619,33 @@ export async function updateWorkItemSpecification(
 			deadline: params.deadline,
 			startAt: params.startAt,
 			durationDays: params.durationDays,
-			admissionSpecRevision: planningOnly
-				? undefined
-				: sql`lower(hex(randomblob(16)))`,
+			admissionSpecRevision: planningOnly ? undefined : crypto.randomUUID(),
 			updatedAt,
-			version: sql`${workItems.version} + 1`,
+			version: sql`${storeWorkItems.version} + 1`,
 		})
 		.where(
 			and(
-				eq(workItems.orgId, params.orgId),
-				eq(workItems.id, params.workItemId),
-				eq(workItems.version, params.expectedWorkItemVersion ?? prior.version),
-				eq(workItems.version, prior.version),
+				eq(storeWorkItems.orgId, params.orgId),
+				eq(storeWorkItems.id, params.workItemId),
+				eq(
+					storeWorkItems.version,
+					params.expectedWorkItemVersion ?? prior.version,
+				),
+				eq(storeWorkItems.version, prior.version),
 				requestedDispatch === undefined
 					? undefined
 					: sql`NOT EXISTS (
-					SELECT 1 FROM ${workAttempts}
-					WHERE ${workAttempts.orgId} = ${params.orgId}
-					AND ${workAttempts.workItemId} = ${params.workItemId}
-					AND ${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
-					AND (${workAttempts.expiresAt} IS NULL OR ${workAttempts.expiresAt} > ${updatedAt})
+					SELECT 1 FROM ${storeWorkAttempts}
+					WHERE ${storeWorkAttempts.orgId} = ${params.orgId}
+					AND ${storeWorkAttempts.workItemId} = ${params.workItemId}
+					AND ${storeWorkAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
+					AND (${storeWorkAttempts.expiresAt} IS NULL OR ${storeWorkAttempts.expiresAt} > ${updatedAt})
 				)`,
-				ne(workItems.disposition, "completed"),
-				ne(workItems.disposition, "cancelled"),
+				ne(storeWorkItems.disposition, "completed"),
+				ne(storeWorkItems.disposition, "cancelled"),
 			),
 		)
-		.returning(workItemStoredColumns);
+		.returning(workItemSelection(db));
 	const updateEvent = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -1646,6 +1731,8 @@ export async function restoreWorkItemFiling(
 		updatedAt?: string;
 	},
 ): Promise<WorkItem> {
+	const storeWorkAttempts = coreTable(db, workAttempts);
+	const storeWorkItems = coreTable(db, workItems);
 	const updatedAt = params.updatedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
 	const specificationUpdateId = crypto.randomUUID();
@@ -1656,31 +1743,31 @@ export async function restoreWorkItemFiling(
 		purposeExceptionExpiresAt: item.purposeExceptionExpiresAt,
 	});
 	const update = db
-		.update(workItems)
+		.update(storeWorkItems)
 		.set({
 			metadata: { ...prior.metadata, specificationUpdateId },
 			...params.filing,
-			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+			admissionSpecRevision: crypto.randomUUID(),
 			updatedAt,
-			version: sql`${workItems.version} + 1`,
+			version: sql`${storeWorkItems.version} + 1`,
 		})
 		.where(
 			and(
-				eq(workItems.orgId, params.orgId),
-				eq(workItems.id, params.workItemId),
-				eq(workItems.version, params.expectedWorkItemVersion),
-				ne(workItems.disposition, "completed"),
-				ne(workItems.disposition, "cancelled"),
+				eq(storeWorkItems.orgId, params.orgId),
+				eq(storeWorkItems.id, params.workItemId),
+				eq(storeWorkItems.version, params.expectedWorkItemVersion),
+				ne(storeWorkItems.disposition, "completed"),
+				ne(storeWorkItems.disposition, "cancelled"),
 				sql`NOT EXISTS (
-					SELECT 1 FROM ${workAttempts}
-					WHERE ${workAttempts.orgId} = ${params.orgId}
-					AND ${workAttempts.workItemId} = ${params.workItemId}
-					AND ${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
-					AND (${workAttempts.expiresAt} IS NULL OR ${workAttempts.expiresAt} > ${updatedAt})
+					SELECT 1 FROM ${storeWorkAttempts}
+					WHERE ${storeWorkAttempts.orgId} = ${params.orgId}
+					AND ${storeWorkAttempts.workItemId} = ${params.workItemId}
+					AND ${storeWorkAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
+					AND (${storeWorkAttempts.expiresAt} IS NULL OR ${storeWorkAttempts.expiresAt} > ${updatedAt})
 				)`,
 			),
 		)
-		.returning(workItemStoredColumns);
+		.returning(workItemSelection(db));
 	const event = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -1716,36 +1803,39 @@ export async function listOpenWorkItemsAcrossProjects(
 		limit?: number;
 	},
 ) {
+	const storeWorkItems = coreTable(db, workItems);
 	if (params.projectIds.length === 0) return { items: [], counts: [] };
 	if (params.projectIds.length > 80)
 		throw new Error("At most 80 projects at once");
 	const limit = Math.min(Math.max(Math.trunc(params.limit ?? 30), 1), 100);
 	const titleContains = params.titleContains?.toLowerCase();
 	const where = and(
-		eq(workItems.orgId, params.orgId),
+		eq(storeWorkItems.orgId, params.orgId),
 		// bound-params: at most 80 projects, checked above.
-		inArray(workItems.projectId, params.projectIds),
-		inArray(workItems.disposition, ["proposed", "accepted"]),
-		titleSubstringFilter(titleContains),
+		anyIds(db, storeWorkItems.projectId, params.projectIds),
+		inArray(storeWorkItems.disposition, ["proposed", "accepted"]),
+		titleSubstringFilter(db, titleContains),
 	);
 	const [rows, counts] = await db.batch([
 		db
-			.select(workItemStoredColumns)
-			.from(workItems)
+			.select(workItemSelection(db))
+			.from(storeWorkItems)
 			.where(where)
 			.orderBy(
-				desc(sql`coalesce(${workItems.updatedAt}, ${workItems.createdAt})`),
-				desc(workItems.id),
+				desc(
+					sql`coalesce(${storeWorkItems.updatedAt}, ${storeWorkItems.createdAt})`,
+				),
+				desc(storeWorkItems.id),
 			)
 			.limit(limit),
 		db
 			.select({
-				countProjectId: workItems.projectId,
+				countProjectId: storeWorkItems.projectId,
 				openCount: sql<number>`count(*)`,
 			})
-			.from(workItems)
+			.from(storeWorkItems)
 			.where(where)
-			.groupBy(workItems.projectId),
+			.groupBy(storeWorkItems.projectId),
 	]);
 	return {
 		items: rows.map(normalizeWorkItemRow),
@@ -1754,4 +1844,14 @@ export async function listOpenWorkItemsAcrossProjects(
 			open: Number(row.openCount),
 		})),
 	};
+}
+
+function workItemSelection(db: DbQueryClient): typeof workItemStoredColumns {
+	const columns = getColumns(coreTable(db, workItems));
+	return Object.fromEntries(
+		Object.keys(workItemStoredColumns).map((key) => [
+			key,
+			columns[key as keyof typeof columns],
+		]),
+	) as typeof workItemStoredColumns;
 }

@@ -15,7 +15,13 @@ import {
 	type SQL,
 	type SQLWrapper,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import {
+	alias as sqliteAlias,
+	type SQLiteTable,
+} from "drizzle-orm/sqlite-core";
+import { alias as pgAlias, type PgTable } from "drizzle-orm/pg-core";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import { ACTIVE_ATTEMPT_STATES } from "./factory-state";
 import { personalWorkFeedPredicate } from "./personal-feed";
@@ -28,9 +34,9 @@ import {
 	type WorkItemKind,
 	type WorkItemPriority,
 	type WorkItemRiskLevel,
-	workAttempts,
-	workItemRelations,
-	workItems,
+	workAttempts as d1WorkAttempts,
+	workItemRelations as d1WorkItemRelations,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 
 export interface WorkFactoryProjectionCursor {
@@ -92,33 +98,36 @@ function beforeCursor(
 	return or(lt(at, cursor.at), and(eq(at, cursor.at), lt(id, cursor.id)));
 }
 
-const itemSummarySelection = {
-	id: sql`${workItems.id}`.mapWith(workItems.id).as("factory_item_id"),
-	title: sql`${workItems.title}`
-		.mapWith(workItems.title)
-		.as("factory_item_title"),
-	disposition: sql`${workItems.disposition}`
-		.mapWith(workItems.disposition)
-		.as("factory_item_disposition"),
-	workKind: sql`${workItems.workKind}`
-		.mapWith(workItems.workKind)
-		.as("factory_item_work_kind"),
-	riskLevel: sql`${workItems.riskLevel}`
-		.mapWith(workItems.riskLevel)
-		.as("factory_item_risk_level"),
-	priority: sql`${workItems.priority}`
-		.mapWith(workItems.priority)
-		.as("factory_item_priority"),
-	projectId: sql`${workItems.projectId}`
-		.mapWith(workItems.projectId)
-		.as("factory_item_project_id"),
-	accountableOwnerType: sql`${workItems.accountableOwnerType}`
-		.mapWith(workItems.accountableOwnerType)
-		.as("factory_item_accountable_owner_type"),
-	accountableOwnerId: sql`${workItems.accountableOwnerId}`
-		.mapWith(workItems.accountableOwnerId)
-		.as("factory_item_accountable_owner_id"),
-};
+function itemSummarySelection(db: DbQueryClient) {
+	const workItems = coreTable(db, d1WorkItems);
+	return {
+		id: sql`${workItems.id}`.mapWith(workItems.id).as("factory_item_id"),
+		title: sql`${workItems.title}`
+			.mapWith(workItems.title)
+			.as("factory_item_title"),
+		disposition: sql`${workItems.disposition}`
+			.mapWith(workItems.disposition)
+			.as("factory_item_disposition"),
+		workKind: sql`${workItems.workKind}`
+			.mapWith(workItems.workKind)
+			.as("factory_item_work_kind"),
+		riskLevel: sql`${workItems.riskLevel}`
+			.mapWith(workItems.riskLevel)
+			.as("factory_item_risk_level"),
+		priority: sql`${workItems.priority}`
+			.mapWith(workItems.priority)
+			.as("factory_item_priority"),
+		projectId: sql`${workItems.projectId}`
+			.mapWith(workItems.projectId)
+			.as("factory_item_project_id"),
+		accountableOwnerType: sql`${workItems.accountableOwnerType}`
+			.mapWith(workItems.accountableOwnerType)
+			.as("factory_item_accountable_owner_type"),
+		accountableOwnerId: sql`${workItems.accountableOwnerId}`
+			.mapWith(workItems.accountableOwnerId)
+			.as("factory_item_accountable_owner_id"),
+	};
+}
 
 export async function listOrgWorkAttempts(
 	db: DbQueryClient,
@@ -134,6 +143,8 @@ export async function listOrgWorkAttempts(
 		limit?: number;
 	},
 ): Promise<ProjectionPage<WorkAttemptProjectionRow>> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
 	const limit = pageLimit(params.limit);
 	const states = params.runtimeStates;
 	// Bound values cannot match SQLite's partial index for active attempts.
@@ -148,7 +159,7 @@ export async function listOrgWorkAttempts(
 	const rows = await db
 		.select({
 			attempt: prefixedColumns(workAttempts, "factory_attempt"),
-			workItem: itemSummarySelection,
+			workItem: itemSummarySelection(db),
 		})
 		.from(workAttempts)
 		.innerJoin(
@@ -212,11 +223,15 @@ export async function listOrgWorkAttempts(
 }
 
 /** A runner's hold: a held dispatch state that carries its reason. */
-const dispatchHoldReason = sql<
-	string | null
->`CASE WHEN ${workItems.dispatchState} = 'held' THEN json_extract(${workItems.metadata}, '$.laneDispatch.reason') END`;
+function dispatchHoldReason(db: DbQueryClient) {
+	const workItems = coreTable(db, d1WorkItems);
+	return sql<
+		string | null
+	>`CASE WHEN ${workItems.dispatchState} = 'held' THEN ${jsonRead(db, workItems.metadata, ["laneDispatch", "reason"])} END`;
+}
 
 function recoveryPredicate(
+	db: DbQueryClient,
 	signal: WorkRecoverySignal | undefined,
 	now: string,
 	latest: { runtimeState: SQLWrapper; expiresAt: SQLWrapper },
@@ -227,7 +242,7 @@ function recoveryPredicate(
 		latest_attempt_failed: sql`${latest.runtimeState} = 'failed'`,
 		latest_attempt_expired: sql`${latest.runtimeState} = 'expired'`,
 		attempt_lease_elapsed: sql`${latest.runtimeState} IN ('queued', 'running', 'waiting', 'retrying') AND ${latest.expiresAt} IS NOT NULL AND ${latest.expiresAt} <= ${now}`,
-		dispatch_held: sql`${dispatchHoldReason} IS NOT NULL`,
+		dispatch_held: sql`${dispatchHoldReason(db)} IS NOT NULL`,
 	};
 	return signal
 		? predicates[signal]
@@ -248,13 +263,16 @@ export async function listOrgWorkRecovery(
 		limit?: number;
 	},
 ): Promise<ProjectionPage<WorkRecoveryProjectionRow>> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
+	const workItems = coreTable(db, d1WorkItems);
 	const limit = pageLimit(params.limit);
 	// The latest attempt per item is one seek on uniq_work_attempt_number for
 	// each candidate item. Ranking every attempt of the organization with
 	// ROW_NUMBER read ~11.9M rows (~1 s) per call on 21 Nov 2026 and drove
 	// main D1 into overload.
-	const latest = alias(workAttempts, "latest");
-	const newest = alias(workAttempts, "newest");
+	const latest = projectionAlias(db, workAttempts, "latest");
+	const newest = projectionAlias(db, workAttempts, "newest");
 	const latestAttemptId = db
 		.select({ id: newest.id })
 		.from(newest)
@@ -266,7 +284,7 @@ export async function listOrgWorkRecovery(
 		)
 		.orderBy(desc(newest.attemptNumber))
 		.limit(1);
-	const blocker = alias(workItems, "blocker");
+	const blocker = projectionAlias(db, workItems, "blocker");
 	const blockers = db.$with("blockers").as(
 		db
 			.select({
@@ -306,7 +324,7 @@ export async function listOrgWorkRecovery(
 			accountableOwnerType: workItems.accountableOwnerType,
 			accountableOwnerId: workItems.accountableOwnerId,
 			sortAt: sortAt.as("sortAt"),
-			dispatchHoldReason: dispatchHoldReason.as("dispatchHoldReason"),
+			dispatchHoldReason: dispatchHoldReason(db).as("dispatchHoldReason"),
 			blockingDependencyCount:
 				sql<unknown>`COALESCE(${blockers.blockingCount}, 0)`.as(
 					"blockingDependencyCount",
@@ -349,6 +367,7 @@ export async function listOrgWorkRecovery(
 					: undefined,
 				params.priority ? eq(workItems.priority, params.priority) : undefined,
 				recoveryPredicate(
+					db,
 					params.signal,
 					params.observedAt,
 					latest,
@@ -415,4 +434,14 @@ export async function listOrgWorkRecovery(
 		nextCursor:
 			rows.length > limit && last ? { at: last.sortAt, id: last.id } : null,
 	};
+}
+
+function projectionAlias<T extends SQLiteTable>(
+	db: DbQueryClient,
+	table: T,
+	name: string,
+): T {
+	return coreStore(db) === "d1"
+		? (sqliteAlias(table, name) as unknown as T)
+		: (pgAlias(table as unknown as PgTable, name) as unknown as T);
 }

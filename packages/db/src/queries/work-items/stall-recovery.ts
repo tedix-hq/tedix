@@ -4,8 +4,8 @@ import {
 	eq,
 	gt,
 	gte,
-	inArray,
 	isNull,
+	isNotNull,
 	lt,
 	ne,
 	or,
@@ -13,32 +13,37 @@ import {
 	sql,
 } from "drizzle-orm";
 import {
-	alias,
+	alias as sqliteAlias,
 	type AnySQLiteColumn,
 	type SQLiteTable,
 } from "drizzle-orm/sqlite-core";
-import type { DbClient } from "../../client";
+import { alias as pgAlias, type PgTable } from "drizzle-orm/pg-core";
+import { coreTable } from "../../core-store/client";
+import { anyIds, coreStore, jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
-	learningImprovementProposals,
-	learningInteractionEvents,
+	learningImprovementProposals as d1LearningImprovementProposals,
+	learningInteractionEvents as d1LearningInteractionEvents,
 } from "../../schema/learning-feedback";
 import {
 	anyOsGadgetExecution,
-	osGadgetExecutions,
-	osWorkspaceProjects,
+	osGadgetExecutions as d1OsGadgetExecutions,
+	osWorkspaceProjects as d1OsWorkspaceProjects,
 } from "../../schema/os-workspaces";
-import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
-import { anyTediTask, tediTasks } from "../../schema/tedi-objectives";
+import { platformCronCheckpoints as d1PlatformCronCheckpoints } from "../../schema/platform-cron-executions";
+import {
+	anyTediTask,
+	tediTasks as d1TediTasks,
+} from "../../schema/tedi-objectives";
 import {
 	anyWorkAgentSessionReport,
-	workAgentSessions,
+	workAgentSessions as d1WorkAgentSessions,
 } from "../../schema/work-agent-sessions";
 import {
-	workInteractionAttention,
-	workInteractions,
+	workInteractionAttention as d1WorkInteractionAttention,
+	workInteractions as d1WorkInteractions,
 } from "../../schema/work-factory";
-import { workItems } from "../../schema/work-items";
+import { workItems as d1WorkItems } from "../../schema/work-items";
 
 export const CONTINUITY_SCOPE_BATCH_SIZE = 100;
 
@@ -72,7 +77,7 @@ export const CONTINUITY_WORK_ITEMS_PER_STATEMENT = 2_000;
 
 /** One statement's rows: the public scope plus where its Work slice ended. */
 type ContinuityScopeSlice = ContinuityScope & {
-	workEnd: number | null;
+	workEnd: number | string | null;
 	/** The objective whose tedi tasks count as this scope's activity. */
 	objectiveId: string | null;
 };
@@ -84,8 +89,8 @@ interface ContinuitySliceParams {
 	scopeLimit: number;
 	/** Read only this scope, to continue its Work past `workAfter`. */
 	only?: string;
-	/** Work Items are read in rowid order; null starts from the first. */
-	workAfter: number | null;
+	/** D1 uses rowids; Postgres uses text IDs. Null starts from the first. */
+	workAfter: number | string | null;
 	workLimit: number;
 	/** Cron can omit empty, unconfigured scopes; interactive inventory cannot. */
 	recoveryOnly?: boolean;
@@ -123,6 +128,17 @@ function readContinuityScopeSlice(
 		recoveryOnly = false,
 	}: ContinuitySliceParams,
 ): Promise<ContinuityScopeSlice[]> {
+	if (coreStore(db) === "postgres")
+		return readContinuityScopeSlicePostgres(db, {
+			after,
+			orgId,
+			environment,
+			scopeLimit,
+			only,
+			workAfter,
+			workLimit,
+			recoveryOnly,
+		});
 	const onlyProject = only?.startsWith("project:") ? only.slice(8) : undefined;
 	const onlyObjective = only?.startsWith("objective:")
 		? only.slice(10)
@@ -267,12 +283,17 @@ function latestInIndex<
 	scope: (table: Table) => SQL | undefined,
 ): SQL {
 	// The aliases differ from `table` in name only.
-	const rows = alias(table, name) as unknown as Table;
-	const top = alias(table, `${name}_top`) as unknown as Table;
+	const rows = stallAlias(db, table, name) as unknown as Table;
+	const top = stallAlias(db, table, `${name}_top`) as unknown as Table;
 	const lastDay = db
 		.select({ day: sql`substr(${top[column]}, 1, 10)`.as("day") })
 		.from(top as SQLiteTable)
-		.where(and(scope(top), indexed))
+		.where(
+			and(
+				scope(top),
+				coreStore(db) === "d1" ? indexed : isNotNull(top[column]),
+			),
+		)
 		.orderBy(desc(top[column]))
 		.limit(1);
 	// Aggregating the whole last day can still read hundreds of thousands of
@@ -284,17 +305,20 @@ function latestInIndex<
 			.where(
 				and(
 					scope(rows),
-					indexed,
+					coreStore(db) === "d1" ? indexed : undefined,
 					gte(rows[column], sql`(${lastDay}) || ${separator}`),
 					lt(rows[column], sql`(${lastDay}) || ${end}`),
 				),
 			)
 			.orderBy(desc(rows[column]))
 			.limit(1);
-	return sql`(SELECT max(julianday(value)) FROM (
-		SELECT (${latest("T", "U")}) AS value
-		UNION ALL SELECT (${latest(" ", "!")}) AS value
-	))`;
+	return coreStore(db) === "d1"
+		? sql`(SELECT max(julianday(value)) FROM (
+  SELECT (${latest("T", "U")}) AS value UNION ALL SELECT (${latest(" ", "!")}) AS value
+ ))`
+		: sql`(SELECT max(${continuityPgTime(sql`value`)}) FROM (
+  SELECT (${latest("T", "U")}) AS value UNION ALL SELECT (${latest(" ", "!")}) AS value
+ ) history_times)`;
 }
 
 /**
@@ -317,6 +341,10 @@ function readContinuityHistory(
 	seenWorkspaces: ContinuityHistorySeen,
 	seenObjectives: ContinuityHistorySeen,
 ): Promise<ContinuityHistoryRow[]> {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
+	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
+	const tediTasks = coreTable(db, d1TediTasks);
+	const workAgentSessions = coreTable(db, d1WorkAgentSessions);
 	const page = JSON.stringify(
 		scopes.map((scope) => [
 			scope.key,
@@ -326,20 +354,29 @@ function readContinuityHistory(
 			scope.objectiveId,
 		]),
 	);
-	const scopePage = () => sql`json_each(${page}) AS s`;
-	const key = sql<string>`json_extract(s.value, '$[0]')`;
-	const orgId = sql<string>`json_extract(s.value, '$[1]')`;
-	const isProject = sql`json_extract(s.value, '$[2]') = 'project'`;
-	const id = sql<string>`json_extract(s.value, '$[3]')`;
-	const objectiveId = sql<string | null>`json_extract(s.value, '$[4]')`;
+	const scopePage = () =>
+		coreStore(db) === "d1"
+			? sql`json_each(${page}) AS s`
+			: sql`jsonb_array_elements(${page}::jsonb) AS s`;
+	const key = sql<string>`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[0]')` : sql`s.value ->> 0`}`;
+	const orgId = sql<string>`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[1]')` : sql`s.value ->> 1`}`;
+	const isProject = sql`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[2]')` : sql`s.value ->> 2`} = 'project'`;
+	const id = sql<string>`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[3]')` : sql`s.value ->> 3`}`;
+	const objectiveId = sql<
+		string | null
+	>`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[4]')` : sql`s.value ->> 4`}`;
 	const unseen = (owners: ContinuityHistorySeen, org: SQL, owner: SQL) =>
-		sql`NOT EXISTS (SELECT 1 FROM json_each(${`[${[...owners.keys()].join(",")}]`}) AS v
-			WHERE json_extract(v.value, '$[0]') = ${org} AND json_extract(v.value, '$[1]') = ${owner})`;
+		coreStore(db) === "d1"
+			? sql`NOT EXISTS (SELECT 1 FROM json_each(${`[${[...owners.keys()].join(",")}]`}) AS v
+ WHERE json_extract(v.value, '$[0]') = ${org} AND json_extract(v.value, '$[1]') = ${owner})`
+			: sql`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${`[${[...owners.keys()].join(",")}]`}::jsonb) AS v WHERE v.value ->> 0 = ${org} AND v.value ->> 1 = ${owner})`;
 	const none = () => sql<string | null>`NULL`;
 	const timestamp = (julian: SQL) =>
-		sql<string | null>`strftime('%Y-%m-%dT%H:%M:%fZ', ${julian})`;
+		coreStore(db) === "d1"
+			? sql<string | null>`strftime('%Y-%m-%dT%H:%M:%fZ', ${julian})`
+			: continuityPgTimestamp(julian);
 
-	const p = alias(osWorkspaceProjects, "p");
+	const p = stallAlias(db, osWorkspaceProjects, "p");
 	const linked = and(
 		isProject,
 		eq(p.organizationId, orgId),
@@ -554,6 +591,37 @@ export async function listContinuityScopes(
 			if (!workspaceActivity.has(owner)) workspaceActivity.set(owner, null);
 			note(key, workspaceActivity.get(owner)!);
 		}
+		if (coreStore(db) === "postgres") {
+			const byKey = new Map(slices.map((scope) => [scope.key, scope]));
+			let pending = slices.filter((scope) => scope.workEnd !== null);
+			while (pending.length) {
+				const more = await readContinuityScopeSlicePostgres(db, {
+					after: "",
+					orgId,
+					environment,
+					scopeLimit: pending.length,
+					workAfter: null,
+					workLimit: Math.floor(
+						CONTINUITY_WORK_ITEMS_PER_STATEMENT / pending.length,
+					),
+					continuations: pending,
+				});
+				const active = new Set(more.map((scope) => scope.key));
+				for (const scope of pending)
+					if (!active.has(scope.key)) byKey.get(scope.key)!.workEnd = null;
+				for (const next of more) {
+					const scope = byKey.get(next.key)!;
+					scope.pendingCount += next.pendingCount;
+					scope.failedCount += next.failedCount;
+					scope.lastActivityAt = laterActivity(
+						scope.lastActivityAt,
+						next.lastActivityAt,
+					)!;
+					scope.workEnd = next.workEnd;
+				}
+				pending = more.filter((scope) => scope.workEnd !== null);
+			}
+		}
 		for (const { workEnd, objectiveId, ...scope } of slices) {
 			if (objectiveId !== null) {
 				const owner = historyOwner(scope.orgId, objectiveId);
@@ -717,11 +785,15 @@ export async function getStallRecoveryCheckpoint(
 	db: DbQueryClient,
 	environment: string,
 ) {
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
 	const [row] = await db
 		.select()
 		.from(platformCronCheckpoints)
 		.where(
-			eq(platformCronCheckpoints.scheduleId, `stall-recovery:${environment}`),
+			eq(
+				platformCronCheckpoints.scheduleId,
+				stallCheckpointKey(db, environment),
+			),
 		)
 		.limit(1);
 	return row?.through ?? null;
@@ -734,26 +806,30 @@ export async function advanceStallRecoveryCheckpoint(
 	previous: string | null,
 	next: string,
 ) {
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
 	await db
 		.insert(platformCronCheckpoints)
-		.values({ scheduleId: `stall-recovery:${environment}`, through: next })
+		.values({ scheduleId: stallCheckpointKey(db, environment), through: next })
 		.onConflictDoUpdate({
 			target: platformCronCheckpoints.scheduleId,
 			set: { through: next },
 			setWhere:
 				previous === null
-					? sql`0`
+					? coreStore(db) === "d1"
+						? sql`0`
+						: sql`false`
 					: eq(platformCronCheckpoints.through, previous),
 		});
 }
 
 /** Count canonical completed Work, not model turns or heartbeat traffic. */
 export async function countContinuityResults(
-	db: DbClient,
+	db: DbQueryClient,
 	scope: ContinuityScope,
 	start: string,
 	end: string,
 ): Promise<number> {
+	const workItems = coreTable(db, d1WorkItems);
 	const [row] = await db
 		.select({ count: sql<number>`count(*)`.as("count") })
 		.from(workItems)
@@ -779,10 +855,11 @@ export async function countContinuityResults(
 }
 
 export async function getStallReceipt(
-	db: DbClient,
+	db: DbQueryClient,
 	orgId: string,
 	clientEventId: string,
 ) {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	const [row] = await db
 		.select({ occurredAt: learningInteractionEvents.occurredAt })
 		.from(learningInteractionEvents)
@@ -800,75 +877,69 @@ export async function getStallReceipt(
 	return row ?? null;
 }
 
-/** Latest accepted recovery per scope, batched below D1's parameter limit. */
+/** Latest accepted recovery per scope, with one bound candidate set. */
 export async function listStallReceipts(
-	db: DbClient,
+	db: DbQueryClient,
 	orgId: string,
 	keys: string[],
 	environment: string,
 ) {
-	const rows: Array<{
-		key: string;
-		requestKey: string;
-		tediId: string | null;
-		occurredAt: string;
-	}> = [];
-	for (let at = 0; at < keys.length; at += 50) {
-		const chunk = keys.slice(at, at + 50);
-		const target = sql<string>`${learningInteractionEvents.targetType} || ':' || ${learningInteractionEvents.targetId}`;
-		const receipts = db.$with("receipts").as(
-			db
-				.select({
-					key: target.as("key"),
-					requestKey:
-						sql<string>`${learningInteractionEvents.clientEventId}`.as(
-							"requestKey",
-						),
-					tediId: sql<string | null>`${learningInteractionEvents.tediId}`.as(
-						"tediId",
-					),
-					occurredAt: sql<string>`${learningInteractionEvents.occurredAt}`.as(
-						"occurredAt",
-					),
-					position:
-						sql<number>`row_number() OVER (PARTITION BY ${learningInteractionEvents.targetType}, ${learningInteractionEvents.targetId} ORDER BY ${learningInteractionEvents.occurredAt} DESC, ${learningInteractionEvents.id} DESC)`.as(
-							"position",
-						),
-				})
-				.from(learningInteractionEvents)
-				.where(
-					and(
-						eq(learningInteractionEvents.organizationId, orgId),
-						eq(learningInteractionEvents.surface, "stall_recovery"),
-						eq(learningInteractionEvents.eventKind, "delivered"),
-						sql`json_extract(${learningInteractionEvents.metadata}, '$.environment') = ${environment}`,
-						eq(learningInteractionEvents.actorType, "service"),
-						eq(learningInteractionEvents.actorId, "stall-recovery"),
-						inArray(target, chunk),
-					),
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
+	if (!keys.length) return [];
+
+	const target = sql<string>`${learningInteractionEvents.targetType} || ':' || ${learningInteractionEvents.targetId}`;
+	const receipts = db.$with("receipts").as(
+		db
+			.select({
+				key: target.as("key"),
+				requestKey: sql<string>`${learningInteractionEvents.clientEventId}`.as(
+					"requestKey",
 				),
-		);
-		rows.push(
-			...(await db
-				.with(receipts)
-				.select({
-					key: receipts.key,
-					requestKey: receipts.requestKey,
-					tediId: receipts.tediId,
-					occurredAt: receipts.occurredAt,
-				})
-				.from(receipts)
-				.where(eq(receipts.position, 1))),
-		);
-	}
-	return rows;
+				tediId: sql<string | null>`${learningInteractionEvents.tediId}`.as(
+					"tediId",
+				),
+				occurredAt: sql<string>`${learningInteractionEvents.occurredAt}`.as(
+					"occurredAt",
+				),
+				position:
+					sql<number>`row_number() OVER (PARTITION BY ${learningInteractionEvents.targetType}, ${learningInteractionEvents.targetId} ORDER BY ${learningInteractionEvents.occurredAt} DESC, ${learningInteractionEvents.id} DESC)`.as(
+						"position",
+					),
+			})
+			.from(learningInteractionEvents)
+			.where(
+				and(
+					eq(learningInteractionEvents.organizationId, orgId),
+					eq(learningInteractionEvents.surface, "stall_recovery"),
+					eq(learningInteractionEvents.eventKind, "delivered"),
+					sql`${jsonRead(db, learningInteractionEvents.metadata, ["environment"])} = ${environment}`,
+					eq(learningInteractionEvents.actorType, "service"),
+					eq(learningInteractionEvents.actorId, "stall-recovery"),
+					anyIds(db, target, keys),
+				),
+			),
+	);
+	return db
+		.with(receipts)
+		.select({
+			key: receipts.key,
+			requestKey: receipts.requestKey,
+			tediId: receipts.tediId,
+			occurredAt: receipts.occurredAt,
+		})
+		.from(receipts)
+		.where(eq(receipts.position, 1));
 }
 
 export async function hasContinuityFix(
-	db: DbClient,
+	db: DbQueryClient,
 	orgId: string,
 	issueKey: string,
 ) {
+	const learningImprovementProposals = coreTable(
+		db,
+		d1LearningImprovementProposals,
+	);
 	const [row] = await db
 		.select({ id: learningImprovementProposals.id })
 		.from(learningImprovementProposals)
@@ -884,18 +955,21 @@ export async function hasContinuityFix(
 
 /** Only the viewer's explicit open decisions; never another person's session capture. */
 export async function listContinuityHumanAsks(
-	db: DbClient,
+	db: DbQueryClient,
 	orgId: string,
 	userId: string,
 	now: string,
 ) {
-	const i = alias(workInteractions, "i");
-	const w = alias(workItems, "w");
-	const a = alias(workInteractionAttention, "a");
+	const workInteractionAttention = coreTable(db, d1WorkInteractionAttention);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const workItems = coreTable(db, d1WorkItems);
+	const i = stallAlias(db, workInteractions, "i");
+	const w = stallAlias(db, workItems, "w");
+	const a = stallAlias(db, workInteractionAttention, "a");
 	return db
 		.select({
 			id: i.id,
-			need: sql<string>`coalesce(${a.need}, json_extract(${i.metadata}, '$.reason'), ${i.subject})`.as(
+			need: sql<string>`coalesce(${a.need}, ${jsonRead(db, i.metadata, ["reason"])}, ${i.subject})`.as(
 				"need",
 			),
 			projectId: sql<
@@ -915,7 +989,9 @@ export async function listContinuityHumanAsks(
 				eq(i.status, "open"),
 				or(isNull(i.expiresAt), gt(i.expiresAt, now)),
 				eq(i.creatorType, "tedi"),
-				sql`${a.kind} IS NOT 'fyi'`,
+				coreStore(db) === "d1"
+					? sql`${a.kind} IS NOT 'fyi'`
+					: sql`${a.kind} IS DISTINCT FROM 'fyi'`,
 				or(
 					ne(i.kind, "coordination"),
 					and(eq(a.kind, "needs_you"), sql`length(trim(${a.need})) > 0`),
@@ -928,10 +1004,11 @@ export async function listContinuityHumanAsks(
 
 /** Native detector incidents, independent of user/tedi feedback on the same issue. */
 export async function listStallIncidents(
-	db: DbClient,
+	db: DbQueryClient,
 	orgId: string,
 	issueKey: string,
 ) {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	return db
 		.select({ id: learningInteractionEvents.id })
 		.from(learningInteractionEvents)
@@ -950,4 +1027,139 @@ export async function listStallIncidents(
 			desc(learningInteractionEvents.id),
 		)
 		.limit(3);
+}
+
+function stallAlias<T extends SQLiteTable>(
+	db: object,
+	table: T,
+	name: string,
+): T {
+	return (coreStore(db) === "d1"
+		? sqliteAlias(table, name)
+		: pgAlias(table as unknown as PgTable, name)) as unknown as T;
+}
+
+function stallCheckpointKey(db: object, environment: string) {
+	// A D1 rowid continuation cannot resume a Postgres text-ID scan.
+	return coreStore(db) === "d1"
+		? `stall-recovery:${environment}`
+		: `stall-recovery:postgres:${environment}`;
+}
+
+function continuityPgTime(value: SQL): SQL {
+	return sql`CASE WHEN pg_input_is_valid(${value}::text, 'timestamp with time zone') THEN
+ CASE WHEN ${value}::text ~ '(Z|[+-][0-9]{2}:[0-9]{2})$' THEN ${value}::timestamptz ELSE ${value}::timestamp AT TIME ZONE 'UTC' END END`;
+}
+function continuityPgTimestamp(value: SQL) {
+	return sql<
+		string | null
+	>`to_char(${value} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+}
+
+function readContinuityScopeSlicePostgres(
+	db: DbQueryClient,
+	{
+		after,
+		orgId,
+		environment,
+		scopeLimit,
+		only,
+		workAfter,
+		workLimit,
+		recoveryOnly = false,
+		continuations,
+	}: ContinuitySliceParams & { continuations?: ContinuityScopeSlice[] },
+): Promise<ContinuityScopeSlice[]> {
+	const onlyProject = only?.startsWith("project:") ? only.slice(8) : undefined;
+	const onlyObjective = only?.startsWith("objective:")
+		? only.slice(10)
+		: undefined;
+	const pastWork = (name: string) =>
+		sql`AND (s."workAfter" IS NULL OR ${sql.identifier(name)}.id > s."workAfter")`;
+	const continuationPage = continuations
+		? JSON.stringify(
+				continuations.map((scope) => ({
+					key: scope.key,
+					id: scope.id,
+					orgId: scope.orgId,
+					kind: scope.kind,
+					name: scope.name,
+					policy: scope.policy,
+					createdAt: scope.createdAt,
+					owner: scope.hasOwner ? scope.tediId : null,
+					objectiveId: scope.objectiveId,
+					workAfter: scope.workEnd,
+				})),
+			)
+		: null;
+	return db.all<ContinuityScopeSlice>(sql`
+ WITH project_page AS MATERIALIZED (
+  SELECT 'project:' || p.id AS key,p.id,p.org_id AS "orgId",'project' AS kind,p.name,
+   CASE WHEN jsonb_typeof(p.metadata->'continuity')='object' THEN (p.metadata->'continuity')::text END AS policy,
+   p.created_at AS "createdAt",coalesce(p.lead_tedi_id,o.tedi_id) AS owner,p.objective_id AS "objectiveId"
+  FROM projects p LEFT JOIN tedi_objectives o ON o.id=p.objective_id AND o.org_id=p.org_id AND o.status='active'
+  WHERE p.status='active'
+  ${recoveryOnly ? sql`AND (jsonb_typeof(p.metadata->'continuity')='object' OR EXISTS(SELECT 1 FROM work_items w WHERE w.org_id=p.org_id AND w.project_id=p.id AND w.disposition IN ('proposed','accepted')))` : sql``}
+  AND p.id > ${after.startsWith("project:") ? after.slice(8) : ""}
+  ${after && !after.startsWith("project:") && after > "project:" ? sql`AND p.id < ${""}` : sql``}
+  ${only === undefined ? sql`` : onlyProject === undefined ? sql`AND p.id < ${""}` : sql`AND p.id=${onlyProject}`}
+  ${orgId === undefined ? sql`` : sql`AND p.org_id=${orgId}`}
+  ORDER BY p.id LIMIT ${scopeLimit}
+ ), objective_page AS MATERIALIZED (
+  SELECT 'objective:' || o.id,o.id,o.org_id,'objective',o.title,
+   CASE WHEN jsonb_typeof(o.gate_config->'continuity')='object' THEN (o.gate_config->'continuity')::text END,
+   o.created_at,o.tedi_id,o.id
+  FROM tedi_objectives o WHERE o.status='active'
+  ${recoveryOnly ? sql`AND (jsonb_typeof(o.gate_config->'continuity')='object' OR EXISTS(SELECT 1 FROM work_items w WHERE w.org_id=o.org_id AND w.objective_id=o.id AND w.disposition IN ('proposed','accepted')))` : sql``}
+  AND o.id > ${after.startsWith("objective:") ? after.slice(10) : ""}
+  ${after && !after.startsWith("objective:") && after > "objective:" ? sql`AND o.id < ${""}` : sql``}
+  ${only === undefined ? sql`` : onlyObjective === undefined ? sql`AND o.id < ${""}` : sql`AND o.id=${onlyObjective}`}
+  ${orgId === undefined ? sql`` : sql`AND o.org_id=${orgId}`}
+  AND NOT EXISTS(SELECT 1 FROM projects p WHERE p.org_id=o.org_id AND p.objective_id=o.id AND p.status='active')
+  ORDER BY o.id LIMIT ${scopeLimit}
+ ), scopes AS (
+  SELECT * FROM project_page UNION ALL SELECT * FROM objective_page
+ ), scope_page AS MATERIALIZED (
+ ${
+		continuationPage === null
+			? sql`SELECT *, ${workAfter === null ? null : String(workAfter)}::text AS "workAfter" FROM scopes ORDER BY key LIMIT ${scopeLimit}`
+			: sql`SELECT * FROM jsonb_to_recordset(${continuationPage}::jsonb) AS s(key text,id text,"orgId" text,kind text,name text,policy text,"createdAt" text,owner text,"objectiveId" text,"workAfter" text)
+ WHERE (s.kind='project' AND EXISTS(SELECT 1 FROM projects p WHERE p.id=s.id AND p.org_id=s."orgId" AND p.status='active'))
+ OR (s.kind='objective' AND EXISTS(SELECT 1 FROM tedi_objectives o WHERE o.id=s.id AND o.org_id=s."orgId" AND o.status='active') AND NOT EXISTS(SELECT 1 FROM projects p WHERE p.org_id=s."orgId" AND p.objective_id=s.id AND p.status='active'))
+ ORDER BY key LIMIT ${scopeLimit}`
+ }
+ ), page AS MATERIALIZED (
+  SELECT s.*,CASE s.kind
+   WHEN 'project' THEN (SELECT x.id FROM work_items x WHERE x.org_id=s."orgId" AND x.project_id=s.id ${pastWork("x")} ORDER BY x.id LIMIT 1 OFFSET ${workLimit - 1})
+   ELSE (SELECT x.id FROM work_items x WHERE x.org_id=s."orgId" AND x.objective_id=s.id ${pastWork("x")} ORDER BY x.id LIMIT 1 OFFSET ${workLimit - 1})
+   END AS "workEnd"
+  FROM scope_page s
+ ), scope_work AS MATERIALIZED (
+  SELECT s.key,w.id AS "workItemId",w.org_id AS "orgId",w.disposition
+  FROM page s JOIN work_items w ON w.org_id=s."orgId" AND w.project_id=s.id ${pastWork("w")} AND (s."workEnd" IS NULL OR w.id<=s."workEnd") WHERE s.kind='project'
+  UNION ALL
+  SELECT s.key,w.id,w.org_id,w.disposition
+  FROM page s JOIN work_items w ON w.org_id=s."orgId" AND w.objective_id=s.id ${pastWork("w")} AND (s."workEnd" IS NULL OR w.id<=s."workEnd") WHERE s.kind='objective'
+ ), work_counts AS (
+  SELECT key,sum(CASE WHEN disposition IN ('proposed','accepted') THEN 1 ELSE 0 END)::integer AS "pendingCount" FROM scope_work GROUP BY key
+ ), attempt_activity AS MATERIALIZED (
+  SELECT w.key,max(${continuityPgTime(sql`coalesce(a.finished_at,a.heartbeat_at,a.started_at)`)}) AS activity,
+   sum(CASE WHEN a.outcome='failed' AND w.disposition NOT IN ('completed','cancelled') THEN 1 ELSE 0 END)::integer AS "failedCount"
+  FROM scope_work w JOIN work_attempts a ON a.org_id=w."orgId" AND a.work_item_id=w."workItemId" GROUP BY w.key
+ ), activity AS (
+  SELECT key,activity FROM attempt_activity
+  UNION ALL
+  SELECT w.key,max(${continuityPgTime(sql`CASE WHEN r.status IN ('completed','failed','canceled') THEN coalesce(r.completed_at,r.started_at) ELSE coalesce(r.last_reconciled_at,r.started_at) END`)})
+  FROM scope_work w JOIN skill_runs r ON r.organization_id=w."orgId" AND r.work_item_id=w."workItemId" WHERE r.runtime_environment=${environment} GROUP BY w.key
+ ), latest_activity AS (
+  SELECT key,max(activity) AS activity FROM activity GROUP BY key
+ )
+ SELECT s.key,s.id,s."orgId",s.kind,s.name,s.policy,${continuityPgTimestamp(continuityPgTime(sql`s."createdAt"`))} AS "createdAt",
+ coalesce(t.id,c.id) AS "tediId",coalesce(t.slug,c.slug) AS slug,(t.id IS NOT NULL)::integer AS "hasOwner",
+ ${continuityPgTimestamp(sql`greatest(${continuityPgTime(sql`s."createdAt"`)},l.activity)`)} AS "lastActivityAt",
+ coalesce(w."pendingCount",0) AS "pendingCount",coalesce(a."failedCount",0) AS "failedCount",s."workEnd",s."objectiveId"
+ FROM page s LEFT JOIN tedis t ON t.id=s.owner AND t.organization_id=s."orgId" AND t.status='active'
+ LEFT JOIN tedis c ON c.id=s.policy::jsonb->>'coordinatorTediId' AND c.organization_id=s."orgId" AND c.status='active'
+ LEFT JOIN latest_activity l ON l.key=s.key LEFT JOIN work_counts w ON w.key=s.key LEFT JOIN attempt_activity a ON a.key=s.key
+ ORDER BY s.key`);
 }

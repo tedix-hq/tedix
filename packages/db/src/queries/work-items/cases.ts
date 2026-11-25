@@ -1,12 +1,14 @@
+import { coreTable } from "../../core-store/client";
+import { anyIds } from "../../core-store/dialect";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { workItems } from "../../schema/work-items";
+import { workItems as d1WorkItems } from "../../schema/work-items";
 import { prefixedColumns } from "../../utils/select";
 import {
-	workCaseDependencies,
-	workCaseItems,
-	workCases,
+	workCaseDependencies as d1WorkCaseDependencies,
+	workCaseItems as d1WorkCaseItems,
+	workCases as d1WorkCases,
 	type WorkCase,
 	type WorkCaseStage,
 } from "../../schema/work-factory";
@@ -41,6 +43,7 @@ export async function createWorkCase(
 	db: DbQueryClient,
 	p: CreateWorkCaseParams,
 ): Promise<WorkCase> {
+	const workCases = coreTable(db, d1WorkCases);
 	if (p.projectId) await requireProject(db, p.orgId, p.projectId);
 	await requireActivePrincipal(db, {
 		orgId: p.orgId,
@@ -91,6 +94,9 @@ export async function updateWorkCase(
 	db: DbQueryClient,
 	p: UpdateWorkCaseParams,
 ): Promise<WorkCase> {
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
+	const workCases = coreTable(db, d1WorkCases);
+	const workItems = coreTable(db, d1WorkItems);
 	const prior = await requireWorkCase(db, p.orgId, p.caseId);
 	const ownerType = p.accountableOwnerType ?? prior.accountableOwnerType;
 	const ownerId = p.accountableOwnerId ?? prior.accountableOwnerId;
@@ -167,6 +173,7 @@ export async function reopenWorkCase(
 		now: string;
 	},
 ): Promise<WorkCase> {
+	const workCases = coreTable(db, d1WorkCases);
 	await requireWorkCase(db, p.orgId, p.caseId);
 	const cutoff = new Date(
 		Date.parse(p.now) - WORK_CASE_REOPEN_DAYS * 86_400_000,
@@ -207,6 +214,7 @@ export async function moveWorkCase(
 		now: string;
 	},
 ): Promise<WorkCase> {
+	const workCases = coreTable(db, d1WorkCases);
 	await requireWorkCase(db, p.orgId, p.caseId);
 	const project = await requireProject(db, p.orgId, p.projectId);
 	if (project.status === "archived" || project.archivedAt)
@@ -250,6 +258,7 @@ export async function listWorkCases(
 		limit?: number;
 	},
 ) {
+	const workCases = coreTable(db, d1WorkCases);
 	const limit = Math.min(Math.max(1, Math.trunc(p.limit ?? 50)), 100);
 	const rows = await db
 		.select()
@@ -288,6 +297,8 @@ export async function listWorkCasesForWorkItem(
 	db: DbQueryClient,
 	p: { orgId: string; workItemId: string },
 ): Promise<WorkCase[]> {
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
+	const workCases = coreTable(db, d1WorkCases);
 	const rows = await db
 		.select({ workCase: prefixedColumns(workCases, "work_case") })
 		.from(workCaseItems)
@@ -319,12 +330,22 @@ export async function addWorkCaseDependency(
 		now: string;
 	},
 ) {
+	const workCaseDependencies = coreTable(db, d1WorkCaseDependencies);
+	const workCases = coreTable(db, d1WorkCases);
 	if (p.prerequisiteCaseId === p.dependentCaseId)
 		throw new WorkControlError("CONFLICT", "Case cannot depend on itself");
-	await Promise.all([
-		requireWorkCase(db, p.orgId, p.prerequisiteCaseId),
-		requireWorkCase(db, p.orgId, p.dependentCaseId),
-	]);
+	const cases = await db
+		.select({ id: workCases.id })
+		.from(workCases)
+		.where(
+			and(
+				eq(workCases.orgId, p.orgId),
+				anyIds(db, workCases.id, [p.prerequisiteCaseId, p.dependentCaseId]),
+			),
+		);
+	for (const id of [p.prerequisiteCaseId, p.dependentCaseId])
+		if (!cases.some((row) => row.id === id))
+			throw new WorkControlError("NOT_FOUND", `Case ${id} was not found`);
 	const edges = await db
 		.select({
 			from: workCaseDependencies.prerequisiteCaseId,
@@ -359,6 +380,7 @@ export async function listWorkCaseDependencies(
 	db: DbQueryClient,
 	p: { orgId: string; caseId: string; cursor?: string; limit?: number },
 ) {
+	const workCaseDependencies = coreTable(db, d1WorkCaseDependencies);
 	const limit = Math.min(p.limit ?? 100, 500);
 	const rows = await db
 		.select()
@@ -386,6 +408,7 @@ export async function linkWorkItemToCase(
 		discoveredAt: string;
 	},
 ) {
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
 	await Promise.all([
 		requireWorkCase(db, p.orgId, p.caseId),
 		requireWorkItem(db, p.orgId, p.workItemId),
@@ -408,6 +431,7 @@ export async function detachWorkItemFromCase(
 		now: string;
 	},
 ) {
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
 	const [, item] = await Promise.all([
 		requireWorkCase(db, p.orgId, p.caseId),
 		requireWorkItem(db, p.orgId, p.workItemId),
@@ -454,6 +478,7 @@ export async function listWorkCaseItems(
 	db: DbQueryClient,
 	p: { orgId: string; caseId: string; cursor?: string; limit?: number },
 ) {
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
 	const limit = Math.min(p.limit ?? 100, 500);
 	const rows = await db
 		.select()
