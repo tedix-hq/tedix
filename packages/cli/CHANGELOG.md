@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.22 (2026-11-25)
+
+### Patch Changes
+
+- 1957738: Checking the Claude Code connection (`tedix setup agents --claude --verify`, or Check connection in the Mac app) now uses the Tedix plugin's own connection and ignores a Tedix connector added on claude.ai. It says which Tedix account it read, and when it fails it says why: the connection did not load, or the sign-in failed.
+- 0155d22: `tedix supervise install` no longer takes over old per-runner LaunchAgents. Runners stay configured in `supervisor-runners.json`.
+
 ## 0.37.21 (2026-11-25)
 
 ### Patch Changes
