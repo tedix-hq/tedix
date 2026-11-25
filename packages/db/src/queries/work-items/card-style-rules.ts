@@ -1,14 +1,18 @@
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { learningImprovementProposals } from "../../schema/learning-feedback";
-import { memoryFacts } from "../../schema/memory-graph";
-import { organizationMembers } from "../../schema/organization-members";
+import { learningImprovementProposals as d1LearningImprovementProposals } from "../../schema/learning-feedback";
+import { memoryFacts as d1MemoryFacts } from "../../schema/memory-graph";
+import { organizationMembers as d1OrganizationMembers } from "../../schema/organization-members";
+
+import { coreTable } from "../../core-store/client";
+import { jsonRead } from "../../core-store/dialect";
 
 export async function resolveCardStyleOwner(
 	db: DbQueryClient,
 	orgId: string,
 	personId: string,
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const rows = await db
 		.select({
 			subject: organizationMembers.descopeUserId,
@@ -35,6 +39,7 @@ export async function resolveCardReaderUserId(
 	orgId: string,
 	personId: string,
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const rows = await db
 		.select({ userId: organizationMembers.userId })
 		.from(organizationMembers)
@@ -52,12 +57,13 @@ export async function resolveCardReaderUserId(
 	return rows.length === 1 ? (rows[0]!.userId ?? null) : null;
 }
 
-function scope(orgId: string, ownerUserId: string) {
+function scope(db: DbQueryClient, orgId: string, ownerUserId: string) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	return and(
 		eq(memoryFacts.organizationId, orgId),
 		eq(memoryFacts.visibility, "private"),
-		sql`json_extract(${memoryFacts.metadata},'$.cardStyle.version')=1`,
-		sql`json_extract(${memoryFacts.metadata},'$.learningFeed.ownerUserId')=${ownerUserId}`,
+		sql`${jsonRead(db, memoryFacts.metadata, ["cardStyle", "version"], "number")}=1`,
+		sql`${jsonRead(db, memoryFacts.metadata, ["learningFeed", "ownerUserId"])}=${ownerUserId}`,
 	);
 }
 export async function listPersonalCardStyleRules(
@@ -65,12 +71,13 @@ export async function listPersonalCardStyleRules(
 	orgId: string,
 	ownerUserId: string,
 ) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	return db
 		.select()
 		.from(memoryFacts)
 		.where(
 			and(
-				scope(orgId, ownerUserId),
+				scope(db, orgId, ownerUserId),
 				isNull(memoryFacts.archivedAt),
 				eq(memoryFacts.reviewStatus, "confirmed"),
 				eq(memoryFacts.usePolicy, "can_use_as_instruction"),
@@ -85,10 +92,11 @@ export async function getPersonalCardStyleRule(
 	ownerUserId: string,
 	id: string,
 ) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const [row] = await db
 		.select()
 		.from(memoryFacts)
-		.where(and(scope(orgId, ownerUserId), eq(memoryFacts.id, id)))
+		.where(and(scope(db, orgId, ownerUserId), eq(memoryFacts.id, id)))
 		.limit(1);
 	return row ?? null;
 }
@@ -99,6 +107,7 @@ export async function reviewPersonalCardStyleRule(
 	id: string,
 	keep: boolean,
 ) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const now = new Date().toISOString();
 	const [row] = await db
 		.update(memoryFacts)
@@ -111,7 +120,7 @@ export async function reviewPersonalCardStyleRule(
 		})
 		.where(
 			and(
-				scope(orgId, ownerUserId),
+				scope(db, orgId, ownerUserId),
 				eq(memoryFacts.id, id),
 				isNull(memoryFacts.archivedAt),
 			),
@@ -126,6 +135,10 @@ export async function getPersonalCardStyleProposal(
 	ownerUserId: string,
 	eventId: string,
 ) {
+	const learningImprovementProposals = coreTable(
+		db,
+		d1LearningImprovementProposals,
+	);
 	const [row] = await db
 		.select()
 		.from(learningImprovementProposals)

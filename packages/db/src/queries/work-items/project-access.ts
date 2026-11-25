@@ -1,11 +1,15 @@
-import { and, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { workItems } from "../../schema/work-items";
+import { workItems as d1WorkItems } from "../../schema/work-items";
+
+import { coreTable } from "../../core-store/client";
+import { anyIds, coreStore } from "../../core-store/dialect";
 
 export async function hasProjectWorkItemReference(
 	db: DbQueryClient,
 	params: { orgId: string; projectId: string; ids: string[] },
 ): Promise<boolean> {
+	const workItems = coreTable(db, d1WorkItems);
 	if (params.ids.length === 0) return false;
 	// Discovery responses contain thousands of unrelated tool IDs. Bind the
 	// candidate set once rather than serializing a D1 trip for every 50 IDs.
@@ -18,9 +22,13 @@ export async function hasProjectWorkItemReference(
 		.from(workItems)
 		.where(
 			and(
-				sql`${workItems.id} IN (SELECT value FROM json_each(${JSON.stringify(params.ids)}))`,
-				sql`+${workItems.orgId} = ${params.orgId}`,
-				sql`+${workItems.projectId} = ${params.projectId}`,
+				anyIds(db, workItems.id, params.ids),
+				coreStore(db) === "d1"
+					? sql`+${workItems.orgId} = ${params.orgId}`
+					: eq(workItems.orgId, params.orgId),
+				coreStore(db) === "d1"
+					? sql`+${workItems.projectId} = ${params.projectId}`
+					: eq(workItems.projectId, params.projectId),
 			),
 		)
 		.limit(1);

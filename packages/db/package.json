@@ -6,6 +6,10 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./core-store/client": "./src/core-store/client.ts",
+		"./core-store/dialect": "./src/core-store/dialect.ts",
+		"./schema-pg/core": "./src/schema-pg/core.ts",
+		"./test/pglite-facade": "./src/test/pglite-facade.ts",
 		"./queries/commit-alias-rewrites": "./src/queries/commit-alias-rewrites.ts",
 		"./queries/commit-alias-counts": "./src/queries/commit-alias-counts.ts",
 		"./schema/git-commit-aliases": "./src/schema/git-commit-aliases.ts",
@@ -598,12 +602,14 @@
 		"@tedix/tenant-directory": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
 		"drizzle-orm": "catalog:",
+		"postgres": "^4.1.1",
 		"yaml": "^2.9.1",
 		"zod": "catalog:"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "catalog:",
 		"@cloudflare/workers-types": "catalog:",
+		"@electric-sql/pglite": "^0.6.0",
 		"@tedix/tsconfig": "workspace:*",
 		"dotenv": "^18.0.10",
 		"drizzle-kit": "1.0.0-rc.5",

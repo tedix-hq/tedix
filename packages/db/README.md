@@ -74,6 +74,68 @@ not establish actual provider billing or independent verification.
 
 ## Usage
 
+### Core store migration
+
+`createCoreStore(env)` from `@tedix/db/core-store/client` selects D1 unless
+`CORE_STORE` is explicitly `"postgres"`. Existing D1 factories and sessions
+keep their behavior. The Postgres branch requires `CORE_HYPERDRIVE` and creates
+one postgres.js client per request; call `close()` after the request's queries.
+Provision that core Hyperdrive with query caching disabled
+(`caching.disabled: true`). Its connection string comes only from the binding.
+The factory enables prepared statements and follows Cloudflare's per-request
+connection limit. This package does not provision bindings or deploy live config.
+
+```typescript
+import { createCoreStore } from "@tedix/db/core-store/client";
+
+const core = createCoreStore(env);
+try {
+	// Pass core.db to query owners whose Postgres port is complete.
+} finally {
+	await core.close();
+}
+```
+
+A ported query selects each physical table with `coreTable(db, d1Table)`.
+The shared row and insert types stay at the query boundary; native Pg builders
+use the generated pg-core table at runtime. Await builders and use explicit
+`.returning()` projections. Raw `db.all`, `get`, `values`, and `run` have
+compatible result wrappers. D1-specific builder methods, raw `$client` SQL,
+and domain Relations v2 definitions belong to the owning lane's port.
+
+`@tedix/db/core-store/dialect` contains JSON reads/writes, epoch and timestamp
+expressions, ASCII-folding LIKE, substring matching, boolean values and
+`changedRows(returnedRows)`. JSON paths are arrays of object keys. Use typed
+JSON reads for number and boolean filters. Use the builders' common
+`.onConflictDoUpdate({ target, set })` and `.returning()` APIs for upserts and
+write receipts; count returned rows instead of reading connection-local
+`changes()`. `anyIds(db, column, ids)` binds one `text[]` for `= ANY(...)` on
+Postgres and one JSON set on D1, including an empty set.
+
+`db.batch([...])` prepares all statements before execution. The Postgres
+adapter uses postgres.js 4's native batch: one protocol Sync, ordered results,
+and one implicit transaction. Any failure rolls back the batch. Keep dependent
+writes together and construct their conditions in SQL. PGlite uses the same
+result mapper with an in-memory transaction; it does not measure network trips.
+
+Run `bun packages/db/scripts/generate-pg-schema.ts` from the repository root
+to regenerate `src/schema-pg/core.ts`. JSON text becomes `jsonb`, booleans become
+native booleans, Date-valued integer timestamps become `timestamptz`, and other
+integers remain number-valued `bigint`. Text timestamps retain their stored
+format. The generated schema is a scaffold, not a live migration:
+Foreign keys and ordinary indexes are preserved.
+`src/schema-pg/review.json` lists checks, generated expressions,
+and expression/partial indexes that each lane must port and review before its
+domain can run on Postgres. No generator or fixture opens a production database.
+
+Each lane owns its query files, schema constraints, triggers and complete
+batches. Changes to shared clients, dialect helpers, generation or the batch
+adapter require a lane 0 follow-up. The examples are
+`work-items/project-access.ts` (set lookup), `card-style-rules.ts` (JSON filters),
+and `agent-review-triage.ts` (dependent batch writes and bounded reads).
+`src/core-store/parity.test.ts` exercises them through the existing D1 facade
+and the in-memory PGlite facade. Existing D1 tests remain unchanged.
+
 ### Creating a Client
 
 ```typescript

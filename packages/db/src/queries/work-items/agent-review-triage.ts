@@ -2,34 +2,44 @@ import { and, eq, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { DbQueryClient } from "../../query-client";
-import { workEvents, workItemComments } from "../../schema/work-items";
+import {
+	workEvents as d1WorkEvents,
+	workItemComments as d1WorkItemComments,
+} from "../../schema/work-items";
+
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead, jsonParameter } from "../../core-store/dialect";
 
 /** Materialize a bounded recent window before examining comments; never scan the project history. */
 // Raw: both CTEs need AS MATERIALIZED, which Drizzle $with cannot emit; flattened, each comment subquery runs repeatedly.
-export function buildAgentReviewsForTriageStatement(p: {
-	orgId: string;
-	projectId: string;
-	leadTediId: string;
-	maxRetries: number;
-	retryBefore: string;
-	recentAfter: string;
-	limit: number;
-}) {
+export function buildAgentReviewsForTriageStatement(
+	p: {
+		orgId: string;
+		projectId: string;
+		leadTediId: string;
+		maxRetries: number;
+		retryBefore: string;
+		recentAfter: string;
+		limit: number;
+	},
+	db?: DbQueryClient,
+) {
+	const dialect = db ?? {};
 	return sql`WITH recent AS MATERIALIZED (
-		SELECT id, org_id, created_at FROM work_items INDEXED BY idx_work_items_org_project_created
+		SELECT id, org_id, created_at FROM work_items ${coreStore(dialect) === "d1" ? sql`INDEXED BY idx_work_items_org_project_created` : sql``}
 		WHERE org_id = ${p.orgId} AND project_id = ${p.projectId} AND created_at >= ${p.recentAfter}
-		AND json_extract(metadata, '$.agentReview') = 1
+		AND ${jsonRead(dialect, sql`metadata`, ["agentReview"], "boolean")} = ${coreStore(dialect) === "d1" ? sql`1` : sql`true`}
 		ORDER BY created_at, id LIMIT 400
 	), pending AS MATERIALIZED (
-		SELECT recent.id, recent.created_at AS createdAt,
-			(SELECT count(*) FROM work_item_comments AS retry WHERE retry.org_id = recent.org_id AND retry.work_item_id = recent.id AND json_extract(retry.metadata, '$.agentReviewRetry') = 1) AS retries,
-			(SELECT max(retry.created_at) FROM work_item_comments AS retry WHERE retry.org_id = recent.org_id AND retry.work_item_id = recent.id AND json_extract(retry.metadata, '$.agentReviewRetry') = 1) AS lastRetry
+		SELECT recent.id, recent.created_at AS "createdAt",
+			(SELECT count(*) FROM work_item_comments AS retry WHERE retry.org_id = recent.org_id AND retry.work_item_id = recent.id AND ${jsonRead(dialect, sql`retry.metadata`, ["agentReviewRetry"], "boolean")} = ${coreStore(dialect) === "d1" ? sql`1` : sql`true`}) AS retries,
+			(SELECT max(retry.created_at) FROM work_item_comments AS retry WHERE retry.org_id = recent.org_id AND retry.work_item_id = recent.id AND ${jsonRead(dialect, sql`retry.metadata`, ["agentReviewRetry"], "boolean")} = ${coreStore(dialect) === "d1" ? sql`1` : sql`true`}) AS "lastRetry"
 		FROM recent
-		WHERE NOT EXISTS (SELECT 1 FROM work_item_comments AS result WHERE result.org_id = recent.org_id AND result.work_item_id = recent.id AND result.author_type = 'tedi' AND result.author_id = ${p.leadTediId} AND json_extract(result.metadata, '$.agentReviewTriageResult') = 1 AND length(trim(result.body)) > 0)
+		WHERE NOT EXISTS (SELECT 1 FROM work_item_comments AS result WHERE result.org_id = recent.org_id AND result.work_item_id = recent.id AND result.author_type = 'tedi' AND result.author_id = ${p.leadTediId} AND ${jsonRead(dialect, sql`result.metadata`, ["agentReviewTriageResult"], "boolean")} = ${coreStore(dialect) === "d1" ? sql`1` : sql`true`} AND length(trim(result.body)) > 0)
 	)
-	SELECT id, createdAt, retries, lastRetry FROM pending
-	WHERE retries <= ${p.maxRetries} AND (lastRetry IS NULL OR lastRetry <= ${p.retryBefore})
-	ORDER BY createdAt, id LIMIT ${p.limit}`;
+	SELECT id, "createdAt", retries, "lastRetry" FROM pending
+	WHERE retries <= ${p.maxRetries} AND ("lastRetry" IS NULL OR "lastRetry" <= ${p.retryBefore})
+	ORDER BY "createdAt", id LIMIT ${p.limit}`;
 }
 
 export async function listAgentReviewsForTriage(
@@ -41,7 +51,7 @@ export async function listAgentReviewsForTriage(
 		createdAt: string;
 		retries: number;
 		lastRetry: string | null;
-	}>(buildAgentReviewsForTriageStatement(p));
+	}>(buildAgentReviewsForTriageStatement(p, db));
 }
 
 /** Claim both the project tick slot and review attempt atomically before dispatch. */
@@ -55,6 +65,7 @@ export async function claimAgentReviewRetry(
 		tickSlotId: string;
 	},
 ) {
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	const [, attempt] = await db.batch([
 		db
 			.insert(workItemComments)
@@ -84,7 +95,7 @@ export async function claimAgentReviewRetry(
 						),
 						metadata: sql<
 							Record<string, JsonValue>
-						>`${JSON.stringify({ agentReviewRetry: true, retry: p.retry })}`.as(
+						>`${jsonParameter(db, { agentReviewRetry: true, retry: p.retry })}`.as(
 							"metadata",
 						),
 						createdAt: sql<string>`${p.at}`.as("created_at"),
@@ -114,6 +125,7 @@ export async function recordAgentReviewTriageNotice(
 		at: string;
 	},
 ) {
+	const workEvents = coreTable(db, d1WorkEvents);
 	const hash = await sha256Hex(
 		`${p.orgId}:${p.projectId}:agent-review:digest:${p.at.slice(0, 10)}`,
 	);
