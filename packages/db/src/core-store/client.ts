@@ -1,5 +1,5 @@
-import { getTableName, sql, type SQLWrapper } from "drizzle-orm";
-import type { PgDialect } from "drizzle-orm/pg-core";
+import { getTableName, is, sql, type SQLWrapper } from "drizzle-orm";
+import { PgTable, type PgDialect } from "drizzle-orm/pg-core";
 import { QueryPromise } from "drizzle-orm/query-promise";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { relations } from "../schema-pg/relations";
@@ -22,7 +22,9 @@ export function requireCoreD1Binding(env: CoreStoreEnv): D1Database {
 	return env.DB;
 }
 const pgTables = new Map<string, Parameters<typeof getTableName>[0]>(
-	Object.values(schema).map((table) => [getTableName(table), table]),
+	Object.values(schema)
+		.filter((table) => is(table, PgTable))
+		.map((table) => [getTableName(table), table]),
 );
 const pgClients = new WeakSet<object>();
 /** Select the physical table before building a query. The row/insert contract is unchanged. */

@@ -31,6 +31,7 @@
 	"cms_domain_claims.cms_domain_claims_site_pending_unique: expression or partial index must be ported by its lane",
 	"cms_domain_claims.cms_domain_claims_organization_unique: expression or partial index must be ported by its lane",
 	"commitment_wake_outbox.idx_commitment_wake_outbox_pending: expression or partial index must be ported by its lane",
+	"commitment_wake_outbox.idx_commitment_wake_outbox_org_pending: expression or partial index must be ported by its lane",
 	"commitment_wake_outbox.idx_commitment_wake_outbox_completed: expression or partial index must be ported by its lane",
 	"competency_observation_attestations.chk_competency_attestation_principal: check must be ported by its lane",
 	"competency_observation_attestations.chk_competency_attestation_verdict: check must be ported by its lane",

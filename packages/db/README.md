@@ -136,6 +136,9 @@ Run `bun packages/db/scripts/generate-pg-schema.ts` from the repository root
 to regenerate `src/schema-pg/core.ts` from every canonical Drizzle schema input,
 including tables omitted from the runtime index. The generator parses the input
 list without executing config or loading local env files.
+Tables from `src/schema/catalog.ts` live in the Postgres `catalog` schema;
+other core tables stay in `public`. `coreTable` and Relations v2 use those
+same qualified table definitions. D1 table names remain unchanged.
 JSON text becomes `jsonb`, booleans become
 native booleans, Date-valued integer timestamps become `timestamptz`, and other
 integers remain number-valued `bigint`. Text timestamps retain their stored

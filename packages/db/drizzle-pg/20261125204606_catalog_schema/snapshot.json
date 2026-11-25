@@ -1,0 +1,513 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "d7e6d8fb-0cbb-4ee4-925d-893790b00d5c",
+	"prevIds": ["701e5c62-a6ab-4400-a116-7165e0d700c5"],
+	"footprints": [
+		{
+			"statementType": "create_schema",
+			"statementTarget": ["schema", "catalog"],
+			"writes": ["s|sch|catalog", "n|sch|catalog", "e|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog"],
+			"writes": [
+				"s|tbl|public.app_catalog",
+				"n|tbl|public.app_catalog",
+				"n|rel|public.app_catalog",
+				"n|type|public.app_catalog",
+				"s|tbl|catalog.app_catalog",
+				"n|tbl|catalog.app_catalog",
+				"n|rel|catalog.app_catalog",
+				"n|type|catalog.app_catalog",
+				"e|tbl|public.app_catalog",
+				"e|tbl|catalog.app_catalog",
+				"n|rel|public.app_catalog_category_idx",
+				"n|rel|catalog.app_catalog_category_idx",
+				"n|rel|public.app_catalog_connector_type_idx",
+				"n|rel|catalog.app_catalog_connector_type_idx",
+				"n|rel|public.app_catalog_developer_type_idx",
+				"n|rel|catalog.app_catalog_developer_type_idx",
+				"n|rel|public.app_catalog_distribution_channel_idx",
+				"n|rel|catalog.app_catalog_distribution_channel_idx",
+				"n|rel|public.app_catalog_health_status_idx",
+				"n|rel|catalog.app_catalog_health_status_idx",
+				"n|rel|public.app_catalog_is_discoverable_idx",
+				"n|rel|catalog.app_catalog_is_discoverable_idx",
+				"n|rel|public.app_catalog_mcp_endpoint_hash_unique",
+				"n|rel|catalog.app_catalog_mcp_endpoint_hash_unique",
+				"n|rel|public.app_catalog_mcp_endpoint_idx",
+				"n|rel|catalog.app_catalog_mcp_endpoint_idx",
+				"n|rel|public.app_catalog_name_idx",
+				"n|rel|catalog.app_catalog_name_idx",
+				"n|rel|public.app_catalog_pkey",
+				"n|rel|catalog.app_catalog_pkey",
+				"n|rel|public.app_catalog_slug_idx",
+				"n|rel|catalog.app_catalog_slug_idx",
+				"n|rel|public.app_catalog_slug_key",
+				"n|rel|catalog.app_catalog_slug_key",
+				"n|rel|public.app_catalog_status_idx",
+				"n|rel|catalog.app_catalog_status_idx",
+				"n|rel|public.app_catalog_tool_source_idx",
+				"n|rel|catalog.app_catalog_tool_source_idx",
+				"n|rel|public.app_catalog_vendor_key_idx",
+				"n|rel|catalog.app_catalog_vendor_key_idx"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_browse_totals"],
+			"writes": [
+				"s|tbl|public.app_catalog_browse_totals",
+				"n|tbl|public.app_catalog_browse_totals",
+				"n|rel|public.app_catalog_browse_totals",
+				"n|type|public.app_catalog_browse_totals",
+				"s|tbl|catalog.app_catalog_browse_totals",
+				"n|tbl|catalog.app_catalog_browse_totals",
+				"n|rel|catalog.app_catalog_browse_totals",
+				"n|type|catalog.app_catalog_browse_totals",
+				"e|tbl|public.app_catalog_browse_totals",
+				"e|tbl|catalog.app_catalog_browse_totals",
+				"n|rel|public.app_catalog_browse_totals_pkey",
+				"n|rel|catalog.app_catalog_browse_totals_pkey"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_category_totals"],
+			"writes": [
+				"s|tbl|public.app_catalog_category_totals",
+				"n|tbl|public.app_catalog_category_totals",
+				"n|rel|public.app_catalog_category_totals",
+				"n|type|public.app_catalog_category_totals",
+				"s|tbl|catalog.app_catalog_category_totals",
+				"n|tbl|catalog.app_catalog_category_totals",
+				"n|rel|catalog.app_catalog_category_totals",
+				"n|type|catalog.app_catalog_category_totals",
+				"e|tbl|public.app_catalog_category_totals",
+				"e|tbl|catalog.app_catalog_category_totals",
+				"n|rel|public.app_catalog_category_total_idx",
+				"n|rel|catalog.app_catalog_category_total_idx",
+				"n|rel|public.app_catalog_category_totals_pkey",
+				"n|rel|catalog.app_catalog_category_totals_pkey"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_changes"],
+			"writes": [
+				"s|tbl|public.app_catalog_changes",
+				"n|tbl|public.app_catalog_changes",
+				"n|rel|public.app_catalog_changes",
+				"n|type|public.app_catalog_changes",
+				"s|tbl|catalog.app_catalog_changes",
+				"n|tbl|catalog.app_catalog_changes",
+				"n|rel|catalog.app_catalog_changes",
+				"n|type|catalog.app_catalog_changes",
+				"e|tbl|public.app_catalog_changes",
+				"e|tbl|catalog.app_catalog_changes",
+				"n|rel|public.app_catalog_changes_pkey",
+				"n|rel|catalog.app_catalog_changes_pkey",
+				"n|rel|public.idx_catalog_changes_app",
+				"n|rel|catalog.idx_catalog_changes_app",
+				"n|rel|public.idx_catalog_changes_type",
+				"n|rel|catalog.idx_catalog_changes_type"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_health_history"],
+			"writes": [
+				"s|tbl|public.app_catalog_health_history",
+				"n|tbl|public.app_catalog_health_history",
+				"n|rel|public.app_catalog_health_history",
+				"n|type|public.app_catalog_health_history",
+				"s|tbl|catalog.app_catalog_health_history",
+				"n|tbl|catalog.app_catalog_health_history",
+				"n|rel|catalog.app_catalog_health_history",
+				"n|type|catalog.app_catalog_health_history",
+				"e|tbl|public.app_catalog_health_history",
+				"e|tbl|catalog.app_catalog_health_history",
+				"n|rel|public.app_catalog_health_history_pkey",
+				"n|rel|catalog.app_catalog_health_history_pkey",
+				"n|rel|public.health_history_app_checked_idx",
+				"n|rel|catalog.health_history_app_checked_idx",
+				"n|rel|public.health_history_checked_idx",
+				"n|rel|catalog.health_history_checked_idx"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_mcp_prompts"],
+			"writes": [
+				"s|tbl|public.app_catalog_mcp_prompts",
+				"n|tbl|public.app_catalog_mcp_prompts",
+				"n|rel|public.app_catalog_mcp_prompts",
+				"n|type|public.app_catalog_mcp_prompts",
+				"s|tbl|catalog.app_catalog_mcp_prompts",
+				"n|tbl|catalog.app_catalog_mcp_prompts",
+				"n|rel|catalog.app_catalog_mcp_prompts",
+				"n|type|catalog.app_catalog_mcp_prompts",
+				"e|tbl|public.app_catalog_mcp_prompts",
+				"e|tbl|catalog.app_catalog_mcp_prompts",
+				"n|rel|public.app_catalog_mcp_prompts_pkey",
+				"n|rel|catalog.app_catalog_mcp_prompts_pkey",
+				"n|rel|public.mcp_prompts_app_name_unique",
+				"n|rel|catalog.mcp_prompts_app_name_unique"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": [
+				"table",
+				"public",
+				"app_catalog_mcp_resource_templates"
+			],
+			"writes": [
+				"s|tbl|public.app_catalog_mcp_resource_templates",
+				"n|tbl|public.app_catalog_mcp_resource_templates",
+				"n|rel|public.app_catalog_mcp_resource_templates",
+				"n|type|public.app_catalog_mcp_resource_templates",
+				"s|tbl|catalog.app_catalog_mcp_resource_templates",
+				"n|tbl|catalog.app_catalog_mcp_resource_templates",
+				"n|rel|catalog.app_catalog_mcp_resource_templates",
+				"n|type|catalog.app_catalog_mcp_resource_templates",
+				"e|tbl|public.app_catalog_mcp_resource_templates",
+				"e|tbl|catalog.app_catalog_mcp_resource_templates",
+				"n|rel|public.app_catalog_mcp_resource_templates_pkey",
+				"n|rel|catalog.app_catalog_mcp_resource_templates_pkey",
+				"n|rel|public.mcp_resource_tpl_app_name_unique",
+				"n|rel|catalog.mcp_resource_tpl_app_name_unique"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_mcp_resources"],
+			"writes": [
+				"s|tbl|public.app_catalog_mcp_resources",
+				"n|tbl|public.app_catalog_mcp_resources",
+				"n|rel|public.app_catalog_mcp_resources",
+				"n|type|public.app_catalog_mcp_resources",
+				"s|tbl|catalog.app_catalog_mcp_resources",
+				"n|tbl|catalog.app_catalog_mcp_resources",
+				"n|rel|catalog.app_catalog_mcp_resources",
+				"n|type|catalog.app_catalog_mcp_resources",
+				"e|tbl|public.app_catalog_mcp_resources",
+				"e|tbl|catalog.app_catalog_mcp_resources",
+				"n|rel|public.app_catalog_mcp_resources_pkey",
+				"n|rel|catalog.app_catalog_mcp_resources_pkey",
+				"n|rel|public.mcp_resources_app_uri_unique",
+				"n|rel|catalog.mcp_resources_app_uri_unique"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_mcp_skills"],
+			"writes": [
+				"s|tbl|public.app_catalog_mcp_skills",
+				"n|tbl|public.app_catalog_mcp_skills",
+				"n|rel|public.app_catalog_mcp_skills",
+				"n|type|public.app_catalog_mcp_skills",
+				"s|tbl|catalog.app_catalog_mcp_skills",
+				"n|tbl|catalog.app_catalog_mcp_skills",
+				"n|rel|catalog.app_catalog_mcp_skills",
+				"n|type|catalog.app_catalog_mcp_skills",
+				"e|tbl|public.app_catalog_mcp_skills",
+				"e|tbl|catalog.app_catalog_mcp_skills",
+				"n|rel|public.app_catalog_mcp_skills_pkey",
+				"n|rel|catalog.app_catalog_mcp_skills_pkey",
+				"n|rel|public.mcp_skills_app_last_seen_idx",
+				"n|rel|catalog.mcp_skills_app_last_seen_idx",
+				"n|rel|public.mcp_skills_app_uri_unique",
+				"n|rel|catalog.mcp_skills_app_uri_unique"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_mcp_tools"],
+			"writes": [
+				"s|tbl|public.app_catalog_mcp_tools",
+				"n|tbl|public.app_catalog_mcp_tools",
+				"n|rel|public.app_catalog_mcp_tools",
+				"n|type|public.app_catalog_mcp_tools",
+				"s|tbl|catalog.app_catalog_mcp_tools",
+				"n|tbl|catalog.app_catalog_mcp_tools",
+				"n|rel|catalog.app_catalog_mcp_tools",
+				"n|type|catalog.app_catalog_mcp_tools",
+				"e|tbl|public.app_catalog_mcp_tools",
+				"e|tbl|catalog.app_catalog_mcp_tools",
+				"n|rel|public.app_catalog_mcp_tools_pkey",
+				"n|rel|catalog.app_catalog_mcp_tools_pkey",
+				"n|rel|public.mcp_tools_app_name_unique",
+				"n|rel|catalog.mcp_tools_app_name_unique",
+				"n|rel|public.mcp_tools_last_tested_idx",
+				"n|rel|catalog.mcp_tools_last_tested_idx",
+				"n|rel|public.mcp_tools_schema_source_idx",
+				"n|rel|catalog.mcp_tools_schema_source_idx",
+				"n|rel|public.mcp_tools_test_count_idx",
+				"n|rel|catalog.mcp_tools_test_count_idx"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_store_listings"],
+			"writes": [
+				"s|tbl|public.app_catalog_store_listings",
+				"n|tbl|public.app_catalog_store_listings",
+				"n|rel|public.app_catalog_store_listings",
+				"n|type|public.app_catalog_store_listings",
+				"s|tbl|catalog.app_catalog_store_listings",
+				"n|tbl|catalog.app_catalog_store_listings",
+				"n|rel|catalog.app_catalog_store_listings",
+				"n|type|catalog.app_catalog_store_listings",
+				"e|tbl|public.app_catalog_store_listings",
+				"e|tbl|catalog.app_catalog_store_listings",
+				"n|rel|public.app_catalog_store_listings_pkey",
+				"n|rel|catalog.app_catalog_store_listings_pkey",
+				"n|rel|public.store_listings_catalog_app_idx",
+				"n|rel|catalog.store_listings_catalog_app_idx",
+				"n|rel|public.store_listings_source_id_unique",
+				"n|rel|catalog.store_listings_source_id_unique"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_sync_logs"],
+			"writes": [
+				"s|tbl|public.app_catalog_sync_logs",
+				"n|tbl|public.app_catalog_sync_logs",
+				"n|rel|public.app_catalog_sync_logs",
+				"n|type|public.app_catalog_sync_logs",
+				"s|tbl|catalog.app_catalog_sync_logs",
+				"n|tbl|catalog.app_catalog_sync_logs",
+				"n|rel|catalog.app_catalog_sync_logs",
+				"n|type|catalog.app_catalog_sync_logs",
+				"e|tbl|public.app_catalog_sync_logs",
+				"e|tbl|catalog.app_catalog_sync_logs",
+				"n|rel|public.app_catalog_sync_logs_pkey",
+				"n|rel|catalog.app_catalog_sync_logs_pkey"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "app_catalog_tool_tests"],
+			"writes": [
+				"s|tbl|public.app_catalog_tool_tests",
+				"n|tbl|public.app_catalog_tool_tests",
+				"n|rel|public.app_catalog_tool_tests",
+				"n|type|public.app_catalog_tool_tests",
+				"s|tbl|catalog.app_catalog_tool_tests",
+				"n|tbl|catalog.app_catalog_tool_tests",
+				"n|rel|catalog.app_catalog_tool_tests",
+				"n|type|catalog.app_catalog_tool_tests",
+				"e|tbl|public.app_catalog_tool_tests",
+				"e|tbl|catalog.app_catalog_tool_tests",
+				"n|rel|public.app_catalog_tool_tests_pkey",
+				"n|rel|catalog.app_catalog_tool_tests_pkey",
+				"n|rel|public.tool_tests_app_tool_tested_idx",
+				"n|rel|catalog.tool_tests_app_tool_tested_idx",
+				"n|rel|public.tool_tests_success_idx",
+				"n|rel|catalog.tool_tests_success_idx",
+				"n|rel|public.tool_tests_tested_at_idx",
+				"n|rel|catalog.tool_tests_tested_at_idx"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "move_table",
+			"statementTarget": ["table", "public", "upstream_drift_reports"],
+			"writes": [
+				"s|tbl|public.upstream_drift_reports",
+				"n|tbl|public.upstream_drift_reports",
+				"n|rel|public.upstream_drift_reports",
+				"n|type|public.upstream_drift_reports",
+				"s|tbl|catalog.upstream_drift_reports",
+				"n|tbl|catalog.upstream_drift_reports",
+				"n|rel|catalog.upstream_drift_reports",
+				"n|type|catalog.upstream_drift_reports",
+				"e|tbl|public.upstream_drift_reports",
+				"e|tbl|catalog.upstream_drift_reports",
+				"n|rel|public.drift_reports_catalog_app_unique",
+				"n|rel|catalog.drift_reports_catalog_app_unique",
+				"n|rel|public.drift_reports_checked_idx",
+				"n|rel|catalog.drift_reports_checked_idx",
+				"n|rel|public.upstream_drift_reports_pkey",
+				"n|rel|catalog.upstream_drift_reports_pkey"
+			],
+			"reads": ["n|sch|public", "n|sch|catalog"]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"kernel_requests",
+				"kernel_requests_global_due_idx"
+			],
+			"writes": [
+				"s|idx|public.kernel_requests_global_due_idx",
+				"n|idx|public.kernel_requests_global_due_idx",
+				"e|idx|public.kernel_requests_global_due_idx",
+				"n|rel|public.kernel_requests_global_due_idx"
+			],
+			"reads": [
+				"n|tbl|public.kernel_requests",
+				"n|sch|public",
+				"n|col|public.kernel_requests.next_due_at",
+				"n|col|public.kernel_requests.organization_id"
+			]
+		}
+	],
+	"deltas": [
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_browse_totals\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_category_totals\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_changes\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_health_history\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_mcp_prompts\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_mcp_resource_templates\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_mcp_resources\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_mcp_skills\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_mcp_tools\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_store_listings\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_sync_logs\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"app_catalog_tool_tests\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "rename",
+			"key": "tables\u0000[\"public\",\"upstream_drift_reports\"]",
+			"set": {
+				"schema": "catalog"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"name": "catalog",
+				"entityType": "schemas"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "kernel_requests",
+				"name": "kernel_requests_global_due_idx",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "next_due_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		}
+	]
+}
