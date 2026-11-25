@@ -483,9 +483,19 @@ export async function marketingResponse(
 	const visitor = request.headers.get("cf-connecting-ip");
 	if (request.method !== "GET")
 		return catalogApiResponse(url, path, env, db, visitor);
-	return cachedCatalogResponse(url, () =>
+	const response = await cachedCatalogResponse(url, () =>
 		catalogApiResponse(url, path, env, db, visitor),
 	);
+	if (path !== "/api/catalog/apps" || !response.ok) return response;
+	// Cache API hits can carry the zone's longer Browser Cache TTL. Restore
+	// the search policy after lookup without changing the stored edge response.
+	const headers = new Headers(response.headers);
+	headers.set("Cache-Control", "public, max-age=60");
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
 }
 
 // Public catalog reads share main D1 with the app. A visitor typing into the

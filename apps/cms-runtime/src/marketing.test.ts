@@ -233,6 +233,51 @@ describe("public marketing adapters", () => {
 			)?.status,
 		).toBe(404);
 	});
+	it("restores the search browser TTL on edge hits without another catalog read", async () => {
+		const stored = new Map<string, Response>();
+		const put = vi.fn(async (key: string, response: Response) => {
+			stored.set(key, response);
+		});
+		vi.stubGlobal("caches", {
+			default: {
+				put,
+				match: async (key: string) => {
+					const response = stored.get(key)?.clone();
+					if (response) {
+						response.headers.set("Cache-Control", "public, max-age=14400");
+						response.headers.set("CF-Cache-Status", "HIT");
+						response.headers.set("Age", "4");
+					}
+					return response;
+				},
+			},
+		});
+		try {
+			mocks.list.mockResolvedValue({ apps: [], total: 0 });
+			const url = "https://landing.tedix.dev/api/catalog/apps/?search=slack";
+			const first = await marketingResponse(new Request(url), env);
+			const repeated = await marketingResponse(new Request(url), env);
+			expect(first?.headers.get("Cache-Control")).toBe("public, max-age=60");
+			expect(repeated?.headers.get("Cache-Control")).toBe("public, max-age=60");
+			expect(repeated?.headers.get("CF-Cache-Status")).toBe("HIT");
+			expect(repeated?.headers.get("Age")).toBe("4");
+			expect(await repeated?.json()).toEqual({ apps: [], total: 0 });
+			expect(stored.get(url)?.headers.get("Cache-Control")).toBe(
+				"public, max-age=60",
+			);
+			expect(put).toHaveBeenCalledTimes(1);
+			expect(mocks.list).toHaveBeenCalledTimes(1);
+			const security = await marketingResponse(
+				new Request("https://landing.tedix.dev/.well-known/security.txt"),
+				env,
+			);
+			expect(security?.headers.get("Cache-Control")).toBe(
+				"public, max-age=86400",
+			);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
 	it("shares one catalog read between identical concurrent searches", async () => {
 		mocks.list.mockClear();
 		let release: (value: unknown) => void = () => undefined;
