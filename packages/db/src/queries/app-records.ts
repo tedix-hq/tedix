@@ -5,6 +5,16 @@
  * evaluate every unrelated DB query module in a fresh Worker isolate.
  */
 
+import {
+	anyIds,
+	coreStore,
+	jsonRead,
+	jsonType,
+	pgTextArray,
+} from "../core-store/dialect";
+import { batchNonEmpty } from "../utils/batch";
+import type { SQL, SQLWrapper } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { resolveConnectionResourceAccess } from "@tedix/api-contract/utils/connection-resource-policy";
 import {
@@ -20,34 +30,34 @@ import {
 	desc,
 	eq,
 	getColumns,
-	inArray,
+	exists,
 	isNull,
 	or,
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { AppMetadata, NewApp } from "../schema/apps";
-import { apps } from "../schema/apps";
+import { apps as schemaApps } from "../schema/apps";
 import {
-	appCatalog,
-	appCatalogMcpPrompts,
-	appCatalogMcpResources,
-	appCatalogMcpResourceTemplates,
+	appCatalog as schemaAppCatalog,
+	appCatalogMcpPrompts as schemaAppCatalogMcpPrompts,
+	appCatalogMcpResources as schemaAppCatalogMcpResources,
+	appCatalogMcpResourceTemplates as schemaAppCatalogMcpResourceTemplates,
 } from "../schema/catalog";
-import { appToolCspDomains } from "../schema/configuration";
-import { organizations } from "../schema/organizations";
-import { providerInstallations } from "../schema/provider-installations";
-import { appTools } from "../schema/tools";
+import { appToolCspDomains as schemaAppToolCspDomains } from "../schema/configuration";
+import { organizations as schemaOrganizations } from "../schema/organizations";
+import { providerInstallations as schemaProviderInstallations } from "../schema/provider-installations";
+import { appTools as schemaAppTools } from "../schema/tools";
 import { withTransientD1ReadRetry } from "../utils/d1-retry";
 import { aggregateAppEntryMatchesSql } from "./aggregate-app-links";
 import { toolDefinitionIsLive } from "./tool-review-visibility";
 
 /** Apply the execution resolver to the tools offered by discovery and skill binding. */
 export async function filterAppConnectionResourceTools<
-	T extends { config: typeof appTools.$inferSelect.config },
+	T extends { config: typeof schemaAppTools.$inferSelect.config },
 >(
 	db: DbClient,
-	app: Pick<typeof apps.$inferSelect, "organizationId" | "metadata">,
+	app: Pick<typeof schemaApps.$inferSelect, "organizationId" | "metadata">,
 	tools: T[],
 ): Promise<T[]> {
 	const defaults = app.metadata?.mcpConfig;
@@ -146,11 +156,11 @@ type CatalogMcpSurface = {
 		scanConnectionHeader: string | null;
 		scanConnectionTemplate: string | null;
 	} | null;
-	catalogResources: Array<typeof appCatalogMcpResources.$inferSelect>;
+	catalogResources: Array<typeof schemaAppCatalogMcpResources.$inferSelect>;
 	catalogResourceTemplates: Array<
-		typeof appCatalogMcpResourceTemplates.$inferSelect
+		typeof schemaAppCatalogMcpResourceTemplates.$inferSelect
 	>;
-	catalogPrompts: Array<typeof appCatalogMcpPrompts.$inferSelect>;
+	catalogPrompts: Array<typeof schemaAppCatalogMcpPrompts.$inferSelect>;
 };
 
 function emptyCatalogMcpSurface(): CatalogMcpSurface {
@@ -166,6 +176,13 @@ async function getCatalogMcpSurfaceForApp(
 	db: DbClient,
 	catalogAppId: string | null,
 ): Promise<CatalogMcpSurface> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogMcpPrompts = coreTable(db, schemaAppCatalogMcpPrompts);
+	const appCatalogMcpResources = coreTable(db, schemaAppCatalogMcpResources);
+	const appCatalogMcpResourceTemplates = coreTable(
+		db,
+		schemaAppCatalogMcpResourceTemplates,
+	);
 	if (!catalogAppId) return emptyCatalogMcpSurface();
 
 	const [
@@ -228,7 +245,7 @@ async function getCatalogMcpSurfaceForApp(
 }
 
 /**
- * Batched {@link getCatalogMcpSurfaceForApp}. Four statements per chunk of
+ * Batched {@link getCatalogMcpSurfaceForApp}. Four statements for the bound set of
  * catalog ids instead of four per app — the single-app version issued 4×N
  * queries for an N-app aggregate rebuild.
  *
@@ -240,138 +257,137 @@ async function getCatalogMcpSurfacesForApps(
 	db: DbClient,
 	catalogAppIds: string[],
 ): Promise<Map<string, CatalogMcpSurface>> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogMcpPrompts = coreTable(db, schemaAppCatalogMcpPrompts);
+	const appCatalogMcpResources = coreTable(db, schemaAppCatalogMcpResources);
+	const appCatalogMcpResourceTemplates = coreTable(
+		db,
+		schemaAppCatalogMcpResourceTemplates,
+	);
 	const out = new Map<string, CatalogMcpSurface>();
 	const unique = [...new Set(catalogAppIds.filter(Boolean))];
 	for (const id of unique) out.set(id, emptyCatalogMcpSurface());
 	if (unique.length === 0) return out;
 
-	for (const chunk of chunked(unique, APP_SURFACE_ID_CHUNK)) {
-		const [
-			catalogRows,
-			catalogResources,
-			catalogResourceTemplates,
-			catalogPrompts,
-		] = await db.batch([
-			db
-				.select({
-					id: appCatalog.id,
-					slug: appCatalog.slug,
-					mcpEndpointNormalized: appCatalog.mcpEndpointNormalized,
-					baseUrl: appCatalog.baseUrl,
-					scanConnectionId: appCatalog.scanConnectionId,
-					scanConnectionHeader: appCatalog.scanConnectionHeader,
-					scanConnectionTemplate: appCatalog.scanConnectionTemplate,
-				})
-				.from(appCatalog)
-				.where(inArray(appCatalog.id, chunk)),
-			db
-				.select()
-				.from(appCatalogMcpResources)
-				.where(
-					and(
-						inArray(appCatalogMcpResources.catalogAppId, chunk),
-						isNull(appCatalogMcpResources.removedAt),
-					),
-				)
-				.orderBy(
-					asc(appCatalogMcpResources.catalogAppId),
-					asc(appCatalogMcpResources.uri),
+	const [
+		catalogRows,
+		catalogResources,
+		catalogResourceTemplates,
+		catalogPrompts,
+	] = await db.batch([
+		db
+			.select({
+				id: appCatalog.id,
+				slug: appCatalog.slug,
+				mcpEndpointNormalized: appCatalog.mcpEndpointNormalized,
+				baseUrl: appCatalog.baseUrl,
+				scanConnectionId: appCatalog.scanConnectionId,
+				scanConnectionHeader: appCatalog.scanConnectionHeader,
+				scanConnectionTemplate: appCatalog.scanConnectionTemplate,
+			})
+			.from(appCatalog)
+			.where(anyIds(db, appCatalog.id, unique)),
+		db
+			.select()
+			.from(appCatalogMcpResources)
+			.where(
+				and(
+					anyIds(db, appCatalogMcpResources.catalogAppId, unique),
+					isNull(appCatalogMcpResources.removedAt),
 				),
-			db
-				.select()
-				.from(appCatalogMcpResourceTemplates)
-				.where(
-					and(
-						inArray(appCatalogMcpResourceTemplates.catalogAppId, chunk),
-						isNull(appCatalogMcpResourceTemplates.removedAt),
-					),
-				)
-				.orderBy(
-					asc(appCatalogMcpResourceTemplates.catalogAppId),
-					asc(appCatalogMcpResourceTemplates.name),
+			)
+			.orderBy(
+				asc(appCatalogMcpResources.catalogAppId),
+				asc(appCatalogMcpResources.uri),
+			),
+		db
+			.select()
+			.from(appCatalogMcpResourceTemplates)
+			.where(
+				and(
+					anyIds(db, appCatalogMcpResourceTemplates.catalogAppId, unique),
+					isNull(appCatalogMcpResourceTemplates.removedAt),
 				),
-			db
-				.select()
-				.from(appCatalogMcpPrompts)
-				.where(
-					and(
-						inArray(appCatalogMcpPrompts.catalogAppId, chunk),
-						isNull(appCatalogMcpPrompts.removedAt),
-					),
-				)
-				.orderBy(
-					asc(appCatalogMcpPrompts.catalogAppId),
-					asc(appCatalogMcpPrompts.promptName),
+			)
+			.orderBy(
+				asc(appCatalogMcpResourceTemplates.catalogAppId),
+				asc(appCatalogMcpResourceTemplates.name),
+			),
+		db
+			.select()
+			.from(appCatalogMcpPrompts)
+			.where(
+				and(
+					anyIds(db, appCatalogMcpPrompts.catalogAppId, unique),
+					isNull(appCatalogMcpPrompts.removedAt),
 				),
-		]);
+			)
+			.orderBy(
+				asc(appCatalogMcpPrompts.catalogAppId),
+				asc(appCatalogMcpPrompts.promptName),
+			),
+	]);
 
-		for (const row of catalogRows) {
-			const surface = out.get(row.id);
-			if (surface) surface.catalogMcp = row;
-		}
-		for (const row of catalogResources) {
-			out.get(row.catalogAppId)?.catalogResources.push(row);
-		}
-		for (const row of catalogResourceTemplates) {
-			out.get(row.catalogAppId)?.catalogResourceTemplates.push(row);
-		}
-		for (const row of catalogPrompts) {
-			out.get(row.catalogAppId)?.catalogPrompts.push(row);
-		}
+	for (const row of catalogRows) {
+		const surface = out.get(row.id);
+		if (surface) surface.catalogMcp = row;
+	}
+	for (const row of catalogResources) {
+		out.get(row.catalogAppId)?.catalogResources.push(row);
+	}
+	for (const row of catalogResourceTemplates) {
+		out.get(row.catalogAppId)?.catalogResourceTemplates.push(row);
+	}
+	for (const row of catalogPrompts) {
+		out.get(row.catalogAppId)?.catalogPrompts.push(row);
 	}
 	return out;
 }
 
-function buildToolSelectionConditions(options?: ToolSelectionOptions) {
+function buildToolSelectionConditions(
+	db: DbClient,
+	options?: ToolSelectionOptions,
+) {
+	const appTools = coreTable(db, schemaAppTools);
 	const conditions = [eq(appTools.enabled, true), toolDefinitionIsLive()];
 	const toolIds = options?.toolIds?.filter(Boolean) ?? [];
 	const endpointPrefixes = options?.endpointPrefixes?.filter(Boolean) ?? [];
 
 	if (toolIds.length > 0) {
-		conditions.push(inArray(appTools.toolId, toolIds));
+		conditions.push(anyIds(db, appTools.toolId, toolIds));
 	}
 
 	if (endpointPrefixes.length > 0) {
-		const endpointConditions = endpointPrefixes.flatMap((prefix) => [
-			sql`json_extract(${appTools.config}, '$.endpoint') = ${prefix}`,
-			sql`json_extract(${appTools.config}, '$.endpoint') LIKE ${`${prefix}/%`}`,
-		]);
-		conditions.push(or(...endpointConditions)!);
+		const endpoint = jsonRead(db, appTools.config, ["endpoint"]);
+		const prefixes =
+			coreStore(db) === "postgres"
+				? sql`jsonb_array_elements_text(${JSON.stringify(endpointPrefixes)}::text::jsonb) AS prefix(value)`
+				: sql`json_each(${JSON.stringify(endpointPrefixes)}) AS prefix`;
+		const nested =
+			coreStore(db) === "postgres"
+				? sql`translate(${endpoint}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') LIKE translate(prefix.value || '/%', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ESCAPE ''`
+				: sql`${endpoint} LIKE prefix.value || '/%'`;
+		conditions.push(
+			exists(
+				db
+					.select({ one: sql`1` })
+					.from(prefixes)
+					.where(or(sql`${endpoint} = prefix.value`, nested)),
+			),
+		);
 	}
 
 	return conditions;
 }
 
-const APP_TOOL_SELECTION_PARAM_BUDGET = 95;
-
 function compareAppToolOrder(
-	a: typeof appTools.$inferSelect,
-	b: typeof appTools.$inferSelect,
+	a: typeof schemaAppTools.$inferSelect,
+	b: typeof schemaAppTools.$inferSelect,
 ): number {
 	const sortA = a.sortOrder ?? Number.NEGATIVE_INFINITY;
 	const sortB = b.sortOrder ?? Number.NEGATIVE_INFINITY;
 	if (sortA !== sortB) return sortA - sortB;
 	return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
-}
-
-function chunkToolSelection(
-	options?: ToolSelectionOptions,
-): ToolSelectionOptions[] {
-	const toolIds = [...new Set(options?.toolIds?.filter(Boolean) ?? [])];
-	const endpointPrefixes = options?.endpointPrefixes?.filter(Boolean) ?? [];
-	if (toolIds.length === 0) return [{ endpointPrefixes }];
-
-	// Each statement also binds enabled, at least one app id, and two values per
-	// endpoint prefix. Chunk the caller-controlled IN list itself; shrinking only
-	// the app-id chunk cannot make an oversized tool-id selection valid on D1.
-	const chunkSize = Math.max(
-		1,
-		APP_TOOL_SELECTION_PARAM_BUDGET - 2 - endpointPrefixes.length * 2,
-	);
-	return chunked(toolIds, chunkSize).map((chunk) => ({
-		toolIds: chunk,
-		endpointPrefixes,
-	}));
 }
 
 // ============================================================================
@@ -406,6 +422,8 @@ export async function getAppPolicyMountMetadataForOrganization(
 	id: string,
 	organizationId: string,
 ) {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	const [app] = await db
 		.select({
 			id: apps.id,
@@ -431,7 +449,10 @@ export async function getAppPolicyMountMetadataForOrganization(
 				toolDefinitionIsLive(),
 			),
 		)
-		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
+		.orderBy(
+			sql`${appTools.sortOrder} ASC NULLS FIRST`,
+			sql`${appTools.createdAt} ASC NULLS FIRST`,
+		);
 	const tools = await filterAppConnectionResourceTools(db, app, rows);
 	return { app, tools: tools.map(({ id, toolId }) => ({ id, toolId })) };
 }
@@ -447,6 +468,8 @@ export async function getAppByIdWithToolsForOrganization(
 	organizationId: string,
 	options?: ToolSelectionOptions,
 ) {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	const appRows = await db
 		.select()
 		.from(apps)
@@ -459,9 +482,12 @@ export async function getAppByIdWithToolsForOrganization(
 		.select()
 		.from(appTools)
 		.where(
-			and(eq(appTools.appId, id), ...buildToolSelectionConditions(options)),
+			and(eq(appTools.appId, id), ...buildToolSelectionConditions(db, options)),
 		)
-		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
+		.orderBy(
+			sql`${appTools.sortOrder} ASC NULLS FIRST`,
+			sql`${appTools.createdAt} ASC NULLS FIRST`,
+		);
 
 	const toolCsp = await getAppSurfaceCspDomains(
 		db,
@@ -551,6 +577,8 @@ function loadAppBySlugWithTools(
 	slug: string,
 	options?: ToolSelectionOptions,
 ) {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	return withTransientD1ReadRetry(`app ${slug} with tools`, async () => {
 		const appRows = await db
 			.select()
@@ -560,18 +588,22 @@ function loadAppBySlugWithTools(
 		const app = appRows[0];
 		if (!app) return null;
 
-		const toolsById = new Map<string, typeof appTools.$inferSelect>();
-		for (const selection of chunkToolSelection(options)) {
+		const toolsById = new Map<string, typeof schemaAppTools.$inferSelect>();
+		{
+			const selection = options;
 			const rows = await db
 				.select()
 				.from(appTools)
 				.where(
 					and(
 						eq(appTools.appId, app.id),
-						...buildToolSelectionConditions(selection),
+						...buildToolSelectionConditions(db, selection),
 					),
 				)
-				.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
+				.orderBy(
+					sql`${appTools.sortOrder} ASC NULLS FIRST`,
+					sql`${appTools.createdAt} ASC NULLS FIRST`,
+				);
 			for (const row of rows) toolsById.set(row.id, row);
 		}
 		const tools = [...toolsById.values()].sort(compareAppToolOrder);
@@ -652,6 +684,7 @@ export async function getAggregateAllowedSourceOrganizationIds(
 	hostOrganizationId: string,
 	sourceOrganizationIds: string[],
 ): Promise<Set<string>> {
+	const providerInstallations = coreTable(db, schemaProviderInstallations);
 	const allowed = new Set<string>();
 	const foreign = [...new Set(sourceOrganizationIds)].filter((id) => {
 		if (id !== hostOrganizationId) return true;
@@ -666,7 +699,7 @@ export async function getAggregateAllowedSourceOrganizationIds(
 		allowed.add(id);
 		return false;
 	});
-	for (const ids of chunked(remaining, APP_SURFACE_ID_CHUNK)) {
+	if (remaining.length) {
 		const grants = await db
 			.select({
 				sourceOrganizationId: providerInstallations.providerOrganizationId,
@@ -676,7 +709,7 @@ export async function getAggregateAllowedSourceOrganizationIds(
 				and(
 					eq(providerInstallations.status, "active"),
 					eq(providerInstallations.customerOrganizationId, hostOrganizationId),
-					inArray(providerInstallations.providerOrganizationId, ids),
+					anyIds(db, providerInstallations.providerOrganizationId, remaining),
 				),
 			);
 		for (const grant of grants) allowed.add(grant.sourceOrganizationId);
@@ -709,30 +742,18 @@ export type AppSurfaceResult =
 	  })
 	| null;
 
-/**
- * D1 caps bound parameters at 100 per statement. Every chunked `inArray` below
- * stays at 50 ids so the remaining conditions (enabled, tool-id allowlists,
- * endpoint-prefix LIKEs) cannot push a statement past the cap.
- */
-const APP_SURFACE_ID_CHUNK = 50;
-
-function chunked<T>(items: T[], size: number): T[][] {
-	const out: T[][] = [];
-	for (let i = 0; i < items.length; i += size)
-		out.push(items.slice(i, i + size));
-	return out;
-}
-
 /** Read CSP by resolved app, so tool count never adds serial D1 round trips. */
 async function getAppSurfaceCspDomains(db: DbClient, appIds: string[]) {
-	const domains: Array<typeof appToolCspDomains.$inferSelect> = [];
-	for (const chunk of chunked(appIds, APP_SURFACE_ID_CHUNK)) {
+	const appToolCspDomains = coreTable(db, schemaAppToolCspDomains);
+	const appTools = coreTable(db, schemaAppTools);
+	const domains: Array<typeof schemaAppToolCspDomains.$inferSelect> = [];
+	if (appIds.length) {
 		domains.push(
 			...(await db
 				.select(getColumns(appToolCspDomains))
 				.from(appToolCspDomains)
 				.innerJoin(appTools, eq(appTools.id, appToolCspDomains.appToolId))
-				.where(inArray(appTools.appId, chunk))),
+				.where(anyIds(db, appTools.appId, appIds))),
 		);
 	}
 	return domains;
@@ -761,6 +782,9 @@ export async function getAppsBySlugsWithTools(
 	db: DbClient,
 	requests: AppSurfaceRequest[],
 ): Promise<AppSurfaceResult[]> {
+	const apps = coreTable(db, schemaApps);
+	const providerInstallations = coreTable(db, schemaProviderInstallations);
+	const appTools = coreTable(db, schemaAppTools);
 	if (requests.length === 0) return [];
 
 	return withTransientD1ReadRetry(
@@ -777,16 +801,22 @@ export async function getAppsBySlugsWithTools(
 					requests.map((r) => r.appId).filter((id): id is string => !!id),
 				),
 			];
-			const slugRows: Array<typeof apps.$inferSelect> = [];
-			for (const chunk of chunked(slugs, APP_SURFACE_ID_CHUNK)) {
+			const slugRows: Array<typeof schemaApps.$inferSelect> = [];
+			if (slugs.length) {
 				slugRows.push(
-					...(await db.select().from(apps).where(inArray(apps.slug, chunk))),
+					...(await db
+						.select()
+						.from(apps)
+						.where(anyIds(db, apps.slug, slugs))),
 				);
 			}
-			const idRows: Array<typeof apps.$inferSelect> = [];
-			for (const chunk of chunked(ids, APP_SURFACE_ID_CHUNK)) {
+			const idRows: Array<typeof schemaApps.$inferSelect> = [];
+			if (ids.length) {
 				idRows.push(
-					...(await db.select().from(apps).where(inArray(apps.id, chunk))),
+					...(await db
+						.select()
+						.from(apps)
+						.where(anyIds(db, apps.id, ids))),
 				);
 			}
 			const appBySlug = new Map(slugRows.map((app) => [app.slug, app]));
@@ -812,7 +842,7 @@ export async function getAppsBySlugsWithTools(
 			}
 			const trust = orgIds.size ? await getInstallationTrustPolicy(db) : null;
 			const providerGrants = new Set<string>();
-			for (const chunk of chunked([...orgIds], APP_SURFACE_ID_CHUNK)) {
+			if (orgIds.size) {
 				const grants = await db
 					.select({
 						providerOrganizationId:
@@ -824,7 +854,9 @@ export async function getAppsBySlugsWithTools(
 					.where(
 						and(
 							eq(providerInstallations.status, "active"),
-							inArray(providerInstallations.providerOrganizationId, chunk),
+							anyIds(db, providerInstallations.providerOrganizationId, [
+								...orgIds,
+							]),
 						),
 					);
 				for (const row of grants) {
@@ -854,14 +886,16 @@ export async function getAppsBySlugsWithTools(
 			const appRows = [
 				...new Map(
 					resolvedApps
-						.filter((app): app is typeof apps.$inferSelect => app !== null)
+						.filter(
+							(app): app is typeof schemaApps.$inferSelect => app !== null,
+						)
 						.map((app) => [app.id, app]),
 				).values(),
 			];
 
 			// ── tools, grouped by identical tool selection ────────────────────────
 			// Requests overwhelmingly share the empty selection, so this is normally
-			// a single statement per 50 apps.
+			// a single statement per selection group.
 			const selectionGroups = new Map<
 				string,
 				{ options: ToolSelectionOptions; appIds: string[] }
@@ -899,7 +933,9 @@ export async function getAppsBySlugsWithTools(
 					string,
 					Map<
 						string,
-						Array<typeof appTools.$inferSelect & { inputSchemaChars?: number }>
+						Array<
+							typeof schemaAppTools.$inferSelect & { inputSchemaChars?: number }
+						>
 					>
 				>();
 				const seenBySelection = new Map<string, Set<string>>();
@@ -909,20 +945,9 @@ export async function getAppsBySlugsWithTools(
 						new Map(group.appIds.map((id) => [id, []])),
 					);
 					seenBySelection.set(signature, new Set());
-					return chunkToolSelection(group.options).flatMap((selection) => {
-						const conditions = buildToolSelectionConditions(selection);
-						const reserved =
-							(selection.toolIds?.length ?? 0) +
-							(selection.endpointPrefixes?.length ?? 0) * 2 +
-							1;
-						const appChunkSize = Math.max(
-							1,
-							Math.min(
-								APP_SURFACE_ID_CHUNK,
-								APP_TOOL_SELECTION_PARAM_BUDGET - reserved,
-							),
-						);
-						return chunked(group.appIds, appChunkSize).map((appChunk) => ({
+					const conditions = buildToolSelectionConditions(db, group.options);
+					return [
+						{
 							signature,
 							query: db
 								.select(
@@ -930,10 +955,13 @@ export async function getAppsBySlugsWithTools(
 										? {
 												...getColumns(appTools),
 												inputSchemaChars:
-													sql<number>`length(${appTools.inputSchema})`
+													sql<number>`${coreStore(db) === "postgres" ? sql`length(regexp_replace(${appTools.inputSchema}::text, ${String.raw`("(?:[^"\\]|\\.)*")|\s+`}, ${String.raw`\1`}, 'g'))` : sql`length(${appTools.inputSchema})`}`
 														.mapWith(Number)
 														.as("input_schema_chars"),
-												inputSchema: sql`'{"type":"object"}'`
+												inputSchema: (coreStore(db) === "postgres"
+													? sql`'{"type":"object"}'::jsonb`
+													: sql`'{"type":"object"}'`
+												)
 													.mapWith(appTools.inputSchema)
 													.as("input_schema"),
 												outputSchema: sql<null>`null`.as("output_schema"),
@@ -944,21 +972,23 @@ export async function getAppsBySlugsWithTools(
 										: getColumns(appTools),
 								)
 								.from(appTools)
-								.where(and(inArray(appTools.appId, appChunk), ...conditions))
-								.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt)),
-						}));
-					});
+								.where(
+									and(anyIds(db, appTools.appId, group.appIds), ...conditions),
+								)
+								.orderBy(
+									sql`${appTools.sortOrder} ASC NULLS FIRST`,
+									sql`${appTools.createdAt} ASC NULLS FIRST`,
+								),
+						},
+					];
 				});
-				// Bound each response while sharing one D1 round trip across selections.
-				for (const chunk of chunked(reads, 20)) {
-					const [first, ...rest] = chunk;
-					if (!first) continue;
-					const results = await db.batch([
-						first.query,
-						...rest.map((read) => read.query),
-					]);
+				// All selection groups share one batch round trip.
+				if (reads.length) {
+					const results = await db.batch(
+						batchNonEmpty(reads.map((read) => read.query)),
+					);
 					for (const [index, rows] of results.entries()) {
-						const { signature } = chunk[index]!;
+						const { signature } = reads[index]!;
 						const seen = seenBySelection.get(signature)!;
 						const byApp = bySelection.get(signature)!;
 						for (const row of rows) {
@@ -984,7 +1014,7 @@ export async function getAppsBySlugsWithTools(
 			);
 			const toolCspByToolId = new Map<
 				string,
-				Array<typeof appToolCspDomains.$inferSelect>
+				Array<typeof schemaAppToolCspDomains.$inferSelect>
 			>();
 			for (const row of cspDomains) {
 				const list = toolCspByToolId.get(row.appToolId) ?? [];
@@ -1035,6 +1065,7 @@ export async function getAppsBySlugsWithTools(
  * Custom MCP domains allow apps to use their own TLD for AI app submissions
  */
 export async function getAppByDomain(db: DbClient, domain: string) {
+	const apps = coreTable(db, schemaApps);
 	const rows = await db
 		.select()
 		.from(apps)
@@ -1050,6 +1081,7 @@ export async function listApps(
 	db: DbClient,
 	opts?: { limit?: number; offset?: number },
 ) {
+	const apps = coreTable(db, schemaApps);
 	return db
 		.select()
 		.from(apps)
@@ -1069,6 +1101,7 @@ export async function createApp(
 	db: DbClient,
 	data: Omit<NewApp, "id" | "createdAt" | "updatedAt">,
 ) {
+	const apps = coreTable(db, schemaApps);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -1083,6 +1116,7 @@ export async function createApp(
 }
 
 export async function createAppWithId(db: DbClient, data: NewApp) {
+	const apps = coreTable(db, schemaApps);
 	await db.insert(apps).values(data);
 	return getAppById(db, data.id);
 }
@@ -1095,6 +1129,7 @@ export async function updateApp(
 	id: string,
 	data: Partial<Omit<NewApp, "id" | "createdAt">>,
 ) {
+	const apps = coreTable(db, schemaApps);
 	const now = new Date().toISOString();
 
 	await db
@@ -1122,6 +1157,7 @@ export async function updateApp(
  * Links from other organizations are left alone.
  */
 export async function deleteApp(db: DbClient, id: string): Promise<boolean> {
+	const apps = coreTable(db, schemaApps);
 	const [target] = await db
 		.select({
 			id: apps.id,
@@ -1136,26 +1172,38 @@ export async function deleteApp(db: DbClient, id: string): Promise<boolean> {
 		await remove;
 		return true;
 	}
-	const matches = aggregateAppEntryMatchesSql({
+	const matches = aggregateAppEntryMatchesSql(db, {
 		appId: target.id,
 		slug: target.slug,
 	});
 	const now = new Date().toISOString();
-	const scrub = (path: string) =>
-		db
+	const scrub = (path: string) => {
+		const keys = path.slice(2).split(".");
+		const array = aggregateArrayRead(db, apps.metadata, keys);
+		const filtered = aggregateArrayCollect(db, array, sql`not ${matches}`);
+		return db
 			.update(apps)
 			.set({
-				metadata: sql`json_set(${apps.metadata}, ${path}, json((select coalesce(json_group_array(json(value)), json('[]')) from json_each(${apps.metadata}, ${path}) where not ${matches})))`,
+				metadata:
+					coreStore(db) === "postgres"
+						? sql`jsonb_set(${apps.metadata}, ${pgTextArray(keys)}::text[], ${filtered}, true)`
+						: sql`json_set(${apps.metadata}, ${path}, json(${filtered}))`,
 				updatedAt: now,
 			})
 			.where(
 				and(
 					eq(apps.organizationId, target.organizationId),
 					sql`${apps.id} != ${target.id}`,
-					sql`json_type(${apps.metadata}, ${path}) = 'array'`,
-					sql`exists (select 1 from json_each(${apps.metadata}, ${path}) where ${matches})`,
+					sql`${jsonType(db, apps.metadata, keys)} = 'array'`,
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(aggregateArrayRows(db, array))
+							.where(matches),
+					),
 				),
 			);
+	};
 	await db.batch([
 		scrub("$.mcpConfig.aggregateApps"),
 		scrub("$.mcpConfig.inactiveAggregateApps"),
@@ -1310,6 +1358,46 @@ export async function updateAppMetadata(
 	});
 }
 
+function aggregateArrayRead(
+	db: DbClient,
+	metadata: SQLWrapper,
+	path: readonly string[],
+) {
+	const value = jsonRead(db, metadata, path, "json");
+	return coreStore(db) === "postgres"
+		? sql`coalesce(nullif(${value}, 'null'::jsonb), '[]'::jsonb)`
+		: sql`coalesce(${value}, json('[]'))`;
+}
+
+function aggregateArrayRows(db: DbClient, array: SQL) {
+	return coreStore(db) === "postgres"
+		? sql`jsonb_array_elements(CASE WHEN jsonb_typeof(${array}) = 'array' THEN ${array} ELSE '[]'::jsonb END) WITH ORDINALITY AS aggregate_entry(value, position)`
+		: sql`json_each(${array}) AS aggregate_entry`;
+}
+
+function aggregateArrayCollect(
+	db: DbClient,
+	array: SQL,
+	where: SQL,
+	value?: SQL,
+) {
+	return coreStore(db) === "postgres"
+		? sql`(select coalesce(jsonb_agg(${value ?? sql`value`} ORDER BY position), '[]'::jsonb) from ${aggregateArrayRows(db, array)} where ${where})`
+		: sql`(select coalesce(json_group_array(${value ?? sql`json(value)`}), json('[]')) from ${aggregateArrayRows(db, array)} where ${where})`;
+}
+
+function aggregateArrayAppend(db: DbClient, left: SQL, right: SQL) {
+	return coreStore(db) === "postgres"
+		? sql`(${left} || ${right})`
+		: sql`(select json_group_array(json(value)) from (select value from json_each(${left}) union all select value from json_each(${right})))`;
+}
+
+function aggregateArraySize(db: DbClient, array: SQL) {
+	return coreStore(db) === "postgres"
+		? sql`jsonb_array_length(${array})`
+		: sql`json_array_length(${array})`;
+}
+
 /**
  * Atomically change only one gateway member; preserve all other metadata.
  *
@@ -1324,27 +1412,52 @@ export async function setAppGatewayMembership(
 	member: { appId: string; slug: string },
 	enabled: boolean,
 ) {
+	const apps = coreTable(db, schemaApps);
 	const { appId, slug } = member;
-	const matches = aggregateAppEntryMatchesSql(member);
-	const members = sql`coalesce(json_extract(${apps.metadata}, '$.mcpConfig.aggregateApps'), json('[]'))`;
-	const inactive = sql`coalesce(json_extract(${apps.metadata}, '$.mcpConfig.inactiveAggregateApps'), json('[]'))`;
-	const stamp = sql`json_set(json(value), '$.appId', ${appId}, '$.slug', ${slug})`;
-	const activeMatches = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${members}) where ${matches})`;
-	const savedMatches = sql`(select coalesce(json_group_array(${stamp}), json('[]')) from json_each(${inactive}) where ${matches})`;
-	const stampedMembers = sql`(select coalesce(json_group_array(case when ${matches} then ${stamp} else json(value) end), json('[]')) from json_each(${members}))`;
-	const filtered = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${members}) where not ${matches})`;
-	const inactiveFiltered = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${inactive}) where not ${matches})`;
-	const restored = sql`case when json_array_length(${savedMatches}) > 0 then ${savedMatches} else json_array(json_object('appId', ${appId}, 'slug', ${slug})) end`;
+	const matches = aggregateAppEntryMatchesSql(db, member);
+	const pg = coreStore(db) === "postgres";
+	const members = aggregateArrayRead(db, apps.metadata, [
+		"mcpConfig",
+		"aggregateApps",
+	]);
+	const inactive = aggregateArrayRead(db, apps.metadata, [
+		"mcpConfig",
+		"inactiveAggregateApps",
+	]);
+	const stamp = pg
+		? sql`value || jsonb_build_object('appId', ${appId}::text, 'slug', ${slug}::text)`
+		: sql`json_set(json(value), '$.appId', ${appId}, '$.slug', ${slug})`;
+	const activeMatches = aggregateArrayCollect(db, members, matches);
+	const savedMatches = aggregateArrayCollect(db, inactive, matches, stamp);
+	const stampedMembers = aggregateArrayCollect(
+		db,
+		members,
+		sql`true`,
+		sql`case when ${matches} then ${stamp} else ${pg ? sql`value` : sql`json(value)`} end`,
+	);
+	const filtered = aggregateArrayCollect(db, members, sql`not ${matches}`);
+	const inactiveFiltered = aggregateArrayCollect(
+		db,
+		inactive,
+		sql`not ${matches}`,
+	);
+	const fresh = pg
+		? sql`jsonb_build_array(jsonb_build_object('appId', ${appId}::text, 'slug', ${slug}::text))`
+		: sql`json_array(json_object('appId', ${appId}, 'slug', ${slug}))`;
+	const restored = sql`case when ${aggregateArraySize(db, savedMatches)} > 0 then ${savedMatches} else ${fresh} end`;
 	const next = enabled
-		? sql`case when json_array_length(${activeMatches}) > 0 then ${stampedMembers} else (select json_group_array(json(value)) from (select value from json_each(${members}) union all select value from json_each(${restored}))) end`
+		? sql`case when ${aggregateArraySize(db, activeMatches)} > 0 then ${stampedMembers} else ${aggregateArrayAppend(db, members, restored)} end`
 		: filtered;
 	const nextInactive = enabled
 		? inactiveFiltered
-		: sql`case when json_array_length(${activeMatches}) = 0 then ${inactive} else (select json_group_array(json(value)) from (select value from json_each(${inactiveFiltered}) union all select value from json_each(${activeMatches}))) end`;
+		: sql`case when ${aggregateArraySize(db, activeMatches)} = 0 then ${inactive} else ${aggregateArrayAppend(db, inactiveFiltered, activeMatches)} end`;
+	const metadata = pg
+		? sql`jsonb_set(coalesce(${apps.metadata}, '{}'::jsonb), '{mcpConfig}', coalesce(nullif(${apps.metadata}->'mcpConfig', 'null'::jsonb), '{}'::jsonb) || jsonb_build_object('aggregateApps', ${next}, 'inactiveAggregateApps', ${nextInactive}), true)`
+		: sql`json_set(coalesce(${apps.metadata}, '{}'), '$.mcpConfig.aggregateApps', json(${next}), '$.mcpConfig.inactiveAggregateApps', json(${nextInactive}))`;
 	return db
 		.update(apps)
 		.set({
-			metadata: sql`json_set(coalesce(${apps.metadata}, '{}'), '$.mcpConfig.aggregateApps', json(${next}), '$.mcpConfig.inactiveAggregateApps', json(${nextInactive}))`,
+			metadata,
 			updatedAt: new Date().toISOString(),
 		})
 		.where(and(eq(apps.id, gatewayId), eq(apps.organizationId, organizationId)))
@@ -1356,6 +1469,8 @@ export async function getAggregateConnectionSourceTool(
 	db: DbClient,
 	input: { organizationId: string; appId: string; toolId: string },
 ) {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	const [source] = await db
 		.select({
 			organizationId: apps.organizationId,

@@ -175,9 +175,9 @@ function fixture(catalogCount: number) {
 	return { sqlite, client, entries, statements, batches };
 }
 
-describe("getAppsBySlugsWithTools catalog chunk boundaries", () => {
-	it.each([51, 101])(
-		"isolates %i catalogs across D1 statement groups",
+describe("getAppsBySlugsWithTools catalog sets", () => {
+	it.each([101])(
+		"isolates %i catalogs in one D1 batch",
 		async (catalogCount) => {
 			const { sqlite, client, entries, statements, batches } =
 				fixture(catalogCount);
@@ -298,16 +298,14 @@ describe("getAppsBySlugsWithTools catalog chunk boundaries", () => {
 				const catalogBatches = batches.filter((batch) =>
 					batch.some((read) => catalogReads.includes(read)),
 				);
-				const chunks = Math.ceil((catalogCount + 2) / 50);
-				expect(catalogReads).toHaveLength(chunks * 4);
-				expect(catalogBatches).toHaveLength(chunks);
+				expect(catalogReads).toHaveLength(4);
+				expect(catalogBatches).toHaveLength(1);
 				for (const batch of catalogBatches) {
 					expect(
 						batch.map(({ sql }) => sql.match(/from "([^"]+)"/)?.[1]).sort(),
 					).toEqual([...CATALOG_TABLES].sort());
 					for (const read of batch) {
-						expect(read.params.length).toBeGreaterThan(0);
-						expect(read.params.length).toBeLessThanOrEqual(50);
+						expect(read.params).toHaveLength(1);
 						expect(read.params).toEqual(batch[0]!.params);
 					}
 				}
@@ -320,7 +318,9 @@ describe("getAppsBySlugsWithTools catalog chunk boundaries", () => {
 					expect(
 						catalogReads
 							.filter(({ sql }) => sql.includes(`from "${table}"`))
-							.flatMap(({ params }) => params)
+							.flatMap(
+								({ params }) => JSON.parse(String(params[0])) as string[],
+							)
 							.sort(),
 					).toEqual(catalogIds);
 				}

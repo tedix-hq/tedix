@@ -8,6 +8,16 @@ import postgres from "postgres";
 import { apps } from "../schema/apps";
 import { appCatalog } from "../schema/catalog";
 import { appTools } from "../schema/tools";
+import { tenantToolPolicyResourceGenerations } from "../schema/tenant-tool-policy";
+import {
+	deleteApp,
+	getAppById,
+	getAppBySlugWithTools,
+	getAppsBySlugsWithTools,
+	setAppGatewayMembership,
+} from "./app-records";
+import { getAggregateAppLinkTargets } from "./aggregate-app-links";
+import { getAppsWithGatingByIds } from "./app-gating";
 import { inferCatalogToolOutputSchemas } from "./tools";
 import { organizations } from "../schema/organizations";
 import { cmsDomainClaims } from "../schema/cms-domain-claims";
@@ -474,6 +484,258 @@ for (const store of stores) {
 			).toMatchObject({
 				properties: { count: { type: "number" }, next: { type: "boolean" } },
 			});
+		});
+
+		it("advances app and tool generations on authority changes and deletion", async () => {
+			const table = coreTable(db, apps);
+			const tools = coreTable(db, appTools);
+			const generations = coreTable(db, tenantToolPolicyResourceGenerations);
+			const generation = async (resourceId: string) =>
+				(
+					await db
+						.select()
+						.from(generations)
+						.where(eq(generations.resourceId, resourceId))
+				)[0]?.generation;
+			await db.insert(table).values({
+				id: "generation-app",
+				organizationId: "org",
+				slug: "generation-app",
+				name: "Initial",
+			});
+			expect(await generation("generation-app")).toBe(1);
+			await db
+				.update(table)
+				.set({ name: "Renamed" })
+				.where(eq(table.id, "generation-app"));
+			expect(await generation("generation-app")).toBe(1);
+			await db
+				.update(table)
+				.set({ metadata: { mcpConfig: { aggregateApps: [] } } })
+				.where(eq(table.id, "generation-app"));
+			expect(await generation("generation-app")).toBe(2);
+			await db.insert(tools).values({
+				id: "generation-tool",
+				appId: "generation-app",
+				toolId: "read",
+				toolTypeId: "rpc",
+				title: "Read",
+			});
+			expect(await generation("generation-tool")).toBe(1);
+			await db
+				.update(tools)
+				.set({ enabled: false })
+				.where(eq(tools.id, "generation-tool"));
+			expect(await generation("generation-tool")).toBe(2);
+			await db.delete(tools).where(eq(tools.id, "generation-tool"));
+			expect(await generation("generation-tool")).toBe(3);
+			await deleteApp(db, "generation-app");
+			expect(await generation("generation-app")).toBe(3);
+		});
+
+		it("preserves gateway restrictions and tenant boundaries through toggles and deletion", async () => {
+			const table = coreTable(db, apps);
+			const initial = {
+				custom: { keep: true },
+				mcpConfig: {
+					aggregateApps: [
+						{ slug: "app-member", prefix: "keep", toolIds: ["read"] },
+					],
+					inactiveAggregateApps: [],
+					toolScopes: { read: ["apps:read"] },
+				},
+			};
+			await db.insert(table).values([
+				{
+					id: "app-member",
+					organizationId: "org",
+					slug: "app-member",
+					name: "Member",
+				},
+				{
+					id: "app-gateway",
+					organizationId: "org",
+					slug: "app-gateway",
+					name: "Gateway",
+					metadata: initial,
+				},
+				{
+					id: "foreign-gateway",
+					organizationId: "other",
+					slug: "foreign-gateway",
+					name: "Foreign",
+					metadata: initial,
+				},
+			]);
+			const member = { appId: "app-member", slug: "app-member" };
+			await setAppGatewayMembership(db, "org", "app-gateway", member, true);
+			await setAppGatewayMembership(db, "org", "app-gateway", member, false);
+			const renamed = { ...member, slug: "renamed" };
+			await setAppGatewayMembership(db, "org", "app-gateway", renamed, true);
+			expect((await getAppById(db, "app-gateway"))?.metadata).toEqual({
+				...initial,
+				mcpConfig: {
+					...initial.mcpConfig,
+					aggregateApps: [{ ...renamed, prefix: "keep", toolIds: ["read"] }],
+				},
+			});
+			expect(
+				await setAppGatewayMembership(
+					db,
+					"other",
+					"app-gateway",
+					member,
+					false,
+				),
+			).toEqual([]);
+			await Promise.all([
+				setAppGatewayMembership(
+					db,
+					"org",
+					"app-gateway",
+					{ appId: "one", slug: "one" },
+					true,
+				),
+				setAppGatewayMembership(
+					db,
+					"org",
+					"app-gateway",
+					{ appId: "two", slug: "two" },
+					true,
+				),
+			]);
+			expect(
+				(
+					(await getAppById(db, "app-gateway"))?.metadata?.mcpConfig
+						?.aggregateApps as Array<{ appId: string }>
+				)
+					.map((entry) => entry.appId)
+					.sort(),
+			).toEqual(["app-member", "one", "two"]);
+			const batch = vi.spyOn(db, "batch");
+			try {
+				expect(await deleteApp(db, "app-member")).toBe(true);
+				expect(batch).toHaveBeenCalledTimes(1);
+			} finally {
+				batch.mockRestore();
+			}
+			expect(
+				(
+					(await getAppById(db, "app-gateway"))?.metadata?.mcpConfig
+						?.aggregateApps as Array<{ appId: string }>
+				)
+					.map((entry) => entry.appId)
+					.sort(),
+			).toEqual(["one", "two"]);
+			expect((await getAppById(db, "foreign-gateway"))?.metadata).toEqual(
+				initial,
+			);
+		});
+
+		it("hydrates ordered tools with large candidate sets and faithful compact contract schemas", async () => {
+			await db.insert(coreTable(db, apps)).values({
+				id: "record-app",
+				organizationId: "org",
+				slug: "record-app",
+				name: "Records",
+			});
+			const schema = {
+				type: "object" as const,
+				description: 'a, b "quoted" \u005c path',
+				properties: { id: { type: "string" as const } },
+			};
+			const tools = coreTable(db, appTools);
+			await db.insert(tools).values([
+				{
+					id: "record-null",
+					appId: "record-app",
+					toolId: "read_null",
+					title: "Null",
+					toolTypeId: "rpc",
+					sortOrder: null,
+					createdAt: null,
+					inputSchema: schema,
+					config: { endpoint: "records/null" },
+				},
+				{
+					id: "record-one",
+					appId: "record-app",
+					toolId: "read_one",
+					title: "One",
+					toolTypeId: "rpc",
+					sortOrder: 1,
+					inputSchema: schema,
+					config: { endpoint: "records/one" },
+				},
+				{
+					id: "record-pending",
+					appId: "record-app",
+					toolId: "read_pending",
+					title: "Pending",
+					toolTypeId: "rpc",
+					reviewState: "pending",
+					config: { endpoint: "records/pending" },
+				},
+			]);
+			const candidates = [
+				...Array.from({ length: 300 }, (_, i) => `missing-${i}`),
+				"read_null",
+				"read_one",
+			];
+			const surface = await getAppBySlugWithTools(db, "record-app", {
+				toolIds: candidates,
+				endpointPrefixes: [...candidates, "Records"],
+			});
+			expect(surface?.tools.map((tool) => tool.id)).toEqual([
+				"record-null",
+				"record-one",
+			]);
+			const [contract, absent, definition] = await getAppsBySlugsWithTools(db, [
+				{
+					appId: "record-app",
+					slug: "ignored",
+					hostOrganizationId: "org",
+					projection: "contract",
+					toolIds: candidates,
+				},
+				{ slug: "absent-app" },
+				{ slug: "record-app" },
+			]);
+			expect(absent).toBeNull();
+			expect(
+				contract?.tools.map((tool) => [
+					tool.id,
+					tool.inputSchema,
+					tool.inputSchemaChars,
+				]),
+			).toEqual([
+				["record-null", { type: "object" }, JSON.stringify(schema).length],
+				["record-one", { type: "object" }, JSON.stringify(schema).length],
+			]);
+			expect(definition?.tools[0]?.inputSchema).toEqual(schema);
+			const select = vi.spyOn(db, "select");
+			try {
+				expect(
+					await getAggregateAppLinkTargets(db, {
+						ids: [...candidates, "record-app"],
+						slugs: [],
+					}),
+				).toEqual([
+					{ id: "record-app", slug: "record-app", organizationId: "org" },
+				]);
+				expect(select).toHaveBeenCalledTimes(1);
+				select.mockClear();
+				expect(
+					await getAppsWithGatingByIds(
+						db,
+						[...candidates, "record-app", "foreign-gateway"],
+						"org",
+					),
+				).toEqual([{ id: "record-app", gatingMetadata: null }]);
+				expect(select).toHaveBeenCalledTimes(1);
+			} finally {
+				select.mockRestore();
+			}
 		});
 
 		it.skipIf(store !== "native-postgres")(

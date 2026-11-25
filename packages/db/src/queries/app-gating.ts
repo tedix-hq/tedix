@@ -3,12 +3,13 @@
  * Drizzle ORM queries for organization state resolution and app eligibility.
  */
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
+import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { apps } from "../schema/apps";
-import { organizations } from "../schema/organizations";
-import { appTools } from "../schema/tools";
-import { chunkForBoundParams } from "../utils/batch";
+import { apps as schemaApps } from "../schema/apps";
+import { organizations as schemaOrganizations } from "../schema/organizations";
+import { appTools as schemaAppTools } from "../schema/tools";
+import { anyIds } from "../core-store/dialect";
 import { toolDefinitionIsLive } from "./tool-review-visibility";
 
 // =============================================================================
@@ -19,6 +20,7 @@ import { toolDefinitionIsLive } from "./tool-review-visibility";
  * Fetch non-entitlement organization state used by app gating.
  */
 export async function getOrgForGating(db: DbClient, orgId: string) {
+	const organizations = coreTable(db, schemaOrganizations);
 	return db
 		.select({
 			descopeTenantId: organizations.descopeTenantId,
@@ -34,6 +36,8 @@ export async function getOrgForGating(db: DbClient, orgId: string) {
  * Fetch enabled tool IDs for an org's installed apps.
  */
 export async function getInstalledToolIdsForOrg(db: DbClient, orgId: string) {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	const rows = await db
 		.select({ toolId: appTools.toolId })
 		.from(appTools)
@@ -56,6 +60,7 @@ export async function getInstalledToolIdsForOrg(db: DbClient, orgId: string) {
  * Fetch gating metadata for a single app.
  */
 export async function getAppGatingMetadata(db: DbClient, appId: string) {
+	const apps = coreTable(db, schemaApps);
 	return db
 		.select({ gatingMetadata: apps.gatingMetadata })
 		.from(apps)
@@ -68,6 +73,7 @@ export async function getAppGatingMetadata(db: DbClient, appId: string) {
  * Fetch enabled tool IDs for an app.
  */
 export async function getEnabledToolIdsForApp(db: DbClient, appId: string) {
+	const appTools = coreTable(db, schemaAppTools);
 	const rows = await db
 		.select({ toolId: appTools.toolId })
 		.from(appTools)
@@ -85,6 +91,7 @@ export async function getEnabledToolIdsForApp(db: DbClient, appId: string) {
  * Fetch all apps for an org with gating metadata.
  */
 export async function getOrgAppsWithGating(db: DbClient, orgId: string) {
+	const apps = coreTable(db, schemaApps);
 	return db
 		.select({
 			id: apps.id,
@@ -104,27 +111,24 @@ export async function getAppsWithGatingByIds(
 	appIds: string[],
 	orgId: string,
 ) {
+	const apps = coreTable(db, schemaApps);
 	if (appIds.length === 0) return [];
-	const selectChunk = (chunk: string[]) =>
-		db
-			.select({
-				id: apps.id,
-				gatingMetadata: apps.gatingMetadata,
-			})
-			.from(apps)
-			.where(and(inArray(apps.id, chunk), eq(apps.organizationId, orgId)));
-	const rows: Awaited<ReturnType<typeof selectChunk>> = [];
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	for (const chunk of chunkForBoundParams([...new Set(appIds)], 50)) {
-		rows.push(...(await selectChunk(chunk)));
-	}
-	return rows;
+	return db
+		.select({ id: apps.id, gatingMetadata: apps.gatingMetadata })
+		.from(apps)
+		.where(
+			and(
+				anyIds(db, apps.id, [...new Set(appIds)]),
+				eq(apps.organizationId, orgId),
+			),
+		);
 }
 
 /**
  * Fetch enabled tools with full details for an app (runtime tools).
  */
 export async function getEnabledToolDetailsForApp(db: DbClient, appId: string) {
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select({
 			toolId: appTools.toolId,
@@ -151,6 +155,7 @@ export async function getPortableWebMcpToolAdmissions(
 	db: DbClient,
 	appId: string,
 ) {
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select({
 			toolId: appTools.toolId,
