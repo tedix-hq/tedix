@@ -2021,6 +2021,8 @@ async function getHelp(): Promise<void> {
 		return refresh();
 	}
 	showMain();
+	// The form opens in the Tedix page, which Settings would cover.
+	closeSettings();
 	const prefill = {
 		title: "An agent will not connect on this Mac",
 		expected: "The agent connects to Tedix and can run tasks.",
