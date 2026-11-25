@@ -732,7 +732,7 @@ it("resolves a page of two-hop aliases in one read and preserves missing ids", a
 			insert.run(mid!, final!, "example/project");
 		}
 		const missing = "d".repeat(40);
-		const reads = vi.spyOn(db, "all");
+		const reads = vi.spyOn(db.$client, "prepare");
 		const resolver = createCommitResolver(db);
 		expect(
 			await resolver.resolveMany([...ids.map(([old]) => old!), missing]),
@@ -757,7 +757,7 @@ it("bounds alias traversal to four hops, rejects cycles and resolves a dropped c
 		);
 		for (let i = 0; i < ids.length - 1; i++)
 			insert.run(ids[i]!, ids[i + 1]!, "example/project");
-		const reads = vi.spyOn(db, "all");
+		const reads = vi.spyOn(db.$client, "prepare");
 		expect(await createCommitResolver(db).resolveMany([ids[0]!])).toEqual([
 			ids[4],
 		]);
