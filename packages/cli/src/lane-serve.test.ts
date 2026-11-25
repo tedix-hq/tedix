@@ -7533,6 +7533,52 @@ it("spends a few gateway requests per pass on a lane of waiting items", async ()
 	expect(requests).toHaveLength(52);
 });
 
+it("admits ready Work behind 80 owner-held items in the first round and remembers the skips", async () => {
+	const f = fixture();
+	const held = Array.from({ length: 80 }, (_, n) => ({
+		...item(n + 1),
+		workKind: "outbound" as const,
+	}));
+	const ready = item(81);
+	f.items.splice(0, f.items.length, ...held, ready);
+	const base = f.deps.cli!;
+	f.deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
+		const result = await base<T>(args, env);
+		if (args[5] !== "dispatch-list") return result;
+		const input = JSON.parse(args[args.indexOf("--input") + 1]!);
+		return {
+			data: f.items.slice(input.offset, input.offset + 40),
+			pagination: { hasMore: input.offset + 40 < f.items.length },
+		} as T;
+	};
+	const dispatcher = f.restart();
+	await dispatcher.tick();
+	await until(() => f.releases.length === 1);
+	const starts = () =>
+		f.events
+			.filter((event) => event.verb === "start" && event.args[4] === "work")
+			.map((event) => event.args[6]);
+	const heldReads = () =>
+		f.events
+			.filter(
+				(event) => event.verb === "dispatch-get" && event.args[6] !== ready.id,
+			)
+			.map((event) => event.args[6]);
+	expect(starts()).toEqual([ready.id]);
+	expect(heldReads()).toEqual(held.map((row) => row.id));
+	expect(
+		f.events.filter((event) => event.verb === "interaction-create"),
+	).toHaveLength(80);
+	await dispatcher.tick();
+	expect(starts()).toEqual([ready.id]);
+	expect(heldReads()).toEqual(held.map((row) => row.id));
+	expect(
+		f.events.filter((event) => event.verb === "interaction-create"),
+	).toHaveLength(80);
+	f.releases[0]!();
+	await dispatcher.drain();
+});
+
 it("reads a delegated item once while another reason keeps it waiting", async () => {
 	const f = fixture();
 	f.items.splice(0, f.items.length, {
