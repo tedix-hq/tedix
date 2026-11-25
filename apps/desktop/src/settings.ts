@@ -382,7 +382,7 @@ function tools(now: PanelState): Group[] {
 		items: now.setup.desktopApps.claude
 			? [
 					{
-						title: "Claude Chat and Cowork",
+						title: "Claude (Cowork)",
 						glyph: "bubble",
 						sub: CLAUDE_PLUGIN_STEPS,
 						control: claudePluginButtons(),

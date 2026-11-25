@@ -239,7 +239,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			row({
 				key: "chat:claude",
 				icon: "bubble",
-				title: "Claude Chat and Cowork",
+				title: "Claude (Cowork)",
 				sub: now.setup.tools.some(
 					(tool) => tool.id === "claude" && tool.found === "found",
 				)

@@ -133,15 +133,25 @@ export const TOOL_ICONS: Record<string, IconName> = {
 	devin: "cube",
 	opencode: "braces",
 };
-export const CLAUDE_PLUGIN_STEPS =
-	"In Claude, choose Customize → Plugins → Add → Upload plugin, select Tedix-Claude.zip, then sign in.";
+/** The public plugin repository, which Claude accepts as a marketplace. */
+export const CLAUDE_MARKETPLACE = "tedix-hq/tedix-plugins";
+
+export const CLAUDE_PLUGIN_STEPS = `In Claude, choose Customize → Plugins → Add marketplace and paste ${CLAUDE_MARKETPLACE}. Install Tedix, then open its Connectors tab and sign in. It stays up to date from there.`;
 
 export function claudePluginButtons() {
 	return [
-		button("Save Tedix plugin", "plain", () =>
-			tedixShell.action("save-claude-plugin"),
+		button(
+			"Copy marketplace",
+			"plain",
+			() => tedixShell.copy(CLAUDE_MARKETPLACE),
+			false,
+			{ done: "Copied" },
 		),
 		button("Open Claude", "quiet", () => tedixShell.open("claude-app")),
+		// Without the marketplace (some organizations turn it off): the file.
+		button("Save plugin file", "quiet", () =>
+			tedixShell.action("save-claude-plugin"),
+		),
 	];
 }
 
