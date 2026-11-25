@@ -146,7 +146,9 @@ Every cron fire is a full agent turn and the `cron` tool is model-reachable, so
 `add` is bounded mechanically in `src/cron.ts`: a one-minute recurring floor,
 no seconds-field expressions, `MAX_SCHEDULED_JOBS` per tedi, and an expiry on
 recurring tool jobs (renewal is a named re-add). Policy-pack template jobs are
-reconciled from D1 and never expire.
+reconciled from D1 and never expire. Only explicitly configured templates run;
+there is no platform cognitive-cron floor. Removing a template retires its
+managed schedule on the next successful reconciliation.
 
 - `cronPolicy.protectedCronNames` lists jobs the tool may not remove; the check
   fails closed.

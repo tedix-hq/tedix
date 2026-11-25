@@ -2044,6 +2044,10 @@
 		{
 			"name": "20261125155337_work_due/migration.sql",
 			"sha256": "73e0321604cd58976c0050e51aa8a5ad572ba80f2b60631572dc337ae1dd4441"
+		},
+		{
+			"name": "20261125161527_remove_default_cognitive_crons/migration.sql",
+			"sha256": "4c3304fc907e4527840701a81df7c5b9cf9670394b654027550fdb9ea164ef91"
 		}
 	]
 }

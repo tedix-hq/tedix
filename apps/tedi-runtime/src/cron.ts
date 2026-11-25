@@ -8,7 +8,6 @@
  */
 
 import { scrubText } from "@tedix/context-core/trace-safety";
-import { DEFAULT_CRON_TEMPLATES } from "@tedix/db/schema/control-plane";
 import { DEFAULT_SESSION_KEY } from "@tedix/tedi-session/session-harness";
 
 /** Payload stored on a cron schedule and passed to `onCronFire`. */
@@ -302,116 +301,31 @@ export async function applyCronReconcileActions(
 	return { appliedCount, errors };
 }
 
-/**
- * Platform-guarantee the cognitive (S4 adaptation) crons on top of a pack's own
- * templates. The `DEFAULT_CRON_TEMPLATES` (the six EXPECTED_COGNITIVE_CRONS
- * the flywheel health surface tracks — brain-reflection, objective-review,
- * app-operations, skill-development, knowledge-freshness, grounding-review —
- * plus muscle-crystallization and growth-snapshot) are the shared
- * platform-default cron set — the flywheel's slow S4 loop: memory
- * consolidation/disposal, learning, objective and grounding review. They must
- * run on every cognitive tedi regardless of whether the live policy pack's
- * `cronPolicy.cronTemplates` happens to list them.
- *
- * Root cause of the "dark crons" (probation accreting, learning starved) was not
- * the removed opt-in gate alone: `loadPolicyPackCronTemplates` reads the live D1
- * pack and returned only what that pack embeds — packs created before the templates
- * were seeded carried a subset/none, so the S4 loop scheduled nowhere. Making the
- * defaults a runtime floor un-darks every tedi via deploy, without a per-pack D1
- * backfill. A pack template with the same name overrides schedule/message (packs
- * stay authoritative for customization); pack-specific crons are added. This is the
- * VSM point: the adaptation function is guaranteed protected resource by the
- * platform, not left to per-unit opt-in.
- *
- * Opt-out (pack authority preserved): the floor is a legacy un-dark guarantee for
- * packs that merely omit the templates — it is not a mandate. A deliberately
- * cron-less or non-cognitive pack (minimal / paused / utility tedis) restores its
- * documented authority to disable a cycle via explicit `cronPolicy` signals, which
- * are distinguishable from "never configured":
- *   - `disableCognitiveDefaults: true` suppresses the entire platform floor (the
- *     pack runs only its own `cronTemplates`, possibly none), so a cron-less pack
- *     incurs no recurring LLM-turn spend.
- *   - `disabledCognitiveCronNames: [...]` suppresses individual named cycles while
- *     keeping the rest floored.
- * A pack that instead supplies its own same-name template still schedules that one
- * (pack templates are applied after suppression, so pack authority always wins).
- *
- * Floor integrity: a pack template overrides a default (or contributes its own
- * cron) only when it is itself SCHEDULABLE — see {@link isSchedulableCronTemplate}.
- * A same-name pack entry with a blank/whitespace or structurally-invalid
- * schedule or message (a stub, a typo, or an admin blanking a template to
- * "disable" it) must never displace a known-good platform-floor default: doing
- * so would let the pack silently dark the exact cron this floor guarantees.
- * Malformed pack entries are dropped here rather than reaching the reconciler as
- * an `add` whose `this.schedule()` would throw and abort the whole pass. Note
- * this is not the disable path — an intentional disable uses the `cronPolicy`
- * opt-out signals above, which are distinguishable from a malformed template.
- */
-export function withCognitiveCronDefaults(
-	packTemplates: readonly CronTemplateLike[],
-	options?: CognitiveCronFloorOptions,
-): CronTemplateLike[] {
-	const byName = new Map<string, CronTemplateLike>();
-	if (!options?.disableCognitiveDefaults) {
-		const disabled = new Set(options?.disabledCognitiveCronNames ?? []);
-		for (const t of DEFAULT_CRON_TEMPLATES) {
-			if (disabled.has(t.name)) continue;
-			byName.set(t.name, {
-				name: t.name,
-				schedule: t.schedule,
-				message: t.message,
-			});
-		}
-	}
-	for (const t of packTemplates) {
-		if (isSchedulableCronTemplate(t)) {
-			byName.set(t.name, t);
-		}
-	}
-	return [...byName.values()];
-}
-
-/**
- * Pack-controlled opt-out for the {@link withCognitiveCronDefaults} floor,
- * sourced from D1 `policy_packs.definition.cronPolicy`. Restores the pack's
- * documented authority to run a cycle-less or non-cognitive tedi without
- * incurring recurring per-fire LLM-turn spend.
- */
-export interface CognitiveCronFloorOptions {
-	/**
-	 * Full opt-out: skip the entire platform S4 floor (pack runs only its own
-	 * `cronTemplates`). For deliberately cron-less / paused / utility tedis.
-	 */
-	disableCognitiveDefaults?: boolean;
-	/**
-	 * Partial opt-out: names of individual cognitive defaults this pack disables
-	 * while keeping the remaining floor. A pack's own same-name template still
-	 * schedules (it is applied after suppression).
-	 */
-	disabledCognitiveCronNames?: readonly string[];
-}
-
 /** Per-tedi final override layered over its policy pack via `runtime_overrides`. */
-export interface TediCronPolicyOverrides extends CognitiveCronFloorOptions {
+export interface TediCronPolicyOverrides {
+	disableCognitiveDefaults?: boolean;
+	disabledCognitiveCronNames?: readonly string[];
 	cronTemplates?: readonly CronTemplateLike[];
 }
 
 /**
  * Apply a tedi-local cron policy after the shared pack has been resolved.
- * Unlike the pack floor controls, this is the final per-worker authority: it
- * can suppress a template that the shared pack explicitly contains, without
+ * This final per-worker authority can suppress a template that the shared
+ * pack explicitly contains, without
  * forcing unrelated tedis onto a cloned policy pack.
  */
 export function applyTediCronPolicyOverrides(
 	templates: readonly CronTemplateLike[],
 	overrides?: TediCronPolicyOverrides | null,
 ): CronTemplateLike[] {
-	if (!overrides) return [...templates];
+	if (!overrides) return templates.filter(isSchedulableCronTemplate);
 	const disabled = new Set(overrides.disabledCognitiveCronNames ?? []);
 	const byName = new Map<string, CronTemplateLike>();
 	if (!overrides.disableCognitiveDefaults) {
 		for (const template of templates) {
-			if (!disabled.has(template.name)) byName.set(template.name, template);
+			if (isSchedulableCronTemplate(template) && !disabled.has(template.name)) {
+				byName.set(template.name, template);
+			}
 		}
 	}
 	for (const template of overrides.cronTemplates ?? []) {
@@ -425,12 +339,8 @@ export function applyTediCronPolicyOverrides(
 /**
  * Whether a policy-pack cron template is complete enough to actually schedule:
  * a non-blank name and message, and a structurally-valid cron expression (5
- * fields, or 6 with a seconds column). Blank/whitespace fields (a stub or an
- * admin "disabling" a template by emptying it) and non-cron junk like `"off"`
- * fail — so they can neither displace a platform-floor default in
- * {@link withCognitiveCronDefaults} nor be handed to the reconciler as an `add`
- * whose `this.schedule()` would throw and abort the pass. An intentional disable
- * uses {@link CognitiveCronFloorOptions}, not a blanked template.
+ * fields, or 6 with a seconds column). Invalid templates are dropped before
+ * reaching the scheduler, where an invalid expression could abort the pass.
  */
 function isSchedulableCronTemplate(
 	t: CronTemplateLike | null | undefined,
@@ -458,20 +368,8 @@ function isSchedulableCronTemplate(
  * Invalid/incomplete templates are skipped. The caller applies the actions via
  * the Agents-SDK scheduler.
  *
- * Every valid template reconciles — including the cognitive reflection crons
- * (`DEFAULT_CRON_TEMPLATES`). A previous opt-in gate (`agentRuntime === true`)
- * excluded them on the claim that the framework `isolate-*`
- * maintenance tasks "already cover reflection"; they do not — those are
- * mechanical tasks (log flush, directive compile, brain digest, corpus audit,
- * skill-guidance refresh), not the LLM-driven cognitive cycles the flywheel
- * health surface tracks. With the container runtime gone, the gate left the
- * six cognitive crons scheduled nowhere (`flywheel.crons_flywheel_health`
- * showed all six never-executed). D1 policy packs are the single scheduling
- * authority: a pack that should not run a cognitive cycle opts out explicitly via
- * `cronPolicy.disableCognitiveDefaults` / `cronPolicy.disabledCognitiveCronNames`
- * (see {@link withCognitiveCronDefaults}). Merely removing the template no longer
- * disables the cycle — the runtime floor re-adds it — because an omitted template
- * is indistinguishable from a legacy pack seeded before the templates existed.
+ * D1 policy packs and per-tedi overrides are the scheduling authority.
+ * Omitting a template removes its managed schedule; no defaults are injected.
  */
 export function planCronReconcile(
 	templates: readonly CronTemplateLike[],

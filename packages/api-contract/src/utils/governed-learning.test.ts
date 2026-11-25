@@ -1,21 +1,22 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-	GOVERNED_LEARNING_SCHEDULES,
-	resolveEnabledGovernedLearningCronNames,
-} from "./governed-learning";
+import { resolveEnabledGovernedLearningCronNames } from "./governed-learning";
 
 describe("resolveEnabledGovernedLearningCronNames", () => {
-	it("keeps the shared cognitive floor by default", () => {
-		expect(resolveEnabledGovernedLearningCronNames({})).toEqual(
-			new Set(GOVERNED_LEARNING_SCHEDULES.map((item) => item.name)),
-		);
+	it("has no implicit cognitive schedules", () => {
+		expect(resolveEnabledGovernedLearningCronNames({})).toEqual(new Set());
 	});
 
-	it("honors pack and per-tedi opt-outs", () => {
+	it("lets a per-tedi opt-out suppress an explicitly configured pack template", () => {
 		const enabled = resolveEnabledGovernedLearningCronNames({
 			policyPackDefinition: {
 				cronPolicy: {
-					disabledCognitiveCronNames: ["brain-reflection"],
+					cronTemplates: [
+						{
+							name: "brain-reflection",
+							schedule: "0 */8 * * *",
+							message: "Review notes",
+						},
+					],
 				},
 			},
 			runtimeOverrides: {

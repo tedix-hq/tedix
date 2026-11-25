@@ -88,7 +88,7 @@ function applyCronPolicy(
 
 /**
  * Resolve the cognitive schedules that are actually governed for one tedi.
- * Mirrors the runtime's pack defaults -> pack policy -> tedi override order,
+ * Mirrors the runtime's pack policy -> tedi override order,
  * then unions enabled skill-native schedules from D1. Health and alerting must
  * use this set so an explicit opt-out is shown as disabled rather than dark.
  */
@@ -97,9 +97,7 @@ export function resolveEnabledGovernedLearningCronNames(input: {
 	runtimeOverrides?: unknown;
 	scheduledCronNames?: Iterable<string>;
 }): Set<GovernedLearningScheduleName> {
-	const enabled = new Set<string>(
-		GOVERNED_LEARNING_SCHEDULES.map((schedule) => schedule.name),
-	);
+	const enabled = new Set<string>();
 	applyCronPolicy(enabled, cronPolicy(input.policyPackDefinition));
 	applyCronPolicy(enabled, cronPolicy(input.runtimeOverrides));
 	for (const name of input.scheduledCronNames ?? []) {

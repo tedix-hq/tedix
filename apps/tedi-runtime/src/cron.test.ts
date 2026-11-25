@@ -5,7 +5,6 @@
  * Run: `bun run src/cron.test.ts`.
  */
 import assert from "node:assert/strict";
-import { DEFAULT_CRON_TEMPLATES } from "@tedix/db/schema/control-plane";
 import { DEFAULT_SESSION_KEY } from "@tedix/tedi-session/session-harness";
 import {
 	facetWorkflowTurnProbe,
@@ -42,7 +41,6 @@ import {
 	scheduleToCronJob,
 	shouldRunTrajectoryMining,
 	summarizeCronTurnTransitions,
-	withCognitiveCronDefaults,
 	writeConversationalSchedule,
 } from "./cron";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
@@ -1371,199 +1369,16 @@ console.log("PASS: cronSchedulesSupersededByName");
 	console.log("PASS: trajectory mining gate");
 }
 
-// withCognitiveCronDefaults — the S4 un-dark guarantee.
+// Per-tedi runtime overrides are the final authority over a shared pack. This
+// lets a utility tedi opt out without cloning the pack.
 {
-	const empty = withCognitiveCronDefaults([]);
-	assert.equal(
-		empty.length,
-		DEFAULT_CRON_TEMPLATES.length,
-		"empty pack still schedules all platform-default crons (the un-dark floor)",
-	);
-	for (const name of [
-		"brain-reflection",
-		"objective-review",
-		"app-operations",
-		"skill-development",
-		"knowledge-freshness",
-		"grounding-review",
-	]) {
-		assert.ok(
-			empty.some((t) => t.name === name),
-			`cognitive cron ${name} is platform-guaranteed on an empty pack`,
-		);
-	}
-
-	// A pack template with the same NAME overrides schedule/message.
-	const overridden = withCognitiveCronDefaults([
+	const shared = [
 		{
 			name: "brain-reflection",
-			schedule: "0 */2 * * *",
+			schedule: "0 */8 * * *",
 			message: "custom reflection",
 		},
-	]);
-	const br = overridden.find((t) => t.name === "brain-reflection");
-	assert.equal(br?.schedule, "0 */2 * * *", "pack override wins on same name");
-	assert.equal(
-		overridden.length,
-		DEFAULT_CRON_TEMPLATES.length,
-		"same-name override does not add a duplicate",
-	);
-
-	// Pack-specific crons are added alongside the platform defaults.
-	const withExtra = withCognitiveCronDefaults([
-		{ name: "pack-only-cron", schedule: "0 0 * * *", message: "pack job" },
-	]);
-	assert.equal(
-		withExtra.length,
-		DEFAULT_CRON_TEMPLATES.length + 1,
-		"pack-specific cron added to the platform defaults",
-	);
-	assert.ok(
-		withExtra.some((t) => t.name === "pack-only-cron"),
-		"pack-specific cron survives the merge",
-	);
-
-	// Malformed pack entries are ignored, defaults preserved.
-	const malformed = withCognitiveCronDefaults([
-		{ name: "", schedule: "x", message: "y" } as CronTemplateLike,
-	]);
-	assert.equal(
-		malformed.length,
-		DEFAULT_CRON_TEMPLATES.length,
-		"nameless pack entry dropped, defaults kept",
-	);
-
-	// FLOOR INTEGRITY (regression): a same-name pack template with a BLANK
-	// schedule/message — a stub, a typo, or an admin blanking it to "disable" the
-	// cron — must NOT displace the known-good platform-floor default, and the
-	// floor cron must still reconcile to a real schedule. Before the fix the blank
-	// override won, then planCronReconcile skipped it (falsy schedule/message), so
-	// brain-reflection was scheduled NOWHERE — the exact dark-cron starvation the
-	// floor claims to prevent.
-	{
-		const blanked = withCognitiveCronDefaults([
-			{ name: "brain-reflection", schedule: "", message: "" },
-		]);
-		const br = blanked.find((t) => t.name === "brain-reflection");
-		assert.ok(br, "brain-reflection floor cron survives a blank pack override");
-		assert.ok(
-			br!.schedule.trim().length > 0 && br!.message.trim().length > 0,
-			"blank pack override cannot dark the floor default",
-		);
-		assert.equal(
-			blanked.length,
-			DEFAULT_CRON_TEMPLATES.length,
-			"blank override neither drops nor dupes",
-		);
-		const actions = planCronReconcile(blanked, []);
-		assert.ok(
-			actions.some((a) => a.name === "brain-reflection" && a.op === "add"),
-			"floor cron still reconciles to a real schedule despite the blank pack entry",
-		);
-	}
-
-	// FLOOR INTEGRITY (regression): a same-name pack template whose schedule is
-	// non-blank but not a valid cron expression (e.g. "off") must also NOT
-	// displace the floor default — otherwise the reconciler would emit an `add`
-	// whose `this.schedule("off", …)` throws and aborts the whole pass, starving
-	// every floor cron ordered after it.
-	{
-		const offOverride = withCognitiveCronDefaults([
-			{ name: "brain-reflection", schedule: "off", message: "please disable" },
-		]);
-		const br = offOverride.find((t) => t.name === "brain-reflection");
-		assert.equal(
-			br?.schedule,
-			"0 */8 * * *",
-			"structurally-invalid cron expr cannot override the floor default",
-		);
-		// A non-default pack cron with a junk schedule is dropped before it can
-		// reach the reconciler (so it can never throw mid-pass and starve the floor).
-		const withJunk = withCognitiveCronDefaults([
-			{ name: "pack-junk", schedule: "off", message: "x" },
-		]);
-		assert.ok(
-			!withJunk.some((t) => t.name === "pack-junk"),
-			"junk-schedule non-default pack cron is dropped, not handed to reconcile",
-		);
-		assert.equal(
-			withJunk.length,
-			DEFAULT_CRON_TEMPLATES.length,
-			"junk non-default cron adds nothing",
-		);
-	}
-	console.log("PASS: withCognitiveCronDefaults S4 un-dark guarantee");
-}
-
-// withCognitiveCronDefaults — pack opt-out authority (regression: a deliberately
-// cron-less / non-cognitive pack must not be force-scheduled every shared
-// LLM-turn cron).
-{
-	// Full opt-out: no floor at all → a cron-less pack incurs zero recurring spend.
-	const optedOut = withCognitiveCronDefaults([], {
-		disableCognitiveDefaults: true,
-	});
-	assert.equal(
-		optedOut.length,
-		0,
-		"disableCognitiveDefaults suppresses the entire platform floor",
-	);
-
-	// Full opt-out still schedules the pack's OWN crons (pack authority intact).
-	const optedOutWithOwn = withCognitiveCronDefaults(
-		[{ name: "pack-only", schedule: "0 0 * * *", message: "m" }],
-		{ disableCognitiveDefaults: true },
-	);
-	assert.deepEqual(
-		optedOutWithOwn.map((t) => t.name),
-		["pack-only"],
-		"full opt-out keeps pack-specific crons and drops every default",
-	);
-
-	// Per-cycle opt-out: disable one named cognitive cron, keep the rest floored.
-	const oneDisabled = withCognitiveCronDefaults([], {
-		disabledCognitiveCronNames: ["objective-review"],
-	});
-	assert.equal(
-		oneDisabled.length,
-		DEFAULT_CRON_TEMPLATES.length - 1,
-		"one named default suppressed",
-	);
-	assert.ok(
-		!oneDisabled.some((t) => t.name === "objective-review"),
-		"the named cognitive cron is opted out",
-	);
-	assert.ok(
-		oneDisabled.some((t) => t.name === "brain-reflection"),
-		"non-disabled defaults still floored",
-	);
-
-	// A pack's OWN same-name template wins even when the name is disabled.
-	const disabledButOwn = withCognitiveCronDefaults(
-		[{ name: "objective-review", schedule: "0 */2 * * *", message: "own" }],
-		{ disabledCognitiveCronNames: ["objective-review"] },
-	);
-	assert.ok(
-		disabledButOwn.some(
-			(t) => t.name === "objective-review" && t.schedule === "0 */2 * * *",
-		),
-		"pack's own same-name template overrides suppression",
-	);
-
-	// No options → the floor is unchanged (the un-dark default is preserved).
-	assert.equal(
-		withCognitiveCronDefaults([]).length,
-		DEFAULT_CRON_TEMPLATES.length,
-		"absent opt-out keeps the full platform floor",
-	);
-	console.log("PASS: withCognitiveCronDefaults opt-out authority");
-}
-
-// Per-tedi runtime overrides are the final authority over a shared pack. This
-// lets a utility tedi opt out without cloning the pack. Role-specific loops are
-// not present in this shared floor.
-{
-	const shared = withCognitiveCronDefaults([]);
+	];
 	const noReflection = applyTediCronPolicyOverrides(shared, {
 		disabledCognitiveCronNames: ["brain-reflection"],
 	});

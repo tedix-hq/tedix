@@ -30,7 +30,6 @@ import {
 	type ScheduleLike,
 	scheduleToCronJob,
 	shouldRunTrajectoryMining,
-	withCognitiveCronDefaults,
 	writeConversationalSchedule,
 } from "./cron";
 import { type CronBudgetSuppression } from "./cron-budget-control";
@@ -214,8 +213,6 @@ export async function loadPolicyPackCronTemplates(
 					: row.definition) as {
 					cronPolicy?: {
 						cronTemplates?: CronTemplateLike[];
-						disableCognitiveDefaults?: boolean;
-						disabledCognitiveCronNames?: unknown;
 					};
 				} | null)
 			: null;
@@ -234,23 +231,10 @@ export async function loadPolicyPackCronTemplates(
 		const packTemplates = Array.isArray(cronPolicy?.cronTemplates)
 			? (cronPolicy?.cronTemplates ?? [])
 			: [];
-		// Pack-authored opt-out: a deliberately cron-less / non-cognitive pack
-		// disables the platform floor here (omitting templates does NOT — the
-		// floor re-adds them). See withCognitiveCronDefaults.
-		const packResolved = withCognitiveCronDefaults(packTemplates, {
-			disableCognitiveDefaults: cronPolicy?.disableCognitiveDefaults === true,
-			disabledCognitiveCronNames: Array.isArray(
-				cronPolicy?.disabledCognitiveCronNames,
-			)
-				? cronPolicy.disabledCognitiveCronNames.filter(
-						(n): n is string => typeof n === "string",
-					)
-				: undefined,
-		});
 		const tediCronPolicy = runtimeOverrides?.cronPolicy;
 		return {
 			ok: true,
-			templates: applyTediCronPolicyOverrides(packResolved, {
+			templates: applyTediCronPolicyOverrides(packTemplates, {
 				disableCognitiveDefaults:
 					tediCronPolicy?.disableCognitiveDefaults === true,
 				disabledCognitiveCronNames: Array.isArray(
@@ -271,9 +255,8 @@ export async function loadPolicyPackCronTemplates(
 			`[isolate.cron-reconcile] load templates failed for ${tediId}`,
 			{ exception: serializeException(err) },
 		);
-		// Unknown policy cannot authorize additions OR removals. Reinstalling
-		// defaults here revives explicitly disabled cognitive jobs on a read
-		// failure. Preserve installed schedules and report degraded state.
+		// Unknown policy cannot authorize additions or removals. Preserve installed
+		// schedules and report degraded state.
 		return {
 			ok: false,
 			templates: [],

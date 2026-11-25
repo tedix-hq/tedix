@@ -182,6 +182,31 @@ const policyDb = (first: () => Promise<unknown>) => ({
 	prepare: () => ({ bind: () => ({ first }) }),
 });
 
+// An empty policy stays idle; a custom cognitive template runs only as configured.
+{
+	const custom = {
+		name: "brain-reflection",
+		schedule: "0 9 * * 1",
+		message: "Review the team's notes",
+	};
+	for (const templates of [[], [custom]]) {
+		const agent = tediDo({
+			env: {
+				DB: policyDb(async () => ({
+					definition: JSON.stringify({
+						cronPolicy: { cronTemplates: templates },
+					}),
+					runtimeOverrides: null,
+				})),
+			},
+		});
+		assert.deepEqual(await agent.loadPolicyPackCronTemplates("tedi-1"), {
+			ok: true,
+			templates,
+		});
+	}
+}
+
 {
 	const failure = new Error("d1 down", {
 		cause: new Error("D1_ERROR: database is overloaded: 7429"),

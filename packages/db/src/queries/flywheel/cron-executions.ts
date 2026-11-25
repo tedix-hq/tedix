@@ -33,9 +33,8 @@ export interface CronExecutionCountRow {
 }
 
 /**
- * The six cognitive-loop crons the flywheel health surface tracks, with their
- * expected intervals (mirrors the DEFAULT_CRON_TEMPLATES schedules in
- * `schema/control-plane.ts`: 0 *\/8, 0 *\/4, 0 *\/6, 0 5, 0 4, 30 *\/6).
+ * Cognitive-loop names and expected intervals for explicitly configured
+ * templates or skill schedules. These are health categories, not defaults.
  */
 export const EXPECTED_COGNITIVE_CRONS = GOVERNED_LEARNING_SCHEDULES;
 export const COGNITIVE_SKILL_SLUGS = GOVERNED_LEARNING_SKILL_SLUGS;

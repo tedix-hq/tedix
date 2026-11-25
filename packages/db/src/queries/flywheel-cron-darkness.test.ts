@@ -253,9 +253,23 @@ describe("findDarkCognitiveCrons (real SQLite)", () => {
 	) {
 		sqlite
 			.prepare(
-				`INSERT INTO tedis (id, organization_id, slug, runtime_state) VALUES (?, ?, ?, ?)`,
+				`INSERT INTO tedis (id, organization_id, slug, runtime_state, runtime_overrides) VALUES (?, ?, ?, ?, ?)`,
 			)
-			.run(id, ORG, slug, runtimeState);
+			.run(
+				id,
+				ORG,
+				slug,
+				runtimeState,
+				JSON.stringify({
+					cronPolicy: {
+						cronTemplates: EXPECTED_COGNITIVE_CRONS.map((cron) => ({
+							name: cron.name,
+							schedule: "0 9 * * *",
+							message: "Configured review",
+						})),
+					},
+				}),
+			);
 	}
 
 	function seedExecution(
@@ -356,7 +370,7 @@ describe("findDarkCognitiveCrons (real SQLite)", () => {
 		});
 	});
 
-	it("flags a never-scheduled daily cron end-to-end: fresh latest stamps, 20-day-old first stamps", async () => {
+	it("flags a configured daily cron that never stamped end-to-end: fresh latest stamps, 20-day-old first stamps", async () => {
 		// MIN(started_at) must ride out of the ledger as the participation
 		// clock: every present cron has a FRESH latest stamp (inside grace) but
 		// first stamped 480h ago; skill-development never stamped at all.
