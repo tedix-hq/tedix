@@ -20,6 +20,7 @@ export interface SkillUser {
 	/** Stable name of this use, quoted back to acknowledge it when archiving. */
 	key: string;
 	kind: "local_runner" | "schedule" | "factory" | "workspace" | "owner_tedi";
+	factorySlug?: string | null;
 	/** One plain sentence, such as "Read by 4 local runners on mac-1 on every pass (last seen today)". */
 	label: string;
 	lastSeenAt: string | null;
@@ -74,7 +75,13 @@ export async function listSkillUsers(
 				),
 			),
 		db
-			.select({ projectId: projects.id, projectName: projects.name })
+			.select({
+				projectId: projects.id,
+				projectName: projects.name,
+				factorySlug: sql<
+					string | null
+				>`json_extract(${projects.metadata}, '$.factory.slug')`,
+			})
 			.from(projects)
 			.where(
 				and(
@@ -153,6 +160,7 @@ export async function listSkillUsers(
 		users.push({
 			key: `factory:${row.projectId}`,
 			kind: "factory",
+			factorySlug: row.factorySlug,
 			label: `Runs the factory "${row.projectName}"`,
 			lastSeenAt: null,
 			blocksArchive: true,

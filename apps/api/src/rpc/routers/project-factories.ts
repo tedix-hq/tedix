@@ -372,6 +372,13 @@ async function controlFactory(
 	if (!skill)
 		throw createError(ErrorCodes.NOT_FOUND, "Factory lane skill not found");
 	const client = createRouterClient({ improve: skillsImprove }, { context });
+	const users =
+		action === "archived"
+			? await listSkillUsers(context.db, { orgId, skillId: skill.id })
+			: [];
+	const ownFactories = users.filter(
+		(user) => user.kind === "factory" && user.factorySlug === lane.slug,
+	);
 	await client.improve(
 		action === "archived"
 			? {
@@ -379,13 +386,12 @@ async function controlFactory(
 					lifecycleState: "archived",
 					// Retiring the factory is what stops its own schedule and lane;
 					// any other user of the skill still refuses the archive.
-					acknowledgeUsedBy: (
-						await listSkillUsers(context.db, { orgId, skillId: skill.id })
-					)
+					acknowledgeUsedBy: users
 						.filter(
 							(user) =>
 								user.kind === "schedule" ||
-								user.key === `factory:${lane.projectId}`,
+								(ownFactories.length === 1 &&
+									user.key === ownFactories[0]!.key),
 						)
 						.map((user) => user.key),
 				}

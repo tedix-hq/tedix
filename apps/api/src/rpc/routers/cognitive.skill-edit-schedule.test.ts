@@ -615,7 +615,7 @@ describe("archive persistence through skill actions", () => {
 						{
 							slug: "nightly-ingest",
 							skillId: "skill-1",
-							projectId: project.id,
+							projectId: "delivery-project",
 						},
 					]);
 					if (action === "archiveFactoryShared")
@@ -670,7 +670,7 @@ describe("archive persistence through skill actions", () => {
 							code: "CONFLICT",
 							message: expect.stringContaining(
 								action === "archiveFactoryShared"
-									? '["factory:other-factory"]'
+									? '["factory:factory-project","factory:other-factory"]'
 									: '["runner:test-machine"]',
 							),
 						});
