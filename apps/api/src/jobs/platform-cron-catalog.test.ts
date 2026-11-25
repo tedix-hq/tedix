@@ -118,6 +118,7 @@ describe("platform cron health", () => {
 					latestError: null,
 					lastSuccessAt: "2026-08-09T04:45:03.000Z",
 					lastFailureAt: "2026-08-09T04:30:03.000Z",
+					countsLast24h: { running: 0, success: 1, failure: 1 },
 				},
 			],
 		});
@@ -127,6 +128,7 @@ describe("platform cron health", () => {
 		expect(billing).toMatchObject({
 			state: "healthy",
 			attention: false,
+			countsLast24h: { running: 0, success: 1, failure: 1 },
 			lastFailureAt: "2026-08-09T04:30:03.000Z",
 			nextExpectedAt: "2026-08-09T05:00:00.000Z",
 		});

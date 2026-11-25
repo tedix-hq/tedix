@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { eq, getColumns, sql } from "drizzle-orm";
-import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
@@ -210,57 +209,53 @@ export interface PlatformCronExecutionSummary {
 	latestDurationMs: number | null;
 	latestAffectedRowCounts: Record<string, number>;
 	latestError: string | null;
+	/** Terminal timestamps cover receipts scheduled in the last 24 hours. */
 	lastSuccessAt: string | null;
 	lastFailureAt: string | null;
+	countsLast24h: { running: number; success: number; failure: number };
 }
 
-/** One bounded, current summary per observed logical platform schedule. */
+/** Latest receipt per requested schedule, plus an indexed 24-hour window. */
 export async function listPlatformCronExecutionSummaries(
-	db: DbClient,
+	db: DbQueryClient,
+	scheduleIds: readonly string[],
+	now = new Date(),
 ): Promise<PlatformCronExecutionSummary[]> {
-	const ranked = db.$with("ranked").as(
-		db
-			.select({
-				...getColumns(platformCronExecutions),
-				latestRank: sql<number>`ROW_NUMBER() OVER (
-					PARTITION BY ${platformCronExecutions.scheduleId}
-					ORDER BY ${platformCronExecutions.scheduledAt} DESC, ${platformCronExecutions.startedAt} DESC
-				)`.as("latest_rank"),
-			})
-			.from(platformCronExecutions),
-	);
-	// Raw driver values: the JSON column is parsed below, exactly as stored.
-	const latest = (column: AnySQLiteColumn, name: string) =>
-		sql<unknown>`MAX(CASE WHEN ${ranked.latestRank} = 1 THEN ${column} END)`.as(
-			name,
-		);
-	const rows: Array<Record<string, unknown>> = await db
-		.with(ranked)
-		.select({
-			scheduleId: sql<unknown>`${ranked.scheduleId}`.as("scheduleId"),
-			latestId: latest(ranked.id, "latestId"),
-			latestStatus: latest(ranked.status, "latestStatus"),
-			latestScheduledAt: latest(ranked.scheduledAt, "latestScheduledAt"),
-			latestStartedAt: latest(ranked.startedAt, "latestStartedAt"),
-			latestFinishedAt: latest(ranked.finishedAt, "latestFinishedAt"),
-			latestDurationMs: latest(ranked.durationMs, "latestDurationMs"),
-			latestAffectedRowCounts: latest(
-				ranked.affectedRowCounts,
-				"latestAffectedRowCounts",
-			),
-			latestError: latest(ranked.error, "latestError"),
-			lastSuccessAt:
-				sql<unknown>`MAX(CASE WHEN ${ranked.status} = 'success' THEN ${ranked.finishedAt} END)`.as(
-					"lastSuccessAt",
-				),
-			lastFailureAt:
-				sql<unknown>`MAX(CASE WHEN ${ranked.status} = 'failure' THEN ${ranked.finishedAt} END)`.as(
-					"lastFailureAt",
-				),
-		})
-		.from(ranked)
-		.groupBy(ranked.scheduleId)
-		.orderBy(ranked.scheduleId);
+	const since = new Date(now.getTime() - 86_400_000).toISOString();
+	// Drive both lookups from the catalog, never discover schedules by scanning receipts.
+	// The unique (schedule_id, scheduled_at) index serves the range and reverse seek.
+	const rows = await db.all<Record<string, unknown>>(sql`
+		WITH requested AS (
+			SELECT DISTINCT value AS schedule_id FROM json_each(${JSON.stringify(scheduleIds)})
+		), recent AS (
+			SELECT r.schedule_id AS recent_schedule_id,
+				SUM(r.status = 'running') AS running_count,
+				SUM(r.status = 'success') AS success_count,
+				SUM(r.status = 'failure') AS failure_count,
+				MAX(CASE WHEN r.status = 'success' THEN r.finished_at END) AS last_success_at,
+				MAX(CASE WHEN r.status = 'failure' THEN r.finished_at END) AS last_failure_at
+			FROM requested s CROSS JOIN platform_cron_executions r
+			WHERE r.schedule_id = s.schedule_id
+				AND r.scheduled_at >= ${since} AND r.scheduled_at <= ${now.toISOString()}
+			GROUP BY r.schedule_id
+		)
+		SELECT p.schedule_id AS scheduleId, p.id AS latestId,
+			p.status AS latestStatus, p.scheduled_at AS latestScheduledAt,
+			p.started_at AS latestStartedAt, p.finished_at AS latestFinishedAt,
+			p.duration_ms AS latestDurationMs, p.affected_row_counts AS latestAffectedRowCounts,
+			p.error AS latestError, recent.last_success_at AS lastSuccessAt,
+			recent.last_failure_at AS lastFailureAt,
+			COALESCE(recent.running_count, 0) AS runningCount,
+			COALESCE(recent.success_count, 0) AS successCount,
+			COALESCE(recent.failure_count, 0) AS failureCount
+		FROM requested s
+		JOIN platform_cron_executions p ON p.id = (
+			SELECT id FROM platform_cron_executions
+			WHERE schedule_id = s.schedule_id ORDER BY scheduled_at DESC LIMIT 1
+		)
+		LEFT JOIN recent ON recent.recent_schedule_id = s.schedule_id
+		ORDER BY s.schedule_id
+	`);
 
 	return rows.map((row) => ({
 		scheduleId: String(row.scheduleId),
@@ -286,6 +281,11 @@ export async function listPlatformCronExecutionSummaries(
 			typeof row.lastSuccessAt === "string" ? row.lastSuccessAt : null,
 		lastFailureAt:
 			typeof row.lastFailureAt === "string" ? row.lastFailureAt : null,
+		countsLast24h: {
+			running: Number(row.runningCount),
+			success: Number(row.successCount),
+			failure: Number(row.failureCount),
+		},
 	}));
 }
 

@@ -103,13 +103,13 @@ const authedOs = controlPlaneOs.use(withAuth);
 const listPlatformCronHealthProcedure = authedOs.listPlatformCronHealth
 	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context }) => {
+		const { buildPlatformCronHealth, PLATFORM_CRON_IDS } =
+			await import("../../jobs/platform-cron-catalog");
 		const [summaries, commitmentCheckpoint, dispatcher] = await Promise.all([
-			listPlatformCronExecutionSummaries(context.db),
+			listPlatformCronExecutionSummaries(context.db, PLATFORM_CRON_IDS),
 			lastCommitmentWakeCheckpoint(context.db),
 			readDispatcherActivity(context.db),
 		]);
-		const { buildPlatformCronHealth } =
-			await import("../../jobs/platform-cron-catalog");
 		return buildPlatformCronHealth({
 			env: context.env,
 			summaries,

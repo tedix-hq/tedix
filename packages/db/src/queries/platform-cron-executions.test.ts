@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
@@ -71,7 +71,31 @@ describe("platform cron execution receipts", () => {
 			null,
 		);
 
-		await expect(listPlatformCronExecutionSummaries(db)).resolves.toEqual([
+		// Retained history must not enter the daily counts or the query's working set.
+		sqlite.exec(`
+			WITH RECURSIVE history(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM history WHERE n < 10000)
+			INSERT INTO platform_cron_executions (id, schedule_id, cron, scheduled_at, started_at, status)
+			SELECT 'old-' || n, 'billing', '* * * * *',
+				strftime('%Y-%m-%dT%H:%M:%fZ', '2026-01-01', '+' || n || ' minutes'), '2026-01-01', 'failure'
+			FROM history;
+		`);
+		insert.run(
+			"stale",
+			"weekly",
+			"2026-08-01",
+			"2026-08-01",
+			"2026-08-01",
+			"success",
+			1,
+			"{}",
+			null,
+		);
+		const prepare = vi.spyOn(sqlite, "prepare");
+		const scheduleIds = ["billing", "weekly", "missing", "billing"];
+		const now = new Date("2026-08-09T02:00:00.000Z");
+		await expect(
+			listPlatformCronExecutionSummaries(db, scheduleIds, now),
+		).resolves.toEqual([
 			expect.objectContaining({
 				scheduleId: "billing",
 				latestId: "healthy-latest",
@@ -79,8 +103,35 @@ describe("platform cron execution receipts", () => {
 				latestAffectedRowCounts: { ingested: 13 },
 				lastSuccessAt: "2026-08-09T01:15:03.000Z",
 				lastFailureAt: "2026-08-09T01:00:02.000Z",
+				countsLast24h: { running: 0, success: 1, failure: 1 },
+			}),
+			expect.objectContaining({
+				scheduleId: "weekly",
+				latestId: "stale",
+				lastSuccessAt: null,
+				lastFailureAt: null,
+				countsLast24h: { running: 0, success: 0, failure: 0 },
 			}),
 		]);
+		const query = prepare.mock.calls.find(([query]) =>
+			query.includes("WITH requested"),
+		)?.[0];
+		expect(query).toBeDefined();
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(
+				JSON.stringify(scheduleIds),
+				"2026-08-08T02:00:00.000Z",
+				now.toISOString(),
+			) as Array<{ detail: string }>;
+		expect(plan.map((row) => row.detail).join("\n")).toMatch(
+			/SEARCH r USING INDEX idx_platform_cron_executions_fire \(schedule_id=\? AND scheduled_at>\? AND scheduled_at<\?\)/,
+		);
+		expect(plan.map((row) => row.detail).join("\n")).toMatch(
+			/SEARCH platform_cron_executions USING INDEX idx_platform_cron_executions_fire \(schedule_id=\?\)/,
+		);
+		prepare.mockRestore();
+		sqlite.close();
 	});
 
 	it("deduplicates a fire and preserves its first terminal outcome", async () => {

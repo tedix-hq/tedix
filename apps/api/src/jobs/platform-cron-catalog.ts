@@ -431,6 +431,11 @@ export function buildPlatformCronHealth(input: {
 				: null,
 			lastSuccessAt: summary?.lastSuccessAt ?? null,
 			lastFailureAt: summary?.lastFailureAt ?? null,
+			countsLast24h: summary?.countsLast24h ?? {
+				running: 0,
+				success: 0,
+				failure: 0,
+			},
 			evidenceUrl: CLOUDFLARE_API_OBSERVABILITY_URL,
 		};
 	});

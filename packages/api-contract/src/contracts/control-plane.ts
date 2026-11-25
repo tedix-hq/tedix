@@ -55,8 +55,14 @@ export const PlatformCronHealthSchema = z.object({
 			error: z.string().nullable(),
 		})
 		.nullable(),
+	/** Latest terminal timestamps among receipts scheduled in the last 24 hours. */
 	lastSuccessAt: z.string().nullable(),
 	lastFailureAt: z.string().nullable(),
+	countsLast24h: z.object({
+		running: z.number(),
+		success: z.number(),
+		failure: z.number(),
+	}),
 	evidenceUrl: z.url(),
 });
 
@@ -151,7 +157,7 @@ export const controlPlaneContract = oc
 				path: "/platform-crons/health",
 				summary: "List current platform cron health",
 				description:
-					"Current freshness and latest durable evidence for API Worker maintenance schedules. Historical failures remain visible but do not create attention after a healthy fire.",
+					"Current freshness and latest durable evidence for registered API Worker maintenance schedules, with counts and terminal timestamps for receipts scheduled in the last 24 hours. Historical failures do not create attention after a healthy fire.",
 			})
 			.output(PlatformCronHealthResponseSchema),
 
