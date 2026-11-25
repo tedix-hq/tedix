@@ -4,6 +4,7 @@ import { createDbClient, createDbSession } from "../client";
 import { policyPacks } from "../schema/control-plane";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
+import { withD1Ledger } from "../slow-query";
 import { getActiveSystemPolicy } from "./control-plane/system-policy";
 import { getInstallationTrustPolicy } from "./installation-trust";
 
@@ -45,28 +46,26 @@ function fixture() {
 }
 
 describe("installation trust authority", () => {
-	it("shares all system heads across clients and slugs, then observes revocation after 60 seconds", async () => {
+	it("shares system heads across clients and slugs only within an invocation", async () => {
 		const { db, insert, sqlite } = fixture();
 		await insert();
 		await insert({ id: "other", slug: "other" });
 		const select = vi.spyOn(sqlite, "prepare");
 		const another = createDbSession(db.$client).db;
-		expect(await getInstallationTrustPolicy(db)).toEqual(policy);
-		expect(await getActiveSystemPolicy(another, "other")).not.toBeNull();
-		await Promise.all(
-			Array.from({ length: 16 }, () =>
-				getActiveSystemPolicy(createDbSession(db.$client).db, "other"),
-			),
-		);
-		expect(select).toHaveBeenCalledTimes(1);
+		await withD1Ledger("request", async () => {
+			expect(await getInstallationTrustPolicy(db)).toEqual(policy);
+			expect(await getActiveSystemPolicy(another, "other")).not.toBeNull();
+			await Promise.all(
+				Array.from({ length: 16 }, () =>
+					getActiveSystemPolicy(createDbSession(db.$client).db, "other"),
+				),
+			);
+			expect(select).toHaveBeenCalledTimes(1);
+		});
 		await insert({ id: "revoked", version: 2, status: "archived" });
-		expect(await getInstallationTrustPolicy(another)).toEqual(policy);
-		const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
-		try {
+		await withD1Ledger("next request", async () => {
 			expect(await getInstallationTrustPolicy(another)).toBeNull();
-		} finally {
-			clock.mockRestore();
-		}
+		});
 	});
 
 	it("requires an exact ownerless system publication", async () => {

@@ -125,6 +125,10 @@ export function memoizeD1InvocationRead<T>(
 	return result;
 }
 
+export function invalidateD1InvocationRead(name: string, client: object): void {
+	ledgers.getStore()?.reads?.get(name)?.delete(getD1BindingKey(client));
+}
+
 function begin(): Ledger | undefined {
 	const ledger = ledgers.getStore();
 	if (ledger) {

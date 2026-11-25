@@ -1,4 +1,7 @@
-import { memoizeD1InvocationRead } from "../../slow-query";
+import {
+	invalidateD1InvocationRead,
+	memoizeD1InvocationRead,
+} from "../../slow-query";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { policyPacks } from "../../schema/control-plane";
@@ -11,7 +14,11 @@ export async function getActiveSystemPolicyDefinition(
 	return (await getActiveSystemPolicy(db, slug))?.definition ?? null;
 }
 
-/** Ownerless system heads share a snapshot only within the current invocation. */
+export function invalidateSystemPolicySnapshot(db: DbQueryClient): void {
+	invalidateD1InvocationRead("system-policy", db.$client);
+}
+
+/** Ownerless system heads share a snapshot until a policy write or invocation end. */
 export async function getActiveSystemPolicy(db: DbQueryClient, slug: string) {
 	const allRows = await memoizeD1InvocationRead(
 		"system-policy",

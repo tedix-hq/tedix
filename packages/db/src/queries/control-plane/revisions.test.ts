@@ -56,6 +56,44 @@ function setup(onPrepare?: (query: string) => void): DbClient {
 }
 
 describe("immutable control-plane revisions", () => {
+	it("refreshes ownerless policy authority after creation, publication and revocation in one invocation", async () => {
+		const db = setup();
+		const reader = createDbQueryClient(db.$client);
+		await withD1Ledger("request", async () => {
+			const read = () => getActiveSystemPolicy(reader, "installation-trust");
+			expect(await read()).toBeNull();
+			const input = {
+				name: "Trust",
+				slug: "installation-trust",
+				scope: "system" as const,
+				target: "shared" as const,
+				status: "active" as const,
+				version: 1,
+				publishedBy: "operator",
+				definition: { marker: "first" },
+			};
+			await createPolicyPack(db, { ...input, organizationId: "org-1" });
+			expect(await read()).toBeNull();
+			const policy = await createPolicyPack(db, { ...input, version: 2 });
+			expect(await read()).toEqual({
+				version: 2,
+				definition: input.definition,
+			});
+			const published = await publishPolicyPackRevision(db, {
+				revisionId: policy.id,
+				publishedBy: "operator",
+				definition: { marker: "second" },
+			});
+			if (!published.ok) throw new Error("expected policy publication");
+			expect(await read()).toEqual({
+				version: 3,
+				definition: { marker: "second" },
+			});
+			expect(await deletePolicyPack(db, published.revision.id)).toBe(true);
+			expect(await read()).toBeNull();
+		});
+	});
+
 	it("sees every policy writer in the next invocation, including direct row writes", async () => {
 		const db = setup();
 		const reader = createDbQueryClient(db.$client);
