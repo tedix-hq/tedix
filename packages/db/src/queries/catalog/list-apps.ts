@@ -452,13 +452,27 @@ export async function listPublicChatgptObservations(
 ) {
 	const listings = appCatalogStoreListings;
 	const observation = sql`json_extract(${listings.rawData}, '$.catalogFeed.searchObservation')`;
+	const listingName = sql<
+		string | null
+	>`nullif(json_extract(${observation}, '$.name'), '')`;
+	const browsable = and(
+		eq(appCatalog.status, "ENABLED"),
+		eq(appCatalog.isDiscoverable, true),
+	);
 	const matchedCount = sql<number>`json_extract(${observation}, '$.matchedCount')`;
 	const checkedAt = sql<string>`json_extract(${observation}, '$.checkedAt')`;
 	const queryCount = sql<number>`json_extract(${observation}, '$.queryCount')`;
 	return db
 		.select({
-			name: appCatalog.name,
-			slug: appCatalog.slug,
+			name: sql<string>`coalesce(${listingName}, ${appCatalog.name})`.as(
+				"listing_name",
+			),
+			slug: sql<
+				string | null
+			>`case when ${browsable} and (${listingName} is null or ${listingName} = ${appCatalog.name}) then ${appCatalog.slug} end`.as(
+				"catalog_slug",
+			),
+			storeUrl: listings.storeUrl,
 			sourceAppId: listings.sourceAppId,
 			checkedAt: checkedAt.as("checkedAt"),
 			matchedCount: matchedCount.as("matchedCount"),
@@ -469,7 +483,24 @@ export async function listPublicChatgptObservations(
 		.where(
 			and(
 				eq(listings.source, "chatgpt"),
-				...catalogVisibilityConditions(appCatalog),
+				eq(listings.reviewStatus, "RELEASED"),
+				eq(appCatalog.reviewStatus, "RELEASED"),
+				inArray(appCatalog.developerType, [
+					"TRUSTED_PARTNER",
+					"OAI",
+					"THIRD_PARTY",
+				]),
+				inArray(appCatalog.status, ["ENABLED", "DISABLED"]),
+				sql`coalesce(json_extract(${listings.rawData}, '$.catalogFeed.visibility'), 'public') <> 'private'`,
+				// Health maintenance can hide or disable a connector while its native
+				// store listing still has a public, dated search observation.
+				or(
+					browsable,
+					and(
+						sql`${listingName} is not null`,
+						sql`${listings.storeUrl} like 'https://chatgpt.com/apps/%'`,
+					),
+				),
 				sql`typeof(${matchedCount}) = 'integer' AND ${matchedCount} >= 0`,
 				sql`typeof(${queryCount}) = 'integer' AND ${queryCount} > 0`,
 				sql`datetime(${checkedAt}) IS NOT NULL`,
