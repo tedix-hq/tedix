@@ -50,6 +50,12 @@ const OrganizationInboundClientsSection = lazy(() =>
 	})),
 );
 
+const OrganizationSignInsSection = lazy(() =>
+	import("@/components/organization-sign-ins-section").then((mod) => ({
+		default: mod.OrganizationSignInsSection,
+	})),
+);
+
 const OrganizationAppearanceForm = lazy(() =>
 	import("@/components/organization-appearance-form").then((mod) => ({
 		default: mod.OrganizationAppearanceForm,
@@ -264,6 +270,10 @@ function AdminOrganizationBody({
 
 				<Suspense fallback={<LoadingArea className="h-24" />}>
 					<OrganizationInboundClientsSection organizationId={organization.id} />
+				</Suspense>
+
+				<Suspense fallback={<LoadingArea className="h-24" />}>
+					<OrganizationSignInsSection organizationId={organization.id} />
 				</Suspense>
 			</div>
 

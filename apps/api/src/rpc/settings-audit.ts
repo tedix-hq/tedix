@@ -115,6 +115,13 @@ export const ORGANIZATION_SETTINGS_AUDIT: OsAuditRegistry = {
 		...entry(actions.mcpRevoked, "mcp_consent", userId),
 		organizationId: mcpOrganizationId,
 	},
+	revokeMcpSignIn: {
+		...entry(actions.mcpRevoked, "mcp_consent", inputId("revision")),
+		organizationId: mcpOrganizationId,
+	},
+	revokeOrganizationMcpSignIn: {
+		...entry(actions.mcpRevoked, "mcp_consent", inputId("revision")),
+	},
 	revokeMcpInstallation: {
 		...entry(actions.mcpRevoked, "mcp_installation", ({ output }) =>
 			text(output.consentRevision),

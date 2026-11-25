@@ -22,7 +22,11 @@ import { revokeMcpInstallation } from "../../lib/revoke-mcp-installation";
 import {
 	listHumanMcpAuthorizations,
 	disableHumanMcpAuthorization,
+	listHumanMcpSignIns,
+	listOrganizationMcpSignIns,
 	revokeHumanMcpConsent,
+	revokeHumanMcpSignIn,
+	revokeOrganizationMcpSignIn,
 	stageHumanMcpConsent,
 	getHumanMcpConsentOptions,
 	verifyHumanMcpGrant,
@@ -176,6 +180,98 @@ export const listInboundClientInventoryContract =
 					),
 				),
 			};
+		});
+
+/**
+ * Every live sign-in the signed-in person holds, one row per grant revision.
+ * Bound to the caller's own Descope subject; no organization scope required.
+ */
+export const listMcpSignInsContract = authedOrganizationsOs.listMcpSignIns
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Lists only the authenticated human subject's own Connect sign-ins.",
+			},
+			"mcp:apps.read",
+		),
+	)
+	.handler(async ({ input, context }) => {
+		if (context.authType !== "user" || !context.user?.sub)
+			throw createError(ErrorCodes.FORBIDDEN, "Human sign-in required");
+		return listHumanMcpSignIns(context.db, context.user.sub, input);
+	});
+
+/** Revoke exactly one of the caller's own sign-ins; sibling revisions survive. */
+export const revokeMcpSignInContract = authedOrganizationsOs.revokeMcpSignIn
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Revokes only one grant revision owned by the authenticated human subject.",
+			},
+			"mcp:apps.write",
+		),
+	)
+	.handler(async ({ input, context }) => {
+		if (context.authType !== "user" || !context.user?.sub)
+			throw createError(ErrorCodes.FORBIDDEN, "Human sign-in required");
+		const revision = await revokeHumanMcpSignIn(
+			context.db,
+			context.env,
+			context.user.sub,
+			input,
+		);
+		if (!revision)
+			throw createError(
+				ErrorCodes.NOT_FOUND,
+				"Sign-in not found or already ended",
+			);
+		return { revision };
+	});
+
+/** Admin read: every member sign-in that selects this organization. */
+export const listOrganizationMcpSignInsContract =
+	authedOrganizationsOs.listOrganizationMcpSignIns
+		.use(AUTHZ.settingsRead)
+		.handler(async ({ input, context }) => {
+			requireOrganizationAccess(context, input.organizationId);
+			requireAdminOrOwner(context);
+			const organization = await getOrganizationById(
+				context.db,
+				input.organizationId,
+			);
+			if (!organization)
+				throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
+			return listOrganizationMcpSignIns(context.db, organization, input);
+		});
+
+/** Admin revoke: one member sign-in that still selects this organization. */
+export const revokeOrganizationMcpSignInContract =
+	authedOrganizationsOs.revokeOrganizationMcpSignIn
+		.use(AUTHZ.settingsWrite)
+		.handler(async ({ input, context }) => {
+			requireOrganizationAccess(context, input.organizationId);
+			requireAdminOrOwner(context);
+			const organization = await getOrganizationById(
+				context.db,
+				input.organizationId,
+			);
+			if (!organization)
+				throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
+			const revision = await revokeOrganizationMcpSignIn(
+				context.db,
+				context.env,
+				organization,
+				input.descopeUserId,
+				input,
+			);
+			if (!revision)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Sign-in not found, already ended, or not selecting this organization",
+				);
+			return { revision };
 		});
 
 export const disableMcpAuthorizationContract =

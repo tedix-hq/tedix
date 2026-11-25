@@ -5,8 +5,8 @@ import {
 	eq,
 	exists,
 	gt,
+	lt,
 	notExists,
-	notInArray,
 	or,
 	sql,
 	type SQLWrapper,
@@ -15,6 +15,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { apps } from "../schema/apps";
 import { organizations } from "../schema/organizations";
+import { organizationMembers } from "../schema/organization-members";
 import {
 	mcpConsentGrants,
 	mcpConsentSelections,
@@ -36,12 +37,41 @@ export interface ReplaceMcpConsentSelectionParams extends McpConsentSelectionKey
 	appId: string;
 	revision: string;
 	status: McpConsentSelectionRow["status"];
+	clientName?: string | null;
+	device?: string | null;
 	selectedTenantIds: string[];
 	approvedScopes: string[];
 }
 
-/** Active grants kept per user, server and client; older revisions are pruned. */
+/**
+ * Sign-ins unused this long expire. Replaces the old silent per-client cap:
+ * an active sign-in refreshes `last_used_at`, so only abandoned ones lapse.
+ */
+export const MCP_CONSENT_GRANT_IDLE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** `last_used_at` is refreshed at most this often; writes stay off the hot path. */
+export const MCP_CONSENT_GRANT_TOUCH_INTERVAL_MS = 60 * 60 * 1000;
+
+/** Active grants kept per user, server and client before Connect warns. */
 export const MAX_MCP_CONSENT_GRANTS_PER_CLIENT = 20;
+
+function grantIdleCutoff(nowMs = Date.now()) {
+	// SQLite CURRENT_TIMESTAMP rows and ISO strings both parse through
+	// datetime(); the bound is emitted in the normalized comparison format.
+	return new Date(nowMs - MCP_CONSENT_GRANT_IDLE_TTL_MS)
+		.toISOString()
+		.replace("T", " ")
+		.slice(0, 19);
+}
+
+function grantIdleCondition() {
+	return sql`datetime(COALESCE(${mcpConsentGrants.lastUsedAt}, ${mcpConsentGrants.createdAt})) < ${grantIdleCutoff()}`;
+}
+
+/** Grants still inside the idle window count as live; expired ones do not. */
+function grantLiveCondition() {
+	return sql`NOT (${grantIdleCondition()})`;
+}
 
 function grantKeyCondition(key: McpConsentSelectionKey) {
 	return and(
@@ -72,6 +102,8 @@ export async function replaceMcpConsentSelection(
 			],
 			set: {
 				appId: input.appId,
+				clientName: input.clientName ?? null,
+				device: input.device ?? null,
 				revision: input.revision,
 				status: input.status,
 				selectedTenantIds: input.selectedTenantIds,
@@ -92,6 +124,8 @@ export async function replaceMcpConsentSelection(
 						clientId: input.clientId,
 						revision: input.revision,
 						appId: input.appId,
+						clientName: input.clientName ?? null,
+						device: input.device ?? null,
 						selectedTenantIds: input.selectedTenantIds,
 						approvedScopes: input.approvedScopes,
 						createdAt: now,
@@ -148,6 +182,8 @@ export async function revokeMcpConsentGrant(
 export interface McpConsentGrantResult {
 	appId: string;
 	revision: string;
+	clientName: string | null;
+	device: string | null;
 	selectedTenantIds: string[];
 	approvedScopes: string[];
 }
@@ -165,12 +201,18 @@ export async function getMcpConsentGrant(
 		.select({
 			appId: mcpConsentGrants.appId,
 			revision: mcpConsentGrants.revision,
+			clientName: mcpConsentGrants.clientName,
+			device: mcpConsentGrants.device,
 			selectedTenantIds: mcpConsentGrants.selectedTenantIds,
 			approvedScopes: mcpConsentGrants.approvedScopes,
 		})
 		.from(mcpConsentGrants)
 		.where(
-			and(grantKeyCondition(key), eq(mcpConsentGrants.revision, key.revision)),
+			and(
+				grantKeyCondition(key),
+				eq(mcpConsentGrants.revision, key.revision),
+				grantLiveCondition(),
+			),
 		)
 		.limit(1);
 	if (grant) return grant;
@@ -178,6 +220,8 @@ export async function getMcpConsentGrant(
 		.select({
 			appId: mcpConsentSelections.appId,
 			revision: mcpConsentSelections.revision,
+			clientName: mcpConsentSelections.clientName,
+			device: mcpConsentSelections.device,
 			selectedTenantIds: mcpConsentSelections.selectedTenantIds,
 			approvedScopes: mcpConsentSelections.approvedScopes,
 		})
@@ -203,8 +247,117 @@ export async function listMcpConsentGrants(
 	return db
 		.select()
 		.from(mcpConsentGrants)
-		.where(grantKeyCondition(key))
+		.where(and(grantKeyCondition(key), grantLiveCondition()))
 		.orderBy(desc(mcpConsentGrants.createdAt), desc(mcpConsentGrants.revision));
+}
+
+/** Sign-ins unused past the idle TTL no longer count toward the cap warning. */
+export async function countLiveMcpConsentGrants(
+	db: DbQueryClient,
+	key: McpConsentSelectionKey,
+): Promise<number> {
+	const [row] = await db
+		.select({ count: sql<number>`COUNT(*)` })
+		.from(mcpConsentGrants)
+		.where(and(grantKeyCondition(key), grantLiveCondition()));
+	return Number(row?.count ?? 0);
+}
+
+/**
+ * Refresh one installation's last-used stamp. The write is conditional on the
+ * stamp being absent or older than the touch interval, so steady traffic
+ * costs one cheap update per interval instead of one per request.
+ */
+export async function touchMcpConsentGrantLastUsed(
+	db: DbQueryClient,
+	key: McpConsentSelectionKey & { revision: string },
+	nowMs = Date.now(),
+) {
+	const cutoff = new Date(
+		nowMs - MCP_CONSENT_GRANT_TOUCH_INTERVAL_MS,
+	).toISOString();
+	await db
+		.update(mcpConsentGrants)
+		.set({ lastUsedAt: new Date(nowMs).toISOString() })
+		.where(
+			and(
+				grantKeyCondition(key),
+				eq(mcpConsentGrants.revision, key.revision),
+				or(
+					sql`${mcpConsentGrants.lastUsedAt} IS NULL`,
+					lt(mcpConsentGrants.lastUsedAt, cutoff),
+				),
+			),
+		);
+}
+
+/** Every live sign-in one person holds, newest first. */
+export async function listMcpConsentSignIns(
+	db: DbQueryClient,
+	descopeUserId: string,
+	input: { limit: number; offset: number },
+) {
+	return db
+		.select()
+		.from(mcpConsentGrants)
+		.where(
+			and(
+				eq(mcpConsentGrants.descopeUserId, descopeUserId),
+				grantLiveCondition(),
+			),
+		)
+		.orderBy(desc(mcpConsentGrants.createdAt), desc(mcpConsentGrants.revision))
+		.limit(input.limit)
+		.offset(input.offset);
+}
+
+/**
+ * Live sign-ins that select one Descope tenant, with the holder's member
+ * identity for the admin inventory. Bounded like the other inventories.
+ */
+export async function listMcpConsentSignInsForTenant(
+	db: DbQueryClient,
+	descopeTenantId: string,
+	input: { limit: number; offset: number },
+) {
+	const grants = mcpConsentGrants;
+	return db
+		.select({
+			descopeUserId: grants.descopeUserId,
+			mcpServerId: grants.mcpServerId,
+			clientId: grants.clientId,
+			appId: grants.appId,
+			revision: grants.revision,
+			clientName: grants.clientName,
+			device: grants.device,
+			selectedTenantIds: grants.selectedTenantIds,
+			approvedScopes: grants.approvedScopes,
+			createdAt: grants.createdAt,
+			lastUsedAt: grants.lastUsedAt,
+			memberEmail: organizationMembers.email,
+			memberName: organizationMembers.name,
+		})
+		.from(grants)
+		.innerJoin(
+			organizations,
+			eq(organizations.descopeTenantId, descopeTenantId),
+		)
+		.leftJoin(
+			organizationMembers,
+			and(
+				eq(organizationMembers.organizationId, organizations.id),
+				eq(organizationMembers.descopeUserId, grants.descopeUserId),
+			),
+		)
+		.where(
+			and(
+				sql`EXISTS (SELECT 1 FROM json_each(${grants.selectedTenantIds}) WHERE json_each.value = ${descopeTenantId})`,
+				grantLiveCondition(),
+			),
+		)
+		.orderBy(desc(grants.createdAt), desc(grants.revision))
+		.limit(input.limit)
+		.offset(input.offset);
 }
 
 export async function getMcpConsentSelection(
@@ -372,8 +525,8 @@ export async function getMcpConsentPending(
  * predecessor fence passes while the revision seen at staging is still the
  * latest decision or still an active grant, so concurrent installs of one
  * client can each activate; a revocation since staging removed every grant and
- * moved the fence, so a stale candidate cannot resurrect access. The oldest
- * grants beyond MAX_MCP_CONSENT_GRANTS_PER_CLIENT are pruned.
+ * moved the fence, so a stale candidate cannot resurrect access. Sign-ins idle
+ * past MCP_CONSENT_GRANT_IDLE_TTL_MS are deleted; live ones are never pruned.
  */
 export async function promoteMcpConsentPending(
 	db: DbQueryClient,
@@ -410,6 +563,8 @@ export async function promoteMcpConsentPending(
 					clientId: selections.clientId,
 					revision: selections.revision,
 					appId: selections.appId,
+					clientName: selections.clientName,
+					device: selections.device,
 					selectedTenantIds: selections.selectedTenantIds,
 					approvedScopes: selections.approvedScopes,
 					createdAt: selections.updatedAt,
@@ -461,6 +616,8 @@ export async function promoteMcpConsentPending(
 					mcpServerId: p.mcpServerId,
 					clientId: p.clientId,
 					appId: p.appId,
+					clientName: p.clientName,
+					device: p.device,
 					revision: p.revision,
 					status: sql<"active">`'active'`.as("status"),
 					selectedTenantIds: p.selectedTenantIds,
@@ -508,6 +665,8 @@ export async function promoteMcpConsentPending(
 			],
 			set: {
 				appId: sql`excluded.app_id`,
+				clientName: sql`excluded.client_name`,
+				device: sql`excluded.device`,
 				revision: sql`excluded.revision`,
 				status: sql`excluded.status`,
 				selectedTenantIds: sql`excluded.selected_tenant_ids`,
@@ -528,6 +687,8 @@ export async function promoteMcpConsentPending(
 					clientId: selections.clientId,
 					revision: selections.revision,
 					appId: selections.appId,
+					clientName: selections.clientName,
+					device: selections.device,
 					selectedTenantIds: selections.selectedTenantIds,
 					approvedScopes: selections.approvedScopes,
 					createdAt: sql<string>`${now}`.as("created_at"),
@@ -543,23 +704,10 @@ export async function promoteMcpConsentPending(
 				),
 		)
 		.onConflictDoNothing();
-	const prune = db
-		.delete(grants)
-		.where(
-			and(
-				grantKey,
-				notInArray(
-					grants.revision,
-					db
-						.select({ revision: grants.revision })
-						.from(grants)
-						.where(grantKey)
-						.orderBy(desc(grants.createdAt), desc(grants.revision))
-						.limit(MAX_MCP_CONSENT_GRANTS_PER_CLIENT),
-				),
-			),
-		);
-	const [, rows] = await db.batch([preserve, promote, grant, prune]);
+	// Sign-ins idle past the TTL are removed instead of pruned by count; an
+	// active installation keeps refreshing last_used_at so it never lapses.
+	const expire = db.delete(grants).where(and(grantKey, grantIdleCondition()));
+	const [, rows] = await db.batch([preserve, promote, grant, expire]);
 	return rows.length === 1;
 }
 
@@ -659,7 +807,10 @@ export async function listMcpConsentGrantClientsForTenant(
 		})
 		.from(mcpConsentGrants)
 		.where(
-			sql`EXISTS (SELECT 1 FROM json_each(${mcpConsentGrants.selectedTenantIds}) WHERE json_each.value = ${descopeTenantId})`,
+			and(
+				sql`EXISTS (SELECT 1 FROM json_each(${mcpConsentGrants.selectedTenantIds}) WHERE json_each.value = ${descopeTenantId})`,
+				grantLiveCondition(),
+			),
 		)
 		.groupBy(mcpConsentGrants.mcpServerId, mcpConsentGrants.clientId)
 		.orderBy(desc(sql`MAX(${mcpConsentGrants.createdAt})`))

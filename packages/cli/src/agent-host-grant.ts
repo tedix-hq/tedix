@@ -199,6 +199,7 @@ async function hostStores(
 	host: RemovableHost,
 	env: NodeJS.ProcessEnv,
 	activeOnly = false,
+	includeKeychain = true,
 ): Promise<Store[]> {
 	const root = homedir();
 	const data = env.XDG_DATA_HOME || join(root, ".local", "share");
@@ -224,7 +225,9 @@ async function hostStores(
 				)
 				.digest("hex")
 				.slice(0, 16);
-			const store = keychainStore("Codex MCP Credentials", `tedix|${hash}`);
+			const store = includeKeychain
+				? keychainStore("Codex MCP Credentials", `tedix|${hash}`)
+				: undefined;
 			if (store) stores.push(store);
 		}
 	} else if (host === "claude") {
@@ -235,7 +238,9 @@ async function hostStores(
 			const suffix = env.CLAUDE_CONFIG_DIR
 				? `-${createHash("sha256").update(env.CLAUDE_CONFIG_DIR).digest("hex").slice(0, 8)}`
 				: "";
-			const store = keychainStore(`Claude Code-credentials${suffix}`);
+			const store = includeKeychain
+				? keychainStore(`Claude Code-credentials${suffix}`)
+				: undefined;
 			if (store) stores.push(...namedStores(store, "mcpOAuth"));
 		}
 	} else if (host === "devin") {
@@ -355,6 +360,61 @@ export async function readAgentHostProfile(
 	} finally {
 		await client.close();
 	}
+}
+
+export type AgentHostGrantClaim = {
+	/** The grant revision this installation's token carries. */
+	revision: string;
+	/** The OAuth client id (`azp`); per-install for DCR, shared for CIMD. */
+	clientId: string;
+	/** Descope consent id (`dci`) when the token carries one. */
+	consentId: string;
+};
+
+function signInClaims(accessToken: string): AgentHostGrantClaim | undefined {
+	try {
+		const claims = JSON.parse(
+			Buffer.from(accessToken.split(".")[1]!, "base64url").toString(),
+		) as Record<string, unknown>;
+		const revision = claims.tedixConsentRevision;
+		if (typeof revision !== "string" || !revision) return;
+		const clientId = claims.azp;
+		const consentId = claims.dci;
+		return {
+			revision,
+			clientId: typeof clientId === "string" ? clientId : "",
+			consentId: typeof consentId === "string" ? consentId : "",
+		};
+	} catch {
+		return;
+	}
+}
+
+/**
+ * The Tedix sign-ins this Mac's agent host currently holds, read from the
+ * tokens it stores. `includeKeychain: false` reads only file and database
+ * stores, for callers that must never raise a Keychain prompt.
+ */
+export async function readAgentHostGrantClaims(
+	host: RemovableHost,
+	options: { env?: NodeJS.ProcessEnv; includeKeychain?: boolean } = {},
+): Promise<AgentHostGrantClaim[]> {
+	const stores = await hostStores(
+		host,
+		options.env ?? process.env,
+		false,
+		options.includeKeychain ?? true,
+	);
+	const claims = new Map<string, AgentHostGrantClaim>();
+	for (const store of stores) {
+		const found: Grant[] = [];
+		visit(store.read(), found);
+		for (const token of found) {
+			const claim = signInClaims(token.accessToken);
+			if (claim) claims.set(`${claim.clientId}:${claim.revision}`, claim);
+		}
+	}
+	return [...claims.values()];
 }
 
 /** Server confirmation precedes local cleanup, so a failed revoke remains retryable. */

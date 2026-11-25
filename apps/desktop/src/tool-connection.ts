@@ -92,6 +92,7 @@ export type AgentGrant = Pick<
 export function agentGrant(
 	id: string,
 	grants: McpAuthorization[],
+	clientIds?: readonly string[],
 ): AgentGrant | undefined {
 	const names: Record<string, RegExp> = {
 		claude: /^claude[ -]code$/i,
@@ -99,10 +100,18 @@ export function agentGrant(
 		devin: /^devin$/i,
 		opencode: /^opencode$/i,
 	};
-	const matches = grants.filter((grant) =>
+	const named = grants.filter((grant) =>
 		names[id]?.test(grant.clientName ?? ""),
 	);
-	return matches.length === 1 ? matches[0] : undefined;
+	// This Mac's stored token names its OAuth client id, so several installs of
+	// one agent stay distinguishable. When the local read cannot see this
+	// install (a Keychain-only store, a second app sign-in), keep the old
+	// unambiguous name match instead of reporting nothing.
+	if (clientIds?.length) {
+		const own = named.filter((grant) => clientIds.includes(grant.clientId));
+		if (own.length > 0) return own.length === 1 ? own[0] : undefined;
+	}
+	return named.length === 1 ? named[0] : undefined;
 }
 
 export function duplicateClaudeConnection(output: string): boolean {

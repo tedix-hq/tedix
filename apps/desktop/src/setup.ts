@@ -12,6 +12,7 @@ import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registrati
 import { app } from "electron";
 import {
 	ListMcpAuthorizationsResultSchema,
+	ListMcpSignInsResultSchema,
 	type McpAuthorization,
 } from "@tedix/api-contract/schemas/mcp-grant";
 import { type CliState, manageCli, readCli, restoreCli } from "./cli";
@@ -495,6 +496,9 @@ type Verified = Partial<Record<Harness, VerifiedConnection>>;
 let verified: Verified | undefined;
 let serverGrants: McpAuthorization[] | undefined;
 let grantIdentity = "";
+/** This Mac's own sign-in claims per agent host, from `setup agents --sign-ins`. */
+type LocalSignIn = { revision: string; clientId: string; consentId: string };
+let localSignIns: Record<string, LocalSignIn[]> = {};
 // The connection may change outside this app. Never persist its account identity.
 const checkedAccounts: Partial<
 	Record<Harness, VerifiedConnection & { account: string }>
@@ -897,12 +901,123 @@ async function readAgentStatusNow(): Promise<void> {
 	changed();
 }
 
+/** This Mac's stored sign-in claims for one host, or every host when unset. */
+async function readLocalSignIns(
+	filesOnly: boolean,
+	host?: string,
+): Promise<Record<string, LocalSignIn[]>> {
+	if (!findTedix()) return {};
+	const result = await tedix(
+		[
+			"-w",
+			"connect",
+			"setup",
+			"agents",
+			"--sign-ins",
+			"--json",
+			...(filesOnly ? ["--files-only"] : []),
+			...(host ? [`--${host}`] : []),
+		],
+		{ timeoutMs: 30_000 },
+	);
+	if (!result.ok) return {};
+	try {
+		const parsed = JSON.parse(result.output) as {
+			hosts?: { host: string; signIns?: LocalSignIn[] }[];
+		};
+		return Object.fromEntries(
+			(parsed.hosts ?? []).map((entry) => [entry.host, entry.signIns ?? []]),
+		);
+	} catch {
+		return {};
+	}
+}
+
+/** Finds the Connect code-mode callable for one reviewed endpoint. */
+async function connectCallable(
+	query: string,
+	sourceRef: string,
+): Promise<string | undefined> {
+	const org = organization();
+	if (!org) return;
+	const discovery = await tedix(
+		[
+			"-w",
+			"connect",
+			"--organization",
+			org,
+			"code",
+			`async () => await discover.search({query: ${JSON.stringify(query)}, limit: 5, includeMetadata: true})`,
+			"--json",
+		],
+		{ timeoutMs: 30_000 },
+	);
+	if (!discovery.ok) return;
+	const listed = JSON.parse(discovery.output);
+	const rows = Array.isArray(listed) ? listed : listed.results;
+	const tool = rows?.find(
+		(row: { authorized?: boolean; schemaFreshness?: { sourceRef?: string } }) =>
+			row.authorized === true && row.schemaFreshness?.sourceRef === sourceRef,
+	);
+	if (!tool || !/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*$/.test(tool.callable))
+		return;
+	return tool.callable;
+}
+
+async function callConnect(callable: string, input: unknown): Promise<unknown> {
+	const org = organization();
+	if (!org) return;
+	const source = `async () => await ${callable}(${JSON.stringify(input)})`;
+	const result = await tedix(
+		["-w", "connect", "--organization", org, "code", source, "--json"],
+		{ timeoutMs: 30_000 },
+	);
+	if (!result.ok) return;
+	return JSON.parse(result.output);
+}
+
+/**
+ * Ends the sign-ins a fresh Connect replaced: claims this host held before
+ * sign-in whose revision the new token no longer carries.
+ */
+async function revokeReplacedSignIns(claims: LocalSignIn[]): Promise<number> {
+	const [listCallable, revokeCallable] = await Promise.all([
+		connectCallable("list_mcp_sign_ins", "organizations/listMcpSignIns"),
+		connectCallable("revoke_mcp_sign_in", "organizations/revokeMcpSignIn"),
+	]);
+	if (!listCallable || !revokeCallable) return 0;
+	const listed = ListMcpSignInsResultSchema.parse(
+		await callConnect(listCallable, { limit: 100, offset: 0 }),
+	);
+	let revoked = 0;
+	for (const claim of claims) {
+		const item = listed.items.find(
+			(row) =>
+				row.clientId === claim.clientId && row.revision === claim.revision,
+		);
+		if (!item) continue;
+		try {
+			await callConnect(revokeCallable, {
+				mcpServerId: item.mcpServerId,
+				clientId: item.clientId,
+				revision: item.revision,
+			});
+			revoked += 1;
+		} catch {
+			/* A failed revoke leaves the old sign-in to expire on its own. */
+		}
+	}
+	return revoked;
+}
+
 /** Reads the person's grants through Connect; never starts an agent or a model. */
 async function readConnectionGrants(): Promise<void> {
 	serverGrants = undefined;
+	localSignIns = {};
 	const org = organization();
 	const identity = `${loginIdentity}:${org}`;
 	if (!signedIn || !org) return;
+	const local = await readLocalSignIns(true);
 	try {
 		const discovery = await tedix(
 			[
@@ -942,6 +1057,7 @@ async function readConnectionGrants(): Promise<void> {
 		if (identity === `${loginIdentity}:${organization()}` && !data.hasMore) {
 			serverGrants = data.items;
 			grantIdentity = identity;
+			localSignIns = local;
 		}
 	} catch {
 		// A failed background read must not report a cached grant as current.
@@ -1168,6 +1284,9 @@ function toolRows(): ToolRow[] {
 						grant.status === "revoked" ||
 						grant.selectedTenantIds.includes(organization()),
 				),
+				(localSignIns[tool.id] ?? [])
+					.map((claim) => claim.clientId)
+					.filter(Boolean),
 			);
 		return row;
 	});
@@ -1798,6 +1917,9 @@ export async function setupAction(
 					return "OpenCode is already signed in to Tedix.";
 			}
 			say("Finish signing in in your browser…");
+			// Remember this install's sign-ins so a fresh one can replace them.
+			const priorSignIns =
+				(await readLocalSignIns(false, tool.id))[tool.id] ?? [];
 			// Claude Code refuses to sign in without a terminal. On a Mac,
 			// `script` gives it one; the sign-in itself happens in the browser.
 			const [file, args] =
@@ -1819,6 +1941,17 @@ export async function setupAction(
 				throw new Error(
 					`Tedix sign-in did not finish in ${source}. Choose Connect to try again.`,
 				);
+			// Connect replaces this Mac's grant: end the revisions the new
+			// token no longer carries and leave every other sign-in alone.
+			const kept = new Set(
+				((await readLocalSignIns(false, tool.id))[tool.id] ?? []).map(
+					(claim) => claim.revision,
+				),
+			);
+			const replaced = priorSignIns.filter(
+				(claim) => claim.revision && !kept.has(claim.revision),
+			);
+			if (replaced.length) await revokeReplacedSignIns(replaced).catch(() => 0);
 			return `Signed in to Tedix from ${toolName}.`;
 		});
 		if (steps[key]?.done) await verify();

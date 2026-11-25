@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { REMOVABLE_HOSTS, removeTedix } from "./agent-host-remove";
 import {
+	readAgentHostGrantClaims,
 	readAgentHostProfile,
 	revokeAgentHostGrants,
 } from "./agent-host-grant";
@@ -76,6 +77,8 @@ Usage:
   tedix setup agents --opencode --verify Read the profile with OpenCode's Tedix sign-in
   tedix setup agents --update        Preview and refresh installed host plugins
   tedix setup agents --dry-run       Show planned host commands without installing
+  tedix setup agents --sign-ins --json Print this Mac's Tedix sign-ins per agent
+                                     (--files-only skips the Keychain)
   tedix setup agents --remove --codex Remove Tedix from one agent (also --claude,
                                      --devin, --opencode) so it can be connected fresh
 
@@ -816,6 +819,38 @@ export async function runAgentHostSetup(
 				? `${host}: ${done.join("; ")}. Connect it again with tedix setup agents --${host}.`
 				: `${host}: Tedix was not set up there; nothing to remove.`,
 		);
+		return 0;
+	}
+	if (args.includes("--sign-ins")) {
+		const allowed = new Set([
+			"--sign-ins",
+			"--json",
+			"--files-only",
+			"--codex",
+			"--claude",
+			"--devin",
+			"--opencode",
+		]);
+		if (
+			args.some((arg) => !allowed.has(arg)) ||
+			new Set(args).size !== args.length ||
+			!args.includes("--json")
+		)
+			throw new Error(
+				"Use --sign-ins --json with optional host selectors and --files-only.",
+			);
+		const includeKeychain = !args.includes("--files-only");
+		const hosts = REMOVABLE_HOSTS.filter((host) => args.includes(`--${host}`));
+		const selected = hosts.length ? hosts : [...REMOVABLE_HOSTS];
+		const result = await Promise.all(
+			selected.map(async (host) => ({
+				host,
+				signIns: await readAgentHostGrantClaims(host, {
+					includeKeychain,
+				}).catch(() => []),
+			})),
+		);
+		console.log(JSON.stringify({ hosts: result }, null, 2));
 		return 0;
 	}
 	if (args.includes("--verify")) {

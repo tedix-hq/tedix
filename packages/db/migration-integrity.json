@@ -2076,6 +2076,10 @@
 		{
 			"name": "20261125232346_child_delegation_live_parent/migration.sql",
 			"sha256": "46a18b63427dd59593f6ccb9c4e04631047906df2cb57decd20246c6f485f72a"
+		},
+		{
+			"name": "20261126002804_mcp-consent-sign-in-labels/migration.sql",
+			"sha256": "e226f1ec9892d994c9109e643e1f9f9783ce74dc04ed078a656d46e6d08b6164"
 		}
 	]
 }

@@ -24,9 +24,88 @@ import { normalizeConsentPermissions } from "@/shared/consent-permissions";
 type McpAuthorization = Awaited<
 	ReturnType<typeof osApi.organizations.listMcpAuthorizations>
 >["items"][number];
+type McpSignIn = Awaited<
+	ReturnType<typeof osApi.organizations.listMcpSignIns>
+>["items"][number];
 
 const accountQuery = createTanstackQueryUtils(osApi);
 const PAGE_SIZE = 20;
+
+function signInDeviceLabel(device: string | null) {
+	switch (device) {
+		case "app":
+			return "App";
+		case "browser":
+			return "Browser";
+		default:
+			return "Unknown device";
+	}
+}
+
+function formatSignInDate(value: string | null) {
+	if (!value) return "Never";
+	const date = new Date(value);
+	return Number.isNaN(date.getTime())
+		? value
+		: date.toLocaleDateString(undefined, {
+				year: "numeric",
+				month: "short",
+				day: "numeric",
+			});
+}
+
+export function McpSignInCard({
+	item,
+	onRevoke,
+	pending,
+	organizationNames = {},
+}: {
+	item: McpSignIn;
+	onRevoke: () => void;
+	pending: boolean;
+	organizationNames?: Record<string, string>;
+}) {
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>{item.clientName ?? "Unnamed agent"}</CardTitle>
+				<Text>
+					{signInDeviceLabel(item.device)} ·{" "}
+					{item.serverSlug ?? item.mcpServerId}
+				</Text>
+			</CardHeader>
+			<CardContent className="grid gap-3">
+				<Text>
+					Organizations:{" "}
+					{item.selectedTenantIds
+						.map((id) => organizationNames[id] ?? id)
+						.join(", ") || "None"}
+				</Text>
+				<Text>
+					Created {formatSignInDate(item.createdAt)} · Last used{" "}
+					{formatSignInDate(item.lastUsedAt)}
+				</Text>
+				<Collapsible>
+					<CollapsibleTrigger className="group/disclosure">
+						<CaretRight
+							size={14}
+							aria-hidden
+							className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+						/>
+						Sign-in details
+					</CollapsibleTrigger>
+					<CollapsibleContent keepMounted>
+						<Text className="break-all">Application ID: {item.clientId}</Text>
+						<Text className="break-all">MCP resource: {item.mcpServerId}</Text>
+					</CollapsibleContent>
+				</Collapsible>
+				<Button variant="secondary" disabled={pending} onClick={onRevoke}>
+					End this sign-in
+				</Button>
+			</CardContent>
+		</Card>
+	);
+}
 export function authorizationStatus(item: McpAuthorization): string {
 	if (item.status === "revoked") return "Access disabled";
 	switch (item.providerStatus) {
@@ -127,6 +206,32 @@ export function McpAuthorizationsPage() {
 		onError: () =>
 			setError("Could not disable access. Refresh this list and try again."),
 	});
+	const signInsQuery = useQuery(
+		accountQuery.organizations.listMcpSignIns.queryOptions({
+			input: { limit: 100, offset: 0 },
+		}),
+	);
+	const revokeSignIn = useMutation({
+		mutationFn: (item: McpSignIn) =>
+			osApi.organizations.revokeMcpSignIn({
+				mcpServerId: item.mcpServerId,
+				clientId: item.clientId,
+				revision: item.revision,
+			}),
+		onSuccess: async () => {
+			setError(null);
+			await Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: accountQuery.organizations.listMcpSignIns.key(),
+				}),
+				queryClient.invalidateQueries({
+					queryKey: accountQuery.organizations.listMcpAuthorizations.key(),
+				}),
+			]);
+		},
+		onError: () =>
+			setError("Could not end that sign-in. Refresh this list and try again."),
+	});
 	return (
 		<main className="mx-auto grid max-w-170 gap-4 p-6">
 			<Button render={<a href="/account/organizations" />} variant="ghost">
@@ -171,6 +276,41 @@ export function McpAuthorizationsPage() {
 				<Text tone="error">Could not load your applications.</Text>
 			) : null}
 			{error ? <Text tone="error">{error}</Text> : null}
+			<Card>
+				<CardHeader>
+					<CardTitle>Your sign-ins</CardTitle>
+				</CardHeader>
+				<CardContent className="grid gap-3">
+					<Text>
+						Each sign-in is one installation of an agent. Ending one stops only
+						that installation; your other sign-ins keep working. Sign-ins unused
+						for about 90 days end on their own.
+					</Text>
+					{signInsQuery.data?.capWarning ? (
+						<Text tone="secondary">
+							One agent has many sign-ins. End the ones you no longer use.
+						</Text>
+					) : null}
+					{signInsQuery.isPending ? (
+						<LoadingArea label="Loading sign-ins" />
+					) : null}
+					{signInsQuery.isError ? (
+						<Text tone="error">Could not load your sign-ins.</Text>
+					) : null}
+					{signInsQuery.data?.items.length === 0 ? (
+						<Text>No sign-ins yet.</Text>
+					) : null}
+					{signInsQuery.data?.items.map((item) => (
+						<McpSignInCard
+							key={`${item.mcpServerId}:${item.clientId}:${item.revision}`}
+							item={item}
+							organizationNames={organizationNames}
+							pending={revokeSignIn.isPending}
+							onRevoke={() => revokeSignIn.mutate(item)}
+						/>
+					))}
+				</CardContent>
+			</Card>
 			{query.data?.items.length === 0 ? (
 				<Text>No applications have requested access yet.</Text>
 			) : null}

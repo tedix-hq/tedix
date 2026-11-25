@@ -27,6 +27,12 @@ import {
 	ListInboundClientInventoryResultSchema,
 	ListMcpAuthorizationsInputSchema,
 	ListMcpAuthorizationsResultSchema,
+	ListMcpSignInsInputSchema,
+	ListMcpSignInsResultSchema,
+	ListOrganizationMcpSignInsInputSchema,
+	ListOrganizationMcpSignInsResultSchema,
+	RevokeMcpSignInInputSchema,
+	RevokeOrganizationMcpSignInInputSchema,
 	DisableMcpAuthorizationInputSchema,
 	HumanMcpConsentRevisionSchema,
 	HumanMcpConsentOptionsSchema,
@@ -134,6 +140,42 @@ export const organizationsContract = oc
 				summary: "Disable your human MCP access for one resource and client",
 			})
 			.input(DisableMcpAuthorizationInputSchema)
+			.output(HumanMcpConsentRevisionSchema),
+		listMcpSignIns: oc
+			.route({ method: "GET" })
+			.route({
+				summary: "List your Tedix sign-ins",
+				description:
+					"Every live Connect grant revision you hold, labeled with agent, device, organizations, creation and last use.",
+			})
+			.input(ListMcpSignInsInputSchema)
+			.output(ListMcpSignInsResultSchema),
+		revokeMcpSignIn: oc
+			.route({ method: "POST" })
+			.route({
+				summary: "Revoke one of your Tedix sign-ins",
+				description:
+					"Ends exactly one grant revision; your other sign-ins for the same agent client keep working.",
+			})
+			.input(RevokeMcpSignInInputSchema)
+			.output(HumanMcpConsentRevisionSchema),
+		listOrganizationMcpSignIns: oc
+			.route({ method: "GET" })
+			.route({
+				summary: "List member Tedix sign-ins for an organization",
+				description:
+					"Admin or owner read of every live sign-in whose organizations include this one, grouped by member.",
+			})
+			.input(ListOrganizationMcpSignInsInputSchema)
+			.output(ListOrganizationMcpSignInsResultSchema),
+		revokeOrganizationMcpSignIn: oc
+			.route({ method: "POST" })
+			.route({
+				summary: "Revoke one member Tedix sign-in for an organization",
+				description:
+					"Admin or owner ends exactly one grant revision held by a member of this organization.",
+			})
+			.input(RevokeOrganizationMcpSignInInputSchema)
 			.output(HumanMcpConsentRevisionSchema),
 		stageMultiOrgMcpConsent: oc
 			.route({ method: "POST" })

@@ -209,3 +209,70 @@ export const DisableMcpAuthorizationInputSchema = z.strictObject({
 	expectedRevision: z.uuid(),
 });
 export type McpAuthorization = z.infer<typeof McpAuthorizationSchema>;
+
+/**
+ * One live Tedix sign-in: a single grant revision an agent installation holds.
+ * Labels come from what Tedix recorded at consent time; harnesses send nothing.
+ */
+export const McpSignInSchema = z.strictObject({
+	mcpServerId: z.string(),
+	/** The MCP server's app slug when it resolves to exactly one app. */
+	serverSlug: z.string().nullable(),
+	clientId: z.string(),
+	appId: z.string(),
+	revision: z.string(),
+	clientName: z.string().nullable(),
+	/** Where the sign-in lives, e.g. "browser" or "app"; null when unknown. */
+	device: z.string().nullable(),
+	selectedTenantIds: z.array(z.string()),
+	approvedScopes: z.array(z.string()),
+	createdAt: z.string(),
+	/** Most recent verified use; null until the first refresh after labeling. */
+	lastUsedAt: z.string().nullable(),
+});
+export type McpSignIn = z.infer<typeof McpSignInSchema>;
+
+export const ListMcpSignInsInputSchema = z.strictObject({
+	limit: z.number().int().min(1).max(100).default(50),
+	offset: z.number().int().min(0).max(10000).default(0),
+});
+export const ListMcpSignInsResultSchema = z.strictObject({
+	items: z.array(McpSignInSchema),
+	hasMore: z.boolean(),
+	/** True when one agent client already holds the per-client sign-in cap. */
+	capWarning: z.boolean(),
+});
+export type ListMcpSignInsResult = z.infer<typeof ListMcpSignInsResultSchema>;
+
+export const RevokeMcpSignInInputSchema = z.strictObject({
+	mcpServerId: z.string().min(1).max(256),
+	clientId: z.string().min(1).max(2048),
+	revision: z.string().min(1).max(128),
+});
+
+/** One member's sign-in as an organization admin sees it. */
+export const OrganizationMcpSignInSchema = McpSignInSchema.extend({
+	descopeUserId: z.string(),
+	memberEmail: z.string().nullable(),
+	memberName: z.string().nullable(),
+});
+export type OrganizationMcpSignIn = z.infer<typeof OrganizationMcpSignInSchema>;
+
+export const ListOrganizationMcpSignInsInputSchema = z.strictObject({
+	organizationId: z.string().min(1).max(128),
+	limit: z.number().int().min(1).max(100).default(100),
+	offset: z.number().int().min(0).max(10000).default(0),
+});
+export const ListOrganizationMcpSignInsResultSchema = z.strictObject({
+	items: z.array(OrganizationMcpSignInSchema),
+	hasMore: z.boolean(),
+});
+export type ListOrganizationMcpSignInsResult = z.infer<
+	typeof ListOrganizationMcpSignInsResultSchema
+>;
+
+export const RevokeOrganizationMcpSignInInputSchema =
+	RevokeMcpSignInInputSchema.extend({
+		organizationId: z.string().min(1).max(128),
+		descopeUserId: z.string().min(1).max(256),
+	});

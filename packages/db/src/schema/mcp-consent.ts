@@ -21,6 +21,8 @@ export const mcpConsentSelections = sqliteTable(
 		mcpServerId: text("mcp_server_id").notNull(),
 		clientId: text("client_id").notNull(),
 		appId: text("app_id").notNull(),
+		clientName: text("client_name"),
+		device: text("device"),
 		revision: text("revision").notNull(),
 		status: text("status", { enum: ["active", "revoked"] }).notNull(),
 		selectedTenantIds: text("selected_tenant_ids", { mode: "json" })
@@ -61,6 +63,8 @@ export const mcpConsentGrants = sqliteTable(
 		clientId: text("client_id").notNull(),
 		revision: text("revision").notNull(),
 		appId: text("app_id").notNull(),
+		clientName: text("client_name"),
+		device: text("device"),
 		selectedTenantIds: text("selected_tenant_ids", { mode: "json" })
 			.$type<string[]>()
 			.notNull(),
@@ -70,6 +74,7 @@ export const mcpConsentGrants = sqliteTable(
 		createdAt: text("created_at")
 			.notNull()
 			.default(sql`(CURRENT_TIMESTAMP)`),
+		lastUsedAt: text("last_used_at"),
 	},
 	(table) => [
 		primaryKey({
@@ -92,6 +97,8 @@ export const mcpConsentPending = sqliteTable(
 		mcpServerId: text("mcp_server_id").notNull(),
 		clientId: text("client_id").notNull(),
 		appId: text("app_id").notNull(),
+		clientName: text("client_name"),
+		device: text("device"),
 		revision: text("revision").notNull(),
 		expectedActiveRevision: text("expected_active_revision"),
 		selectedTenantIds: text("selected_tenant_ids", { mode: "json" })

@@ -31,7 +31,13 @@ import {
 	stageMcpConsentPending,
 	promoteMcpConsentPending,
 	replaceMcpConsentSelection,
+	listMcpConsentSignIns,
+	listMcpConsentSignInsForTenant,
+	revokeMcpConsentGrant,
+	touchMcpConsentGrantLastUsed,
+	MAX_MCP_CONSENT_GRANTS_PER_CLIENT,
 } from "@tedix/db/queries/mcp-consent";
+import type { McpConsentGrantRow } from "@tedix/db/schema/mcp-consent";
 import {
 	evaluateInboundClientPolicy,
 	parseStoredInboundClientPolicy,
@@ -142,6 +148,30 @@ async function registeredResourceScopes(
 	return names.length ? new Set(names) : null;
 }
 
+/**
+ * Where a sign-in lives, derived from the client's approved callbacks: a
+ * loopback redirect means a native app on this machine; anything else is a
+ * browser-hosted agent. Unknown stays null rather than guessed.
+ */
+function signInDevice(client: Record<string, unknown>): string | null {
+	const urls = [
+		client.approvedCallbackUrls,
+		client.redirectUris,
+		client.redirect_uris,
+	].find((value): value is unknown[] => Array.isArray(value));
+	if (!urls) return null;
+	const callbacks = urls.filter(
+		(url): url is string => typeof url === "string" && URL.canParse(url),
+	);
+	if (callbacks.length === 0) return null;
+	return callbacks.some((url) => {
+		const host = new URL(url).hostname;
+		return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+	})
+		? "app"
+		: "browser";
+}
+
 async function verifiedHumanClient(
 	db: DbClient,
 	env: CloudflareEnv,
@@ -151,6 +181,7 @@ async function verifiedHumanClient(
 	appId: string;
 	clientId: string;
 	clientName: string | null;
+	device: string | null;
 	mcpServerId: string;
 	supportedScopes: Set<string>;
 	resource: NonNullable<Awaited<ReturnType<typeof getMcpConsentResource>>>;
@@ -191,6 +222,7 @@ async function verifiedHumanClient(
 		appId: matches[0]!.id,
 		clientId: (matches[0]!.clientId ?? matches[0]!.client_id)!,
 		clientName: matches[0]!.name ?? null,
+		device: signInDevice(matches[0]!),
 		mcpServerId,
 		supportedScopes,
 	};
@@ -355,6 +387,8 @@ export async function stageHumanMcpConsent(
 	await stageMcpConsentPending(db, {
 		...key,
 		appId: registered.appId,
+		clientName: registered.clientName,
+		device: registered.device,
 		revision,
 		expectedActiveRevision: current?.revision ?? null,
 		selectedTenantIds: [...input.selectedTenantIds].sort(),
@@ -925,6 +959,9 @@ async function judgeLedger(
 		return deny("provider_unavailable");
 	}
 	mark("finalize");
+	// Every verified call refreshes the installation's last-used stamp; the
+	// write is throttled inside the query so steady traffic stays cheap.
+	await touchMcpConsentGrantLastUsed(db, grantKey).catch(() => {});
 	return {
 		allowed: true,
 		reason: "active",
@@ -1097,4 +1134,167 @@ export async function disableHumanMcpAuthorization(
 		clientId: input.clientId,
 	});
 	return row?.revision ?? null;
+}
+
+/** SQLite CURRENT_TIMESTAMP rows read back without a zone; report ISO. */
+function isoTimestamp(value: string | null | undefined): string | null {
+	if (!value) return null;
+	if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(value)) {
+		const parsed = new Date(`${value.replace(" ", "T")}Z`);
+		return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+	}
+	return value;
+}
+
+type SignInRow = Pick<
+	McpConsentGrantRow,
+	| "mcpServerId"
+	| "clientId"
+	| "appId"
+	| "revision"
+	| "clientName"
+	| "device"
+	| "selectedTenantIds"
+	| "approvedScopes"
+	| "createdAt"
+	| "lastUsedAt"
+>;
+
+function toSignIn(row: SignInRow, serverSlug: string | null) {
+	return {
+		mcpServerId: row.mcpServerId,
+		serverSlug,
+		clientId: row.clientId,
+		appId: row.appId,
+		revision: row.revision,
+		clientName: row.clientName,
+		device: row.device,
+		selectedTenantIds: row.selectedTenantIds,
+		approvedScopes: row.approvedScopes,
+		createdAt: isoTimestamp(row.createdAt) ?? row.createdAt,
+		lastUsedAt: isoTimestamp(row.lastUsedAt),
+	};
+}
+
+/** Resolve each distinct MCP server once per listing. */
+async function signInServerSlugs(
+	db: DbClient,
+	mcpServerIds: string[],
+): Promise<Map<string, string | null>> {
+	const slugs = new Map<string, string | null>();
+	await Promise.all(
+		[...new Set(mcpServerIds)].map(async (id) => {
+			const resource = await getMcpConsentResource(db, { mcpServerId: id });
+			slugs.set(id, resource?.slug ?? null);
+		}),
+	);
+	return slugs;
+}
+
+function signInCapWarning(rows: McpConsentGrantRow[]): boolean {
+	const counts = new Map<string, number>();
+	for (const row of rows) {
+		const key = JSON.stringify([row.mcpServerId, row.clientId]);
+		counts.set(key, (counts.get(key) ?? 0) + 1);
+	}
+	return [...counts.values()].some(
+		(count) => count >= MAX_MCP_CONSENT_GRANTS_PER_CLIENT,
+	);
+}
+
+/** Every live sign-in one person holds, labeled for Settings -> Connections. */
+export async function listHumanMcpSignIns(
+	db: DbClient,
+	descopeUserId: string,
+	input: { limit: number; offset: number },
+) {
+	const rows = await listMcpConsentSignIns(db, descopeUserId, {
+		limit: input.limit + 1,
+		offset: input.offset,
+	});
+	const page = rows.slice(0, input.limit);
+	const slugs = await signInServerSlugs(
+		db,
+		page.map((row) => row.mcpServerId),
+	);
+	return {
+		items: page.map((row) => toSignIn(row, slugs.get(row.mcpServerId) ?? null)),
+		hasMore: rows.length > input.limit,
+		capWarning: signInCapWarning(rows),
+	};
+}
+
+/**
+ * End exactly one installation's sign-in. Other revisions of the same agent
+ * client keep their grants; only a revoked selection's own fence moves.
+ */
+export async function revokeHumanMcpSignIn(
+	db: DbClient,
+	env: CloudflareEnv,
+	descopeUserId: string,
+	input: { mcpServerId: string; clientId: string; revision: string },
+): Promise<string | null> {
+	const key = { descopeUserId, ...input };
+	const grant = await getMcpConsentGrant(db, key);
+	if (!grant) return null;
+	await revokeMcpConsentGrant(db, key);
+	forgetHumanMcpProviderFacts({
+		descopeUserId,
+		mcpServerId: input.mcpServerId,
+		clientId: input.clientId,
+	});
+	return input.revision;
+}
+
+/** Live sign-ins whose organizations include this one, with member identity. */
+export async function listOrganizationMcpSignIns(
+	db: DbClient,
+	organization: { descopeTenantId: string | null },
+	input: { limit: number; offset: number },
+) {
+	if (!organization.descopeTenantId) return { items: [], hasMore: false };
+	const rows = await listMcpConsentSignInsForTenant(
+		db,
+		organization.descopeTenantId,
+		{ limit: input.limit + 1, offset: input.offset },
+	);
+	const page = rows.slice(0, input.limit);
+	const slugs = await signInServerSlugs(
+		db,
+		page.map((row) => row.mcpServerId),
+	);
+	return {
+		items: page.map((row) => ({
+			...toSignIn(row, slugs.get(row.mcpServerId) ?? null),
+			descopeUserId: row.descopeUserId,
+			memberEmail: row.memberEmail,
+			memberName: row.memberName,
+		})),
+		hasMore: rows.length > input.limit,
+	};
+}
+
+/**
+ * An admin ends one member sign-in, but only while that grant still selects
+ * this organization's tenant. The member's other sign-ins are untouched.
+ */
+export async function revokeOrganizationMcpSignIn(
+	db: DbClient,
+	env: CloudflareEnv,
+	organization: { descopeTenantId: string | null },
+	descopeUserId: string,
+	input: { mcpServerId: string; clientId: string; revision: string },
+): Promise<string | null> {
+	if (!organization.descopeTenantId) return null;
+	const key = { descopeUserId, ...input };
+	const grant = await getMcpConsentGrant(db, key);
+	if (!grant || !grant.selectedTenantIds.includes(organization.descopeTenantId))
+		return null;
+	await revokeMcpConsentGrant(db, key);
+	forgetHumanMcpProviderFacts({
+		descopeUserId,
+		mcpServerId: input.mcpServerId,
+		clientId: input.clientId,
+	});
+	return input.revision;
 }

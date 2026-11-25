@@ -1250,6 +1250,12 @@ export const organizationInboundClientsQueryOptions = (
 		input: { organizationId },
 	});
 
+/** Live Tedix sign-ins held by this organization's members. */
+export const organizationSignInsQueryOptions = (organizationId: string) =>
+	osQuery.organizations.listOrganizationMcpSignIns.queryOptions({
+		input: { organizationId, limit: 100, offset: 0 },
+	});
+
 export const organizationFeaturesQueryOptions = (organizationId: string) =>
 	osQuery.organizations.getFeatures.queryOptions({
 		input: { organizationId },
@@ -1690,6 +1696,8 @@ export const osQueryKeys = {
 		osQuery.organizations.getFeatures.key({ type: "query" }),
 	organizationInboundClients: () =>
 		osQuery.organizations.listInboundClientInventory.key({ type: "query" }),
+	organizationSignIns: () =>
+		osQuery.organizations.listOrganizationMcpSignIns.key({ type: "query" }),
 	organizationSsoStatus: () =>
 		osQuery.organizations.getSsoStatus.key({ type: "query" }),
 	organizationsOsMine: () =>
