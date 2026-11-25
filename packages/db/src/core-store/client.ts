@@ -1,10 +1,12 @@
-import { getTableName, type SQL } from "drizzle-orm";
+import { getTableName, sql, type SQLWrapper } from "drizzle-orm";
+import type { PgDialect } from "drizzle-orm/pg-core";
+import { QueryPromise } from "drizzle-orm/query-promise";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { relations } from "../schema-pg/relations";
 import postgres from "postgres";
 import { createDbClient, type DbClient } from "../client";
 import * as schema from "../schema-pg/core";
-import { postgresBatch, type RunAtomicBatch } from "./batch";
+import { postgresBatch, type BatchResult, type RunAtomicBatch } from "./batch";
 import { registerCoreStore } from "./dialect";
 
 export interface CoreStoreEnv {
@@ -39,35 +41,75 @@ export function adaptPostgresClient(
 	native: object,
 	run: RunAtomicBatch,
 ): DbClient {
-	const execute = (
-		native as {
-			execute(
-				query: SQL,
-			): Promise<
-				Record<string, unknown>[] | { rows: Record<string, unknown>[] }
-			>;
-		}
-	).execute.bind(native);
-	const all = async (query: SQL) => {
-		const result = await execute(query);
-		return Array.isArray(result) ? result : result.rows;
+	const dialect = (native as { dialect: PgDialect }).dialect;
+	const raw = (
+		query: SQLWrapper | string,
+		method: "run" | "all" | "get" | "values",
+		mode: "objects" | "arrays" = "objects",
+	) => {
+		const sequel = typeof query === "string" ? sql.raw(query) : query.getSQL();
+		const built = dialect.sqlToQuery(sequel);
+		const mapResult = (result: BatchResult) => {
+			const rows =
+				method === "values" || mode === "arrays"
+					? result.rows
+					: result.rows.map((row) =>
+							Object.fromEntries(
+								result.columns.map((name, i) => [name, row[i]]),
+							),
+						);
+			if (method === "run")
+				return {
+					success: true,
+					results: rows,
+					meta: { changes: result.count },
+				};
+			return method === "get" ? rows[0] : rows;
+		};
+		return new PostgresRaw(sequel, built, mapResult, run);
 	};
 	Object.assign(native, {
 		batch: postgresBatch(run),
-		all,
-		get: async (query: SQL) => (await all(query))[0],
-		values: async (query: SQL) => (await all(query)).map(Object.values),
-		run: async (query: SQL) => {
-			const result = await execute(query);
-			const count =
-				(result as { count?: number; affectedRows?: number }).count ??
-				(result as { affectedRows?: number }).affectedRows;
-			return { success: true, results: [], meta: { changes: count ?? 0 } };
-		},
+		all: (query: SQLWrapper | string, mode?: "objects" | "arrays") =>
+			raw(query, "all", mode),
+		get: (query: SQLWrapper | string, mode?: "objects" | "arrays") =>
+			raw(query, "get", mode),
+		values: (query: SQLWrapper | string) => raw(query, "values"),
+		run: (query: SQLWrapper | string) => raw(query, "run"),
 	});
 	pgClients.add(native);
 	registerCoreStore(native, "postgres");
 	return native as DbClient;
+}
+
+/** Awaiting executes a singleton batch; construction only compiles native Pg SQL. */
+class PostgresRaw<T> extends QueryPromise<T> {
+	constructor(
+		private readonly sequel: ReturnType<SQLWrapper["getSQL"]>,
+		private readonly query: { sql: string; params: unknown[] },
+		private readonly mapResult: (result: BatchResult) => T,
+		private readonly run: RunAtomicBatch,
+	) {
+		super();
+	}
+	getSQL() {
+		return this.sequel;
+	}
+	getQuery() {
+		return this.query;
+	}
+	_prepare() {
+		return {
+			getQuery: () => this.query,
+			mapResult: this.mapResult,
+			mode: "arrays",
+		};
+	}
+	async execute(): Promise<T> {
+		const [result] = await this.run([this.query]);
+		if (!result) throw new Error("Postgres raw result missing");
+		return this.mapResult(result);
+	}
 }
 export function createCoreStore(env: CoreStoreEnv): {
 	db: DbClient;
@@ -104,6 +146,7 @@ export function createCoreStore(env: CoreStoreEnv): {
 		return results.map((result) => ({
 			rows: result as unknown as unknown[][],
 			count: result.count,
+			columns: result.columns.map((column) => column.name),
 		}));
 	};
 	return { db: adaptPostgresClient(native, run), close: () => sql.end() };

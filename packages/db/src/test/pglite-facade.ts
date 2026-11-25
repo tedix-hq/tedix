@@ -20,6 +20,7 @@ export async function createPGliteFacade() {
 					results.push({
 						rows: result.rows as unknown[][],
 						count: result.affectedRows ?? result.rows.length,
+						columns: result.fields.map((field) => field.name),
 					});
 				}
 				return results;

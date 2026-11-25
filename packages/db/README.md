@@ -123,6 +123,15 @@ and one implicit transaction. Any failure rolls back the batch. Keep dependent
 writes together and construct their conditions in SQL. PGlite uses the same
 result mapper with an in-memory transaction; it does not measure network trips.
 
+Raw `db.run(statement)`, `all`, `get`, and `values` are lazy statements too:
+construct them without awaiting, then include them alongside builders in
+`db.batch([...])`. Awaiting a raw statement directly executes it as a singleton
+batch. Use bound `sql` parameters; the native Postgres dialect emits `$1`, `$2`,
+and so on. `all` returns object rows, `get` returns the first row or `undefined`,
+and `values` preserves SQL column order as arrays. `all` and `get` also accept
+`"arrays"` mode. `run` returns `success`, raw `RETURNING` rows in `results`, and
+`meta.changes`. SQLite SQL still needs the owning lane's dialect rewrite.
+
 Run `bun packages/db/scripts/generate-pg-schema.ts` from the repository root
 to regenerate `src/schema-pg/core.ts` from every canonical Drizzle schema input,
 including tables omitted from the runtime index. The generator parses the input

@@ -3,12 +3,14 @@ interface BatchQuery {
 	_prepare(): {
 		getQuery(): { sql: string; params: unknown[] };
 		mapper?: (rows: unknown[][]) => unknown;
+		mapResult?: (result: BatchResult) => unknown;
 		mode: string;
 	};
 }
 export interface BatchResult {
 	rows: unknown[][];
 	count: number;
+	columns: string[];
 }
 export type RunAtomicBatch = (
 	statements: readonly { sql: string; params: unknown[] }[],
@@ -22,6 +24,7 @@ export function postgresBatch(run: RunAtomicBatch) {
 			throw new Error("Postgres batch result count mismatch");
 		return results.map((result, index) => {
 			const query = prepared[index]!;
+			if (query.mapResult) return query.mapResult(result);
 			return query.mapper
 				? query.mapper(result.rows)
 				: { success: true, results: [], meta: { changes: result.count } };

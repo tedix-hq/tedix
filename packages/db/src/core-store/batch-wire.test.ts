@@ -88,30 +88,44 @@ it.skipIf(!connectionString)(
 			});
 			frontend.length = backend.length = 0;
 			const results = await db.batch([
-				db.insert(table).values(row("first")).returning({ id: table.objectId }),
+				db.all<{ id: string }>(sql`INSERT INTO ${table}
+					(org_id, kind, object_id, due_at)
+					VALUES (${"org"}, ${"approval-expiry"}, ${"first"}, ${"2026-11-25"})
+					RETURNING object_id AS id`),
 				db
 					.update(table)
 					.set({ dueAt: "2026-11-26" })
 					.where(eq(table.objectId, "first"))
 					.returning({ dueAt: table.dueAt }),
-				db.select({ id: table.objectId, dueAt: table.dueAt }).from(table),
+				db.all(sql`SELECT object_id AS id, due_at AS "dueAt" FROM ${table}`),
+				db.get(sql`SELECT object_id AS id FROM ${table}`),
+				db.values(sql`SELECT object_id AS "2", due_at AS "1" FROM ${table}`),
+				db.run(
+					sql`UPDATE ${table} SET due_at = ${"2026-11-26"} RETURNING object_id AS id`,
+				),
 			]);
 			expect(results).toEqual([
 				[{ id: "first" }],
 				[{ dueAt: "2026-11-26" }],
 				[{ id: "first", dueAt: "2026-11-26" }],
+				{ id: "first" },
+				[["first", "2026-11-26"]],
+				{ success: true, results: [{ id: "first" }], meta: { changes: 1 } },
 			]);
-			expect(frontend.filter((type) => type === "E")).toHaveLength(3);
+			expect(frontend.filter((type) => type === "E")).toHaveLength(6);
 			expect(frontend.filter((type) => type === "S")).toHaveLength(1);
 			expect(backend.filter((type) => type === "Z")).toHaveLength(1);
 			frontend.length = backend.length = 0;
 			await expect(
 				db.batch([
-					db.insert(table).values(row("rollback")),
+					db.run(sql`INSERT INTO ${table} (org_id, kind, object_id, due_at)
+						VALUES (${"org"}, ${"approval-expiry"}, ${"rollback"}, ${"2026-11-25"})`),
 					db.insert(table).values(row("first")),
-					db.insert(table).values(row("skipped")),
+					db.run(sql`INSERT INTO ${table} (org_id, kind, object_id, due_at)
+						VALUES (${"org"}, ${"approval-expiry"}, ${"skipped"}, ${"2026-11-25"})`),
 				]),
 			).rejects.toThrow();
+			expect(backend.filter((type) => type === "C")).toHaveLength(1);
 			expect(frontend.filter((type) => type === "S")).toHaveLength(1);
 			expect(backend.filter((type) => type === "Z")).toHaveLength(1);
 			expect(await db.select({ id: table.objectId }).from(table)).toEqual([

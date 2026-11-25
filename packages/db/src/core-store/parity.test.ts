@@ -279,6 +279,107 @@ INSERT INTO projects(id,org_id,key,name,created_at) VALUES ('project','org','TES
 				await db.select().from(comments).where(eq(comments.id, "rollback")),
 			).toEqual([]);
 		});
+		it("composes lazy raw statements and builders with ordered results and atomic rollback", async () => {
+			const table = coreTable(db, workDue);
+			const id = "raw'\\; -- $1 雪";
+			const insert = (objectId: string) => sql`INSERT INTO ${table}
+				(org_id, kind, object_id, due_at)
+				VALUES (${"org"}, ${"approval-expiry"}, ${objectId}, ${at})`;
+			const first = db.run(sql`${insert(id)} RETURNING object_id`);
+			const all = db.all<{ object_id: string }>(
+				sql`${insert("raw-all")} RETURNING object_id`,
+			);
+			const get = db.get<{ due_at: string }>(
+				sql`UPDATE ${table} SET due_at = ${"later"} WHERE object_id = ${id} RETURNING due_at`,
+			);
+			const values = db.values<[string, string]>(
+				sql`${insert("raw-values")} RETURNING object_id, due_at`,
+			);
+			// Give an accidentally eager implementation time to submit its writes.
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(
+				await db.all(
+					sql`SELECT object_id FROM ${table} WHERE object_id IN (${id}, ${"raw-all"}, ${"raw-values"})`,
+				),
+			).toEqual([]);
+			const results = await db.batch([
+				first,
+				db
+					.update(table)
+					.set({ dueAt: "builder" })
+					.where(eq(table.objectId, id))
+					.returning({ dueAt: table.dueAt }),
+				all,
+				get,
+				values,
+			]);
+			expect(results[0]).toMatchObject({
+				success: true,
+				results: [{ object_id: id }],
+			});
+			// The D1 facade omits write metadata for statements with RETURNING.
+			if (store === "postgres") expect(results[0].meta.changes).toBe(1);
+			expect(results.slice(1)).toEqual([
+				[{ dueAt: "builder" }],
+				[{ object_id: "raw-all" }],
+				{ due_at: "later" },
+				[["raw-values", at]],
+			]);
+			for (const rawFailure of [false, true]) {
+				await expect(
+					db.batch([
+						rawFailure
+							? db.insert(table).values({
+									orgId: "org",
+									kind: "approval-expiry",
+									objectId: "raw-rollback",
+									dueAt: at,
+								})
+							: db.run(insert("raw-rollback")),
+						rawFailure
+							? db.run(insert(id))
+							: db.insert(table).values({
+									orgId: "org",
+									kind: "approval-expiry",
+									objectId: id,
+									dueAt: at,
+								}),
+						db.run(insert("raw-skipped")),
+					]),
+				).rejects.toThrow();
+				expect(
+					await db.all(
+						sql`SELECT object_id FROM ${table} WHERE object_id IN (${"raw-rollback"}, ${"raw-skipped"})`,
+					),
+				).toEqual([]);
+			}
+			expect(
+				await db.get(
+					sql`SELECT object_id FROM ${table} WHERE object_id = ${"missing"}`,
+				),
+			).toBeUndefined();
+			expect(
+				await db.all<[string, string]>(
+					sql`SELECT object_id, due_at FROM ${table} WHERE object_id = ${id}`,
+					"arrays",
+				),
+			).toEqual([[id, "later"]]);
+			expect(
+				await db.get<[string]>(
+					sql`SELECT object_id FROM ${table} WHERE object_id = ${id}`,
+					"arrays",
+				),
+			).toEqual([id]);
+			// D1 batch rows pass through objects; Pg must retain native column order.
+			if (store === "postgres")
+				expect(
+					await db.batch([
+						db.values<[string, string]>(
+							sql`SELECT object_id AS "2", due_at AS "1" FROM ${table} WHERE object_id = ${id}`,
+						),
+					]),
+				).toEqual([[[id, "later"]]]);
+		});
 		it("round trips bound text, JSON updates and array punctuation without executing parameter text", async () => {
 			const comments = coreTable(db, workItemComments);
 			const value = "quote'\\; -- $1 /* nested */ 雪";
