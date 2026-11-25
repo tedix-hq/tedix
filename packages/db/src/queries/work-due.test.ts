@@ -147,7 +147,16 @@ it("backfills every timer kind, claims at its due time, and preserves writer cha
 		const lease = iso(300_000);
 		const claimed = await claimWorkDue(db, at, lease);
 		expect(claimed.map((r) => r.kind).sort()).toEqual(
-			[...WORK_DUE_KINDS].sort(),
+			WORK_DUE_KINDS.filter(
+				(kind) =>
+					![
+						"lane-stale",
+						"outbound-review",
+						"stale-delegation",
+						"uncontracted-child",
+						"repository-observer",
+					].includes(kind),
+			).sort(),
 		);
 		expect(await claimWorkDue(db, at, lease)).toEqual([]);
 		// Heartbeat moves the lease deadline; a finish for the old timer loses.

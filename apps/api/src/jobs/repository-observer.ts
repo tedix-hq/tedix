@@ -11,7 +11,10 @@ import {
 } from "../services/repository-observer";
 
 /** The bounded platform tick exposes missed diagnoses even when the owner turn failed. */
-export async function maintainRepositoryObservers(env: CloudflareEnv) {
+export async function maintainRepositoryObservers(
+	env: CloudflareEnv,
+	scope?: { orgId: string; ids: string[] },
+) {
 	const context = createContext(
 		new Request("https://api/internal/repository-observer"),
 		env,
@@ -43,12 +46,16 @@ export async function maintainRepositoryObservers(env: CloudflareEnv) {
 	}
 	// Escalation must never starve the independent push-retention sweep.
 	const settled = await bounded(() =>
-		settleAgedRepositoryPushObservations(context.db, new Date().toISOString()),
+		settleAgedRepositoryPushObservations(
+			context.db,
+			new Date().toISOString(),
+			scope,
+		),
 	);
 	let overdue = 0;
 	let failed = 0;
 	for (const row of await bounded(() =>
-		overdueRepositoryObservations(context.db, new Date().toISOString()),
+		overdueRepositoryObservations(context.db, new Date().toISOString(), scope),
 	)) {
 		if (Date.now() >= deadline) break;
 		try {

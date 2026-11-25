@@ -8,6 +8,11 @@ export const WORK_DUE_KINDS = [
 	"agent-run-supervision",
 	"orphan-run-sweep",
 	"work-attempt-lease-sweep",
+	"lane-stale",
+	"outbound-review",
+	"stale-delegation",
+	"uncontracted-child",
+	"repository-observer",
 ] as const;
 export type WorkDueKind = (typeof WORK_DUE_KINDS)[number];
 

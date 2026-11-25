@@ -26,8 +26,27 @@ export async function dispatchWorkDue(
 			if (!claimed.length) return { due: 0 };
 			const ids = claimed.map((row) => row.objectId);
 			let retire = false;
+			const unprocessed = new Set<string>();
 			try {
 				switch (kind) {
+					case "lane-stale":
+					case "outbound-review":
+					case "stale-delegation":
+					case "uncontracted-child":
+					case "repository-observer": {
+						if (kind === "repository-observer" && !env.TEDI_SERVICE)
+							return { deferred: ids.length };
+						const { dispatchMaintenanceDue } =
+							await import("./work-maintenance-due");
+						const result = await dispatchMaintenanceDue(
+							env,
+							kind,
+							scheduledTime,
+							claimed,
+						);
+						retire = kind === "lane-stale";
+						return result;
+					}
 					case "approval-expiry":
 						return await (
 							await import("./approval-expiry")
@@ -53,7 +72,14 @@ export async function dispatchWorkDue(
 						return env.TEDI_SERVICE
 							? await (
 									await import("./agent-run-supervision")
-								).dispatchAgentRunSupervision(env, scheduledTime, ids)
+								).dispatchAgentRunSupervision(
+									env,
+									scheduledTime,
+									ids,
+									(pending) => {
+										for (const id of pending) unprocessed.add(id);
+									},
+								)
 							: { deferred: ids.length };
 					case "orphan-run-sweep":
 						return await (
@@ -69,10 +95,15 @@ export async function dispatchWorkDue(
 				// mutations replace/delete their row atomically and win this CAS.
 				await releaseWorkDue(
 					db,
-					claimed,
+					claimed.filter((row) => !unprocessed.has(row.objectId)),
 					new Date(scheduledTime + 120_000).toISOString(),
 					retire,
 				);
+				// Skipped supervisors retain their place ahead of the next-round timers.
+				for (const row of claimed.filter((row) =>
+					unprocessed.has(row.objectId),
+				))
+					await releaseWorkDue(db, [row], row.dueAt);
 			}
 		});
 	}

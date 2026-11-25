@@ -221,16 +221,6 @@ const dispatchScheduled = async (
 			await trackPlatformCronPath(env, event, "commitment-wakes", () =>
 				dispatchCommitmentWakes(env, event.scheduledTime),
 			);
-			await trackPlatformCronPath(
-				env,
-				event,
-				"repository-observer",
-				async () => {
-					const { maintainRepositoryObservers } =
-						await import("./repository-observer");
-					return maintainRepositoryObservers(env);
-				},
-			);
 		}
 
 		if (cron === "*/15 * * * *" && env.TEDI_SERVICE) {

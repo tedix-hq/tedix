@@ -5,15 +5,7 @@ import {
 } from "@tedix/db/queries/work-items/interactions";
 import { flushWorkInteractionDigests } from "@tedix/db/queries/work-items/interaction-digests";
 import { sweepElapsedWorkAttempts } from "@tedix/db/queries/work-items/attempts";
-import {
-	recordStaleLanes,
-	notifyStoppedLanes,
-} from "@tedix/db/queries/work-items/lane-lifecycle";
-import {
-	sweepStaleFailedDelegationWorkItems,
-	sweepUncontractedChildWorkItems,
-} from "@tedix/db/queries/work-items/stale-delegation-sweep";
-import { sweepStuckOutboundReviews } from "@tedix/db/queries/work-items/outbound";
+import { notifyStoppedLanes } from "@tedix/db/queries/work-items/lane-lifecycle";
 
 /**
  * Also bounds explicit on-demand calls. Scheduled calls receive the smaller
@@ -85,30 +77,6 @@ export async function runWorkMaintenanceTick(
 	env: CloudflareEnv,
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
-	const lanesStale = await recordStaleLanes(
-		coreQueryDb(env),
-		new Date(scheduledTime).toISOString(),
-	);
-	// Closes kernel-delegation items whose failed Attempt nobody retried in a
-	// week. The search reads every Work Item (28k rows, 0.4 s on 2026-11-12), and
-	// a week-long window does not need a two-minute cadence: once an hour.
-	const stale = staleDelegationSweepDue(scheduledTime)
-		? await sweepStaleFailedDelegationWorkItems(coreQueryDb(env), {
-				now: new Date(scheduledTime).toISOString(),
-				limit: MAX_ATTEMPTS_PER_TICK,
-			})
-		: { observed: 0, cancelled: 0, skipped: 0 };
-	if (stale.cancelled > 0) {
-		console.log(
-			`[WorkAttemptLeaseSweeper] cancelled ${stale.cancelled} stale failed delegation(s)`,
-		);
-	}
-	const uncontracted = staleDelegationSweepDue(scheduledTime)
-		? await sweepUncontractedChildWorkItems(coreQueryDb(env), {
-				now: new Date(scheduledTime).toISOString(),
-				limit: MAX_ATTEMPTS_PER_TICK,
-			})
-		: { observed: 0, cancelled: 0, skipped: 0 };
 	await reconcileWorkInteractionConditions(coreQueryDb(env), {
 		now: new Date(scheduledTime).toISOString(),
 		limit: 25,
@@ -120,14 +88,7 @@ export async function runWorkMaintenanceTick(
 			})
 		: { observed: 0, expired: 0, candidates: 0, writes: 0, dryRun: 0 };
 	return {
-		...(await sweepStuckOutboundReviews(coreQueryDb(env), {
-			now: new Date(scheduledTime).toISOString(),
-			limit: MAX_INTERACTION_WRITES_PER_TICK,
-		})),
-		lanesStale,
-		// Each tick notices the lanes that stopped since the last one. Once an
-		// hour, with the stale-delegation sweep, it also looks at every older
-		// stopped lane, for one that became due after its own tick.
+		// The hourly replay also catches notices made eligible by later Work edits.
 		lanesNotified: await notifyStoppedLanes(
 			coreQueryDb(env),
 			new Date(scheduledTime).toISOString(),
@@ -141,9 +102,5 @@ export async function runWorkMaintenanceTick(
 		interactionExpiryCandidates: interactions.candidates,
 		interactionExpiryWrites: interactions.writes,
 		interactionExpiryDryRuns: interactions.dryRun,
-		uncontractedChildrenCancelled: uncontracted.cancelled,
-		staleDelegationsObserved: stale.observed,
-		staleDelegationsCancelled: stale.cancelled,
-		staleDelegationsSkipped: stale.skipped,
 	};
 }

@@ -285,6 +285,12 @@ describe("supervision of agent runs", () => {
 			});
 		expect(await supervisors()).toEqual([
 			{
+				workItemIds: expect.arrayContaining([
+					"waiting",
+					"running",
+					"failed",
+					"lapsed",
+				]),
 				orgId: "org",
 				tediId: "tedi-a",
 				slug: "a",

@@ -258,14 +258,13 @@ export async function claimRepositoryRepair(
 /**
  * Claim a small retryable page before doing any external orchestration.
  *
- * Runs on every maintenance tick across all organizations, so it reads only
- * open observations, through their partial index. The unary plus keeps the
- * deadline away from the general deadline index, which holds every Work Item
- * whose deadline has passed.
+ * Scheduled calls restrict discovery to the organization and IDs claimed from
+ * work_due. The partial index still supports explicit on-demand maintenance.
  */
 export async function overdueRepositoryObservations(
 	db: DbQueryClient,
 	now: string,
+	scope?: { orgId: string; ids: string[] },
 ) {
 	const workItems = coreTable(db, d1WorkItems);
 	const candidates = db
@@ -273,6 +272,12 @@ export async function overdueRepositoryObservations(
 		.from(workItems)
 		.where(
 			and(
+				scope
+					? and(
+							eq(workItems.orgId, scope.orgId),
+							anyIds(db, workItems.id, scope.ids),
+						)
+					: undefined,
 				openObservation(db),
 				sql`${jsonRead(db, workItems.metadata, ["event", "kind"])} = 'ship_red'`,
 				coreStore(db) === "d1"
@@ -548,6 +553,7 @@ export async function settleRecoveredRepositoryCiObservations(
 export async function settleAgedRepositoryPushObservations(
 	db: DbQueryClient,
 	now: string,
+	scope?: { orgId: string; ids: string[] },
 ) {
 	const workItems = coreTable(db, d1WorkItems);
 	const cutoff = new Date(
@@ -558,6 +564,12 @@ export async function settleAgedRepositoryPushObservations(
 		.from(workItems)
 		.where(
 			and(
+				scope
+					? and(
+							eq(workItems.orgId, scope.orgId),
+							anyIds(db, workItems.id, scope.ids),
+						)
+					: undefined,
 				// Implied by the settleable check; stated so SQLite may use the
 				// open-observation index instead of walking every Work Item.
 				openObservation(db),

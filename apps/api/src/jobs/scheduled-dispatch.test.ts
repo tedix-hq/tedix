@@ -89,6 +89,11 @@ vi.mock("./work-due", () => ({
 			"agent-run-supervision",
 			"orphan-run-sweep",
 			"work-attempt-lease-sweep",
+			"lane-stale",
+			"outbound-review",
+			"stale-delegation",
+			"uncontracted-child",
+			"repository-observer",
 		])
 			await track(kind, async () => ({ due: 0 }));
 		return { due: 0 };

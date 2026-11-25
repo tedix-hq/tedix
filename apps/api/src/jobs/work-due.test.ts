@@ -6,6 +6,11 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { dispatchWorkDue } from "./work-due";
 
+const maintenance = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+vi.mock("./work-maintenance-due", () => ({
+	dispatchMaintenanceDue: maintenance,
+}));
+
 const handlers = vi.hoisted(() => ({
 	approval: vi.fn().mockResolvedValue({}),
 	redrive: vi.fn().mockResolvedValue({}),
@@ -68,8 +73,16 @@ it("dispatches each kind at its due time from a single claim, with no early obje
 			expect(handler).toHaveBeenCalledWith(
 				...(kind === "approval-expiry" || kind === "orphan-run-sweep"
 					? [env, [kind]]
-					: [env, now, [kind]]),
+					: kind === "agent-run-supervision"
+						? [env, now, [kind], expect.any(Function)]
+						: [env, now, [kind]]),
 			);
+		}
+		expect(maintenance).toHaveBeenCalledTimes(5);
+		for (const kind of WORK_DUE_KINDS.slice(7)) {
+			expect(maintenance).toHaveBeenCalledWith(env, kind, now, [
+				expect.objectContaining({ orgId: "org", objectId: kind }),
+			]);
 		}
 		// One claim, then only bounded claim-release statements; no source scans.
 		expect(
@@ -85,6 +98,50 @@ it("dispatches each kind at its due time from a single claim, with no early obje
 				(row) => row.kind === "work-approval-redrive",
 			),
 		).toBe(false);
+	} finally {
+		sqlite.close();
+	}
+});
+
+it("keeps unprocessed supervision timers due ahead of already serviced supervisors", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec(schemaDdl(workDue));
+		const DB = createD1Facade(sqlite);
+		const db = createDbQueryClient(DB);
+		const now = Date.now();
+		const ids = Array.from(
+			{ length: 45 },
+			(_, index) => `run-${String(index).padStart(2, "0")}`,
+		);
+		for (const objectId of ids)
+			await db.insert(workDue).values({
+				orgId: "orchard",
+				objectId,
+				kind: "agent-run-supervision",
+				dueAt: new Date(now).toISOString(),
+			});
+		handlers.supervision.mockClear();
+		handlers.supervision.mockImplementationOnce(
+			async (_env, _time, dueIds, unprocessed) => {
+				unprocessed(dueIds.slice(40));
+				return { budgetExhausted: 1 };
+			},
+		);
+		const env = { DB, TEDI_SERVICE: {} } as unknown as CloudflareEnv;
+		const track = async (_kind: string, run: () => Promise<unknown>) => {
+			await run();
+		};
+		await dispatchWorkDue(env, now, track);
+		const second = vi.fn();
+		handlers.supervision.mockImplementationOnce(
+			async (_env, _time, pending) => {
+				second(pending);
+				return {};
+			},
+		);
+		await dispatchWorkDue(env, now + 1, track);
+		expect(second).toHaveBeenCalledWith(ids.slice(40));
 	} finally {
 		sqlite.close();
 	}

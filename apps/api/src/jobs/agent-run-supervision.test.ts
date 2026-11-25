@@ -9,7 +9,7 @@ import {
 } from "@tedix/db/schema/work-items";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { superviseAgentRuns } from "./agent-run-supervision";
 
 const ORG = "00000000-0000-4000-8000-000000000401";
@@ -172,4 +172,28 @@ describe("agent run supervision tick", () => {
 		expect(sent).toHaveLength(1);
 		expect(stored()).toMatchObject({ rounds: 1 });
 	});
+});
+
+it("reports untouched claimed runs when the supervision budget expires", async () => {
+	const { sqlite } = fixture();
+	const unprocessed = vi.fn();
+	const clock = vi
+		.spyOn(Date, "now")
+		.mockReturnValueOnce(0)
+		.mockReturnValue(60_000);
+	try {
+		expect(
+			await superviseAgentRuns({
+				db: createDbClient(createD1Facade(sqlite)),
+				env: { ENVIRONMENT: "test" } as CloudflareEnv,
+				now: T0 + minutes(10),
+				dueIds: [RUN],
+				onUnprocessed: unprocessed,
+				send: vi.fn(),
+			}),
+		).toMatchObject({ budgetExhausted: 1, rounds: 0 });
+		expect(unprocessed).toHaveBeenCalledWith([RUN]);
+	} finally {
+		clock.mockRestore();
+	}
 });

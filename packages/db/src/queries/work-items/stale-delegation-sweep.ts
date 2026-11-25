@@ -38,7 +38,11 @@ export interface SweepStaleFailedDelegationsResult {
  */
 export async function sweepStaleFailedDelegationWorkItems(
 	db: DbQueryClient,
-	options: { now?: string; limit?: number } = {},
+	options: {
+		now?: string;
+		limit?: number;
+		scope?: { orgId: string; ids: string[] };
+	} = {},
 ): Promise<SweepStaleFailedDelegationsResult> {
 	const at = options.now ?? new Date().toISOString();
 	const cutoff = new Date(
@@ -50,6 +54,12 @@ export async function sweepStaleFailedDelegationWorkItems(
 		.from(workItems)
 		.where(
 			and(
+				options.scope
+					? and(
+							eq(workItems.orgId, options.scope.orgId),
+							inArray(workItems.id, options.scope.ids),
+						)
+					: undefined,
 				eq(workItems.disposition, "accepted"),
 				sql`json_extract(${workItems.provenance}, '$.source') = 'kernelRuntime.directDelegation'`,
 				sql`COALESCE(${workItems.updatedAt}, ${workItems.createdAt}) <= ${cutoff}`,
@@ -85,7 +95,11 @@ export async function sweepStaleFailedDelegationWorkItems(
 /** Pre-contract children cannot be assigned a historical budget or grant retroactively. */
 export async function sweepUncontractedChildWorkItems(
 	db: DbQueryClient,
-	options: { now?: string; limit?: number } = {},
+	options: {
+		now?: string;
+		limit?: number;
+		scope?: { orgId: string; ids: string[] };
+	} = {},
 ): Promise<SweepStaleFailedDelegationsResult> {
 	const at = options.now ?? new Date().toISOString();
 	const candidates = await db
@@ -97,6 +111,12 @@ export async function sweepUncontractedChildWorkItems(
 		.from(workItems)
 		.where(
 			and(
+				options.scope
+					? and(
+							eq(workItems.orgId, options.scope.orgId),
+							inArray(workItems.id, options.scope.ids),
+						)
+					: undefined,
 				inArray(workItems.disposition, ["accepted", "proposed"]),
 				isNotNull(workItems.delegationRootId),
 				sql`NOT EXISTS (SELECT 1 FROM work_events allocation WHERE allocation.org_id=${workItems.orgId} AND allocation.work_item_id=${workItems.id} AND allocation.id=${workItems.id} AND json_type(allocation.payload, '$.taskContract')='object')`,

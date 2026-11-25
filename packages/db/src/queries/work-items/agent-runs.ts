@@ -332,6 +332,7 @@ export async function listAgentRuns(
 }
 
 export interface AgentRunSupervisor {
+	workItemIds: string[];
 	orgId: string;
 	tediId: string;
 	slug: string;
@@ -348,6 +349,9 @@ export async function listAgentRunSupervisors(
 ): Promise<AgentRunSupervisor[]> {
 	return db
 		.select({
+			workItemIds: sql<string>`json_group_array(${workItems.id})`
+				.mapWith((value: string) => JSON.parse(value) as string[])
+				.as("supervised_work_ids"),
 			orgId: workItems.orgId,
 			tediId: sql<string>`${tedis.id}`.as("supervisor_tedi_id"),
 			slug: tedis.slug,
@@ -376,7 +380,7 @@ export async function listAgentRunSupervisors(
 		)
 		.groupBy(workItems.orgId, tedis.id)
 		.orderBy(workItems.orgId, tedis.id)
-		.limit(params.limit);
+		.limit(params.dueIds?.length ?? params.limit);
 }
 
 /** What the last supervision round saw of one run. */

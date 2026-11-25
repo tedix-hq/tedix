@@ -36,14 +36,17 @@ it("continues other tenants after a broken observer and records a failed mainten
 	expect(deps.escalate.mock.calls[0]?.[4]).toContain("Known provider outage");
 });
 
-it("sweeps aged pushes on each tick without changing overdue escalation", async () => {
+it("limits push retention to the claimed timer scope without changing overdue escalation", async () => {
 	deps.config.mockResolvedValue({ config: {} });
 	deps.settle.mockResolvedValueOnce([{ id: "old-push" }]);
-	expect(await maintainRepositoryObservers({} as CloudflareEnv)).toEqual({
-		overdue: 2,
-		settled: 1,
-	});
-	expect(deps.settle).toHaveBeenCalledWith({}, expect.any(String));
+	const scope = { orgId: "org-a", ids: ["old-push", "first"] };
+	expect(await maintainRepositoryObservers({} as CloudflareEnv, scope)).toEqual(
+		{
+			overdue: 2,
+			settled: 1,
+		},
+	);
+	expect(deps.settle).toHaveBeenCalledWith({}, expect.any(String), scope);
 });
 
 afterEach(() => {

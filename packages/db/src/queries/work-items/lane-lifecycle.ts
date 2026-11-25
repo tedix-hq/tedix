@@ -1,5 +1,5 @@
 import { advancePlatformCronCheckpoint } from "../platform-cron-executions";
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { workAttempts, workEvents, workItems } from "../../schema/work-items";
 import { workInteractions } from "../../schema/work-factory";
@@ -41,8 +41,18 @@ export async function readLaneState(
 }
 
 /** N is half the server-issued lease; expiry at 2N remains the Work fence. */
-export async function recordStaleLanes(db: DbQueryClient, now: string) {
+export async function recordStaleLanes(
+	db: DbQueryClient,
+	now: string,
+	scope?: { orgId: string; ids: string[] },
+) {
 	const due = and(
+		scope
+			? and(
+					eq(workAttempts.orgId, scope.orgId),
+					inArray(workAttempts.id, scope.ids),
+				)
+			: undefined,
 		eq(workAttempts.executorType, "external_agent"),
 		sql`json_extract(${workAttempts.metadata}, '$.lane') = 1`,
 		sql`${workAttempts.outcome} IS NULL`,
@@ -52,7 +62,7 @@ export async function recordStaleLanes(db: DbQueryClient, now: string) {
 		// lets the sweep read the few live Attempts instead of every Attempt
 		// ever made.
 		sql`${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')`,
-		sql`julianday(${now}) >= (julianday(${workAttempts.heartbeatAt}) + julianday(${workAttempts.expiresAt})) / 2`,
+		sql`strftime('%Y-%m-%dT%H:%M:%fZ', (julianday(${workAttempts.heartbeatAt}) + julianday(${workAttempts.expiresAt})) / 2) <= ${now}`,
 		sql`NOT EXISTS (SELECT 1 FROM work_events e WHERE e.org_id = ${workAttempts.orgId} AND e.attempt_id = ${workAttempts.id} AND e.event_type = 'lane.stale' AND json_extract(e.payload, '$.heartbeatAt') = ${workAttempts.heartbeatAt})`,
 	);
 	const candidates = await db

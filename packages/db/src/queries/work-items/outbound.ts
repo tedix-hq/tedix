@@ -450,7 +450,7 @@ export async function outboundInteractionOverlays(
 /** Surface overdue drafts without manufacturing a reviewer verdict or human approval. */
 export async function sweepStuckOutboundReviews(
 	db: DbQueryClient,
-	p: { now: string; limit: number },
+	p: { now: string; limit: number; scope?: { orgId: string; ids: string[] } },
 ) {
 	const requestedAt = sql`coalesce(json_extract(${workItems.metadata}, '$.outbound.reviewRequestedAt'), (SELECT max(occurred_at) FROM work_events e WHERE e.org_id=${workItems.orgId} AND e.work_item_id=${workItems.id} AND e.event_type='outbound.action'), ${workItems.updatedAt}, ${workItems.createdAt})`;
 	const timeoutMinutes = sql`coalesce(json_extract(${organizations.metadata}, '$.outboundReview.reviewTimeoutMinutes'), 30)`;
@@ -465,6 +465,12 @@ export async function sweepStuckOutboundReviews(
 		.innerJoin(organizations, eq(organizations.id, workItems.orgId))
 		.where(
 			and(
+				p.scope
+					? and(
+							eq(workItems.orgId, p.scope.orgId),
+							inArray(workItems.id, p.scope.ids),
+						)
+					: undefined,
 				eq(workItems.workKind, "outbound"),
 				sql`${workItems.disposition} NOT IN ('completed','cancelled')`,
 				sql`json_extract(${workItems.metadata}, '$.outbound.status') IN ('reviewing','feedback')`,

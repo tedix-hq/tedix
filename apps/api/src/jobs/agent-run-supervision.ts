@@ -86,6 +86,7 @@ export async function superviseAgentRuns(input: {
 	send: Send;
 	now: number;
 	dueIds?: string[];
+	onUnprocessed?: (ids: string[]) => void;
 }): Promise<Record<string, number>> {
 	const { db, now } = input;
 	const deadline = Date.now() + RUN_BUDGET_MS;
@@ -106,8 +107,11 @@ export async function superviseAgentRuns(input: {
 	});
 	counts.supervisors = supervisors.length;
 	const window = Math.floor(now / SUPERVISION_WINDOW_MS);
-	for (const supervisor of supervisors) {
+	for (const [index, supervisor] of supervisors.entries()) {
 		if (Date.now() >= deadline) {
+			input.onUnprocessed?.(
+				supervisors.slice(index).flatMap((row) => row.workItemIds),
+			);
 			counts.budgetExhausted = 1;
 			break;
 		}
@@ -196,6 +200,7 @@ export function dispatchAgentRunSupervision(
 	env: CloudflareEnv,
 	scheduledTime: number,
 	dueIds?: string[],
+	onUnprocessed?: (ids: string[]) => void,
 ): Promise<Record<string, number>> {
 	return superviseAgentRuns({
 		db: coreDb(env),
@@ -203,5 +208,6 @@ export function dispatchAgentRunSupervision(
 		send: (request) => env.TEDI_SERVICE.fetch(request),
 		now: Math.max(scheduledTime, Date.now()),
 		dueIds,
+		onUnprocessed,
 	});
 }

@@ -3079,11 +3079,19 @@ it("human release migration preserves reservations, Attempt links and guards", (
 			"agent_run_supervision",
 			"orphan_run_sweep",
 			"work_attempt_lease_sweep",
+			"lane_stale",
+			"outbound_review",
+			"stale_delegation",
+			"uncontracted_child",
+			"repository_observer",
+			"maintenance_attempt",
 		].flatMap((kind) =>
 			["insert", "update", "delete"].map((operation) => ({
 				name: `work_due_${kind}_${operation}`,
 			})),
 		),
+		{ name: "work_due_maintenance_event_insert" },
+		{ name: "work_due_outbound_policy_update" },
 		{ name: "work_due_review_response_insert" },
 		{ name: "work_due_review_response_update" },
 		...[
