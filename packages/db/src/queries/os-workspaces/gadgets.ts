@@ -1,5 +1,5 @@
 import { osGadgetHasWorkNavigation } from "./gadget-navigation";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getColumns, sql } from "drizzle-orm";
 import { coreTable } from "../../core-store/client";
 import {
 	changedRows,
@@ -418,48 +418,100 @@ export async function createOsGadgetRevision(
 		const codeHash = params.code
 			? await osGadgetCodeSha256(params.code.files)
 			: null;
+		const inserted = db
+			.$with("inserted", getColumns(osGadgetRevisions))
+			.as(insertRevision.getSQL());
+		const advanced = db.$with("advanced", { id: osGadgets.id }).as(
+			db
+				.update(osGadgets)
+				.set({
+					currentRevisionId: params.id,
+					hasRuntimeTriggers: osGadgetHasRuntimeTriggers(params.manifest),
+					hasWorkNavigation: osGadgetHasWorkNavigation(params.manifest),
+					updatedAt: now,
+					...(params.sourceBlueprintRevisionId
+						? { sourceBlueprintRevisionId: params.sourceBlueprintRevisionId }
+						: {}),
+				})
+				.from(inserted)
+				.where(
+					and(
+						eq(osGadgets.id, inserted.gadgetId),
+						eq(osGadgets.organizationId, inserted.organizationId),
+					),
+				)
+				.returning({ id: osGadgets.id })
+				.getSQL(),
+		);
 		const codeCtes = params.code
-			? sql`, blobs AS (
-				INSERT INTO ${osGadgetCodeBlobs} (organization_id, sha256, files, code_length, created_at)
-				SELECT organization_id, ${codeHash}, ${params.code.files}, ${params.code.codeLength}, ${now}
-				FROM inserted ON CONFLICT DO NOTHING RETURNING sha256
-			), code AS (
-				INSERT INTO ${osGadgetCode} (revision_id, organization_id, gadget_id, files, code_length, created_at, files_sha256)
-				SELECT id, organization_id, gadget_id, '', ${params.code.codeLength}, ${now}, ${codeHash}
-				FROM inserted CROSS JOIN (SELECT count(*) FROM blobs) AS blob_write RETURNING revision_id
-			)`
-			: sql``;
+			? [
+					db.$with("blobs", { sha256: osGadgetCodeBlobs.sha256 }).as(
+						db
+							.insert(osGadgetCodeBlobs)
+							.select(
+								db
+									.select({
+										organizationId: inserted.organizationId,
+										sha256: sql<string>`${codeHash}`.as("sha256"),
+										files: sql<string>`${params.code.files}`.as("files"),
+										codeLength: sql<number>`${params.code.codeLength}`.as(
+											"code_length",
+										),
+										createdAt: sql<string>`${now}`.as("created_at"),
+									})
+									.from(inserted),
+							)
+							.onConflictDoNothing()
+							.returning({ sha256: osGadgetCodeBlobs.sha256 })
+							.getSQL(),
+					),
+					db.$with("code", { revisionId: osGadgetCode.revisionId }).as(
+						db
+							.insert(osGadgetCode)
+							.select(
+								db
+									.select({
+										revisionId: inserted.id,
+										organizationId: inserted.organizationId,
+										gadgetId: inserted.gadgetId,
+										files: sql<string>`''`.as("files"),
+										codeLength: sql<number>`${params.code.codeLength}`.as(
+											"code_length",
+										),
+										createdAt: sql<string>`${now}`.as("created_at"),
+										filesSha256: sql<string>`${codeHash}`.as("files_sha256"),
+									})
+									.from(inserted),
+							)
+							.returning({ revisionId: osGadgetCode.revisionId })
+							.getSQL(),
+					),
+				]
+			: [];
 		// Only this statement's inserted rows may advance pointers or write code;
 		// finding an older row with the same id is not proof that this CAS won.
-		const write = db.all<{
-			id: string;
-		}>(sql`WITH inserted AS (${insertRevision.getSQL()}),
-			advanced AS (
-				UPDATE ${osGadgets} AS gadget SET
-					current_revision_id = ${params.id},
-					has_runtime_triggers = ${osGadgetHasRuntimeTriggers(params.manifest)},
-					has_work_navigation = ${osGadgetHasWorkNavigation(params.manifest)},
-					updated_at = ${now}
-					${params.sourceBlueprintRevisionId ? sql`, source_blueprint_revision_id = ${params.sourceBlueprintRevisionId}` : sql``}
-				FROM inserted WHERE gadget.id = inserted.gadget_id AND gadget.organization_id = inserted.organization_id
-				RETURNING gadget.id
-			) ${codeCtes} SELECT id FROM inserted`);
-		const [, inserted, revisionRows] = await db.batch([
-			db.run(
-				sql`SELECT ${osGadgets.id} FROM ${osGadgets} WHERE ${osGadgets.id} = ${params.gadgetId} AND ${osGadgets.organizationId} = ${params.organizationId} FOR UPDATE`,
-			),
-			write,
-			db
-				.select()
-				.from(osGadgetRevisions)
-				.where(eq(osGadgetRevisions.id, params.id)),
-		]);
-		if (inserted.length) {
-			const revision = revisionRows[0];
-			if (!revision)
-				throw new Error("Inserted gadget revision was not readable");
-			return { ok: true, revision };
-		}
+		const write = db
+			.with(inserted, advanced, ...codeCtes)
+			.select()
+			.from(inserted);
+		const lockQuery = db
+			.select({ id: osGadgets.id })
+			.from(osGadgets)
+			.where(
+				and(
+					eq(osGadgets.id, params.gadgetId),
+					eq(osGadgets.organizationId, params.organizationId),
+				),
+			);
+		// The shared boundary retains SQLite types; this branch is a native Pg builder.
+		const lock = (
+			lockQuery as typeof lockQuery & {
+				for(strength: "update"): typeof lockQuery;
+			}
+		).for("update");
+		const [, revisionRows] = await db.batch([lock, write]);
+		const revision = revisionRows[0];
+		if (revision) return { ok: true, revision };
 		const gadget = await getOsGadget(db, params);
 		return {
 			ok: false,
