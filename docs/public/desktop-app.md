@@ -36,7 +36,8 @@ at **Chip**.
    you already use. Tedix opens a sign-in page when the app needs one.
 
 You can connect an app later in **Settings → Agents**. To start over with an
-app, choose **Remove Tedix** on its row, then **Connect**.
+app, switch off its **Use for tasks**, choose the trash icon on its row, then
+**Connect**.
 If you installed both the Mac app and a separate coding tool for the same
 provider, Tedix uses the Mac app when its coding tool is ready.
 

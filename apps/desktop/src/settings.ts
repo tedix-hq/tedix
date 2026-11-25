@@ -430,12 +430,8 @@ function tools(now: PanelState): Group[] {
 				// row does not look broken beside the line that says why.
 				view.ready ? READY_MARK(limit ? "Connected" : "Ready") : view.action,
 				// Takes Tedix out so it can be connected fresh; it asks first.
-				tool.tedix === "added" &&
-					!view.working &&
-					button("Remove Tedix", "link", () => act("remove", tool.id), false, {
-						pending: "Removing…",
-						key: `remove:${tool.id}`,
-					}),
+				// Only once the agent no longer takes tasks.
+				tool.tedix === "added" && !on && !view.working && removeButton(tool),
 				toggle(
 					`Use ${tool.name} for tasks`,
 					on,
@@ -519,6 +515,22 @@ function tools(now: PanelState): Group[] {
 			],
 		},
 	];
+}
+
+/** A trash icon that takes Tedix out of an agent, after a confirmation. */
+function removeButton(tool: { id: string; name: string }): HTMLButtonElement {
+	const label = `Remove Tedix from ${tool.name}`;
+	const node = button(label, "quiet", () => act("remove", tool.id), false, {
+		pending: "Removing…",
+		key: `remove:${tool.id}`,
+	});
+	if (node.getAttribute("aria-busy") !== "true") {
+		node.replaceChildren(icon("trash", 16));
+		node.classList.add("icon-only");
+	}
+	node.setAttribute("aria-label", label);
+	node.title = label;
+	return node;
 }
 
 const toolNames = (tools: string[]) =>

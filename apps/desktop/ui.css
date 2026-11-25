@@ -163,6 +163,10 @@ button.btn.quiet:hover:not(:disabled) {
 button.btn:disabled {
 	opacity: 0.5;
 }
+button.btn.icon-only {
+	width: 26px;
+	padding: 0;
+}
 /* Working after a click: readable, with a spinner, until the action settles. */
 button.btn[aria-busy="true"]:disabled {
 	opacity: 0.8;
