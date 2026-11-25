@@ -1205,8 +1205,7 @@ references and existing executor sessions in fallback order. It defaults to
 20 minutes; --once waits for a due pass. See the CLI guide for configuration.
 The supervisor also runs every runner listed in
 ~/.tedix/supervisor-runners.json (written by tedix lane serve --install) as a
-child it restarts and stops; tedix supervise runners lists them. install takes over
-runners that still run as their own LaunchAgents.
+child it restarts and stops; tedix supervise runners lists them.
 Requires decision capture for answer delivery. Log: ~/.tedix/supervisor.log.`;
 
 export async function runSuperviseCommand(args: string[]): Promise<number> {

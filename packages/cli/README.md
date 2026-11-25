@@ -157,7 +157,7 @@ the exact unsupported requirement when a compatible CLI workflow is needed.
   auto reply that arrives after a Codex session's `await-draft` stopped waiting:
   `codex queue` for an open window (confirmed in the session transcript), else a
   headless `codex exec resume` whose thread ID must match. Same delivery rules
-  and cap as the hooks; `install`/`uninstall` manage a user LaunchAgent. It
+  and cap as the hooks; `install`/`uninstall` manage the supervisor's user LaunchAgent. It
   also drains the user's own OS answers no hook delivered
   (`work interaction-undelivered`, recorded with `work interaction-ack`): a
   closed Claude Code session is resumed with `claude -p --resume`, never one

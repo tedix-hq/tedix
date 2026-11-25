@@ -100,9 +100,7 @@ const HEX_ID_TITLE_RE = /^[0-9a-f]+(?:-[0-9a-f]+)*$/i;
 /**
  * A code or id instead of words (`A304`, `Q3-17`, a uuid fragment): it has a
  * digit and either no run of three letters or only hex and dashes. Such a
- * label tells the reader nothing, so no title source persists one and the
- * backfill renames existing ones. `listKernelConversationRetitleCandidates`
- * mirrors this test in SQL as a superset prefilter.
+ * label tells the reader nothing, so no title source persists one.
  */
 export function isCodeLikeConversationTitle(
 	title: string | null | undefined,

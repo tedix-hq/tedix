@@ -338,14 +338,6 @@ const dispatchScheduled = async (
 				"workstation-compute-metering",
 				() => runWorkstationComputeMeteringTick(env),
 			);
-			// Settled reply drafts become competency observations and move
-			// career stages by the reply-drafting ladder (titles, never authority).
-			const { createDbClient } = await import("@tedix/db/client");
-			const { settleReplyDraftCareers } =
-				await import("../services/reply-draft-career");
-			await trackPlatformCronPath(env, event, "reply-draft-career", () =>
-				settleReplyDraftCareers(createDbClient(env.DB)),
-			);
 		}
 
 		// Bounded log moves run between the quarter-hour billing ticks.
@@ -535,29 +527,6 @@ const dispatchScheduled = async (
 					createDbClient(env.DB),
 					new Date(event.scheduledTime),
 				),
-			);
-		}
-
-		// Rename open chats still carrying a first-message placeholder or code:
-		// one bounded page per hour, at most one title call per matching chat.
-		if (
-			fleetEnabled &&
-			maintenanceIsDue("conversation-title-backfill", event)
-		) {
-			const { createContext } = await import("../rpc/context");
-			const { backfillPlaceholderConversationTitles } =
-				await import("../rpc/routers/kernel/conversation-title");
-			await trackPlatformCronPath(
-				env,
-				event,
-				"conversation-title-backfill",
-				() =>
-					backfillPlaceholderConversationTitles(
-						createContext(
-							new Request("https://api/internal/conversation-title-backfill"),
-							env,
-						),
-					),
 			);
 		}
 	} catch (error) {

@@ -45,21 +45,11 @@
  *   still sees zero title events and the auto-title upgrade is never blocked;
  *   the autoTitle write-through overwrites any non-rename source).
  * - Titles are at most six words, in the request's language, and never a code
- *   or id (`isCodeLikeConversationTitle`). An hourly bounded backfill
- *   ({@link backfillPlaceholderConversationTitles}) renames open conversations
- *   still carrying a provisional or previously promoted first-request title.
+ *   or id (`isCodeLikeConversationTitle`).
  */
 
 import { kernelSpanContext } from "./gateway-attribution";
-import {
-	countKernelConversationTitleGuardEvents,
-	type KernelRuntimeEvent,
-	listKernelRuntimeEvents,
-} from "@tedix/db/queries/kernel-runtime-events";
-import {
-	advanceKernelConversationRetitleCursor,
-	listKernelConversationRetitleCandidates,
-} from "@tedix/db/queries/kernel-conversations";
+import { countKernelConversationTitleGuardEvents } from "@tedix/db/queries/kernel-runtime-events";
 import type { BaseContext } from "../../orpc";
 import {
 	fallbackConversationTitle,
@@ -74,10 +64,6 @@ import { configuredKernelRouteModel, type KernelEnv } from "./llm";
 import { insertKernelRuntimeEventWithStatus } from "./run-store";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 
-/**
- * The live path and the code-like-title backfill share this prompt, so both
- * produce the same kind of title.
- */
 export const TITLE_SYSTEM_PROMPT =
 	"Write a title of at most 6 words that names what the user asked for in their first request, in the same language as that request. Use plain words: never a code, id or number on its own, and never the assistant's status (an approval request, an error, a refusal). Reply with the title only: plain text, no quotes, no trailing punctuation.";
 
@@ -158,7 +144,7 @@ export async function shouldAutoTitleHomeConversation(
 /**
  * Title one exchange and report whether the model or deterministic
  * first-request fallback produced it. Callers only promote generated titles;
- * fallback labels remain eligible for the hourly retry.
+ * fallback labels remain provisional.
  */
 async function deriveConversationTitle(
 	context: Pick<BaseContext, "env">,
@@ -242,7 +228,7 @@ async function deriveConversationTitle(
  * Persist an auto title through the SAME storage as
  * kernelRuntime.renameConversation, distinguished by `source`. `eventKey`
  * makes the event id deterministic (insertKernelRuntimeEvent is
- * onConflictDoNothing on id), so a re-fired turn or backfill is idempotent.
+ * onConflictDoNothing on id), so a re-fired turn is idempotent.
  * Returns whether this call inserted the event.
  */
 async function persistConversationAutoTitle(
@@ -339,114 +325,4 @@ export async function generateAndPersistHomeConversationTitle(
 			exception: safeExceptionTopology(error),
 		});
 	}
-}
-
-/** First user request and first reply of a conversation, from the ledger. */
-function firstExchange(events: readonly KernelRuntimeEvent[]): {
-	userContent: string;
-	assistantContent: string;
-	runId?: string;
-} | null {
-	const payloadOf = (event: KernelRuntimeEvent) =>
-		(event.payload ?? {}) as Record<string, unknown>;
-	const request = events.find(
-		(event) =>
-			event.kind === "message.received" &&
-			payloadOf(event).role === "user" &&
-			typeof payloadOf(event).content === "string",
-	);
-	if (!request) return null;
-	const reply = events.find(
-		(event) =>
-			event.kind === "message.completed" &&
-			event.createdAt >= request.createdAt &&
-			typeof payloadOf(event).content === "string",
-	);
-	return {
-		userContent: payloadOf(request).content as string,
-		assistantContent: reply ? (payloadOf(reply).content as string) : "",
-		runId: reply?.runId ?? undefined,
-	};
-}
-
-/**
- * Rows scanned per backfill tick. Most open chats already carry a generated
- * title and cost one indexed read, so the scan is wide; model calls are capped
- * separately, and the cursor stops at the last row it actually checked.
- */
-const RETITLE_BACKFILL_BATCH = 100;
-const RETITLE_BACKFILL_MODEL_CALLS = 20;
-
-/**
- * Bounded, idempotent rename of open conversations whose title is still the
- * provisional first-request label or is a code/id (`A304`, a uuid fragment).
- * Titles derive from the first exchange exactly as the live path does; user
- * renames are never candidates. A CAS cursor walks the candidates across
- * ticks, so a row that stays untitleable cannot starve later ones, and the
- * fixed `retitle` event key keeps a replayed tick from writing twice.
- */
-export async function backfillPlaceholderConversationTitles(
-	context: BaseContext,
-): Promise<{ titleBackfillScanned: number; titleBackfillRenamed: number }> {
-	const { rows, previous } = await listKernelConversationRetitleCandidates(
-		context.db,
-		{ limit: RETITLE_BACKFILL_BATCH },
-	);
-	let renamed = 0;
-	let modelCalls = 0;
-	let scanned = 0;
-	for (const row of rows) {
-		if (modelCalls >= RETITLE_BACKFILL_MODEL_CALLS) break;
-		scanned++;
-		if (
-			row.conversationId === HOME_MAIN_CONVERSATION_ID ||
-			isEphemeralHomeConversation(row.conversationId)
-		)
-			continue;
-		try {
-			const exchange = firstExchange(
-				await listKernelRuntimeEvents(context.db, {
-					organizationId: row.organizationId,
-					conversationId: row.conversationId,
-					kinds: ["message.received", "message.completed"],
-					order: "asc",
-					limit: 6,
-				}),
-			);
-			if (!exchange) continue;
-			const isPlaceholder =
-				row.titleSource === "provisional" ||
-				isCodeLikeConversationTitle(row.title) ||
-				row.title === fallbackConversationTitle(exchange.userContent);
-			if (!isPlaceholder) continue;
-			modelCalls++;
-			const derived = await deriveConversationTitle(context, {
-				organizationId: row.organizationId,
-				conversationId: row.conversationId,
-				...exchange,
-			});
-			if (!derived?.generated) continue;
-			if (
-				await persistConversationAutoTitle(context, {
-					organizationId: row.organizationId,
-					conversationId: row.conversationId,
-					eventKey: "retitle-v2",
-					title: derived.title,
-				})
-			)
-				renamed++;
-		} catch (error) {
-			console.warn({
-				component: "kernel.conversation_title",
-				event: "title_backfill_failed",
-				exception: safeExceptionTopology(error),
-			});
-		}
-	}
-	await advanceKernelConversationRetitleCursor(
-		context.db,
-		previous,
-		scanned ? rows[scanned - 1]!.id : "",
-	);
-	return { titleBackfillScanned: scanned, titleBackfillRenamed: renamed };
 }

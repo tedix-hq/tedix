@@ -1,48 +1,27 @@
 /**
- * Career stages earned from reply drafts.
- *
- * Every settled reply draft becomes one competency observation of the
- * `reply_drafting` activity: `success` when it stood, `failure` when the human
- * corrected it. These observations are `ineligible` by construction, so they
- * never count toward entrustment readiness or authority. The activity's rubric
- * carries the career ladder (config, not code); the ladder moves the tedi's
- * active role-assignment stage, which is a title only, through an applied
- * promotion decision so every stage still points at its evidence.
+ * Read stored reply-drafting stages and progress for the leaderboard.
  */
 
 import {
 	type CompetencyCareerLadder,
 	CompetencyCareerLadderSchema,
-	EvidencePolicySchema,
 	TEDI_CAREER_STAGES,
 	type TediCareerStage,
 } from "@tedix/api-contract/schemas/earned-delegation";
-import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	competencyObservations,
 	type EntrustableActivityRow,
 	entrustableActivities,
-	promotionDecisions,
 	type TediRoleAssignmentRow,
 	tediRoleAssignments,
 } from "../../schema/earned-delegation";
 import { chunkForBoundParams } from "../../utils/batch";
-import type { SettledReplyDraftOutcome } from "../work-items/reply-drafts";
-import { replyDraftObservationKey } from "../work-items/reply-drafts";
-import { createEntrustableActivity } from "./activities";
-import { hashSnapshot } from "./authority-policy";
-import { assignInitialRoleTrack } from "./role-assignments";
 
 export const REPLY_DRAFTING_ACTIVITY_KEY = "reply_drafting";
-/** The trusted service that records outcomes and applies ladder changes. */
-export const REPLY_DRAFT_LADDER_PRINCIPAL = "reply-draft-ladder";
-const CLASSIFICATION_METHOD = "reply_draft_outcome:v1";
 /** How far back progress and streaks are read. */
 const HISTORY_DAYS = 180;
-/** Evidence ids cited by one ladder decision. */
-const MAX_DECISION_EVIDENCE = 50;
 
 export interface ReplyDraftingSeed {
 	ladder: CompetencyCareerLadder;
@@ -75,42 +54,6 @@ export async function getReplyDraftingActivity(
 	return rows[0]?.status === "active" ? rows[0] : null;
 }
 
-/** Creates the platform activity from `seed` when no head exists. */
-export async function ensureReplyDraftingActivity(
-	db: DbClient,
-	organizationId: string,
-	seed: ReplyDraftingSeed,
-	now: string,
-): Promise<EntrustableActivityRow> {
-	const existing = await getReplyDraftingActivity(db, organizationId);
-	if (existing) return existing;
-	try {
-		return await createEntrustableActivity(db, {
-			organizationId: null,
-			key: REPLY_DRAFTING_ACTIVITY_KEY,
-			version: 1,
-			name: "Reply drafting",
-			description:
-				"Drafting a person's reply to their coding agent. Outcomes earn a career stage only, never authority.",
-			taskFamily: REPLY_DRAFTING_ACTIVITY_KEY,
-			riskLevel: "low",
-			maximumLevel: "recommend",
-			actionPatterns: ["agentTurnTriage.proposeReplyDraft"],
-			toolIds: [],
-			rubric: {
-				careerLadder: seed.ladder,
-				initialRole: seed.initialRole,
-			} as unknown as Record<string, JsonValue>,
-			evidencePolicy: EvidencePolicySchema.parse({}),
-			now,
-		});
-	} catch (error) {
-		const raced = await getReplyDraftingActivity(db, organizationId);
-		if (raced) return raced;
-		throw error;
-	}
-}
-
 export function readReplyDraftingConfig(
 	activity: EntrustableActivityRow,
 ): ReplyDraftingSeed | null {
@@ -130,76 +73,6 @@ export function readReplyDraftingConfig(
 		ladder: ladder.data,
 		initialRole: { key: role.key, name: role.name },
 	};
-}
-
-/**
- * One observation per settled draft; a draft already observed is skipped.
- * Returns how many rows were offered.
- */
-export async function recordReplyDraftObservations(
-	db: DbClient,
-	input: {
-		activity: EntrustableActivityRow;
-		outcomes: SettledReplyDraftOutcome[];
-		now: string;
-	},
-): Promise<number> {
-	const statements = [];
-	for (const outcome of input.outcomes) {
-		const clientObservationId = replyDraftObservationKey(outcome.draftId);
-		statements.push(
-			db
-				.insert(competencyObservations)
-				.values({
-					id: crypto.randomUUID(),
-					organizationId: outcome.orgId,
-					tediId: outcome.drafterId,
-					executorType: "tedi",
-					executorId: outcome.drafterId,
-					activityId: input.activity.id,
-					clientObservationId,
-					inputHash: await hashSnapshot({
-						clientObservationId,
-						verdict: outcome.verdict,
-					}),
-					executionOpportunityId: outcome.draftId,
-					sourceKind: "reply_draft",
-					sourceId: outcome.draftId,
-					taskFamily: input.activity.taskFamily,
-					riskLevel: input.activity.riskLevel,
-					environment: "production",
-					rubricVersion: input.activity.version,
-					harness: "reply-draft",
-					harnessVersion: "1",
-					modelProvider: "unrecorded",
-					modelId: "unrecorded",
-					modelVersion: "unrecorded",
-					outcome: outcome.verdict === "stood" ? "success" : "failure",
-					complexity: 0,
-					nonTrivial: false,
-					heldOut: false,
-					calibrationScore: 0,
-					escalationQuality: 0,
-					learningTransfer: false,
-					evidenceRefs: [`work_interaction_reply_draft:${outcome.draftId}`],
-					eligibilityStatus: "ineligible",
-					evaluatorType: "user",
-					evaluatorId: outcome.targetUserId,
-					classificationMethod: CLASSIFICATION_METHOD,
-					confidence: 1,
-					metadata: { delivery: outcome.delivery, verdict: outcome.verdict },
-					occurredAt: outcome.createdAt,
-					createdAt: input.now,
-				})
-				.onConflictDoNothing(),
-		);
-	}
-	for (let index = 0; index < statements.length; index += 50) {
-		const chunk = statements.slice(index, index + 50);
-		if (chunk.length > 0)
-			await db.batch(chunk as [(typeof chunk)[0], ...typeof chunk]);
-	}
-	return statements.length;
 }
 
 export interface ReplyDraftCareerState {
@@ -353,129 +226,6 @@ export function stoodStreakDays(stoodDays: Set<string>, now: string): number {
 		day = shiftDays(`${day}T00:00:00.000Z`, -1).slice(0, 10);
 	}
 	return streak;
-}
-
-/** Starts a tedi with no active role on the seed's role track. */
-export async function ensureReplyDraftRole(
-	db: DbClient,
-	input: {
-		organizationId: string;
-		tediId: string;
-		role: ReplyDraftingSeed["initialRole"];
-		now: string;
-	},
-): Promise<TediRoleAssignmentRow> {
-	return assignInitialRoleTrack(db, {
-		organizationId: input.organizationId,
-		tediId: input.tediId,
-		roleKey: input.role.key,
-		roleName: input.role.name,
-		metadata: { startedBy: REPLY_DRAFT_LADDER_PRINCIPAL },
-		now: input.now,
-	});
-}
-
-/**
- * Moves the assignment one ladder step and records the applied decision that
- * explains it. Returns false when the assignment changed underneath.
- */
-export async function applyReplyDraftCareerChange(
-	db: DbClient,
-	input: {
-		assignment: TediRoleAssignmentRow;
-		kind: "promote" | "demote";
-		to: TediCareerStage;
-		evidenceObservationIds: string[];
-		snapshot: Record<string, JsonValue>;
-		now: string;
-	},
-): Promise<boolean> {
-	const { assignment } = input;
-	const evidenceObservationIds = input.evidenceObservationIds.slice(
-		0,
-		MAX_DECISION_EVIDENCE,
-	);
-	if (evidenceObservationIds.length === 0) return false;
-	const decisionId = crypto.randomUUID();
-	const evidenceSnapshotHash = await hashSnapshot(input.snapshot);
-	const clientProposalId = `${REPLY_DRAFT_LADDER_PRINCIPAL}:${assignment.id}:${assignment.revision}`;
-	const changed = await db
-		.batch([
-			db
-				.update(tediRoleAssignments)
-				.set({
-					careerStage: input.to,
-					stageChangedAt: input.now,
-					revision: assignment.revision + 1,
-					lastDecisionId: decisionId,
-					evidenceSnapshotHash,
-					updatedAt: input.now,
-				})
-				.where(
-					and(
-						eq(tediRoleAssignments.id, assignment.id),
-						eq(tediRoleAssignments.status, "active"),
-						eq(tediRoleAssignments.revision, assignment.revision),
-						eq(tediRoleAssignments.careerStage, assignment.careerStage),
-					),
-				)
-				.returning({ id: tediRoleAssignments.id }),
-			db.insert(promotionDecisions).values({
-				id: decisionId,
-				organizationId: assignment.organizationId,
-				clientProposalId,
-				inputHash: await hashSnapshot({ clientProposalId, to: input.to }),
-				tediId: assignment.tediId,
-				roleAssignmentId: assignment.id,
-				kind: input.kind,
-				status: "applied",
-				fromCareerStage: assignment.careerStage,
-				toCareerStage: input.to,
-				expectedRoleRevision: assignment.revision,
-				evidenceObservationIds,
-				evidenceRefs: evidenceObservationIds.map(
-					(id) => `competency_observation:${id}`,
-				),
-				evidenceSnapshot: input.snapshot,
-				proposedByType: "service",
-				proposedById: REPLY_DRAFT_LADDER_PRINCIPAL,
-				decidedByType: "certification_service",
-				decidedById: REPLY_DRAFT_LADDER_PRINCIPAL,
-				reason: `Reply-drafting ladder ${input.kind}`,
-				createdAt: input.now,
-				updatedAt: input.now,
-				proposalExpiresAt: input.now,
-				decidedAt: input.now,
-				appliedAt: input.now,
-			}),
-		])
-		.then(([updated]) => updated.length > 0)
-		.catch(async (error: unknown) => {
-			// This revision already has a ladder decision: it moved already.
-			const prior = await db
-				.select({ id: promotionDecisions.id })
-				.from(promotionDecisions)
-				.where(
-					and(
-						eq(promotionDecisions.organizationId, assignment.organizationId),
-						eq(promotionDecisions.clientProposalId, clientProposalId),
-					),
-				)
-				.limit(1);
-			if (prior[0]) return null;
-			throw error;
-		});
-	if (changed === null) return false;
-	if (changed) return true;
-	await db
-		.update(promotionDecisions)
-		.set({
-			status: "cancelled",
-			reason: "Role assignment changed before the ladder applied",
-			updatedAt: input.now,
-		})
-		.where(eq(promotionDecisions.id, decisionId));
-	return false;
 }
 
 function shiftDays(iso: string, days: number): string {

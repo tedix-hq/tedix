@@ -1,24 +1,17 @@
 import { entrustableActivities } from "../../schema/earned-delegation";
-import type { DatabaseSync } from "node:sqlite";
-import type { CompetencyCareerLadder } from "@tedix/api-contract/schemas/earned-delegation";
+import {
+	type CompetencyCareerLadder,
+	EvidencePolicySchema,
+} from "@tedix/api-contract/schemas/earned-delegation";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
-import { respondToWorkInteraction } from "../work-items/interactions";
+import { createEntrustableActivity } from "./activities";
 import {
-	insertReplyDraft,
-	listUnrecordedReplyDraftOutcomes,
-} from "../work-items/reply-drafts";
-import {
-	applyReplyDraftCareerChange,
-	ensureReplyDraftingActivity,
-	ensureReplyDraftRole,
 	evaluateCareerLadder,
 	getReplyDraftingActivity,
-	loadReplyDraftCareers,
 	readReplyDraftingConfig,
-	recordReplyDraftObservations,
 	stoodStreakDays,
 } from "./reply-draft-career";
 
@@ -32,10 +25,6 @@ const LADDER: CompetencyCareerLadder = {
 const SEED = {
 	ladder: LADDER,
 	initialRole: { key: "reply_drafter", name: "Reply drafter" },
-};
-const QUIET = {
-	schema: "tedix.decision-capture.v1",
-	triage: { status: "ok", urgency: "later", labels: {}, urgentLabels: [] },
 };
 const NOW = "2026-08-21T12:00:00.000Z";
 
@@ -51,41 +40,20 @@ function seed() {
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
 
-/** A review draft on its own question, answered with `outcome`. */
-async function answeredDraft(
-	sqlite: DatabaseSync,
-	db: ReturnType<typeof seed>["db"],
-	index: number,
-	outcome: "accepted" | "edited",
-) {
-	const at = new Date(
-		Date.parse("2026-08-20T00:00:00.000Z") + index * 60_000,
-	).toISOString();
-	sqlite
-		.prepare(
-			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata) VALUES(?,'org','work','question','Question','Answer?','system','tedix','user','user',?,?)",
-		)
-		.run(`q${index}`, at, JSON.stringify(QUIET));
-	await insertReplyDraft(db, {
-		id: `d${index}`,
-		orgId: "org",
-		interactionId: `q${index}`,
-		drafterId: "drafter",
-		body: "Ship it.",
-		rationale: "Matches the plan.",
-		now: at,
-	});
-	await respondToWorkInteraction(db, {
-		id: `r${index}`,
-		orgId: "org",
-		interactionId: `q${index}`,
-		expectedVersion: 1,
-		responder: { type: "user", id: "user" },
-		responseKind: "answer",
-		body: "Answer",
-		resolvesRequest: true,
-		metadata: { draftId: `d${index}`, draftOutcome: outcome, editRatio: 0 },
-		now: at,
+function seedActivity(db: ReturnType<typeof seed>["db"]) {
+	return createEntrustableActivity(db, {
+		organizationId: null,
+		key: "reply_drafting",
+		version: 1,
+		name: "Reply drafting",
+		taskFamily: "reply_drafting",
+		riskLevel: "low",
+		maximumLevel: "recommend",
+		actionPatterns: ["agentTurnTriage.proposeReplyDraft"],
+		toolIds: [],
+		rubric: { careerLadder: LADDER, initialRole: SEED.initialRole },
+		evidencePolicy: EvidencePolicySchema.parse({}),
+		now: NOW,
 	});
 }
 
@@ -136,112 +104,11 @@ describe("reply-draft career ladder", () => {
 		expect(stoodStreakDays(days, "2026-08-22T08:00:00.000Z")).toBe(3);
 		expect(stoodStreakDays(days, "2026-08-23T08:00:00.000Z")).toBe(0);
 	});
-
-	it("records settled drafts once and promotes through an applied decision", async () => {
-		const { sqlite, db } = seed();
-		for (let index = 0; index < 26; index++)
-			await answeredDraft(
-				sqlite,
-				db,
-				index,
-				index === 0 ? "edited" : "accepted",
-			);
-		const listParams = {
-			since: "2026-08-01T00:00:00.000Z",
-			settledBefore: "2026-08-21T11:00:00.000Z",
-			limit: 500,
-		};
-		const outcomes = await listUnrecordedReplyDraftOutcomes(db, listParams);
-		expect(outcomes).toHaveLength(26);
-		expect(outcomes[0]).toMatchObject({
-			draftId: "d0",
-			drafterId: "drafter",
-			targetUserId: "user",
-			verdict: "corrected",
-		});
-
-		const activity = await ensureReplyDraftingActivity(db, "org", SEED, NOW);
-		expect(activity.organizationId).toBeNull();
-		expect(readReplyDraftingConfig(activity)).toEqual(SEED);
-		await recordReplyDraftObservations(db, { activity, outcomes, now: NOW });
-		await recordReplyDraftObservations(db, { activity, outcomes, now: NOW });
-		expect(await listUnrecordedReplyDraftOutcomes(db, listParams)).toEqual([]);
-
-		await ensureReplyDraftRole(db, {
-			organizationId: "org",
-			tediId: "drafter",
-			role: SEED.initialRole,
-			now: NOW,
-		});
-		const load = () =>
-			loadReplyDraftCareers(db, {
-				organizationId: "org",
-				activityId: activity.id,
-				tediIds: ["drafter"],
-				windowDays: 7,
-				now: NOW,
-			});
-		const state = (await load()).get("drafter")!;
-		expect(state.assignment?.careerStage).toBe("shadow");
-		expect(state.stoodIds).toHaveLength(25);
-		expect(state.correctedIds).toHaveLength(1);
-		expect(stoodStreakDays(state.stoodDays, NOW)).toBe(1);
-
-		const evaluation = evaluateCareerLadder(LADDER, "shadow", {
-			stood: 25,
-			corrected: 1,
-			windowStood: 25,
-			windowCorrected: 1,
-		});
-		expect(evaluation.change).toEqual({ kind: "promote", to: "apprentice" });
-		expect(
-			await applyReplyDraftCareerChange(db, {
-				assignment: state.assignment!,
-				kind: "promote",
-				to: "apprentice",
-				evidenceObservationIds: state.stoodIds,
-				snapshot: { stood: 25 },
-				now: NOW,
-			}),
-		).toBe(true);
-		// The stale assignment no longer matches: nothing changes twice.
-		expect(
-			await applyReplyDraftCareerChange(db, {
-				assignment: state.assignment!,
-				kind: "promote",
-				to: "apprentice",
-				evidenceObservationIds: state.stoodIds,
-				snapshot: { stood: 25 },
-				now: NOW,
-			}),
-		).toBe(false);
-
-		const promoted = (await load()).get("drafter")!;
-		expect(promoted.assignment).toMatchObject({
-			careerStage: "apprentice",
-			revision: 2,
-		});
-		// Progress restarts at the new stage.
-		expect(promoted.stoodIds).toEqual([]);
-		const decisions = sqlite
-			.prepare(
-				"SELECT kind, status, from_career_stage, to_career_stage FROM promotion_decisions ORDER BY created_at, status",
-			)
-			.all();
-		expect(decisions).toEqual([
-			{
-				kind: "promote",
-				status: "applied",
-				from_career_stage: "shadow",
-				to_career_stage: "apprentice",
-			},
-		]);
-	});
 });
 
 it("does not resurrect older or platform policy behind a retired or malformed organization head", async () => {
 	const { db, sqlite } = seed();
-	const platform = await ensureReplyDraftingActivity(db, "org", SEED, NOW);
+	const platform = await seedActivity(db);
 	await db.insert(entrustableActivities).values({
 		...platform,
 		id: "tenant-ladder-v1",
@@ -276,7 +143,7 @@ it("does not resurrect older or platform policy behind a retired or malformed or
 });
 it("does not resurrect an older platform policy behind its retired head", async () => {
 	const { db } = seed();
-	const platform = await ensureReplyDraftingActivity(db, "org", SEED, NOW);
+	const platform = await seedActivity(db);
 	await db.insert(entrustableActivities).values({
 		...platform,
 		id: "platform-ladder-v2",

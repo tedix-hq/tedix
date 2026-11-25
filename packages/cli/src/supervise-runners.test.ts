@@ -21,7 +21,6 @@ import { installLaneService } from "./lane-service";
 import { parseServeOptions } from "./lane-serve";
 import { readDutyStatuses } from "./supervise-duty-status";
 import {
-	adoptRunnerLaunchAgents,
 	capRunnerLog,
 	RUNNER_LOG_CAP_BYTES,
 	RUNNER_LOG_KEEP_BYTES,
@@ -218,70 +217,6 @@ describe("runner log cap", () => {
 		writeFileSync(path, "short\n");
 		capRunnerLog(path);
 		expect(readFileSync(path, "utf8")).toBe("short\n");
-	});
-});
-
-describe("adopting the old per-dispatcher LaunchAgents", () => {
-	test("moves each lane serve agent into the file, unloads it and removes the plist", () => {
-		const home = join(config, "home");
-		const agents = join(home, "Library", "LaunchAgents");
-		mkdirSync(agents, { recursive: true });
-		const plist = (args: string[]) =>
-			`<plist><dict><key>ProgramArguments</key><array>${args
-				.map((a) => `<string>${a}</string>`)
-				.join("")}</array></dict></plist>`;
-		writeFileSync(
-			join(agents, "dev.tedix.lane-serve.aaaa.plist"),
-			plist([
-				"/bin/tedix",
-				"--organization",
-				"org_fixture",
-				"--workspace",
-				"fixture",
-				"lane",
-				"serve",
-				"--executor",
-				"codex",
-				"--max",
-				"4",
-				"--rules",
-				"runner-rules",
-				"--repo",
-				"/repo/fixture",
-			]),
-		);
-		writeFileSync(
-			join(agents, "dev.tedix.lane-serve.bbbb.plist"),
-			plist(["/bin/tedix", "supervise"]),
-		);
-		writeFileSync(
-			join(agents, "dev.tedix.lane-serve.aaaa.plist.before-e74f9f0"),
-			"backup",
-		);
-		writeFileSync(join(agents, "dev.tedix.supervisor.plist"), plist([]));
-		const calls: string[][] = [];
-		const result = adoptRunnerLaunchAgents(
-			{ TEDIX_CONFIG_DIR: config },
-			(args) => {
-				calls.push(args);
-				return { status: 0 };
-			},
-			(args) => parseServeOptions(args, { TEDIX_CONFIG_DIR: config }),
-			{ home, domain: "gui/501" },
-		);
-		expect(result.adopted).toEqual([runner()]);
-		expect(result.skipped).toEqual([
-			"dev.tedix.lane-serve.bbbb.plist: not a lane serve agent",
-		]);
-		expect(calls).toEqual([["bootout", "gui/501/dev.tedix.lane-serve.aaaa"]]);
-		expect(existsSync(join(agents, "dev.tedix.lane-serve.aaaa.plist"))).toBe(
-			false,
-		);
-		expect(existsSync(join(agents, "dev.tedix.lane-serve.bbbb.plist"))).toBe(
-			true,
-		);
-		expect(existsSync(join(agents, "dev.tedix.supervisor.plist"))).toBe(true);
-		expect(readRunnerDuties({ TEDIX_CONFIG_DIR: config })).toEqual([runner()]);
 	});
 });
 

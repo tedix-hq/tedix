@@ -54,7 +54,6 @@ import {
 import { childLeaseWatch } from "./lane-leases";
 import { RunStepsUnavailableError } from "./lane-steps";
 import {
-	runnerDutyFromPlist,
 	runnerDutyFromServeOptions,
 	runnerKey,
 	runnerServeArgs,
@@ -7763,39 +7762,6 @@ it("takes no slot count and pins selectors without persisting inherited identity
 			parseServeOptions([...served.slice(0, 4), ...served.slice(6)], {}),
 		),
 	).toEqual(duty);
-	// A dispatcher installed as its own LaunchAgent before is read back as a duty.
-	const plist = `<plist><dict><key>ProgramArguments</key><array>${[
-		"/bin/tedix",
-		"--organization",
-		"org_acme",
-		"--workspace",
-		"acme",
-		"lane",
-		"serve",
-		...args,
-		"--repo",
-		"/repo/a&amp;b",
-		"--accept-proposed",
-		"--project",
-		projectId,
-	]
-		.map((arg) => `<string>${arg}</string>`)
-		.join(
-			"",
-		)}</array><key>EnvironmentVariables</key><dict><key>TEDIX_MCP_BEARER_TOKEN</key><string>secret</string></dict></dict></plist>`;
-	expect(
-		runnerDutyFromPlist(plist, (served) => parseServeOptions(served, {})),
-	).toMatchObject({
-		organization: "org_acme",
-		repo: "/repo/a&b",
-		acceptProposed: true,
-		project: projectId,
-	});
-	expect(
-		runnerDutyFromPlist("<plist><dict></dict></plist>", (served) =>
-			parseServeOptions(served, {}),
-		),
-	).toBeUndefined();
 	expect(
 		laneChildEnv({
 			...env,

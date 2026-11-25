@@ -10,7 +10,6 @@ import {
 	isNotNull,
 	isNull,
 	lt,
-	ne,
 	notLike,
 	or,
 	sql,
@@ -18,7 +17,6 @@ import {
 import type { DbClient } from "../client";
 import { chunkForBoundParams } from "../utils/batch";
 import { harnessSubjectTraceBundles } from "../schema/harness-versions";
-import { platformCronCheckpoints } from "../schema/platform-cron-executions";
 import {
 	chatDispatchIdempotency,
 	type KernelConversation,
@@ -484,65 +482,6 @@ export async function recordKernelConversationTitle(
 				titleSource: sql`CASE WHEN ${kernelConversations.titleSource} = 'rename' THEN ${kernelConversations.titleSource} ELSE 'autoTitle' END`,
 				updatedAt,
 			},
-		});
-}
-
-const RETITLE_CHECKPOINT = "kernel-conversation-retitle:v1";
-
-/**
- * One page of open conversations with a non-user title, keyed after the stored
- * cursor. The caller compares each row with its first request to distinguish
- * generated titles from deterministic placeholders. User renames are never
- * candidates.
- */
-export async function listKernelConversationRetitleCandidates(
-	db: DbClient,
-	input: { limit: number },
-): Promise<{ rows: KernelConversation[]; previous: string | null }> {
-	const [checkpoint] = await db
-		.select({ through: platformCronCheckpoints.through })
-		.from(platformCronCheckpoints)
-		.where(eq(platformCronCheckpoints.scheduleId, RETITLE_CHECKPOINT))
-		.limit(1);
-	const previous = checkpoint?.through ?? null;
-	const rows = await db
-		.select()
-		.from(kernelConversations)
-		.where(
-			and(
-				gt(kernelConversations.id, previous ?? ""),
-				isNull(kernelConversations.deletedAt),
-				isNull(kernelConversations.archivedAt),
-				or(
-					isNull(kernelConversations.titleSource),
-					ne(kernelConversations.titleSource, "rename"),
-				),
-			),
-		)
-		.orderBy(kernelConversations.id)
-		.limit(input.limit);
-	return { rows, previous };
-}
-
-/**
- * Compare-and-set the retitle cursor so overlapping ticks never rewind it; an
- * empty page (`next === ""`) restarts the pass.
- */
-export async function advanceKernelConversationRetitleCursor(
-	db: DbClient,
-	previous: string | null,
-	next: string,
-): Promise<void> {
-	await db
-		.insert(platformCronCheckpoints)
-		.values({ scheduleId: RETITLE_CHECKPOINT, through: next })
-		.onConflictDoUpdate({
-			target: platformCronCheckpoints.scheduleId,
-			set: { through: next },
-			setWhere:
-				previous === null
-					? sql`0`
-					: eq(platformCronCheckpoints.through, previous),
 		});
 }
 

@@ -6,7 +6,6 @@ import {
 	ftruncateSync,
 	mkdirSync,
 	openSync,
-	readdirSync,
 	readFileSync,
 	readSync,
 	renameSync,
@@ -38,9 +37,7 @@ import {
  * machine that picks up accepted Work for one executor and carries it out
  * (`tedix lane serve`).
  *
- * `tedix lane serve --install` used to write one macOS LaunchAgent per
- * executor. Each ran on its own clock with its own restart policy and nothing
- * noticed when one dropped out. Now `~/.tedix/supervisor-runners.json` lists the
+ * `~/.tedix/supervisor-runners.json` lists the
  * dispatchers, and the supervisor starts each as a child, restarts it with a
  * backoff when it exits, stops it when it leaves the list, and adopts a child
  * that outlived a crashed supervisor instead of starting a second one. The
@@ -200,11 +197,9 @@ export interface ServeLike {
 	repo: string;
 	scope: string[];
 }
-export type ParseServe = (args: string[]) => ServeLike;
-export type RunLaunchctl = (args: string[]) => { status: number };
 
 /**
- * The dispatcher directory name and the former LaunchAgent label suffix. An
+ * The dispatcher directory name. An
  * any-local runner limited to a project or a repo serves only that slice of
  * Work, so its key carries the scope and it conflicts only with runners
  * serving the same scope; an unscoped one replaces the per-executor runners
@@ -393,80 +388,6 @@ export function removeRunnerDuty(env: NodeJS.ProcessEnv, key: string): boolean {
 	if (kept.length === runners.length) return false;
 	writeRunnerDuties(env, kept);
 	return true;
-}
-
-/**
- * Reads the dispatcher a former `lane serve --install` LaunchAgent ran, from
- * the `<string>` entries of its ProgramArguments. Returns undefined when the
- * file is not such an agent.
- */
-export function runnerDutyFromPlist(
-	xml: string,
-	parse: ParseServe,
-): RunnerDuty | undefined {
-	const block =
-		/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(xml);
-	if (!block) return undefined;
-	const args = [...block[1]!.matchAll(/<string>([\s\S]*?)<\/string>/g)].map(
-		(match) =>
-			match[1]!
-				.replaceAll("&lt;", "<")
-				.replaceAll("&gt;", ">")
-				.replaceAll("&amp;", "&"),
-	);
-	const serve = args.findIndex(
-		(arg, index) => arg === "lane" && args[index + 1] === "serve",
-	);
-	if (serve < 1) return undefined;
-	// Old agents carry a fixed `--max` slot count; runners no longer take one.
-	const kept = [...args.slice(1, serve), ...args.slice(serve + 2)].filter(
-		(arg, index, all) =>
-			arg !== "--install" && arg !== "--max" && all[index - 1] !== "--max",
-	);
-	return runnerDutyFromServeOptions(parse(kept));
-}
-
-export const RUNNER_AGENT_PREFIX = "dev.tedix.lane-serve.";
-
-/**
- * Moves every `dev.tedix.lane-serve.*` LaunchAgent into the runners file,
- * unloads it and removes its plist. The supervisor starts the dispatcher
- * on its next tick, so the runner is back within a minute.
- */
-export function adoptRunnerLaunchAgents(
-	env: NodeJS.ProcessEnv,
-	run: RunLaunchctl,
-	parse: ParseServe,
-	{
-		home = homedir(),
-		domain = `gui/${process.getuid?.() ?? 0}`,
-	}: { home?: string; domain?: string } = {},
-): { adopted: RunnerDuty[]; skipped: string[] } {
-	const folder = join(home, "Library", "LaunchAgents");
-	const adopted: RunnerDuty[] = [];
-	const skipped: string[] = [];
-	if (!existsSync(folder)) return { adopted, skipped };
-	for (const name of readdirSync(folder).sort()) {
-		if (!name.startsWith(RUNNER_AGENT_PREFIX) || !name.endsWith(".plist"))
-			continue;
-		const path = join(folder, name);
-		let runner: RunnerDuty | undefined;
-		try {
-			runner = runnerDutyFromPlist(readFileSync(path, "utf8"), parse);
-		} catch (error) {
-			skipped.push(`${name}: ${(error as Error).message}`);
-			continue;
-		}
-		if (!runner) {
-			skipped.push(`${name}: not a lane serve agent`);
-			continue;
-		}
-		writeRunnerDuty(env, runner);
-		run(["bootout", `${domain}/${name.slice(0, -".plist".length)}`]);
-		rmSync(path, { force: true });
-		adopted.push(runner);
-	}
-	return { adopted, skipped };
 }
 
 export interface RunnerChild {

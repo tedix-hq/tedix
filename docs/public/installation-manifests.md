@@ -277,11 +277,10 @@ auto-answer questions and new Work app installation cannot proceed.
 Keep your chosen values in your installation's own configuration repository.
 Publishing defaults does not overwrite existing user policies, organization
 career ladders, or installed Work apps and their pinned blueprint copies.
-Configure reply-drafting career defaults separately in the stored
+The leaderboard reads stored reply-drafting progress from the
 `reply_drafting` activity's `rubric.careerLadder` and `rubric.initialRole`.
 An organization's own activity takes precedence; its retired or invalid latest
-revision does not fall back to the installation activity. Runtime processing
-never creates a replacement ladder from product source.
+revision does not fall back to the installation activity.
 
 ## Backup, restore, and upgrade
 

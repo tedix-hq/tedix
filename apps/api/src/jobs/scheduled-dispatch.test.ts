@@ -484,7 +484,6 @@ it("runs support retries only on the quarter-hour tick without commercial work i
 		expect(catchup.paths).not.toContain("billing-and-gateway-cost");
 		expect(catchup.paths).not.toContain("workstation-lease-reaper");
 		expect(catchup.paths).not.toContain("workstation-compute-metering");
-		expect(catchup.paths).not.toContain("reply-draft-career");
 	}
 	catchup.paths.length = 0;
 	await scheduled(

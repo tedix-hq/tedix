@@ -37,7 +37,6 @@ import {
 	isNotNull,
 	lt,
 	ne,
-	notExists,
 	notInArray,
 	or,
 	sql,
@@ -56,7 +55,6 @@ import {
 	workInteractionStoredColumns,
 } from "../../schema/work-factory";
 import { WorkControlError } from "./factory-validation";
-import { competencyObservations } from "../../schema/earned-delegation";
 import { tedis } from "../../schema/tedis";
 
 /** Response `metadata.source` of an auto draft answering in the tedi's name. */
@@ -911,137 +909,4 @@ export async function recordAutoReplyDelivery(
 			`Auto reply was not recorded: ${cause}`,
 		);
 	}
-}
-
-/** The `client_observation_id` of a reply draft's competency observation. */
-export function replyDraftObservationKey(draftId: string): string {
-	return `reply-draft:${draftId}`;
-}
-
-/** Organizations with recent drafts, before applying their individual settlement policies. */
-export async function listReplyDraftOutcomeOrganizations(
-	db: DbQueryClient,
-	since: string,
-) {
-	const rows = await db
-		.selectDistinct({ orgId: workInteractionReplyDrafts.orgId })
-		.from(workInteractionReplyDrafts)
-		.where(
-			and(
-				gte(workInteractionReplyDrafts.createdAt, since),
-				sql`NOT EXISTS (SELECT 1 FROM competency_observations c WHERE c.organization_id = ${workInteractionReplyDrafts.orgId} AND c.client_observation_id = 'reply-draft:' || ${workInteractionReplyDrafts.id})`,
-			),
-		)
-		.orderBy(asc(workInteractionReplyDrafts.orgId));
-	return rows.map((row) => row.orgId);
-}
-
-export interface ListUnrecordedReplyDraftOutcomesParams {
-	orgId?: string;
-	/** Drafts created at or after this instant. */
-	since: string;
-	/** An auto draft with no override created at or before this instant stood. */
-	settledBefore: string;
-	limit: number;
-}
-
-export interface SettledReplyDraftOutcome {
-	orgId: string;
-	draftId: string;
-	drafterId: string;
-	/** The human whose question it answered and who judged it. */
-	targetUserId: string;
-	createdAt: string;
-	delivery: ReplyDraftDelivery;
-	/** By the rules of {@link getReplyDraftLeaderboard}. */
-	verdict: "stood" | "corrected";
-}
-
-type SettledRow = {
-	org_id: string;
-	draft_id: string;
-	drafter_id: string;
-	target_id: string;
-	created_at: string;
-	delivery: ReplyDraftDelivery;
-	verdict: "stood" | "corrected";
-};
-
-/**
- * Settled reply drafts, across organizations, that have no competency
- * observation yet, oldest first, by the rules of
- * {@link getReplyDraftLeaderboard}: a review draft settles when its human
- * answers with it (accepted stood; edited or replaced was corrected). An auto
- * draft was corrected when overridden, and stood once followed without
- * override or, with no follow-up, once created at or before `settledBefore`.
- */
-export async function listUnrecordedReplyDraftOutcomes(
-	db: DbQueryClient,
-	p: ListUnrecordedReplyDraftOutcomesParams,
-): Promise<SettledReplyDraftOutcome[]> {
-	const o = draftOutcomes(db, { since: p.since, orgId: p.orgId }).as("o");
-	const t = alias(tedis, "t");
-	const c = alias(competencyObservations, "c");
-	const overridden = overriddenDraft(o);
-	const settled = db
-		.select({
-			orgId: sql<string>`${o.orgId}`.as("org_id"),
-			draftId: sql<string>`${o.draftId}`.as("draft_id"),
-			drafterId: sql<string>`${o.drafterId}`.as("drafter_id"),
-			targetId: sql<string>`${o.targetId}`.as("target_id"),
-			createdAt: sql<string>`${o.createdAt}`.as("created_at"),
-			delivery: sql<ReplyDraftDelivery>`${o.delivery}`.as("delivery"),
-			verdict: sql<"stood" | "corrected" | null>`CASE
-					WHEN ${o.delivery} = 'auto' AND ${overridden} THEN 'corrected'
-					WHEN ${o.delivery} = 'auto' AND (${o.followup} IS NOT NULL OR ${o.createdAt} <= ${p.settledBefore}) THEN 'stood'
-					WHEN ${o.delivery} IS NOT 'auto' AND ${o.outcome} = 'accepted' THEN 'stood'
-					WHEN ${o.delivery} IS NOT 'auto' AND ${o.outcome} IN ('edited', 'replaced') THEN 'corrected'
-				END`.as("verdict"),
-		})
-		.from(o)
-		.where(
-			and(
-				exists(
-					db
-						.select({ one: sql`1` })
-						.from(t)
-						.where(and(eq(t.id, o.drafterId), eq(t.organizationId, o.orgId))),
-				),
-				notExists(
-					db
-						.select({ one: sql`1` })
-						.from(c)
-						.where(
-							and(
-								eq(c.organizationId, o.orgId),
-								sql`${c.clientObservationId} = 'reply-draft:' || ${o.draftId}`,
-							),
-						),
-				),
-			),
-		)
-		.as("settled");
-	const rows = (await db
-		.select({
-			org_id: settled.orgId,
-			draft_id: settled.draftId,
-			drafter_id: settled.drafterId,
-			target_id: settled.targetId,
-			created_at: settled.createdAt,
-			delivery: settled.delivery,
-			verdict: settled.verdict,
-		})
-		.from(settled)
-		.where(isNotNull(settled.verdict))
-		.orderBy(asc(settled.createdAt), asc(settled.draftId))
-		.limit(p.limit)) as SettledRow[];
-	return rows.map((row) => ({
-		orgId: row.org_id,
-		draftId: row.draft_id,
-		drafterId: row.drafter_id,
-		targetUserId: row.target_id,
-		createdAt: row.created_at,
-		delivery: row.delivery,
-		verdict: row.verdict,
-	}));
 }

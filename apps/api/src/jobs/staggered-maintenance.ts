@@ -9,7 +9,6 @@ export const MAINTENANCE_CRONS = {
 	"site-reconciliation": "3 * * * *",
 	"external-agent-mcp-client-reaper": "5 * * * *",
 	"recurring-work": "7 * * * *",
-	"conversation-title-backfill": "9 * * * *",
 	"site-versions": "13 2 * * *",
 	"daily-billing-and-catalog-maintenance": "17 2 * * *",
 	"cloudflare-billable-usage": "19 2 * * *",

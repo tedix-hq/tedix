@@ -55,12 +55,10 @@ export const PLATFORM_CRON_IDS = [
 	"cost-anomaly-check",
 	"external-agent-mcp-client-reaper",
 	"recurring-work",
-	"conversation-title-backfill",
 	"tedi-access-key-rotation",
 	"site-reconciliation",
 	"site-versions",
 	"d1-retention",
-	"reply-draft-career",
 	"capture-health-heartbeat",
 	"dispatcher-health-alarm",
 	"work-routing",
@@ -186,7 +184,6 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 			"billing-and-gateway-cost",
 			"workstation-lease-reaper",
 			"workstation-compute-metering",
-			"reply-draft-career",
 		] as const
 	).map((id) => ({
 		id,
@@ -280,12 +277,6 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		id: "recurring-work",
 		cron: MAINTENANCE_CRONS["recurring-work"],
 		intervalMinutes: 60,
-	},
-	{
-		id: "conversation-title-backfill",
-		cron: MAINTENANCE_CRONS["conversation-title-backfill"],
-		intervalMinutes: 60,
-		requiresFleet: true,
 	},
 	{
 		id: "site-reconciliation",
