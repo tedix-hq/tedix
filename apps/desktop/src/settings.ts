@@ -18,6 +18,7 @@ import {
 	el,
 	foundTools,
 	keepFocus,
+	namedAgentTool,
 	onButtonsChange,
 	orgName,
 	otherRunners,
@@ -375,51 +376,59 @@ const setupDetails = (now: PanelState): Item => ({
 	words: "diagnostics support report copy",
 });
 
+const AGENT_APPS = [
+	["chatgpt", "ChatGPT"],
+	["claude", "Claude"],
+	["devin", "Devin"],
+	["opencode", "OpenCode"],
+] as const;
+type AgentApp = (typeof AGENT_APPS)[number][0];
+const TOOL_APPS: Record<string, AgentApp> = {
+	codex: "chatgpt",
+	claude: "claude",
+	devin: "devin",
+	opencode: "opencode",
+};
+
 function tools(now: PanelState): Group[] {
 	const found = foundTools(now);
-	const chat: Group = {
-		title: "Chat apps",
-		items: now.setup.desktopApps.claude
-			? [
-					{
-						title: "Claude (Cowork)",
-						glyph: "bubble",
-						sub: CLAUDE_PLUGIN_STEPS,
-						control: claudePluginButtons(),
-						words: "claude app plugin",
-					},
-				]
-			: [],
+	const appItems = new Map<AgentApp, Item[]>();
+	const loose: Item[] = [];
+	const add = (app: AgentApp | undefined, item: Item) => {
+		if (!app) return loose.push(item);
+		appItems.set(app, [...(appItems.get(app) ?? []), item]);
 	};
-	const rows: Item[] = found.map((tool) => {
-		const view = toolView(now, tool);
-		const runner = runnerFor(now, tool);
+	for (const tool of found) {
+		const named = namedAgentTool(tool);
+		const view = toolView(now, named);
+		const runner = runnerFor(now, named);
 		const on = Boolean(runner?.enabled);
 		// Held back by its own limit, such as out of credits until a time.
-		const limit = on ? now.setup.routing?.limits?.[tool.executor] : undefined;
+		const limit = on ? now.setup.routing?.limits?.[named.executor] : undefined;
 		// What the tool itself reports: plan, each limit used and its reset.
-		const report = on ? now.setup.routing?.usage?.[tool.executor] : undefined;
-		const usageText = report ? plainUsage(report.text, tool.name) : "";
+		const report = on ? now.setup.routing?.usage?.[named.executor] : undefined;
+		const usageText = report ? plainUsage(report.text, named.name) : "";
 		const usage = usageText
 			? { text: usageText, near: report?.near }
 			: undefined;
 		const identity = tedixAccountSummary(
-			tool.tedixAccount,
+			named.tedixAccount,
 			now.setup.app.state === "in" ? now.setup.app.email : "",
 		);
-		return {
-			title: tool.name,
-			glyph: TOOL_ICONS[tool.id] ?? "terminal",
+		const app = TOOL_APPS[named.id];
+		add(app, {
+			title: named.name,
+			glyph: TOOL_ICONS[named.id] ?? "terminal",
 			sub: el(
 				"span",
 				"",
 				el("div", "", identity.text),
 				!identity.mismatch &&
-					tool.grant?.lastSuccessfulCallAt &&
+					named.grant?.lastSuccessfulCallAt &&
 					el(
 						"div",
 						"",
-						`Last successful call: ${new Date(tool.grant.lastSuccessfulCallAt).toLocaleString()}`,
+						`Last successful call: ${new Date(named.grant.lastSuccessfulCallAt).toLocaleString()}`,
 					),
 				el(
 					"div",
@@ -436,7 +445,7 @@ function tools(now: PanelState): Group[] {
 										view.sub ? el("div", "", view.sub) : null,
 									)
 								: [
-										tool.bothInstalled ? "Connects the desktop app." : "",
+										named.bothInstalled ? "Connects the desktop app." : "",
 										view.sub,
 									]
 										.filter(Boolean)
@@ -452,36 +461,44 @@ function tools(now: PanelState): Group[] {
 						: view.tone,
 			control: [
 				view.cancel && button("Cancel", "quiet", view.cancel),
-				tool.found === "found" &&
-					tool.tedix === "added" &&
-					tool.connection === "signed-in" &&
-					tool.readVerified &&
+				named.found === "found" &&
+					named.tedix === "added" &&
+					named.connection === "signed-in" &&
+					named.readVerified &&
 					!view.working &&
 					!view.action &&
-					button("Check account", "quiet", () => act("verify", tool.id)),
+					button("Check account", "quiet", () => act("verify", named.id)),
 				// Held back from tasks, its connection still works: say so, so the
 				// row does not look broken beside the line that says why.
 				view.ready ? READY_MARK(limit ? "Connected" : "Ready") : view.action,
 				// Takes Tedix out so it can be connected fresh; it asks first.
 				// Only once the agent no longer takes tasks.
-				tool.tedix === "added" &&
+				named.tedix === "added" &&
 					!on &&
 					!view.working &&
 					!view.action &&
-					removeButton(tool),
+					removeButton(named),
 				toggle(
-					`Use ${tool.name} for tasks`,
+					`Use ${named.name} for tasks`,
 					on,
-					(next) => useForTasks(now, tool, next),
+					(next) => useForTasks(now, named, next),
 					!now.setup.signedIn,
 				),
 			],
 			below: fail(view.error, view.retry, view.details),
-			words: "sign in add check",
-		};
-	});
+			words: `${app ?? ""} ${named.name} sign in add check`,
+		});
+	}
+	if (now.setup.desktopApps.claude)
+		add("claude", {
+			title: "Chat and Cowork",
+			glyph: "bubble",
+			sub: CLAUDE_PLUGIN_STEPS,
+			control: claudePluginButtons(),
+			words: "claude chat cowork plugin marketplace",
+		});
 	for (const runner of otherRunners(now))
-		rows.push({
+		loose.push({
 			title: EXECUTOR_NAMES[runner.executor] ?? "Other tool",
 			glyph: "bolt",
 			control: [
@@ -492,10 +509,20 @@ function tools(now: PanelState): Group[] {
 				),
 			],
 		});
+	const groups: Group[] = AGENT_APPS.map(([app, title]) => ({
+		title,
+		column: "Use for tasks",
+		items: appItems.get(app) ?? [],
+	})).filter((group) => group.items.length);
+	if (loose.length)
+		groups.push({
+			title: "Other runners",
+			column: "Use for tasks",
+			items: loose,
+		});
 	const again = checkAgain();
-	if (!found.length && !rows.length)
+	if (!groups.length)
 		return [
-			...(chat.items.length ? [chat] : []),
 			{
 				title: "Agents",
 				items: [
@@ -521,8 +548,7 @@ function tools(now: PanelState): Group[] {
 			},
 		];
 	return [
-		...(chat.items.length ? [chat] : []),
-		{ title: "Agents", column: "Use for tasks", items: rows },
+		...groups,
 		...(now.setup.routing ? [routingGroup(now.setup.routing)] : []),
 		{
 			items: [

@@ -134,6 +134,19 @@ export const TOOL_ICONS: Record<string, IconName> = {
 	devin: "cube",
 	opencode: "braces",
 };
+
+export const agentToolName = (tool: Pick<ToolRow, "id" | "name">) =>
+	tool.id === "codex"
+		? "Codex"
+		: tool.id === "claude"
+			? "Claude Code"
+			: tool.name;
+
+export const namedAgentTool = (tool: ToolRow): ToolRow => {
+	const name = agentToolName(tool);
+	return name === tool.name ? tool : { ...tool, name };
+};
+
 /** The public plugin repository, which Claude accepts as a marketplace. */
 export const CLAUDE_MARKETPLACE = "tedix-hq/tedix-plugins";
 
@@ -172,7 +185,7 @@ export function openAgentApp(state: PanelState, tool: ToolRow) {
 			tool.readVerified &&
 			(tool.hookTrust === "untrusted" || tool.hookTrust === "unknown")
 			? "Allow Tedix in ChatGPT"
-			: `Open ${tool.name}`,
+			: `Open ${app === "chatgpt" ? "ChatGPT" : app === "claude" ? "Claude" : tool.name}`,
 		"quiet",
 		() => tedixShell.open(`${app}-app`),
 	);
@@ -429,7 +442,7 @@ export function toolView(
 			tone: "warn",
 			sub: reviewInChatGPT
 				? "In ChatGPT, open Settings → Hooks and allow Tedix. This lets Tedix add your team's instructions when a chat starts and add related task context to your messages, and, if Show my sessions in Tedix is on, save a summary of each session."
-				: "Before ChatGPT runs tasks, open ChatGPT Work and allow the Tedix hooks in Settings → Hooks. They let Tedix add your team's instructions and task context to the chat.",
+				: "Before ChatGPT runs tasks, open ChatGPT and allow the Tedix hooks in Settings → Hooks. They let Tedix add your team's instructions and task context to the chat.",
 			action: reviewInChatGPT
 				? openAgentApp(state, tool)
 				: state.setup.desktopApps.chatgpt

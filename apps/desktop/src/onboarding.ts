@@ -5,6 +5,7 @@ import {
 	claudePluginButtons,
 	foundTools,
 	keepFocus,
+	namedAgentTool,
 	onButtonsChange,
 	openAgentApp,
 	TOOL_ICONS,
@@ -209,22 +210,23 @@ function screenFor(id: StepId, now: PanelState): Screen {
 	const rows = foundTools(now)
 		.filter((tool) => tool.found === "found")
 		.map((tool) => {
-			const view = toolView(now, tool, "connection");
+			const named = namedAgentTool(tool);
+			const view = toolView(now, named, "connection");
 			return row({
-				key: `tool:${tool.id}`,
-				icon: TOOL_ICONS[tool.id] ?? "bubble",
-				title: tool.name,
-				sub: [tool.bothInstalled ? "Connects the desktop app." : "", view.sub]
+				key: `tool:${named.id}`,
+				icon: TOOL_ICONS[named.id] ?? "bubble",
+				title: named.name,
+				sub: [named.bothInstalled ? "Connects the desktop app." : "", view.sub]
 					.filter(Boolean)
 					.join(" "),
 				control:
 					view.ready ||
-					(!view.working && tool.connection === "signed-in" && !view.action)
+					(!view.working && named.connection === "signed-in" && !view.action)
 						? el(
 								"span",
 								"controls",
 								view.ready && done("Connected"),
-								openAgentApp(now, tool),
+								openAgentApp(now, named),
 							)
 						: view.action,
 				working: view.working,
@@ -239,7 +241,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			row({
 				key: "chat:claude",
 				icon: "bubble",
-				title: "Claude (Cowork)",
+				title: "Chat and Cowork",
 				sub: now.setup.tools.some(
 					(tool) => tool.id === "claude" && tool.found === "found",
 				)

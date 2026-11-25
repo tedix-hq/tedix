@@ -43,17 +43,19 @@ server, the connection stays so you can try again.
 If you installed both the Mac app and a separate coding tool for the same
 provider, Tedix uses the Mac app when its coding tool is ready.
 
-- **ChatGPT Work and Claude Code.** Choose **Connect** to install the Tedix
-  plugin supplied with the Mac app. For ChatGPT Work, review the hooks in
-  **Settings → Hooks** in ChatGPT. In Claude Desktop, open the **Code** tab
-  once and choose **Look again** in Tedix if Claude Code does not appear.
-- **Claude (Cowork).** Choose **Copy marketplace** and **Open Claude**.
-  In Claude, choose **Customize → Plugins → Add marketplace**, paste
-  `tedix-hq/tedix-plugins` and install **Tedix**. Then open the plugin's
-  **Connectors** tab and sign in. Claude keeps the plugin up to date. If your
-  organization turns off marketplaces, choose **Save plugin file** and use
-  **Add → Upload plugin** instead. For local hooks, use the **Claude Code**
-  connection. Plugin availability depends on your Claude account settings.
+- **Codex in ChatGPT and Claude Code.** Settings → Agents has a section for
+  each app. Choose **Connect** to install the Tedix plugin supplied with the
+  Mac app. For Codex, review the hooks in **Settings → Hooks** in ChatGPT. In
+  Claude Desktop, open the **Code** tab once and choose **Look again** in
+  Tedix if Claude Code does not appear.
+- **Chat and Cowork in Claude.** In the Claude section, choose **Copy
+  marketplace** and **Open Claude**. In Claude, choose **Customize → Plugins
+  → Add marketplace**, paste `tedix-hq/tedix-plugins` and install **Tedix**.
+  Then open the plugin's **Connectors** tab and sign in. Claude keeps the
+  plugin up to date. If your organization turns off marketplaces, choose
+  **Save plugin file** and use **Add → Upload plugin** instead. For local
+  hooks, use the **Claude Code** connection. Plugin availability depends on
+  your Claude account settings.
 - **Devin and OpenCode.** Choose **Connect** and finish browser sign-in.
   Tedix checks the connection after sign-in. Choose **Check connection** to
   check an app you already connected.
