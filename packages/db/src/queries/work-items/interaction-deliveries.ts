@@ -3,19 +3,25 @@
  * undelivered while it has no delivery row with `delivered_at`; the asking
  * session's own user records delivery (and later acknowledgement) once each.
  */
-import { and, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { and, eq, gte, isNull, or, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	booleanValue,
+	coreStore,
+	jsonRead,
+} from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
-	workInteractionDeliveries,
-	workInteractionResponses,
-	workInteractions,
+	workInteractionDeliveries as d1WorkInteractionDeliveries,
+	workInteractionResponses as d1WorkInteractionResponses,
+	workInteractions as d1WorkInteractions,
 	type WorkInteractionDeliveryVia,
 	type WorkInteractionTargetType,
 } from "../../schema/work-factory";
 
 export type WorkInteractionDeliveryRow =
-	typeof workInteractionDeliveries.$inferSelect;
+	typeof d1WorkInteractionDeliveries.$inferSelect;
 
 interface DeliveryActor {
 	type: WorkInteractionTargetType;
@@ -23,7 +29,8 @@ interface DeliveryActor {
 }
 
 /** The caller asked the question or was asked it. */
-function callerOwns(actor: DeliveryActor) {
+function callerOwns(db: DbQueryClient, actor: DeliveryActor) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	return or(
 		and(
 			eq(workInteractions.creatorType, actor.type),
@@ -35,10 +42,6 @@ function callerOwns(actor: DeliveryActor) {
 		),
 	);
 }
-
-const sessionOf = sql<
-	string | null
->`coalesce(json_extract(${workInteractions.metadata},'$.sessionId'), ${workInteractions.creatorExternalSessionKey})`;
 
 export interface ListUndeliveredWorkInteractionResponsesParams {
 	orgId: string;
@@ -61,6 +64,12 @@ export async function listUndeliveredWorkInteractionResponses(
 	db: DbQueryClient,
 	p: ListUndeliveredWorkInteractionResponsesParams,
 ) {
+	const workInteractionDeliveries = coreTable(db, d1WorkInteractionDeliveries);
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const sessionOf = sql<
+		string | null
+	>`coalesce(${jsonRead(db, workInteractions.metadata, ["sessionId"])}, ${workInteractions.creatorExternalSessionKey})`;
 	return db
 		.select({
 			responseId: workInteractionResponses.id,
@@ -73,7 +82,7 @@ export async function listUndeliveredWorkInteractionResponses(
 			sessionId: sessionOf.as("delivery_session_id"),
 			host: sql<
 				string | null
-			>`json_extract(${workInteractions.metadata},'$.host')`.as(
+			>`${jsonRead(db, workInteractions.metadata, ["host"])}`.as(
 				"delivery_host",
 			),
 		})
@@ -95,8 +104,8 @@ export async function listUndeliveredWorkInteractionResponses(
 		.where(
 			and(
 				eq(workInteractionResponses.orgId, p.orgId),
-				callerOwns(p.actor),
-				sql`(${workInteractionResponses.resolvesRequest}=1 OR json_extract(${workInteractionResponses.metadata},'$.corrects') IS NOT NULL OR json_extract(${workInteractionResponses.metadata},'$.cardAction')='ask_changes')`,
+				callerOwns(db, p.actor),
+				sql`(${workInteractionResponses.resolvesRequest}=${booleanValue(db, true)} OR ${jsonRead(db, workInteractionResponses.metadata, ["corrects"])} IS NOT NULL OR ${jsonRead(db, workInteractionResponses.metadata, ["cardAction"])}='ask_changes')`,
 				eq(workInteractionResponses.responderType, "user"),
 				eq(workInteractionResponses.responderId, workInteractions.targetId),
 				isNull(workInteractionDeliveries.deliveredAt),
@@ -104,10 +113,10 @@ export async function listUndeliveredWorkInteractionResponses(
 				sql`${sessionOf} IS NOT NULL`,
 				p.sessionId ? sql`${sessionOf}=${p.sessionId}` : undefined,
 				p.host
-					? sql`json_extract(${workInteractions.metadata},'$.host')=${p.host}`
+					? sql`${jsonRead(db, workInteractions.metadata, ["host"])}=${p.host}`
 					: undefined,
-				sql`NOT (COALESCE(json_extract(${workInteractionResponses.metadata},'$.source'),'')='user-reply' AND json_extract(${workInteractionResponses.metadata},'$.sessionId') IS ${sessionOf})`,
-				sql`COALESCE(json_extract(${workInteractionResponses.metadata},'$.delivery'),'')<>'none'`,
+				sql`NOT (COALESCE(${jsonRead(db, workInteractionResponses.metadata, ["source"])},'')='user-reply' AND ${jsonRead(db, workInteractionResponses.metadata, ["sessionId"])} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${sessionOf})`,
+				sql`COALESCE(${jsonRead(db, workInteractionResponses.metadata, ["delivery"])},'')<>'none'`,
 			),
 		)
 		.orderBy(workInteractionResponses.respondedAt, workInteractionResponses.id)
@@ -136,47 +145,50 @@ export async function recordWorkInteractionDeliveries(
 	db: DbQueryClient,
 	p: RecordWorkInteractionDeliveriesParams,
 ): Promise<WorkInteractionDeliveryRow[]> {
+	const workInteractionDeliveries = coreTable(db, d1WorkInteractionDeliveries);
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const ids = [...new Set(p.responseIds)].slice(0, 50);
 	if (!ids.length) return [];
-	const owned = await db
-		.select({
-			responseId: workInteractionResponses.id,
-			interactionId: workInteractionResponses.interactionId,
-		})
-		.from(workInteractionResponses)
-		.innerJoin(
-			workInteractions,
-			and(
-				eq(workInteractions.orgId, workInteractionResponses.orgId),
-				eq(workInteractions.id, workInteractionResponses.interactionId),
-			),
-		)
-		.where(
-			and(
-				eq(workInteractionResponses.orgId, p.orgId),
-				// bound-params: ids is capped at 50 above
-				inArray(workInteractionResponses.id, ids),
-				callerOwns(p.actor),
-			),
-		);
-	if (!owned.length) return [];
 	const acknowledgedAt = p.acknowledged ? p.now : null;
-	const keep = (column: SQLiteColumn) =>
-		sql`COALESCE(${sql.identifier(column.name)}, excluded.${sql.identifier(column.name)})`;
+	const keep = (column: { name: string }) =>
+		sql`COALESCE(${workInteractionDeliveries}.${sql.identifier(column.name)}, excluded.${sql.identifier(column.name)})`;
 	return db
 		.insert(workInteractionDeliveries)
-		.values(
-			owned.map((row) => ({
-				orgId: p.orgId,
-				responseId: row.responseId,
-				interactionId: row.interactionId,
-				deliveredAt: p.now,
-				deliveredVia: p.via,
-				acknowledgedAt,
-				handoffTo: p.handoffTo ?? null,
-				handoffRef: p.handoffRef ?? null,
-				updatedAt: p.now,
-			})),
+		.select(
+			db
+				.select({
+					orgId: workInteractionResponses.orgId,
+					responseId: workInteractionResponses.id,
+					interactionId: workInteractionResponses.interactionId,
+					deliveredAt: sql<string>`${p.now}`.as("delivered_at"),
+					deliveredVia: sql<string>`${p.via}`.as("delivered_via"),
+					acknowledgedAt: sql<string | null>`${acknowledgedAt}`.as(
+						"acknowledged_at",
+					),
+					handoffTo: sql<string | null>`${p.handoffTo ?? null}`.as(
+						"handoff_to",
+					),
+					handoffRef: sql<string | null>`${p.handoffRef ?? null}`.as(
+						"handoff_ref",
+					),
+					updatedAt: sql<string>`${p.now}`.as("updated_at"),
+				})
+				.from(workInteractionResponses)
+				.innerJoin(
+					workInteractions,
+					and(
+						eq(workInteractions.orgId, workInteractionResponses.orgId),
+						eq(workInteractions.id, workInteractionResponses.interactionId),
+					),
+				)
+				.where(
+					and(
+						eq(workInteractionResponses.orgId, p.orgId),
+						anyIds(db, workInteractionResponses.id, ids),
+						callerOwns(db, p.actor),
+					),
+				),
 		)
 		.onConflictDoUpdate({
 			target: [
@@ -200,6 +212,7 @@ export async function listWorkInteractionDeliveries(
 	db: DbQueryClient,
 	p: { orgId: string; interactionId: string },
 ): Promise<WorkInteractionDeliveryRow[]> {
+	const workInteractionDeliveries = coreTable(db, d1WorkInteractionDeliveries);
 	return db
 		.select()
 		.from(workInteractionDeliveries)

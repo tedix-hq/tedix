@@ -1,15 +1,25 @@
+import { coreTable } from "../core-store/client";
+import { booleanValue, coreStore, jsonRead } from "../core-store/dialect";
 import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
-import { projects } from "../schema/projects";
-import { workItems, workAttempts } from "../schema/work-items";
-import { skillRuns } from "../schema/cognitive";
-import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
-import { tedis } from "../schema/tedis";
-import { osGadgetExecutions, osWorkspaces } from "../schema/os-workspaces";
-import { tediObjectives } from "../schema/tedi-objectives";
-import { workInteractions } from "../schema/work-factory";
+import { projects as d1Projects } from "../schema/projects";
+import {
+	workItems as d1WorkItems,
+	workAttempts as d1WorkAttempts,
+} from "../schema/work-items";
+import { skillRuns as d1SkillRuns } from "../schema/cognitive";
+import { kernelRuntimeRuns as d1KernelRuntimeRuns } from "../schema/cognitive-runtime";
+import { tedis as d1Tedis } from "../schema/tedis";
+import {
+	osGadgetExecutions as d1OsGadgetExecutions,
+	osWorkspaces as d1OsWorkspaces,
+} from "../schema/os-workspaces";
+import { tediObjectives as d1TediObjectives } from "../schema/tedi-objectives";
+import { workInteractions as d1WorkInteractions } from "../schema/work-factory";
 
 export async function attentionProjectBriefs(db: DbQueryClient, orgId: string) {
+	const projects = coreTable(db, d1Projects);
+	const tediObjectives = coreTable(db, d1TediObjectives);
 	return db
 		.select({
 			id: projects.id,
@@ -17,7 +27,7 @@ export async function attentionProjectBriefs(db: DbQueryClient, orgId: string) {
 			description: projects.description,
 			factory: sql<
 				string | null
-			>`json_extract(${projects.metadata}, '$.factory')`.as("factory_brief"),
+			>`${jsonRead(db, projects.metadata, ["factory"])}`.as("factory_brief"),
 			objectiveId: projects.objectiveId,
 			objective: sql<string | null>`${tediObjectives.description}`.as(
 				"objective_brief",
@@ -40,6 +50,7 @@ export async function attentionProjectExists(
 	orgId: string,
 	id: string,
 ) {
+	const projects = coreTable(db, d1Projects);
 	const [row] = await db
 		.select({ id: projects.id })
 		.from(projects)
@@ -56,6 +67,13 @@ export async function readAttentionSources(
 	descopeUserId?: string,
 	userId?: string,
 ) {
+	const projects = coreTable(db, d1Projects);
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const tedis = coreTable(db, d1Tedis);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const now = new Date();
 	// Project activity comes from one grouped read of the organization's
 	// Attempts started in the last week, seeked on idx_work_attempt_org_started.
@@ -123,7 +141,7 @@ export async function readAttentionSources(
 					note: workAttempts.summary,
 					runId: workAttempts.runId,
 					registeredLane:
-						sql<boolean>`json_extract(${workAttempts.metadata}, '$.lane') = 1`.mapWith(
+						sql<boolean>`${jsonRead(db, workAttempts.metadata, ["lane"], "boolean")} = ${booleanValue(db, true)}`.mapWith(
 							Boolean,
 						),
 				})
@@ -170,7 +188,7 @@ export async function readAttentionSources(
 					),
 					diagnosis: sql<
 						string | null
-					>`coalesce(json_extract(${workItems.metadata}, '$.latestReport.diagnosis'), json_extract(${workItems.metadata}, '$.report.diagnosis'))`.as(
+					>`coalesce(${jsonRead(db, workItems.metadata, ["latestReport", "diagnosis"])}, ${jsonRead(db, workItems.metadata, ["report", "diagnosis"])})`.as(
 						"diagnosis",
 					),
 				})
@@ -183,7 +201,7 @@ export async function readAttentionSources(
 					),
 				)
 				.orderBy(
-					sql`CASE WHEN ${workItems.repositoryObserver} = 1 AND ${workItems.deadline} IS NOT NULL AND coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 1) = 1 THEN ${workItems.deadline} ELSE '9999' END`,
+					sql`CASE WHEN ${workItems.repositoryObserver} = 1 AND ${workItems.deadline} IS NOT NULL AND coalesce(${jsonRead(db, workItems.metadata, ["latestReport", "stillRed"], "boolean")}, ${jsonRead(db, workItems.metadata, ["report", "stillRed"], "boolean")}, ${booleanValue(db, true)}) = ${booleanValue(db, true)} THEN ${workItems.deadline} ELSE '9999' END`,
 					desc(workItems.createdAt),
 				)
 				.limit(101),
@@ -284,11 +302,11 @@ export async function readAttentionSources(
 					.select({
 						id: workInteractions.id,
 						subject:
-							sql<string>`coalesce((SELECT 'Outbound · ' || coalesce(json_extract(w.metadata,'$.outbound.draft.subject'), w.title) FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND json_extract(w.metadata,'$.outbound.interactionId')=${workInteractions.id}), ${workInteractions.subject})`.as(
+							sql<string>`coalesce((SELECT 'Outbound · ' || coalesce(${jsonRead(db, sql`w.metadata`, ["outbound", "draft", "subject"])}, w.title) FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND ${jsonRead(db, sql`w.metadata`, ["outbound", "interactionId"])}=${workInteractions.id}), ${workInteractions.subject})`.as(
 								"outbound_subject",
 							),
 						prompt:
-							sql<string>`coalesce((SELECT coalesce(json_extract(w.metadata,'$.outbound.review.notes'), json_extract(w.metadata,'$.outbound.draft.reasoning')) FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND json_extract(w.metadata,'$.outbound.interactionId')=${workInteractions.id}), ${workInteractions.prompt})`.as(
+							sql<string>`coalesce((SELECT coalesce(${jsonRead(db, sql`w.metadata`, ["outbound", "review", "notes"])}, ${jsonRead(db, sql`w.metadata`, ["outbound", "draft", "reasoning"])}) FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND ${jsonRead(db, sql`w.metadata`, ["outbound", "interactionId"])}=${workInteractions.id}), ${workInteractions.prompt})`.as(
 								"outbound_note",
 							),
 						createdAt: workInteractions.createdAt,
@@ -307,8 +325,8 @@ export async function readAttentionSources(
 							eq(workInteractions.targetType, "user"),
 							eq(workInteractions.targetId, userId),
 							eq(workInteractions.status, "open"),
-							sql`(json_type(${workInteractions.metadata},'$.laneHandoff')='object' OR json_type(${workInteractions.metadata},'$.followThrough.laneHandoff')='object' OR EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.work_kind='outbound' AND json_extract(w.metadata,'$.outbound.interactionId')=${workInteractions.id} AND json_extract(w.metadata,'$.outbound.status') IN ('waiting_on_you','send_unknown')))`,
-							sql`coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${new Date().toISOString()}`,
+							sql`(${coreStore(db) === "postgres" ? sql`jsonb_typeof(${jsonRead(db, workInteractions.metadata, ["laneHandoff"], "json")})` : sql`json_type(${workInteractions.metadata},'$.laneHandoff')`}='object' OR ${coreStore(db) === "postgres" ? sql`jsonb_typeof(${jsonRead(db, workInteractions.metadata, ["followThrough", "laneHandoff"], "json")})` : sql`json_type(${workInteractions.metadata},'$.followThrough.laneHandoff')`}='object' OR EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.work_kind='outbound' AND ${jsonRead(db, sql`w.metadata`, ["outbound", "interactionId"])}=${workInteractions.id} AND ${jsonRead(db, sql`w.metadata`, ["outbound", "status"])} IN ('waiting_on_you','send_unknown')))`,
+							sql`coalesce(${jsonRead(db, workInteractions.metadata, ["followThrough", "snoozedUntil"])},'')<=${new Date().toISOString()}`,
 							sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${new Date().toISOString()})`,
 							sql`NOT EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.disposition IN ('completed','cancelled'))`,
 						),
@@ -333,6 +351,8 @@ export async function listUnattendedObjectives(
 	orgId: string,
 	since: string,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const tediObjectives = coreTable(db, d1TediObjectives);
 	// Seek one heartbeat per linked Work Item, regardless of its Attempt history.
 	const lastAttentionAt = sql<
 		string | null
@@ -355,9 +375,7 @@ export async function listUnattendedObjectives(
 			and(eq(tediObjectives.orgId, orgId), eq(tediObjectives.status, "active")),
 		)
 		.groupBy(tediObjectives.id)
-		.having(
-			sql`objective_last_attention_at is null or objective_last_attention_at < ${since}`,
-		)
+		.having(sql`${lastAttentionAt} is null or ${lastAttentionAt} < ${since}`)
 		.orderBy(tediObjectives.priority)
 		.limit(100);
 }
@@ -368,6 +386,8 @@ export async function readAttentionFactoryLinks(
 	descopeUserId: string,
 	since: string,
 ) {
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	return db
 		.select({
 			runId: osGadgetExecutions.runId,

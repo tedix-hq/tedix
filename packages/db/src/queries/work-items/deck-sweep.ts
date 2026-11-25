@@ -1,23 +1,29 @@
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type {
 	DeckPipelineConfig,
 	DeckSweepReceipt,
 } from "@tedix/api-contract/schemas/deck-pipeline";
 import { DeckSweepReceiptSchema } from "@tedix/api-contract/schemas/deck-pipeline";
 import type { DbQueryClient } from "../../query-client";
-import { organizations } from "../../schema/organizations";
-import { organizationMembers } from "../../schema/organization-members";
-import { projects } from "../../schema/projects";
-import { tediObjectives } from "../../schema/tedi-objectives";
+import { organizations as d1Organizations } from "../../schema/organizations";
+import { organizationMembers as d1OrganizationMembers } from "../../schema/organization-members";
+import { projects as d1Projects } from "../../schema/projects";
+import { tediObjectives as d1TediObjectives } from "../../schema/tedi-objectives";
 import { listCardSourceWork } from "../decision-graph";
-import { topActiveObjectiveQuery } from "../tedi-objectives";
 import type { ServedObjective } from "@tedix/api-contract/schemas/organization-purpose";
 import type { DeckSourceWorkFacts } from "@tedix/api-contract/schemas/deck-priority";
-import { workInteractions } from "../../schema/work-factory";
+import { workInteractions as d1WorkInteractions } from "../../schema/work-factory";
 import {
-	workItems,
-	workAttempts,
-	workItemRelations,
+	workItems as d1WorkItems,
+	workAttempts as d1WorkAttempts,
+	workItemRelations as d1WorkItemRelations,
 } from "../../schema/work-items";
 
 /** Organizations that configured decision learning; a small table, bounded. */
@@ -25,11 +31,12 @@ export async function listDeckSweepOrganizations(
 	db: DbQueryClient,
 	limit = 50,
 ) {
+	const organizations = coreTable(db, d1Organizations);
 	const rows = await db
 		.select({ id: organizations.id })
 		.from(organizations)
 		.where(
-			sql`json_extract(${organizations.metadata}, '$.decisionLearning') IS NOT NULL`,
+			sql`${jsonRead(db, organizations.metadata, ["decisionLearning"])} IS NOT NULL`,
 		)
 		.orderBy(organizations.id)
 		.limit(limit);
@@ -42,6 +49,7 @@ export async function listDeckSweepRecipients(
 	orgId: string,
 	limit: number,
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const rows = await db
 		.select({
 			userId: organizationMembers.userId,
@@ -74,6 +82,7 @@ export async function listRecipientCards(
 		limit: number;
 	},
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	return db
 		.select({
 			id: workInteractions.id,
@@ -112,9 +121,12 @@ export async function listDeckSourceStates(
 	ids: readonly string[],
 	now: Date,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
 	const result = new Map<string, string>();
 	const unique = [...new Set(ids)];
-	for (let offset = 0; offset < unique.length; offset += 50) {
+	if (unique.length) {
 		const rows = await db
 			.select({
 				id: workItems.id,
@@ -129,11 +141,12 @@ export async function listDeckSourceStates(
 				and(
 					// Unary plus: prod statistics otherwise walk every Work item of the
 					// organization through a covering org index (30k rows per page).
-					sql`+${workItems.orgId} = ${orgId}`,
-					inArray(workItems.id, unique.slice(offset, offset + 50)),
+					coreStore(db) === "d1"
+						? sql`+${workItems.orgId} = ${orgId}`
+						: eq(workItems.orgId, orgId),
+					anyIds(db, workItems.id, unique),
 				),
-			)
-			.limit(50);
+			);
 		for (const row of rows) result.set(row.id, row.state);
 	}
 	return result;
@@ -149,11 +162,21 @@ export async function listDeckSourceObjectives(
 	orgId: string,
 	ids: readonly string[],
 ) {
+	const projects = coreTable(db, d1Projects);
+	const tediObjectives = coreTable(db, d1TediObjectives);
+	const workItems = coreTable(db, d1WorkItems);
 	const result = new Map<string, ServedObjective>();
 	const unique = [...new Set(ids)];
-	const top = topActiveObjectiveQuery(db, orgId);
+	const top = db
+		.select({ id: tediObjectives.id })
+		.from(tediObjectives)
+		.where(
+			and(eq(tediObjectives.orgId, orgId), eq(tediObjectives.status, "active")),
+		)
+		.orderBy(tediObjectives.priority, tediObjectives.id)
+		.limit(1);
 	const served = sql<string>`coalesce(CASE WHEN ${workItems.workClass} = 'objective' THEN ${workItems.objectiveId} END, ${projects.objectiveId})`;
-	for (let offset = 0; offset < unique.length; offset += 50) {
+	if (unique.length) {
 		const rows = await db
 			.select({
 				workItemId: workItems.id,
@@ -179,13 +202,7 @@ export async function listDeckSourceObjectives(
 					eq(tediObjectives.status, "active"),
 				),
 			)
-			.where(
-				and(
-					eq(workItems.orgId, orgId),
-					inArray(workItems.id, unique.slice(offset, offset + 50)),
-				),
-			)
-			.limit(50);
+			.where(and(eq(workItems.orgId, orgId), anyIds(db, workItems.id, unique)));
 		for (const row of rows)
 			result.set(row.workItemId, {
 				id: row.objectiveId,
@@ -237,6 +254,9 @@ export async function listCardSourceWorkFacts(
 	orgId: string,
 	cards: readonly { id: string; workItemId?: string | null }[],
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
 	const edges = await listCardSourceWork(
 		db,
 		orgId,
@@ -250,7 +270,7 @@ export async function listCardSourceWorkFacts(
 	];
 	const facts = new Map<string, DeckSourceWorkFacts>();
 	const waiting = sql`FROM ${workItemRelations} r JOIN ${workItems} waiting ON waiting.id=r.to_work_item_id AND waiting.org_id=r.org_id WHERE r.org_id=${orgId} AND r.from_work_item_id=${workItems}.${sql.identifier("id")} AND r.relation_type='blocks' AND waiting.disposition='accepted'`;
-	for (let offset = 0; offset < unique.length; offset += 50) {
+	if (unique.length) {
 		const rows = await db
 			.select({
 				id: workItems.id,
@@ -267,13 +287,7 @@ export async function listCardSourceWorkFacts(
 					),
 			})
 			.from(workItems)
-			.where(
-				and(
-					eq(workItems.orgId, orgId),
-					inArray(workItems.id, unique.slice(offset, offset + 50)),
-				),
-			)
-			.limit(50);
+			.where(and(eq(workItems.orgId, orgId), anyIds(db, workItems.id, unique)));
 		for (const row of rows)
 			facts.set(row.id, {
 				dueDate: row.dueDate,
@@ -297,9 +311,10 @@ export async function listCardStatuses(
 	orgId: string,
 	ids: readonly string[],
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const result = new Map<string, string>();
 	const unique = [...new Set(ids)];
-	for (let offset = 0; offset < unique.length; offset += 50) {
+	if (unique.length) {
 		const rows = await db
 			.select({ id: workInteractions.id, status: workInteractions.status })
 			.from(workInteractions)
@@ -307,7 +322,7 @@ export async function listCardStatuses(
 				and(
 					eq(workInteractions.orgId, orgId),
 					isNotNull(workInteractions.targetId),
-					inArray(workInteractions.id, unique.slice(offset, offset + 50)),
+					anyIds(db, workInteractions.id, unique),
 				),
 			);
 		for (const row of rows) result.set(row.id, row.status);
@@ -316,11 +331,10 @@ export async function listCardStatuses(
 }
 
 export async function getDeckSweepReceipt(db: DbQueryClient, orgId: string) {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({
-			receipt: sql<
-				string | null
-			>`json_extract(${organizations.metadata}, '$.deckSweep')`,
+			receipt: jsonRead(db, organizations.metadata, ["deckSweep"], "json"),
 		})
 		.from(organizations)
 		.where(eq(organizations.id, orgId))
@@ -338,11 +352,12 @@ export async function recordDeckSweepReceipt(
 	orgId: string,
 	receipt: DeckSweepReceipt,
 ) {
+	const organizations = coreTable(db, d1Organizations);
 	const parsed = DeckSweepReceiptSchema.parse(receipt);
 	await db
 		.update(organizations)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.deckSweep', json(${JSON.stringify(parsed)}))`,
+			metadata: jsonWrite(db, organizations.metadata, ["deckSweep"], parsed),
 		})
 		.where(eq(organizations.id, orgId));
 }
@@ -353,10 +368,21 @@ export async function setDeckPipelineLearned(
 	orgId: string,
 	learned: Pick<DeckPipelineConfig, "rules" | "hidingClasses">,
 ) {
+	const organizations = coreTable(db, d1Organizations);
 	await db
 		.update(organizations)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.decisionLearning.deckPipeline.rules', json(${JSON.stringify(learned.rules)}), '$.decisionLearning.deckPipeline.hidingClasses', json(${JSON.stringify(learned.hidingClasses)}))`,
+			metadata: jsonWrite(
+				db,
+				jsonWrite(
+					db,
+					organizations.metadata,
+					["decisionLearning", "deckPipeline", "rules"],
+					learned.rules,
+				),
+				["decisionLearning", "deckPipeline", "hidingClasses"],
+				learned.hidingClasses,
+			),
 		})
 		.where(eq(organizations.id, orgId));
 }
@@ -375,13 +401,14 @@ export async function findNotUsefulAnswer(
 		projectId?: string | null;
 	},
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	if (!p.workItemId && !p.projectId) return null;
 	const [row] = await db
 		.select({
 			id: workInteractions.id,
 			reason: sql<
 				string | null
-			>`json_extract(${workInteractions.metadata},'$.curation.notUseful.reason')`.as(
+			>`${jsonRead(db, workInteractions.metadata, ["curation", "notUseful", "reason"])}`.as(
 				"not_useful_reason",
 			),
 			cancelledAt: workInteractions.cancelledAt,
@@ -397,7 +424,9 @@ export async function findNotUsefulAnswer(
 					? eq(workInteractions.workItemId, p.workItemId)
 					: eq(workInteractions.projectId, p.projectId!),
 				sql`lower(trim(${workInteractions.subject}))=${p.subject.trim().toLowerCase()}`,
-				sql`json_type(${workInteractions.metadata},'$.curation.notUseful')='object'`,
+				coreStore(db) === "postgres"
+					? sql`jsonb_typeof(${jsonRead(db, workInteractions.metadata, ["curation", "notUseful"], "json")}) = 'object'`
+					: sql`json_type(${workInteractions.metadata},'$.curation.notUseful')='object'`,
 			),
 		)
 		.orderBy(desc(workInteractions.createdAt))
