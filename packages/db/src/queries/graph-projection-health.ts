@@ -1,11 +1,13 @@
 /**
- * Canonical D1 sample used to assess Neo4j projection coverage and freshness.
+ * Canonical core-store sample used to assess Neo4j projection coverage and freshness.
  *
  * This query is intentionally bounded. It does not make Neo4j authoritative and
  * it does not claim fleet-wide coverage from a sample: callers must label the
  * resulting ratio as sample coverage.
  */
 
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
 import {
 	and,
 	count,
@@ -19,23 +21,29 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
-import { capabilityLinks, orgCapabilities } from "../schema/capabilities";
-import { knowledgeEntries, skillEntries } from "../schema/cognitive";
 import {
-	memoryEntities,
-	memoryEntityResolutions,
+	capabilityLinks as d1CapabilityLinks,
+	orgCapabilities as d1OrgCapabilities,
+} from "../schema/capabilities";
+import {
+	knowledgeEntries as d1KnowledgeEntries,
+	skillEntries as d1SkillEntries,
+} from "../schema/cognitive";
+import {
+	memoryEntities as d1MemoryEntities,
+	memoryEntityResolutions as d1MemoryEntityResolutions,
 } from "../schema/memory-entities";
 import {
-	memoryDomains,
-	memoryEdgeOrgCounts,
-	memoryEdges,
-	memoryFactOrgCounts,
-	memoryFacts,
-	tediExpertise,
+	memoryDomains as d1MemoryDomains,
+	memoryEdgeOrgCounts as d1MemoryEdgeOrgCounts,
+	memoryEdges as d1MemoryEdges,
+	memoryFactOrgCounts as d1MemoryFactOrgCounts,
+	memoryFacts as d1MemoryFacts,
+	tediExpertise as d1TediExpertise,
 } from "../schema/memory-graph";
-import { platformCronCheckpoints } from "../schema/platform-cron-executions";
-import { rationaleOrgCounts } from "../schema/rationale-records";
-import { tedis } from "../schema/tedis";
+import { platformCronCheckpoints as d1PlatformCronCheckpoints } from "../schema/platform-cron-executions";
+import { rationaleOrgCounts as d1RationaleOrgCounts } from "../schema/rationale-records";
+import { tedis as d1Tedis } from "../schema/tedis";
 
 export const GRAPH_PROJECTION_SAMPLE_LIMIT = 25;
 export const GRAPH_PROJECTION_MAX_SAMPLE_LIMIT = 100;
@@ -76,6 +84,18 @@ export async function getGraphProjectionCanonicalManagedCounts(
 	db: DbClient,
 	orgId: string,
 ): Promise<GraphProjectionManagedCounts> {
+	const memoryFactOrgCounts = coreTable(db, d1MemoryFactOrgCounts);
+	const memoryEdgeOrgCounts = coreTable(db, d1MemoryEdgeOrgCounts);
+	const memoryDomains = coreTable(db, d1MemoryDomains);
+	const tedis = coreTable(db, d1Tedis);
+	const rationaleOrgCounts = coreTable(db, d1RationaleOrgCounts);
+	const knowledgeEntries = coreTable(db, d1KnowledgeEntries);
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const tediExpertise = coreTable(db, d1TediExpertise);
+	const orgCapabilities = coreTable(db, d1OrgCapabilities);
+	const capabilityLinks = coreTable(db, d1CapabilityLinks);
+	const memoryEntities = coreTable(db, d1MemoryEntities);
+	const memoryEntityResolutions = coreTable(db, d1MemoryEntityResolutions);
 	const [
 		facts,
 		edges,
@@ -211,6 +231,7 @@ export async function getGraphProjectionManagedCountAttempt(
 	db: DbClient,
 	orgId: string,
 ): Promise<GraphProjectionManagedCountAttempt | null> {
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
 	const [row] = await db
 		.select({ through: platformCronCheckpoints.through })
 		.from(platformCronCheckpoints)
@@ -250,6 +271,7 @@ export async function recordGraphProjectionManagedCountAttempt(
 	orgId: string,
 	attempt: GraphProjectionManagedCountAttempt,
 ): Promise<void> {
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
 	const through = JSON.stringify(attempt);
 	await db
 		.insert(platformCronCheckpoints)
@@ -264,6 +286,7 @@ export async function clearGraphProjectionManagedCountAttempt(
 	db: DbClient,
 	orgId: string,
 ): Promise<void> {
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
 	await db
 		.delete(platformCronCheckpoints)
 		.where(
@@ -296,6 +319,7 @@ export async function getGraphProjectionCanonicalSample(
 	orgId: string,
 	limit = GRAPH_PROJECTION_SAMPLE_LIMIT,
 ): Promise<GraphProjectionCanonicalFact[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const requestedLimit = Number.isFinite(limit)
 		? Math.trunc(limit)
 		: GRAPH_PROJECTION_SAMPLE_LIMIT;
@@ -335,7 +359,8 @@ export async function getGraphProjectionCanonicalSample(
  * as canonical coverage.
  *
  * Only the newest GRAPH_PROJECTION_EDGE_SCAN_WINDOW edges (by rowid, across
- * all organizations) are considered, so an organization with no recent edges
+ * all organizations on D1; creation time and id on Postgres) are considered,
+ * so an organization with no recent edges
  * gets an empty sample; the hourly managed counts still cover its total. The
  * CROSS JOINs pin the order edges → facts: a regular join let the planner start
  * from every current fact and read 73k rows per check (2026-10-22).
@@ -345,6 +370,8 @@ export async function getGraphProjectionCanonicalEdgeSample(
 	orgId: string,
 	limit = GRAPH_PROJECTION_EDGE_SAMPLE_LIMIT,
 ): Promise<GraphProjectionCanonicalEdge[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const memoryEdges = coreTable(db, d1MemoryEdges);
 	const requestedLimit = Number.isFinite(limit)
 		? Math.trunc(limit)
 		: GRAPH_PROJECTION_EDGE_SAMPLE_LIMIT;
@@ -368,10 +395,12 @@ export async function getGraphProjectionCanonicalEdgeSample(
 		.crossJoin(targetFact)
 		.where(
 			and(
-				gt(
-					sql`${memoryEdges}.rowid`,
-					sql`(SELECT coalesce(max(rowid), 0) FROM ${memoryEdges}) - ${GRAPH_PROJECTION_EDGE_SCAN_WINDOW}`,
-				),
+				coreStore(db) === "postgres"
+					? sql`${memoryEdges.id} IN (SELECT id FROM memory_edges ORDER BY created_at DESC, id DESC LIMIT ${GRAPH_PROJECTION_EDGE_SCAN_WINDOW})`
+					: gt(
+							sql`${memoryEdges}.rowid`,
+							sql`(SELECT coalesce(max(rowid), 0) FROM ${memoryEdges}) - ${GRAPH_PROJECTION_EDGE_SCAN_WINDOW}`,
+						),
 				eq(sourceFact.id, memoryEdges.sourceFactId),
 				eq(targetFact.id, memoryEdges.targetFactId),
 				eq(sourceFact.organizationId, orgId),
@@ -397,6 +426,7 @@ export async function getGraphProjectionCanonicalLifecycleSample(
 	orgId: string,
 	limit = GRAPH_PROJECTION_LIFECYCLE_SAMPLE_LIMIT,
 ): Promise<GraphProjectionCanonicalLifecycleFact[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const requestedLimit = Number.isFinite(limit)
 		? Math.trunc(limit)
 		: GRAPH_PROJECTION_LIFECYCLE_SAMPLE_LIMIT;

@@ -1,14 +1,18 @@
 /**
  * Durable graph-projection outbox, consumer lease, and canonical backfill
- * queries. D1 is authoritative; these helpers never read Neo4j.
+ * queries. The selected core store is authoritative; these helpers never read Neo4j.
  */
 
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonRead } from "../core-store/dialect";
 import {
 	and,
 	asc,
 	count,
 	eq,
 	gt,
+	getColumns,
+	getTableName,
 	inArray,
 	isNotNull,
 	isNull,
@@ -16,6 +20,7 @@ import {
 	max,
 	min,
 	notExists,
+	exists,
 	or,
 	sql,
 } from "drizzle-orm";
@@ -27,16 +32,25 @@ import {
 	type GraphProjectionOutboxEvent,
 	type GraphProjectionReadinessState,
 	type GraphProjectionRepairPhase,
-	graphProjectionConsumers,
-	graphProjectionOutbox,
-	graphProjectionReadiness,
+	graphProjectionConsumers as d1GraphProjectionConsumers,
+	graphProjectionOutbox as d1GraphProjectionOutbox,
+	graphProjectionReadiness as d1GraphProjectionReadiness,
 } from "../schema/graph-projection";
 import {
-	memoryDomains,
-	memoryEdges,
-	memoryFacts,
+	memoryDomains as d1MemoryDomains,
+	memoryEdges as d1MemoryEdges,
+	memoryFacts as d1MemoryFacts,
 } from "../schema/memory-graph";
-import { organizations } from "../schema/organizations";
+import { organizations as d1Organizations } from "../schema/organizations";
+import { tedis } from "../schema/tedis";
+import { tediRationaleRecords } from "../schema/rationale-records";
+import { knowledgeEntries, skillEntries } from "../schema/cognitive";
+import { projects } from "../schema/projects";
+import { workItems } from "../schema/work-items";
+import { workItemSources } from "../schema/work-item-sources";
+import { decisionEdges } from "../schema/decision-graph";
+import { orgCapabilities, capabilityLinks } from "../schema/capabilities";
+import { tediExpertise } from "../schema/memory-graph";
 
 export const GRAPH_PROJECTION_BATCH_SIZE = 100;
 export const GRAPH_PROJECTION_MAX_BATCH_SIZE = 500;
@@ -49,7 +63,6 @@ export const GRAPH_PROJECTION_LEASE_MS = 15 * 60 * 1000;
  */
 export const GRAPH_PROJECTION_MAX_DISCOVERY_PROBES = 500;
 const GRAPH_PROJECTION_DISCOVERY_PROBE_CHUNK = 100;
-type GraphProjectionProbe = Parameters<DbClient["batch"]>[0][number];
 
 export const GRAPH_PROJECTION_RETENTION_DAYS = 7;
 /** Small delete batches keep each D1 write short; see the retention job. */
@@ -100,6 +113,7 @@ export async function getGraphProjectionReadState(
 	db: DbClient,
 	organizationId: string,
 ): Promise<GraphProjectionReadState | null> {
+	const graphProjectionReadiness = coreTable(db, d1GraphProjectionReadiness);
 	const [row] = await db
 		.select({
 			state: graphProjectionReadiness.state,
@@ -149,6 +163,7 @@ export async function setGraphProjectionReadiness(
 		certified?: boolean;
 	},
 ): Promise<void> {
+	const graphProjectionReadiness = coreTable(db, d1GraphProjectionReadiness);
 	const now = new Date().toISOString();
 	await db
 		.insert(graphProjectionReadiness)
@@ -248,90 +263,83 @@ export async function listGraphProjectionOrganizations(
 		failedSince?: string;
 	},
 ): Promise<string[]> {
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
+	const organizations = coreTable(db, d1Organizations);
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
 	const wanted = Math.max(1, Math.min(500, Math.trunc(limit)));
-	const [consumerRows, organizationRows] = await db.batch([
+	const consumers = db.$with("projection_candidates").as(
 		db
 			.select({
-				organizationId: graphProjectionConsumers.organizationId,
-				lastProjectedSequence: graphProjectionConsumers.lastProjectedSequence,
-				lastError: graphProjectionConsumers.lastError,
-				updatedAt: graphProjectionConsumers.updatedAt,
-			})
-			.from(graphProjectionConsumers),
-		db.select({ organizationId: organizations.id }).from(organizations),
-	]);
-
-	const failedSince = options?.failedSince;
-	const leased = new Set(consumerRows.map((row) => row.organizationId));
-	const candidates = [
-		...consumerRows
-			.filter(
-				(row) =>
-					!failedSince ||
-					row.lastError === null ||
-					(row.updatedAt as string | null) === null ||
-					(row.updatedAt as string) < failedSince,
-			)
-			.map((row) => ({
-				organizationId: row.organizationId,
-				cursor: row.lastProjectedSequence,
-				updatedAt: row.updatedAt as string | null,
-			})),
-		...organizationRows
-			.filter((row) => !leased.has(row.organizationId))
-			.map((row) => ({
-				organizationId: row.organizationId,
-				cursor: 0,
-				updatedAt: null,
-			})),
-	]
-		.sort((left, right) => {
-			// SQLite sorts NULL first under ASC and the old ORDER BY relied on it:
-			// an organization with no consumer row has never been serviced, so it
-			// keeps that priority here.
-			const leftAt = left.updatedAt ?? "";
-			const rightAt = right.updatedAt ?? "";
-			if (leftAt !== rightAt) return leftAt < rightAt ? -1 : 1;
-			return left.organizationId < right.organizationId ? -1 : 1;
-		})
-		.slice(0, GRAPH_PROJECTION_MAX_DISCOVERY_PROBES);
-
-	// Probing in rotation order lets a busy platform stop as soon as it has
-	// enough work, and starves nobody: servicing an organization bumps its
-	// consumer `updated_at`, which moves it to the back of the next tick.
-	const pending: string[] = [];
-	for (
-		let offset = 0;
-		offset < candidates.length && pending.length < wanted;
-		offset += GRAPH_PROJECTION_DISCOVERY_PROBE_CHUNK
-	) {
-		const chunk = candidates.slice(
-			offset,
-			offset + GRAPH_PROJECTION_DISCOVERY_PROBE_CHUNK,
-		);
-		const probes = chunk.map((candidate) =>
-			db
-				.select({ sequence: graphProjectionOutbox.sequence })
-				.from(graphProjectionOutbox)
-				.where(
-					and(
-						eq(graphProjectionOutbox.organizationId, candidate.organizationId),
-						gt(graphProjectionOutbox.sequence, candidate.cursor),
+				organizationId:
+					sql<string>`${graphProjectionConsumers.organizationId}`.as(
+						"organization_id",
 					),
-				)
-				.limit(1),
-		);
-		const probed = (await db.batch(
-			probes as unknown as [GraphProjectionProbe, ...GraphProjectionProbe[]],
-		)) as { sequence: number }[][];
-		probed.forEach((rows, position) => {
-			const candidate = chunk[position];
-			if (rows.length > 0 && candidate) {
-				pending.push(candidate.organizationId);
-			}
-		});
-	}
-	return pending.slice(0, wanted);
+				cursor:
+					sql<number>`${graphProjectionConsumers.lastProjectedSequence}`.as(
+						"cursor",
+					),
+				updatedAt:
+					sql<string>`coalesce(${graphProjectionConsumers.updatedAt}, '')`.as(
+						"updated_at",
+					),
+			})
+			.from(graphProjectionConsumers)
+			.where(
+				options?.failedSince
+					? or(
+							isNull(graphProjectionConsumers.lastError),
+							isNull(graphProjectionConsumers.updatedAt),
+							sql`${graphProjectionConsumers.updatedAt} < ${options.failedSince}`,
+						)
+					: undefined,
+			)
+			.unionAll(
+				db
+					.select({
+						organizationId: sql<string>`${organizations.id}`.as(
+							"organization_id",
+						),
+						cursor: sql<number>`0`.as("cursor"),
+						updatedAt: sql<string>`''`.as("updated_at"),
+					})
+					.from(organizations)
+					.where(
+						notExists(
+							db
+								.select({ one: sql`1` })
+								.from(graphProjectionConsumers)
+								.where(
+									eq(graphProjectionConsumers.organizationId, organizations.id),
+								),
+						),
+					),
+			)
+			.orderBy(sql`updated_at`, sql`organization_id`)
+			.limit(GRAPH_PROJECTION_MAX_DISCOVERY_PROBES),
+	);
+	const rows = await db
+		.with(consumers)
+		.select({ organizationId: consumers.organizationId })
+		.from(consumers)
+		.where(
+			exists(
+				db
+					.select({ one: sql`1` })
+					.from(graphProjectionOutbox)
+					.where(
+						and(
+							eq(
+								graphProjectionOutbox.organizationId,
+								consumers.organizationId,
+							),
+							gt(graphProjectionOutbox.sequence, consumers.cursor),
+						),
+					),
+			),
+		)
+		.orderBy(asc(consumers.updatedAt), asc(consumers.organizationId))
+		.limit(wanted);
+	return rows.map((row) => row.organizationId);
 }
 
 /**
@@ -345,6 +353,7 @@ export async function listGraphProjectionCertificationOrganizations(
 	retryBefore: string,
 	limit = 5,
 ): Promise<string[]> {
+	const graphProjectionReadiness = coreTable(db, d1GraphProjectionReadiness);
 	const rows = await db
 		.select({ organizationId: graphProjectionReadiness.organizationId })
 		.from(graphProjectionReadiness)
@@ -371,7 +380,7 @@ export async function listGraphProjectionCertificationOrganizations(
 			),
 		)
 		.orderBy(
-			asc(graphProjectionReadiness.lastCertifiedAt),
+			sql`${graphProjectionReadiness.lastCertifiedAt} ASC NULLS FIRST`,
 			asc(graphProjectionReadiness.organizationId),
 		)
 		.limit(Math.max(1, Math.min(100, Math.trunc(limit))));
@@ -382,6 +391,7 @@ export async function getGraphProjectionCursor(
 	db: DbClient,
 	organizationId: string,
 ): Promise<number> {
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
 	const [row] = await db
 		.select({
 			lastProjectedSequence: graphProjectionConsumers.lastProjectedSequence,
@@ -396,6 +406,7 @@ export async function getGraphProjectionHighWater(
 	db: DbClient,
 	organizationId: string,
 ): Promise<number> {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
 	const [row] = await db
 		.select({ sequence: max(graphProjectionOutbox.sequence) })
 		.from(graphProjectionOutbox)
@@ -413,12 +424,13 @@ export async function acquireGraphProjectionLease(
 	leaseToken: string,
 	leaseMs = GRAPH_PROJECTION_LEASE_MS,
 ): Promise<boolean> {
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
 	const now = new Date();
 	const nowIso = now.toISOString();
 	const leaseUntil = new Date(
 		now.getTime() + Math.max(1, Math.trunc(leaseMs)),
 	).toISOString();
-	await db
+	const insert = db
 		.insert(graphProjectionConsumers)
 		.values({
 			organizationId,
@@ -426,7 +438,7 @@ export async function acquireGraphProjectionLease(
 			updatedAt: nowIso,
 		})
 		.onConflictDoNothing();
-	const rows = await db
+	const claim = db
 		.update(graphProjectionConsumers)
 		.set({ leaseToken, leaseUntil, updatedAt: nowIso })
 		.where(
@@ -440,6 +452,7 @@ export async function acquireGraphProjectionLease(
 			),
 		)
 		.returning({ leaseToken: graphProjectionConsumers.leaseToken });
+	const [, rows] = await db.batch([insert, claim]);
 	return rows[0]?.leaseToken === leaseToken;
 }
 
@@ -449,6 +462,7 @@ export async function renewGraphProjectionLease(
 	leaseToken: string,
 	leaseMs = GRAPH_PROJECTION_LEASE_MS,
 ): Promise<boolean> {
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
 	const now = new Date();
 	const rows = await db
 		.update(graphProjectionConsumers)
@@ -473,6 +487,7 @@ export async function releaseGraphProjectionLease(
 	organizationId: string,
 	leaseToken: string,
 ): Promise<void> {
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
 	await db
 		.update(graphProjectionConsumers)
 		.set({
@@ -499,6 +514,7 @@ export async function readGraphProjectionBatch(
 	afterSequence: number,
 	limit = GRAPH_PROJECTION_BATCH_SIZE,
 ): Promise<GraphProjectionOutboxEvent[]> {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
 	return db
 		.select()
 		.from(graphProjectionOutbox)
@@ -533,6 +549,7 @@ export async function advanceGraphProjectionCursor(
 	sequence: number,
 	options?: { expectedCursor?: number },
 ): Promise<boolean> {
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
 	const now = new Date().toISOString();
 	const rows = await db
 		.update(graphProjectionConsumers)
@@ -570,6 +587,8 @@ export async function recordGraphProjectionFailure(
 	event: GraphProjectionOutboxEvent,
 	error: unknown,
 ): Promise<void> {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
 	const attemptCount = event.attemptCount + 1;
 	const poisoned = attemptCount >= GRAPH_PROJECTION_MAX_ATTEMPTS;
 	const message = error instanceof Error ? error.message : String(error);
@@ -578,7 +597,7 @@ export async function recordGraphProjectionFailure(
 	const nextAttemptAt = new Date(
 		now.getTime() + delaySeconds * 1000,
 	).toISOString();
-	await db
+	const eventUpdate = db
 		.update(graphProjectionOutbox)
 		.set({
 			attemptCount,
@@ -587,10 +606,11 @@ export async function recordGraphProjectionFailure(
 			poisonedAt: poisoned ? now.toISOString() : null,
 		})
 		.where(eq(graphProjectionOutbox.sequence, event.sequence));
-	await db
+	const consumerUpdate = db
 		.update(graphProjectionConsumers)
 		.set({ lastError: message.slice(0, 2000), updatedAt: now.toISOString() })
 		.where(eq(graphProjectionConsumers.organizationId, event.organizationId));
+	await db.batch([eventUpdate, consumerUpdate]);
 }
 
 export async function resetGraphProjectionFailure(
@@ -598,6 +618,7 @@ export async function resetGraphProjectionFailure(
 	organizationId: string,
 	sequence: number,
 ): Promise<boolean> {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
 	const [updated] = await db
 		.update(graphProjectionOutbox)
 		.set({
@@ -642,6 +663,8 @@ async function prunableGraphProjectionHead(
 	db: DbClient,
 	cutoff: string,
 ): Promise<number | null> {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
 	const [row] = await db
 		.select({ head: min(graphProjectionOutbox.sequence) })
 		.from(graphProjectionOutbox)
@@ -690,6 +713,8 @@ export async function pruneAcknowledgedGraphProjectionEvents(
 		maxBatches?: number;
 	},
 ): Promise<number> {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
 	const now = options?.now ?? new Date();
 	const retentionDays = Math.max(
 		1,
@@ -721,7 +746,7 @@ export async function pruneAcknowledgedGraphProjectionEvents(
 		// bounded-delete idiom the other retention prunes use (D1 has no
 		// `DELETE ... LIMIT`), and it binds two params regardless of batch size,
 		// so it is immune to D1's 100-bound-param ceiling.
-		const result = await db.delete(graphProjectionOutbox).where(
+		const statement = db.delete(graphProjectionOutbox).where(
 			sql`${graphProjectionOutbox.sequence} in (
 				select ${graphProjectionOutbox.sequence}
 				  from ${graphProjectionOutbox}
@@ -733,7 +758,14 @@ export async function pruneAcknowledgedGraphProjectionEvents(
 				 limit ${limit}
 			)`,
 		);
-		const batchRemoved = getAffectedRows(result);
+		const batchRemoved =
+			coreStore(db) === "postgres"
+				? (
+						await statement.returning({
+							sequence: graphProjectionOutbox.sequence,
+						})
+					).length
+				: getAffectedRows(await statement);
 		removed += batchRemoved;
 		if (batchRemoved < limit) break;
 		if (batch + 1 < maxBatches)
@@ -757,6 +789,8 @@ export async function pruneAcknowledgedGraphProjectionEvents(
  * Activity/lease timestamps deliberately cannot stand in for successful work.
  */
 export async function listGraphProjectionConsumerHealth(db: DbClient) {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
 	const pendingHead = db
 		.select({ createdAt: graphProjectionOutbox.createdAt })
 		.from(graphProjectionOutbox)
@@ -788,6 +822,7 @@ export async function getGraphProjectionBacklogStats(
 	db: DbClient,
 	organizationId: string,
 ): Promise<GraphProjectionBacklogStats> {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
 	const cursor = await getGraphProjectionCursor(db, organizationId);
 	const [row] = await db
 		.select({
@@ -831,30 +866,46 @@ export async function measureGraphProjectionBacklog(
 	consumers: readonly { organizationId: string; cursor: number }[],
 	cap = 10_000,
 ): Promise<GraphProjectionBacklogMeasurement> {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
 	const limit = Math.max(1, Math.min(50_000, Math.trunc(cap)));
 	const bounded = consumers.slice(0, GRAPH_PROJECTION_DISCOVERY_PROBE_CHUNK);
 	if (bounded.length === 0) return { organizations: 0, pending: 0, capped: 0 };
-	const statements = bounded.map(({ organizationId, cursor }) => {
-		const pendingRows = db
-			.select({ sequence: graphProjectionOutbox.sequence })
-			.from(graphProjectionOutbox)
-			.where(
-				and(
-					eq(graphProjectionOutbox.organizationId, organizationId),
-					gt(graphProjectionOutbox.sequence, cursor),
+	const input = JSON.stringify(bounded);
+	const candidates = db.$with("backlog_candidates").as(
+		db
+			.select({
+				organizationId: jsonRead(db, sql`value`, ["organizationId"]).as(
+					"organization_id",
 				),
-			)
-			.limit(limit)
-			.as("pending_rows");
-		return db.select({ pending: count() }).from(pendingRows);
-	});
-	const results = (await db.batch(
-		statements as unknown as [GraphProjectionProbe, ...GraphProjectionProbe[]],
-	)) as { pending: number }[][];
+				cursor: jsonRead(db, sql`value`, ["cursor"], "number").as("cursor"),
+			})
+			.from(
+				coreStore(db) === "postgres"
+					? sql`jsonb_array_elements(${input}::jsonb) AS candidates(value)`
+					: sql`json_each(${input})`,
+			),
+	);
+	const pendingRows = db
+		.select({ sequence: graphProjectionOutbox.sequence })
+		.from(graphProjectionOutbox)
+		.where(
+			and(
+				eq(graphProjectionOutbox.organizationId, candidates.organizationId),
+				gt(graphProjectionOutbox.sequence, candidates.cursor),
+			),
+		)
+		.limit(limit)
+		.as("pending_rows");
+	const results = await db
+		.with(candidates)
+		.select({
+			pending: sql<number>`(${db.select({ pending: count() }).from(pendingRows)})`,
+		})
+		.from(candidates);
 	let pending = 0;
 	let capped = 0;
-	for (const rows of results) {
-		const value = Number(rows[0]?.pending ?? 0);
+	for (const row of results) {
+		const value = Number(row.pending ?? 0);
 		pending += value;
 		if (value >= limit) capped += 1;
 	}
@@ -866,6 +917,7 @@ export async function countPendingGraphProjectionEvents(
 	organizationId: string,
 	afterSequence: number,
 ): Promise<number> {
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
 	const [row] = await db
 		.select({ count: count() })
 		.from(graphProjectionOutbox)
@@ -892,6 +944,8 @@ export async function confirmGraphProjectionReadyWithoutBacklog(
 		updatedAt: string;
 	},
 ): Promise<boolean> {
+	const graphProjectionReadiness = coreTable(db, d1GraphProjectionReadiness);
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
 	const [row] = await db
 		.update(graphProjectionReadiness)
 		.set({
@@ -923,77 +977,97 @@ export async function confirmGraphProjectionReadyWithoutBacklog(
 	return row?.state === "ready";
 }
 
-function canonicalProjectionQuery(event: GraphProjectionOutboxEvent): string {
-	if (event.operation === "delete") {
-		return "SELECT ? AS entity_id, ? AS organization_id WHERE 0";
-	}
-	switch (event.entityKind) {
-		case "fact":
-			return "SELECT * FROM memory_facts WHERE id = ? AND organization_id = ?";
-		case "edge":
-			return `SELECT e.*, f.organization_id
-				FROM memory_edges e
-				JOIN memory_facts f ON f.id = e.source_fact_id
-				WHERE e.id = ? AND f.organization_id = ?`;
-		case "domain":
-			return "SELECT * FROM memory_domains WHERE id = ? AND organization_id = ?";
-		case "tedi":
-			return "SELECT * FROM tedis WHERE id = ? AND organization_id = ?";
-		case "decision":
-			return "SELECT * FROM tedi_rationale_records WHERE id = ? AND org_id = ?";
-		case "knowledge_entry":
-			return "SELECT * FROM knowledge_entries WHERE id = ? AND organization_id = ?";
-		case "skill":
-			return "SELECT * FROM skill_entries WHERE id = ? AND organization_id = ?";
-		case "project":
-			return "SELECT * FROM projects WHERE id = ? AND org_id = ?";
-		case "work_item":
-			return "SELECT * FROM work_items WHERE id = ? AND org_id = ?";
-		case "work_item_source":
-			return "SELECT * FROM work_item_sources WHERE id = ? AND org_id = ?";
-		case "decision_edge":
-			return "SELECT * FROM decision_edges WHERE id = ? AND org_id = ?";
-		case "tedi_expertise":
-			return `SELECT e.*, t.organization_id
-				FROM tedi_expertise e
-				JOIN tedis t ON t.id = e.tedi_id
-				WHERE e.id = ? AND t.organization_id = ?`;
-		case "capability":
-			return "SELECT * FROM org_capabilities WHERE id = ? AND organization_id = ?";
-		case "capability_link":
-			return "SELECT * FROM capability_links WHERE id = ? AND organization_id = ?";
-		case "entity":
-		case "entity_resolution":
-			throw new Error(
-				`Entity projection kind ${event.entityKind} requires governed hydration`,
-			);
-	}
-}
+const projectionHydrationTables = {
+	fact: d1MemoryFacts,
+	edge: d1MemoryEdges,
+	domain: d1MemoryDomains,
+	tedi: tedis,
+	decision: tediRationaleRecords,
+	knowledge_entry: knowledgeEntries,
+	skill: skillEntries,
+	project: projects,
+	work_item: workItems,
+	work_item_source: workItemSources,
+	decision_edge: decisionEdges,
+	tedi_expertise: tediExpertise,
+	capability: orgCapabilities,
+	capability_link: capabilityLinks,
+};
 
-/**
- * Batch heterogeneous canonical-row hydration. The entity-kind switch cannot
- * be represented as one Drizzle table query; it remains parameterized and
- * tenant-scoped inside the query owner.
- */
+/** Hydrate physical snake_case rows in one set query, preserving input order and tombstones. */
 export async function hydrateCanonicalGraphProjectionRows(
 	db: DbClient,
 	events: GraphProjectionOutboxEvent[],
 ): Promise<Array<Record<string, unknown> | null>> {
-	if (events.length === 0) return [];
-	// Stays raw: SELECT * hydrates physical snake_case rows across heterogeneous
-	// tables, which typed builders would re-key and decode.
-	const d1 = db.$client;
-	const results = await d1.batch(
-		events.map((event) =>
-			d1
-				.prepare(canonicalProjectionQuery(event))
-				.bind(event.entityId, event.organizationId),
-		),
+	const input = events.flatMap((event, position) => {
+		if (event.operation === "delete") return [];
+		if (
+			event.entityKind === "entity" ||
+			event.entityKind === "entity_resolution"
+		)
+			throw new Error(
+				`Entity projection kind ${event.entityKind} requires governed hydration`,
+			);
+		return [
+			{
+				position,
+				kind: event.entityKind,
+				id: event.entityId,
+				org: event.organizationId,
+			},
+		];
+	});
+	const result: Array<Record<string, unknown> | null> = events.map(() => null);
+	if (!input.length) return result;
+	const postgres = coreStore(db) === "postgres";
+	const document = JSON.stringify(input);
+	const inputs = postgres
+		? sql`SELECT (value->>'position')::bigint AS position, value->>'kind' AS kind,
+			value->>'id' AS id, value->>'org' AS org FROM jsonb_array_elements(${document}::jsonb)`
+		: sql`SELECT json_extract(value, '$.position') AS position, json_extract(value, '$.kind') AS kind,
+			json_extract(value, '$.id') AS id, json_extract(value, '$.org') AS org FROM json_each(${document})`;
+	const branches = [...new Set(input.map((event) => event.kind))].map(
+		(kind) => {
+			const table = projectionHydrationTables[kind];
+			const through = kind === "edge" || kind === "tedi_expertise";
+			const joins =
+				kind === "edge"
+					? sql`JOIN memory_facts owner ON owner.id = canonical.source_fact_id`
+					: kind === "tedi_expertise"
+						? sql`JOIN tedis owner ON owner.id = canonical.tedi_id`
+						: sql``;
+			const organization = through
+				? sql`owner.organization_id`
+				: [
+							"decision",
+							"project",
+							"work_item",
+							"work_item_source",
+							"decision_edge",
+					  ].includes(kind)
+					? sql`canonical.org_id`
+					: sql`canonical.organization_id`;
+			const fields = Object.values(getColumns(table)).flatMap((column) => [
+				sql.raw("'" + column.name.replaceAll("'", "''") + "'"),
+				sql`canonical.${sql.identifier(column.name)}`,
+			]);
+			if (through) fields.push(sql`'organization_id'`, organization);
+			const row = postgres
+				? sql`to_jsonb(canonical) ${through ? sql`|| jsonb_build_object('organization_id', ${organization})` : sql``}`
+				: sql`json_object(${sql.join(fields, sql`, `)})`;
+			return sql`SELECT input.position AS position, ${row} AS row
+			FROM input JOIN ${sql.identifier(getTableName(table))} AS canonical ON canonical.id = input.id
+			${joins} WHERE input.kind = ${kind} AND ${organization} = input.org`;
+		},
 	);
-	return results.map(
-		(result) =>
-			(result.results?.[0] as Record<string, unknown> | undefined) ?? null,
-	);
+	const rows = await db.all<{
+		position: number;
+		row: string | Record<string, unknown>;
+	}>(sql`WITH input AS (${inputs}) ${sql.join(branches, sql` UNION ALL `)}`);
+	for (const row of rows)
+		result[Number(row.position)] =
+			typeof row.row === "string" ? JSON.parse(row.row) : row.row;
+	return result;
 }
 
 /**
@@ -1035,7 +1109,8 @@ export async function readGraphFactBackfillPage(
 	db: DbClient,
 	organizationId: string,
 	options?: { afterId?: string; limit?: number },
-): Promise<GraphProjectionBackfillPage<typeof memoryFacts.$inferSelect>> {
+): Promise<GraphProjectionBackfillPage<typeof d1MemoryFacts.$inferSelect>> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const limit = boundedLimit(options?.limit ?? GRAPH_PROJECTION_BATCH_SIZE);
 	const rows = await db
 		.select()
@@ -1061,7 +1136,8 @@ export async function readGraphDomainBackfillPage(
 	db: DbClient,
 	organizationId: string,
 	options?: { afterId?: string; limit?: number },
-): Promise<GraphProjectionBackfillPage<typeof memoryDomains.$inferSelect>> {
+): Promise<GraphProjectionBackfillPage<typeof d1MemoryDomains.$inferSelect>> {
+	const memoryDomains = coreTable(db, d1MemoryDomains);
 	const limit = boundedLimit(options?.limit ?? GRAPH_PROJECTION_BATCH_SIZE);
 	const rows = await db
 		.select()
@@ -1083,7 +1159,7 @@ export async function readGraphDomainBackfillPage(
 	};
 }
 
-export type GraphEdgeBackfillRow = typeof memoryEdges.$inferSelect & {
+export type GraphEdgeBackfillRow = typeof d1MemoryEdges.$inferSelect & {
 	organizationId: string;
 };
 
@@ -1092,6 +1168,8 @@ export async function readGraphEdgeBackfillPage(
 	organizationId: string,
 	options?: { afterId?: string; limit?: number },
 ): Promise<GraphProjectionBackfillPage<GraphEdgeBackfillRow>> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const memoryEdges = coreTable(db, d1MemoryEdges);
 	const limit = boundedLimit(options?.limit ?? GRAPH_PROJECTION_BATCH_SIZE);
 	const sourceFact = alias(memoryFacts, "graph_projection_source_fact");
 	const targetFact = alias(memoryFacts, "graph_projection_target_fact");

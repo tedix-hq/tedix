@@ -1,29 +1,37 @@
+import { coreTable } from "../core-store/client";
 import { and, asc, eq, gt, isNotNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
-import { projects } from "../schema/projects";
-import { workItemSources } from "../schema/work-item-sources";
-import { workItems } from "../schema/work-items";
-import { capabilityLinks, orgCapabilities } from "../schema/capabilities";
-import { knowledgeEntries, skillEntries } from "../schema/cognitive";
+import { projects as d1Projects } from "../schema/projects";
+import { workItemSources as d1WorkItemSources } from "../schema/work-item-sources";
+import { workItems as d1WorkItems } from "../schema/work-items";
 import {
-	memoryEntities,
-	memoryEntityMentions,
-	memoryEntityResolutions,
+	capabilityLinks as d1CapabilityLinks,
+	orgCapabilities as d1OrgCapabilities,
+} from "../schema/capabilities";
+import {
+	knowledgeEntries as d1KnowledgeEntries,
+	skillEntries as d1SkillEntries,
+} from "../schema/cognitive";
+import {
+	memoryEntities as d1MemoryEntities,
+	memoryEntityMentions as d1MemoryEntityMentions,
+	memoryEntityResolutions as d1MemoryEntityResolutions,
 } from "../schema/memory-entities";
 import {
-	memoryDomains,
-	memoryEdges,
-	memoryFacts,
-	tediExpertise,
+	memoryDomains as d1MemoryDomains,
+	memoryEdges as d1MemoryEdges,
+	memoryFacts as d1MemoryFacts,
+	tediExpertise as d1TediExpertise,
 } from "../schema/memory-graph";
-import { tediRationaleRecords } from "../schema/rationale-records";
-import { tedis } from "../schema/tedis";
+import { tediRationaleRecords as d1TediRationaleRecords } from "../schema/rationale-records";
+import { tedis as d1Tedis } from "../schema/tedis";
 
 const after = <TColumn>(column: TColumn, afterId?: string | null) =>
 	afterId ? gt(column as Parameters<typeof gt>[0], afterId) : undefined;
 
 export async function listProjectionTedis(db: DbClient, input: PageInput) {
+	const tedis = coreTable(db, d1Tedis);
 	return db
 		.select()
 		.from(tedis)
@@ -37,6 +45,7 @@ export async function listProjectionTedis(db: DbClient, input: PageInput) {
 		.limit(input.limit);
 }
 export async function listProjectionDecisions(db: DbClient, input: PageInput) {
+	const tediRationaleRecords = coreTable(db, d1TediRationaleRecords);
 	return db
 		.select()
 		.from(tediRationaleRecords)
@@ -53,6 +62,7 @@ export async function listProjectionKnowledgeEntries(
 	db: DbClient,
 	input: PageInput,
 ) {
+	const knowledgeEntries = coreTable(db, d1KnowledgeEntries);
 	return db
 		.select()
 		.from(knowledgeEntries)
@@ -66,6 +76,7 @@ export async function listProjectionKnowledgeEntries(
 		.limit(input.limit);
 }
 export async function listProjectionSkills(db: DbClient, input: PageInput) {
+	const skillEntries = coreTable(db, d1SkillEntries);
 	return db
 		.select()
 		.from(skillEntries)
@@ -79,6 +90,8 @@ export async function listProjectionSkills(db: DbClient, input: PageInput) {
 		.limit(input.limit);
 }
 export async function listProjectionExpertise(db: DbClient, input: PageInput) {
+	const tediExpertise = coreTable(db, d1TediExpertise);
+	const tedis = coreTable(db, d1Tedis);
 	return db
 		.select({
 			id: tediExpertise.id,
@@ -102,6 +115,7 @@ export async function listProjectionCapabilities(
 	db: DbClient,
 	input: PageInput,
 ) {
+	const orgCapabilities = coreTable(db, d1OrgCapabilities);
 	return db
 		.select()
 		.from(orgCapabilities)
@@ -118,6 +132,7 @@ export async function listProjectionCapabilityLinks(
 	db: DbClient,
 	input: PageInput,
 ) {
+	const capabilityLinks = coreTable(db, d1CapabilityLinks);
 	return db
 		.select()
 		.from(capabilityLinks)
@@ -131,6 +146,7 @@ export async function listProjectionCapabilityLinks(
 		.limit(input.limit);
 }
 export async function listProjectionEntities(db: DbClient, input: PageInput) {
+	const memoryEntities = coreTable(db, d1MemoryEntities);
 	return db
 		.select()
 		.from(memoryEntities)
@@ -147,6 +163,8 @@ export async function listProjectionEntityResolutions(
 	db: DbClient,
 	input: PageInput,
 ) {
+	const memoryEntityResolutions = coreTable(db, d1MemoryEntityResolutions);
+	const memoryEntityMentions = coreTable(db, d1MemoryEntityMentions);
 	return db
 		.select({
 			id: memoryEntityResolutions.id,
@@ -194,6 +212,7 @@ async function first<T>(rows: Promise<T[]>): Promise<T | null> {
 }
 
 export function getProjectionFact(db: DbClient, input: EntityInput) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	return first(
 		db
 			.select()
@@ -208,6 +227,7 @@ export function getProjectionFact(db: DbClient, input: EntityInput) {
 	);
 }
 export function getProjectionDomain(db: DbClient, input: EntityInput) {
+	const memoryDomains = coreTable(db, d1MemoryDomains);
 	return first(
 		db
 			.select()
@@ -222,6 +242,7 @@ export function getProjectionDomain(db: DbClient, input: EntityInput) {
 	);
 }
 export function getProjectionTedi(db: DbClient, input: EntityInput) {
+	const tedis = coreTable(db, d1Tedis);
 	return first(
 		db
 			.select()
@@ -236,6 +257,7 @@ export function getProjectionTedi(db: DbClient, input: EntityInput) {
 	);
 }
 export function getProjectionDecision(db: DbClient, input: EntityInput) {
+	const tediRationaleRecords = coreTable(db, d1TediRationaleRecords);
 	return first(
 		db
 			.select()
@@ -250,6 +272,7 @@ export function getProjectionDecision(db: DbClient, input: EntityInput) {
 	);
 }
 export function getProjectionKnowledgeEntry(db: DbClient, input: EntityInput) {
+	const knowledgeEntries = coreTable(db, d1KnowledgeEntries);
 	return first(
 		db
 			.select()
@@ -264,6 +287,7 @@ export function getProjectionKnowledgeEntry(db: DbClient, input: EntityInput) {
 	);
 }
 export function getProjectionSkill(db: DbClient, input: EntityInput) {
+	const skillEntries = coreTable(db, d1SkillEntries);
 	return first(
 		db
 			.select()
@@ -278,6 +302,7 @@ export function getProjectionSkill(db: DbClient, input: EntityInput) {
 	);
 }
 export function getProjectionCapability(db: DbClient, input: EntityInput) {
+	const orgCapabilities = coreTable(db, d1OrgCapabilities);
 	return first(
 		db
 			.select()
@@ -292,6 +317,7 @@ export function getProjectionCapability(db: DbClient, input: EntityInput) {
 	);
 }
 export function getProjectionCapabilityLink(db: DbClient, input: EntityInput) {
+	const capabilityLinks = coreTable(db, d1CapabilityLinks);
 	return first(
 		db
 			.select()
@@ -306,6 +332,8 @@ export function getProjectionCapabilityLink(db: DbClient, input: EntityInput) {
 	);
 }
 export function getProjectionExpertise(db: DbClient, input: EntityInput) {
+	const tediExpertise = coreTable(db, d1TediExpertise);
+	const tedis = coreTable(db, d1Tedis);
 	return first(
 		db
 			.select({
@@ -326,6 +354,8 @@ export function getProjectionExpertise(db: DbClient, input: EntityInput) {
 	);
 }
 export function getProjectionEdge(db: DbClient, input: EntityInput) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const memoryEdges = coreTable(db, d1MemoryEdges);
 	const sourceFact = alias(memoryFacts, "projection_edge_source");
 	const targetFact = alias(memoryFacts, "projection_edge_target");
 	return first(
@@ -361,6 +391,7 @@ export function getProjectionEdge(db: DbClient, input: EntityInput) {
  * that until now existed only in D1.
  */
 export async function listProjectionProjects(db: DbClient, input: PageInput) {
+	const projects = coreTable(db, d1Projects);
 	return db
 		.select({
 			id: projects.id,
@@ -385,6 +416,7 @@ export async function listProjectionProjects(db: DbClient, input: PageInput) {
 }
 
 export async function listProjectionWorkItems(db: DbClient, input: PageInput) {
+	const workItems = coreTable(db, d1WorkItems);
 	return db
 		.select({
 			id: workItems.id,
@@ -415,6 +447,7 @@ export async function listProjectionWorkItemSources(
 	db: DbClient,
 	input: PageInput,
 ) {
+	const workItemSources = coreTable(db, d1WorkItemSources);
 	return db
 		.select({
 			id: workItemSources.id,

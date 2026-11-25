@@ -1,3 +1,4 @@
+import { coreTable } from "../core-store/client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
@@ -5,10 +6,10 @@ import {
 	type GraphProjectionMaintenanceEnvironment,
 	type GraphProjectionMaintenanceOperation,
 	type GraphProjectionMaintenanceRun,
-	graphProjectionConsumers,
-	graphProjectionMaintenanceRuns,
-	graphProjectionOutbox,
-	graphProjectionReadiness,
+	graphProjectionConsumers as d1GraphProjectionConsumers,
+	graphProjectionMaintenanceRuns as d1GraphProjectionMaintenanceRuns,
+	graphProjectionOutbox as d1GraphProjectionOutbox,
+	graphProjectionReadiness as d1GraphProjectionReadiness,
 } from "../schema/graph-projection";
 
 export class GraphProjectionMaintenanceIdempotencyError extends Error {
@@ -29,8 +30,12 @@ export async function reserveGraphProjectionMaintenanceRun(
 		requestFingerprint: string;
 	},
 ): Promise<{ run: GraphProjectionMaintenanceRun; deduplicated: boolean }> {
+	const graphProjectionMaintenanceRuns = coreTable(
+		db,
+		d1GraphProjectionMaintenanceRuns,
+	);
 	const now = new Date().toISOString();
-	const result = await db
+	const insert = db
 		.insert(graphProjectionMaintenanceRuns)
 		.values({
 			id: input.id,
@@ -50,8 +55,9 @@ export async function reserveGraphProjectionMaintenanceRun(
 				graphProjectionMaintenanceRuns.organizationId,
 				graphProjectionMaintenanceRuns.idempotencyKey,
 			],
-		});
-	const [run] = await db
+		})
+		.returning({ id: graphProjectionMaintenanceRuns.id });
+	const read = db
 		.select()
 		.from(graphProjectionMaintenanceRuns)
 		.where(
@@ -65,6 +71,8 @@ export async function reserveGraphProjectionMaintenanceRun(
 			),
 		)
 		.limit(1);
+	const [inserted, runs] = await db.batch([insert, read]);
+	const run = runs[0];
 	if (!run) {
 		throw new Error("Failed to reserve graph projection maintenance run");
 	}
@@ -74,7 +82,7 @@ export async function reserveGraphProjectionMaintenanceRun(
 	) {
 		throw new GraphProjectionMaintenanceIdempotencyError();
 	}
-	return { run, deduplicated: (result.meta?.changes ?? 0) === 0 };
+	return { run, deduplicated: inserted.length === 0 };
 }
 
 export async function getGraphProjectionMaintenanceRun(
@@ -83,6 +91,10 @@ export async function getGraphProjectionMaintenanceRun(
 	organizationId: string,
 	id: string,
 ): Promise<GraphProjectionMaintenanceRun | null> {
+	const graphProjectionMaintenanceRuns = coreTable(
+		db,
+		d1GraphProjectionMaintenanceRuns,
+	);
 	const [run] = await db
 		.select()
 		.from(graphProjectionMaintenanceRuns)
@@ -106,6 +118,10 @@ export async function markGraphProjectionMaintenanceRunning(
 	organizationId: string,
 	id: string,
 ): Promise<GraphProjectionMaintenanceRun | null> {
+	const graphProjectionMaintenanceRuns = coreTable(
+		db,
+		d1GraphProjectionMaintenanceRuns,
+	);
 	const now = new Date().toISOString();
 	await db
 		.update(graphProjectionMaintenanceRuns)
@@ -141,6 +157,10 @@ export async function requestGraphProjectionMaintenanceCancel(
 	id: string,
 	reason: string,
 ): Promise<GraphProjectionMaintenanceRun | null> {
+	const graphProjectionMaintenanceRuns = coreTable(
+		db,
+		d1GraphProjectionMaintenanceRuns,
+	);
 	const now = new Date().toISOString();
 	await db
 		.update(graphProjectionMaintenanceRuns)
@@ -188,6 +208,13 @@ export async function commitGraphProjectionMaintenanceGdsSuccess(
 		result: Record<string, JsonValue>;
 	},
 ): Promise<boolean> {
+	const graphProjectionMaintenanceRuns = coreTable(
+		db,
+		d1GraphProjectionMaintenanceRuns,
+	);
+	const graphProjectionConsumers = coreTable(db, d1GraphProjectionConsumers);
+	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
+	const graphProjectionReadiness = coreTable(db, d1GraphProjectionReadiness);
 	const now = new Date().toISOString();
 	const runningGuard = sql`EXISTS (
 		SELECT 1
@@ -229,7 +256,9 @@ export async function commitGraphProjectionMaintenanceGdsSuccess(
 					stableSnapshotGuard,
 				),
 			)
-			.returning({ organizationId: graphProjectionReadiness.organizationId }),
+			.returning({
+				organizationId: graphProjectionReadiness.organizationId,
+			}),
 		db
 			.update(graphProjectionMaintenanceRuns)
 			.set({
@@ -277,6 +306,10 @@ export async function failGraphProjectionMaintenance(
 	id: string,
 	error: string,
 ): Promise<GraphProjectionMaintenanceRun | null> {
+	const graphProjectionMaintenanceRuns = coreTable(
+		db,
+		d1GraphProjectionMaintenanceRuns,
+	);
 	const now = new Date().toISOString();
 	await db
 		.update(graphProjectionMaintenanceRuns)
@@ -311,6 +344,10 @@ export async function cancelGraphProjectionMaintenance(
 	organizationId: string,
 	id: string,
 ): Promise<GraphProjectionMaintenanceRun | null> {
+	const graphProjectionMaintenanceRuns = coreTable(
+		db,
+		d1GraphProjectionMaintenanceRuns,
+	);
 	const now = new Date().toISOString();
 	await db
 		.update(graphProjectionMaintenanceRuns)
