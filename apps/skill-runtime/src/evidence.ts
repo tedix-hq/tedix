@@ -455,6 +455,12 @@ export class EvidenceBridge extends WorkerEntrypoint<
 	EvidenceBridgeEnv,
 	EvidenceBridgeProps
 > {
+	private withStore<T>(fn: () => T | Promise<T>): Promise<T> {
+		return import("@tedix/db/core-store/scope").then(({ withCoreStore }) =>
+			withCoreStore(this.env, fn, (promise) => this.ctx.waitUntil(promise)),
+		);
+	}
+
 	/**
 	 * Verify each cited source against the page it points at.
 	 *
@@ -467,6 +473,10 @@ export class EvidenceBridge extends WorkerEntrypoint<
 	 * item's verdict.
 	 */
 	async verify(payload: unknown): Promise<EvidenceItem[]> {
+		return this.withStore(() => this.verifyInner(payload));
+	}
+
+	private async verifyInner(payload: unknown): Promise<EvidenceItem[]> {
 		const parsed = VerifyRequestSchema.safeParse(payload);
 		if (!parsed.success) {
 			throw new Error(
@@ -673,6 +683,10 @@ export class EvidenceBridge extends WorkerEntrypoint<
 	 * An id with no host-side record counts as no evidence at all.
 	 */
 	async score(payload: unknown): Promise<GroundingSummary> {
+		return this.withStore(() => this.scoreInner(payload));
+	}
+
+	private async scoreInner(payload: unknown): Promise<GroundingSummary> {
 		const parsed = ScoreRequestSchema.safeParse(payload);
 		if (!parsed.success) {
 			throw new Error(
@@ -765,6 +779,10 @@ export class EvidenceBridge extends WorkerEntrypoint<
 	 * grounding, no matter what ids or labels a workflow feeds it.
 	 */
 	async calibrate(payload: unknown): Promise<CalibrationSummary> {
+		return this.withStore(() => this.calibrateInner(payload));
+	}
+
+	private async calibrateInner(payload: unknown): Promise<CalibrationSummary> {
 		const parsed = CalibrateRequestSchema.safeParse(payload);
 		if (!parsed.success) {
 			throw new Error(
@@ -842,6 +860,10 @@ export class EvidenceBridge extends WorkerEntrypoint<
 	 * storage wobble — a cache miss just means the discovery phase runs.
 	 */
 	async cacheGet(payload: unknown): Promise<ResearchCacheRead> {
+		return this.withStore(() => this.cacheGetInner(payload));
+	}
+
+	private async cacheGetInner(payload: unknown): Promise<ResearchCacheRead> {
 		const parsed = CacheGetRequestSchema.safeParse(payload);
 		if (!parsed.success) {
 			throw new Error(
@@ -867,6 +889,10 @@ export class EvidenceBridge extends WorkerEntrypoint<
 	 * next run re-gathers; caching is an optimization, never a correctness gate.
 	 */
 	async cachePut(payload: unknown): Promise<{ ok: boolean }> {
+		return this.withStore(() => this.cachePutInner(payload));
+	}
+
+	private async cachePutInner(payload: unknown): Promise<{ ok: boolean }> {
 		const parsed = CachePutRequestSchema.safeParse(payload);
 		if (!parsed.success) {
 			throw new Error(

@@ -153,16 +153,29 @@ registerApprovalRoutes(app);
  */
 export class InternalEntrypoint extends WorkerEntrypoint<SkillRuntimeEnv> {
 	override async fetch(request: Request): Promise<Response> {
-		return app.fetch(request, this.env, this.ctx);
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => app.fetch(request, this.env, this.ctx),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 }
 
 export default {
-	fetch: (request, env, ctx) =>
-		app.fetch(stripServiceBindingMarker(request), env, ctx),
+	fetch: async (request, env, ctx) => {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			env,
+			() => app.fetch(stripServiceBindingMarker(request), env, ctx),
+			(promise) => ctx.waitUntil(promise),
+		);
+	},
 	async scheduled(_event, env, ctx) {
-		ctx.waitUntil(
-			(async () => {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		await withCoreStore(
+			env,
+			async () => {
 				try {
 					const summary = await reconcileSkillRuns({
 						DB: env.DB,
@@ -180,7 +193,8 @@ export default {
 				} catch (err) {
 					logRuntimeFailure("workflow.reconciler_tick.failed", err);
 				}
-			})(),
+			},
+			(promise) => ctx.waitUntil(promise),
 		);
 	},
 } satisfies ExportedHandler<SkillRuntimeEnv>;

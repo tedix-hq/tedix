@@ -64,6 +64,12 @@ export class ReasonBridge extends WorkerEntrypoint<
 	/** Reasoner calls already spent by this bridge instance. */
 	private calls = 0;
 
+	private withStore<T>(fn: () => T | Promise<T>): Promise<T> {
+		return import("@tedix/db/core-store/scope").then(({ withCoreStore }) =>
+			withCoreStore(this.env, fn, (promise) => this.ctx.waitUntil(promise)),
+		);
+	}
+
 	/**
 	 * Ask one independent, memory-free reasoner.
 	 *
@@ -72,6 +78,10 @@ export class ReasonBridge extends WorkerEntrypoint<
 	 * Budget and validation errors throw — those are contract violations.
 	 */
 	async ask(payload: unknown): Promise<ReasonAskResult> {
+		return this.withStore(() => this.askInner(payload));
+	}
+
+	private async askInner(payload: unknown): Promise<ReasonAskResult> {
 		const parsed = AskRequestSchema.safeParse(payload);
 		if (!parsed.success) {
 			throw new Error(

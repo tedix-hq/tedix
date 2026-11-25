@@ -178,7 +178,17 @@ export class ArtifactBridge extends WorkerEntrypoint<
 	ArtifactBridgeEnv,
 	ArtifactBridgeProps
 > {
+	private withStore<T>(fn: () => T | Promise<T>): Promise<T> {
+		return import("@tedix/db/core-store/scope").then(({ withCoreStore }) =>
+			withCoreStore(this.env, fn, (promise) => this.ctx.waitUntil(promise)),
+		);
+	}
+
 	async record(payload: unknown): Promise<true> {
+		return this.withStore(() => this.recordInner(payload));
+	}
+
+	private async recordInner(payload: unknown): Promise<true> {
 		const parsed = ArtifactRecordSchema.safeParse(payload);
 		if (!parsed.success) {
 			throw new Error(
@@ -211,6 +221,10 @@ export class ArtifactBridge extends WorkerEntrypoint<
 
 	/** First writer wins; replays cannot alter immutable admission/config proof. */
 	async recordOnce(payload: unknown): Promise<true> {
+		return this.withStore(() => this.recordOnceInner(payload));
+	}
+
+	private async recordOnceInner(payload: unknown): Promise<true> {
 		const parsed = ArtifactRecordSchema.safeParse(payload);
 		if (!parsed.success) {
 			throw new Error(
@@ -228,6 +242,17 @@ export class ArtifactBridge extends WorkerEntrypoint<
 
 	/** Write raw binary bytes (base64) as a content-typed R2 artifact. */
 	async writeBlob(payload: unknown): Promise<{
+		ok: true;
+		runId: string;
+		path: string;
+		mimeType: string;
+		sizeBytes: number;
+		sha256: string | null;
+	}> {
+		return this.withStore(() => this.writeBlobInner(payload));
+	}
+
+	private async writeBlobInner(payload: unknown): Promise<{
 		ok: true;
 		runId: string;
 		path: string;

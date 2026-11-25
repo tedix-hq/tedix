@@ -258,7 +258,17 @@ export class OutboundProxy extends WorkerEntrypoint<
 	SkillRuntimeEnv,
 	OutboundProxyProps
 > {
+	private withStore<T>(fn: () => T | Promise<T>): Promise<T> {
+		return import("@tedix/db/core-store/scope").then(({ withCoreStore }) =>
+			withCoreStore(this.env, fn, (promise) => this.ctx.waitUntil(promise)),
+		);
+	}
+
 	async fetch(request: Request): Promise<Response> {
+		return this.withStore(() => this.fetchInner(request));
+	}
+
+	private async fetchInner(request: Request): Promise<Response> {
 		const upgrade = request.headers.get("upgrade")?.toLowerCase();
 		if (upgrade === "websocket" || request.headers.has("sec-websocket-key")) {
 			throw new Error(
