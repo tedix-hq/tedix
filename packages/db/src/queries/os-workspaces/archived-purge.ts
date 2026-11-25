@@ -14,8 +14,13 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { type OsWorkspaceRow, osWorkspaces } from "../../schema/os-workspaces";
-import { workspaceOutputIndex } from "../../schema/workspace-feed";
+import { coreTable } from "../../core-store/client";
+import { unixTime } from "../../core-store/dialect";
+import {
+	type OsWorkspaceRow,
+	osWorkspaces as d1OsWorkspaces,
+} from "../../schema/os-workspaces";
+import { workspaceOutputIndex as d1WorkspaceOutputIndex } from "../../schema/workspace-feed";
 
 export interface ArchivedPurgePageParams {
 	organizationId: string;
@@ -25,20 +30,21 @@ export interface ArchivedPurgePageParams {
 	archivedBefore?: string;
 }
 
-function before(column: AnyColumn, cutoff?: string) {
+function before(db: DbQueryClient, column: AnyColumn, cutoff?: string) {
 	return cutoff === undefined
 		? undefined
-		: sql`datetime(${column}) < datetime(${cutoff})`;
+		: sql`${unixTime(db, column)} < ${unixTime(db, sql`${cutoff}`)}`;
 }
 
-function workspaceFilter(params: ArchivedPurgePageParams) {
+function workspaceFilter(db: DbQueryClient, params: ArchivedPurgePageParams) {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	return and(
 		eq(osWorkspaces.organizationId, params.organizationId),
 		eq(osWorkspaces.status, "archived"),
 		params.afterId === undefined
 			? undefined
 			: gt(osWorkspaces.id, params.afterId),
-		before(osWorkspaces.updatedAt, params.archivedBefore),
+		before(db, osWorkspaces.updatedAt, params.archivedBefore),
 	);
 }
 
@@ -46,10 +52,11 @@ export async function listArchivedOsWorkspacePurgeCandidates(
 	db: DbQueryClient,
 	params: ArchivedPurgePageParams & { limit: number },
 ): Promise<OsWorkspaceRow[]> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	return db
 		.select()
 		.from(osWorkspaces)
-		.where(workspaceFilter(params))
+		.where(workspaceFilter(db, params))
 		.orderBy(asc(osWorkspaces.id))
 		.limit(params.limit);
 }
@@ -58,15 +65,20 @@ export async function countArchivedOsWorkspacePurgeCandidates(
 	db: DbQueryClient,
 	params: ArchivedPurgePageParams,
 ): Promise<number> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const [row] = await db
 		.select({ total: count() })
 		.from(osWorkspaces)
-		.where(workspaceFilter(params));
+		.where(workspaceFilter(db, params));
 	return row?.total ?? 0;
 }
 
 /** The index supplies candidates only; the caller confirms the storage owner's row. */
-function indexedOutputFilter(params: ArchivedPurgePageParams) {
+function indexedOutputFilter(
+	db: DbQueryClient,
+	params: ArchivedPurgePageParams,
+) {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	return and(
 		eq(workspaceOutputIndex.organizationId, params.organizationId),
 		eq(workspaceOutputIndex.isCurrent, 1),
@@ -74,7 +86,7 @@ function indexedOutputFilter(params: ArchivedPurgePageParams) {
 		params.afterId === undefined
 			? undefined
 			: gt(workspaceOutputIndex.outputId, params.afterId),
-		before(workspaceOutputIndex.updatedAt, params.archivedBefore),
+		before(db, workspaceOutputIndex.updatedAt, params.archivedBefore),
 	);
 }
 
@@ -82,10 +94,11 @@ export async function listArchivedOsOutputPurgeCandidateIds(
 	db: DbQueryClient,
 	params: ArchivedPurgePageParams & { limit: number },
 ): Promise<string[]> {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	const rows = await db
 		.selectDistinct({ id: workspaceOutputIndex.outputId })
 		.from(workspaceOutputIndex)
-		.where(indexedOutputFilter(params))
+		.where(indexedOutputFilter(db, params))
 		.orderBy(asc(workspaceOutputIndex.outputId))
 		.limit(params.limit);
 	return rows.map((row) => row.id);
@@ -95,9 +108,10 @@ export async function countArchivedOsOutputPurgeCandidates(
 	db: DbQueryClient,
 	params: ArchivedPurgePageParams,
 ): Promise<number> {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	const [row] = await db
 		.select({ total: countDistinct(workspaceOutputIndex.outputId) })
 		.from(workspaceOutputIndex)
-		.where(indexedOutputFilter(params));
+		.where(indexedOutputFilter(db, params));
 	return row?.total ?? 0;
 }

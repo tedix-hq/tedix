@@ -1,6 +1,7 @@
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
 import {
-	osWorkspaceResources,
+	osWorkspaceResources as d1OsWorkspaceResources,
 	type NewOsWorkspaceResourceRow,
 } from "../../schema/os-workspaces";
 import {
@@ -17,6 +18,7 @@ export async function confirmOsWorkspaceFile(
 		revision?: NewOsOutputRevisionRow;
 	},
 ) {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	if (params.output || params.revision)
 		throw new Error(
 			"File document writes require the workspace object service",

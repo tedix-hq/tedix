@@ -3,10 +3,11 @@ import {
 	type WorkspaceChangeInput,
 } from "@tedix/api-contract/schemas/workspace-feed";
 import { and, eq } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import {
-	workspaceActivity,
-	workspaceFeedLedger,
+	workspaceActivity as d1WorkspaceActivity,
+	workspaceFeedLedger as d1WorkspaceFeedLedger,
 } from "../../schema/workspace-feed";
 import { appendWorkspaceFeedLedger, listWorkspaceFeedLedger } from "./ledger";
 import {
@@ -19,6 +20,8 @@ export async function publishWorkspaceAction(
 	db: DbQueryClient,
 	input: WorkspaceChangeInput,
 ): Promise<void> {
+	const workspaceActivity = coreTable(db, d1WorkspaceActivity);
+	const workspaceFeedLedger = coreTable(db, d1WorkspaceFeedLedger);
 	if (input.kind !== "run" || !input.summary?.action)
 		throw new Error("Workspace action metadata required");
 	WorkspaceActionSchema.parse(input.summary.action);
@@ -77,6 +80,8 @@ export async function hasWorkspaceActionProjection(
 		changeRecordId: string;
 	},
 ): Promise<boolean> {
+	const workspaceActivity = coreTable(db, d1WorkspaceActivity);
+	const workspaceFeedLedger = coreTable(db, d1WorkspaceFeedLedger);
 	const [row] = await db
 		.select({ id: workspaceActivity.id })
 		.from(workspaceActivity)

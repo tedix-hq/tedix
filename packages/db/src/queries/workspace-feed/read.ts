@@ -3,18 +3,19 @@
  * touches a workspace object or the workspace-scoped source tables.
  */
 
-import { and, desc, eq, exists, inArray, like, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, lt, or, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
-import { osWorkspaces } from "../../schema/os-workspaces";
+import { osWorkspaces as d1OsWorkspaces } from "../../schema/os-workspaces";
 import {
 	type WorkspaceActivityRow,
 	type WorkspaceChangeKind,
 	type WorkspaceOutputIndexRow,
 	type WorkspaceWorkLinkRow,
-	workspaceActivity,
-	workspaceFeedLedger,
-	workspaceOutputIndex,
-	workspaceWorkLinks,
+	workspaceActivity as d1WorkspaceActivity,
+	workspaceFeedLedger as d1WorkspaceFeedLedger,
+	workspaceOutputIndex as d1WorkspaceOutputIndex,
+	workspaceWorkLinks as d1WorkspaceWorkLinks,
 } from "../../schema/workspace-feed";
 import { prefixedColumns } from "../../utils/select";
 import {
@@ -41,6 +42,8 @@ export async function listWorkspaceActivity(
 	params: { organizationId: string; viewer: OsWorkspaceViewer },
 	options: ListWorkspaceActivityOptions = {},
 ): Promise<WorkspaceActivityRow[]> {
+	const workspaceActivity = coreTable(db, d1WorkspaceActivity);
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const conditions = [
 		eq(workspaceActivity.organizationId, params.organizationId),
 		or(
@@ -134,6 +137,8 @@ export async function listWorkspaceOutputLibrary(
 	params: { organizationId: string; viewer: OsWorkspaceViewer },
 	options: ListWorkspaceOutputLibraryOptions = {},
 ): Promise<WorkspaceOutputLibraryRow[]> {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const conditions = [
 		eq(workspaceOutputIndex.organizationId, params.organizationId),
 		eq(workspaceOutputIndex.isCurrent, 1),
@@ -155,8 +160,8 @@ export async function listWorkspaceOutputLibrary(
 		const pattern = likePattern(term);
 		conditions.push(
 			or(
-				like(sql`lower(${workspaceOutputIndex.title})`, pattern),
-				like(workspaceOutputIndex.searchText, pattern),
+				sql`lower(${workspaceOutputIndex.title}) LIKE ${pattern} ESCAPE '\\'`,
+				sql`${workspaceOutputIndex.searchText} LIKE ${pattern} ESCAPE '\\'`,
 			)!,
 		);
 	}
@@ -202,6 +207,7 @@ export async function getWorkspaceOutputLocation(
 	db: DbQueryClient,
 	params: { organizationId: string; outputId: string },
 ) {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	const [index] = await db
 		.select({ workspaceId: workspaceOutputIndex.workspaceId })
 		.from(workspaceOutputIndex)
@@ -223,6 +229,7 @@ export async function getWorkspaceOutputIndexCurrent(
 	db: DbQueryClient,
 	params: { organizationId: string; outputId: string },
 ): Promise<WorkspaceOutputIndexRow | undefined> {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	const [row] = await db
 		.select()
 		.from(workspaceOutputIndex)
@@ -241,6 +248,7 @@ export async function getWorkspaceOutputIndexRevision(
 	db: DbQueryClient,
 	params: { organizationId: string; revisionId: string },
 ): Promise<WorkspaceOutputIndexRow | undefined> {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	const [row] = await db
 		.select()
 		.from(workspaceOutputIndex)
@@ -258,6 +266,7 @@ export async function retireWorkspaceOutputIndex(
 	db: DbQueryClient,
 	params: { organizationId: string; outputId: string },
 ): Promise<void> {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	await db
 		.update(workspaceOutputIndex)
 		.set({ isCurrent: 0 })
@@ -274,6 +283,7 @@ export async function listWorkspaceWorkLinksForWorkItem(
 	db: DbQueryClient,
 	params: { organizationId: string; workItemId: string },
 ): Promise<WorkspaceWorkLinkRow[]> {
+	const workspaceWorkLinks = coreTable(db, d1WorkspaceWorkLinks);
 	return db
 		.select()
 		.from(workspaceWorkLinks)
@@ -297,6 +307,7 @@ export async function getWorkspaceActivitySource(
 		changeRecordId: string;
 	},
 ) {
+	const workspaceFeedLedger = coreTable(db, d1WorkspaceFeedLedger);
 	const [row] = await db
 		.select({ summary: workspaceFeedLedger.summary })
 		.from(workspaceFeedLedger)

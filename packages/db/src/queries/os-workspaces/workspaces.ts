@@ -12,29 +12,27 @@ import {
 	type SQL,
 } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { coreTable } from "../../core-store/client";
+import { anyIds, containsText, coreStore } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import { getUserConfig, upsertUserConfig } from "../user-configs";
 import {
-	kernelConversations,
-	kernelRuntimeRuns,
+	kernelConversations as d1KernelConversations,
+	kernelRuntimeRuns as d1KernelRuntimeRuns,
 } from "../../schema/cognitive-runtime";
 import {
 	type NewOsWorkspaceRow,
 	type OsWorkspaceRow,
-	osWorkspaces,
+	osWorkspaces as d1OsWorkspaces,
 } from "../../schema/os-workspaces";
 import {
-	osOutputs,
-	osOutputRevisions,
-} from "../../tenant-store/outputs-schema";
-import {
-	osWorkspaceAccessEdges,
-	osWorkspaceCollaborators,
-	osWorkspaceShareKeys,
-	osWorkspaceShareLinks,
+	osWorkspaceAccessEdges as d1OsWorkspaceAccessEdges,
+	osWorkspaceCollaborators as d1OsWorkspaceCollaborators,
+	osWorkspaceShareKeys as d1OsWorkspaceShareKeys,
+	osWorkspaceShareLinks as d1OsWorkspaceShareLinks,
 } from "../../schema/os-collaborators";
-import { userConfigs } from "../../schema/user-configs";
-import { workspaceOutputIndex } from "../../schema/workspace-feed";
+import { userConfigs as d1UserConfigs } from "../../schema/user-configs";
+import { workspaceOutputIndex as d1WorkspaceOutputIndex } from "../../schema/workspace-feed";
 
 export interface OsWorkspaceScopeParams {
 	organizationId: string;
@@ -66,13 +64,25 @@ export function isOsWorkspaceVisibleTo(
 }
 
 /** SQL twin of `isOsWorkspaceVisibleTo` over `os_workspaces`. */
-export function osWorkspaceVisibleToPredicate(viewer: OsWorkspaceViewer): SQL {
+export function osWorkspaceVisibleToPredicate(
+	viewer: OsWorkspaceViewer,
+	db?: DbQueryClient,
+): SQL {
+	const osWorkspaces = db ? coreTable(db, d1OsWorkspaces) : d1OsWorkspaces;
 	const userIds = [...new Set(viewer.userIds)];
 	const workspaceIds = [...new Set(viewer.workspaceIds ?? [])];
 	return or(
 		eq(osWorkspaces.visibility, "org"),
-		userIds.length ? inArray(osWorkspaces.ownerUserId, userIds) : undefined,
-		workspaceIds.length ? inArray(osWorkspaces.id, workspaceIds) : undefined,
+		userIds.length
+			? db
+				? anyIds(db, osWorkspaces.ownerUserId, userIds)
+				: inArray(osWorkspaces.ownerUserId, userIds)
+			: undefined,
+		workspaceIds.length
+			? db
+				? anyIds(db, osWorkspaces.id, workspaceIds)
+				: inArray(osWorkspaces.id, workspaceIds)
+			: undefined,
 	) as SQL;
 }
 
@@ -87,6 +97,7 @@ export function osWorkspaceChildVisibleToPredicate(
 	workspaceIdColumn: Parameters<typeof isNull>[0],
 	viewer: OsWorkspaceViewer,
 ): SQL {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const userIds = [...new Set(viewer.userIds)];
 	const workspaceIds = [...new Set(viewer.workspaceIds ?? [])];
 	const hidden = db
@@ -100,11 +111,11 @@ export function osWorkspaceChildVisibleToPredicate(
 					? undefined
 					: or(
 							isNull(osWorkspaces.ownerUserId),
-							notInArray(osWorkspaces.ownerUserId, userIds),
+							sql`NOT (${anyIds(db, osWorkspaces.ownerUserId, userIds)})`,
 						),
 				workspaceIds.length === 0
 					? undefined
-					: notInArray(osWorkspaces.id, workspaceIds),
+					: sql`NOT (${anyIds(db, osWorkspaces.id, workspaceIds)})`,
 			),
 		);
 	return or(
@@ -137,6 +148,7 @@ export async function createOsWorkspace(
 	db: DbQueryClient,
 	workspace: NewOsWorkspaceRow,
 ): Promise<OsWorkspaceRow> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const [row] = await db.insert(osWorkspaces).values(workspace).returning();
 	if (!row) {
 		throw new Error("OS workspace insert returned no row");
@@ -148,6 +160,7 @@ export async function getOsWorkspace(
 	db: DbQueryClient,
 	params: OsWorkspaceScopeParams,
 ): Promise<OsWorkspaceRow | undefined> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const [row] = await db
 		.select()
 		.from(osWorkspaces)
@@ -165,6 +178,7 @@ export async function getOsWorkspaceByName(
 	db: DbQueryClient,
 	params: { organizationId: string; name: string },
 ): Promise<OsWorkspaceRow | undefined> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const [row] = await db
 		.select()
 		.from(osWorkspaces)
@@ -193,6 +207,9 @@ function personalWorkspaceWhere(
 	db: DbQueryClient,
 	params: { organizationId: string; ownerUserId: string },
 ) {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
+	const osWorkspaceAccessEdges = coreTable(db, d1OsWorkspaceAccessEdges);
+	const osWorkspaceShareLinks = coreTable(db, d1OsWorkspaceShareLinks);
 	return and(
 		eq(osWorkspaces.organizationId, params.organizationId),
 		eq(osWorkspaces.visibility, "private"),
@@ -230,6 +247,7 @@ export async function listPersonalOsWorkspaces(
 	db: DbQueryClient,
 	params: { organizationId: string; ownerUserId: string; limit?: number },
 ): Promise<OsWorkspaceRow[]> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	return db
 		.select()
 		.from(osWorkspaces)
@@ -242,6 +260,7 @@ async function getQualifyingPersonalOsWorkspace(
 	db: DbQueryClient,
 	params: { organizationId: string; ownerUserId: string; workspaceId: string },
 ): Promise<OsWorkspaceRow | undefined> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const [row] = await db
 		.select()
 		.from(osWorkspaces)
@@ -320,6 +339,7 @@ export async function saveConversationAsOsWorkspace(
 	db: DbQueryClient,
 	params: SaveConversationAsOsWorkspaceParams,
 ): Promise<SaveConversationAsOsWorkspaceResult> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	await db.batch([
 		db
 			.insert(osWorkspaces)
@@ -350,6 +370,8 @@ export async function listConversationWorkspaceDocuments(
 		fromWorkspaceIds: readonly string[];
 	},
 ) {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	if (!params.fromWorkspaceIds.length) return [];
 	return db
 		.selectDistinct({
@@ -371,7 +393,7 @@ export async function listConversationWorkspaceDocuments(
 			and(
 				eq(workspaceOutputIndex.organizationId, params.organizationId),
 				eq(kernelRuntimeRuns.conversationId, params.conversationId),
-				sql`${workspaceOutputIndex.workspaceId} IN (SELECT value FROM json_each(${JSON.stringify(params.fromWorkspaceIds)}))`,
+				anyIds(db, workspaceOutputIndex.workspaceId, params.fromWorkspaceIds),
 			),
 		)
 		.orderBy(asc(workspaceOutputIndex.outputId));
@@ -383,20 +405,29 @@ export async function listOsWorkspaces(
 	viewer: OsWorkspaceViewer,
 	options: ListOsWorkspacesOptions = {},
 ): Promise<OsWorkspaceRow[]> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const conditions = [
 		eq(osWorkspaces.organizationId, organizationId),
-		osWorkspaceVisibleToPredicate(viewer),
+		osWorkspaceVisibleToPredicate(viewer, db),
 	];
 	if (options.status) {
 		conditions.push(eq(osWorkspaces.status, options.status));
 	}
 	const search = options.search?.trim();
 	if (search) {
-		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
-		// character search failed as a D1_ERROR. `lower` on both sides keeps
-		// LIKE's ASCII case-insensitivity.
+		// Substring search avoids D1's LIKE pattern cap. Fold ASCII only on both
+		// stores so Unicode names retain SQLite's existing behavior.
+		const text = sql`${osWorkspaces.name} || ' ' || coalesce(${osWorkspaces.description}, '')`;
+		const folded =
+			coreStore(db) === "postgres"
+				? sql`translate(${text}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`
+				: sql`lower(${text})`;
 		conditions.push(
-			sql`instr(lower(${osWorkspaces.name} || ' ' || coalesce(${osWorkspaces.description}, '')), lower(${search})) > 0`,
+			containsText(
+				db,
+				folded,
+				search.replace(/[A-Z]/g, (char) => char.toLowerCase()),
+			),
 		);
 	}
 	return db
@@ -413,6 +444,7 @@ export async function updateOsWorkspace(
 	params: OsWorkspaceScopeParams,
 	patch: UpdateOsWorkspacePatch,
 ): Promise<OsWorkspaceRow | undefined> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const [row] = await db
 		.update(osWorkspaces)
 		.set({ ...patch, updatedAt: new Date().toISOString() })
@@ -430,6 +462,7 @@ export async function listWorkspaceDocuments(
 	db: DbQueryClient,
 	params: OsWorkspaceScopeParams,
 ) {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	return db
 		.selectDistinct({
 			outputId: workspaceOutputIndex.outputId,
@@ -452,6 +485,12 @@ export async function deleteOsWorkspace(
 		expectedOwnerUserId?: string;
 	},
 ): Promise<boolean> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
+	const osWorkspaceAccessEdges = coreTable(db, d1OsWorkspaceAccessEdges);
+	const osWorkspaceCollaborators = coreTable(db, d1OsWorkspaceCollaborators);
+	const osWorkspaceShareLinks = coreTable(db, d1OsWorkspaceShareLinks);
+	const osWorkspaceShareKeys = coreTable(db, d1OsWorkspaceShareKeys);
+	const userConfigs = coreTable(db, d1UserConfigs);
 	const workspace = await getOsWorkspace(db, params);
 	if (!workspace) return false;
 	if (
@@ -544,6 +583,8 @@ export async function findHomeTurnForKernelRun(
 	db: DbQueryClient,
 	params: { organizationId: string; runId: string },
 ): Promise<{ conversationId: string; workspaceId: string | null } | null> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const kernelConversations = coreTable(db, d1KernelConversations);
 	const [row] = await db
 		.select({
 			workspaceId: kernelConversations.workspaceId,
@@ -589,6 +630,7 @@ export async function listOrganizationWorkspaceDeletionCandidates(
 	organizationId: string,
 	afterId?: string,
 ) {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	return db
 		.select({ id: osWorkspaces.id })
 		.from(osWorkspaces)
@@ -609,6 +651,7 @@ export async function deleteWorkspaceDocumentIndex(
 	db: DbQueryClient,
 	scope: OsWorkspaceScopeParams,
 ) {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	await db.batch([
 		db
 			.delete(workspaceOutputIndex)

@@ -17,13 +17,16 @@ import type {
 	WorkspaceChangeEvent,
 	WorkspaceChangeSummary,
 } from "@tedix/api-contract/schemas/workspace-feed";
-import { and, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { anyIds, coreStore } from "../../core-store/dialect";
+import { chunkForBoundParams } from "../../utils/batch";
 import type { DbQueryClient } from "../../query-client";
 import {
-	workspaceActivity,
-	workspaceFeedCursors,
-	workspaceOutputIndex,
-	workspaceWorkLinks,
+	workspaceActivity as d1WorkspaceActivity,
+	workspaceFeedCursors as d1WorkspaceFeedCursors,
+	workspaceOutputIndex as d1WorkspaceOutputIndex,
+	workspaceWorkLinks as d1WorkspaceWorkLinks,
 } from "../../schema/workspace-feed";
 
 export type WorkspaceChangeOutcome = "applied" | "duplicate" | "gap";
@@ -54,6 +57,7 @@ export async function getWorkspaceFeedCursor(
 	db: DbQueryClient,
 	workspaceId: string,
 ): Promise<number> {
+	const workspaceFeedCursors = coreTable(db, d1WorkspaceFeedCursors);
 	const [row] = await db
 		.select({ lastSeq: workspaceFeedCursors.lastSeq })
 		.from(workspaceFeedCursors)
@@ -67,6 +71,7 @@ export async function applyWorkspaceChangeEvents(
 	events: readonly WorkspaceChangeEvent[],
 	options: { appliedAt?: string } = {},
 ): Promise<ApplyWorkspaceChangeEventsResult> {
+	const workspaceFeedCursors = coreTable(db, d1WorkspaceFeedCursors);
 	const outcomes = new Map<number, WorkspaceChangeOutcome>();
 	const first = events[0];
 	if (!first) return { outcomes, applied: 0, lastSeq: 0 };
@@ -135,6 +140,7 @@ function projectionStatements(
 	event: WorkspaceChangeEvent,
 	appliedAt: string,
 ): BatchStatement[] {
+	const workspaceActivity = coreTable(db, d1WorkspaceActivity);
 	const summary = event.summary;
 	const statements: BatchStatement[] = [];
 	if (event.kind !== "output" || !summary.continuesBurst) {
@@ -169,6 +175,14 @@ function projectionStatements(
 		if (event.kind === "output") {
 			const sameChange = sql`earlier.workspace_id = ${event.workspaceId} AND earlier.seq < ${event.seq} AND earlier.kind = 'output' AND earlier.entity_id = ${event.id} AND earlier.revision = ${event.revision} AND earlier.change_record_id = ${event.changeRecordId} AND earlier.occurred_at = ${event.at}`;
 			const described = clip(summary.description, 500) !== null;
+			const sameTitle =
+				coreStore(db) === "postgres"
+					? sql`earlier.title IS NOT DISTINCT FROM ${title}`
+					: sql`earlier.title IS ${title}`;
+			const sameSummary =
+				coreStore(db) === "postgres"
+					? sql`earlier.summary IS NOT DISTINCT FROM ${clip(summary.description, 500)}`
+					: sql`earlier.summary IS ${clip(summary.description, 500)}`;
 			statements.push(
 				db
 					.delete(workspaceActivity)
@@ -176,8 +190,8 @@ function projectionStatements(
 						and(
 							eq(workspaceActivity.id, id),
 							described
-								? sql`EXISTS (SELECT 1 FROM workspace_activity AS earlier WHERE ${sameChange} AND earlier.title IS ${title} AND earlier.summary IS ${clip(summary.description, 500)})`
-								: sql`EXISTS (SELECT 1 FROM workspace_activity AS earlier WHERE ${sameChange} AND (earlier.title IS ${title} OR earlier.summary IS NOT NULL))`,
+								? sql`EXISTS (SELECT 1 FROM workspace_activity AS earlier WHERE ${sameChange} AND ${sameTitle} AND ${sameSummary})`
+								: sql`EXISTS (SELECT 1 FROM workspace_activity AS earlier WHERE ${sameChange} AND (${sameTitle} OR earlier.summary IS NOT NULL))`,
 						),
 					),
 			);
@@ -199,6 +213,8 @@ function outputStatements(
 	db: DbQueryClient,
 	event: WorkspaceChangeEvent,
 ): BatchStatement[] {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
+	const workspaceWorkLinks = coreTable(db, d1WorkspaceWorkLinks);
 	const summary = event.summary;
 	const createdBy = summary.createdBy ?? event.actor;
 	const searchText = searchTextOf(summary);
@@ -279,24 +295,28 @@ function outputStatements(
 						isNull(workspaceWorkLinks.unlinkedAt),
 						ids.length === 0
 							? undefined
-							: notInArray(workspaceWorkLinks.workItemId, ids),
+							: sql`NOT (${anyIds(db, workspaceWorkLinks.workItemId, ids)})`,
 					),
 				),
 		);
-		for (const workItemId of ids) {
+		const rows = ids.map((workItemId) => ({
+			id: `${event.id}:${workItemId}`,
+			organizationId: event.organizationId,
+			workspaceId: event.workspaceId,
+			outputId: event.id,
+			workItemId,
+			revision: event.revision,
+			linkedAt: event.at,
+			unlinkedAt: null,
+		}));
+		for (const chunk of chunkForBoundParams(
+			rows,
+			coreStore(db) === "postgres" ? Math.max(rows.length, 1) : 10,
+		)) {
 			statements.push(
 				db
 					.insert(workspaceWorkLinks)
-					.values({
-						id: `${event.id}:${workItemId}`,
-						organizationId: event.organizationId,
-						workspaceId: event.workspaceId,
-						outputId: event.id,
-						workItemId,
-						revision: event.revision,
-						linkedAt: event.at,
-						unlinkedAt: null,
-					})
+					.values(chunk)
 					.onConflictDoUpdate({
 						target: workspaceWorkLinks.id,
 						set: {

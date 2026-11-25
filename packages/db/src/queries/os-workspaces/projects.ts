@@ -1,9 +1,10 @@
 import { and, asc, eq } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsWorkspaceProjectRow,
 	type OsWorkspaceProjectRow,
-	osWorkspaceProjects,
+	osWorkspaceProjects as d1OsWorkspaceProjects,
 } from "../../schema/os-workspaces";
 
 export interface OsWorkspaceProjectScope {
@@ -18,6 +19,7 @@ export async function listOsWorkspaceProjects(
 		limit?: number;
 	},
 ): Promise<OsWorkspaceProjectRow[]> {
+	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
 	const conditions = [
 		eq(osWorkspaceProjects.organizationId, params.organizationId),
 		eq(osWorkspaceProjects.workspaceId, params.workspaceId),
@@ -36,6 +38,7 @@ export async function getOsWorkspaceProject(
 	db: DbQueryClient,
 	params: OsWorkspaceProjectScope & { projectId: string },
 ): Promise<OsWorkspaceProjectRow | undefined> {
+	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
 	const [row] = await db
 		.select()
 		.from(osWorkspaceProjects)
@@ -54,6 +57,7 @@ export async function createOsWorkspaceProject(
 	db: DbQueryClient,
 	row: NewOsWorkspaceProjectRow,
 ): Promise<OsWorkspaceProjectRow> {
+	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
 	const [created] = await db
 		.insert(osWorkspaceProjects)
 		.values(row)
@@ -66,6 +70,7 @@ export async function reactivateOsWorkspaceProject(
 	db: DbQueryClient,
 	params: OsWorkspaceProjectScope & { projectId: string; now: string },
 ): Promise<OsWorkspaceProjectRow | undefined> {
+	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
 	const [row] = await db
 		.update(osWorkspaceProjects)
 		.set({ status: "active", removedAt: null, updatedAt: params.now })
@@ -89,6 +94,7 @@ export async function removeOsWorkspaceProject(
 		now: string;
 	},
 ): Promise<OsWorkspaceProjectRow | undefined> {
+	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
 	const [row] = await db
 		.update(osWorkspaceProjects)
 		.set({ status: "removed", removedAt: params.now, updatedAt: params.now })

@@ -1,7 +1,11 @@
 import { publishWorkspaceAction } from "./action-publication";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { coreTable } from "../../core-store/client";
+import { createPGliteFacade } from "../../test/pglite-facade";
 import type { WorkspaceChangeEvent } from "@tedix/api-contract/schemas/workspace-feed";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { osWorkspaces } from "../../schema/os-workspaces";
 import {
@@ -35,26 +39,45 @@ const OUTPUT = "00000000-0000-4000-8000-000000000010";
 const WORK = "00000000-0000-4000-8000-000000000020";
 const viewer = { userIds: ["user-1"] };
 
-async function fixture() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys = OFF;");
-	sqlite.exec(
-		"CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL); INSERT INTO organizations VALUES ('" +
-			ORG +
-			"');",
-	);
-	sqlite.exec(
-		schemaDdl(
-			osWorkspaces,
-			workspaceFeedLedger,
-			workspaceFeedCursors,
-			workspaceActivity,
-			workspaceOutputIndex,
-			workspaceWorkLinks,
-		),
-	);
-	const db = createDbQueryClient(createD1Facade(sqlite));
-	await db.insert(osWorkspaces).values({
+async function createFixture(store: "d1" | "postgres") {
+	let db;
+	let close: () => void | Promise<void>;
+	if (store === "postgres") {
+		const fixture = await createPGliteFacade();
+		db = fixture.db;
+		close = fixture.close;
+		for (const migration of readMigrationFiles({
+			migrationsFolder: fileURLToPath(
+				new URL("../../../drizzle-pg", import.meta.url),
+			),
+		}))
+			for (const ddl of migration.sql) await fixture.engine.exec(ddl);
+		await fixture.engine.query(
+			"INSERT INTO organizations(id,name,slug) VALUES ($1,'Org','org')",
+			[ORG],
+		);
+	} else {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec("PRAGMA foreign_keys = ON;");
+		sqlite.exec(
+			"CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL); INSERT INTO organizations VALUES ('" +
+				ORG +
+				"');",
+		);
+		sqlite.exec(
+			schemaDdl(
+				osWorkspaces,
+				workspaceFeedLedger,
+				workspaceFeedCursors,
+				workspaceActivity,
+				workspaceOutputIndex,
+				workspaceWorkLinks,
+			),
+		);
+		db = createDbQueryClient(createD1Facade(sqlite));
+		close = () => sqlite.close();
+	}
+	await db.insert(coreTable(db, osWorkspaces)).values({
 		id: WS,
 		organizationId: ORG,
 		name: "Finance",
@@ -65,7 +88,7 @@ async function fixture() {
 		createdAt: "2026-11-07T09:00:00.000Z",
 		updatedAt: "2026-11-07T09:00:00.000Z",
 	});
-	return db;
+	return { db, close };
 }
 
 function event(
@@ -87,331 +110,411 @@ function event(
 	};
 }
 
-describe("applyWorkspaceChangeEvents", () => {
-	it("projects an output through create, revise and rename", async () => {
-		const db = await fixture();
-		const first = await applyWorkspaceChangeEvents(db, [
-			event(1, {
-				summary: {
-					title: "Q4 plan",
-					outputKind: "document",
-					excerpt: "Revenue targets for Q4",
-					workItemIds: [WORK],
-				},
-			}),
-		]);
-		expect(first.outcomes.get(1)).toBe("applied");
-		expect(await getWorkspaceFeedCursor(db, WS)).toBe(1);
-
-		const library = await listWorkspaceOutputLibrary(db, {
-			organizationId: ORG,
-			viewer,
-		});
-		expect(library).toHaveLength(1);
-		expect(library[0]?.index).toMatchObject({
-			outputId: OUTPUT,
-			revision: 1,
-			isCurrent: 1,
-			title: "Q4 plan",
-			searchText: "revenue targets for q4",
-		});
-		expect(library[0]?.workspace).toEqual({
-			id: WS,
-			name: "Finance",
-			status: "active",
-		});
-		expect(
-			await listWorkspaceWorkLinksForWorkItem(db, {
-				organizationId: ORG,
-				workItemId: WORK,
-			}),
-		).toHaveLength(1);
-
-		await applyWorkspaceChangeEvents(db, [
-			event(2, {
-				revision: 2,
-				changeRecordId: "rev-2",
-				summary: { excerpt: "Revised revenue targets", workItemIds: [] },
-			}),
-			event(3, {
-				revision: 2,
-				changeRecordId: "rev-2",
-				summary: { title: "Q4 plan (final)" },
-			}),
-		]);
-		const current = await listWorkspaceOutputLibrary(db, {
-			organizationId: ORG,
-			viewer,
-		});
-		expect(current).toHaveLength(1);
-		expect(current[0]?.index).toMatchObject({
-			id: `${OUTPUT}:2`,
-			revisionId: "rev-2",
-			revision: 2,
-			title: "Q4 plan (final)",
-			searchText: "revised revenue targets",
-		});
-		expect(
-			await listWorkspaceWorkLinksForWorkItem(db, {
-				organizationId: ORG,
-				workItemId: WORK,
-			}),
-		).toHaveLength(0);
-		expect(
-			await listWorkspaceOutputLibrary(
-				db,
-				{ organizationId: ORG, viewer },
-				{ search: "FINAL" },
-			),
-		).toHaveLength(1);
-		expect(
-			await listWorkspaceOutputLibrary(
-				db,
-				{ organizationId: ORG, viewer },
-				{ search: "nothing here" },
-			),
-		).toHaveLength(0);
-
-		const activity = await listWorkspaceActivity(db, {
-			organizationId: ORG,
-			viewer,
-		});
-		expect(activity.map((row) => row.seq)).toEqual([3, 2, 1]);
+for (const store of ["d1", "postgres"] as const) {
+	const closers: (() => void | Promise<void>)[] = [];
+	afterEach(async () => {
+		for (const close of closers.splice(0)) await close();
 	});
-
-	it("acknowledges duplicates and holds back a gap", async () => {
-		const db = await fixture();
-		await applyWorkspaceChangeEvents(db, [event(1), event(2)]);
-		const result = await applyWorkspaceChangeEvents(db, [
-			event(2),
-			event(1),
-			event(4),
-			event(3),
-			event(5),
-		]);
-		expect(result.outcomes.get(1)).toBe("duplicate");
-		expect(result.outcomes.get(2)).toBe("duplicate");
-		expect(result.outcomes.get(3)).toBe("applied");
-		expect(result.outcomes.get(4)).toBe("applied");
-		expect(result.outcomes.get(5)).toBe("applied");
-		expect(result.lastSeq).toBe(5);
-		const gap = await applyWorkspaceChangeEvents(db, [event(7)]);
-		expect(gap.outcomes.get(7)).toBe("gap");
-		expect(await getWorkspaceFeedCursor(db, WS)).toBe(5);
-		const activity = await listWorkspaceActivity(db, {
-			organizationId: ORG,
-			viewer,
-		});
-		expect(activity).toHaveLength(5);
-	});
-
-	it("matches the ledger snapshot after every event is applied", async () => {
-		const db = await fixture();
-		const inputs = [
-			{ kind: "output" as const, id: OUTPUT, revision: 1 },
-			{ kind: "output" as const, id: OUTPUT, revision: 2 },
-			{ kind: "run" as const, id: "run-1", revision: 0 },
-			{ kind: "memory" as const, id: "fact-1", revision: 1 },
-		];
-		const events: WorkspaceChangeEvent[] = [];
-		for (const input of inputs) {
-			events.push(
-				await appendWorkspaceFeedLedger(db, {
-					workspaceId: WS,
-					organizationId: ORG,
-					kind: input.kind,
-					id: input.id,
-					revision: input.revision,
-					actor: { kind: "tedi", id: "tedi-1" },
-					changeRecordId: `${input.id}:${input.revision}`,
-					at: "2026-11-07T10:00:00.000Z",
+	async function fixture() {
+		const fixture = await createFixture(store);
+		closers.push(fixture.close);
+		return fixture.db;
+	}
+	describe(`applyWorkspaceChangeEvents: ${store}`, () => {
+		it("projects an output through create, revise and rename", async () => {
+			const db = await fixture();
+			const first = await applyWorkspaceChangeEvents(db, [
+				event(1, {
+					summary: {
+						title: "Q4 plan",
+						outputKind: "document",
+						excerpt: "Revenue targets for Q4",
+						workItemIds: [WORK],
+					},
 				}),
+			]);
+			expect(first.outcomes.get(1)).toBe("applied");
+			expect(await getWorkspaceFeedCursor(db, WS)).toBe(1);
+
+			const library = await listWorkspaceOutputLibrary(db, {
+				organizationId: ORG,
+				viewer,
+			});
+			expect(library).toHaveLength(1);
+			expect(library[0]?.index).toMatchObject({
+				outputId: OUTPUT,
+				revision: 1,
+				isCurrent: 1,
+				title: "Q4 plan",
+				searchText: "revenue targets for q4",
+			});
+			expect(library[0]?.workspace).toEqual({
+				id: WS,
+				name: "Finance",
+				status: "active",
+			});
+			expect(
+				await listWorkspaceWorkLinksForWorkItem(db, {
+					organizationId: ORG,
+					workItemId: WORK,
+				}),
+			).toHaveLength(1);
+
+			await applyWorkspaceChangeEvents(db, [
+				event(2, {
+					revision: 2,
+					changeRecordId: "rev-2",
+					summary: { excerpt: "Revised revenue targets", workItemIds: [] },
+				}),
+				event(3, {
+					revision: 2,
+					changeRecordId: "rev-2",
+					summary: { title: "Q4 plan (final)" },
+				}),
+			]);
+			const current = await listWorkspaceOutputLibrary(db, {
+				organizationId: ORG,
+				viewer,
+			});
+			expect(current).toHaveLength(1);
+			expect(current[0]?.index).toMatchObject({
+				id: `${OUTPUT}:2`,
+				revisionId: "rev-2",
+				revision: 2,
+				title: "Q4 plan (final)",
+				searchText: "revised revenue targets",
+			});
+			expect(
+				await listWorkspaceWorkLinksForWorkItem(db, {
+					organizationId: ORG,
+					workItemId: WORK,
+				}),
+			).toHaveLength(0);
+			expect(
+				await listWorkspaceOutputLibrary(
+					db,
+					{ organizationId: ORG, viewer },
+					{ search: "FINAL" },
+				),
+			).toHaveLength(1);
+			expect(
+				await listWorkspaceOutputLibrary(
+					db,
+					{ organizationId: ORG, viewer },
+					{ search: "nothing here" },
+				),
+			).toHaveLength(0);
+
+			const activity = await listWorkspaceActivity(db, {
+				organizationId: ORG,
+				viewer,
+			});
+			expect(activity.map((row) => row.seq)).toEqual([3, 2, 1]);
+		});
+
+		it("acknowledges duplicates and holds back a gap", async () => {
+			const db = await fixture();
+			await applyWorkspaceChangeEvents(db, [event(1), event(2)]);
+			const result = await applyWorkspaceChangeEvents(db, [
+				event(2),
+				event(1),
+				event(4),
+				event(3),
+				event(5),
+			]);
+			expect(result.outcomes.get(1)).toBe("duplicate");
+			expect(result.outcomes.get(2)).toBe("duplicate");
+			expect(result.outcomes.get(3)).toBe("applied");
+			expect(result.outcomes.get(4)).toBe("applied");
+			expect(result.outcomes.get(5)).toBe("applied");
+			expect(result.lastSeq).toBe(5);
+			const gap = await applyWorkspaceChangeEvents(db, [event(7)]);
+			expect(gap.outcomes.get(7)).toBe("gap");
+			expect(await getWorkspaceFeedCursor(db, WS)).toBe(5);
+			const activity = await listWorkspaceActivity(db, {
+				organizationId: ORG,
+				viewer,
+			});
+			expect(activity).toHaveLength(5);
+		});
+
+		it("matches the ledger snapshot after every event is applied", async () => {
+			const db = await fixture();
+			const inputs = [
+				{ kind: "output" as const, id: OUTPUT, revision: 1 },
+				{ kind: "output" as const, id: OUTPUT, revision: 2 },
+				{ kind: "run" as const, id: "run-1", revision: 0 },
+				{ kind: "memory" as const, id: "fact-1", revision: 1 },
+			];
+			const events: WorkspaceChangeEvent[] = [];
+			for (const input of inputs) {
+				events.push(
+					await appendWorkspaceFeedLedger(db, {
+						workspaceId: WS,
+						organizationId: ORG,
+						kind: input.kind,
+						id: input.id,
+						revision: input.revision,
+						actor: { kind: "tedi", id: "tedi-1" },
+						changeRecordId: `${input.id}:${input.revision}`,
+						at: "2026-11-07T10:00:00.000Z",
+					}),
+				);
+			}
+			expect(events.map((row) => row.seq)).toEqual([1, 2, 3, 4]);
+			expect(
+				(
+					await listWorkspaceFeedLedger(db, { workspaceId: WS, fromSeq: 3 })
+				).map((row) => row.seq),
+			).toEqual([3, 4]);
+			await applyWorkspaceChangeEvents(db, events);
+			const ledger = await snapshotWorkspaceFeedLedger(db, WS);
+			const projection = await snapshotWorkspaceProjection(db, WS);
+			expect(projection).toEqual(ledger);
+			expect(ledger).toEqual({
+				workspaceId: WS,
+				lastSeq: 4,
+				kinds: {
+					output: { records: 1, events: 2, latest: { [OUTPUT]: 2 } },
+					run: { records: 1, events: 1, latest: { "run-1": 0 } },
+					memory: { records: 1, events: 1, latest: { "fact-1": 1 } },
+				},
+			});
+		});
+	});
+
+	describe(`activity coverage: ${store}`, () => {
+		it("rolls back all projections and the cursor after a later event fails", async () => {
+			const db = await fixture();
+			await expect(
+				applyWorkspaceChangeEvents(db, [
+					event(1),
+					event(2, { organizationId: "missing-org" }),
+				]),
+			).rejects.toThrow();
+			expect(await getWorkspaceFeedCursor(db, WS)).toBe(0);
+			expect(await db.select().from(coreTable(db, workspaceActivity))).toEqual(
+				[],
 			);
-		}
-		expect(events.map((row) => row.seq)).toEqual([1, 2, 3, 4]);
+			expect(
+				await db.select().from(coreTable(db, workspaceOutputIndex)),
+			).toEqual([]);
+		});
+
+		it("writes a large link set in one batch and treats search wildcards literally", async () => {
+			const db = await fixture();
+			const ids = Array.from({ length: 300 }, (_, index) => `work-${index}`);
+			const batch = vi.spyOn(db, "batch");
+			await applyWorkspaceChangeEvents(db, [
+				event(1, { summary: { title: "100%_literal", workItemIds: ids } }),
+				event(2, { id: "other-output", summary: { title: "100anything" } }),
+			]);
+			expect(batch).toHaveBeenCalledTimes(1);
+			batch.mockRestore();
+			expect(
+				await listWorkspaceWorkLinksForWorkItem(db, {
+					organizationId: ORG,
+					workItemId: "work-299",
+				}),
+			).toHaveLength(1);
+			expect(
+				(
+					await listWorkspaceOutputLibrary(
+						db,
+						{ organizationId: ORG, viewer },
+						{ search: "%_" },
+					)
+				).map((row) => row.index.title),
+			).toEqual(["100%_literal"]);
+			await applyWorkspaceChangeEvents(db, [
+				event(3, { summary: { workItemIds: [] } }),
+			]);
+			expect(
+				await listWorkspaceWorkLinksForWorkItem(db, {
+					organizationId: ORG,
+					workItemId: "work-299",
+				}),
+			).toEqual([]);
+		});
+		it("requires the first event before advancing a new projection", async () => {
+			const db = await fixture();
+			const gap = await applyWorkspaceChangeEvents(db, [event(3)]);
+			expect(gap.outcomes.get(3)).toBe("gap");
+			expect(gap.lastSeq).toBe(0);
+			await applyWorkspaceChangeEvents(db, [event(1), event(2), event(3)]);
+			expect(await getWorkspaceFeedCursor(db, WS)).toBe(3);
+		});
+
+		it("publishes an action once after a lost reply and catches up earlier file events", async () => {
+			const db = await fixture();
+			await appendWorkspaceFeedLedger(
+				db,
+				event(1, { summary: { title: "Plan" } }),
+			);
+			const action = event(2, {
+				kind: "run",
+				id: "action-1",
+				changeRecordId: "action-1",
+				actor: { kind: "external_agent", id: "agent-1" },
+				summary: {
+					action: {
+						resource: "output",
+						operation: "revise",
+						outcome: "applied",
+						surface: "workspace_object",
+						traceId: "turn-1",
+						revisionId: "rev-1",
+					},
+				},
+			});
+			await publishWorkspaceAction(db, action);
+			await publishWorkspaceAction(db, action);
+			const ledger = await snapshotWorkspaceFeedLedger(db, WS);
+			expect(ledger.lastSeq).toBe(2);
+			expect(await snapshotWorkspaceProjection(db, WS)).toEqual(ledger);
+			const rows = await listWorkspaceActivity(db, {
+				organizationId: ORG,
+				viewer,
+			});
+			expect(rows.map((row) => row.kind)).toEqual(["run", "output"]);
+			expect(rows[0]).toMatchObject({
+				actorKind: "external_agent",
+				changeRecordId: "action-1",
+			});
+		});
+
+		it("excludes orphaned workspace scopes and keeps equal timestamp/sequence pages complete", async () => {
+			const db = await fixture();
+			const second = "00000000-0000-4000-8000-000000000003";
+			await db.insert(coreTable(db, osWorkspaces)).values({
+				id: second,
+				organizationId: ORG,
+				name: "Other",
+				visibility: "org",
+				createdByKind: "user",
+				createdById: "user-1",
+			});
+			await applyWorkspaceChangeEvents(db, [event(1)]);
+			await applyWorkspaceChangeEvents(db, [event(1, { workspaceId: second })]);
+			await applyWorkspaceChangeEvents(db, [
+				event(1, { workspaceId: "orphan" }),
+			]);
+			const first = (
+				await listWorkspaceActivity(
+					db,
+					{ organizationId: ORG, viewer },
+					{ limit: 1 },
+				)
+			)[0]!;
+			const rest = await listWorkspaceActivity(
+				db,
+				{ organizationId: ORG, viewer },
+				{
+					before: {
+						occurredAt: first.occurredAt,
+						seq: first.seq,
+						id: first.id,
+					},
+				},
+			);
+			expect(rest).toHaveLength(1);
+			expect(rest[0]?.workspaceId).not.toBe("orphan");
+			expect(rest[0]?.id).not.toBe(first.id);
+		});
+	});
+
+	it("indexes burst saves without activity and keeps sequence replay idempotent", async () => {
+		const db = await fixture();
+		const saves = [
+			event(1, { revision: 1 }),
+			event(2, { revision: 2, summary: { continuesBurst: true } }),
+			event(3, { revision: 3, summary: { continuesBurst: true } }),
+			event(4, { revision: 4 }),
+		];
+		await applyWorkspaceChangeEvents(db, saves);
+		await applyWorkspaceChangeEvents(db, saves);
 		expect(
-			(await listWorkspaceFeedLedger(db, { workspaceId: WS, fromSeq: 3 })).map(
+			(await db.select().from(coreTable(db, workspaceActivity))).map(
+				(row) => row.revision,
+			),
+		).toEqual([1, 4]);
+		const index = await db.select().from(coreTable(db, workspaceOutputIndex));
+		expect(index.map((row) => row.revision)).toEqual([1, 2, 3, 4]);
+		expect(index.filter((row) => row.isCurrent)).toMatchObject([
+			{ revision: 4 },
+		]);
+		expect(await getWorkspaceFeedCursor(db, WS)).toBe(4);
+	});
+
+	it("shows one activity line when the same save is published twice", async () => {
+		const db = await fixture();
+		const same = { changeRecordId: "rev-1", at: "2026-11-07T10:00:01.000Z" };
+		await applyWorkspaceChangeEvents(db, [
+			event(1, same),
+			event(2, { ...same, summary: { excerpt: "same save" } }),
+			event(3, { ...same, summary: { title: "Renamed" } }),
+		]);
+		expect(
+			(await db.select().from(coreTable(db, workspaceActivity))).map(
 				(row) => row.seq,
 			),
-		).toEqual([3, 4]);
-		await applyWorkspaceChangeEvents(db, events);
-		const ledger = await snapshotWorkspaceFeedLedger(db, WS);
-		const projection = await snapshotWorkspaceProjection(db, WS);
-		expect(projection).toEqual(ledger);
-		expect(ledger).toEqual({
-			workspaceId: WS,
-			lastSeq: 4,
-			kinds: {
-				output: { records: 1, events: 2, latest: { [OUTPUT]: 2 } },
-				run: { records: 1, events: 1, latest: { "run-1": 0 } },
-				memory: { records: 1, events: 1, latest: { "fact-1": 1 } },
-			},
-		});
-	});
-});
-
-describe("activity coverage", () => {
-	it("requires the first event before advancing a new projection", async () => {
-		const db = await fixture();
-		const gap = await applyWorkspaceChangeEvents(db, [event(3)]);
-		expect(gap.outcomes.get(3)).toBe("gap");
-		expect(gap.lastSeq).toBe(0);
-		await applyWorkspaceChangeEvents(db, [event(1), event(2), event(3)]);
+		).toEqual([1, 3]);
 		expect(await getWorkspaceFeedCursor(db, WS)).toBe(3);
 	});
 
-	it("publishes an action once after a lost reply and catches up earlier file events", async () => {
+	it("shows a rename, move or archive as one described line", async () => {
 		const db = await fixture();
-		await appendWorkspaceFeedLedger(
-			db,
-			event(1, { summary: { title: "Plan" } }),
-		);
-		const action = event(2, {
-			kind: "run",
-			id: "action-1",
-			changeRecordId: "action-1",
-			actor: { kind: "external_agent", id: "agent-1" },
-			summary: {
-				action: {
-					resource: "output",
-					operation: "revise",
-					outcome: "applied",
-					surface: "workspace_object",
-					traceId: "turn-1",
-					revisionId: "rev-1",
-				},
-			},
-		});
-		await publishWorkspaceAction(db, action);
-		await publishWorkspaceAction(db, action);
-		const ledger = await snapshotWorkspaceFeedLedger(db, WS);
-		expect(ledger.lastSeq).toBe(2);
-		expect(await snapshotWorkspaceProjection(db, WS)).toEqual(ledger);
-		const rows = await listWorkspaceActivity(db, {
-			organizationId: ORG,
-			viewer,
-		});
-		expect(rows.map((row) => row.kind)).toEqual(["run", "output"]);
-		expect(rows[0]).toMatchObject({
-			actorKind: "external_agent",
-			changeRecordId: "action-1",
-		});
+		const created = { changeRecordId: "rev-1", at: "2026-11-07T10:00:01.000Z" };
+		const renamed = { changeRecordId: "rev-1", at: "2026-11-07T10:05:00.000Z" };
+		const archived = {
+			changeRecordId: "rev-1",
+			at: "2026-11-07T10:09:00.000Z",
+		};
+		await applyWorkspaceChangeEvents(db, [
+			event(1, { ...created, summary: { title: "Notes" } }),
+			// The store's plain record first, then the API's described one.
+			event(2, { ...renamed, summary: { title: "Plan" } }),
+			event(3, {
+				...renamed,
+				summary: { title: "Plan", description: "Updated Plan" },
+			}),
+			// The described record first, then the store's plain one.
+			event(4, {
+				...archived,
+				summary: { title: "Plan", description: "Archived Plan" },
+			}),
+			event(5, { ...archived, summary: { title: "Plan" } }),
+		]);
+		expect(
+			(await db.select().from(coreTable(db, workspaceActivity)))
+				.sort((a, b) => a.seq - b.seq)
+				.map((row) => [row.seq, row.summary]),
+		).toEqual([
+			[1, null],
+			[3, "Updated Plan"],
+			[4, "Archived Plan"],
+		]);
+		expect(await getWorkspaceFeedCursor(db, WS)).toBe(5);
 	});
 
-	it("excludes orphaned workspace scopes and keeps equal timestamp/sequence pages complete", async () => {
+	it("keeps a rename made only in the workspace store", async () => {
 		const db = await fixture();
-		const second = "00000000-0000-4000-8000-000000000003";
-		await db.insert(osWorkspaces).values({
-			id: second,
-			organizationId: ORG,
-			name: "Other",
-			visibility: "org",
-			createdByKind: "user",
-			createdById: "user-1",
-		});
-		await applyWorkspaceChangeEvents(db, [event(1)]);
-		await applyWorkspaceChangeEvents(db, [event(1, { workspaceId: second })]);
-		await applyWorkspaceChangeEvents(db, [event(1, { workspaceId: "orphan" })]);
-		const first = (
-			await listWorkspaceActivity(
-				db,
-				{ organizationId: ORG, viewer },
-				{ limit: 1 },
-			)
-		)[0]!;
-		const rest = await listWorkspaceActivity(
-			db,
-			{ organizationId: ORG, viewer },
-			{
-				before: { occurredAt: first.occurredAt, seq: first.seq, id: first.id },
-			},
-		);
-		expect(rest).toHaveLength(1);
-		expect(rest[0]?.workspaceId).not.toBe("orphan");
-		expect(rest[0]?.id).not.toBe(first.id);
+		await applyWorkspaceChangeEvents(db, [
+			event(1, {
+				changeRecordId: "rev-1",
+				at: "2026-11-07T10:00:01.000Z",
+				summary: { title: "Notes" },
+			}),
+			event(2, {
+				changeRecordId: "rev-1",
+				at: "2026-11-07T10:05:00.000Z",
+				summary: { title: "Plan" },
+			}),
+		]);
+		expect(
+			(await db.select().from(coreTable(db, workspaceActivity)))
+				.map((row) => row.seq)
+				.sort(),
+		).toEqual([1, 2]);
 	});
-});
-
-it("indexes burst saves without activity and keeps sequence replay idempotent", async () => {
-	const db = await fixture();
-	const saves = [
-		event(1, { revision: 1 }),
-		event(2, { revision: 2, summary: { continuesBurst: true } }),
-		event(3, { revision: 3, summary: { continuesBurst: true } }),
-		event(4, { revision: 4 }),
-	];
-	await applyWorkspaceChangeEvents(db, saves);
-	await applyWorkspaceChangeEvents(db, saves);
-	expect(
-		(await db.select().from(workspaceActivity)).map((row) => row.revision),
-	).toEqual([1, 4]);
-	const index = await db.select().from(workspaceOutputIndex);
-	expect(index.map((row) => row.revision)).toEqual([1, 2, 3, 4]);
-	expect(index.filter((row) => row.isCurrent)).toMatchObject([{ revision: 4 }]);
-	expect(await getWorkspaceFeedCursor(db, WS)).toBe(4);
-});
-
-it("shows one activity line when the same save is published twice", async () => {
-	const db = await fixture();
-	const same = { changeRecordId: "rev-1", at: "2026-11-07T10:00:01.000Z" };
-	await applyWorkspaceChangeEvents(db, [
-		event(1, same),
-		event(2, { ...same, summary: { excerpt: "same save" } }),
-		event(3, { ...same, summary: { title: "Renamed" } }),
-	]);
-	expect(
-		(await db.select().from(workspaceActivity)).map((row) => row.seq),
-	).toEqual([1, 3]);
-	expect(await getWorkspaceFeedCursor(db, WS)).toBe(3);
-});
-
-it("shows a rename, move or archive as one described line", async () => {
-	const db = await fixture();
-	const created = { changeRecordId: "rev-1", at: "2026-11-07T10:00:01.000Z" };
-	const renamed = { changeRecordId: "rev-1", at: "2026-11-07T10:05:00.000Z" };
-	const archived = { changeRecordId: "rev-1", at: "2026-11-07T10:09:00.000Z" };
-	await applyWorkspaceChangeEvents(db, [
-		event(1, { ...created, summary: { title: "Notes" } }),
-		// The store's plain record first, then the API's described one.
-		event(2, { ...renamed, summary: { title: "Plan" } }),
-		event(3, {
-			...renamed,
-			summary: { title: "Plan", description: "Updated Plan" },
-		}),
-		// The described record first, then the store's plain one.
-		event(4, {
-			...archived,
-			summary: { title: "Plan", description: "Archived Plan" },
-		}),
-		event(5, { ...archived, summary: { title: "Plan" } }),
-	]);
-	expect(
-		(await db.select().from(workspaceActivity))
-			.sort((a, b) => a.seq - b.seq)
-			.map((row) => [row.seq, row.summary]),
-	).toEqual([
-		[1, null],
-		[3, "Updated Plan"],
-		[4, "Archived Plan"],
-	]);
-	expect(await getWorkspaceFeedCursor(db, WS)).toBe(5);
-});
-
-it("keeps a rename made only in the workspace store", async () => {
-	const db = await fixture();
-	await applyWorkspaceChangeEvents(db, [
-		event(1, {
-			changeRecordId: "rev-1",
-			at: "2026-11-07T10:00:01.000Z",
-			summary: { title: "Notes" },
-		}),
-		event(2, {
-			changeRecordId: "rev-1",
-			at: "2026-11-07T10:05:00.000Z",
-			summary: { title: "Plan" },
-		}),
-	]);
-	expect(
-		(await db.select().from(workspaceActivity)).map((row) => row.seq).sort(),
-	).toEqual([1, 2]);
-});
+}

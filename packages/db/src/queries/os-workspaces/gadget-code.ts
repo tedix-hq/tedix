@@ -1,9 +1,10 @@
 import { eq, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import {
-	osGadgetCode,
-	osGadgetCodeBlobs,
-	osGadgetRevisions,
+	osGadgetCode as d1OsGadgetCode,
+	osGadgetCodeBlobs as d1OsGadgetCodeBlobs,
+	osGadgetRevisions as d1OsGadgetRevisions,
 } from "../../schema/os-workspaces";
 
 /**
@@ -41,6 +42,7 @@ export function buildEnsureOsGadgetCodeBlobStatement(
 	db: DbQueryClient,
 	params: OsGadgetCodeBlobParams,
 ) {
+	const osGadgetCodeBlobs = coreTable(db, d1OsGadgetCodeBlobs);
 	return db
 		.insert(osGadgetCodeBlobs)
 		.values({
@@ -67,6 +69,9 @@ export function buildOsGadgetRevisionCodeStatements(
 		createdAt: string;
 	},
 ) {
+	const osGadgetCode = coreTable(db, d1OsGadgetCode);
+	const osGadgetCodeBlobs = coreTable(db, d1OsGadgetCodeBlobs);
+	const osGadgetRevisions = coreTable(db, d1OsGadgetRevisions);
 	const fromRevision = eq(osGadgetRevisions.id, params.revisionId);
 	return [
 		db
@@ -107,10 +112,10 @@ export function buildOsGadgetRevisionCodeStatements(
  * this package call this before their batch.
  */
 export async function splitOsGadgetCodeRow(
-	row: typeof osGadgetCode.$inferInsert,
+	row: typeof d1OsGadgetCode.$inferInsert,
 ): Promise<{
 	blob: OsGadgetCodeBlobParams;
-	code: typeof osGadgetCode.$inferInsert;
+	code: typeof d1OsGadgetCode.$inferInsert;
 }> {
 	const sha256 = await osGadgetCodeSha256(row.files);
 	return {

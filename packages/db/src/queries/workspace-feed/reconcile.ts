@@ -5,8 +5,9 @@
 
 import type { WorkspaceFeedSnapshot } from "@tedix/api-contract/schemas/workspace-feed";
 import { and, asc, eq, gt } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
-import { workspaceActivity } from "../../schema/workspace-feed";
+import { workspaceActivity as d1WorkspaceActivity } from "../../schema/workspace-feed";
 import { getWorkspaceFeedCursor } from "./projection";
 import { emptyWorkspaceFeedSnapshot, foldSnapshotEvent } from "./snapshot";
 
@@ -14,6 +15,7 @@ export async function snapshotWorkspaceProjection(
 	db: DbQueryClient,
 	workspaceId: string,
 ): Promise<WorkspaceFeedSnapshot> {
+	const workspaceActivity = coreTable(db, d1WorkspaceActivity);
 	const snapshot = emptyWorkspaceFeedSnapshot(workspaceId);
 	const pageSize = 2_000;
 	let afterSeq = 0;

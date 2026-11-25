@@ -11,17 +11,18 @@
  */
 
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import {
-	kernelConversations,
-	kernelRuntimeRuns,
+	kernelConversations as d1KernelConversations,
+	kernelRuntimeRuns as d1KernelRuntimeRuns,
 } from "../../schema/cognitive-runtime";
 import {
 	type OsWorkspaceProjectRow,
 	type OsWorkspaceSummaryRow,
-	osWorkspaceProjects,
-	osWorkspaceSummaries,
-	osWorkspaces,
+	osWorkspaceProjects as d1OsWorkspaceProjects,
+	osWorkspaceSummaries as d1OsWorkspaceSummaries,
+	osWorkspaces as d1OsWorkspaces,
 } from "../../schema/os-workspaces";
 
 /** Workspace activity rollup for admin and usage views. */
@@ -101,7 +102,10 @@ export function parseOsWorkspaceSummaryPayload(
 
 /** Marks a usage rollup the workspace object reported from its own chat. */
 const OBJECT_USAGE_SOURCE = '"source":"workspace_object"';
-const objectOwnsUsage = sql`${osWorkspaceSummaries.usage} LIKE ${`%${OBJECT_USAGE_SOURCE}%`}`;
+function objectOwnsUsage(db: DbQueryClient) {
+	const osWorkspaceSummaries = coreTable(db, d1OsWorkspaceSummaries);
+	return sql`${osWorkspaceSummaries.usage} LIKE ${`%${OBJECT_USAGE_SOURCE}%`}`;
+}
 
 /**
  * Apply one published snapshot, newest revision wins. Returns the applied
@@ -119,6 +123,7 @@ export async function applyOsWorkspaceSummary(
 		appliedAt: string;
 	},
 ): Promise<OsWorkspaceSummaryRow | undefined> {
+	const osWorkspaceSummaries = coreTable(db, d1OsWorkspaceSummaries);
 	const [row] = await db
 		.insert(osWorkspaceSummaries)
 		.values({
@@ -140,8 +145,8 @@ export async function applyOsWorkspaceSummary(
 				revision: params.revision,
 				// Chat counts a workspace object reported stay: the core's own
 				// count reads kernel rows, which that workspace's chat never writes.
-				usage: sql`CASE WHEN ${objectOwnsUsage} THEN ${osWorkspaceSummaries.usage} ELSE excluded.usage END`,
-				runStatus: sql`CASE WHEN ${objectOwnsUsage} THEN ${osWorkspaceSummaries.runStatus} ELSE excluded.run_status END`,
+				usage: sql`CASE WHEN ${objectOwnsUsage(db)} THEN ${osWorkspaceSummaries.usage} ELSE excluded.usage END`,
+				runStatus: sql`CASE WHEN ${objectOwnsUsage(db)} THEN ${osWorkspaceSummaries.runStatus} ELSE excluded.run_status END`,
 				workLinks: params.workLinks,
 				publishedAt: params.publishedAt,
 				appliedAt: params.appliedAt,
@@ -157,6 +162,7 @@ export async function getOsWorkspaceSummary(
 	db: DbQueryClient,
 	params: OsWorkspaceSummaryScopeParams,
 ): Promise<OsWorkspaceSummaryRow | undefined> {
+	const osWorkspaceSummaries = coreTable(db, d1OsWorkspaceSummaries);
 	const [row] = await db
 		.select()
 		.from(osWorkspaceSummaries)
@@ -175,6 +181,7 @@ export async function listOsWorkspaceSummaries(
 	db: DbQueryClient,
 	organizationId: string,
 ): Promise<OsWorkspaceSummaryRow[]> {
+	const osWorkspaceSummaries = coreTable(db, d1OsWorkspaceSummaries);
 	return db
 		.select()
 		.from(osWorkspaceSummaries)
@@ -185,6 +192,7 @@ export async function deleteOsWorkspaceSummary(
 	db: DbQueryClient,
 	params: OsWorkspaceSummaryScopeParams,
 ): Promise<void> {
+	const osWorkspaceSummaries = coreTable(db, d1OsWorkspaceSummaries);
 	await db
 		.delete(osWorkspaceSummaries)
 		.where(
@@ -199,6 +207,7 @@ function listActiveOsWorkspaceWorkLinks(
 	db: DbQueryClient,
 	params: OsWorkspaceSummaryScopeParams,
 ): Promise<OsWorkspaceWorkLink[]> {
+	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
 	return db
 		.select({
 			id: osWorkspaceProjects.id,
@@ -237,6 +246,8 @@ export async function applyOsWorkspaceObjectUsage(
 		publishedAt: string;
 	},
 ): Promise<boolean> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
+	const osWorkspaceSummaries = coreTable(db, d1OsWorkspaceSummaries);
 	const usage = `{${OBJECT_USAGE_SOURCE},${JSON.stringify(params.usage).slice(1)}`;
 	const reported = {
 		usage,
@@ -299,6 +310,8 @@ export async function computeOsWorkspaceSummary(
 	db: DbQueryClient,
 	params: OsWorkspaceSummaryScopeParams,
 ): Promise<OsWorkspaceSummaryPayload> {
+	const kernelConversations = coreTable(db, d1KernelConversations);
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const links = await listActiveOsWorkspaceWorkLinks(db, params);
 
 	const [latestRun] = await db
@@ -383,12 +396,12 @@ export async function computeOsWorkspaceSummary(
 
 	return {
 		usage: {
-			conversationCount: activity?.conversations ?? 0,
-			messageCount: activity?.messages ?? 0,
-			runCount: runCounts?.total ?? 0,
+			conversationCount: Number(activity?.conversations ?? 0),
+			messageCount: Number(activity?.messages ?? 0),
+			runCount: Number(runCounts?.total ?? 0),
 		},
 		runStatus: {
-			activeRunCount: runCounts?.active ?? 0,
+			activeRunCount: Number(runCounts?.active ?? 0),
 			latestRun: latestRun ?? null,
 		},
 		workLinks: links,

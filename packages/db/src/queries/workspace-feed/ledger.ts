@@ -15,10 +15,11 @@ import type {
 	WorkspaceFeedSnapshot,
 } from "@tedix/api-contract/schemas/workspace-feed";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkspaceFeedLedgerRow,
-	workspaceFeedLedger,
+	workspaceFeedLedger as d1WorkspaceFeedLedger,
 } from "../../schema/workspace-feed";
 import { emptyWorkspaceFeedSnapshot, foldSnapshotEvent } from "./snapshot";
 
@@ -49,6 +50,7 @@ export async function appendWorkspaceFeedLedger(
 	db: DbQueryClient,
 	input: WorkspaceChangeInput,
 ): Promise<WorkspaceChangeEvent> {
+	const workspaceFeedLedger = coreTable(db, d1WorkspaceFeedLedger);
 	let lastError: unknown;
 	for (let attempt = 0; attempt < APPEND_ATTEMPTS; attempt += 1) {
 		const seq = (await lastWorkspaceFeedLedgerSeq(db, input.workspaceId)) + 1;
@@ -87,6 +89,7 @@ export async function lastWorkspaceFeedLedgerSeq(
 	db: DbQueryClient,
 	workspaceId: string,
 ): Promise<number> {
+	const workspaceFeedLedger = coreTable(db, d1WorkspaceFeedLedger);
 	const [row] = await db
 		.select({
 			lastSeq: sql<number>`COALESCE(MAX(${workspaceFeedLedger.seq}), 0)`,
@@ -100,6 +103,7 @@ export async function listWorkspaceFeedLedger(
 	db: DbQueryClient,
 	params: { workspaceId: string; fromSeq: number; limit?: number },
 ): Promise<WorkspaceChangeEvent[]> {
+	const workspaceFeedLedger = coreTable(db, d1WorkspaceFeedLedger);
 	const rows = await db
 		.select()
 		.from(workspaceFeedLedger)

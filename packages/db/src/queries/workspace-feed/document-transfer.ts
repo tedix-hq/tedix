@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
-import { workspaceOutputIndex } from "../../schema/workspace-feed";
+import { workspaceOutputIndex as d1WorkspaceOutputIndex } from "../../schema/workspace-feed";
 import type { DocumentTransferPackage } from "../durable-sqlite/output-rpc";
 
 /** Move every revision location; the source object holds the document's write fence. */
@@ -9,6 +10,7 @@ export async function repointDocumentTransferIndex(
 	organizationId: string,
 	payload: DocumentTransferPackage,
 ) {
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	const { transfer, snapshot } = payload;
 	const scope = and(
 		eq(workspaceOutputIndex.organizationId, organizationId),
