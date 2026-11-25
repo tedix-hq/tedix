@@ -235,7 +235,7 @@ it("dispatches the former 03:00 jobs and D1 retention only in their new slots", 
 		for (const [minute, expected] of [
 			[11, "d1-retention"],
 			[13, "output-asset-gc"],
-			[21, null],
+			[21, "card-summary-backfill"],
 			[23, "retention-cleanup"],
 		] as const) {
 			catchup.paths.length = 0;
@@ -251,10 +251,7 @@ it("dispatches the former 03:00 jobs and D1 retention only in their new slots", 
 				env,
 				{} as ExecutionContext,
 			);
-			const expectedPaths = [
-				"card-summary-backfill",
-				...(expected ? [expected] : []),
-			];
+			const expectedPaths = expected ? [expected] : [];
 			expect(catchup.paths).toEqual(expectedPaths);
 			expect(catchup.receipts).toEqual(
 				expectedPaths.map((id) => ({ id, scheduledTime })),
@@ -622,4 +619,34 @@ it("keeps repository and support maintenance running after a commitment failure"
 	} finally {
 		errors.mockRestore();
 	}
+});
+
+it("dispatches low-urgency jobs only in their maintenance slots", async () => {
+	const ids = [
+		"decision-outcome-labeller",
+		"card-summary-backfill",
+		"graph-gds-redrive",
+	];
+	const fired: Record<string, number[]> = Object.fromEntries(
+		ids.map((id) => [id, []]),
+	);
+	for (let minute = 0; minute < 120; minute++) {
+		catchup.paths.length = 0;
+		await scheduled(
+			{
+				cron: minute % 2 ? MAINTENANCE_TRIGGER : "*/2 * * * *",
+				scheduledTime: Date.UTC(2026, 10, 25) + minute * 60_000,
+				noRetry: () => {},
+			},
+			{ TEDIX_FLEET_AUTHORITY_MODE: "disabled" } as CloudflareEnv,
+			{ waitUntil: () => {} } as unknown as ExecutionContext,
+		);
+		for (const id of ids)
+			if (catchup.paths.includes(id)) fired[id].push(minute);
+	}
+	expect(fired).toEqual({
+		"decision-outcome-labeller": [1, 31, 61, 91],
+		"card-summary-backfill": [21, 51, 81, 111],
+		"graph-gds-redrive": [55, 115],
+	});
 });

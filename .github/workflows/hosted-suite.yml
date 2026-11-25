@@ -1,20 +1,20 @@
 name: Hosted tests after deploy and nightly
 
-# Tests that never gate a deploy. Every 10 minutes the plan reads the live
-# commit from api/os/builder health and tests it once; each night the full
-# suite runs at main's tip. Both lanes start from a schedule, not from a
-# GITHUB_TOKEN dispatch: GitHub starts no workflow_run for runs that token
-# creates, and tedix-observer.yml needs one to report a failure. Both run
-# on free GitHub-hosted Ubuntu only, outside the main-certification group,
-# and certify nothing: Ship still requires the push gate's `Main CI`.
-# Failures reach repair Work through tedix-observer.yml.
+# Tests that never gate a deploy. A post-deploy notification and the hourly
+# schedule read the live commit from api/os/builder health and test it once.
+# Each night the full suite runs at main's tip. The deployment owner sends
+# repository_dispatch: post-deploy using an App token so workflow_run reaches
+# tedix-observer.yml. All jobs use free GitHub-hosted Ubuntu, outside the
+# main-certification group. Ship still requires the push gate's `Main CI`.
 
-run-name: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && format('Nightly full suite (tests skip if none selected) @ {0}', github.sha) || 'Post-deploy watch (tests skip if live commit unchanged, unknown, or no tests affected)') || inputs.full && format('Full hosted suite (tests skip if none selected) @ {0}', inputs.sha || github.sha) || format('Post-deploy tests (skip if none affected) @ {0}', inputs.sha) }}
+run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'repository_dispatch') && (github.event.schedule == '17 2 * * *' && format('Nightly full suite (tests skip if none selected) @ {0}', github.sha) || 'Post-deploy watch (tests skip if live commit unchanged, unknown, or no tests affected)') || inputs.full && format('Full hosted suite (tests skip if none selected) @ {0}', inputs.sha || github.sha) || format('Post-deploy tests (skip if none affected) @ {0}', inputs.sha) }}
 
 on:
+  repository_dispatch:
+    types: [post-deploy]
   schedule:
     - cron: "17 2 * * *"
-    - cron: "*/10 * * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       sha:

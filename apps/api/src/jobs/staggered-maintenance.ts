@@ -3,7 +3,10 @@ import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule
 // Odd-minute maintenance stays off the frequent even-minute installation tick.
 export const MAINTENANCE_TRIGGER = "1-59/2 * * * *";
 export const MAINTENANCE_CRONS = {
-	"mcp-scan": "1 * * * *",
+	"decision-outcome-labeller": "1,31 * * * *",
+	"card-summary-backfill": "21,51 * * * *",
+	"graph-gds-redrive": "55 * * * *",
+	"mcp-scan": "35 1 * * *",
 	"site-reconciliation": "3 * * * *",
 	"external-agent-mcp-client-reaper": "5 * * * *",
 	"recurring-work": "7 * * * *",

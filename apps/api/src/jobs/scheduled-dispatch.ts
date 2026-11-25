@@ -78,16 +78,15 @@ const dispatchScheduled = async (
 				},
 			);
 		}
-		if (cron === "*/2 * * * *") {
+		if (maintenanceIsDue("decision-outcome-labeller", event)) {
 			const { runDecisionOutcomeLabeller } =
 				await import("./decision-outcome-labeller");
 			await trackPlatformCronPath(env, event, "decision-outcome-labeller", () =>
 				runDecisionOutcomeLabeller(env, event.scheduledTime),
 			);
 		}
-		// Keep the two-minute backfill cadence, one minute away from lease and
-		// dispatch maintenance. Each card can require several governed model calls.
-		if (cron === MAINTENANCE_TRIGGER) {
+		// Each card can require several governed model calls.
+		if (maintenanceIsDue("card-summary-backfill", event)) {
 			const { runCardSummaryBackfill } =
 				await import("./decision-outcome-labeller");
 			await trackPlatformCronPath(env, event, "card-summary-backfill", () =>
@@ -110,21 +109,24 @@ const dispatchScheduled = async (
 		if (cron === "*/2 * * * *") {
 			const {
 				dispatchGraphProjectionDrains,
-				redriveGraphGdsMaintenance,
 				dispatchDueSkillSchedulesTick,
 				dispatchDueAppTriggersTick,
 			} = await import("./platform-tick");
 			await trackPlatformCronPath(env, event, "graph-projection-drain", () =>
 				dispatchGraphProjectionDrains(env, event),
 			);
-			await trackPlatformCronPath(env, event, "graph-gds-redrive", () =>
-				redriveGraphGdsMaintenance(env, event),
-			);
 			await trackPlatformCronPath(env, event, "skill-schedule-dispatch", () =>
 				dispatchDueSkillSchedulesTick(env, event),
 			);
 			await trackPlatformCronPath(env, event, "app-trigger-dispatch", () =>
 				dispatchDueAppTriggersTick(env, event),
+			);
+		}
+
+		if (maintenanceIsDue("graph-gds-redrive", event)) {
+			const { redriveGraphGdsMaintenance } = await import("./platform-tick");
+			await trackPlatformCronPath(env, event, "graph-gds-redrive", () =>
+				redriveGraphGdsMaintenance(env, event),
 			);
 		}
 

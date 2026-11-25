@@ -1,6 +1,6 @@
 // Hosted test runs that never gate a deploy: affected tests after a commit is
 // live, and the full suite nightly. `plan` reads the deployed commit from the
-// service health endpoints on the 10-minute schedule, tests each live commit
+// service health endpoints on the hourly schedule, tests each live commit
 // once, and selects the jobs. It never touches the push gate
 // (`full-suite-hourly.yml`), its aggregate, or Ship.
 import { execFileSync } from "node:child_process";
@@ -186,7 +186,9 @@ async function watchedSha(env, urls) {
 export async function plan(env = process.env) {
 	const nightly =
 		env.EVENT_NAME === "schedule" && env.SCHEDULE === NIGHTLY_CRON;
-	const watching = env.EVENT_NAME === "schedule" && !nightly;
+	const watching =
+		(env.EVENT_NAME === "schedule" && !nightly) ||
+		env.EVENT_NAME === "repository_dispatch";
 	const full = nightly || env.INPUT_FULL === "true";
 	const urls = env.HEALTH_URLS.split(/\s+/).filter(Boolean);
 	// A commit deployed after this run started is newer than its checkout.

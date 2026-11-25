@@ -1,7 +1,4 @@
-import {
-	MAINTENANCE_CRONS,
-	MAINTENANCE_TRIGGER,
-} from "./staggered-maintenance";
+import { MAINTENANCE_CRONS } from "./staggered-maintenance";
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import type { PlatformCronExecutionSummary } from "@tedix/db/queries/platform-cron-executions";
 
@@ -89,10 +86,8 @@ interface PlatformCronDefinition {
 
 const everyTwoMinuteIds = [
 	"agent-session-event-drain",
-	"decision-outcome-labeller",
 	"provider-event-maintenance",
 	"graph-projection-drain",
-	"graph-gds-redrive",
 	"skill-schedule-dispatch",
 	"app-trigger-dispatch",
 	"orphan-run-sweep",
@@ -116,9 +111,19 @@ const everyTwoMinutes = everyTwoMinuteIds.map((id) => ({
 export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	...everyTwoMinutes,
 	{
+		id: "decision-outcome-labeller",
+		cron: MAINTENANCE_CRONS["decision-outcome-labeller"],
+		intervalMinutes: 30,
+	},
+	{
+		id: "graph-gds-redrive",
+		cron: MAINTENANCE_CRONS["graph-gds-redrive"],
+		intervalMinutes: 60,
+	},
+	{
 		id: "card-summary-backfill",
-		cron: MAINTENANCE_TRIGGER,
-		intervalMinutes: 2,
+		cron: MAINTENANCE_CRONS["card-summary-backfill"],
+		intervalMinutes: 30,
 	},
 	{ id: "deck-pipeline-sweep", cron: "*/2 * * * *", intervalMinutes: 15 },
 	{
@@ -265,7 +270,7 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	{
 		id: "mcp-scan",
 		cron: MAINTENANCE_CRONS["mcp-scan"],
-		intervalMinutes: 60,
+		intervalMinutes: 1_440,
 		requiresFleet: true,
 	},
 	{
