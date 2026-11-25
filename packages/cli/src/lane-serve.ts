@@ -124,6 +124,7 @@ import {
 	waitForLaneProcessIdentity,
 } from "./lane-process-recovery";
 import { unpushedLaneCommits } from "./lane-unpushed";
+import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import { kernelProcessCwd, kernelProcessTable } from "./process-facts";
 import { beginFileLock } from "./local-file-lock";
 import {
@@ -2193,6 +2194,7 @@ export async function cleanupLaneWorktree(
 				encoding: "utf8",
 				timeout: 10_000,
 				maxBuffer: 16 * 1024 * 1024,
+				env: detachedGitEnv(),
 			});
 		} catch (error) {
 			const { killed, stderr } = error as { killed?: boolean; stderr?: string };
@@ -2374,6 +2376,7 @@ export async function cleanupLaneWorktree(
 			],
 			{
 				timeout: 30 * 60_000,
+				env: detachedGitEnv(),
 			},
 		);
 		return true;

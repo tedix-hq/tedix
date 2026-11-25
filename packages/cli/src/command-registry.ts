@@ -8,6 +8,7 @@ import { hooksUsage } from "./hooks/command";
 import { learnUsage } from "./learn-import";
 import { skillUsage } from "./skill";
 import { superviseUsage } from "./supervise";
+import { storageUsage } from "./storage";
 import { localInstallationUsage } from "./local-installation";
 import { mcpUsage } from "./mcp-call";
 import { channelUsage } from "./event-channel";
@@ -281,6 +282,15 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		mutability: "read",
 		output: HUMAN_JSON,
 		help: workflowUsage,
+	},
+	{
+		name: "storage",
+		argHint: "[clean] [--dry-run]",
+		surface: "local",
+		summary: "Show what Tedix uses on disk, or reclaim it now",
+		mutability: "mixed",
+		output: HUMAN_JSON,
+		help: () => storageUsage,
 	},
 	{
 		name: "status",

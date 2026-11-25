@@ -100,6 +100,7 @@ import {
 } from "./supervise-drivers";
 import { acquireLock, install, uninstall } from "./supervise-launch-agent";
 import { migrateStorage } from "./storage-migrate";
+import { runRetentionQuietly } from "./storage";
 import { alertStrandedLogins } from "./supervise-login";
 import {
 	answerAction,
@@ -139,6 +140,8 @@ const PRUNE_EVERY_MS = 60 * 60 * 1000;
 export const HEALTH_REPORT_INTERVAL_MS = 2 * 60 * 1000;
 /** The supervisor's own beat; Tedix OS shows it down after 45 s of silence. */
 export const SUPERVISOR_BEAT_INTERVAL_MS = 20_000;
+/** Run-folder, worktree and log retention runs at start and on this clock. */
+export const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
 /** Each report's retries share this; the first attempt gets DETAIL_TIMEOUT_MS. */
 const HEALTH_REPORT_BUDGET_MS = 45_000;
 
@@ -1273,6 +1276,10 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		};
 		checkRunners();
 		const runnerTimer = setInterval(checkRunners, SUPERVISE_INTERVAL_MS);
+		// Retention once at start, then hourly; a slow pass never blocks ticks.
+		const runRetention = () => void runRetentionQuietly(env);
+		runRetention();
+		const retentionTimer = setInterval(runRetention, RETENTION_INTERVAL_MS);
 		const beatTimer = setInterval(
 			() => void supervisor.beat(),
 			SUPERVISOR_BEAT_INTERVAL_MS,
@@ -1288,6 +1295,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 			if (stopped) return;
 			stopped = true;
 			clearInterval(runnerTimer);
+			clearInterval(retentionTimer);
 			runners?.stop();
 			machineTools?.stop();
 			halt();
@@ -1319,6 +1327,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 			}
 		}
 		clearInterval(runnerTimer);
+		clearInterval(retentionTimer);
 		clearInterval(beatTimer);
 		runners?.stop();
 		machineTools?.stop();

@@ -68,7 +68,14 @@ export async function runDirectCode(
 }
 
 /** Commands dispatched before gateway option parsing; they take only their own flags. */
-export const LOCAL_COMMANDS = ["setup", "dev", "hooks", "supervise", "learn"];
+export const LOCAL_COMMANDS = [
+	"setup",
+	"dev",
+	"hooks",
+	"supervise",
+	"learn",
+	"storage",
+];
 
 /** Local commands accept the workspace selector used by shared agent wrappers. */
 export function localCommandArgs(argv: string[]): string[] {
@@ -256,6 +263,11 @@ async function main() {
 	if (localCommand === "supervise") {
 		const { runSuperviseCommand } = await import("./supervise");
 		process.exitCode = await runSuperviseCommand(argv.slice(1));
+		return;
+	}
+	if (localCommand === "storage") {
+		const { runStorageCommand } = await import("./storage");
+		process.exitCode = await runStorageCommand(argv.slice(1));
 		return;
 	}
 	// Local extraction; each organization call runs as its own `tedix code` child.
