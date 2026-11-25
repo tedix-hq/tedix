@@ -1,8 +1,23 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
+import { fileURLToPath } from "node:url";
+import { eq } from "drizzle-orm";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { coreTable } from "../core-store/client";
+import { createMigratedSqlite } from "../test/migrated-sqlite";
+import { createPGliteFacade } from "../test/pglite-facade";
+import {
+	platformCronCheckpoints,
+	platformCronExecutions,
+} from "../schema/platform-cron-executions";
+import type { DbClient } from "../client";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
+	advancePlatformCronCheckpoint,
+	getPlatformCronCheckpoint,
+	putPlatformCronCheckpoint,
+	withPlatformCronWriteBatch,
 	listPlatformCronExecutionSummaries,
 	recordPlatformCronExecutionFinish,
 	recordPlatformCronExecutionStart,
@@ -247,3 +262,231 @@ describe("platform cron execution receipts", () => {
 		}
 	});
 });
+
+for (const store of ["d1", "postgres"] as const)
+	describe(`migrated cron ${store}`, () => {
+		let db: DbClient;
+		let close: () => void | Promise<void>;
+		beforeAll(async () => {
+			if (store === "d1") {
+				const sqlite = createMigratedSqlite();
+				db = createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
+				close = () => sqlite.close();
+			} else {
+				const fixture = await createPGliteFacade();
+				db = fixture.db;
+				close = fixture.close;
+				for (const migration of readMigrationFiles({
+					migrationsFolder: fileURLToPath(
+						new URL("../../drizzle-pg", import.meta.url),
+					),
+				})) {
+					for (const ddl of migration.sql) await fixture.engine.exec(ddl);
+				}
+			}
+		}, 30000);
+		afterAll(async () => {
+			await close?.();
+		});
+
+		it("preserves monotonic boundaries, null initial CAS fences, stale fences and cursors", async () => {
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "cas",
+				mode: "cas",
+				previous: null,
+				through: "first",
+			});
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "cas",
+				mode: "cas",
+				previous: null,
+				through: "stale",
+			});
+			expect(await getPlatformCronCheckpoint(db, "cas")).toBe("first");
+			const cursor = { changedAt: "now", key: "key", tediId: "tedi" };
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "cas",
+				mode: "cas",
+				previous: "first",
+				through: "second",
+				cursor,
+			});
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "cas",
+				mode: "cas",
+				previous: "second",
+				through: "third",
+				cursor: null,
+			});
+			const checkpoints = coreTable(db, platformCronCheckpoints);
+			expect(
+				await db
+					.select()
+					.from(checkpoints)
+					.where(eq(checkpoints.scheduleId, "cas")),
+			).toEqual([{ scheduleId: "cas", through: "third", cursor }]);
+			await putPlatformCronCheckpoint(db, "numeric", "9");
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "numeric",
+				mode: "numeric",
+				through: "3000000000",
+			});
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "numeric",
+				mode: "numeric",
+				through: "10",
+			});
+			expect(await getPlatformCronCheckpoint(db, "numeric")).toBe("3000000000");
+			await putPlatformCronCheckpoint(db, "newer", "2026-01-01");
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "newer",
+				mode: "newer",
+				through: "2026-02-01",
+			});
+			await advancePlatformCronCheckpoint(db, {
+				scheduleId: "newer",
+				mode: "newer",
+				through: "2026-01-02",
+			});
+			expect(await getPlatformCronCheckpoint(db, "newer")).toBe("2026-02-01");
+		});
+
+		it("collapses repeated advances and receipts into one deferred atomic batch", async () => {
+			const batch = vi.spyOn(db, "batch");
+			const stamp = {
+				...start,
+				id: "batch",
+				scheduleId: "batch",
+				finishedAt: "2026-08-09T01:40:02.000Z",
+				status: "success" as const,
+				durationMs: 1000,
+				affectedRowCounts: { expired: 3 },
+			};
+			try {
+				await withPlatformCronWriteBatch(
+					db,
+					async () => {
+						await recordPlatformCronExecutionFinish(db, stamp);
+						await recordPlatformCronExecutionFinish(db, {
+							...stamp,
+							id: "duplicate",
+							status: "failure",
+						});
+						for (const [previous, through] of [
+							[null, "a"],
+							["a", "b"],
+							["stale", "bad"],
+						])
+							await advancePlatformCronCheckpoint(db, {
+								scheduleId: "batch",
+								mode: "cas",
+								previous,
+								through: through!,
+							});
+						for (const through of ["9", "10", "2"])
+							await advancePlatformCronCheckpoint(db, {
+								scheduleId: "batch-number",
+								mode: "numeric",
+								through,
+							});
+						for (const through of ["b", "c", "a"])
+							await advancePlatformCronCheckpoint(db, {
+								scheduleId: "batch-newer",
+								mode: "newer",
+								through,
+							});
+						expect(await getPlatformCronCheckpoint(db, "batch")).toBeNull();
+					},
+					async (write) => {
+						await write();
+					},
+				);
+				expect(batch).toHaveBeenCalledTimes(1);
+				expect(batch.mock.calls[0]![0]).toHaveLength(2);
+				expect(await getPlatformCronCheckpoint(db, "batch")).toBe("b");
+				expect(await getPlatformCronCheckpoint(db, "batch-number")).toBe("10");
+				expect(await getPlatformCronCheckpoint(db, "batch-newer")).toBe("c");
+				expect(
+					await listPlatformCronExecutionSummaries(
+						db,
+						["batch", "batch", "missing"],
+						new Date("2026-08-09T02:00:00.000Z"),
+					),
+				).toEqual([
+					expect.objectContaining({
+						latestId: "batch",
+						latestAffectedRowCounts: { expired: 3 },
+						countsLast24h: { running: 0, success: 1, failure: 0 },
+					}),
+				]);
+				await expect(
+					withPlatformCronWriteBatch(
+						db,
+						async () => {
+							await recordPlatformCronExecutionFinish(db, {
+								...stamp,
+								id: "rollback",
+								scheduleId: "rollback",
+							});
+							await advancePlatformCronCheckpoint(db, {
+								scheduleId: "invalid",
+								mode: "newer",
+								through: null as unknown as string,
+							});
+						},
+						async (write) => {
+							await write();
+						},
+					),
+				).rejects.toThrow();
+				const executions = coreTable(db, platformCronExecutions);
+				expect(
+					await db
+						.select()
+						.from(executions)
+						.where(eq(executions.id, "rollback")),
+				).toEqual([]);
+			} finally {
+				batch.mockRestore();
+			}
+		});
+
+		it("keeps first terminal outcomes and recovers abandoned starts", async () => {
+			const stamp = { ...start, id: "direct", scheduleId: "direct" };
+			expect(await recordPlatformCronExecutionStart(db, stamp)).toBe(true);
+			expect(
+				await recordPlatformCronExecutionStart(db, {
+					...stamp,
+					id: "direct-duplicate",
+				}),
+			).toBe(false);
+			expect(
+				await terminalizeAbandonedPlatformCronExecutions(
+					db,
+					"2026-08-10T02:00:00.000Z",
+					1,
+					2,
+				),
+			).toBe(1);
+			await recordPlatformCronExecutionFinish(db, {
+				...stamp,
+				status: "success",
+				finishedAt: "later",
+				durationMs: 1,
+				affectedRowCounts: {},
+			});
+			expect(
+				await listPlatformCronExecutionSummaries(
+					db,
+					["direct"],
+					new Date("2026-08-10T02:00:00.000Z"),
+				),
+			).toEqual([
+				expect.objectContaining({
+					latestStatus: "failure",
+					latestError:
+						"Cron receipt abandoned: no finish recorded within six hours",
+				}),
+			]);
+		});
+	});
