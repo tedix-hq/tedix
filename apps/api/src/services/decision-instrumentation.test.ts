@@ -623,14 +623,18 @@ it("learns jump-then-decide only from the linked canonical response, once", asyn
 describe("bounded receipt scans", () => {
 	const labelledReceipts = (sqlite: DatabaseSync) =>
 		sqlite
-			.prepare("SELECT outcome FROM decision_outcome_labels")
+			.prepare(
+				"SELECT outcome FROM decision_outcome_labels WHERE window='immediate'",
+			)
 			.all()
 			.map((row) => String(JSON.parse(String(row.outcome)).receiptId))
 			.sort();
 	const checkpoints = (sqlite: DatabaseSync) =>
 		Object.fromEntries(
 			sqlite
-				.prepare("SELECT schedule_id, through FROM platform_cron_checkpoints")
+				.prepare(
+					"SELECT schedule_id, through FROM platform_cron_checkpoints WHERE schedule_id NOT LIKE '%:sweep'",
+				)
 				.all()
 				.map((row) => [String(row.schedule_id), String(row.through)]),
 		);
@@ -704,8 +708,10 @@ describe("bounded receipt scans", () => {
 		expect(labelledReceipts(sqlite)).toContain("response-overlap");
 		expect(labelledReceipts(sqlite)).not.toContain("response-late");
 
-		// The first run of the next UTC day sweeps everything again.
+		// Midnight keeps the recent checkpoint; historical recovery waits a full day.
 		await labelDecisionOutcomes(db, new Date("2030-01-02T00:00:00Z"));
+		expect(labelledReceipts(sqlite)).not.toContain("response-late");
+		await labelDecisionOutcomes(db, new Date("2030-01-02T12:04:00Z"));
 		expect(labelledReceipts(sqlite)).toEqual([
 			"approval-a",
 			"approval-b",
@@ -716,9 +722,26 @@ describe("bounded receipt scans", () => {
 			"response-overlap",
 		]);
 		expect(checkpoints(sqlite)).toEqual({
-			"decision-outcome-labeller:responses": "2030-01-02T00:00:00.000Z",
-			"decision-outcome-labeller:approvals": "2030-01-02T00:00:00.000Z",
+			"decision-outcome-labeller:responses": "2030-01-02T12:04:00.000Z",
+			"decision-outcome-labeller:approvals": "2030-01-02T12:04:00.000Z",
 		});
+	});
+
+	it("pages historical input while labelling recent receipts without waiting for recovery", async () => {
+		const { db, sqlite } = fixture();
+		await labelDecisionOutcomes(db, new Date("2030-01-01T12:02:00Z"));
+		await labelDecisionOutcomes(db, new Date("2030-01-01T15:04:00Z"));
+		for (let i = 0; i < 1_000; i++)
+			approve(sqlite, `padding-${i}`, "2030-01-01T12:00:30.000Z");
+		exposeApproval(sqlite, "late-page");
+		approve(sqlite, "late-page", "2030-01-01T12:00:30.000Z");
+		exposeApproval(sqlite, "recent-page");
+		approve(sqlite, "recent-page", "2030-01-02T12:03:00.000Z");
+		await labelDecisionOutcomes(db, new Date("2030-01-02T12:04:00Z"));
+		expect(labelledReceipts(sqlite)).toContain("recent-page");
+		expect(labelledReceipts(sqlite)).not.toContain("late-page");
+		await labelDecisionOutcomes(db, new Date("2030-01-02T12:06:00Z"));
+		expect(labelledReceipts(sqlite)).toEqual(["late-page", "recent-page"]);
 	});
 
 	it("holds the checkpoint while a page is full, so a backlog drains instead of being stepped over", async () => {

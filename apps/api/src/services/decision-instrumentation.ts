@@ -2,6 +2,8 @@ import { listCardRevisions } from "@tedix/db/queries/work-items/card-revisions";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { recordLearningInteraction } from "@tedix/db/queries/learning-feedback";
 import {
+	beginDecisionLabelSweep,
+	finishDecisionLabelSweep,
 	getDecisionLearningConfig,
 	getDecisionExposure,
 	insertDecisionExposure,
@@ -212,24 +214,18 @@ const LABEL_SCAN_PAGE = 50;
 /** How far behind its checkpoint a bounded scan starts, to catch a receipt or exposure stored late. */
 const LABEL_SCAN_OVERLAP_MS = 3_600_000;
 
-/**
- * Where this run's receipt scan starts. The first run of each UTC day, and
- * any run without a checkpoint, sweeps every receipt (`from: null`), exactly
- * as every run used to. The runs in between read only receipts from an hour
- * before the checkpoint, so a receipt stored with an older time waits for the
- * next daily sweep instead of being rescanned every two minutes.
- */
+/** Keep the recent-receipt checkpoint across UTC day boundaries. */
 async function beginLabelScan(
 	db: DbQueryClient,
 	source: DecisionLabelScanSource,
 	at: string,
 ) {
 	const previous = await getDecisionLabelScanCheckpoint(db, source);
-	const from =
-		previous !== null && previous.slice(0, 10) === at.slice(0, 10)
-			? new Date(Date.parse(previous) - LABEL_SCAN_OVERLAP_MS).toISOString()
-			: null;
-	return { source, previous, from };
+	const from = new Date(
+		Date.parse(previous ?? at) - LABEL_SCAN_OVERLAP_MS,
+	).toISOString();
+	const sweep = await beginDecisionLabelSweep(db, source, at);
+	return { source, previous, from, sweep };
 }
 
 /**
@@ -256,13 +252,27 @@ export async function labelDecisionOutcomes(
 	let immediate = 0,
 		delayed = 0;
 	const responseScan = await beginLabelScan(db, "responses", at);
-	const responses = await listUnlabelledDecisionResponses(
+	const recentResponses = await listUnlabelledDecisionResponses(
 		db,
 		at,
 		LABEL_SCAN_PAGE,
 		responseScan.from,
 	);
-	for (const r of responses) {
+	const sweptResponses = responseScan.sweep
+		? await listUnlabelledDecisionResponses(
+				db,
+				at,
+				LABEL_SCAN_PAGE,
+				null,
+				responseScan.sweep,
+			)
+		: [];
+	for (const r of new Map(
+		[...recentResponses, ...sweptResponses].map((r) => [
+			`${r.organizationId}:${r.responseId}:${r.exposureId}`,
+			r,
+		]),
+	).values()) {
 		const outcome = outcomeFromResponse(r);
 		if (outcome.label !== "later") {
 			const later = await getDecisionDeferralTime(db, {
@@ -291,15 +301,37 @@ export async function labelDecisionOutcomes(
 		if (outcome.label !== "later" && outcome.label !== "unknown")
 			await recordFeedDecision(db, r.organizationId, r.actorId, outcome);
 	}
-	await finishLabelScan(db, responseScan, at, responses.length);
+	await finishLabelScan(db, responseScan, at, recentResponses.length);
+	if (responseScan.sweep)
+		await finishDecisionLabelSweep(
+			db,
+			responseScan.sweep,
+			at,
+			sweptResponses.length,
+			LABEL_SCAN_PAGE,
+		);
 	const approvalScan = await beginLabelScan(db, "approvals", at);
-	const approvals = await listUnlabelledDecisionApprovals(
+	const recentApprovals = await listUnlabelledDecisionApprovals(
 		db,
 		at,
 		LABEL_SCAN_PAGE,
 		approvalScan.from,
 	);
-	for (const r of approvals) {
+	const sweptApprovals = approvalScan.sweep
+		? await listUnlabelledDecisionApprovals(
+				db,
+				at,
+				LABEL_SCAN_PAGE,
+				null,
+				approvalScan.sweep,
+			)
+		: [];
+	for (const r of new Map(
+		[...recentApprovals, ...sweptApprovals].map((r) => [
+			`${r.organizationId}:${r.receiptId}:${r.exposureId}`,
+			r,
+		]),
+	).values()) {
 		if (!r.decidedAt) continue;
 		const outcome: DecisionOutcome = {
 			evidenceSource: "canonical_receipt",
@@ -325,7 +357,15 @@ export async function labelDecisionOutcomes(
 		if (inserted) immediate++;
 		await recordFeedDecision(db, r.organizationId, r.actorId, outcome);
 	}
-	await finishLabelScan(db, approvalScan, at, approvals.length);
+	await finishLabelScan(db, approvalScan, at, recentApprovals.length);
+	if (approvalScan.sweep)
+		await finishDecisionLabelSweep(
+			db,
+			approvalScan.sweep,
+			at,
+			sweptApprovals.length,
+			LABEL_SCAN_PAGE,
+		);
 	for (const r of await listUnlabelledDecisionDeferrals(db, at)) {
 		const inserted = await insertDecisionOutcomeLabel(db, {
 			id: `${r.organizationId}:${r.eventId}:immediate`,

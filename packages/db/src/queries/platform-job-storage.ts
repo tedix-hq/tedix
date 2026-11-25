@@ -90,13 +90,13 @@ const UNSETTLED_GATEWAY_CURSOR = "unsettled_gateway_calls";
 const UNRESERVED_GATEWAY_CURSOR = "legacy_unreserved_gateway_calls";
 /** Most rowids one incremental tick may walk past the watermark. */
 export const UNSETTLED_GATEWAY_SCAN_WINDOW = 20_000;
-/** How often the tick falls back to the full-ledger read as a backstop. */
+/** Time between completed historical recovery passes. */
 export const UNSETTLED_GATEWAY_FULL_SWEEP_MS = 24 * 60 * 60 * 1_000;
 
 export interface UnsettledGatewayCallScan {
 	/** Omitted by older callers for the reserved-token settlement queue. */
 	queue?: "legacy";
-	/** `full` re-reads the whole ledger; `incremental` reads above the watermark. */
+	/** `full` starts a paged backstop at rowid zero; `incremental` continues it. */
 	mode: "full" | "incremental";
 	/** Cursor observed before reading; the commit applies only on top of it. */
 	expected: { afterRowid: number; fullSweepAt: string } | null;
@@ -106,6 +106,10 @@ export interface UnsettledGatewayCallScan {
 	/** True when rows above `throughRowid` were not examined yet. */
 	moreAbove: boolean;
 	calls: UnsettledGatewayCall[];
+	/** Independent historical recovery never holds new calls behind old pages. */
+	backstop?: UnsettledGatewayCallScan;
+	currentCalls?: UnsettledGatewayCall[];
+	isBackstop?: true;
 }
 
 /**
@@ -115,8 +119,8 @@ export interface UnsettledGatewayCallScan {
  * receipts are, and those carry a usage kind), so insertion order is a safe
  * watermark: a late Gateway row with an old `snapshot_at` still gets a rowid
  * above the cursor. One read covers at most `scanWindow` rowids. Once per
- * `fullSweepMs`, and whenever no usable cursor exists, the tick reads the whole
- * ledger exactly as before, which retries anything the watermark moved past.
+ * `fullSweepMs`, a separate backstop restarts at rowid zero. It uses the same
+ * bounded pages without blocking the current queue behind historical rows.
  */
 export async function scanUnsettledBillableGatewayCalls(
 	db: DbClient,
@@ -170,43 +174,73 @@ async function scanGatewayCalls(
 		.from(tediCallCosts);
 	const headRowid = head?.rowid ?? 0;
 	const expected = cursor ?? null;
-	if (
-		!expected ||
-		expected.afterRowid > headRowid ||
-		!(Date.parse(options.now) - Date.parse(expected.fullSweepAt) < fullSweepMs)
-	) {
-		return {
-			...(unreserved ? { queue: "legacy" as const } : {}),
-			mode: "full",
-			expected,
-			limit: options.limit,
-			throughRowid: headRowid,
-			moreAbove: false,
-			calls: await selectUnsettledBillableGatewayCalls(
-				db,
-				options.limit,
-				null,
-				unreserved,
-			),
-		};
-	}
-	const throughRowid = Math.min(headRowid, expected.afterRowid + scanWindow);
-	return {
+	const restart = !expected || expected.afterRowid > headRowid;
+	const afterRowid = restart ? 0 : expected.afterRowid;
+	const throughRowid = Math.min(headRowid, afterRowid + scanWindow);
+	const calls = await selectUnsettledBillableGatewayCalls(
+		db,
+		options.limit,
+		{ afterRowid, throughRowid },
+		unreserved,
+	);
+	const scan: UnsettledGatewayCallScan = {
 		...(unreserved ? { queue: "legacy" as const } : {}),
-		mode: "incremental",
+		mode: restart ? "full" : "incremental",
 		expected,
 		limit: options.limit,
 		throughRowid,
 		moreAbove: throughRowid < headRowid,
+		calls,
+	};
+	// Bootstrap already visits history. Later backstops have their own cursor,
+	// so a multi-tick recovery cannot delay newly inserted billable calls.
+	if (restart) return scan;
+	const [backstopCursor] = await db
+		.select({
+			afterRowid: billingSettlementCursors.afterRowid,
+			fullSweepAt: billingSettlementCursors.fullSweepAt,
+		})
+		.from(billingSettlementCursors)
+		.where(
+			eq(
+				billingSettlementCursors.name,
+				(unreserved ? UNRESERVED_GATEWAY_CURSOR : UNSETTLED_GATEWAY_CURSOR) +
+					":backstop",
+			),
+		)
+		.limit(1);
+	const sweepAt = backstopCursor?.fullSweepAt ?? expected.fullSweepAt;
+	if (sweepAt && Date.parse(options.now) - Date.parse(sweepAt) < fullSweepMs)
+		return scan;
+	const sweepAfter =
+		sweepAt || (backstopCursor?.afterRowid ?? 0) > headRowid
+			? 0
+			: (backstopCursor?.afterRowid ?? 0);
+	const sweepThrough = Math.min(headRowid, sweepAfter + scanWindow);
+	const backstop: UnsettledGatewayCallScan = {
+		...(unreserved ? { queue: "legacy" as const } : {}),
+		isBackstop: true,
+		mode: backstopCursor?.fullSweepAt === "" ? "incremental" : "full",
+		expected: backstopCursor ?? null,
+		limit: options.limit,
+		throughRowid: sweepThrough,
+		moreAbove: sweepThrough < headRowid,
 		calls: await selectUnsettledBillableGatewayCalls(
 			db,
 			options.limit,
-			{
-				afterRowid: expected.afterRowid,
-				throughRowid,
-			},
+			{ afterRowid: sweepAfter, throughRowid: sweepThrough },
 			unreserved,
 		),
+	};
+	return {
+		...scan,
+		currentCalls: calls,
+		backstop,
+		calls: [
+			...new Map(
+				[...calls, ...backstop.calls].map((call) => [call.rowid, call]),
+			).values(),
+		],
 	};
 }
 
@@ -214,35 +248,49 @@ async function scanGatewayCalls(
  * Move the watermark past what a scan examined. A transiently failed call holds
  * the watermark just below it for one more incremental attempt; a call that
  * fails again from the held position is left to the next full sweep, so one
- * poison row never stalls the queue. A full read that hit its limit commits
- * nothing, so the next tick reads the whole ledger again.
+ * poison row never stalls the queue. A full page advances only through its
+ * last returned row; the next tick continues that bounded backstop.
  */
 export async function commitUnsettledBillableGatewayScan(
 	db: DbClient,
 	scan: UnsettledGatewayCallScan,
 	input: { failedRowids: number[]; now: string; scanWindow?: number },
 ): Promise<boolean> {
+	if (scan.backstop) {
+		const backstopCommitted = await commitUnsettledBillableGatewayScan(
+			db,
+			scan.backstop,
+			input,
+		);
+		const currentCommitted = await commitUnsettledBillableGatewayScan(
+			db,
+			{ ...scan, backstop: undefined, calls: scan.currentCalls! },
+			input,
+		);
+		return backstopCommitted && currentCommitted;
+	}
 	const cursorName =
-		scan.queue === "legacy"
+		(scan.queue === "legacy"
 			? UNRESERVED_GATEWAY_CURSOR
-			: UNSETTLED_GATEWAY_CURSOR;
+			: UNSETTLED_GATEWAY_CURSOR) + (scan.isBackstop ? ":backstop" : "");
 	const complete = scan.calls.length < scan.limit;
-	if (scan.mode === "full" && !complete) return false;
 	const examined = complete
 		? scan.throughRowid
 		: (scan.calls.at(-1)?.rowid ?? scan.throughRowid);
 	const floor =
 		scan.mode === "incremental" && scan.expected
 			? scan.expected.afterRowid
-			: examined - (input.scanWindow ?? UNSETTLED_GATEWAY_SCAN_WINDOW);
+			: -1;
 	const retry = input.failedRowids.filter(
 		(rowid) => rowid - 1 > floor && rowid <= examined,
 	);
-	const afterRowid = retry.length > 0 ? Math.min(...retry) - 1 : examined;
-	const fullSweepAt =
-		scan.mode === "full" || !scan.expected
-			? input.now
-			: scan.expected.fullSweepAt;
+	let afterRowid = retry.length > 0 ? Math.min(...retry) - 1 : examined;
+	let fullSweepAt = scan.expected?.fullSweepAt ?? input.now;
+	if (scan.isBackstop) {
+		const finished = complete && !scan.moreAbove && retry.length === 0;
+		fullSweepAt = finished ? input.now : "";
+		if (finished) afterRowid = 0;
+	}
 	if (!scan.expected) {
 		const rows = await db
 			.insert(billingSettlementCursors)

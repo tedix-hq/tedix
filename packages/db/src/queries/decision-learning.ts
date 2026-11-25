@@ -218,7 +218,7 @@ export type DecisionLabelScanSource = "responses" | "approvals";
 /** Latest scheduled time through which this source's receipts were all examined. */
 export async function getDecisionLabelScanCheckpoint(
 	db: DbQueryClient,
-	source: DecisionLabelScanSource,
+	source: DecisionLabelScanSource | `${DecisionLabelScanSource}:sweep`,
 ) {
 	const [row] = await db
 		.select({ through: platformCronCheckpoints.through })
@@ -232,7 +232,7 @@ export async function getDecisionLabelScanCheckpoint(
 /** Compare-and-set progress; a delayed duplicate tick cannot rewind a newer checkpoint. */
 export async function advanceDecisionLabelScanCheckpoint(
 	db: DbQueryClient,
-	source: DecisionLabelScanSource,
+	source: DecisionLabelScanSource | `${DecisionLabelScanSource}:sweep`,
 	previous: string | null,
 	next: string,
 ) {
@@ -244,6 +244,78 @@ export async function advanceDecisionLabelScanCheckpoint(
 	});
 }
 
+export interface DecisionReceiptRange {
+	afterRowid: number;
+	throughRowid: number;
+}
+
+/** A backstop page bounds input receipts, including already-labelled history. */
+export async function beginDecisionLabelSweep(
+	db: DbQueryClient,
+	source: DecisionLabelScanSource,
+	at: string,
+) {
+	const previous = await getDecisionLabelScanCheckpoint(db, `${source}:sweep`);
+	const state: { afterRowid: number; completedAt: string | null } = previous
+		? JSON.parse(previous)
+		: { afterRowid: 0, completedAt: null };
+	if (
+		state.completedAt &&
+		Date.parse(at) - Date.parse(state.completedAt) < 86_400_000
+	)
+		return null;
+	const heads =
+		source === "responses"
+			? await db
+					.select({ rowid: sql<number>`coalesce(max(rowid), 0)`.as("rowid") })
+					.from(workInteractionResponses)
+			: await db
+					.select({ rowid: sql<number>`coalesce(max(rowid), 0)`.as("rowid") })
+					.from(workApprovalDecisions)
+					.unionAll(
+						db
+							.select({
+								rowid: sql<number>`coalesce(max(rowid), 0)`.as("rowid"),
+							})
+							.from(tediApprovalRequests),
+					);
+	const head = Math.max(0, ...heads.map((row) => row.rowid));
+	const afterRowid =
+		state.completedAt || state.afterRowid > head ? 0 : state.afterRowid;
+	return {
+		source,
+		previous,
+		head,
+		afterRowid,
+		// Responses fan out across repeated exposures; keep their input page smaller.
+		throughRowid: Math.min(
+			head,
+			afterRowid + (source === "responses" ? 100 : 1_000),
+		),
+	};
+}
+
+export async function finishDecisionLabelSweep(
+	db: DbQueryClient,
+	scan: NonNullable<Awaited<ReturnType<typeof beginDecisionLabelSweep>>>,
+	at: string,
+	rowCount: number,
+	limit: number,
+) {
+	// A full output page may still have unlabelled receipts in the input page.
+	if (rowCount >= limit) return;
+	const complete = scan.throughRowid === scan.head;
+	await advanceDecisionLabelScanCheckpoint(
+		db,
+		`${scan.source}:sweep`,
+		scan.previous,
+		JSON.stringify({
+			afterRowid: complete ? 0 : scan.throughRowid,
+			completedAt: complete ? at : null,
+		}),
+	);
+}
+
 const unlabelledResponseColumns = {
 	exposureId: sql<string>`${decisionExposures.id}`.as("exposure_id"),
 	organizationId: decisionExposures.organizationId,
@@ -251,10 +323,18 @@ const unlabelledResponseColumns = {
 	cardId: decisionExposures.cardId,
 	classId: decisionExposures.classId,
 	expiresAt: decisionExposures.expiresAt,
-	responseId: workInteractionResponses.id,
-	respondedAt: workInteractionResponses.respondedAt,
-	metadata: workInteractionResponses.metadata,
-	responseKind: workInteractionResponses.responseKind,
+	responseId: sql`${workInteractionResponses.id}`
+		.mapWith(workInteractionResponses.id)
+		.as("response_id"),
+	respondedAt: sql`${workInteractionResponses.respondedAt}`
+		.mapWith(workInteractionResponses.respondedAt)
+		.as("responded_at"),
+	metadata: sql`${workInteractionResponses.metadata}`
+		.mapWith(workInteractionResponses.metadata)
+		.as("metadata"),
+	responseKind: sql`${workInteractionResponses.responseKind}`
+		.mapWith(workInteractionResponses.responseKind)
+		.as("response_kind"),
 };
 const unlabelledResponseOrder = [
 	asc(workInteractionResponses.respondedAt),
@@ -289,15 +369,17 @@ function unlabelledUnexpiredResponse(now: string) {
  * Without `respondedFrom` this is the complete sweep: it reads every unexpired
  * exposure. With it, only responses at or after that time are read, through
  * the response time index, and each looks its exposures up by tenant, person
- * and card. The caller owns the checkpoint that makes the bounded read safe.
+ * and card. A `range` instead seeks a bounded historical receipt page in rowid
+ * order. The caller owns the checkpoint that makes the bounded read safe.
  */
 export async function listUnlabelledDecisionResponses(
 	db: DbQueryClient,
 	now: string,
 	limit = 50,
 	respondedFrom: string | null = null,
+	range?: DecisionReceiptRange,
 ) {
-	if (respondedFrom === null)
+	if (respondedFrom === null && !range)
 		return db
 			.select(unlabelledResponseColumns)
 			.from(decisionExposures)
@@ -306,19 +388,37 @@ export async function listUnlabelledDecisionResponses(
 			.orderBy(...unlabelledResponseOrder)
 			.limit(limit);
 	// CROSS JOIN fixes the loop order: the recent responses drive the exposure
-	// lookup. Left to itself SQLite starts from every unexpired exposure.
+	// lookup. Pin the time index too: live statistics can prefer scanning the
+	// tenant/card index to satisfy the join, even with a recent-time predicate.
 	return db
 		.select(unlabelledResponseColumns)
-		.from(workInteractionResponses)
+		.from(
+			range
+				? workInteractionResponses
+				: sql`${workInteractionResponses} INDEXED BY idx_work_interaction_responses_time`,
+		)
 		.crossJoin(decisionExposures)
 		.where(
 			and(
-				gte(workInteractionResponses.respondedAt, respondedFrom),
+				respondedFrom === null
+					? undefined
+					: gte(workInteractionResponses.respondedAt, respondedFrom),
+				range
+					? sql`${workInteractionResponses}.rowid > ${range.afterRowid} AND ${workInteractionResponses}.rowid <= ${range.throughRowid}`
+					: undefined,
 				responseAnswersExposure(),
 				unlabelledUnexpiredResponse(now),
 			),
 		)
-		.orderBy(...unlabelledResponseOrder)
+		.orderBy(
+			...(range
+				? [
+						asc(sql`${workInteractionResponses}.rowid`),
+						desc(decisionExposures.occurredAt),
+						desc(decisionExposures.id),
+					]
+				: unlabelledResponseOrder),
+		)
 		.limit(limit);
 }
 
@@ -330,13 +430,14 @@ export async function listUnlabelledDecisionResponses(
  * Without `decidedFrom` this is the complete sweep: it walks every Work
  * approval decision and every tedi approval request. With it, both walks start
  * at that time in their time index. The caller owns the checkpoint that makes
- * the bounded read safe.
+ * the bounded read safe. A `range` seeks historical receipts in rowid order.
  */
 export async function listUnlabelledDecisionApprovals(
 	db: DbQueryClient,
 	now: string,
 	limit = 50,
 	decidedFrom: string | null = null,
+	range?: DecisionReceiptRange,
 ) {
 	const work = await db
 		.select({
@@ -362,6 +463,9 @@ export async function listUnlabelledDecisionApprovals(
 				decidedFrom === null
 					? undefined
 					: gte(workApprovalDecisions.decidedAt, decidedFrom),
+				range
+					? sql`${workApprovalDecisions}.rowid > ${range.afterRowid} AND ${workApprovalDecisions}.rowid <= ${range.throughRowid}`
+					: undefined,
 				eq(workApprovalDecisions.proposalId, workApprovalProposals.id),
 				eq(workApprovalDecisions.deciderType, "user"),
 				eq(workApprovalProposals.orgId, decisionExposures.organizationId),
@@ -372,7 +476,11 @@ export async function listUnlabelledDecisionApprovals(
 				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${decisionExposures.organizationId} AND l.id=(${decisionExposures.organizationId} || ':' || ${workApprovalDecisions.id} || ':immediate'))`,
 			),
 		)
-		.orderBy(asc(workApprovalDecisions.decidedAt))
+		.orderBy(
+			range
+				? asc(sql`${workApprovalDecisions}.rowid`)
+				: asc(workApprovalDecisions.decidedAt),
+		)
 		.limit(limit);
 	const tedi = await db
 		.select({
@@ -395,6 +503,9 @@ export async function listUnlabelledDecisionApprovals(
 				decidedFrom === null
 					? undefined
 					: gte(tediApprovalRequests.resolvedAt, decidedFrom),
+				range
+					? sql`${tediApprovalRequests}.rowid > ${range.afterRowid} AND ${tediApprovalRequests}.rowid <= ${range.throughRowid}`
+					: undefined,
 				// Correlate the index lookup so SQLite cannot build a Bloom filter
 				// by reading every exposure before examining recent approvals.
 				sql`${decisionExposures}.rowid IN (
@@ -409,7 +520,11 @@ export async function listUnlabelledDecisionApprovals(
 				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${decisionExposures.organizationId} AND l.id=(${decisionExposures.organizationId} || ':' || ${tediApprovalRequests.id} || ':immediate'))`,
 			),
 		)
-		.orderBy(asc(tediApprovalRequests.resolvedAt))
+		.orderBy(
+			range
+				? asc(sql`${tediApprovalRequests}.rowid`)
+				: asc(tediApprovalRequests.resolvedAt),
+		)
 		.limit(limit);
 	return [...work, ...tedi];
 }

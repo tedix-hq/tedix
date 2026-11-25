@@ -42,7 +42,11 @@ it("watermarks legacy quarantine independently, includes late rows and rejects s
 		const db = createDbClient(
 			createD1Facade(sqlite, {
 				onPrepare: (sql) => {
-					query = sql;
+					if (
+						sql.includes('AS "call_rowid"') ||
+						sql.includes('as "call_rowid"')
+					)
+						query = sql;
 				},
 			}),
 		);
@@ -122,21 +126,36 @@ it("watermarks legacy quarantine independently, includes late rows and rejects s
 		expect(window.moreAbove).toBe(true);
 		expect(window.calls).toEqual([]);
 		expect((await read("2026-10-23T00:00:00.000Z")).mode).toBe("incremental");
-		// The unquarantined late row is behind the cursor, so the periodic
-		// full sweep must recover it and a full backlog must hold the cursor.
+		// Historical recovery uses bounded pages without delaying new calls.
 		insert("another-legacy");
-		const sweep = await read("2026-10-30T00:00:00.000Z");
-		expect(sweep.mode).toBe("full");
-		expect(sweep.calls.map(({ call }) => call.gatewayLogId).sort()).toEqual([
+		const recovered = new Set<string>();
+		for (let page = 0; page < 8; page++) {
+			if (page === 3) insert("new-during-backstop");
+			const scan = await read("2026-10-30T00:00:00.000Z");
+			if (scan.backstop)
+				expect(
+					scan.backstop.throughRowid -
+						(scan.backstop.expected?.afterRowid ?? 0),
+				).toBeLessThanOrEqual(3);
+			if (page === 3) {
+				expect(
+					scan.currentCalls?.map(({ call }) => call.gatewayLogId),
+				).toContain("new-during-backstop");
+				expect(scan.backstop?.moreAbove).toBe(true);
+			}
+			for (const { call } of scan.calls) recovered.add(call.gatewayLogId);
+			expect(
+				await commitUnsettledBillableGatewayScan(db, scan, {
+					failedRowids: [],
+					now: "2026-10-30T00:00:00.000Z",
+				}),
+			).toBe(true);
+		}
+		expect([...recovered].sort()).toEqual([
 			"another-legacy",
 			"late",
+			"new-during-backstop",
 		]);
-		expect(
-			await commitUnsettledBillableGatewayScan(db, sweep, {
-				failedRowids: [],
-				now: at,
-			}),
-		).toBe(false);
 	} finally {
 		sqlite.close();
 	}

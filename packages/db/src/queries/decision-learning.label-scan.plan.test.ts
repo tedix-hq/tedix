@@ -113,21 +113,22 @@ describe.each([
 		}
 	});
 
-	it("keeps the daily sweep's loop order: each receipt seeks its exposures", async () => {
+	it("seeks a bounded receipt rowid page for historical recovery", async () => {
 		const { db, plans } = fixture(productionLike);
-		await listUnlabelledDecisionApprovals(db as never, now);
-		const [work, tedi] = plans as [string[], string[]];
-		expect(work.filter(readsTable)).toEqual([
-			"SCAN work_approval_decisions USING INDEX idx_work_approval_decisions_time",
-			"SEARCH work_approval_proposals USING INDEX sqlite_autoindex_work_approval_proposals_1 (id=?)",
-			EXPOSURE_SEEK,
-			LABEL_SEEK,
-		]);
-		expect(tedi.filter(readsTable)).toEqual([
-			"SCAN tedi_approval_requests USING INDEX idx_approval_requests_resolved",
-			"SEARCH decision_exposures USING INTEGER PRIMARY KEY (rowid=?)",
-			"SEARCH candidates USING COVERING INDEX idx_decision_exposure_org_actor_card (organization_id=? AND actor_id=? AND card_id=?)",
-			LABEL_SEEK,
-		]);
+		const range = { afterRowid: 1_000, throughRowid: 2_000 };
+		await listUnlabelledDecisionResponses(db, now, 50, null, range);
+		await listUnlabelledDecisionApprovals(db, now, 50, null, range);
+		expect(plans).toHaveLength(3);
+		for (const [i, table] of [
+			"work_interaction_responses",
+			"work_approval_decisions",
+			"tedi_approval_requests",
+		].entries()) {
+			const plan = plans[i]!;
+			expect(plan[0]).toBe(
+				`SEARCH ${table} USING INTEGER PRIMARY KEY (rowid>? AND rowid<?)`,
+			);
+			expect(plan.join("\n")).not.toMatch(/SCAN (?!CONSTANT)|BLOOM FILTER/);
+		}
 	});
 });
