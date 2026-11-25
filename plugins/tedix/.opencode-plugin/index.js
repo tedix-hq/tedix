@@ -72,7 +72,7 @@ function tedixInstalled(env) {
 	return tedixPath(env) !== null;
 }
 
-/** Returns context, or the framed await-reply wake message; empty on failure. */
+/** Returns context, or the framed await-input wake message; empty on failure. */
 function runHook(name, event, timeout, signal) {
 	return new Promise((resolve) => {
 		let stdout = "";
@@ -101,11 +101,11 @@ function runHook(name, event, timeout, signal) {
 			stdout += chunk;
 		});
 		child.stderr.on("data", (chunk) => {
-			if (name === "await-reply") stderr = (stderr + chunk).slice(0, 100_000);
+			if (name === "await-input") stderr = (stderr + chunk).slice(0, 100_000);
 		});
 		child.on("close", (code) => {
 			clearTimeout(timer);
-			if (name === "await-reply")
+			if (name === "await-input")
 				return resolve(code === 2 && !signal?.aborted ? stderr.trim() : "");
 			if (code !== 0) return resolve("");
 			try {
@@ -333,7 +333,7 @@ function createTedix(directory, options, version) {
 				]);
 				if (controller.signal.aborted || !wake) return;
 				const reply = await runHook(
-					"await-reply",
+					"await-input",
 					event,
 					4 * 60 * 60 * 1000 + 5000,
 					controller.signal,

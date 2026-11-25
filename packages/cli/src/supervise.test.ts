@@ -11,8 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { autoDraftMessage } from "./hooks/await-reply";
-import { runAwaitDraft } from "./hooks/await-draft";
+import { autoDraftMessage, runAwaitInput } from "./hooks/await-input";
 import { answerDeliveryPath, claimHookAnswers } from "./hooks/answer-delivery";
 import { beginFileLock } from "./local-file-lock";
 import {
@@ -105,6 +104,18 @@ const interaction = (latestDraft: unknown, effectiveState = "open") => ({
 	responses: { data: [], nextCursor: null, hasMore: false },
 });
 
+const waitChanged = () => ({
+	reason: "changed",
+	cursor: { interactionId: REQUEST, version: 1, state: "open", draftId: null },
+	changes: [
+		{
+			kind: "response",
+			id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			type: "answer",
+		},
+	],
+});
+
 let config: string;
 beforeEach(() => {
 	config = mkdtempSync(join(tmpdir(), "tedix-supervise-"));
@@ -188,6 +199,12 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 				);
 				return health.at(-1)!;
 			}
+			if (workToolCall(args)?.name === "wait_work_items") return waitChanged();
+			if (
+				workToolCall(args)?.name ===
+				"list_undelivered_work_interaction_responses"
+			)
+				return { data: [], observedAt: new Date().toISOString() };
 			if (args.some((arg) => arg.includes("get_work_interaction"))) {
 				const next = details.shift();
 				if (next === undefined) throw new Error("no detail");
@@ -592,7 +609,11 @@ describe("tedix supervise", () => {
 		});
 		/** What capture-stop leaves for each session: host and directory. */
 		function sessions(...entries: Array<[string, string]>): void {
-			for (const [session, host] of entries)
+			for (const [session, host] of entries) {
+				writeFileSync(
+					join(config, "decision-capture", `${session.toLowerCase()}.json`),
+					JSON.stringify({ requestId: REQUEST, token: "t1", host }),
+				);
 				writeFileSync(
 					join(
 						config,
@@ -601,6 +622,7 @@ describe("tedix supervise", () => {
 					),
 					JSON.stringify({ host, cwd: config, nativeSession: session }),
 				);
+			}
 		}
 
 		function drain(
@@ -675,6 +697,8 @@ describe("tedix supervise", () => {
 				log: (line) => lines.push(line),
 				read: async (args, _timeoutMs, _input, options) => {
 					cwds.push([args[0]!, options?.cwd]);
+					if (workToolCall(args)?.name === "wait_work_items")
+						return waitChanged();
 					if (
 						args.some((arg) =>
 							arg.includes("list_undelivered_work_interaction_responses"),
@@ -728,20 +752,24 @@ describe("tedix supervise", () => {
 			};
 		}
 
-		test("empty answer reads back off and a later answer is delivered after the bounded wait", async () => {
+		test("a wait timeout performs no answer-list reads", async () => {
 			sessions([SESSION, "codex"]);
-			const answers: Array<ReturnType<typeof answer>> = [];
-			const run = drain(answers);
-			const reads = () => run.answerReads;
-			const start = Date.now();
-			for (let elapsed = 0; elapsed < 3_600_000; elapsed += 30_000)
-				await run.runner.drainAnswers(start + elapsed);
-			expect(reads()).toBe(31);
-			answers.push(answer(SESSION, "codex", 60_000));
-			expect(await run.runner.drainAnswers(start + 3_600_000)).toBe(0);
-			expect(reads()).toBe(31);
-			expect(await run.runner.drainAnswers(start + 3_660_000)).toBe(1);
-			expect(run.acks).toHaveLength(1);
+			let answerReads = 0;
+			const runner = new Supervisor({
+				env: { TEDIX_CONFIG_DIR: config },
+				codex: {} as CodexDriver,
+				read: async (args) => {
+					if (args.includes("context")) return structuredClone(BINDING);
+					if (args.includes("auth")) return structuredClone(AUTH);
+					const tool = workToolCall(args);
+					if (tool?.name === "wait_work_items")
+						return { ...waitChanged(), reason: "timeout", changes: [] };
+					answerReads++;
+					throw new Error("Answer polling is forbidden while waiting");
+				},
+			});
+			for (let i = 0; i < 3; i++) await runner.drainAnswers(Date.now());
+			expect(answerReads).toBe(0);
 		});
 
 		test("a real answer races Codex Stop and supervisor drain while acknowledgement is delayed", async () => {
@@ -754,7 +782,7 @@ describe("tedix supervise", () => {
 				enteredAck = resolve;
 			});
 			let clock = 0;
-			const hook = runAwaitDraft(
+			const hook = runAwaitInput(
 				{
 					env: { TEDIX_CONFIG_DIR: config },
 					cwd: config,
@@ -766,6 +794,7 @@ describe("tedix supervise", () => {
 					write: () => {},
 					read: async (args) => {
 						const tool = workToolCall(args);
+						if (tool?.name === "wait_work_items") return waitChanged();
 						if (args.includes("context")) return structuredClone(BINDING);
 						if (args.includes("auth")) return structuredClone(AUTH);
 						if (tool?.name === "list_undelivered_work_interaction_responses")
@@ -786,13 +815,13 @@ describe("tedix supervise", () => {
 				},
 				{
 					clock: () => clock,
-					maxMs: 1000,
+					maxMs: 2000,
 					sleep: async (ms) => {
 						clock += ms;
 						writeFileSync(
 							state,
 							JSON.stringify({
-								token: "t1",
+								token: "t2",
 								requestId: REQUEST,
 								host: "codex",
 							}),
@@ -806,9 +835,9 @@ describe("tedix supervise", () => {
 			expect(supervisor.queued).toEqual([]);
 			expect(supervisor.resumed).toEqual([]);
 			releaseAck();
-			const output = JSON.parse((await hook)!);
-			expect(output.decision).toBe("block");
-			expect(output.reason).toContain("Yes, ship it.");
+			const output = await hook;
+			expect(output.code).toBe(2);
+			expect(output.message).toContain("Yes, ship it.");
 			expect(await drain([pending]).runner.tick()).toBe(0);
 		});
 
@@ -994,6 +1023,7 @@ describe("tedix supervise", () => {
 
 		test("a protected checkout is rejected before any binding or authentication read", async () => {
 			if (process.platform !== "darwin") return;
+			sessions([SESSION, "codex"]);
 			const cwd = join(process.env.HOME!, "Documents", "fixture");
 			writeFileSync(
 				join(config, "decision-capture", `${SESSION}.session.json`),
@@ -1008,6 +1038,7 @@ describe("tedix supervise", () => {
 
 		test("a readable protected checkout is delivered normally", async () => {
 			if (process.platform !== "darwin") return;
+			sessions([SESSION, "codex"]);
 			const home = mkdtempSync(join(tmpdir(), "tedix-tcc-ok-"));
 			const cwd = join(home, "Documents", "fixture");
 			mkdirSync(cwd, { recursive: true });
@@ -1184,7 +1215,7 @@ describe("tedix supervise", () => {
 			]);
 			expect(
 				run.cwds.filter(([, cwd]) => cwd === config).map(([word]) => word),
-			).toEqual(["setup", "-w", "-w", "-w"]);
+			).toEqual(["setup", "-w", "-w", "-w", "-w"]);
 		});
 
 		test("an unreadable answer list logs the read failure's reason once", async () => {
@@ -1357,7 +1388,7 @@ describe("tedix supervise", () => {
 			expect(run.resumed).toEqual([]);
 			expect(run.board).toEqual([]);
 			expect(run.acks).toEqual([]);
-			expect(run.lines.join("\n")).toContain("not on this machine");
+			expect(run.answerReads).toBe(1);
 		});
 	});
 

@@ -525,7 +525,7 @@ describe("plugin packager", () => {
 						expect([
 							"session-start",
 							"capture-stop",
-							"await-reply",
+							"await-input",
 							"status",
 						]).toContain(name);
 					if (event === "PreToolUse") expect(name).toBe("situational-recall");
@@ -548,25 +548,23 @@ describe("plugin packager", () => {
 		const claude = handlers(
 			decode(packageFiles({ host: "claude", local: true }), "hooks/hooks.json")
 				.hooks,
-		).filter((handler) => hookName(handler) === "await-reply");
+		).filter((handler) => hookName(handler) === "await-input");
 		expect(claude).toHaveLength(1);
 		expect(claude[0]!.asyncRewake).toBe(true);
 		// Codex cannot be woken; a synchronous four-hour Stop would hold its turn.
 		const openai = decode(packageFiles({ local: true }), "hooks/hooks.json");
-		expect(
-			handlers(openai.hooks).some(
-				(handler) => handler.asyncRewake || hookName(handler) === "await-reply",
-			),
-		).toBe(false);
+		expect(handlers(openai.hooks).some((handler) => handler.asyncRewake)).toBe(
+			false,
+		);
 		expect(new Set(Object.keys(openai.hooks))).toEqual(EVENTS);
 		// Codex continues from a synchronous Stop hook instead; Claude never gets it.
 		const awaitDraft = handlers({ Stop: openai.hooks.Stop }).filter(
-			(handler) => hookName(handler) === "await-draft",
+			(handler) => hookName(handler) === "await-input",
 		);
 		expect(awaitDraft).toEqual([
 			{
 				type: "command",
-				command: `${HOOK_GUARD}tedix hooks await-draft`,
+				command: `${HOOK_GUARD}tedix hooks await-input --host codex`,
 				timeout: 320,
 			},
 		]);
@@ -576,7 +574,10 @@ describe("plugin packager", () => {
 					packageFiles({ host: "claude", local: true }),
 					"hooks/hooks.json",
 				).hooks,
-			).some((handler) => hookName(handler) === "await-draft"),
+			).some(
+				(handler) =>
+					hookName(handler) === "await-input" && !handler.asyncRewake,
+			),
 		).toBe(false);
 		expect(
 			Object.values<any[]>(openai.hooks).every((definitions) =>
@@ -603,7 +604,7 @@ describe("plugin packager", () => {
 		() =>
 			withDirectory((directory) => {
 				const sh = Bun.which("sh")!;
-				const command = `${HOOK_GUARD}tedix hooks await-reply`;
+				const command = `${HOOK_GUARD}tedix hooks await-input`;
 				const missing = Bun.spawnSync([sh, "-c", command], {
 					env: { PATH: directory },
 				});
@@ -617,7 +618,7 @@ describe("plugin packager", () => {
 					env: { PATH: `${directory}:/usr/bin:/bin` },
 				});
 				expect(present.exitCode).toBe(2);
-				expect(present.stderr.toString()).toBe("hooks await-reply\n");
+				expect(present.stderr.toString()).toBe("hooks await-input\n");
 			}),
 	);
 

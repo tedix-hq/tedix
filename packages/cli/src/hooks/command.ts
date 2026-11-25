@@ -30,17 +30,15 @@ export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix pl
                               the turn and its activity for the request ledger (opt-in)
   tedix hooks capture-reply   UserPromptSubmit: answer it with the user's reply and
                               upload the message for the request ledger (opt-in)
-  tedix hooks await-reply     Stop/idle (Claude Code/OpenCode): wake on a Tedix OS answer or auto reply (opt-in)
-  tedix hooks await-draft     Stop (Codex only): continue with a tedi auto reply, 5 min max (opt-in)
+  tedix hooks await-input     Stop/idle: block on the canonical request until an answer or auto reply (opt-in)
   tedix hooks status          Turn boundaries: local turn status, notification and report (opt-in)
 
-The OpenCode plugin runs every hook above except await-draft, using
+The OpenCode plugin runs the same hooks, using
 --host opencode and its native ses_ session id.
 
-Each reads one host event JSON object on stdin and exits 0; await-reply exits 2
-with the answer on stderr when the user answers in Tedix OS or a tedi auto
-reply arrives, and await-draft prints a Codex Stop continuation
-({"decision":"block","reason":...}) for an auto reply. Read hooks never
+Each reads one host event JSON object on stdin and exits 0; await-input exits 2
+with the answer on stderr for Claude Code and OpenCode, or prints a Codex Stop
+continuation ({"decision":"block","reason":...}). Read hooks never
 send or store prompt text. Capture runs only after
 tedix setup agents context enable-decision-capture. Status reporting runs
 only with ~/.tedix/agent-status.json {"enabled": true} or TEDIX_AGENT_STATUS=1.`;
@@ -52,8 +50,7 @@ const EVENT_LIMITS: Record<string, number> = {
 	"prompt-context": 1_048_576,
 	"capture-stop": 4_194_304,
 	"capture-reply": 4_194_304,
-	"await-reply": 4_194_304,
-	"await-draft": 4_194_304,
+	"await-input": 4_194_304,
 	status: 8 * 1024 * 1024,
 };
 
@@ -97,6 +94,14 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		if (args.length !== 3 || !OPENCODE_HOOKS.has(args[0]!)) return 1;
 		args = [args[0]!];
 	}
+	const waitHost =
+		args[0] === "await-input" &&
+		args[1] === "--host" &&
+		(args[2] === "claude-code" || args[2] === "codex") &&
+		args.length === 3
+			? args[2]
+			: undefined;
+	if (waitHost) args = [args[0]!];
 	const name = args[0];
 	if (!name || name === "--help" || name === "-h") {
 		console.log(hooksUsage);
@@ -180,11 +185,7 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 			return 0;
 		}
 	}
-	if (
-		["capture-stop", "capture-reply", "await-reply", "await-draft"].includes(
-			name,
-		)
-	) {
+	if (["capture-stop", "capture-reply", "await-input"].includes(name)) {
 		const eventEnv = { ...env };
 		for (const key of AGENT_IDENTITY_ENV) delete eventEnv[key];
 		try {
@@ -208,21 +209,23 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		}
 		return 0;
 	}
-	if (name === "await-reply") {
-		const { runAwaitReply } = await import("./await-reply");
-		// asyncRewake: exit 2 wakes the session and shows stderr to the agent.
-		const result = await runAwaitReply(deps);
+	if (name === "await-input") {
+		const { runAwaitInput } = await import("./await-input");
+		const { harnessOf } = await import("./agent-status");
+		const result = await runAwaitInput(deps, { host: waitHost });
 		if (result.code === 2 && result.message) {
-			console.error(result.message);
-			return 2;
+			const { event } = hostEvent(stdin, env, CAPTURE_EVENT_LIMIT, {
+				requireIdentity: true,
+			});
+			if (harnessOf(event, env) === "codex")
+				console.log(
+					JSON.stringify({ decision: "block", reason: result.message }),
+				);
+			else {
+				console.error(result.message);
+				return 2;
+			}
 		}
-		return 0;
-	}
-	if (name === "await-draft") {
-		const { runAwaitDraft } = await import("./await-draft");
-		// Codex Stop: JSON on stdout continues the turn; no output lets it end.
-		const continuation = await runAwaitDraft(deps);
-		if (continuation) console.log(continuation);
 		return 0;
 	}
 	try {

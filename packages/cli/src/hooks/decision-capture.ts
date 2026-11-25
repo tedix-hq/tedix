@@ -17,7 +17,7 @@
  * tedi-drafted reply. The server marks each draft `delivery: "review"` (shown
  * in Tedix OS for the user to accept or edit) or `"auto"` (reversible,
  * non-urgent and within the session's auto-reply budget). An auto draft is
- * handed to the waiting agent by `await-reply` (Claude Code) or `await-draft`
+ * handed to the waiting agent by `await-input` (Claude Code) or `await-input`
  * (Codex); the question itself stays open for the user, and the user's
  * eventual chat reply to it cites the draft as `draftOutcome: "auto-sent"`.
  *
@@ -755,7 +755,7 @@ export function questionPath(state: string): string {
 
 /**
  * Whether this chat's newest question had a tedi draft queued:
- * {requestId, status: "queued" | "none"}. Codex's `await-draft` waits on it.
+ * {requestId, status: "queued" | "none"}. Codex's `await-input` waits on it.
  */
 export function draftStatusPath(state: string): string {
 	return state.replace(/\.json$/, ".draft.json");

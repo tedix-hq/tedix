@@ -1216,7 +1216,7 @@ function storedGate(value: unknown): AgentReplyDeliveryGateResult | null {
 	return parsed.success ? parsed.data : null;
 }
 
-const getProcedure = readOs.get.handler(async ({ input, context }) => {
+export const getProcedure = readOs.get.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	try {
 		const request = await getWorkInteraction(context.db, {
@@ -1751,7 +1751,7 @@ function stringOrNull(value: unknown): string | null {
 /** Questions expire after a day; older answers are not worth delivering. */
 const UNDELIVERED_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-const listUndeliveredProcedure = readOs.listUndelivered.handler(
+export const listUndeliveredProcedure = readOs.listUndelivered.handler(
 	async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		const caller = await verifiedActiveWorkActor(context, orgId);

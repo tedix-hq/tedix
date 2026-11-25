@@ -1768,8 +1768,8 @@ export const workItemsContract = oc
 		wait: oc
 			.route({
 				method: "POST",
-				path: "/{id}/wait",
-				summary: "Wait for Work changes",
+				path: "/wait",
+				summary: "Wait for Work changes or an answer",
 			})
 			.input(WorkWaitInputSchema)
 			.output(WorkWaitResultSchema),

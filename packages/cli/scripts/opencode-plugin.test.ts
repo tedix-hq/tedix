@@ -335,7 +335,7 @@ function sessionClient(wakes: unknown[], onWake?: () => void) {
 
 test("idle captures the whole turn and wakes once with the CLI's framed reply", async () => {
 	fakeCli(
-		'if [ "$2" = "await-reply" ]; then printf "The user replied in Tedix OS: continue" >&2; exit 2; fi',
+		'if [ "$2" = "await-input" ]; then printf "The user replied in Tedix OS: continue" >&2; exit 2; fi',
 	);
 	const wakes: unknown[] = [];
 	let resolveWake!: () => void;
@@ -433,7 +433,7 @@ test("user prompts capture replies and status; synthetic wakes are never capture
 
 test("new prompts and deletion cancel a pending wake", async () => {
 	fakeCli(
-		'if [ "$2" = "await-reply" ]; then sleep 0.1; printf "stale reply" >&2; exit 2; fi',
+		'if [ "$2" = "await-input" ]; then sleep 0.1; printf "stale reply" >&2; exit 2; fi',
 	);
 	for (const cancel of ["prompt", "delete"]) {
 		const wakes: unknown[] = [];
@@ -448,7 +448,7 @@ test("new prompts and deletion cancel a pending wake", async () => {
 				callsSafeCount() > before &&
 				calls()
 					.slice(before)
-					.some((call) => call.args?.includes("await-reply")),
+					.some((call) => call.args?.includes("await-input")),
 		);
 		if (cancel === "prompt")
 			await hooks["chat.message"]!(
@@ -507,9 +507,9 @@ test("older permission.updated events report the same approval status", async ()
 	});
 });
 
-test("idle does not resume for a silent or failed await-reply hook", async () => {
+test("idle does not resume for a silent or failed await-input hook", async () => {
 	fakeCli(
-		'if [ "$2" = "await-reply" ]; then printf "not a wake" >&2; exit 1; fi',
+		'if [ "$2" = "await-input" ]; then printf "not a wake" >&2; exit 1; fi',
 	);
 	const wakes: unknown[] = [];
 	const hooks = await module.default.server({
@@ -520,7 +520,7 @@ test("idle does not resume for a silent or failed await-reply hook", async () =>
 	await until(
 		() =>
 			callsSafeCount() > 0 &&
-			calls().some((call) => call.args?.includes("await-reply")),
+			calls().some((call) => call.args?.includes("await-input")),
 	);
 	await Bun.sleep(30);
 	expect(wakes).toEqual([]);
@@ -877,7 +877,7 @@ test("OpenCode 2 edits get advisory recall appended to their result content", as
 
 test("OpenCode 2 idle captures the turn and wakes with a synthetic message", async () => {
 	fakeCli(
-		'if [ "$2" = "await-reply" ]; then printf "The user replied in Tedix OS: continue" >&2; exit 2; fi',
+		'if [ "$2" = "await-input" ]; then printf "The user replied in Tedix OS: continue" >&2; exit 2; fi',
 	);
 	const fake = context2({}, [
 		{ type: "user", id: "msg_user", text: "Check it" },
@@ -983,7 +983,7 @@ test("OpenCode 2 keeps reporting a session after its context fetch fails", async
 	);
 	expect(
 		calls()
-			.filter((call) => !call.args?.includes("await-reply"))
+			.filter((call) => !call.args?.includes("await-input"))
 			.map((call) => [call.args?.split(" ")[1], call.event.hook_event_name])
 			.sort(),
 	).toEqual([

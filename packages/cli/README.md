@@ -173,7 +173,7 @@ the exact unsupported requirement when a compatible CLI workflow is needed.
   proposed until reviewed through the existing learning pipeline.
 
 - **Session supervisor** (`supervise.ts`) — `tedix supervise` delivers a tedi
-  auto reply that arrives after a Codex session's `await-draft` stopped waiting:
+  auto reply that arrives after a Codex session's `await-input` stopped waiting:
   `codex queue` for an open window (confirmed in the session transcript), else a
   headless `codex exec resume` whose thread ID must match. Same delivery rules
   and cap as the hooks; `install`/`uninstall` manage the supervisor's user LaunchAgent. It

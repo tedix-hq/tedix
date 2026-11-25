@@ -88,7 +88,7 @@ test("the Agent-Session the plugin exports names the opencode harness", () => {
 });
 
 test("OpenCode permits the lifecycle hooks but no plugin flag or unrelated hook", async () => {
-	for (const name of ["capture-stop", "capture-reply", "status", "await-reply"])
+	for (const name of ["capture-stop", "capture-reply", "status", "await-input"])
 		expect(OPENCODE_HOOKS.has(name)).toBe(true);
 	for (const name of ["await-draft", "devin-permission", "unknown"])
 		expect(await runHooksCommand([name, "--host", "opencode"])).toBe(1);

@@ -28,7 +28,7 @@ export const MIN_CLI = "0.19.4";
 /** SessionStart preflight names an older CLI and stops instead of running it. */
 export const CLI_GATE = `v=$(tedix --version 2>/dev/null); [ "$(printf '%s\\n' ${MIN_CLI} "$v" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)" = ${MIN_CLI} ] || { echo "Tedix preflight: CLI \${v:-unknown} is older than ${MIN_CLI}, which this plugin needs; run tedix update."; exit 0; }; `;
 const HOOK_NAME =
-	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|await-draft|situational-recall|status)$/;
+	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-input|situational-recall|status)(?: --host (claude-code|codex))?$/;
 
 /** The hook a guarded command runs; only session-start carries the CLI gate. */
 export function hookName(command: string): string | undefined {
@@ -36,11 +36,11 @@ export function hookName(command: string): string | undefined {
 	let rest = command.slice(HOOK_GUARD.length);
 	const gated = rest.startsWith(CLI_GATE);
 	if (gated) rest = rest.slice(CLI_GATE.length);
-	const name = HOOK_NAME.exec(rest)?.[1];
+	const match = HOOK_NAME.exec(rest);
+	const name = match?.[1];
+	if (match?.[2] && name !== "await-input") return undefined;
 	return name && gated === (name === "session-start") ? name : undefined;
 }
-/** Hooks only Codex runs; Claude Code packages omit them. */
-const CODEX_ONLY_HOOKS = new Set(["await-draft"]);
 type Host = "openai" | "claude";
 
 export interface PackageOptions {
@@ -157,14 +157,11 @@ function addFiles(
 /** The local hooks, in the host's native form; the logic lives in the Tedix CLI. */
 function localHooks(root: string, host: Host): any {
 	const hooks = readJson(root, "config/host-hooks.json");
-	// Only Claude Code can wake a session from a background hook (asyncRewake);
-	// elsewhere such a hook would hold the turn open, so it is not shipped.
-	// Codex instead continues from a synchronous Stop hook (await-draft), which
-	// Claude Code does not need: await-reply delivers the same replies there.
+	// The same wait uses background rewake in Claude and a Stop continuation in Codex.
 	const shipped = (handler: any): boolean =>
-		host === "claude"
-			? !CODEX_ONLY_HOOKS.has(hookName(handler.command) ?? "")
-			: handler.asyncRewake !== true;
+		hookName(handler.command) === "await-input"
+			? (handler.asyncRewake === true) === (host === "claude")
+			: host === "claude" || handler.asyncRewake !== true;
 	for (const [event, definitions] of Object.entries<any[]>(hooks.hooks)) {
 		for (const definition of definitions)
 			definition.hooks = definition.hooks.filter(shipped);

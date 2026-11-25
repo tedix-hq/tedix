@@ -11,11 +11,22 @@ import {
 } from "@tedix/db/schema/work-factory";
 import type { BaseContext } from "../../orpc";
 
-const mocks = vi.hoisted(() => ({ item: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	item: vi.fn(),
+	detail: vi.fn(),
+	answers: vi.fn(),
+}));
 vi.mock("@tedix/db/queries/work-items/crud", async (original) => ({
 	...(await original<typeof import("@tedix/db/queries/work-items/crud")>()),
 	getWorkItemById: mocks.item,
 }));
+vi.mock("../work-interactions", async () => {
+	const { os } = await import("@orpc/server");
+	return {
+		getProcedure: os.handler(() => mocks.detail()),
+		listUndeliveredProcedure: os.handler(() => mocks.answers()),
+	};
+});
 import { waitProcedure } from "./wait";
 
 const id = "11111111-1111-4111-8111-111111111111";
@@ -193,4 +204,93 @@ it("cancels a pending wait without continuing database reads", async () => {
 	await rejection;
 	await vi.advanceTimersByTimeAsync(5000);
 	expect(mocks.item.mock.calls.length).toBe(reads);
+});
+
+it("wakes on cancellation and expiry without an answer, and scopes the watched request to its Work", async () => {
+	vi.useFakeTimers();
+	const interactionId = "33333333-3333-4333-8333-333333333333";
+	sqlite
+		.prepare(
+			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,target_type,target_id,creator_type,creator_id,created_at) VALUES(?,?,?,'question','Proceed?','Proceed?','user','person','user','person','2026-11-20T12:00:00Z')",
+		)
+		.run(interactionId, orgId, id);
+	const baseline = await client().wait({ id, interactionId, timeoutMs: 0 });
+	const pending = client().wait({
+		id,
+		interactionId,
+		cursor: baseline.cursor,
+		timeoutMs: 5000,
+	});
+	await vi.advanceTimersByTimeAsync(100);
+	sqlite
+		.prepare(
+			"UPDATE work_interactions SET status='cancelled', version=version+1 WHERE id=?",
+		)
+		.run(interactionId);
+	await vi.advanceTimersByTimeAsync(1000);
+	expect(await pending).toMatchObject({
+		reason: "changed",
+		changes: [
+			{ kind: "event", id: interactionId, type: "interaction.cancelled" },
+		],
+	});
+	sqlite
+		.prepare(
+			"UPDATE work_interactions SET status='open', expires_at=? WHERE id=?",
+		)
+		.run(new Date(Date.now() + 1000).toISOString(), interactionId);
+	const open = await client().wait({ id, interactionId, timeoutMs: 0 });
+	const expiry = client().wait({
+		id,
+		interactionId,
+		cursor: open.cursor,
+		timeoutMs: 5000,
+	});
+	await vi.advanceTimersByTimeAsync(1000);
+	expect(await expiry).toMatchObject({
+		reason: "changed",
+		changes: [
+			{ kind: "event", id: interactionId, type: "interaction.expired" },
+		],
+	});
+	sqlite
+		.prepare("UPDATE work_interactions SET work_item_id='other' WHERE id=?")
+		.run(interactionId);
+	expect(
+		await client().wait({ id, interactionId, timeoutMs: 0 }),
+	).toMatchObject({ cursor: { interaction: null } });
+});
+
+it("the same wait wakes on an older session answer and preserves canonical access denial", async () => {
+	vi.useFakeTimers();
+	const interactionId = "33333333-3333-4333-8333-333333333333";
+	const responseId = "44444444-4444-4444-8444-444444444444";
+	mocks.detail.mockResolvedValue({
+		request: {
+			id: interactionId,
+			version: 1,
+			metadata: { sessionId: "session" },
+		},
+		effectiveState: "open",
+		latestDraft: null,
+	});
+	mocks.answers.mockResolvedValue({ data: [] });
+	const baseline = await client().wait({ interactionId, timeoutMs: 0 });
+	const pending = client().wait({
+		interactionId,
+		cursor: baseline.cursor,
+		timeoutMs: 5000,
+	});
+	await vi.advanceTimersByTimeAsync(100);
+	mocks.answers.mockResolvedValue({ data: [{ responseId }] });
+	await vi.advanceTimersByTimeAsync(1000);
+	expect(await pending).toMatchObject({
+		reason: "changed",
+		changes: [{ kind: "response", id: responseId, type: "answer" }],
+	});
+	const { ORPCError } = await import("@orpc/server");
+	mocks.detail.mockRejectedValueOnce(new ORPCError("FORBIDDEN"));
+	await expect(
+		client().wait({ interactionId, timeoutMs: 0 }),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
 });

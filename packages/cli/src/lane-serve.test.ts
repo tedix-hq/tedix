@@ -435,7 +435,27 @@ function fixture({
 					row.metadata = { ...row.metadata, laneDispatch: input.laneDispatch };
 				if (input.startAt) row.startAt = input.startAt;
 				response = row;
-			} else if (verb === "interaction-create")
+			} else if (verb === "wait")
+				response = {
+					reason: "timeout",
+					changes: [],
+					cursor: {
+						workItemId: args[6],
+						event: 0,
+						message: 0,
+						response: 0,
+						...(input.interactionId
+							? {
+									interaction: {
+										id: input.interactionId,
+										version: 1,
+										state: "open",
+									},
+								}
+							: {}),
+					},
+				};
+			else if (verb === "interaction-create")
 				response = { id: "fictional-request" };
 			else if (verb === "dispatch-get")
 				response = {
@@ -11211,11 +11231,13 @@ describe("structured dispatcher outcomes", () => {
 		};
 		const at = "2026-10-31T12:00:00.000Z";
 		const cli = f.deps.cli!;
+		let detailReads = 0;
 		f.deps.cli = async <T>(
 			args: string[],
 			env: NodeJS.ProcessEnv,
 		): Promise<T> => {
 			if (args[5] !== "interaction-get") return cli<T>(args, env);
+			detailReads++;
 			return {
 				request: {
 					id: interactionId,
@@ -11259,6 +11281,32 @@ describe("structured dispatcher outcomes", () => {
 			JSON.parse(readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"))
 				.waitReleasedAt,
 		).toBeUndefined();
+		const initialReads = detailReads;
+		const nextCli = f.deps.cli!;
+		let finishWait!: (value: unknown) => void;
+		let waitInput!: { cursor: unknown };
+		let waitCalls = 0;
+		f.deps.cli = async <T>(
+			args: string[],
+			env: NodeJS.ProcessEnv,
+		): Promise<T> => {
+			if (args[5] !== "wait") return nextCli<T>(args, env);
+			waitCalls++;
+			waitInput = JSON.parse(args[args.indexOf("--input") + 1]!);
+			return await new Promise<T>((resolve) => {
+				finishWait = resolve as (value: unknown) => void;
+			});
+		};
+		const watching = f.restart();
+		await watching.tick();
+		await watching.tick();
+		await watching.tick();
+		expect(waitCalls).toBe(1);
+		expect(detailReads).toBe(initialReads);
+		finishWait({ reason: "timeout", changes: [], cursor: waitInput.cursor });
+		await Promise.resolve();
+		await watching.tick();
+		expect(detailReads).toBe(initialReads);
 	});
 	it("consumes a resolving human response once, then uses fresh admission on the same Work revision", async () => {
 		const f = fixture();

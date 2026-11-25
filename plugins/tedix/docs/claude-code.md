@@ -131,7 +131,7 @@ context on a submitted prompt, including supported autonomous turns. It does
 not store or upload the prompt. Invalid or conflicting context stays unavailable.
 
 With [decision capture](./chatgpt-codex.md#record-decisions-with-explicit-opt-in)
-enabled, Claude Code also runs `tedix hooks await-reply` as a background
+enabled, Claude Code also runs `tedix hooks await-input` as a background
 `asyncRewake` `Stop` hook. When you answer the waiting question in Tedix OS,
 including by accepting a tedi-drafted reply there, it wakes the session with
 your answer; a reply typed in the chat, expiry or four hours end the wait.
@@ -168,8 +168,8 @@ each hook still does nothing until you opt in to its feature.
 | `UserPromptSubmit`                                                                                                       | `prompt-context` | Reads selected documents and Work updates, caching the slow-changing ones for ten minutes under `~/.tedix/hook-cache/`. Never sends the prompt text.                                               |
 | `UserPromptSubmit` (background)                                                                                          | `capture-reply`  | Decision capture: sends your redacted reply, bounded to 6,000 characters, and uploads each message you type for your private request ledger.                                                       |
 | `Stop` (background)                                                                                                      | `capture-stop`   | Decision capture: sends the turn's redacted final message, bounded to 6,000 characters, as a question in your organization. Also uploads the turn and its activity digest for your request ledger. |
-| `Stop` (background, `asyncRewake`, up to four hours)                                                                     | `await-reply`    | Decision capture: wakes the session with your Tedix OS answer or an automatic tedi reply.                                                                                                          |
-| `Stop` (up to 320 seconds)                                                                                               | `await-draft`    | Codex only. It is registered when you install from the marketplace and exits at once in Claude Code.                                                                                               |
+| `Stop` (background, `asyncRewake`, up to four hours)                                                                     | `await-input`    | Decision capture: wakes the session with your Tedix OS answer or an automatic tedi reply.                                                                                                          |
+| `Stop` (up to 320 seconds)                                                                                               | `await-input`    | Codex only. It is registered when you install from the marketplace and exits at once in Claude Code.                                                                                               |
 | `UserPromptSubmit`, `PostToolUse`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `SessionEnd` (background) | `status`         | Turn status: a local status line and macOS notification; with a profile, sends the state, session ID, repo/branch and a 160-character summary.                                                     |
 
 Opt in to the context reads with a repository binding or

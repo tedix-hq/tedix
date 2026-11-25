@@ -16,7 +16,13 @@ export async function readWorkWaitPage(
 	params: {
 		orgId: string;
 		workItemId: string;
-		cursor?: { event: number; message: number; response: number };
+		interactionId?: string;
+		cursor?: {
+			event: number;
+			message: number;
+			response: number;
+			interaction?: { id: string; version: number; state: string } | null;
+		};
 	},
 ) {
 	const { orgId, workItemId, cursor } = params;
@@ -93,15 +99,59 @@ export async function readWorkWaitPage(
 			.orderBy(order(responsePosition))
 			.limit(limit),
 	]);
+	const [request] = params.interactionId
+		? await db
+				.select({
+					id: workInteractions.id,
+					version: workInteractions.version,
+					status: workInteractions.status,
+					expiresAt: workInteractions.expiresAt,
+				})
+				.from(workInteractions)
+				.where(
+					and(
+						eq(workInteractions.orgId, orgId),
+						eq(workInteractions.workItemId, workItemId),
+						eq(workInteractions.id, params.interactionId),
+					),
+				)
+				.limit(1)
+		: [];
+	const interaction = request
+		? {
+				id: request.id,
+				version: request.version,
+				state:
+					request.status === "open" &&
+					request.expiresAt &&
+					Date.parse(request.expiresAt) <= Date.now()
+						? "expired"
+						: request.status,
+			}
+		: null;
+	const interactionChanged =
+		cursor &&
+		params.interactionId &&
+		JSON.stringify(cursor.interaction) !== JSON.stringify(interaction);
 	return {
 		cursor: {
 			workItemId,
 			event: events.at(-1)?.position ?? cursor?.event ?? 0,
 			message: messages.at(-1)?.position ?? cursor?.message ?? 0,
 			response: responses.at(-1)?.position ?? cursor?.response ?? 0,
+			...(params.interactionId ? { interaction } : {}),
 		},
 		changes: cursor
 			? [
+					...(interactionChanged
+						? [
+								{
+									kind: "event" as const,
+									id: params.interactionId!,
+									type: `interaction.${interaction?.state ?? "missing"}`,
+								},
+							]
+						: []),
 					...events.map(({ id, type }) => ({
 						kind: "event" as const,
 						id,

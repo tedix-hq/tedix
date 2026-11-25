@@ -1,34 +1,12 @@
 /**
- * `tedix supervise`: a local loop that delivers a tedi auto reply to a Codex
- * session after its own Stop hook stopped waiting.
- *
- * `await-draft` holds a Codex turn for at most 5 minutes. A draft that lands
- * later reaches nobody, so the session sits idle while its owner is away.
- * Every 30 seconds this reads the decision-capture state each turn leaves in
- * `~/.tedix/decision-capture` and, for a Codex chat still waiting on a question
- * whose tedi draft the server marked `delivery: "auto"` (the same rule and
- * consecutive cap as the hooks), queues the framed draft with `codex queue`.
- * An open Codex window takes it at once, which its transcript confirms;
- * otherwise the queued copy is withdrawn and the session resumes headless with
- * `codex exec resume`, whose reported thread ID must match. The
- * delivery is recorded locally exactly as the hooks record it.
- *
- * It sends a tedi draft at most once per question. Claude Code keeps its own
- * `await-reply` wake; a draft that arrives after that wait expired is only
- * logged.
- *
- * It also drains the user's own Tedix OS answers that no hook delivered
- * (`work interaction-undelivered`) for sessions on this machine: a closed
- * Claude Code session is resumed headless with `claude -p --resume` in its
- * directory (never one open in a terminal: its hooks deliver there), a Codex
- * session gets the same queue-or-resume as a draft. Missing or unavailable
- * sessions leave the answer undelivered; no other chat or Work Item is chosen.
- * Each delivery is recorded on the server; every skip is logged once
- * per answer. Activity goes to `~/.tedix/supervisor.log`.
+ * Deliver answers and automatic drafts to their originating local sessions.
+ * Hooks and the supervisor share the blocking Work wait and delivery receipts.
+ * Codex uses queue-or-resume; closed Claude sessions resume in their directory.
+ * Unavailable sessions leave answers undelivered; no other chat is selected.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { CLI_VERSION } from "./shared";
-import { readBudgetMs, retryRead } from "./read-retry";
+import { retryRead } from "./read-retry";
 import { holdAwake } from "./supervise-awake";
 import type { OfficeObservation } from "@tedix/api-contract/schemas/office-activity";
 import {
@@ -61,17 +39,21 @@ import {
 	type PendingAnswer,
 	undeliveredAnswers,
 } from "./hooks/answer-delivery";
-import { AWAIT_DRAFT_MAX_MS } from "./hooks/await-draft";
+
 import {
 	AWAIT_MAX_MS,
+	AWAIT_DRAFT_MAX_MS,
+	waitForInput,
 	autoDeliverable,
 	autoDraftMessage,
 	deliverAutoDraft,
-} from "./hooks/await-reply";
+} from "./hooks/await-input";
 import {
 	ackAnswers,
 	type Binding,
 	bindingFor,
+	captureStatePath,
+	questionPath,
 	type DeliveryVia,
 	interactionDetail,
 	peek,
@@ -128,7 +110,7 @@ import { readDutyStatuses } from "./supervise-duty-status";
 import { laneProcessIdentity } from "./lane-process-recovery";
 
 export const SUPERVISE_INTERVAL_MS = 30_000;
-/** After `await-draft` gave up, with a minute of grace for its last read. */
+/** After `await-input` gave up, with a minute of grace for its last read. */
 export const CODEX_IDLE_MS = AWAIT_DRAFT_MAX_MS + 60_000;
 /** How long an open Codex window gets to take the queued message. */
 export const QUEUE_PICKUP_MS = 45_000;
@@ -193,9 +175,9 @@ export class Supervisor {
 	private prunedAt = Number.NEGATIVE_INFINITY;
 	private healthReportedAt = Number.NEGATIVE_INFINITY;
 	private healthPass: Promise<void> | undefined;
-	private readonly answerPolls = new Map<
+	private readonly inputCursors = new Map<
 		string,
-		{ at: number; delay: number }
+		Awaited<ReturnType<typeof waitForInput>>["cursor"]
 	>();
 
 	private readonly lead: LeadDuty;
@@ -235,34 +217,36 @@ export class Supervisor {
 			this.prunedAt = now;
 			pruneStatusFiles(this.deps.env, now);
 		}
-		for (const candidate of waitingQuestions(this.deps.env, now)) {
-			const due =
-				candidate.host === "codex"
-					? candidate.ageMs >= CODEX_IDLE_MS
-					: candidate.ageMs >= AWAIT_MAX_MS;
-			if (!due || this.logged.has(candidate.requestId)) continue;
-			const backoff = this.recheck.get(candidate.requestId);
-			if (backoff && backoff.at > now) continue;
-			let sent = false;
-			this.lastPass.checked++;
-			try {
-				sent = await this.consider(candidate);
-			} catch (error) {
-				this.lastPass.failed++;
-				if (!backoff)
-					this.log(
-						`${candidate.host} ${candidate.session}: check failed: ${(error as Error).message?.slice(0, 200)}`,
+		const drafts = Promise.all(
+			waitingQuestions(this.deps.env, now).map(async (candidate) => {
+				const due =
+					candidate.host === "codex"
+						? candidate.ageMs >= CODEX_IDLE_MS
+						: candidate.ageMs >= AWAIT_MAX_MS;
+				if (!due || this.logged.has(candidate.requestId)) return 0;
+				const backoff = this.recheck.get(candidate.requestId);
+				if (backoff && backoff.at > now) return 0;
+				let sent = false;
+				this.lastPass.checked++;
+				try {
+					sent = await this.consider(candidate);
+				} catch (error) {
+					this.lastPass.failed++;
+					if (!backoff)
+						this.log(
+							`${candidate.host} ${candidate.session}: check failed: ${(error as Error).message?.slice(0, 200)}`,
+						);
+				}
+				if (!sent) {
+					const delay = Math.min(
+						(backoff?.delay ?? SUPERVISE_INTERVAL_MS / 2) * 2,
+						RECHECK_MAX_MS,
 					);
-			}
-			if (sent) delivered++;
-			else {
-				const delay = Math.min(
-					(backoff?.delay ?? SUPERVISE_INTERVAL_MS / 2) * 2,
-					RECHECK_MAX_MS,
-				);
-				this.recheck.set(candidate.requestId, { at: now + delay, delay });
-			}
-		}
+					this.recheck.set(candidate.requestId, { at: now + delay, delay });
+				}
+				return sent ? 1 : 0;
+			}),
+		);
 		try {
 			delivered += await this.pickupCommitHandoffs();
 			delivered += await this.pickupWork();
@@ -295,6 +279,7 @@ export class Supervisor {
 		}
 		if (waitForLead) await this.healthPass;
 		await lead;
+		delivered += (await drafts).reduce<number>((sum, count) => sum + count, 0);
 		return delivered;
 	}
 
@@ -560,6 +545,14 @@ export class Supervisor {
 		const hookDeps = this.hookDeps(candidate.cwd);
 		const binding = await bindingFor(hookDeps, candidate.session);
 		if (!binding) return false;
+		const page = await waitForInput(
+			hookDeps,
+			binding,
+			candidate.requestId,
+			this.inputCursors.get(candidate.requestId),
+		);
+		this.inputCursors.set(candidate.requestId, page.cursor);
+		if (page.reason === "timeout") return false;
 		const detail = await interactionDetail(
 			hookDeps,
 			binding,
@@ -577,7 +570,7 @@ export class Supervisor {
 		this.logged.add(candidate.requestId);
 		if (candidate.host !== "codex") {
 			this.log(
-				`claude-code ${candidate.session}: auto draft ${detail.draft.id} for question ${candidate.requestId} arrived after await-reply stopped waiting; not delivered (Claude Code delivery is not supported yet)`,
+				`claude-code ${candidate.session}: auto draft ${detail.draft.id} for question ${candidate.requestId} arrived after await-input stopped waiting; not delivered (Claude Code delivery is not supported yet)`,
 			);
 			return false;
 		}
@@ -951,66 +944,51 @@ export class Supervisor {
 	 * Returns the number of answers delivered in this pass.
 	 */
 	async drainAnswers(now: number): Promise<number> {
-		const groups = new Map<
-			string,
-			{ binding: Binding; cwd: string; sessions: Map<string, LocalSession> }
-		>();
-		for (const local of localSessions(this.deps.env, now)) {
-			const binding = await this.bindingOf(local, now);
-			if (!binding) continue;
-			const key = `${binding.command.join(" ")} ${binding.user}`;
-			const group = groups.get(key) ?? {
-				binding,
-				cwd: local.cwd,
-				sessions: new Map(),
-			};
-			group.sessions.set(local.session, local);
-			groups.set(key, group);
-		}
-		let delivered = 0;
-		for (const [key, group] of groups) {
-			const poll = this.answerPolls.get(key);
-			if (poll && now < poll.at) continue;
-			let why = "";
-			const answers = await undeliveredAnswers(
-				this.hookDeps(group.cwd),
-				group.binding,
-				{},
-				readBudgetMs(3 * DETAIL_TIMEOUT_MS, group.sessions.size),
-				(reason) => {
-					why = reason;
-				},
-			);
-			if (!answers) {
-				const key = `undelivered answers could not be read for ${group.binding.command.join(" ")}`;
-				const reason = `${key}: ${why.slice(0, 300)}`;
-				if (this.noted.get(key) !== reason) {
-					this.noted.set(key, reason);
-					this.log(reason);
+		const counts = await Promise.all(
+			localSessions(this.deps.env, now).map(async (local) => {
+				const state = captureStatePath(this.deps.env, local.session);
+				const request = peek(state) ?? peek(questionPath(state));
+				if (typeof request?.requestId !== "string") return 0;
+				const binding = await this.bindingOf(local, now);
+				if (!binding) return 0;
+				const deps = this.hookDeps(local.cwd);
+				try {
+					const page = await waitForInput(
+						deps,
+						binding,
+						request.requestId,
+						this.inputCursors.get(request.requestId),
+					);
+					this.inputCursors.set(request.requestId, page.cursor);
+					if (
+						page.reason === "timeout" ||
+						!page.changes.some((change) => change.kind === "response")
+					)
+						return 0;
+					let why = "";
+					const answers = await undeliveredAnswers(
+						deps,
+						binding,
+						{ sessionId: local.session },
+						DETAIL_TIMEOUT_MS,
+						(reason) => {
+							why = reason;
+						},
+					);
+					if (!answers) throw new Error(why);
+					return this.deliverSession(binding, local, answers, now);
+				} catch (error) {
+					const key = `undelivered answers could not be read for ${binding.command.join(" ")}`;
+					const reason = `${key}: ${String((error as Error).message).slice(0, 300)}`;
+					if (this.noted.get(key) !== reason) {
+						this.noted.set(key, reason);
+						this.log(reason);
+					}
+					return 0;
 				}
-				continue;
-			}
-			if (!answers.length) {
-				const delay = Math.min(
-					(poll?.delay ?? SUPERVISE_INTERVAL_MS) * 2,
-					120_000,
-				);
-				this.answerPolls.set(key, { at: now + delay, delay });
-			} else this.answerPolls.delete(key);
-			const bySession = new Map<string, PendingAnswer[]>();
-			for (const answer of answers) {
-				const key = answer.sessionId.toLowerCase();
-				bySession.set(key, [...(bySession.get(key) ?? []), answer]);
-			}
-			for (const [session, list] of bySession)
-				delivered += await this.deliverSession(
-					group.binding,
-					group.sessions.get(session),
-					list,
-					now,
-				);
-		}
-		return delivered;
+			}),
+		);
+		return counts.reduce((sum, count) => sum + count, 0);
 	}
 
 	private async deliverSession(
@@ -1183,13 +1161,13 @@ On a Mac with the Tedix app, the app runs tedix supervise itself while it is
 open and removes the LaunchAgent; install is for Macs without the app.
   tedix supervise runners     List the runners it keeps running
 
-A Codex session's await-draft hook waits 5 minutes for a tedi auto reply. When
+A Codex session's await-input hook waits 90 seconds for a tedi auto reply. When
 one arrives later for a Codex chat still waiting on its question, the
 supervisor queues it with codex queue (an open window acts on it) or, with no
 window open, resumes the session headless with codex exec resume. It sends only
 tedi drafts the server marked for automatic delivery, once per question and at
 most three in a row, the same rules as the hooks. Claude Code sessions keep
-their own await-reply wake; a draft that arrives after it stopped waiting is
+their own await-input wake; a draft that arrives after it stopped waiting is
 only logged.
 
 It also delivers your own Tedix OS answers that no hook delivered: a closed

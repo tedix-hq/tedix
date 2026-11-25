@@ -255,10 +255,9 @@ and lease expiry, which still must be verified before a write. Command hooks
 cannot invoke the agent's native MCP tool session through the documented host
 interface, and ordinary Chat does not run local hooks.
 
-The source `config/host-hooks.json` registers both `await-reply` (Claude Code) and
-`await-draft` (Codex); a marketplace install from this directory gets both, and
-each exits at once on the other host. Packaged `--host` artifacts ship only
-their host's hook.
+The source `config/host-hooks.json` registers `await-input` with each host's
+wake adapter. Packaged `--host` artifacts ship only their host's adapter.
+Both use the blocking Work wait for the canonical request.
 
 The opt-in turn-status reporter is described in the
 [Claude Code guide](docs/claude-code.md#opt-in-turn-status). It is silent

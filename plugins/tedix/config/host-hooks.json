@@ -1,5 +1,5 @@
 {
-	"description": "Runs the installed Tedix CLI (tedix hooks <name>); each hook exits silently with no output when the tedix command is not installed. Optional Tedix session preflight, opt-in decision capture and an opt-in turn-status reporter. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture (Claude Code also waits in the background for a Tedix OS answer or a tedi auto reply; Codex packages omit that rewake hook and instead wait up to 5 minutes at Stop for an auto reply, a hook Claude packages omit); status reporting requires ~/.tedix/agent-status.json or TEDIX_AGENT_STATUS=1.",
+	"description": "Runs the installed Tedix CLI (tedix hooks <name>); each hook exits silently with no output when the tedix command is not installed. Optional Tedix session preflight, opt-in decision capture and an opt-in turn-status reporter. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture (Claude Code also waits in the background for a Tedix OS answer or a tedi auto reply; Codex packages omit that rewake hook and instead wait up to 90 seconds at Stop for an answer or auto reply, a hook Claude packages omit); status reporting requires ~/.tedix/agent-status.json or TEDIX_AGENT_STATUS=1.",
 	"hooks": {
 		"SessionStart": [
 			{
@@ -69,7 +69,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks await-reply",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks await-input --host claude-code",
 						"timeout": 14460,
 						"asyncRewake": true
 					}
@@ -79,7 +79,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks await-draft",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks await-input --host codex",
 						"timeout": 320
 					}
 				]

@@ -9,7 +9,7 @@ export const OPENCODE_HOOKS = new Set([
 	"situational-recall",
 	"capture-reply",
 	"capture-stop",
-	"await-reply",
+	"await-input",
 	"status",
 ]);
 

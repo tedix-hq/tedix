@@ -1,5 +1,9 @@
 import type { LaneExecutionSettings } from "./lane-execution-settings";
 import {
+	WorkItemWaitCursorSchema as WorkWaitCursorSchema,
+	WorkWaitResultSchema,
+} from "@tedix/api-contract/schemas/work-wait";
+import {
 	WorkAttemptSettlementSchema,
 	workSettlementCommits,
 	type WorkAttemptCloseoutResultSchema,
@@ -1361,7 +1365,8 @@ interface Receipt {
 	decisionResponseId?: string;
 	runQuestion?: WorkAttemptStep;
 	waitResponseId?: string;
-	waitCheckAt?: number;
+	waitRetryAt?: number;
+	waitCursor?: z.infer<typeof WorkWaitCursorSchema>;
 	waitReleasedAt?: number;
 	existingProof?: Awaited<ReturnType<typeof verifyExistingLaneResult>>;
 	repositoryProof?: Awaited<ReturnType<typeof verifyRepositoryLaneResult>>;
@@ -3392,6 +3397,13 @@ export class LaneDispatcher {
 		skips: new Map<string, DispatcherSkipObservation>(),
 		complete: false,
 	};
+	private readonly workWaits = new Map<
+		string,
+		{
+			result?: z.infer<typeof WorkWaitResultSchema>;
+			error?: unknown;
+		}
+	>();
 	private ownerEnv = laneChildEnv();
 	private deps: DispatcherDeps;
 	private preflight: ReturnType<typeof cachedExecutorPreflight>;
@@ -4692,6 +4704,11 @@ export class LaneDispatcher {
 				}
 				if (previous && waitsForRunAnswer(previous)) {
 					if (!runQuestionAnswer(item.metadata, previous.attemptId)) {
+						const page = await this.waitForWork(previous);
+						if (page) {
+							previous.waitCursor = WorkWaitCursorSchema.parse(page.cursor);
+							this.save(this.path(item), previous);
+						}
 						observeSkip(item, "Waiting for an answer to the run's question");
 						continue;
 					}
@@ -5673,6 +5690,72 @@ export class LaneDispatcher {
 			);
 		}
 	}
+	/** A held Work never occupies the dispatcher's serialized call queue. */
+	private async waitForWork(row: Receipt) {
+		const key = this.path({ id: row.itemId, version: row.version });
+		const input = {
+			interactionId:
+				row.laneResult?.outcome === "waiting_on_user"
+					? row.laneResult.interactionId
+					: undefined,
+			...(row.waitCursor
+				? { cursor: WorkWaitCursorSchema.parse(row.waitCursor) }
+				: {}),
+			timeoutMs: row.waitCursor ? 25_000 : 0,
+		};
+		const read = async () => {
+			const result = WorkWaitResultSchema.parse(
+				await this.deps.cli(
+					[
+						...this.options.scope,
+						"work",
+						"wait",
+						row.itemId,
+						"--input",
+						JSON.stringify(input),
+					],
+					{ ...this.ownerEnv, TEDIX_CLI_COMPONENT: "dispatcher" },
+					undefined,
+					() => this.cooldownUntil(),
+					35_000,
+				),
+			);
+			if (
+				!("workItemId" in result.cursor) ||
+				result.cursor.workItemId !== row.itemId ||
+				(input.interactionId !== undefined &&
+					result.cursor.interaction?.id !== input.interactionId)
+			)
+				throw new Error("Work wait returned a cursor for another request");
+			return result;
+		};
+		// Snapshot before the first detail read, including after an upgrade.
+		if (!row.waitCursor) return read();
+		const pending = this.workWaits.get(key);
+		if (!pending) {
+			const state: {
+				result?: z.infer<typeof WorkWaitResultSchema>;
+				error?: unknown;
+			} = {};
+			this.workWaits.set(key, state);
+			void read().then(
+				(result) => {
+					state.result = result;
+				},
+				(error) => {
+					state.error = error;
+				},
+			);
+			return;
+		}
+		if (pending.error) {
+			this.workWaits.delete(key);
+			throw pending.error;
+		}
+		if (!pending.result) return;
+		this.workWaits.delete(key);
+		return pending.result;
+	}
 	private async releaseWaits(
 		rows: Receipt[],
 		workVersion: number,
@@ -5693,10 +5776,16 @@ export class LaneDispatcher {
 					!row.executorKey
 				)
 					return false;
-				if (Date.now() < (row.waitCheckAt ?? 0)) return false;
-				row.waitCheckAt = Date.now() + 60_000;
-				this.save(this.path({ id: row.itemId, version: row.version }), row);
+				if (Date.now() < (row.waitRetryAt ?? 0)) return false;
 				try {
+					const page = await this.waitForWork(row);
+					if (!page) return false;
+					const initial = !row.waitCursor;
+					if (!initial && page.reason === "timeout") {
+						row.waitCursor = WorkWaitCursorSchema.parse(page.cursor);
+						this.save(this.path({ id: row.itemId, version: row.version }), row);
+						return false;
+					}
 					const wait = row.laneResult as LaneWait;
 					const detail = await this.call([
 						"work",
@@ -5706,15 +5795,23 @@ export class LaneDispatcher {
 						"{}",
 					]);
 					const responseId = laneWaitResponse(wait, detail);
+					row.waitCursor = WorkWaitCursorSchema.parse(page.cursor);
+					row.waitRetryAt = undefined;
+					this.save(this.path({ id: row.itemId, version: row.version }), row);
 					if (!responseId && !laneWaitTerminal(wait, detail)) return false;
 					if (responseId) row.waitResponseId = responseId;
 				} catch (error) {
+					row.waitRetryAt = Date.now() + 60_000;
+					this.save(this.path({ id: row.itemId, version: row.version }), row);
 					this.log("interaction-read-held", row.itemId, String(error));
 					return false;
 				}
 			}
 			// A verified answer, a request that can no longer produce one, or a
 			// newer Work revision each end this receipt's hold on dispatch.
+			this.workWaits.delete(
+				this.path({ id: row.itemId, version: row.version }),
+			);
 			row.waitReleasedAt = Date.now();
 			row.phase = "deferred";
 			row.recheckAt = 0;

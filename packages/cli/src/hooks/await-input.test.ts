@@ -10,13 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	AUTO_REPLY_LIMIT,
-	AWAIT_DRAFT_WINDOW_MS,
-	AWAIT_MAX_DELAY_MS,
 	type AwaitResult,
 	autoDraftMessage,
-	nextDelay,
-	runAwaitReply,
-} from "./await-reply";
+	runAwaitInput,
+} from "./await-input";
 import {
 	autoDeliveryPath,
 	draftStatusPath,
@@ -146,18 +143,21 @@ async function run(
 		onSleep,
 		reads = [BINDING, AUTH],
 		undelivered,
+		host,
 	}: {
+		host?: "claude-code" | "codex";
 		event?: JsonObject;
 		env?: Record<string, string>;
 		onSleep?: (count: number) => void;
 		reads?: unknown[];
-		/** Ledger pages, one per poll; absent: a current server with no pending answers. */
+		/** Answer pages returned after a wake; absent: a current server with no pending answers. */
 		undelivered?: unknown[];
 	} = {},
 ): Promise<{
 	result: AwaitResult;
 	sleeps: number[];
 	detailReads: number;
+	answerReads: number;
 	acks: JsonObject[];
 	/** Auto drafts reported delivered: [requestId, {draftId, via}]. */
 	drafted: Array<[string, JsonObject]>;
@@ -165,6 +165,7 @@ async function run(
 	let now = 0;
 	const sleeps: number[] = [];
 	let detailReads = 0;
+	let answerReads = 0;
 	const acks: JsonObject[] = [];
 	const drafted: Array<[string, JsonObject]> = [];
 	const queue = [...reads];
@@ -177,17 +178,38 @@ async function run(
 			);
 	};
 	queueDraft();
-	const result = await runAwaitReply(
+	const result = await runAwaitInput(
 		{
 			env: { TEDIX_CONFIG_DIR: config, ...env },
 			stdin: JSON.stringify(event),
 			cwd: process.cwd(),
 			write: () => {
-				throw new Error("await-reply never writes to stdout");
+				throw new Error("the command adapter writes the continuation");
 			},
 			read: async (args, _timeout, input) => {
 				const tool = workToolCall(args);
+				if (tool?.name === "wait_work_items") {
+					const timeout = Number(tool.input.timeoutMs);
+					now += timeout;
+					sleeps.push(timeout);
+					onSleep?.(sleeps.length);
+					queueDraft();
+					const first = undelivered?.[0] as { data?: unknown[] } | undefined;
+					const changed = details.length > 0 || Boolean(first?.data?.length);
+					if (!changed && first) undelivered!.shift();
+					return {
+						reason: changed ? "changed" : "timeout",
+						changes: [],
+						cursor: {
+							interactionId: REQUEST,
+							version: 1,
+							state: "open",
+							draftId: null,
+						},
+					};
+				}
 				if (tool?.name === "list_undelivered_work_interaction_responses") {
+					answerReads++;
 					const page =
 						undelivered === undefined ? ledgerPage() : undelivered.shift();
 					if (!page) throw new Error("Unknown native tool");
@@ -216,6 +238,7 @@ async function run(
 			},
 		},
 		{
+			host,
 			clock: () => now,
 			sleep: async (ms) => {
 				sleeps.push(ms);
@@ -226,7 +249,7 @@ async function run(
 			questionWaitMs: 5000,
 		},
 	);
-	return { result, sleeps, detailReads, acks, drafted };
+	return { result, sleeps, detailReads, answerReads, acks, drafted };
 }
 
 const DRAFT = {
@@ -239,7 +262,7 @@ const DRAFT = {
 	turnType: "continue",
 };
 
-describe("tedix hooks await-reply", () => {
+describe("tedix hooks await-input", () => {
 	test("an auto draft wakes the session framed, records it locally and on the server once", async () => {
 		mkdirSync(join(config, "agent-status"), { recursive: true });
 		const { result, drafted } = await run(
@@ -318,18 +341,6 @@ describe("tedix hooks await-reply", () => {
 		);
 	});
 
-	test("backoff runs 5s doubling to 20s while a draft may land, then 60s", () => {
-		const delays: number[] = [];
-		let delay: number | undefined;
-		for (let i = 0; i < 5; i++) delays.push((delay = nextDelay(delay)));
-		expect(delays).toEqual([5000, 10000, 20000, 20000, 20000]);
-		const late: number[] = [];
-		for (let i = 0; i < 3; i++)
-			late.push((delay = nextDelay(delay, AWAIT_DRAFT_WINDOW_MS)));
-		expect(late).toEqual([40000, 60000, 60000]);
-		expect(AWAIT_MAX_DELAY_MS).toBe(60000);
-	});
-
 	test("the user's own OS answer wakes the session once", async () => {
 		const { result, sleeps } = await run([], {
 			onSleep: (count) => count === 1 && open(),
@@ -339,8 +350,7 @@ describe("tedix hooks await-reply", () => {
 		expect(result.message).toBe(
 			`The user replied in Tedix OS: "Ship it after the docs."\nThis is the user's own answer (not a tedi draft) to your question "Fixture question". Act on it as their reply.`,
 		);
-		// Waited for the question, then 5s and 10s polls.
-		expect(sleeps.slice(-2)).toEqual([5000, 10000]);
+		expect(sleeps.slice(-2)).toEqual([25_000, 25_000]);
 		// The question is claimed so the next prompt neither answers nor repeats it.
 		expect(existsSync(state())).toBe(false);
 	});
@@ -542,7 +552,7 @@ describe("tedix hooks await-reply", () => {
 			{ onSleep: (count) => count === 1 && open() },
 		);
 		expect(result).toEqual({ code: 0 });
-		expect(detailReads).toBe(6);
+		expect(detailReads).toBe(1);
 	});
 
 	test("the four-hour cap ends an open wait", async () => {
@@ -573,10 +583,9 @@ describe("tedix hooks await-reply", () => {
 		expect(drafted).toEqual([[REQUEST, { draftId: DRAFT.id, via: "hook" }]]);
 	});
 
-	test("Codex, an unattended run, no opt-in and a bad event exit without reads", async () => {
+	test("An unattended run, no opt-in and a bad event exit without reads", async () => {
 		open();
 		for (const options of [
-			{ env: { CODEX_THREAD_ID: SESSION } as Record<string, string> },
 			{ env: { CLAUDE_CODE_SESSION_ATTENDED: "0" } },
 			{ event: { session_id: SESSION, turn_id: "turn-1" } },
 			{ event: { session_id: "bad" } },
@@ -633,4 +642,50 @@ test("OpenCode awaits only the question captured for this exact idle turn", asyn
 	expect(delivered.drafted).toEqual([
 		[REQUEST, { draftId: DRAFT.id, via: "hook" }],
 	]);
+});
+
+test("Codex uses the same wait and receives the user's answer", async () => {
+	const page = ledgerPage("Use subscriptions.");
+	page.data[0]!.host = "codex";
+	const { result } = await run([], {
+		env: { CODEX_THREAD_ID: SESSION },
+		onSleep: (count) => count === 1 && open(),
+		undelivered: [page],
+	});
+	expect(result.code).toBe(2);
+	expect(result.message).toContain("Use subscriptions.");
+});
+
+test.each(["codex_exec", "tedix-lane-dispatcher"])(
+	"unattended Codex %s never waits",
+	async (originator) => {
+		const transcript = join(config, "transcript.jsonl");
+		writeFileSync(
+			transcript,
+			JSON.stringify({
+				type: "session_meta",
+				payload: { id: SESSION, source: "exec", originator },
+			}) + "\n",
+		);
+		const { result, sleeps } = await run([], {
+			env: { CODEX_THREAD_ID: SESSION },
+			event: {
+				session_id: SESSION,
+				turn_id: "turn-1",
+				transcript_path: transcript,
+			},
+		});
+		expect(result.code).toBe(0);
+		expect(sleeps).toEqual([]);
+	},
+);
+
+test("quiet waits never poll answer lists and the other host's adapter exits", async () => {
+	const quiet = await run([], { onSleep: (count) => count === 1 && open() });
+	expect(quiet.sleeps.length).toBeGreaterThan(1);
+	expect(quiet.answerReads).toBe(0);
+	expect(quiet.detailReads).toBe(0);
+	const otherHost = await run([], { host: "codex" });
+	expect(otherHost.result.code).toBe(0);
+	expect(otherHost.sleeps).toEqual([]);
 });

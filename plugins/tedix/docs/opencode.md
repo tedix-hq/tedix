@@ -59,7 +59,7 @@ yourself; installing the plugin grants no access.
 | `PreToolUse` recall    | `tedix hooks situational-recall`                | Shell, edit, write and patch tools; lessons are appended to the tool result                                      |
 | Decision capture       | `capture-reply`, `capture-stop`                 | User prompts and `session.idle`, using the same opt-in and redaction                                             |
 | Request ledger         | Prompt and turn capture                         | The same ledger, scoped to the OpenCode session                                                                  |
-| Await-reply wake       | Claude background wake; Codex Stop continuation | Idle listener runs `await-reply`; a framed answer resumes the session as a synthetic message                     |
+| Await-reply wake       | Claude background wake; Codex Stop continuation | Idle listener runs `await-input`; a framed answer resumes the session as a synthetic message                     |
 | Turn-status reporter   | `tedix hooks status`                            | Prompt, idle, permission, tool, error and deletion events; same opt-in                                           |
 | Repository rules       | `AGENTS.md`                                     | `AGENTS.md`, read natively by OpenCode                                                                           |
 

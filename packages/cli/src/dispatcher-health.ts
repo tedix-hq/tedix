@@ -587,7 +587,7 @@ function receiptActivity(
 				row.retryAt,
 				row.runRetryAt,
 				row.completionRetryAt,
-				row.waitCheckAt,
+				row.waitRetryAt,
 			].map((v) => (typeof v === "number" && Number.isFinite(v) ? v : 0)),
 		);
 		const result = row.laneResult as { outcome?: string } | undefined;

@@ -414,11 +414,11 @@ accept it or edit it there; that answer records which draft it started from as
 answers the agent as typed and cites no review draft.
 
 When you answer the question in Tedix OS, Claude Code is woken in the background
-by `tedix hooks await-reply` (an `asyncRewake` `Stop` hook that polls the
-question with 5 to 60 second backoff for at most four hours) and receives your
+by `tedix hooks await-input` (an `asyncRewake` `Stop` hook that blocks on the
+canonical request for at most four hours) and receives your
 answer or an automatic reply (below). Codex has no background wake, so the local Codex
-artifact omits that hook; Codex receives the OS answer with your next prompt,
-through the prompt hook, which looks the question up by ID only. A question already answered in
+artifact uses a synchronous continuation for the same wait. Answers that arrive
+after that wait ends are delivered by the supervisor or the next prompt. A question already answered in
 Tedix OS is never answered again by the chat reply.
 
 #### Automatic replies and their guardrails
@@ -452,18 +452,16 @@ draft. The turn-status reporter records an automatically continued session as
 working, so no needs-you notification is sent; the turn that follows is
 classified normally.
 
-Claude Code receives an automatic reply through `tedix hooks await-reply`.
-Codex receives it through `tedix hooks await-draft`, a synchronous Codex-only
-`Stop` hook. Codex documents that a `Stop` hook returning
+Both hosts receive replies through `tedix hooks await-input`.
+Codex uses a synchronous `Stop` continuation; Claude Code uses background rewake. Codex documents that a `Stop` hook returning
 `{"decision": "block", "reason": "..."}` "tells Codex to continue and
 automatically creates a new continuation prompt that acts as a new user
 prompt, using your reason as that prompt text"
-([Codex hooks](https://learn.chatgpt.com/docs/hooks)). `await-draft` waits up
-to 5 minutes, polling every 5 seconds, for the question this turn opens. It
-prints that continuation only for an automatic draft. It returns at once with
-no output when no draft was queued, the draft is for review, or the question
-was answered. The local Codex artifact registers it; Claude Code artifacts omit
-it. If your Codex hooks live in `~/.codex/hooks.json` instead of the plugin,
+([Codex hooks](https://learn.chatgpt.com/docs/hooks)). `await-input` waits up
+to 90 seconds for the question this turn opens and its answer or automatic
+draft, using the blocking Work wait. It returns with no continuation for a
+review draft or a request closed without a deliverable answer. Each artifact
+registers the host's adapter for this same wait. If your Codex hooks live in `~/.codex/hooks.json` instead of the plugin,
 add this beside the `tedix hooks capture-stop` entry under `"Stop"`:
 
 ```json
@@ -471,7 +469,7 @@ add this beside the `tedix hooks capture-stop` entry under `"Stop"`:
 	"hooks": [
 		{
 			"type": "command",
-			"command": "tedix hooks await-draft",
+			"command": "tedix hooks await-input",
 			"timeout": 320
 		}
 	]
@@ -498,7 +496,7 @@ the [Claude Code guide](./claude-code.md#opt-in-turn-status). Enable it with
 delivers `UserPromptSubmit`, `PermissionRequest`, `PostToolUse`, `Stop` and
 `SessionEnd`; it has no `Notification` or `StopFailure` event, so Codex
 failures surface only when the next turn starts. The status `Stop` hook prints
-nothing, which Codex accepts; only `await-draft` prints, and only its
+nothing, which Codex accepts; only `await-input` prints, and only its
 continuation JSON.
 
 If a skill is missing, check that the plugin is enabled and start a new chat.
