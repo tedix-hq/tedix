@@ -1,5 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type GraphProjectionMaintenanceEnvironment,
@@ -98,43 +98,6 @@ export async function getGraphProjectionMaintenanceRun(
 		)
 		.limit(1);
 	return run ?? null;
-}
-
-/**
- * Return old non-terminal rows so the two-minute control-plane tick can repair
- * the D1-reservation -> Workflow-create gap and reconcile missed terminal
- * settlement. Fresh callers retain the first chance to dispatch.
- */
-export async function listStaleGraphProjectionMaintenanceRuns(
-	db: DbClient,
-	input: {
-		runtimeEnvironment: GraphProjectionMaintenanceEnvironment;
-		updatedBefore: string;
-		limit: number;
-	},
-): Promise<GraphProjectionMaintenanceRun[]> {
-	return db
-		.select()
-		.from(graphProjectionMaintenanceRuns)
-		.where(
-			and(
-				eq(
-					graphProjectionMaintenanceRuns.runtimeEnvironment,
-					input.runtimeEnvironment,
-				),
-				inArray(graphProjectionMaintenanceRuns.status, [
-					"queued",
-					"running",
-					"cancel_requested",
-				]),
-				lte(graphProjectionMaintenanceRuns.updatedAt, input.updatedBefore),
-			),
-		)
-		.orderBy(
-			asc(graphProjectionMaintenanceRuns.updatedAt),
-			asc(graphProjectionMaintenanceRuns.id),
-		)
-		.limit(Math.max(1, Math.min(input.limit, 25)));
 }
 
 export async function markGraphProjectionMaintenanceRunning(

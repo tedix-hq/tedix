@@ -5,7 +5,6 @@ export const MAINTENANCE_TRIGGER = "1-59/2 * * * *";
 export const MAINTENANCE_CRONS = {
 	"decision-outcome-labeller": "1,31 * * * *",
 	"card-summary-backfill": "21,51 * * * *",
-	"graph-gds-redrive": "55 * * * *",
 	"mcp-scan": "35 1 * * *",
 	"site-reconciliation": "3 * * * *",
 	"external-agent-mcp-client-reaper": "5 * * * *",
@@ -16,7 +15,6 @@ export const MAINTENANCE_CRONS = {
 	"cloudflare-billable-usage": "19 2 * * *",
 	"gateway-cost-reconciliation": "23 2 * * *",
 	"output-asset-gc": "13 3 * * *",
-	"machine-scope-drift": "17 3 * * *",
 	"tedi-access-key-rotation": "19 3 * * *",
 	"retention-cleanup": "23 3 * * *",
 	"memory-reflection-and-enrichment": "13 4 * * *",

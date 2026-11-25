@@ -7,7 +7,6 @@ import {
 	commitGraphProjectionMaintenanceGdsSuccess,
 	GraphProjectionMaintenanceIdempotencyError,
 	getGraphProjectionMaintenanceRun,
-	listStaleGraphProjectionMaintenanceRuns,
 	markGraphProjectionMaintenanceRunning,
 	requestGraphProjectionMaintenanceCancel,
 	reserveGraphProjectionMaintenanceRun,
@@ -125,52 +124,6 @@ describe("graph projection maintenance lifecycle", () => {
 				reservation.id,
 			),
 		).resolves.toBeNull();
-	});
-
-	it("discovers only bounded stale non-terminal rows in the same environment", async () => {
-		const { db, sqlite } = fixture();
-		await reserveGraphProjectionMaintenanceRun(db, reservation);
-		await reserveGraphProjectionMaintenanceRun(db, {
-			...reservation,
-			id: "graph-gds-run-2",
-			idempotencyKey: "stable-key-2",
-		});
-		sqlite
-			.prepare(
-				"UPDATE graph_projection_maintenance_runs SET updated_at = ? WHERE id = ?",
-			)
-			.run("2026-07-28T00:00:00.000Z", reservation.id);
-		await markGraphProjectionMaintenanceRunning(
-			db,
-			"production",
-			reservation.organizationId,
-			"graph-gds-run-2",
-		);
-
-		await expect(
-			listStaleGraphProjectionMaintenanceRuns(db, {
-				runtimeEnvironment: "production",
-				updatedBefore: "2026-07-28T00:00:30.000Z",
-				limit: 10,
-			}),
-		).resolves.toEqual([
-			expect.objectContaining({ id: reservation.id, status: "queued" }),
-		]);
-		await expect(
-			listStaleGraphProjectionMaintenanceRuns(db, {
-				runtimeEnvironment: "staging",
-				updatedBefore: "2026-07-28T00:00:30.000Z",
-				limit: 10,
-			}),
-		).resolves.toEqual([]);
-		const plan = sqlite
-			.prepare(
-				"EXPLAIN QUERY PLAN SELECT * FROM graph_projection_maintenance_runs WHERE runtime_environment = 'production' AND status IN ('queued','running','cancel_requested') AND updated_at <= ? ORDER BY updated_at, id LIMIT 10",
-			)
-			.all("2026-07-28T00:00:30.000Z") as Array<{ detail: string }>;
-		expect(plan.some((row) => row.detail.includes("status_updated"))).toBe(
-			true,
-		);
 	});
 
 	it("lets cancellation win before the terminal freshness transaction", async () => {

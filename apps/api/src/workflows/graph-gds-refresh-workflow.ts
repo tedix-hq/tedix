@@ -28,7 +28,7 @@ export interface GraphGdsRefreshWorkflowParams {
 	runtimeEnvironment: "development" | "staging" | "production";
 	organizationId: string;
 	ledgerId: string;
-	source?: "operator" | "mcp" | "redrive" | "test";
+	source?: "operator" | "mcp" | "test";
 }
 
 type GraphGdsRefreshWorkflowResult = {

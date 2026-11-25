@@ -19,7 +19,6 @@ export const PLATFORM_CRON_IDS = [
 	"card-summary-backfill",
 	"provider-event-maintenance",
 	"graph-projection-drain",
-	"graph-gds-redrive",
 	"skill-schedule-dispatch",
 	"app-trigger-dispatch",
 	"orphan-run-sweep",
@@ -61,7 +60,6 @@ export const PLATFORM_CRON_IDS = [
 	"external-agent-mcp-client-reaper",
 	"recurring-work",
 	"conversation-title-backfill",
-	"machine-scope-drift",
 	"tedi-access-key-rotation",
 	"site-reconciliation",
 	"site-versions",
@@ -114,11 +112,6 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		id: "decision-outcome-labeller",
 		cron: MAINTENANCE_CRONS["decision-outcome-labeller"],
 		intervalMinutes: 30,
-	},
-	{
-		id: "graph-gds-redrive",
-		cron: MAINTENANCE_CRONS["graph-gds-redrive"],
-		intervalMinutes: 60,
 	},
 	{
 		id: "card-summary-backfill",
@@ -189,8 +182,8 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "support-maintenance",
-		cron: "*/2 * * * *",
-		intervalMinutes: 2,
+		cron: "*/15 * * * *",
+		intervalMinutes: 15,
 		requiresBinding: "TEDI_SERVICE",
 	},
 	{
@@ -246,12 +239,6 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	{
 		id: "output-asset-gc",
 		cron: MAINTENANCE_CRONS["output-asset-gc"],
-		intervalMinutes: 1_440,
-		requiresFleet: true,
-	},
-	{
-		id: "machine-scope-drift",
-		cron: MAINTENANCE_CRONS["machine-scope-drift"],
 		intervalMinutes: 1_440,
 		requiresFleet: true,
 	},

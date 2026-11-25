@@ -135,44 +135,6 @@ export async function dispatchGraphProjectionDrains(
 	}
 }
 
-export async function redriveGraphGdsMaintenance(
-	env: CloudflareEnv,
-	event: ScheduledController,
-): Promise<Record<string, number>> {
-	const { getGraphDbSecrets } = await import("../integrations/graph-db/client");
-	if (!getGraphDbSecrets(env)) return { configured: 0 };
-	try {
-		const { createDbClient } = await import("@tedix/db/client");
-		const { reconcileStaleGraphGdsRefreshes } =
-			await import("../services/graph-gds-maintenance-scheduling");
-		const redrive = await reconcileStaleGraphGdsRefreshes({
-			db: createDbClient(env.DB),
-			binding: env.GRAPH_GDS_REFRESH_WORKFLOW,
-			runtimeEnvironment: env.ENVIRONMENT,
-			nowMs: event.scheduledTime,
-		});
-		if (redrive.candidates > 0 || redrive.failed > 0) {
-			console.log(
-				"[Scheduled] graph GDS maintenance redrive",
-				JSON.stringify(redrive),
-			);
-		}
-		return {
-			candidates: redrive.candidates,
-			created: redrive.created,
-			existing: redrive.existing,
-			settled: redrive.settled,
-			failed: redrive.failed,
-		};
-	} catch (error) {
-		console.error(
-			"[Scheduled] graph GDS maintenance redrive failed",
-			safeExceptionTopology(error),
-		);
-		throw error;
-	}
-}
-
 export async function dispatchDueSkillSchedulesTick(
 	env: CloudflareEnv,
 	event: ScheduledController,

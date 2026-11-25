@@ -123,13 +123,6 @@ const dispatchScheduled = async (
 			);
 		}
 
-		if (maintenanceIsDue("graph-gds-redrive", event)) {
-			const { redriveGraphGdsMaintenance } = await import("./platform-tick");
-			await trackPlatformCronPath(env, event, "graph-gds-redrive", () =>
-				redriveGraphGdsMaintenance(env, event),
-			);
-		}
-
 		if (cron === "*/2 * * * *" && env.TEDI_SERVICE) {
 			const { runAlwaysOnKeepalive } = await import("./platform-tick");
 			await trackPlatformCronPath(env, event, "always-on-keepalive", () =>
@@ -283,6 +276,9 @@ const dispatchScheduled = async (
 					return maintainRepositoryObservers(env);
 				},
 			);
+		}
+
+		if (cron === "*/15 * * * *" && env.TEDI_SERVICE) {
 			const { maintainSupport } = await import("./support-maintenance");
 			await trackPlatformCronPath(env, event, "support-maintenance", () =>
 				maintainSupport(env),
@@ -465,14 +461,6 @@ const dispatchScheduled = async (
 					}),
 				};
 			});
-		}
-
-		if (fleetEnabled && maintenanceIsDue("machine-scope-drift", event)) {
-			const { runMachineScopeDriftTick } =
-				await import("./machine-scope-drift");
-			await trackPlatformCronPath(env, event, "machine-scope-drift", () =>
-				runMachineScopeDriftTick(env, runId),
-			);
 		}
 
 		if (fleetEnabled && maintenanceIsDue("tedi-access-key-rotation", event)) {

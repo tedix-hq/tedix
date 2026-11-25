@@ -22,7 +22,6 @@ import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule
 
 /** apps/api crons whose every branch is fleet-commercial authority. */
 const FLEET_COMMERCIAL_CRONS = [
-	"*/15 * * * *", // provider usage ingestion and commercial billing ledgers
 	"0 * * * *", // installation health paging plus provider cost anomalies
 	"0 */6 * * *", // global provider scan, catalog drift, cross-tenant health
 	"0 2 * * *", // trial expiration and global catalog synchronization
@@ -65,7 +64,6 @@ vi.mock("./billing-cron", () => ({
 }));
 vi.mock("./platform-tick", () => ({
 	dispatchGraphProjectionDrains: vi.fn(),
-	redriveGraphGdsMaintenance: vi.fn(),
 	dispatchDueSkillSchedulesTick: vi.fn(),
 	dispatchDueAppTriggersTick: vi.fn(),
 	sweepOrphanRunsTick: vi.fn(),
@@ -576,7 +574,45 @@ it("keeps commitment replay and later paths live while stall recovery is pending
 	}
 });
 
-it("keeps repository and support maintenance running after a commitment failure", async () => {
+it("runs support retries only on the quarter-hour tick without commercial work in disabled mode", async () => {
+	const env = {
+		TEDIX_FLEET_AUTHORITY_MODE: "disabled",
+		TEDI_SERVICE: {},
+		DB: {},
+	} as unknown as CloudflareEnv;
+	for (const cron of ["*/2 * * * *", "*/15 * * * *"]) {
+		catchup.paths.length = 0;
+		await scheduled(
+			{
+				cron,
+				scheduledTime: Date.UTC(2026, 10, 25, 7, 30),
+				noRetry: () => {},
+			} as ScheduledController,
+			env,
+			{ waitUntil: () => {} } as unknown as ExecutionContext,
+		);
+		expect(catchup.paths.includes("support-maintenance")).toBe(
+			cron === "*/15 * * * *",
+		);
+		expect(catchup.paths).not.toContain("billing-and-gateway-cost");
+		expect(catchup.paths).not.toContain("workstation-lease-reaper");
+		expect(catchup.paths).not.toContain("workstation-compute-metering");
+		expect(catchup.paths).not.toContain("reply-draft-career");
+	}
+	catchup.paths.length = 0;
+	await scheduled(
+		{
+			cron: "*/15 * * * *",
+			scheduledTime: Date.UTC(2026, 10, 25, 7, 30),
+			noRetry: () => {},
+		} as ScheduledController,
+		{ ...env, TEDI_SERVICE: undefined } as unknown as CloudflareEnv,
+		{ waitUntil: () => {} } as unknown as ExecutionContext,
+	);
+	expect(catchup.paths).toEqual([]);
+});
+
+it("keeps repository maintenance running after a commitment failure", async () => {
 	catchup.outcomes.length = 0;
 	catchup.commitment.mockRejectedValueOnce(
 		new Error("D1_ERROR Network connection lost: secret-sql"),
@@ -604,7 +640,7 @@ it("keeps repository and support maintenance running after a commitment failure"
 			id: "repository-observer",
 			status: "success",
 		});
-		expect(catchup.outcomes).toContainEqual({
+		expect(catchup.outcomes).not.toContainEqual({
 			id: "support-maintenance",
 			status: "success",
 		});
@@ -622,11 +658,7 @@ it("keeps repository and support maintenance running after a commitment failure"
 });
 
 it("dispatches low-urgency jobs only in their maintenance slots", async () => {
-	const ids = [
-		"decision-outcome-labeller",
-		"card-summary-backfill",
-		"graph-gds-redrive",
-	];
+	const ids = ["decision-outcome-labeller", "card-summary-backfill"];
 	const fired: Record<string, number[]> = Object.fromEntries(
 		ids.map((id) => [id, []]),
 	);
@@ -647,6 +679,5 @@ it("dispatches low-urgency jobs only in their maintenance slots", async () => {
 	expect(fired).toEqual({
 		"decision-outcome-labeller": [1, 31, 61, 91],
 		"card-summary-backfill": [21, 51, 81, 111],
-		"graph-gds-redrive": [55, 115],
 	});
 });

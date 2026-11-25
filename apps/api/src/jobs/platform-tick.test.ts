@@ -1,7 +1,6 @@
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import {
 	dispatchGraphProjectionDrains,
-	redriveGraphGdsMaintenance,
 	runAlwaysOnKeepalive,
 	sweepOrphanRunsTick,
 } from "./platform-tick";
@@ -135,9 +134,6 @@ it("reads nothing and starts nothing without graph database config", async () =>
 	const controller = { scheduledTime: Date.UTC(2026, 9, 21, 22, 4) };
 	await expect(
 		dispatchGraphProjectionDrains(env, controller as ScheduledController),
-	).resolves.toEqual({ configured: 0 });
-	await expect(
-		redriveGraphGdsMaintenance(env, controller as ScheduledController),
 	).resolves.toEqual({ configured: 0 });
 	expect(fixtures.listGraphProjectionOrganizations).not.toHaveBeenCalled();
 });
