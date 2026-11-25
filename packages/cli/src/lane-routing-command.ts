@@ -1,3 +1,4 @@
+import { executionSettings } from "./lane-execution-settings";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -101,6 +102,15 @@ export async function runLaneRouting(
 	const path = routingConfigPath(args);
 	const policy = readRoutingPolicy(path);
 	const description = describeRoutingPolicy(policy);
+	const settings = policy.rules.flatMap((rule) =>
+		rule.routes
+			.filter((route) => route.executor !== "tedi")
+			.map((route) => ({
+				rule: rule.name,
+				executor: route.executor,
+				...executionSettings(route.executor, route),
+			})),
+	);
 	const env = process.env;
 	const tools = toolAvailability().map((tool) => {
 		if (tool.executor !== "tedi") return tool;
@@ -130,7 +140,13 @@ export async function runLaneRouting(
 	});
 	if (options.json || args.includes("--json")) {
 		console.log(
-			JSON.stringify({ path: path ?? null, policy, description, tools }),
+			JSON.stringify({
+				path: path ?? null,
+				policy,
+				description,
+				settings,
+				tools,
+			}),
 		);
 		return 0;
 	}
@@ -140,6 +156,11 @@ export async function runLaneRouting(
 			: "No routing file is set. Each runner takes only the tasks assigned to its own agent.\n",
 	);
 	for (const line of description) console.log(`- ${line}`);
+	console.log("\nExecution settings:");
+	for (const route of settings)
+		console.log(
+			`- ${route.rule} / ${NAMES[route.executor]}: effort ${route.effort}; permissions ${JSON.stringify(route.permission)}`,
+		);
 	console.log("\nRight now:");
 	for (const tool of tools) {
 		console.log(`- ${tool.description}`);

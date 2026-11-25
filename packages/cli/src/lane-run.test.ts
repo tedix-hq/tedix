@@ -94,11 +94,14 @@ describe("lane launcher", () => {
 			);
 			writeFileSync(
 				args.at(-1)!,
-				`process.stdin.resume(); process.stdin.on('end', () => {
+				`#!${process.execPath}
+process.stdin.resume(); process.stdin.on('end', () => {
 			require('node:fs').appendFileSync(${codeModeLiteral(path)}, ${codeModeLiteral(JSON.stringify(row(2)) + "\n" + JSON.stringify(row(2)) + "\n")});
 			setInterval(() => {}, 1000);
 		});`,
 			);
+			chmodSync(args.at(-1)!, 0o700);
+			args.splice(-2, 2, args.at(-1)!);
 			args.splice(args.indexOf("--"), 0, "--transcript", path);
 			const state = {
 				startedAt: Date.now(),
@@ -135,11 +138,16 @@ describe("lane launcher", () => {
 			const script = args.at(-1)!;
 			writeFileSync(
 				script,
-				`process.stdin.resume(); process.stdin.on('end', () => {
+				`#!${process.execPath}
+process.stdin.resume(); process.stdin.on('end', () => {
 			console.log(JSON.stringify({type:'step_finish',sessionID:'test-session',part:{id:'step-1',tokens:{input:100,output:10}}}));
 			setInterval(() => {}, 1000);
 		});`,
 			);
+			chmodSync(script, 0o700);
+			args.splice(-2, 2, script);
+			if (executor === "opencode")
+				args.splice(args.indexOf("--"), 0, "--model", "fictional/model");
 			const reports: Record<string, unknown>[] = [];
 			const state = {
 				startedAt: Date.now(),
@@ -199,14 +207,17 @@ const finish = (threadId, turnId, text) => {
 require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
 	const { id, method, params } = JSON.parse(line);
 	if (method === "initialize") reply(id, {});
-	if (method === "thread/start") reply(id, {
+	if (method === "thread/start") {
+		if (params.approvalPolicy !== "never" || params.sandbox !== "read-only" || params.config.model_reasoning_effort !== "high") process.exit(4);
+		reply(id, {
 		thread: { id: ${JSON.stringify(threadId)}, path: "unused.jsonl", cliVersion: "0.170.0" },
 		model: "test-model",
 		modelProvider: "test-provider",
 	});
+	}
 	if (method === "turn/start") {
 		const turnId = String(++turns);
-		if (params.outputSchema.type !== "object") process.exit(2);
+		if (params.outputSchema.type !== "object" || params.effort !== "high" || params.approvalPolicy !== "never") process.exit(2);
 		const started = () => send({ method: "turn/started", params: { threadId: params.threadId, turn: { id: turnId } } });
 		if (process.env.FIRST === "notice") started();
 		reply(id, { turn: { id: turnId } });
@@ -230,6 +241,10 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 				undefined,
 				undefined,
 				{ FIRST: first },
+				{
+					effort: "high",
+					permission: { sandbox: "read-only", approval: "never" },
+				},
 			);
 			const steps: string[] = [];
 			const pids: number[] = [];

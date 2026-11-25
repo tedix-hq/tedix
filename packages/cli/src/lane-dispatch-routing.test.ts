@@ -13,6 +13,7 @@ import {
 	type DispatchItem,
 	type ServeOptions,
 } from "./lane-serve";
+import type { LaneExecutionSettings } from "./lane-execution-settings";
 import type { ExecutorBudgets, LocalExecutor } from "./lane-routing";
 import type { RunnerDuty } from "./supervise-runners";
 import { testRoutingPolicy } from "./lane-routing.fixture";
@@ -21,11 +22,13 @@ afterEach(() => {
 	for (const path of dirs.splice(0))
 		rmSync(path, { recursive: true, force: true });
 });
-function fixture(configured = true) {
+function fixture(configured = true, settings: LaneExecutionSettings = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "lane-route-integration-"));
 	dirs.push(dir);
 	const routingConfig = join(dir, "routing.json");
-	writeFileSync(routingConfig, JSON.stringify(testRoutingPolicy));
+	const policy = structuredClone(testRoutingPolicy);
+	Object.assign(policy.rules[2]!.routes[1]!, settings);
+	writeFileSync(routingConfig, JSON.stringify(policy));
 	const item: DispatchItem = {
 		id: "11111111-1111-4111-8111-111111111111",
 		title: "Inspect a widget",
@@ -61,7 +64,11 @@ function fixture(configured = true) {
 		stopped: false,
 		missing: false,
 		history: [] as Record<string, unknown>[],
-		threads: [] as Array<{ executor: LocalExecutor; resume?: string }>,
+		threads: [] as Array<{
+			executor: LocalExecutor;
+			resume?: string;
+			settings?: LaneExecutionSettings;
+		}>,
 		launches: [] as string[][],
 		events: [] as string[],
 	};
@@ -96,10 +103,10 @@ function fixture(configured = true) {
 				mkdirSync(destination, { recursive: true });
 				return destination;
 			},
-			thread: async (_repo, executor, model, resume) => {
+			thread: async (_repo, executor, model, resume, _env, settings) => {
 				control.events.push("native");
 				if (control.nativeError) throw control.nativeError;
-				control.threads.push({ executor, resume });
+				control.threads.push({ executor, resume, settings });
 				if (resume && control.missing) throw new Error("rollout not found");
 				return {
 					thread: {
@@ -237,8 +244,9 @@ it("retains unconfigured automatic Work without native allocation or admission",
 	expect(receipt.phase).toBe("deferred");
 	expect(receipt.note).toContain("--routing-config");
 });
-it("uses a healthy route when the first executor fails pre-flight", async () => {
-	const { control, create } = fixture();
+it("passes the fallback route settings to native preparation and launch", async () => {
+	const settings = { effort: "high", permission: { mode: "dontAsk" } } as const;
+	const { control, create } = fixture(true, settings);
 	control.preflightFailures.codex = "network check failed";
 	const dispatcher = create();
 	await dispatcher.tick();
@@ -247,6 +255,12 @@ it("uses a healthy route when the first executor fails pre-flight", async () => 
 		"claude-code",
 	]);
 	expect(control.launches).toHaveLength(1);
+	expect(control.threads[0]!.settings).toMatchObject(settings);
+	const args = control.launches[0]!;
+	expect(args[args.indexOf("--reasoning") + 1]).toBe("high");
+	expect(JSON.parse(args[args.indexOf("--permission") + 1]!)).toEqual(
+		settings.permission,
+	);
 });
 it("routes an any-local Work around a Codex cooldown and Claude allowance reserve and launches native OpenCode after admission", async () => {
 	const { control, create } = fixture();

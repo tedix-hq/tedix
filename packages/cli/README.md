@@ -625,7 +625,44 @@ agent that is busy, out of budget or failing passes the task to the next one.
 An empty route list pauses automatic assignments for that rule. A rule may carry
 a `description` in your own words. `tedix lane routing` prints the file runners
 use and which tool takes which tasks, in plain words (`--json` adds the parsed
-policy); it changes nothing.
+policy and resolved execution settings); it changes nothing.
+
+Each route can set `effort` and `permission`. For example:
+
+```json
+{
+	"executor": "codex",
+	"effort": "high",
+	"permission": { "sandbox": "workspace-write", "approval": "never" }
+}
+```
+
+Codex accepts `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` effort;
+its sandbox is `read-only`, `workspace-write`, or `danger-full-access`, and
+approval is `untrusted`, `on-failure`, `on-request`, or `never`.
+Claude Code accepts `low`, `medium`, `high`, `xhigh`, or `max` effort and
+`permission: { "mode": "auto" }` (also `default`, `acceptEdits`, `plan`,
+`dontAsk`, or `bypassPermissions`). These become explicit harness arguments,
+including when resuming a native session. Provider and organization restrictions
+still apply; selecting a mode grants no Tedix Work authority.
+
+Omitted values use runner defaults: medium effort, Codex `workspace-write` with
+`never` approval, and Claude `auto` mode. Editing personal Codex or Claude effort
+or permission-mode settings does not change these choices. Other personal
+settings, such as authentication, plugins, and tool-specific rules, still load.
+
+OpenCode 2 uses `effort` as the model's `#variant`; the model must offer that
+variant. Its permission mode is `auto` (approve requested actions) or `reject`
+(reject requests during a noninteractive run). The default is medium and auto.
+Devin always keeps the runner sandbox and scoped tool rules; its permission mode
+can be `normal` (default), `accept-edits`, `smart`, `dangerous`, or `autonomous`.
+Devin has no documented effort launch flag: only `effort: "model-default"` is
+supported, and explicit effort levels are rejected before launch. Tedi routes
+use their cloud configuration and do not accept these local execution settings.
+
+`tedix lane run --reasoning high --permission '{"mode":"dontAsk"}'` also accepts
+explicit settings for a direct Claude launch. Use a Codex permission object for
+Codex. `tedix lane routing` shows the effective settings for every route.
 
 Clef can pick the tool. Add each tool's strengths to the routing file and runners
 ask the Clef decision model, once per task revision, which of the tools available

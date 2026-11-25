@@ -304,7 +304,12 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 		readFileSync(join(dir, "invocation.json"), "utf8"),
 	);
 	expect(invocation.cwd).toBe(realpathSync(dir));
-	expect(invocation.args).not.toContain("--permission-mode");
+	expect(
+		invocation.args.slice(
+			invocation.args.indexOf("--permission-mode"),
+			invocation.args.indexOf("--permission-mode") + 2,
+		),
+	).toEqual(["--permission-mode", "normal"]);
 	expect(invocation.args).not.toContain("dangerous");
 	expect(invocation.args.slice(0, 4)).toEqual(
 		["-p", "-r", "quiet-river"].concat("--prompt-file"),

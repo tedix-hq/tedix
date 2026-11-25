@@ -4,6 +4,7 @@ import {
 	describeUsage,
 	nearUsageLimit,
 	routeLocalWork,
+	routingPolicySchema,
 	executorBackoff,
 	statedResetAt,
 	parseBudgetSignal,
@@ -20,6 +21,52 @@ const available = {
 	tedi: { available: false },
 };
 describe("local capability routing", () => {
+	it("retains each route's settings when pinned or falling back and rejects incompatible modes", () => {
+		const policy = structuredClone(testRoutingPolicy);
+		policy.rules[0]!.routes[0] = {
+			executor: "codex",
+			limits: { maxTurns: 3 },
+			effort: "high",
+			permission: { sandbox: "read-only", approval: "never" },
+		};
+		policy.rules[0]!.routes[1] = {
+			executor: "claude-code",
+			effort: "low",
+			permission: { mode: "dontAsk" },
+		};
+		policy.rules[1]!.routes = policy.rules[1]!.routes.filter(
+			(route) => route.executor !== "codex",
+		);
+		const parsed = routingPolicySchema.parse(policy);
+		expect(
+			routeLocalWork(
+				{ executor: "codex", size: "small" },
+				parsed,
+				available,
+				{},
+			),
+		).toMatchObject({
+			limits: { maxTurns: 3 },
+			effort: "high",
+			permission: { sandbox: "read-only", approval: "never" },
+		});
+		expect(
+			routeLocalWork(
+				{ executor: "any-local", risk: "high" },
+				parsed,
+				{ ...available, codex: { available: false } },
+				{},
+			),
+		).toMatchObject({
+			executor: "claude-code",
+			effort: "low",
+			permission: { mode: "dontAsk" },
+		});
+		policy.rules[0]!.routes[1]!.permission = { sandbox: "danger-full-access" };
+		expect(() => routingPolicySchema.parse(policy)).toThrow(
+			"only supported by Codex",
+		);
+	});
 	it("uses the first configured route for small mechanical work", () => {
 		expect(
 			routeLocalWork(

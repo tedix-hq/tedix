@@ -1,3 +1,7 @@
+import {
+	executionFlags,
+	type LaneExecutionSettings,
+} from "./lane-execution-settings";
 import { spawn } from "node:child_process";
 import { readFileSync, readdirSync, existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -18,6 +22,7 @@ export async function createClaudeLaneThread(
 	timeoutMs = 30_000,
 	model?: string,
 	resume?: string,
+	settings: LaneExecutionSettings = {},
 ) {
 	if (resume && !claudeTranscript(resume, claudeConfigDirectory(env, cwd)))
 		throw new Error("Claude session not found");
@@ -25,6 +30,7 @@ export async function createClaudeLaneThread(
 	const child = spawn(
 		executable,
 		[
+			...executionFlags("claude-code", settings),
 			"-p",
 			"--input-format",
 			"stream-json",

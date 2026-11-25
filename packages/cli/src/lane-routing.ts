@@ -1,3 +1,8 @@
+import {
+	effortSchema,
+	permissionSchema,
+	executionSettings,
+} from "./lane-execution-settings";
 import * as z from "zod";
 import { laneLimitsSchema } from "./lane-limits";
 import { DecisionModelSchema } from "@tedix/api-contract/schemas/jev";
@@ -31,11 +36,21 @@ export const routingPolicySchema = z.strictObject({
 				sizes: z.array(z.string()),
 				risks: z.array(z.string()),
 				routes: z.array(
-					z.strictObject({
-						executor: executorSchema,
-						model: z.string().min(1).optional(),
-						limits: laneLimitsSchema.optional(),
-					}),
+					z
+						.strictObject({
+							executor: executorSchema,
+							model: z.string().min(1).optional(),
+							limits: laneLimitsSchema.optional(),
+							effort: effortSchema.optional(),
+							permission: permissionSchema.optional(),
+						})
+						.superRefine((route, context) => {
+							try {
+								executionSettings(route.executor, route);
+							} catch (error) {
+								context.addIssue({ code: "custom", message: String(error) });
+							}
+						}),
 				),
 			}),
 		)
@@ -583,12 +598,12 @@ export function routeLocalWork(
 		work.executor === "any-local"
 			? rule.routes
 			: [
-					rule.routes.find((route) => route.executor === work.executor) ?? {
-						executor: executorSchema.parse(work.executor),
-						model: policy.rules
+					rule.routes.find((route) => route.executor === work.executor) ??
+						policy.rules
 							.flatMap((row) => row.routes)
-							.find((route) => route.executor === work.executor)?.model,
-					},
+							.find((route) => route.executor === work.executor) ?? {
+							executor: executorSchema.parse(work.executor),
+						},
 				];
 	if (routes.length === 0)
 		throw new Error(
@@ -636,6 +651,7 @@ export function routeLocalWork(
 		}
 		return {
 			...route,
+			...executionSettings(route.executor, route),
 			/** Earlier tools in the rule that could not take it, and why. */
 			skipped: rejected,
 			model:

@@ -54,7 +54,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
 		},
 	};
 }
-it("captures native identity before the PID record disappears without choosing a model or granting permissions", async () => {
+it("captures native identity before the PID record disappears with explicit effort and permission mode", async () => {
 	const f = fixture();
 	expect(
 		await createClaudeLaneThread(f.dir, f.executable, f.env, 5000),
@@ -67,6 +67,10 @@ it("captures native identity before the PID record disappears without choosing a
 		JSON.parse(readFileSync(join(f.dir, "observed.json"), "utf8")),
 	).toEqual({
 		args: [
+			"--effort",
+			"medium",
+			"--permission-mode",
+			"auto",
 			"-p",
 			"--input-format",
 			"stream-json",

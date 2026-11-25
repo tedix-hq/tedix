@@ -1,3 +1,8 @@
+import {
+	executionSettings,
+	executionFlags,
+	type LaneExecutionSettings,
+} from "./lane-execution-settings";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
@@ -14,10 +19,17 @@ function codexAppServer(
 	executable: string,
 	cwd: string,
 	env: NodeJS.ProcessEnv,
+	settings: LaneExecutionSettings,
 ) {
 	const child = spawn(
 		executable,
-		["app-server", "--stdio", "-c", CODEX_LANE_CONFIG_ARG],
+		[
+			"app-server",
+			"--stdio",
+			"-c",
+			CODEX_LANE_CONFIG_ARG,
+			...executionFlags("codex", settings),
+		],
 		{
 			cwd,
 			env: { ...laneChildEnv(), ...env },
@@ -138,8 +150,10 @@ export async function createCodexLaneThread(
 	model?: string,
 	resume?: string,
 	env: NodeJS.ProcessEnv = {},
+	settings: LaneExecutionSettings = {},
 ) {
-	const server = codexAppServer(executable, cwd, env);
+	const resolved = executionSettings("codex", settings);
+	const server = codexAppServer(executable, cwd, env, resolved);
 	server.child.stderr.resume();
 	try {
 		await server.initialize();
@@ -147,7 +161,9 @@ export async function createCodexLaneThread(
 			resume ? "thread/resume" : "thread/start",
 			{
 				cwd,
-				approvalPolicy: "never",
+				approvalPolicy: resolved.permission!.approval,
+				sandbox: resolved.permission!.sandbox,
+				config: { model_reasoning_effort: resolved.effort },
 				...(model ? { model } : {}),
 				...(resume
 					? { threadId: resume, excludeTurns: true }
@@ -173,7 +189,7 @@ export async function createCodexLaneThread(
 		// connection through admission so the turn uses the allocated identity.
 		return {
 			...result,
-			codexServer: bindCodexLaneThread(server, result.thread.id),
+			codexServer: bindCodexLaneThread(server, result.thread.id, resolved),
 		};
 	} catch (error) {
 		server.close();
@@ -186,6 +202,7 @@ const textInput = (text: string) => [{ type: "text", text, text_elements: [] }];
 function bindCodexLaneThread(
 	server: ReturnType<typeof codexAppServer>,
 	threadId: string,
+	settings: LaneExecutionSettings,
 ) {
 	const { child } = server;
 	let activeTurnId: string | undefined;
@@ -269,6 +286,8 @@ function bindCodexLaneThread(
 						threadId,
 						input: textInput(text),
 						outputSchema,
+						effort: settings.effort,
+						approvalPolicy: settings.permission!.approval,
 					});
 				} catch (error) {
 					if (!turnId && error instanceof CodexRequestRejected) return;

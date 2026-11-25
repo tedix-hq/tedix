@@ -1,3 +1,4 @@
+import type { LaneExecutionSettings } from "./lane-execution-settings";
 import {
 	WorkAttemptSettlementSchema,
 	workSettlementCommits,
@@ -3212,6 +3213,7 @@ interface DispatcherDeps {
 		model?: string,
 		resume?: string,
 		env?: NodeJS.ProcessEnv,
+		settings?: LaneExecutionSettings,
 	) => Promise<{
 		codexServer?: CodexLaneServer;
 		thread: { id: string; cliVersion: string; path?: string };
@@ -3271,7 +3273,7 @@ const defaultDeps: DispatcherDeps = {
 	devinAvailability,
 	available: cachedExecutorProbe(),
 	budgets: cachedExecutorBudgets(),
-	thread: (cwd, executor, model, resume, env) =>
+	thread: (cwd, executor, model, resume, env, settings) =>
 		executor === "devin"
 			? createDevinLaneThread(cwd, "devin", model, 30_000, resume)
 			: executor === "claude-code"
@@ -3282,6 +3284,7 @@ const defaultDeps: DispatcherDeps = {
 						30_000,
 						model,
 						resume,
+						settings,
 					)
 				: executor === "tedi"
 					? Promise.resolve({
@@ -3291,7 +3294,7 @@ const defaultDeps: DispatcherDeps = {
 						})
 					: executor === "opencode"
 						? createOpenCodeLaneThread(cwd, model ?? "", resume)
-						: createCodexLaneThread(cwd, "codex", model, resume, env),
+						: createCodexLaneThread(cwd, "codex", model, resume, env, settings),
 	launch: runLaneProcess,
 	waitForIdentity: waitForLaneProcessIdentity,
 	darkWake: inDarkWake,
@@ -4596,6 +4599,10 @@ export class LaneDispatcher {
 					continue;
 				}
 				if (Date.now() < (previous?.preparationFailure?.retryAt ?? 0)) {
+					await this.failOver(
+						item,
+						new Error(previous!.preparationFailure!.message),
+					);
 					observeSkip(item, previous?.note ?? "Preparation retry is deferred");
 					continue;
 				}
@@ -6775,12 +6782,19 @@ export class LaneDispatcher {
 					this.options.scope[this.options.scope.indexOf("--organization") + 1]!,
 			};
 			const prepareThread = (resume?: string) =>
-				this.deps.thread(repo, executor, selection.model, resume, {
-					TEDIX_WORKSPACE: childScope.workspace,
-					TEDIX_ORGANIZATION: childScope.organization,
-					TEDIX_LANE_LABEL: item.title,
-					TEDIX_LANE_LOG: "1",
-				});
+				this.deps.thread(
+					repo,
+					executor,
+					selection.model,
+					resume,
+					{
+						TEDIX_WORKSPACE: childScope.workspace,
+						TEDIX_ORGANIZATION: childScope.organization,
+						TEDIX_LANE_LABEL: item.title,
+						TEDIX_LANE_LOG: "1",
+					},
+					selection,
+				);
 			const fresh = () => prepareThread();
 			let thread = await (
 				adopted
@@ -7436,6 +7450,10 @@ ${firstBrief}`;
 								? `${thread.modelProvider}/${thread.model}`
 								: thread.model,
 						],
+						...(selection.effort ? ["--reasoning", selection.effort] : []),
+						...(selection.permission
+							? ["--permission", JSON.stringify(selection.permission)]
+							: []),
 						...(thread.thread.path ? ["--transcript", thread.thread.path] : []),
 						"--",
 						...command,

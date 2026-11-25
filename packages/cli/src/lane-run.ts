@@ -1,3 +1,9 @@
+import {
+	executionSettings,
+	executionFlags,
+	effortSchema,
+	permissionSchema,
+} from "./lane-execution-settings";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -56,7 +62,7 @@ function devinDeclaredExchange(message: string): boolean {
 }
 
 export const laneRunUsage = `tedix lane run --executor codex|claude-code|opencode|devin|tedi|skill --brief <file> --project <id>
-  [--model <id>] [--reasoning <effort>] [--rate-scope <scope>] [--work-item <id>]
+  [--model <id>] [--reasoning <effort>] [--permission <json>] [--rate-scope <scope>] [--work-item <id>]
   [--transcript <file>] [--telemetry <file>] -- <command> [args...]
 tedix lane import --executor codex|claude-code --transcript <file> --project <id> [--apply]
 Devin needs no command after --; its runner supplies prompt-file, resume and permission arguments.
@@ -258,6 +264,7 @@ async function runLaneProcessWithReporter(
 				"--project",
 				"--model",
 				"--reasoning",
+				"--permission",
 				"--rate-scope",
 				"--work-item",
 				"--transcript",
@@ -319,6 +326,21 @@ async function runLaneProcessWithReporter(
 		throw new Error(
 			"Choose --executor codex|claude-code|opencode|devin|tedi|skill",
 		);
+	const settings = executionSettings(executor!, {
+		effort: options.has("--reasoning")
+			? effortSchema.parse(options.get("--reasoning"))
+			: undefined,
+		permission: options.has("--permission")
+			? permissionSchema.parse(JSON.parse(options.get("--permission")!))
+			: undefined,
+	});
+	if (executor === "codex" || executor === "claude-code")
+		command.splice(
+			executor === "codex" ? 2 : 1,
+			0,
+			...executionFlags(executor, settings),
+		);
+
 	const projectId = options.get("--project");
 	if (!projectId) throw new Error("--project is required");
 	const devin = executor === "devin";
@@ -361,6 +383,25 @@ async function runLaneProcessWithReporter(
 						options.get("--model") ?? "",
 					)
 				: undefined;
+	if (opencode) {
+		const modelAt = command.indexOf("--model");
+		const model =
+			(modelAt >= 0 ? command[modelAt + 1] : undefined) ??
+			options.get("--model") ??
+			(nativeThread
+				? `${nativeThread.modelProvider}/${nativeThread.model}`
+				: undefined);
+		if (!model)
+			throw new Error(
+				"OpenCode needs a resolved model to select its effort variant",
+			);
+		const selection = `${model.split("#")[0]}#${settings.effort}`;
+		if (modelAt >= 0) command[modelAt + 1] = selection;
+		else command.splice(2, 0, "--model", selection);
+		const autoAt = command.indexOf("--auto");
+		if (autoAt >= 0) command.splice(autoAt, 1);
+		command.splice(2, 0, ...executionFlags("opencode", settings));
+	}
 	const sessionKey = deps.sessionKey ?? nativeThread?.thread.id ?? randomUUID();
 	const startedAt = new Date().toISOString();
 	const usageEventIds = new Set<string>();
@@ -379,7 +420,8 @@ async function runLaneProcessWithReporter(
 						: tedi
 							? "tedix"
 							: null,
-		reasoningEffort: options.get("--reasoning") ?? null,
+		reasoningEffort:
+			settings.effort === "model-default" ? null : (settings.effort ?? null),
 		brief: options.has("--brief")
 			? readFileSync(options.get("--brief")!, "utf8").slice(0, 24000)
 			: "",
@@ -538,6 +580,7 @@ async function runLaneProcessWithReporter(
 			"--respect-workspace-trust",
 			"false",
 			"--sandbox",
+			...executionFlags("devin", settings),
 			"--config",
 			config,
 			"--export",
