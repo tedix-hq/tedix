@@ -1,3 +1,8 @@
+import { DatabaseSync } from "node:sqlite";
+import { createDbClient } from "@tedix/db/client";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { gitCommitAliases } from "@tedix/db/schema/git-commit-aliases";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { KernelRequestPolicy } from "@tedix/api-contract/schemas/kernel-request";
 import type { BaseContext } from "../rpc/orpc";
@@ -38,7 +43,9 @@ const source = {
 	ownerUserId: "user-ada",
 	conversationId: "home-one",
 };
-const context = { db: {} } as BaseContext;
+const sqlite = new DatabaseSync(":memory:");
+sqlite.exec(schemaDdl(gitCommitAliases));
+const context = { db: createDbClient(createD1Facade(sqlite)) } as BaseContext;
 const sha = "a".repeat(40);
 const policy: KernelRequestPolicy = {
 	version: 1,
@@ -674,4 +681,33 @@ it("redacts a signed URL from a downstream streamed-body error", async () => {
 			fetchFn as typeof fetch,
 		),
 	).rejects.toThrow("Managed Ship log download unavailable");
+});
+
+it("resolves an old source id before calling GitHub compare", async () => {
+	const oldSha = "e".repeat(40);
+	await context.db
+		.insert(gitCommitAliases)
+		.values({ oldSha, newSha: sha, repository: "example/product" });
+	try {
+		const f = ancestryFetch();
+		const result = await readConfiguredRepositoryDelivery(
+			context,
+			source.organizationId,
+			policy,
+			{
+				kind: "repository_delivery",
+				targetId: "repo-one",
+				surface: "app",
+				commitSha: f.live,
+				sourceCommit: oldSha,
+			},
+			f.fetchFn,
+		);
+		expect(result.sourceAncestry?.sourceCommit).toBe(sha);
+		expect(f.paths.filter((path) => path.includes("/compare/"))[0]).toBe(
+			`https://api.github.com/repos/example/product/compare/${sha}...${f.live}?per_page=1`,
+		);
+	} finally {
+		sqlite.exec("DELETE FROM git_commit_aliases");
+	}
 });

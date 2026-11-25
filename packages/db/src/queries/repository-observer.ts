@@ -1,5 +1,6 @@
 import { and, asc, eq, gte, sql, type SQL } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { createCommitResolver } from "./git-commit-aliases";
 import type { DbQueryClient } from "../query-client";
 import type { RepositoryObserverConfig } from "@tedix/api-contract/schemas/repository-observer";
 import { projects } from "../schema/projects";
@@ -508,12 +509,18 @@ export async function findRepositoryPushObservations(
 	db: DbQueryClient,
 	p: { orgId: string; projectId: string; shas: string[]; since: string },
 ): Promise<RepositoryPushRecord[]> {
-	const shas = [...new Set(p.shas)].slice(0, 30);
+	const resolver = createCommitResolver(db);
+	const shas = [
+		...new Set(
+			(
+				await Promise.all(
+					[...new Set(p.shas)].slice(0, 30).map(resolver.aliasesFor),
+				)
+			).flat(),
+		),
+	];
 	if (!shas.length) return [];
-	const list = sql.join(
-		shas.map((sha) => sql`${sha}`),
-		sql`, `,
-	);
+	const list = sql`SELECT value FROM json_each(${JSON.stringify(shas)})`;
 	const rows = await db
 		.select({
 			id: workItems.id,
@@ -533,7 +540,7 @@ export async function findRepositoryPushObservations(
 		)
 		.orderBy(asc(workItems.createdAt), asc(workItems.id))
 		.limit(100);
-	return rows.flatMap((row) => {
+	const records = rows.flatMap((row) => {
 		const event = row.metadata?.event as
 			| {
 					sha?: unknown;
@@ -557,6 +564,18 @@ export async function findRepositoryPushObservations(
 			},
 		];
 	});
+	return Promise.all(
+		records.map(async (row) => ({
+			...row,
+			sha: await resolver.canonicalCommit(row.sha),
+			beforeSha: row.beforeSha
+				? await resolver.canonicalCommit(row.beforeSha)
+				: null,
+			commitShas: await Promise.all(
+				row.commitShas.map(resolver.canonicalCommit),
+			),
+		})),
+	);
 }
 
 /** Exact head pushes whose commit trailer identifies the Work they delivered. */
@@ -569,12 +588,18 @@ export async function findWorkImplementationPushes(
 		since: string;
 	},
 ) {
-	const shas = [...new Set(params.commitShas)].slice(0, 30);
+	const resolver = createCommitResolver(db);
+	const shas = [
+		...new Set(
+			(
+				await Promise.all(
+					[...new Set(params.commitShas)].slice(0, 30).map(resolver.aliasesFor),
+				)
+			).flat(),
+		),
+	];
 	if (!shas.length) return [];
-	const list = sql.join(
-		shas.map((sha) => sql`${sha}`),
-		sql`, `,
-	);
+	const list = sql`SELECT value FROM json_each(${JSON.stringify(shas)})`;
 	return db
 		.select({
 			id: workItems.id,

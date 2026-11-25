@@ -80,6 +80,10 @@ vi.mock("cloudflare:workers", () => ({
 vi.mock("../../workstation/repo-sync", () => processMocks);
 vi.mock("../../workstation/github-credentials", () => githubCredentialMocks);
 vi.mock("../../workstation/sandbox-destroy", () => sandboxDestroyMocks);
+vi.mock("@tedix/db/queries/git-commit-aliases", () => ({
+	canonicalCommit: async (_db: unknown, sha: string) => sha,
+	createCommitResolver: () => ({ canonicalCommit: async (sha: string) => sha }),
+}));
 vi.mock("@tedix/db/client", () => ({
 	createDbClient: dbMocks.createDbClient,
 }));

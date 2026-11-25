@@ -12,6 +12,7 @@ import {
 	type PersonalAgentContribution,
 } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { createCommitResolver } from "../git-commit-aliases";
 import type { DbClient } from "../../client";
 import { DelegationFyiSchema } from "@tedix/api-contract/schemas/work-items";
 import type { DelegationFyi } from "./delegation-autonomy";
@@ -152,51 +153,59 @@ export async function listWorkActivity(
 		)
 		.limit(cap + 1);
 	const page = rows.slice(0, cap);
-	const events: WorkActivityRow[] = page.map((r) => {
-		const md = (r.metadata ?? {}) as Record<string, unknown>;
-		const contribution = PersonalAgentContributionSchema.safeParse(
-			md.personalAgentContribution,
-		);
-		const trustedContribution =
-			contribution.success &&
-			r.eventType === "personal_agent.finding_received" &&
-			r.authorType === "system" &&
-			r.authorId === `personal-agent:${contribution.data.sourceAgentId}`
-				? contribution.data
-				: undefined;
-		const fyi = DelegationFyiSchema.safeParse(md.delegationFyi);
-		const trustedFyi =
-			fyi.success &&
-			r.eventType === "delegation.fyi" &&
-			r.authorType === "system" &&
-			r.authorId === "home"
-				? fyi.data
-				: undefined;
-		return {
-			...(r.eventType === "comment" && md.activityKind === "reply"
-				? { isReply: true }
-				: {}),
-			...(trustedFyi ? { delegationFyi: trustedFyi } : {}),
-			id: r.id,
-			workItemId: r.workItemId,
-			workItemTitle: r.workItemTitle,
-			workItemKind: r.workItemKind,
-			workItemStatus: r.workItemStatus,
-			eventType: r.eventType,
-			authorType: r.authorType,
-			authorId: r.authorId,
-			agentSession:
-				typeof md.agentSession === "string" ? md.agentSession : null,
-			agentHarness:
-				typeof md.agentHarness === "string" ? md.agentHarness : null,
-			settlement: settlementFromMetadata(md),
-			...(trustedContribution
-				? { personalAgentContribution: trustedContribution }
-				: {}),
-			body: typeof md.summary === "string" ? md.summary : r.eventType,
-			createdAt: r.createdAt,
-		};
-	});
+	const resolver = createCommitResolver(db);
+	const events: WorkActivityRow[] = await Promise.all(
+		page.map(async (r) => {
+			const md = (r.metadata ?? {}) as Record<string, unknown>;
+			const contribution = PersonalAgentContributionSchema.safeParse(
+				md.personalAgentContribution,
+			);
+			const trustedContribution =
+				contribution.success &&
+				r.eventType === "personal_agent.finding_received" &&
+				r.authorType === "system" &&
+				r.authorId === `personal-agent:${contribution.data.sourceAgentId}`
+					? contribution.data
+					: undefined;
+			const fyi = DelegationFyiSchema.safeParse(md.delegationFyi);
+			const trustedFyi =
+				fyi.success &&
+				r.eventType === "delegation.fyi" &&
+				r.authorType === "system" &&
+				r.authorId === "home"
+					? fyi.data
+					: undefined;
+			const settlement = settlementFromMetadata(md);
+			if (settlement?.commitSha)
+				settlement.commitSha = await resolver.canonicalCommit(
+					settlement.commitSha,
+				);
+			return {
+				...(r.eventType === "comment" && md.activityKind === "reply"
+					? { isReply: true }
+					: {}),
+				...(trustedFyi ? { delegationFyi: trustedFyi } : {}),
+				id: r.id,
+				workItemId: r.workItemId,
+				workItemTitle: r.workItemTitle,
+				workItemKind: r.workItemKind,
+				workItemStatus: r.workItemStatus,
+				eventType: r.eventType,
+				authorType: r.authorType,
+				authorId: r.authorId,
+				agentSession:
+					typeof md.agentSession === "string" ? md.agentSession : null,
+				agentHarness:
+					typeof md.agentHarness === "string" ? md.agentHarness : null,
+				settlement,
+				...(trustedContribution
+					? { personalAgentContribution: trustedContribution }
+					: {}),
+				body: typeof md.summary === "string" ? md.summary : r.eventType,
+				createdAt: r.createdAt,
+			};
+		}),
+	);
 	const last = events.at(-1);
 	return {
 		events,

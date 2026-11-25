@@ -1,3 +1,4 @@
+import { createCommitResolver } from "@tedix/db/queries/git-commit-aliases";
 import {
 	WorkAttemptSettlementSchema,
 	workSettlementCommits,
@@ -281,9 +282,21 @@ export function workCommitDeliveryReader(
 		readOutputRevision: notApplicable,
 		readRepositoryDelivery: notApplicable,
 		async readWorkCommitDelivery(check) {
+			const resolver = createCommitResolver(context.db);
+			check = {
+				...check,
+				commitSha: check.commitSha
+					? await resolver.canonicalCommit(check.commitSha)
+					: null,
+				baseSha: check.baseSha
+					? await resolver.canonicalCommit(check.baseSha)
+					: null,
+			};
 			const sha = check.commitSha!;
 			const deployed = String(context.env?.GIT_SHA ?? "").toLowerCase();
-			const deployedSha = SHA.test(deployed) ? deployed : null;
+			const deployedSha = SHA.test(deployed)
+				? await resolver.canonicalCommit(deployed)
+				: null;
 			const rows = await findRepositoryPushObservations(context.db, {
 				orgId: scope.organizationId,
 				projectId: delivery.observerProjectId,

@@ -280,6 +280,20 @@ describe("kernel request coordinator", () => {
 				Object.keys(patch).length ? "fail" : "pass",
 			);
 		}
+		const oldSha = "e".repeat(40);
+		expect(
+			(
+				await runKernelAcceptanceChecks(
+					[{ ...repo, commitSha: oldSha }],
+					{
+						...reader,
+						canonicalCommit: async (value) => (value === oldSha ? sha : value),
+						readRepositoryDelivery: async () => observation,
+					},
+					now,
+				)
+			)[0]?.status,
+		).toBe("pass");
 		expect(
 			(await runKernelAcceptanceChecks([repo], reader, now))[0]?.status,
 		).toBe("unknown");

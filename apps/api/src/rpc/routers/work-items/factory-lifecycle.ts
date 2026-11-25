@@ -1,3 +1,7 @@
+import {
+	canonicalSettlementMetadata,
+	createCommitResolver,
+} from "@tedix/db/queries/git-commit-aliases";
 import { CREDIT_BUDGET_CURRENCY } from "@tedix/db/schema/work-factory";
 import { walletRpc } from "../../../lib/wallet-rpc";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
@@ -1404,13 +1408,19 @@ export const listAttemptsProcedure = factoryOs.listAttempts.handler(
 			});
 		const workItem = await assertWorkItemAccess(context, request.id);
 		const cursor = "cursor" in input ? input.cursor : undefined;
+		const resolver = createCommitResolver(context.db);
 		return listWorkItemAttempts(context.db, {
 			orgId: workItem.orgId,
 			workItemId: workItem.id,
 			cursor: cursor ? { startedAt: cursor.at, id: cursor.id } : undefined,
 			limit: "limit" in input ? input.limit : 1,
-		}).then((page) => ({
-			data: page.data,
+		}).then(async (page) => ({
+			data: await Promise.all(
+				page.data.map(async (row) => ({
+					...row,
+					metadata: await canonicalSettlementMetadata(resolver, row.metadata),
+				})),
+			),
 			nextCursor: page.nextCursor
 				? { at: page.nextCursor.startedAt, id: page.nextCursor.id }
 				: null,
@@ -1641,8 +1651,16 @@ export const listAttemptCliProjectionProcedure =
 				: undefined,
 			limit: input.limit,
 		});
+		const resolver = createCommitResolver(context.db);
 		return ListWorkAttemptCliProjectionResultSchema.parse({
-			data: p.data.map((row) => WorkAttemptCliRowSchema.strip().parse(row)),
+			data: await Promise.all(
+				p.data.map(async (row) =>
+					WorkAttemptCliRowSchema.strip().parse({
+						...row,
+						metadata: await canonicalSettlementMetadata(resolver, row.metadata),
+					}),
+				),
+			),
 			nextCursor: p.nextCursor
 				? { at: p.nextCursor.startedAt, id: p.nextCursor.id }
 				: null,
@@ -1707,6 +1725,7 @@ export const authorizePersonalCliReleaseProcedure =
 			const target = PersonalCliReleaseTargetSchema.safeParse(
 				attempt?.metadata.cliRelease,
 			);
+			const resolver = createCommitResolver(context.db);
 			if (
 				work.disposition !== "accepted" ||
 				work.workKind !== "operations" ||
@@ -1722,7 +1741,8 @@ export const authorizePersonalCliReleaseProcedure =
 				!attempt.expiresAt ||
 				!(Date.parse(attempt.expiresAt) > Date.now()) ||
 				!target.success ||
-				target.data.commitSha !== input.commitSha ||
+				(await resolver.canonicalCommit(target.data.commitSha)) !==
+					(await resolver.canonicalCommit(input.commitSha)) ||
 				target.data.version !== input.version ||
 				!["refs/heads/main", `refs/tags/cli-v${input.version}`].includes(
 					input.ref,

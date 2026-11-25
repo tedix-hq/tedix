@@ -1,3 +1,4 @@
+import { gitCommitAliases } from "@tedix/db/schema/git-commit-aliases";
 import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { eq } from "drizzle-orm";
@@ -68,6 +69,7 @@ async function fixture(deployedSha: string, workKind = "coding") {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
 		schemaDdl(
+			gitCommitAliases,
 			kernelRequests,
 			kernelRequestEvents,
 			workItems,

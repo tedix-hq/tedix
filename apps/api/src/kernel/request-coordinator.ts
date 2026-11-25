@@ -288,6 +288,7 @@ export function advanceKernelRequest(
 }
 
 export interface KernelAcceptanceReader {
+	canonicalCommit?(sha: string): Promise<string>;
 	/** Confirms source reply delivery only, never correctness or an outside action. */
 	readHomeResponse?(): Promise<{ attemptId: string; receiptRef: string }>;
 	/** Must enforce the source viewer's current workspace ACL. */
@@ -378,11 +379,18 @@ export async function runKernelAcceptanceChecks(
 				observations.push({ ...base, ...result, checkedAt: now() });
 			} else {
 				const result = await reader.readRepositoryDelivery(check);
+				const canonical =
+					reader.canonicalCommit ?? (async (sha: string) => sha);
+				const [expected, main, ship, live] = await Promise.all(
+					[check.commitSha, result.mainSha, result.shipSha, result.liveSha].map(
+						canonical,
+					),
+				);
 				const pass =
-					result.mainSha === check.commitSha &&
-					result.shipSha === check.commitSha &&
+					main === expected &&
+					ship === expected &&
 					result.shipStatus === "success" &&
-					result.liveSha === check.commitSha &&
+					live === expected &&
 					result.surface === check.surface;
 				observations.push({
 					...base,

@@ -1,3 +1,5 @@
+import { gitCommitAliases } from "../../schema/git-commit-aliases";
+import { schemaDdl } from "../../test/schema-ddl";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
@@ -7,6 +9,7 @@ import { listWorkActivity } from "./activity";
 
 function seed(equalTimes = false) {
 	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec(schemaDdl(gitCommitAliases));
 	sqlite.exec(`
 		CREATE TABLE work_items (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, disposition TEXT NOT NULL, project_id TEXT, objective_id TEXT, work_kind TEXT NOT NULL);
 		CREATE TABLE work_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, project_id TEXT, objective_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL, occurred_at TEXT NOT NULL);
@@ -154,4 +157,33 @@ describe("listWorkActivity", () => {
 			}),
 		).toMatchObject({ events: [], nextSequence: 0, truncated: false });
 	});
+});
+
+it("shows canonical settlement ids without changing event payloads", async () => {
+	const db = seed();
+	const oldSha = "a".repeat(40),
+		newSha = "b".repeat(40);
+	await db
+		.insert(gitCommitAliases)
+		.values({ oldSha, newSha, repository: "example/product" });
+	const payload = { settlement: { mode: "commit", commitShas: [oldSha] } };
+	await db.insert(workEvents).values({
+		id: "alias-event",
+		orgId: "org",
+		workItemId: "sweep",
+		eventType: "attempt.settled",
+		actorType: "system",
+		actorId: "system",
+		payload,
+		occurredAt: "2026-08-29T00:00:00Z",
+	});
+	expect(
+		(await listWorkActivity(db, { orgId: "org", limit: 1 })).events[0]
+			?.settlement,
+	).toEqual({ mode: "commit", commitSha: newSha });
+	expect(
+		(await db.select({ payload: workEvents.payload }).from(workEvents)).find(
+			(row) => row.payload.settlement,
+		)?.payload,
+	).toEqual(payload);
 });

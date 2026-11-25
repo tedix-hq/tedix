@@ -1,3 +1,12 @@
+import { gitCommitAliases } from "../schema/git-commit-aliases";
+import {
+	createCommitResolver,
+	canonicalSettlementMetadata,
+} from "./git-commit-aliases";
+import {
+	findRepositoryPushObservations,
+	findWorkImplementationPushes,
+} from "./repository-observer";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
@@ -26,6 +35,7 @@ function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	for (const table of [
+		gitCommitAliases,
 		workItems,
 		workItemComments,
 		workAttempts,
@@ -627,4 +637,77 @@ it("does not revive manually cancelled pushes or review expired advisory records
 	expect(
 		(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
 	).toBe("cancelled");
+});
+
+it("matches settlement aliases in both push readers without rewriting stored proof", async () => {
+	const { db, sqlite } = fixture();
+	const oldSha = "a".repeat(40),
+		newSha = "b".repeat(40);
+	await db
+		.insert(gitCommitAliases)
+		.values({ oldSha, newSha, repository: "example/product" });
+	const metadata = { settlement: { mode: "commit", commitShas: [oldSha] } };
+	const resolver = createCommitResolver(db);
+	expect(await resolver.canonicalCommit(oldSha.slice(0, 7))).toBe(newSha);
+	expect(await resolver.aliasesFor(newSha.slice(0, 12))).toEqual([
+		newSha,
+		oldSha,
+	]);
+	expect(await canonicalSettlementMetadata(resolver, metadata)).toEqual({
+		settlement: { mode: "commit", commitShas: [newSha] },
+	});
+	expect(metadata.settlement.commitShas).toEqual([oldSha]);
+	await createRepositoryObservation(db, {
+		...event,
+		id: "push",
+		metadata: {
+			repositoryObserver: 1,
+			event: {
+				kind: "push",
+				sha: newSha,
+				commitShas: [newSha],
+				workItemId: "delivered",
+				branch: "main",
+			},
+		},
+	});
+	expect(
+		await findWorkImplementationPushes(db, {
+			orgId: event.orgId,
+			workItemId: "delivered",
+			commitShas: metadata.settlement.commitShas,
+			since: event.now,
+		}),
+	).toHaveLength(1);
+	expect(
+		await findRepositoryPushObservations(db, {
+			orgId: event.orgId,
+			projectId: event.projectId,
+			shas: metadata.settlement.commitShas,
+			since: event.now,
+		}),
+	).toMatchObject([{ sha: newSha, commitShas: [newSha] }]);
+	// Reverse direction: old observations remain usable after the rewrite.
+	sqlite
+		.prepare(
+			"UPDATE work_items SET metadata = json_set(metadata, '$.event.sha', ?, '$.event.commitShas', json(?)) WHERE id = 'push'",
+		)
+		.run(oldSha, JSON.stringify([oldSha]));
+	expect(
+		await findRepositoryPushObservations(db, {
+			orgId: event.orgId,
+			projectId: event.projectId,
+			shas: [newSha],
+			since: event.now,
+		}),
+	).toMatchObject([{ sha: newSha, commitShas: [newSha] }]);
+	await db.insert(gitCommitAliases).values({
+		oldSha: "a".repeat(39) + "c",
+		newSha: "d".repeat(40),
+		repository: "example/product",
+	});
+	await expect(
+		createCommitResolver(db).canonicalCommit(oldSha.slice(0, 7)),
+	).rejects.toThrow("Ambiguous");
+	sqlite.close();
 });

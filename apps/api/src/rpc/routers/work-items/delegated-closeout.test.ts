@@ -1,3 +1,8 @@
+import { DatabaseSync } from "node:sqlite";
+import { createDbClient } from "@tedix/db/client";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { gitCommitAliases } from "@tedix/db/schema/git-commit-aliases";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../../orpc";
 
@@ -76,11 +81,13 @@ const input = {
 	linkedWorkItemId: "linked",
 	sha,
 };
+const sqlite = new DatabaseSync(":memory:");
+sqlite.exec(schemaDdl(gitCommitAliases));
 const context = {
 	authType: "service-binding",
 	tediId: "tedi",
 	organizationId: "org",
-	db: {},
+	db: createDbClient(createD1Facade(sqlite)),
 	headers: new Headers({ "X-Tedix-Caller-Source": "http-platform-client" }),
 } as BaseContext;
 const item = {

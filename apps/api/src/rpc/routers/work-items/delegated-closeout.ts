@@ -1,3 +1,4 @@
+import { canonicalCommit } from "@tedix/db/queries/git-commit-aliases";
 import {
 	WorkAttemptSettlementSchema,
 	workSettlementCommits,
@@ -393,9 +394,12 @@ export async function prepareNativeStewardCloseout(
 			limit: 1,
 		})
 	).data[0];
-	const sourceCommit = workSettlementCommits(
+	const storedSourceCommit = workSettlementCommits(
 		WorkAttemptSettlementSchema.safeParse(latest?.metadata.settlement).data,
 	)[0];
+	const sourceCommit = storedSourceCommit
+		? await canonicalCommit(context.db, storedSourceCommit)
+		: undefined;
 	if (
 		!latest ||
 		latest.runtimeState !== "finished" ||
@@ -472,7 +476,10 @@ export async function prepareNativeStewardCloseout(
 		!/^[a-f\d]{40}$/.test(manifest.commitSha)
 	)
 		return forbidden("The configured live manifest identity is invalid");
-	const liveCommitSha = manifest.commitSha as string;
+	const liveCommitSha = await canonicalCommit(
+		context.db,
+		manifest.commitSha as string,
+	);
 	const delivered = await readConfiguredRepositoryDelivery(
 		context,
 		scope.item.orgId,
@@ -550,7 +557,7 @@ export async function prepareNativeStewardCloseout(
 		targetWorkItemVersion: scope.proof.expectedWorkItemVersion,
 		sourceAttemptId: latest!.id,
 		sourceAttemptMetadata: latest!.metadata ?? {},
-		sourceCommit: sourceCommit as string,
+		sourceCommit: storedSourceCommit as string,
 		repositoryTargetId: scope.target.repositoryTargetId,
 		policyPackId: pack.id,
 		policyDefinition: JSON.stringify(pack.definition),

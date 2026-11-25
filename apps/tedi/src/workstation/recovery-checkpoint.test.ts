@@ -261,6 +261,8 @@ describe("Git checkpoint preservation", () => {
 			const manifest = f.manifest();
 			delete manifest.provenance;
 			delete manifest.preparedStartSha;
+			const oldSha = "e".repeat(40);
+			manifest.baseCommit = oldSha;
 			const patch = Buffer.from(
 				f.store.objects.get(manifest.patchKey)!.text,
 				"base64",
@@ -279,7 +281,15 @@ describe("Git checkpoint preservation", () => {
 				f.capture.manifestKey,
 				JSON.stringify(manifest),
 			);
-			expect((await restore(f.restore)).status).toBe("restored");
+			expect(
+				(
+					await restore({
+						...f.restore,
+						canonicalCommit: async (sha) =>
+							sha === oldSha ? f.preparedStartSha : sha,
+					})
+				).status,
+			).toBe("restored");
 			expect(readFileSync(join(f.target, "file.txt"), "utf8")).toBe(
 				"old persisted patch\n",
 			);

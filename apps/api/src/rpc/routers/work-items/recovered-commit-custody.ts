@@ -1,3 +1,4 @@
+import { createCommitResolver } from "@tedix/db/queries/git-commit-aliases";
 import {
 	WorkAttemptSettlementSchema,
 	workSettlementCommits,
@@ -15,8 +16,11 @@ export async function hasRecoveredCommitCustody(
 	const recovered = metadata.recoveredCommits;
 	if (recovered === undefined) return true;
 	if (!Array.isArray(recovered) || recovered.length === 0) return false;
-	const commits = workSettlementCommits(
-		WorkAttemptSettlementSchema.safeParse(metadata.settlement).data,
+	const resolver = createCommitResolver(context.db);
+	const commits = await Promise.all(
+		workSettlementCommits(
+			WorkAttemptSettlementSchema.safeParse(metadata.settlement).data,
+		).map(resolver.canonicalCommit),
 	);
 	if (!commits.length) return false;
 	for (const row of recovered) {
@@ -28,7 +32,7 @@ export async function hasRecoveredCommitCustody(
 			!/^[a-f\d]{40}$/i.test(row.commitSha) ||
 			typeof row.attemptId !== "string" ||
 			typeof row.session !== "string" ||
-			!commits.includes(row.commitSha)
+			!commits.includes(await resolver.canonicalCommit(row.commitSha))
 		)
 			return false;
 		const original = await getRecordedWorkItemAttempt(context.db, {

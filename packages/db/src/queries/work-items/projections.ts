@@ -1,4 +1,8 @@
 import {
+	canonicalSettlementMetadata,
+	createCommitResolver,
+} from "../git-commit-aliases";
+import {
 	and,
 	desc,
 	eq,
@@ -178,7 +182,19 @@ export async function listOrgWorkAttempts(
 		)
 		.orderBy(desc(workAttempts.startedAt), desc(workAttempts.id))
 		.limit(limit + 1);
-	const data = rows.slice(0, limit) as WorkAttemptProjectionRow[];
+	const resolver = createCommitResolver(db);
+	const data = await Promise.all(
+		(rows.slice(0, limit) as WorkAttemptProjectionRow[]).map(async (row) => ({
+			...row,
+			attempt: {
+				...row.attempt,
+				metadata: await canonicalSettlementMetadata(
+					resolver,
+					row.attempt.metadata,
+				),
+			},
+		})),
+	);
 	const last = data.at(-1);
 	return {
 		data,

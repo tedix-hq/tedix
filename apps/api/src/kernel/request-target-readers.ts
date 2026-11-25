@@ -1,3 +1,4 @@
+import { createCommitResolver } from "@tedix/db/queries/git-commit-aliases";
 import { z } from "zod";
 import type { KernelRequestPolicy } from "@tedix/api-contract/schemas/kernel-request";
 import { fetchNamedTenantConnectionToken } from "@tedix/auth/connections";
@@ -137,6 +138,7 @@ export function kernelAcceptanceReader(
 			if (!response) throw new Error("Durable Home reply unavailable");
 			return { attemptId: attempt.id, receiptRef: response.id };
 		},
+		canonicalCommit: createCommitResolver(context.db).canonicalCommit,
 		async readOutputRevision(check) {
 			await assertSourceAccess();
 			const output = await getOsOutput(context.db, {
@@ -194,6 +196,14 @@ export async function readConfiguredRepositoryDelivery(
 		!shaSchema.safeParse(check.sourceCommit).success
 	)
 		throw new Error("Invalid source commit identity");
+	const resolver = createCommitResolver(context.db);
+	check = {
+		...check,
+		commitSha: await resolver.canonicalCommit(check.commitSha),
+		...(check.sourceCommit
+			? { sourceCommit: await resolver.canonicalCommit(check.sourceCommit) }
+			: {}),
+	};
 	const headers: Record<string, string> = {
 		Accept: "application/vnd.github+json",
 		"User-Agent": "Tedix-kernel-acceptance",
@@ -221,6 +231,7 @@ export async function readConfiguredRepositoryDelivery(
 	const live = manifestSchema.parse(
 		JSON.parse(await boundedText(liveResponse)),
 	);
+	live.commitSha = await resolver.canonicalCommit(live.commitSha);
 	if (live.repository !== target.repository || live.surface !== target.surface)
 		throw new Error("Live manifest target mismatch");
 	const workflow = z
@@ -271,7 +282,9 @@ export async function readConfiguredRepositoryDelivery(
 			)
 		).json(),
 	);
-	const receipt = `verified: ${check.surface} is live on ${check.commitSha}`;
+	const receipts = (await resolver.aliasesFor(check.commitSha)).map(
+		(sha) => `verified: ${check.surface} is live on ${sha}`,
+	);
 	for (const job of jobs.jobs.slice(0, 20)) {
 		if (job.conclusion !== "success") continue;
 		// GitHub returns a short-lived download URL. Never forward the PAT to it.
@@ -309,7 +322,13 @@ export async function readConfiguredRepositoryDelivery(
 		} catch {
 			throw new Error("Managed Ship log download unavailable");
 		}
-		if (!logs.split("\n").some((line) => line.trimEnd().endsWith(receipt)))
+		if (
+			!logs
+				.split("\n")
+				.some((line) =>
+					receipts.some((receipt) => line.trimEnd().endsWith(receipt)),
+				)
+		)
 			continue;
 		const ancestryRefs: string[] = [];
 		let sourceAncestry:

@@ -1,3 +1,9 @@
+import { DatabaseSync } from "node:sqlite";
+import { createDbClient } from "@tedix/db/client";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { gitCommitAliases } from "@tedix/db/schema/git-commit-aliases";
+import { workItems } from "@tedix/db/schema/work-items";
 import type { WorkItem } from "@tedix/db/schema/work-items";
 import { expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../../orpc";
@@ -45,7 +51,10 @@ it("corrects only the delivering agent's observed implementation and protects se
 			doneLooksLike: "Publish a checked build from the registered source.",
 		},
 	} as WorkItem;
-	const context = { db: {} } as BaseContext;
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	sqlite.exec(schemaDdl(gitCommitAliases, workItems));
+	const context = { db: createDbClient(createD1Facade(sqlite)) } as BaseContext;
 	const externalSessionKey = "codex:verified-session";
 	const actor = {
 		id: "agent",
@@ -127,6 +136,28 @@ it("corrects only the delivering agent's observed implementation and protects se
 		}),
 	).resolves.toBeNull();
 
+	const oldSha = "e".repeat(40);
+	await context.db
+		.insert(gitCommitAliases)
+		.values({ oldSha, newSha: sha, repository });
+	const attempts = await mocks.attempts();
+	attempts.data[0].metadata.settlement.commitShas = [oldSha];
+	const actual = await vi.importActual<
+		typeof import("@tedix/db/queries/repository-observer")
+	>("@tedix/db/queries/repository-observer");
+	await actual.createRepositoryObservation(context.db, {
+		id: "observed",
+		orgId: work.orgId,
+		projectId,
+		objectiveId: null,
+		ownerTediId: "observer",
+		title: "Push",
+		summary: "Implementation",
+		deadline: null,
+		metadata: { repositoryObserver: 1, event },
+		now: "2026-01-01T00:01:00Z",
+	});
+	mocks.pushes.mockImplementation(actual.findWorkImplementationPushes);
 	await expect(verifiedImplementationCloseout(context, work)).resolves.toEqual({
 		actor,
 		attemptId: "attempt",
@@ -138,4 +169,5 @@ it("corrects only the delivering agent's observed implementation and protects se
 		{ ...work, workKind: "coding" },
 		expect.objectContaining({ id: "attempt" }),
 	);
+	sqlite.close();
 });

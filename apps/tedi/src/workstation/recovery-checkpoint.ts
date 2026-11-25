@@ -97,6 +97,7 @@ type CheckpointInput = {
 	storage: CheckpointStorage | null;
 	workdir: string;
 	preparedStartSha: string;
+	canonicalCommit?: (sha: string) => Promise<string>;
 	provenance: RecoveryCheckpointProvenance;
 	withLockedCheckpoint: WithLockedCheckpoint;
 };
@@ -375,7 +376,16 @@ export async function restoreWorkstationRecoveryCheckpoint(
 		validateInput(input);
 		const object = await input.storage.get(input.manifestKey);
 		if (!object) return { status: "missing" };
-		const manifest = parseManifest(await object.text());
+		const storedManifest = parseManifest(await object.text());
+		const manifest = input.canonicalCommit
+			? {
+					...storedManifest,
+					baseCommit: await input.canonicalCommit(storedManifest.baseCommit),
+					preparedStartSha: storedManifest.preparedStartSha
+						? await input.canonicalCommit(storedManifest.preparedStartSha)
+						: undefined,
+				}
+			: storedManifest;
 		if (
 			manifest.workdir !== input.workdir ||
 			(manifest.provenance &&

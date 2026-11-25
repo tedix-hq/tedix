@@ -1,3 +1,4 @@
+import { createCommitResolver } from "@tedix/db/queries/git-commit-aliases";
 import type { Context } from "hono";
 import type { AppEnv } from "../../../types";
 import {
@@ -168,6 +169,7 @@ export async function recoveryCheckpointOperation(
 	preflight: RepoTreePreflight | undefined,
 	run: (input: {
 		preparedStartSha: string;
+		canonicalCommit?: (sha: string) => Promise<string>;
 		provenance: RecoveryCheckpointProvenance;
 		withLockedCheckpoint: <T>(
 			operation: (native: LockedCheckpointNative) => Promise<T>,
@@ -269,8 +271,14 @@ export async function recoveryCheckpointOperation(
 				};
 			return { status: "clean", reason: "no-checkpoint-needed" };
 		}
+		const resolver = c.env.DB
+			? createCommitResolver(createDbClient(c.env.DB))
+			: undefined;
 		return await run({
-			preparedStartSha: original.startSha,
+			preparedStartSha: resolver
+				? await resolver.canonicalCommit(original.startSha)
+				: original.startSha,
+			canonicalCommit: resolver?.canonicalCommit,
 			provenance,
 			async withLockedCheckpoint(operation) {
 				await assertAuthority();

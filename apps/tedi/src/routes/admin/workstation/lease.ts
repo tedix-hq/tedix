@@ -1,3 +1,4 @@
+import { canonicalCommit } from "@tedix/db/queries/git-commit-aliases";
 import { startCheckoutOperation } from "../../../workstation/checkout-lock";
 import { WorkstationBootstrapReadinessSchema } from "@tedix/api-contract/schemas/workstation";
 import { createDbClient } from "@tedix/db/client";
@@ -133,13 +134,24 @@ async function applyRepoTreePreflight(
 	const tediConfig = c.get("tediConfig");
 	let preflight: RepoTreePreflight | null;
 	try {
+		const original = immutableLeasePreflight(
+			session?.leaseBundle?.workstationLease,
+		);
+		const originalPreflight =
+			original?.startSha && c.env.DB
+				? {
+						...original,
+						startSha: await canonicalCommit(
+							createDbClient(c.env.DB),
+							original.startSha,
+						),
+					}
+				: original;
 		preflight = await ensureCleanRepoTreeForTurn(c.get("sandbox"), tediConfig, {
 			...REPO_SYNC_OPTIONS,
 			turnKey,
 			workItemId: stringBodyValue(body, "workItemId"),
-			originalPreflight:
-				immutableLeasePreflight(session?.leaseBundle?.workstationLease) ??
-				undefined,
+			originalPreflight: originalPreflight ?? undefined,
 			authorize: () => assertCheckoutAuthority(c),
 		});
 	} catch (err) {

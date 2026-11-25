@@ -2036,6 +2036,10 @@
 		{
 			"name": "20261125041804_agent_session_body_backfill/migration.sql",
 			"sha256": "10ac76e9d753470a91c44b1e600b5b999dd8666472b170d3b29a55437503ff1f"
+		},
+		{
+			"name": "20261125101049_git_commit_aliases/migration.sql",
+			"sha256": "61c6b5088721c466f808013bcbc41d6d8f4a92d40de57477ac5309220f775dbb"
 		}
 	]
 }
