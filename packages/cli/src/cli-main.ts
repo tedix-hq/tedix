@@ -97,6 +97,10 @@ import {
 import { CLI_VERSION, looksLikeUuid, type CliOptions } from "./shared";
 import { runSkillCommand } from "./skill";
 import { buildStatusReport, renderStatusReport } from "./status";
+import {
+	readDutyStatuses,
+	type SupervisorDutyStatus,
+} from "./supervise-duty-status";
 import { resolveThreadOrganizationId } from "./thread-organization";
 import { runTediCommand } from "./tedi";
 import { listThreads, resolveThread, setThread } from "./thread-store";
@@ -1059,6 +1063,13 @@ export async function main() {
 			return;
 		}
 		if (command === "status") {
+			let duties: SupervisorDutyStatus[] = [];
+			let dutyError: string | undefined;
+			try {
+				duties = readDutyStatuses(process.env);
+			} catch (error) {
+				dutyError = `Local runners: ${errorText(error)}`;
+			}
 			// Compact operator dashboard for the current conversation: in-flight
 			// runs, pending approvals, recent delegations — one read instead of
 			// stitching runs/messages/child-tree by hand.
@@ -1071,10 +1082,14 @@ export async function main() {
 			]);
 			const report = buildStatusReport({
 				conversationId: options.conversationId,
+				duties,
+				workspace: workspaceName,
+				organization: options.organization,
 				runSet: runSet.status === "fulfilled" ? runSet.value : null,
 				childTree:
 					childTree.status === "fulfilled" ? childTree.value : undefined,
 				errors: [
+					dutyError ?? null,
 					runSet.status === "rejected"
 						? `Runs: ${errorText(runSet.reason)}`
 						: null,

@@ -6,6 +6,58 @@ import {
 	TERMINAL_STATUSES,
 } from "./status";
 
+test("status shows fresh runner problems only in the selected organization and workspace", () => {
+	const now = Date.now();
+	const duty = {
+		id: "runner",
+		kind: "service" as const,
+		workspace: "fixture",
+		organization: "org_fixture",
+		executor: "codex",
+		state: "running" as const,
+		observedAt: new Date(now).toISOString(),
+		lastRunAt: null,
+		lastExitAt: null,
+		lastExitCode: null,
+		lastExecutor: null,
+		restarts: [],
+		exits: [],
+		retryAt: null,
+		lastProblem:
+			"No Work admitted for at least 3 consecutive passes with errors: rules unavailable",
+	};
+	const input = {
+		conversationId: "conv",
+		runSet: null,
+		now,
+		workspace: "fixture",
+		organization: "org_fixture",
+		duties: [
+			duty,
+			{ ...duty, id: "other-org", organization: "other" },
+			{ ...duty, id: "other-workspace", workspace: "other" },
+			{
+				...duty,
+				id: "stale",
+				observedAt: new Date(now - 120_000).toISOString(),
+			},
+		],
+	};
+	const report = buildStatusReport(input);
+	expect(report.runnerProblems).toEqual([
+		{ id: duty.id, executor: duty.executor, reason: duty.lastProblem },
+	]);
+	expect(renderStatusReport(report, { json: false })).toContain(
+		duty.lastProblem,
+	);
+	expect(
+		JSON.parse(renderStatusReport(report, { json: true })).runnerProblems,
+	).toEqual(report.runnerProblems);
+	expect(
+		buildStatusReport({ ...input, organization: undefined }).runnerProblems,
+	).toBeUndefined();
+});
+
 // A representative read_home_run_set payload mixing in-flight, approval-blocked,
 // settled, and delegated runs. Each run row carries the real run-set fields:
 // id, status, progress.label/detail, metadata.kernelRoute, delegatedTediId,

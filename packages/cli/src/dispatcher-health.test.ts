@@ -14,6 +14,8 @@ import {
 	observeDispatcherSkip,
 	recordDispatcherSkips,
 	recordDispatcherAdmission,
+	recordDispatcherAdmissionPass,
+	dispatcherAdmissionProblem,
 	recordDispatcherCompletion,
 	recordDispatcherNextCheck,
 	recordDispatcherReliability,
@@ -22,6 +24,51 @@ import {
 } from "./dispatcher-health";
 
 const roots: string[] = [];
+test("counts error-bearing empty passes, ignores incomplete samples and clears on admission", () => {
+	const { root, directory } = lane();
+	const options = {
+		scope: ["--workspace", "fixture", "--organization", "org_fixture"],
+		executor: "codex",
+	};
+	writeDispatcherHealthSource(directory, options);
+	const pass = { admitted: 0, errors: ["rules unavailable"], complete: true };
+	recordDispatcherAdmissionPass(directory, pass, process.pid + 1);
+	expect(dispatcherAdmissionProblem(directory, process.pid)).toBeUndefined();
+	recordDispatcherAdmissionPass(directory, pass);
+	recordDispatcherAdmissionPass(directory, {
+		...pass,
+		errors: [],
+		complete: false,
+	});
+	recordDispatcherAdmissionPass(directory, pass);
+	expect(dispatcherAdmissionProblem(directory, process.pid)).toBeNull();
+	recordDispatcherAdmissionPass(directory, {
+		...pass,
+		errors: ["rules unavailable", "other error"],
+	});
+	const problem = dispatcherAdmissionProblem(directory, process.pid);
+	expect(problem).toContain("rules unavailable");
+	expect(
+		dispatcherAdmissionProblem(directory, process.pid + 1),
+	).toBeUndefined();
+	const env = { TEDIX_CONFIG_DIR: root };
+	for (let n = 0; n < 3; n++) {
+		const reports = collectDispatcherHealth(env);
+		expect(reports).toHaveLength(1);
+		expect(reports[0]?.topReason).toEqual({ reason: problem!, count: 1 });
+	}
+	recordDispatcherAdmission(directory, new Date().toISOString());
+	expect(dispatcherAdmissionProblem(directory, process.pid)).toBeNull();
+	recordDispatcherAdmissionPass(directory, pass);
+	recordDispatcherAdmissionPass(directory, { ...pass, errors: [] });
+	recordDispatcherAdmissionPass(directory, pass);
+	expect(dispatcherAdmissionProblem(directory, process.pid)).toBeNull();
+	writeDispatcherHealthSource(directory, options, process.pid + 1);
+	expect(
+		dispatcherAdmissionProblem(directory, process.pid + 1),
+	).toBeUndefined();
+});
+
 test("retains rolling reliability observations across restart without reading logs", () => {
 	const { directory } = lane();
 	const now = Date.parse("2026-11-07T12:00:00.000Z");

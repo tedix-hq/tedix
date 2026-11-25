@@ -81,6 +81,7 @@ export interface DispatcherHealthSource {
 	rulesSkillId?: string;
 	/** Why the rules skill admits no Work now; absent while it is active. */
 	rulesProblem?: string;
+	admissionPass?: { emptyPasses: number; problem: string | null };
 }
 
 export interface LocalDispatcherHealth {
@@ -211,6 +212,49 @@ export function recordDispatcherRules(
 
 export function recordDispatcherIdle(directory: string, idle: DispatcherIdle) {
 	updateSource(directory, { idle }, process.pid);
+}
+
+/** Error observations include deferred retries, not only fresh start failures. */
+export function recordDispatcherAdmissionPass(
+	directory: string,
+	pass: { admitted: number; errors: Iterable<string>; complete: boolean },
+	pid = process.pid,
+) {
+	const source = readSource(join(directory, SOURCE_FILE));
+	if (!source || source.pid !== pid) return;
+	const reasons = new Map<string, number>();
+	for (const error of pass.errors) {
+		const reason = safeReason(error);
+		if (reason) reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+	}
+	if (!pass.admitted && !reasons.size && !pass.complete) return;
+	const emptyPasses =
+		pass.admitted || !reasons.size
+			? 0
+			: (source.admissionPass?.emptyPasses ?? 0) + 1;
+	const top = [...reasons].sort((a, b) => b[1] - a[1])[0];
+	updateSource(
+		directory,
+		{
+			admissionPass: {
+				emptyPasses,
+				problem:
+					emptyPasses >= 3 && top
+						? `No Work admitted for at least 3 consecutive passes with errors: ${top[0]}`.slice(
+								0,
+								500,
+							)
+						: null,
+			},
+		},
+		pid,
+	);
+}
+
+export function dispatcherAdmissionProblem(directory: string, pid: number) {
+	const source = readSource(join(directory, SOURCE_FILE));
+	if (source?.pid !== pid) return;
+	return source.admissionPass?.problem;
 }
 
 /** A bounded journal in the existing health source, independent of rotated logs. */
@@ -362,7 +406,11 @@ export function recordDispatcherAdmission(
 	try {
 		writeFileSync(
 			`${path}.tmp`,
-			JSON.stringify({ ...source, lastAdmissionAt: at }),
+			JSON.stringify({
+				...source,
+				lastAdmissionAt: at,
+				admissionPass: { emptyPasses: 0, problem: null },
+			}),
 			{
 				mode: 0o600,
 			},
@@ -687,7 +735,9 @@ export function collectDispatcherHealth(
 				topReason:
 					running && typeof source.rulesProblem === "string"
 						? { reason: source.rulesProblem.slice(0, 500), count: 1 }
-						: log.topReason,
+						: running && source.admissionPass?.problem
+							? { reason: source.admissionPass.problem, count: 1 }
+							: log.topReason,
 				...(typeof source.rulesSkillId === "string" &&
 				UUID_RE.test(source.rulesSkillId)
 					? { rulesSkillId: source.rulesSkillId }

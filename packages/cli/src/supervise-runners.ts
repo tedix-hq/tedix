@@ -30,6 +30,7 @@ import { laneProcessIdentity } from "./lane-process-recovery";
 import {
 	dispatcherCliVersion,
 	dispatcherNextCheckAt,
+	dispatcherAdmissionProblem,
 } from "./dispatcher-health";
 
 /**
@@ -584,12 +585,17 @@ export class RunnerDuties {
 				) {
 					if (this.restartIfHung(key, entry, now)) continue;
 					this.noteVersion(key, entry);
+					const admissionProblem = dispatcherAdmissionProblem(
+						join(configDir(this.deps.env), "dispatchers", key),
+						entry.pid,
+					);
 					this.record(
 						runner,
 						{
 							state: "running",
-							...(now - entry.startedAt >= RUNNER_SETTLED_AFTER_MS
-								? { lastProblem: null }
+							...(admissionProblem ||
+							now - entry.startedAt >= RUNNER_SETTLED_AFTER_MS
+								? { lastProblem: admissionProblem ?? null }
 								: {}),
 						},
 						now,

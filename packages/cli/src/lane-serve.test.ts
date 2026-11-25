@@ -63,6 +63,7 @@ import {
 } from "./supervise-runners";
 import {
 	dispatcherNextCheckAt,
+	dispatcherAdmissionProblem,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
@@ -803,6 +804,23 @@ function fixture({
 		briefs,
 	};
 }
+it("reports preparation failures across deferred retry passes without starting an Attempt", async () => {
+	const f = fixture({ executor: "devin" });
+	f.items.splice(1);
+	f.deps.installDependencies = async () => {
+		throw new Error("Dependency download failed");
+	};
+	writeDispatcherHealthSource(f.dir, f.config);
+	const dispatcher = f.restart();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
+	expect(dispatcherAdmissionProblem(f.dir, process.pid)).toContain(
+		"Dependency download failed",
+	);
+	expect(f.events.some((event) => event.verb === "start")).toBe(false);
+});
+
 it("settles an Attempt limit with its reason and leaves Work open", async () => {
 	const f = fixture();
 	f.items.splice(1);

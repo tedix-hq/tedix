@@ -182,6 +182,7 @@ supervisor starts it without the usual wait and logs
 after an update.
 
 The same command includes saved duty status from `~/.tedix/supervisor-duties-status.json`: last start and exit, exit code when observed, executor, retry time and recent exits. This history survives supervisor restarts. A retained process whose identity cannot be verified stays unknown; the supervisor neither adopts nor stops it by its process number alone.
+When three consecutive passes admit no Work and encounter admission or preparation errors, the supervisor records the most common reason as the runner's problem, even if its process is still running. Deferred retries count too. `tedix status` shows fresh problems for the selected organization and workspace, and the existing health report carries one current entry per runner. An admission or a complete pass without errors clears the problem.
 After a reinstall, a new runner checks every 250 ms for its predecessor's lock to clear and logs one waiting notice per process while the predecessor finishes active Work.
 
 To run a recurring Lead pass, create `~/.tedix/supervisor-lead.json` with

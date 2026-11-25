@@ -185,6 +185,7 @@ import {
 } from "./login-recovery";
 import {
 	recordDispatcherAdmission,
+	recordDispatcherAdmissionPass,
 	recordDispatcherIdle,
 	observeDispatcherSkip,
 	recordDispatcherSkips,
@@ -3341,6 +3342,8 @@ export class LaneDispatcher {
 	private preparationTurns = new Map<string, number>();
 	private nextPreparationTurn = 0;
 	private passes = 0;
+	private passAdmissions = 0;
+	private admissionErrors = new Map<string, string>();
 	private passRules?: { pass: number; rules: Promise<RunRules> };
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
 	private releasedAttempts = new Map<string, Receipt>();
@@ -3660,7 +3663,13 @@ export class LaneDispatcher {
 				event === "execution-held" ? "held" : idleReason(reason),
 			);
 		}
-		if (event === "admitted") recordDispatcherAdmission(this.directory, at);
+		if (event === "admitted") {
+			this.passAdmissions++;
+			if (itemId) this.admissionErrors.delete(itemId);
+			recordDispatcherAdmission(this.directory, at);
+		}
+		if (event === "skipped-or-failed" && !itemId && reason)
+			this.admissionErrors.set("runner", reason);
 		// A state that repeats every pass is written once, then again when its
 		// reason changes or the repeat window passes; idle reporting above still
 		// counts it on every pass.
@@ -3958,8 +3967,18 @@ export class LaneDispatcher {
 		let sampled = false;
 		try {
 			sampled = (await this.runTick(skips, observedAt)) === true;
+		} catch (error) {
+			this.admissionErrors.set("runner", String(error));
+			throw error;
 		} finally {
 			this.ticking = false;
+			recordDispatcherAdmissionPass(this.directory, {
+				admitted: this.passAdmissions,
+				errors: this.admissionErrors.values(),
+				complete: sampled && !this.preparing.size,
+			});
+			this.passAdmissions = 0;
+			this.admissionErrors.clear();
 			this.previousSkips = sampled ? skips : new Map();
 			recordDispatcherSkips(
 				this.directory,
@@ -4595,10 +4614,15 @@ export class LaneDispatcher {
 					this.save(this.path(item), previous);
 				}
 				if (Date.now() < (previous?.admissionRetryAt ?? 0)) {
+					if (previous?.note) this.admissionErrors.set(item.id, previous.note);
 					observeSkip(item, previous?.note ?? "Admission retry is deferred");
 					continue;
 				}
 				if (Date.now() < (previous?.preparationFailure?.retryAt ?? 0)) {
+					this.admissionErrors.set(
+						item.id,
+						previous!.preparationFailure!.message,
+					);
 					await this.failOver(
 						item,
 						new Error(previous!.preparationFailure!.message),
@@ -4750,6 +4774,8 @@ export class LaneDispatcher {
 				) {
 					const reason =
 						"This Work revision has a retained receipt or pending reconciliation";
+					if (previous.admissionState === "not_sent" && previous.note)
+						this.admissionErrors.set(item.id, previous.note);
 					observeSkip(item, reason);
 					this.log(
 						"skipped",
@@ -7918,6 +7944,13 @@ ${firstBrief}`;
 						10 * 60_000 * 2 ** Math.min(receipt.admissionRefusals - 1, 3),
 					);
 			}
+			if (
+				!admitted &&
+				!(error instanceof WorkRevisedDuringPreparationError) &&
+				!(error instanceof DispatcherStoppingError) &&
+				!(error instanceof RestartResumeFallback)
+			)
+				this.admissionErrors.set(candidate.id, receipt.note ?? String(error));
 			this.log(
 				error instanceof WorkRevisedDuringPreparationError ||
 					error instanceof DispatcherStoppingError

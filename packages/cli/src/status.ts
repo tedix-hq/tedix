@@ -7,6 +7,7 @@ import {
 } from "./home-payload";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { normalizeCodeResult } from "./code-result";
+import type { SupervisorDutyStatus } from "./supervise-duty-status";
 
 /**
  * Compact operator dashboard built purely from already-fetched gateway reads.
@@ -19,6 +20,7 @@ import { normalizeCodeResult } from "./code-result";
  */
 export interface StatusReport {
 	errors?: string[];
+	runnerProblems?: Array<{ id: string; executor: string; reason: string }>;
 	conversationId: string;
 	activeRuns: Array<{
 		homeRunId: string;
@@ -136,8 +138,26 @@ export function buildStatusReport(input: {
 	runSet: unknown;
 	childTree?: unknown;
 	errors?: string[];
+	duties?: SupervisorDutyStatus[];
+	workspace?: string;
+	organization?: string;
+	now?: number;
 }): StatusReport {
 	const conversationId = input.conversationId;
+	const runnerProblems = (input.duties ?? [])
+		.filter(
+			(duty) =>
+				duty.kind === "service" &&
+				duty.workspace === input.workspace &&
+				duty.organization === input.organization &&
+				duty.lastProblem &&
+				(input.now ?? Date.now()) - Date.parse(duty.observedAt) < 120_000,
+		)
+		.map((duty) => ({
+			id: duty.id,
+			executor: duty.executor,
+			reason: duty.lastProblem!,
+		}));
 	try {
 		// Both reads run as Code Mode, so a payload may still be the gateway
 		// envelope `{ executionId, result }`, and an oversized result is a
@@ -241,6 +261,7 @@ export function buildStatusReport(input: {
 			activeRuns,
 			pendingApprovals,
 			recentDelegations,
+			...(runnerProblems.length ? { runnerProblems } : {}),
 			...(errors.length ? { errors } : {}),
 		};
 	} catch (error) {
@@ -251,6 +272,7 @@ export function buildStatusReport(input: {
 			activeRuns: [],
 			pendingApprovals: [],
 			recentDelegations: [],
+			...(runnerProblems.length ? { runnerProblems } : {}),
 		};
 	}
 }
@@ -280,6 +302,12 @@ export function renderStatusReport(
 	);
 
 	lines.push("");
+	if (report.runnerProblems?.length) {
+		lines.push("runner problems:");
+		for (const runner of report.runnerProblems)
+			lines.push(`  ${runner.executor} (${runner.id}): ${runner.reason}`);
+		lines.push("");
+	}
 	lines.push("active runs:");
 	if (report.activeRuns.length === 0) {
 		lines.push(

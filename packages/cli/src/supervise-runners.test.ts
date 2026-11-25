@@ -15,6 +15,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	recordDispatcherNextCheck,
+	recordDispatcherAdmission,
+	recordDispatcherAdmissionPass,
+	collectDispatcherHealth,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 import { installLaneService } from "./lane-service";
@@ -463,6 +466,57 @@ describe("running the dispatchers", () => {
 		f.advance(30_000);
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(1);
+	});
+
+	test("retains an admission problem while alive and reports it once until recovery", () => {
+		const f = setup();
+		f.write([runner()]);
+		f.duties.tick();
+		const directory = join(config, "dispatchers", runnerKey(runner()));
+		mkdirSync(directory, { recursive: true });
+		writeDispatcherHealthSource(
+			directory,
+			{
+				scope: ["--organization", "org_fixture", "--workspace", "fixture"],
+				executor: "codex",
+			},
+			100,
+			new Date(f.now()).toISOString(),
+		);
+		const reason = "Standing rules are not an active revisioned OS skill";
+		const status = () => readDutyStatuses(f.env)[0]!;
+		for (let pass = 1; pass <= 4; pass++) {
+			recordDispatcherAdmissionPass(
+				directory,
+				{
+					admitted: 0,
+					errors: [reason, reason],
+					complete: true,
+				},
+				100,
+			);
+			f.advance(30_000);
+			recordDispatcherNextCheck(
+				directory,
+				new Date(f.now() + 30_000).toISOString(),
+				100,
+			);
+			f.duties.tick();
+			expect(status().state).toBe("running");
+			if (pass < 3) expect(status().lastProblem).toBeNull();
+			else expect(status().lastProblem).toContain(reason);
+		}
+		const since = status().problemSince;
+		f.duties.tick();
+		expect(status().problemSince).toBe(since);
+		const reports = collectDispatcherHealth(f.env, f.now());
+		expect(reports).toHaveLength(1);
+		expect(reports[0]?.duty?.lastProblem).toContain(reason);
+		expect(f.spawned).toHaveLength(1);
+		recordDispatcherAdmission(directory, new Date(f.now()).toISOString(), 100);
+		f.duties.tick();
+		expect(status().lastProblem).toBeNull();
+		expect(status().problemSince).toBeNull();
 	});
 
 	test("logs the CLI version each runner process reports, once", () => {
