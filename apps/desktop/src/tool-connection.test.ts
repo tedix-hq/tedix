@@ -4,8 +4,29 @@ import {
 	devinConnection,
 	opencodeConnection,
 	recentConnectionCheck,
+	tedixAccountSummary,
 	toolConnection,
 } from "./tool-connection";
+
+test("a checked Tedix email is compared to the app without guessing opaque identities", () => {
+	assert.equal(
+		tedixAccountSummary(undefined, "app@example.com").text,
+		"Tedix account: not checked",
+	);
+	assert.equal(
+		tedixAccountSummary("other@example.com", "app@example.com").mismatch,
+		true,
+	);
+	assert.equal(
+		tedixAccountSummary("APP@example.com", "app@example.com").mismatch,
+		false,
+	);
+	assert.equal(
+		tedixAccountSummary("user_123", "app@example.com").mismatch,
+		false,
+	);
+	assert.equal(tedixAccountSummary("other@example.com", "").mismatch, false);
+});
 
 test("a saved read only applies to the account and executable that passed it", () => {
 	const target = {

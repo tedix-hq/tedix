@@ -1,5 +1,22 @@
 export type Connection = "signed-in" | "signed-out" | "unknown";
 
+/** Only compare emails; an opaque ID cannot be compared to the app's email. */
+export function tedixAccountSummary(
+	account: string | undefined,
+	appEmail: string,
+): { text: string; mismatch: boolean } {
+	if (!account) return { text: "Tedix account: not checked", mismatch: false };
+	const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+	const mismatch =
+		email.test(account) &&
+		email.test(appEmail) &&
+		account.toLowerCase() !== appEmail.toLowerCase();
+	return {
+		text: `Tedix account last checked: ${account}${mismatch ? " (different from this app)" : ""}`,
+		mismatch,
+	};
+}
+
 export type VerificationTarget = {
 	command: string;
 	version: string;

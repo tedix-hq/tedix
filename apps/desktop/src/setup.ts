@@ -35,6 +35,7 @@ import {
 } from "./shell";
 import {
 	type Connection,
+	tedixAccountSummary,
 	opencodeConnection,
 	recentConnectionCheck,
 	toolConnection,
@@ -304,6 +305,8 @@ export interface ToolRow {
 	/** Whether the tool's own connection to Tedix is signed in. */
 	connection: Connection | "checking";
 	account: Connection;
+	/** Last profile read from this agent's Tedix connection, when available. */
+	tedixAccount?: string;
 	desktop: boolean;
 	/** Both versions can be installed, but setup uses the desktop app's executable. */
 	bothInstalled: boolean;
@@ -477,6 +480,10 @@ let toolFacts: Record<
 const verifiedPath = () => join(configDir(), "desktop-verified.json");
 type Verified = Partial<Record<Harness, VerifiedConnection>>;
 let verified: Verified | undefined;
+// The connection may change outside this app. Never persist its account identity.
+const checkedAccounts: Partial<
+	Record<Harness, VerifiedConnection & { account: string }>
+> = {};
 function readVerified(): Verified {
 	if (!verified)
 		try {
@@ -505,6 +512,7 @@ function verificationTarget(
 	};
 }
 function setVerified(id: Harness, target?: VerificationTarget): void {
+	delete checkedAccounts[id];
 	const next = { ...readVerified() };
 	if (target) next[id] = { ...target, at: Date.now() };
 	else if (!next[id]) return;
@@ -1040,6 +1048,17 @@ function toolRows(): ToolRow[] {
 			facts.other?.connection === "signed-in"
 		)
 			row.note = `The ${tool.binary} command is signed in to Tedix, but ${desktop} keeps its own sign-in. Choose Connect to sign in ${desktop} too.`;
+		const checked = checkedAccounts[tool.id];
+		if (
+			row.enabled &&
+			row.connection === "signed-in" &&
+			recentConnectionCheck(
+				checked,
+				verificationTarget(tool.id, command),
+				Date.now(),
+			)
+		)
+			row.tedixAccount = checked?.account;
 		return row;
 	});
 }
@@ -1047,7 +1066,8 @@ function toolRows(): ToolRow[] {
 /**
  * What setup found on this Mac, for "Copy setup details": every installation
  * of each agent, which one Tedix uses and what each check last said. Holds no
- * addresses, emails or keys, and writes the home folder as `~`.
+ * keys or sign-in links, and writes the home folder as `~`. The last checked
+ * account is included for the person to review before sending the report.
  */
 function setupReport(tools: ToolRow[]): string {
 	const short = (path: string) =>
@@ -1081,6 +1101,7 @@ function setupReport(tools: ToolRow[]): string {
 		lines.push(
 			`  Tedix uses: ${target.command ? (usesApp ? "the Mac app's own tool" : "the command") : "nothing yet"}`,
 			`  Tedix plugin: ${row.tedix}${row.version ? ` ${row.version}` : ""}${row.enabled ? "" : " (switched off)"} · Tedix sign-in: ${row.connection} · ${tool.name} account: ${row.account} · checked in the last day: ${row.readVerified ? "yes" : "no"} · hooks: ${row.hookTrust}`,
+			`  ${tedixAccountSummary(row.tedixAccount, appSignIn.state === "in" ? appSignIn.email : "").text}`,
 		);
 		if (facts?.other?.connection)
 			lines.push(
@@ -1611,8 +1632,10 @@ export async function setupAction(
 				),
 			);
 			setVerified(tool.id, target);
-			// The CLI names the Tedix account it read, so a wrong one shows.
+			// Only the host's profile result is evidence; never substitute the app login.
 			const account = /, as ([^\s,]+)\.\s*$/m.exec(output)?.[1];
+			if (account && target)
+				checkedAccounts[tool.id] = { ...target, account, at: Date.now() };
 			return `A Tedix read succeeded inside ${toolName}${account ? `, as ${account}` : ""}.`;
 		});
 	if (action === "verify") {

@@ -6,6 +6,7 @@ import {
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import {
 	claudeSetupRead,
+	profileAccount,
 	parseAgentHostSetupArgs,
 	runAgentHostSetup,
 	type HostCommandRunner,
@@ -131,6 +132,20 @@ function fakeRunner(input: {
 }
 
 describe("agent host setup", () => {
+	it("reads the account from the host's structured or text profile result", () => {
+		expect(profileAccount({ id: "user_a", email: "a@example.com" })).toBe(
+			"a@example.com",
+		);
+		expect(
+			profileAccount([
+				{ type: "text", text: JSON.stringify({ id: "user_b" }) },
+			]),
+		).toBe("user_b");
+		expect(
+			profileAccount([{ type: "text", text: "not a profile" }]),
+		).toBeUndefined();
+		expect(profileAccount({ email: "unverified@example.com" })).toBeUndefined();
+	});
 	it("leaves scope discovery to Connect with read-only consent and no setup override", async () => {
 		const manifest = await Bun.file(
 			new URL("../../../plugins/tedix/.mcp.json", import.meta.url),

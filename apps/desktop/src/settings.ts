@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { icon, type IconName } from "./icons";
 import type { Routing } from "./setup";
+import { tedixAccountSummary } from "./tool-connection";
 import {
 	act,
 	button,
@@ -402,30 +403,55 @@ function tools(now: PanelState): Group[] {
 		const usage = usageText
 			? { text: usageText, near: report?.near }
 			: undefined;
+		const identity = tedixAccountSummary(
+			tool.tedixAccount,
+			now.setup.app.state === "in" ? now.setup.app.email : "",
+		);
 		return {
 			title: tool.name,
 			glyph: TOOL_ICONS[tool.id] ?? "terminal",
-			sub: view.working
-				? el("span", "live", el("span", "spinner"), view.working)
-				: limit
-					? limit
-					: usage
-						? el(
-								"span",
-								"",
-								el("div", "", usage.text),
-								view.sub ? el("div", "", view.sub) : null,
-							)
-						: [tool.bothInstalled ? "Connects the desktop app." : "", view.sub]
-								.filter(Boolean)
-								.join(" "),
-			tone: view.working
-				? undefined
-				: limit || usage?.near
-					? "warn"
-					: view.tone,
+			sub: el(
+				"span",
+				"",
+				el("div", "", identity.text),
+				el(
+					"div",
+					"",
+					view.working
+						? el("span", "live", el("span", "spinner"), view.working)
+						: limit
+							? limit
+							: usage
+								? el(
+										"span",
+										"",
+										el("div", "", usage.text),
+										view.sub ? el("div", "", view.sub) : null,
+									)
+								: [
+										tool.bothInstalled ? "Connects the desktop app." : "",
+										view.sub,
+									]
+										.filter(Boolean)
+										.join(" "),
+				),
+			),
+			tone: identity.mismatch
+				? "warn"
+				: view.working
+					? undefined
+					: limit || usage?.near
+						? "warn"
+						: view.tone,
 			control: [
 				view.cancel && button("Cancel", "quiet", view.cancel),
+				(tool.id === "claude" || tool.id === "codex") &&
+					tool.found === "found" &&
+					tool.tedix === "added" &&
+					tool.connection === "signed-in" &&
+					tool.readVerified &&
+					!view.working &&
+					button("Check account", "quiet", () => act("verify", tool.id)),
 				// Held back from tasks, its connection still works: say so, so the
 				// row does not look broken beside the line that says why.
 				view.ready ? READY_MARK(limit ? "Connected" : "Ready") : view.action,

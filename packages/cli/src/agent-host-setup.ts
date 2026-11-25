@@ -420,6 +420,7 @@ function proofFingerprint(host: AgentHost, status: AgentHostStatus): string {
 /** Read-only app-server requests. Never answer consent, trust or approval requests. */
 async function codexSetup(
 	verify: boolean,
+	onAccount?: (account: string | undefined) => void,
 ): Promise<"trusted" | "untrusted" | "unknown" | "none"> {
 	const child = spawn(
 		"codex",
@@ -572,6 +573,10 @@ async function codexSetup(
 			throw new Error(
 				"Tedix did not return a successful profile read inside Codex.",
 			);
+		onAccount?.(
+			profileAccount(result.structuredContent) ??
+				profileAccount(result.content),
+		);
 		return "unknown";
 	} finally {
 		clearTimeout(timer);
@@ -668,7 +673,7 @@ export function claudeSetupRead(output: string): {
 }
 
 /** The email or id a profile read returned. */
-function profileAccount(value: unknown): string | undefined {
+export function profileAccount(value: unknown): string | undefined {
 	const record = asRecord(value);
 	if (record && typeof record.id === "string")
 		return typeof record.email === "string" ? record.email : record.id;
@@ -701,7 +706,10 @@ async function verifyHost(
 		throw new Error(
 			`Sign in to your ${host === "codex" ? "Codex" : "Claude Code"} account, then check again.`,
 		);
-	if (host === "codex") await codexSetup(true);
+	if (host === "codex")
+		await codexSetup(true, (found) => {
+			account = found;
+		});
 	else {
 		const result = run(
 			host,
