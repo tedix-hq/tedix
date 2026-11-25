@@ -305,9 +305,14 @@ export function codeModeCatalogSize(
 					.authorized
 			)
 				continue;
-		} catch {
-			// A missing scope mapping must not make telemetry block registration.
-			catalogComplete = false;
+		} catch (error) {
+			// Discovery and dispatch deny missing mappings. These rows cannot
+			// contribute to the caller's reachable catalog, just like missing scopes.
+			if (
+				!(error instanceof Error) ||
+				!error.message.startsWith("Missing MCP capability mapping for tool:")
+			)
+				catalogComplete = false;
 			continue;
 		}
 		const source = catalogProjectionSource(tool) ?? tool;

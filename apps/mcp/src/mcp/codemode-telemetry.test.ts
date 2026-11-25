@@ -1901,10 +1901,15 @@ describe("Code Mode tail telemetry", () => {
 			},
 		});
 		const denied = tool({ toolId: "test__denied" });
+		const unmapped = tool({
+			toolId: "test__list_mcp_authorizations",
+			config: { transport: "rpc", endpoint: "test/notAuthorizationInventory" },
+		});
 		const ctx = makeServerCtx(
 			new Map([
 				[compact.toolId, compact],
 				[denied.toolId, denied],
+				[unmapped.toolId, unmapped],
 			]),
 		);
 		Object.assign(ctx, { codeModeCatalogComplete: true });
@@ -1930,6 +1935,15 @@ describe("Code Mode tail telemetry", () => {
 			catalogToolCount: 0,
 			catalogComplete: false,
 		});
+		compact.inputSchemaChars = 1_600_000;
+		Object.defineProperty(ctx.appMetadata!.mcpConfig!, "toolScopes", {
+			get() {
+				throw new Error("Authorization inventory unavailable");
+			},
+		});
+		expect(codeModeCatalogSize(ctx, undefined, new Set()).catalogComplete).toBe(
+			false,
+		);
 	});
 
 	it("bounds oversized successful code results before returning them to the model", async () => {
