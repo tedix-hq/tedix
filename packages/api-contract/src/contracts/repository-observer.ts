@@ -3,6 +3,8 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
+	CommitAliasRewriteInputSchema,
+	CommitAliasRewriteOutputSchema,
 	CommitAliasCountInputSchema,
 	CommitAliasCountOutputSchema,
 } from "../schemas/commit-alias-counts";
@@ -17,6 +19,14 @@ const receipt = z.strictObject({
 	status: z.string(),
 });
 export const repositoryObserverContract = oc.errors(baseErrors).router({
+	rewriteCommitAliases: oc
+		.route({
+			method: "POST",
+			summary:
+				"Rewrite unlocked structured old commit ids, one paced audited page at quiet hours (platform admin); dry run by default",
+		})
+		.input(CommitAliasRewriteInputSchema)
+		.output(CommitAliasRewriteOutputSchema),
 	countCommitAliases: oc
 		.route({
 			method: "POST",

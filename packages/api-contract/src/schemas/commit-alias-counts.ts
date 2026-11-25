@@ -48,3 +48,27 @@ export type CommitAliasCountCursor = z.infer<
 	typeof CommitAliasCountCursorSchema
 >;
 export type CommitAliasCountInput = z.infer<typeof CommitAliasCountInputSchema>;
+
+export const CommitAliasRewriteCursorSchema =
+	CommitAliasCountCursorSchema.extend({
+		dryRun: z.boolean(),
+	});
+export const CommitAliasRewriteInputSchema = CommitAliasCountInputSchema.extend(
+	{
+		dryRun: z.boolean().default(true),
+		cursor: CommitAliasRewriteCursorSchema.optional(),
+	},
+);
+export const CommitAliasRewriteOutputSchema =
+	CommitAliasCountOutputSchema.extend({
+		cursor: CommitAliasRewriteCursorSchema.nullable(),
+		dryRun: z.boolean(),
+		wouldChange: count.describe("Records with replaceable ids in this page"),
+		changed: count.describe("Records written and audited in this page"),
+		dropped: count.describe(
+			"Unlocked records in this page retaining dropped ids; these remain in inventory counts",
+		),
+	});
+export type CommitAliasRewriteInput = z.infer<
+	typeof CommitAliasRewriteInputSchema
+>;

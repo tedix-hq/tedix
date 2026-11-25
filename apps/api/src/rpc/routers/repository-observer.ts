@@ -6,6 +6,7 @@ import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import * as observations from "@tedix/db/queries/repository-observer";
 import { withAuth, withAuthorization, AUTHZ, type BaseContext } from "../orpc";
 import { withOrg } from "../org-scope";
+import { auditActor } from "../audit-helpers";
 import {
 	observerConfig,
 	ownedObservation,
@@ -36,6 +37,27 @@ export const repositoryObserverContractRouter = {
 			const { countCommitAliasPage } =
 				await import("../../jobs/commit-alias-counts");
 			return countCommitAliasPage(context.db, input);
+		}),
+	rewriteCommitAliases: authed.rewriteCommitAliases
+		.use(AUTHZ.platformAdmin)
+		.handler(async ({ context, input }) => {
+			const hour = new Date().getUTCHours();
+			const { start, end } = input.quietHoursUtc;
+			const quiet =
+				start < end ? hour >= start && hour < end : hour >= start || hour < end;
+			if (
+				!quiet ||
+				(input.cursor &&
+					(input.cursor.repository !== input.repository ||
+						input.cursor.dryRun !== input.dryRun))
+			)
+				throw baseErrorConstructors.BAD_REQUEST({
+					message:
+						"Use quiet UTC hours and the cursor's original repository and dryRun mode",
+				});
+			const { rewriteCommitAliasPage } =
+				await import("../../jobs/commit-alias-rewrites");
+			return rewriteCommitAliasPage(context.db, input, auditActor(context));
 		}),
 	configure: authed.configure
 		.use(withAuthorization("settings:manage", "mcp:work.admin"))

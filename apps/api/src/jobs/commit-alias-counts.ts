@@ -10,6 +10,10 @@ import {
 	findStoredOldCommits,
 } from "@tedix/db/queries/commit-alias-counts";
 import { withD1Ledger } from "@tedix/db/slow-query";
+import {
+	mutableCommitFields,
+	isCommitAliasUnlocked,
+} from "./commit-alias-fields";
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
@@ -24,38 +28,12 @@ function commits(
 	value: unknown,
 ): string[] {
 	const m = object(value);
-	const s = object(m.settlement);
 	let values: unknown[];
 	switch (location) {
 		case "work_attempts.metadata":
-			values = [
-				s.commitSha,
-				s.runCommitSha,
-				s.baseCommit,
-				...array(s.commitShas),
-				...array(m.commitShas),
-				...array(m.commits).map((c) => object(c).sha),
-				m.commitSha,
-				m.sourceCommit,
-				object(object(m.repositoryLifecycle).merge).commitSha,
-				object(m.cliRelease).commitSha,
-				object(m.laneResult).commitSha,
-				...array(m.recoveredCommits).map((c) => object(c).commitSha),
-			];
-			break;
-		case "work_items.metadata": {
-			const event = object(m.event);
-			values = [event.sha, event.beforeSha, ...array(event.commitShas)];
-			break;
-		}
+		case "work_items.metadata":
 		case "kernel_requests.snapshot":
-			values = [
-				...array(m.checks).flatMap((c) => [
-					object(c).commitSha,
-					object(c).baseSha,
-				]),
-				...array(m.observations).map((c) => object(c).observedVersion),
-			];
+			values = mutableCommitFields(location, value).map((slot) => slot.value);
 			break;
 		case "external_agent_attributions.target_id":
 			values = [m.targetId];
@@ -106,10 +84,14 @@ function commits(
 	];
 }
 
-/** One read-only page per call. The caller retains the cursor and page evidence. */
+/** One inventory page; an optional processor runs before advancing its cursor. */
 export async function countCommitAliasPage(
 	db: DbClient,
 	input: CommitAliasCountInput,
+	processPage?: (
+		cursor: CommitAliasCountCursor,
+		rows: Awaited<ReturnType<typeof readCommitAliasCountPage>>,
+	) => Promise<void>,
 ) {
 	return withD1Ledger(
 		"commit-alias-count",
@@ -189,15 +171,11 @@ export async function countCommitAliasPage(
 				const active = ["queued", "running", "waiting", "retrying"].includes(
 					row.state ?? "",
 				);
-				// Decision effects are immutable too: the interaction trigger only permits named metadata changes.
-				const locked =
-					cursor.store !== "main" ||
-					![
-						"work_attempts.metadata",
-						"work_items.metadata",
-						"kernel_requests.snapshot",
-					].includes(cursor.location) ||
-					(cursor.location === "work_attempts.metadata" && !active);
+				const locked = !isCommitAliasUnlocked(
+					cursor.location,
+					cursor.store,
+					row.state,
+				);
 				result[locked ? "locked" : "unlocked"]++;
 				if (cursor.location === "work_attempts.metadata" && active)
 					result.inFlightAttemptIds.push(row.id);
@@ -207,6 +185,7 @@ export async function countCommitAliasPage(
 				)
 					result.openObserverWorkItemIds.push(row.id);
 			});
+			await processPage?.(cursor, rows);
 			result.scanned += rows.length;
 			result.locationComplete = rows.length < 200;
 			let next: CommitAliasCountCursor | null = {

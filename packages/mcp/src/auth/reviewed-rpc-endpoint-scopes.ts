@@ -11,6 +11,7 @@
  */
 export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"repositoryObserver/countCommitAliases": "platform:admin",
+	"repositoryObserver/rewriteCommitAliases": "platform:admin",
 	"mcpGovernance/prepareMachineIdentityProbe": "connections.execute",
 	"organizations/getCustomDomain": "mcp:apps.read",
 	"organizations/beginCustomDomain": "mcp:apps.write",
