@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { KernelRequestPolicy } from "@tedix/api-contract/schemas/kernel-request";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
+import * as runQueries from "@tedix/db/queries/kernel-runtime-runs";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
@@ -447,16 +448,60 @@ describe("Home request source adapter", () => {
 				(await getHomeKernelRequest(db, "org-example", sourceId))?.version,
 			).toBe(row.version);
 	});
-	it("does not count an unchanged request as recovered", async () => {
+	it("overlaps Home reads, keeps other adapters serial and batches retry timers", async () => {
 		const { context, db } = await fixture();
-		await db.delete(kernelRuntimeRuns);
 		await db.update(kernelRequests).set({ nextDueAt: now });
-		expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
-			0,
-		);
-		expect(
-			await listDueKernelRequestOrganizations(db, new Date().toISOString()),
-		).toEqual([]);
+		const row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		await db.insert(kernelRequests).values({
+			...row,
+			id: "home:run-two",
+			sourceId: "run-two",
+		});
+		for (const sourceId of ["local-one", "local-two"])
+			await db.insert(kernelRequests).values({
+				...row,
+				id: sourceId,
+				sourceId,
+				sourceKind: "agent_session_request",
+			});
+		let release!: () => void;
+		const blocked = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const read = vi
+			.spyOn(runQueries, "getKernelRuntimeRun")
+			.mockImplementation(async () => {
+				await blocked;
+				return undefined;
+			});
+		localRecovery.reconcile
+			.mockClear()
+			.mockImplementation(async (_context, row) => {
+				await blocked;
+				return row;
+			});
+		const batch = vi.spyOn(db, "batch");
+		const recovery = reconcileDueHomeKernelRequests(context, "org-example");
+		try {
+			await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+			expect(localRecovery.reconcile).toHaveBeenCalledTimes(1);
+			release();
+			expect(await recovery).toBe(0);
+			expect(localRecovery.reconcile).toHaveBeenCalledTimes(2);
+			expect(batch).toHaveBeenCalledTimes(1);
+			expect(
+				(await db.select().from(kernelRequests)).map((r) => r.version),
+			).toEqual([2, 2, 2, 2]);
+			expect(
+				await listDueKernelRequestOrganizations(db, new Date().toISOString()),
+			).toEqual([]);
+		} finally {
+			release();
+			await recovery;
+			read.mockRestore();
+			batch.mockRestore();
+			localRecovery.reconcile.mockReset();
+		}
 	});
 	it("keeps paused requests owned while yielding the bounded tenant recovery scan", async () => {
 		const { context, db } = await fixture();

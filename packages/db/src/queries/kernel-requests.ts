@@ -117,9 +117,32 @@ export async function transitionKernelRequest(
 	db: DbQueryClient,
 	p: TransitionKernelRequestParams,
 ): Promise<KernelRequestRow | undefined> {
+	const [updated] = await db.batch(
+		buildKernelRequestTransitionStatements(db, p),
+	);
+	return updated[0];
+}
+
+/** Batch independent retry timers while retaining each request's CAS and history. */
+export async function transitionKernelRequests(
+	db: DbQueryClient,
+	requests: TransitionKernelRequestParams[],
+) {
+	for (let offset = 0; offset < requests.length; offset += 20) {
+		const statements = requests
+			.slice(offset, offset + 20)
+			.flatMap((p) => buildKernelRequestTransitionStatements(db, p));
+		await db.batch([statements[0]!, ...statements.slice(1)]);
+	}
+}
+
+function buildKernelRequestTransitionStatements(
+	db: DbQueryClient,
+	p: TransitionKernelRequestParams,
+) {
 	requireNextAction(p);
 	const version = p.expectedVersion + 1;
-	const [updated] = await db.batch([
+	return [
 		db
 			.update(kernelRequests)
 			.set({
@@ -158,8 +181,7 @@ export async function transitionKernelRequest(
 			.onConflictDoNothing({
 				target: [kernelRequestEvents.requestId, kernelRequestEvents.version],
 			}),
-	]);
-	return updated[0];
+	] as const;
 }
 
 /** Internal org coordinator scan only. Source readers still enforce user/conversation ACLs. */

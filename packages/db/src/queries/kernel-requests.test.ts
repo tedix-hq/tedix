@@ -9,6 +9,7 @@ import {
 	listKernelRequestEvents,
 	receiveKernelRequest,
 	transitionKernelRequest,
+	transitionKernelRequests,
 	listDueKernelRequests,
 } from "./kernel-requests";
 
@@ -98,6 +99,24 @@ describe("kernel request persistence", () => {
 		expect((await listKernelRequestEvents(db, scope)).map((e) => e.id)).toEqual(
 			["received-one", "filed-one"],
 		);
+		await receiveKernelRequest(db, {
+			...intake,
+			id: "request-two",
+			sourceId: "run-two",
+			lastEventId: "received-two",
+		});
+		await transitionKernelRequests(db, [
+			{ ...transition, eventId: "stale-batch-writer" },
+			{ ...transition, id: "request-two", eventId: "filed-two" },
+		]);
+		expect((await listKernelRequestEvents(db, scope)).map((e) => e.id)).toEqual(
+			["received-one", "filed-one"],
+		);
+		expect(
+			(await listKernelRequestEvents(db, { ...scope, id: "request-two" })).map(
+				(e) => e.id,
+			),
+		).toEqual(["received-two", "filed-two"]);
 	});
 	it("scopes reads, CAS, event history and due scans to the tenant and private owner", async () => {
 		const { db } = fixture();

@@ -8,7 +8,8 @@ import {
 	getKernelRequest,
 	receiveKernelRequest,
 	listDueKernelRequests,
-	transitionKernelRequest,
+	transitionKernelRequests,
+	type TransitionKernelRequestParams,
 	publishKernelRequestReport,
 	projectKernelRequestOnHomeRun,
 } from "@tedix/db/queries/kernel-requests";
@@ -349,26 +350,28 @@ export async function reconcileDueHomeKernelRequests(
 	if (!policy) {
 		// Preserve the configured interval already recorded on each request.
 		// Paused tenants must yield the bounded cross-tenant recovery scan.
-		for (const row of rows) {
+		const transitions = rows.map((row) => {
 			const retryMs = Math.max(
 				1000,
 				Date.parse(row.nextDueAt!) - Date.parse(row.updatedAt),
 			);
-			await transitionKernelRequest(context.db, {
+			return {
 				...row,
 				expectedVersion: row.version,
 				eventId: `${row.id}:${row.version + 1}`,
 				nextAction: "restore_request_coordinator_configuration",
 				nextDueAt: new Date(Date.now() + retryMs).toISOString(),
 				now: new Date().toISOString(),
-			});
-		}
+			};
+		});
+		await transitionKernelRequests(context.db, transitions);
 		return rows.length;
 	}
 	const deadline = Date.now() + policy.runBudgetMs;
 	let recovered = 0;
-	for (const row of rows) {
-		if (Date.now() >= deadline) break;
+	const transitions: TransitionKernelRequestParams[] = [];
+	const reconcile = async (row: KernelRequestRow) => {
+		if (Date.now() >= deadline) return;
 		try {
 			const updated = await measureReconcileStage(row.sourceKind, async () =>
 				row.sourceKind === "home"
@@ -383,7 +386,7 @@ export async function reconcileDueHomeKernelRequests(
 			);
 			if (updated.version !== row.version) recovered++;
 			if (updated.nextDueAt && updated.nextDueAt <= new Date().toISOString())
-				await transitionKernelRequest(context.db, {
+				transitions.push({
 					...updated,
 					expectedVersion: updated.version,
 					eventId: `${updated.id}:${updated.version + 1}`,
@@ -395,7 +398,7 @@ export async function reconcileDueHomeKernelRequests(
 			// not the stale input, and never reopen a request closed meanwhile.
 			const current = await getKernelRequest(context.db, row);
 			if (current?.nextDueAt && current.nextDueAt <= new Date().toISOString())
-				await transitionKernelRequest(context.db, {
+				transitions.push({
 					...current,
 					expectedVersion: current.version,
 					eventId: `${current.id}:${current.version + 1}`,
@@ -408,6 +411,27 @@ export async function reconcileDueHomeKernelRequests(
 				errorType: error instanceof Error ? error.name : "unknown",
 			});
 		}
-	}
+	};
+	// Only database-backed Home checks overlap. Repository probes and other
+	// source adapters retain serial admission within the existing run budget.
+	const databaseOnly = (row: KernelRequestRow) =>
+		row.sourceKind === "home" &&
+		row.snapshot.checks.every(
+			(check) =>
+				check.kind === "home_response" || check.kind === "os_output_revision",
+		);
+	const results = await Promise.allSettled([
+		...rows.filter(databaseOnly).map(reconcile),
+		(async () => {
+			for (const row of rows.filter((row) => !databaseOnly(row)))
+				await reconcile(row);
+		})(),
+	]);
+	await transitionKernelRequests(context.db, transitions);
+	const failures = results.flatMap((result) =>
+		result.status === "rejected" ? [result.reason] : [],
+	);
+	if (failures.length)
+		throw new AggregateError(failures, "Kernel request recovery failed");
 	return recovered;
 }
