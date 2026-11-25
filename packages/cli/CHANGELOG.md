@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.21 (2026-11-25)
+
+### Patch Changes
+
+- 81fa641: When you have allowed Tedix's hooks in ChatGPT, `tedix setup agents --status` now says so, even if Codex shows a warning about a hook. The Tedix plugin bundled with the Mac app also keeps its session-end hook within Codex's limits, so that warning no longer appears.
+
 ## 0.37.20 (2026-11-25)
 
 ### Patch Changes
