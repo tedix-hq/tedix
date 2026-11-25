@@ -18,7 +18,7 @@ import type {
 } from "./machine-connections";
 
 export const MACHINE_CONNECTION_IDENTITY_HEADER = "X-Tedix-Machine-Connection";
-/** The machine pings every 30 s; after this long without one it is gone. */
+/** The machine pings every 30 s; silence makes it unavailable for pushes. */
 const SILENT_MS = 100_000;
 
 type Attachment = MachineConnectionIdentity & { openedAt: number };
@@ -70,7 +70,8 @@ export class MachineConnectionDO extends DurableObject<CloudflareEnv> {
 				this.#state.getWebSocketAutoResponseTimestamp(socket)?.getTime() ??
 				identity.openedAt;
 			if (Date.now() - heardAt <= SILENT_MS) return { socket, identity };
-			socket.close(4002, "The machine stopped pinging");
+			// A sleeping machine is unavailable for pushes, but its next ping
+			// can resume this socket. The client detects an unresponsive peer.
 		}
 		return null;
 	}

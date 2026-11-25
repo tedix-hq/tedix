@@ -38,6 +38,7 @@ import { beginFileLock } from "./local-file-lock";
 import { fileNativeBootstrapCache } from "./native-bootstrap-cache";
 import { parseOptions } from "./options";
 import { resolveOrganizationTarget } from "./organization-target";
+import { transientReadFailure } from "./read-retry";
 import {
 	readRunnerDuties,
 	runnersForWork,
@@ -870,7 +871,11 @@ export interface MachineSocket {
 	close(): void;
 	addEventListener(
 		type: "open" | "message" | "close" | "error",
-		listener: (event: { data?: unknown }) => void,
+		listener: (event: {
+			data?: unknown;
+			code?: number;
+			reason?: string;
+		}) => void,
 	): void;
 }
 
@@ -906,9 +911,13 @@ export function createMachineToolsLoop(options: {
 	let lastCallAt = Number.NEGATIVE_INFINITY;
 	let failures = 0;
 	let failureLoggedAt = Number.NEGATIVE_INFINITY;
+	const claimCauses = new Map<string, number>();
+	let lastClaimError = "";
+	let deferred = false;
 	/** The socket being opened or open, and whether it is open. */
 	let socket: MachineSocket | undefined;
 	let connected = false;
+	let closeConnection = () => {};
 	/** Answers sent on the socket that the server has not confirmed yet. */
 	const unconfirmed = new Map<string, MachineToolOutcome>();
 	let dialFailures = 0;
@@ -944,6 +953,7 @@ export function createMachineToolsLoop(options: {
 		try {
 			opened = options.openSocket!(url, ticket);
 		} catch {
+			options.log("machine-connection-failed", "open failed; polling");
 			dialFailed();
 			return;
 		}
@@ -951,7 +961,8 @@ export function createMachineToolsLoop(options: {
 		let unansweredPings = 0;
 		let pinging: ReturnType<typeof setInterval> | undefined;
 		let closed = false;
-		const close = () => {
+		let pingedAt = Date.now();
+		const close = (cause: string) => {
 			if (closed) return;
 			closed = true;
 			clearInterval(pinging);
@@ -966,24 +977,38 @@ export function createMachineToolsLoop(options: {
 			finished.push(...unconfirmed.values());
 			unconfirmed.clear();
 			dialFailed();
-			if (!connected) return;
+			const wasConnected = connected;
 			connected = false;
-			options.log("machine-connection-closed", "polling");
+			options.log(
+				wasConnected
+					? "machine-connection-closed"
+					: "machine-connection-failed",
+				`${cause}; ${cause === "shutdown" ? "stopping" : "polling"}`,
+			);
 			options.onConnectionClosed?.();
 		};
+		closeConnection = () => close("shutdown");
 		opened.addEventListener("open", () => {
+			if (closed) return;
 			connected = true;
+			pingedAt = Date.now();
 			dialFailures = 0;
 			options.log("machine-connection-open", options.machineName);
 			pinging = setInterval(() => {
-				// Counted in pings, not seconds, so a machine that slept is not
-				// taken for a dead connection before it had a chance to answer.
-				if (unansweredPings >= MACHINE_CONNECTION_MISSED_PINGS) return close();
+				const gap = Date.now() - pingedAt;
+				pingedAt = Date.now();
+				// A suspended timer must give the socket a fresh chance to answer.
+				if (gap > MACHINE_CONNECTION_PING_MS * 2) {
+					unansweredPings = 0;
+					options.log("machine-connection-resumed", `timer gap ${gap}ms`);
+				}
+				if (unansweredPings >= MACHINE_CONNECTION_MISSED_PINGS)
+					return close("ping timeout");
 				unansweredPings += 1;
 				try {
 					opened.send("ping");
 				} catch {
-					close();
+					close("ping send failed");
 				}
 			}, MACHINE_CONNECTION_PING_MS);
 		});
@@ -999,8 +1024,12 @@ export function createMachineToolsLoop(options: {
 			else if (typeof message.callId === "string")
 				answer(message, message.callId);
 		});
-		opened.addEventListener("close", close);
-		opened.addEventListener("error", close);
+		opened.addEventListener("close", (event) =>
+			close(
+				`remote close ${event.code ?? "unknown"}: ${scrubText(event.reason ?? "").slice(0, 200)}`,
+			),
+		);
+		opened.addEventListener("error", () => close("socket error"));
 	}
 
 	/** Waits longer after each failure, at a random point of the wait. */
@@ -1033,20 +1062,62 @@ export function createMachineToolsLoop(options: {
 				options.log("machine-tools-unavailable", message);
 				return MACHINE_TOOL_UNAVAILABLE_MS;
 			}
+			if (message.includes("deferred-dark-wake")) {
+				if (!deferred)
+					options.log(
+						"machine-tools-deferred",
+						"dark wake; waiting for sign-in access",
+					);
+				deferred = true;
+				return MACHINE_TOOL_CONNECTED_MS;
+			}
+			const cause = message.includes("Database temporarily unavailable")
+				? "database unavailable"
+				: /deadline|ETIMEDOUT/i.test(message)
+					? "claim deadline"
+					: /ECONNRESET|ENOTFOUND|EAI_AGAIN|fetch failed/i.test(message)
+						? "network"
+						: /FORBIDDEN|UNAUTHORIZED/.test(message)
+							? "authorization"
+							: /policy|approval|grant/i.test(message)
+								? "policy unavailable"
+								: "claim error";
+			lastClaimError = message;
+			claimCauses.set(cause, (claimCauses.get(cause) ?? 0) + 1);
+			failures += 1;
+			const transient =
+				transientReadFailure(error) ||
+				/ENOTFOUND|Autonomous action policy is unavailable|automatic approval could not be recorded|human_mcp_grant_unavailable/i.test(
+					message,
+				);
 			// Said again each minute, so a long outage is not one old line.
-			if (Date.now() - failureLoggedAt >= MACHINE_TOOL_FAILURE_LOG_MS) {
+			if (
+				(!transient || failures >= 4) &&
+				Date.now() - failureLoggedAt >= MACHINE_TOOL_FAILURE_LOG_MS
+			) {
 				failureLoggedAt = Date.now();
 				options.log("machine-tools-failed", message);
 			}
-			failures += 1;
-			return MACHINE_TOOL_IDLE_MS;
+			return transient
+				? Math.min(60_000, 1_000 * 2 ** Math.min(failures - 1, 10)) *
+						(0.5 + Math.random() / 2)
+				: MACHINE_TOOL_IDLE_MS;
 		}
+		if (deferred)
+			options.log(
+				"machine-tools-resumed",
+				"sign-in access available after dark wake",
+			);
+		deferred = false;
 		if (failures)
 			options.log(
-				"machine-tools-recovered",
-				`after ${failures} failed ${failures === 1 ? "claim" : "claims"}`,
+				Number.isFinite(failureLoggedAt)
+					? "machine-tools-recovered"
+					: "machine-tools-retried",
+				`after ${failures} claims: ${[...claimCauses].map(([cause, count]) => `${cause} (${count})`).join(", ")}; last: ${lastClaimError}`,
 			);
 		failures = 0;
+		claimCauses.clear();
 		failureLoggedAt = Number.NEGATIVE_INFINITY;
 		finished = finished.filter((result) => !sending.includes(result));
 		for (const call of isRecord(value) && Array.isArray(value.calls)
@@ -1078,7 +1149,7 @@ export function createMachineToolsLoop(options: {
 		idle: () =>
 			running.size === 0 && finished.length === 0 && unconfirmed.size === 0,
 		/** Closes the connection; the loop is not used afterwards. */
-		close: () => socket?.close(),
+		close: () => closeConnection(),
 	};
 }
 

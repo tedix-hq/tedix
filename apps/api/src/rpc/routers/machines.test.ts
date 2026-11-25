@@ -209,10 +209,11 @@ describe("machines", () => {
 			send(text: string): void;
 			deserializeAttachment(): unknown;
 		}[] = [];
+		let heardAt: Date | null = null;
 		const connection = new MachineConnectionDO(
 			{
 				getWebSockets: () => sockets,
-				getWebSocketAutoResponseTimestamp: () => null,
+				getWebSocketAutoResponseTimestamp: () => heardAt,
 			} as never,
 			f.env,
 		);
@@ -241,12 +242,24 @@ describe("machines", () => {
 		});
 		const socket = {
 			sent: [] as string[],
+			closed: false,
+			close() {
+				this.closed = true;
+			},
 			send(text: string) {
 				this.sent.push(text);
 			},
-			deserializeAttachment: () => ({ ...identity, openedAt: Date.now() }),
+			deserializeAttachment: () => ({
+				...identity,
+				openedAt: Date.now() - 180_000,
+			}),
 		};
 		sockets.push(socket);
+		expect(await connection.connected()).toBe(false);
+		expect(await connection.push()).toBe(false);
+		expect(socket.closed).toBe(false);
+		heardAt = new Date();
+		expect(await connection.connected()).toBe(true);
 
 		const { callId } = await f
 			.person("second-subject", ORG, { env })

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
 	existsSync,
@@ -32,6 +32,7 @@ import {
 	MACHINE_TOOL_IDLE_MS,
 	machineToolHandlers,
 	type MachineToolClaimInput,
+	type MachineSocket,
 } from "./lane-machine-tools";
 
 const roots: string[] = [];
@@ -123,11 +124,15 @@ test("a runner claims calls, answers them from main and sends the answers with i
 }, 60_000);
 
 test("a machine answers calls over its connection while it is open and polls when it is not", async () => {
-	const listeners = new Map<string, (event: { data?: unknown }) => void>();
+	const listeners = new Map<
+		string,
+		Parameters<MachineSocket["addEventListener"]>[1]
+	>();
 	const sent: string[] = [];
 	const dialed: string[][] = [];
 	const claims: MachineToolClaimInput[] = [];
 	const events: string[] = [];
+	const reasons: string[] = [];
 	const loop = createMachineToolsLoop({
 		reporterId: "reporter-1",
 		machineName: "studio",
@@ -142,7 +147,10 @@ test("a machine answers calls over its connection while it is open and polls whe
 			};
 		},
 		handlers: { read_runner_state: async () => "No runners here" },
-		log: (event) => events.push(event),
+		log: (event, reason) => {
+			events.push(event);
+			reasons.push(reason);
+		},
 		openSocket: (url, ticket) => {
 			dialed.push([url, ticket]);
 			return {
@@ -176,7 +184,10 @@ test("a machine answers calls over its connection while it is open and polls whe
 		data: JSON.stringify({ ...call, callId: "call-2" }),
 	});
 	await loop.inFlight();
-	listeners.get("close")!({});
+	listeners.get("close")!({
+		code: 4001,
+		reason: "Replaced by a newer connection",
+	});
 	expect(await loop.cycle()).toBe(MACHINE_TOOL_ACTIVE_MS);
 	expect(claims.at(-1)!.results).toEqual([
 		{ callId: "call-2", ok: true, result: "No runners here" },
@@ -184,6 +195,163 @@ test("a machine answers calls over its connection while it is open and polls whe
 	expect(
 		events.filter((event) => event.startsWith("machine-connection-")),
 	).toEqual(["machine-connection-open", "machine-connection-closed"]);
+	expect(reasons.at(-1)).toContain(
+		"remote close 4001: Replaced by a newer connection",
+	);
+});
+
+test("transient claims back off, retain answers and report recovery without failed events", async () => {
+	const claims: MachineToolClaimInput[] = [];
+	const events: string[][] = [];
+	const errors = [
+		"SERVICE_UNAVAILABLE: Database temporarily unavailable",
+		"Native call deadline elapsed",
+		"getaddrinfo ENOTFOUND example.test",
+	];
+	const loop = createMachineToolsLoop({
+		reporterId: "reporter-1",
+		machineName: "studio",
+		claim: async (input) => {
+			claims.push(input);
+			if (claims.length === 1)
+				return {
+					calls: [{ callId: "call-1", tool: "read_runner_state", input: {} }],
+				};
+			const error = errors[claims.length - 2];
+			if (error) throw new Error(error);
+			return { calls: [] };
+		},
+		handlers: { read_runner_state: async () => "ready" },
+		log: (event, reason) => events.push([event, reason]),
+	});
+	await loop.cycle();
+	await loop.inFlight();
+	for (const ceiling of [1_000, 2_000, 4_000]) {
+		const delay = await loop.cycle();
+		expect(delay).toBeGreaterThanOrEqual(ceiling / 2);
+		expect(delay).toBeLessThanOrEqual(ceiling);
+	}
+	await loop.cycle();
+	await loop.cycle();
+	for (const claim of claims.slice(1, 5))
+		expect(claim.results).toEqual([
+			{ callId: "call-1", ok: true, result: "ready" },
+		]);
+	expect(claims.at(-1)!.results).toBeUndefined();
+	expect(events.filter(([event]) => event !== "machine-tool-answered")).toEqual(
+		[
+			[
+				"machine-tools-retried",
+				"after 3 claims: database unavailable (1), claim deadline (1), network (1); last: getaddrinfo ENOTFOUND example.test",
+			],
+		],
+	);
+});
+
+test("dark wake defers quietly while sustained outages and permission errors remain failures", async () => {
+	const events: string[][] = [];
+	let message = "Stored session could not be refreshed (deferred-dark-wake)";
+	const loop = createMachineToolsLoop({
+		reporterId: "reporter-1",
+		machineName: "studio",
+		claim: async () => {
+			if (message) throw new Error(message);
+			return { calls: [] };
+		},
+		handlers: {},
+		log: (event, reason) => events.push([event, reason]),
+	});
+	await loop.cycle();
+	await loop.cycle();
+	expect(events.map(([event]) => event)).toEqual(["machine-tools-deferred"]);
+	message = "";
+	await loop.cycle();
+	expect(events.at(-1)![0]).toBe("machine-tools-resumed");
+	message = "SERVICE_UNAVAILABLE: Database temporarily unavailable";
+	for (let i = 0; i < 10; i++) {
+		const delay = await loop.cycle();
+		expect(delay).toBeLessThanOrEqual(60_000);
+	}
+	expect(
+		events.filter(([event]) => event === "machine-tools-failed"),
+	).toHaveLength(1);
+	message = "";
+	await loop.cycle();
+	expect(events.at(-1)).toEqual([
+		"machine-tools-recovered",
+		"after 10 claims: database unavailable (10); last: SERVICE_UNAVAILABLE: Database temporarily unavailable",
+	]);
+	message = "FORBIDDEN: Only the reporting runner may claim";
+	expect(await loop.cycle()).toBe(MACHINE_TOOL_IDLE_MS);
+	expect(events.at(-1)).toEqual(["machine-tools-failed", message]);
+});
+
+test("a suspended ping timer resumes the socket but an awake unresponsive peer is closed", async () => {
+	let now = 0;
+	const clock = spyOn(Date, "now").mockImplementation(() => now);
+	const handle = setInterval(() => {}, 1_000_000);
+	let tick = () => {};
+	const timer = spyOn(globalThis, "setInterval").mockImplementation(
+		(...[callback, _ms, ...args]: Parameters<typeof setInterval>) => {
+			tick = () => callback(...args);
+			return handle;
+		},
+	);
+	const listeners = new Map<
+		string,
+		Parameters<MachineSocket["addEventListener"]>[1]
+	>();
+	const events: string[][] = [];
+	const sent: string[] = [];
+	let closes = 0;
+	const loop = createMachineToolsLoop({
+		reporterId: "reporter-1",
+		machineName: "studio",
+		claim: async () => ({
+			calls: [],
+			connection: { url: "wss://example.test", ticket: "t" },
+		}),
+		handlers: {},
+		log: (event, reason) => events.push([event, reason]),
+		openSocket: () => ({
+			send: (text) => {
+				sent.push(text);
+			},
+			close: () => {
+				closes += 1;
+			},
+			addEventListener: (type, listener) => {
+				listeners.set(type, listener);
+			},
+		}),
+	});
+	try {
+		await loop.cycle();
+		listeners.get("open")!({});
+		for (let i = 0; i < 3; i++) {
+			now += 30_000;
+			tick();
+		}
+		now += 180_000;
+		tick();
+		expect(closes).toBe(0);
+		expect(sent).toEqual(["ping", "ping", "ping", "ping"]);
+		listeners.get("message")!({ data: "pong" });
+		for (let i = 0; i < 4; i++) {
+			now += 30_000;
+			tick();
+		}
+		expect(closes).toBe(1);
+		expect(events.slice(1)).toEqual([
+			["machine-connection-resumed", "timer gap 180000ms"],
+			["machine-connection-closed", "ping timeout; polling"],
+		]);
+	} finally {
+		loop.close();
+		clearInterval(handle);
+		timer.mockRestore();
+		clock.mockRestore();
+	}
 });
 
 test("with the write tools on, a tedi edits files and runs commands in its own workspace", async () => {
