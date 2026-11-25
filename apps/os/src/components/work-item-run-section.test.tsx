@@ -3,11 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
-import {
-	workRunEntries,
-	workRunOpenQuestion,
-	workRunStatus,
-} from "./work-item-run";
+import { workRunEntries, workRunStatus } from "./work-item-run";
 import { WorkItemRunView } from "./work-item-run-section";
 
 const START = Date.parse("2026-11-19T10:00:00.000Z");
@@ -186,71 +182,6 @@ describe("WorkItemRunView", () => {
 	});
 });
 
-describe("a question the run is waiting on", () => {
-	const question = {
-		seq: 3,
-		at: START + 200_000,
-		kind: "question" as const,
-		text: "Which table holds the plan?",
-		choices: ["accounts", "subscriptions"],
-	};
-	const asking = run({ steps: [...run().steps, question] });
-
-	it("is open after the run ends until someone answers", () => {
-		expect(workRunOpenQuestion(asking)).toEqual(question);
-		const ended = { ...asking, live: false };
-		expect(workRunOpenQuestion(ended)).toEqual(question);
-		expect(
-			workRunOpenQuestion({
-				...asking,
-				steps: [
-					...asking.steps,
-					{ seq: 4, at: START + 210_000, kind: "message", text: "Thanks." },
-				],
-			}),
-		).toBeUndefined();
-		expect(
-			workRunOpenQuestion({
-				...asking,
-				messages: [
-					{
-						...asking.messages[0]!,
-						createdAt: new Date(START + 205_000).toISOString(),
-					},
-				],
-			}),
-		).toBeUndefined();
-	});
-
-	it("sends an offered answer after the run ends", async () => {
-		const onSend =
-			vi.fn<(body: string, interrupt?: boolean) => Promise<unknown>>();
-		onSend.mockResolvedValue({});
-		const host = document.createElement("div");
-		document.body.append(host);
-		const root = createRoot(host);
-		try {
-			await act(async () =>
-				root.render(
-					<WorkItemRunView run={{ ...asking, live: false }} onSend={onSend} />,
-				),
-			);
-			const group = host.querySelector('[data-slot="run-question"]')!;
-			expect(group.textContent).toContain("Which table holds the plan?");
-			await act(async () => {
-				[...group.querySelectorAll("button")]
-					.find((button) => button.textContent === "subscriptions")!
-					.click();
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			});
-			expect(onSend).toHaveBeenCalledExactlyOnceWith("subscriptions", false);
-		} finally {
-			act(() => root.unmount());
-			host.remove();
-		}
-	});
-});
-
 describe("workRunStatus", () => {
 	const now = new Date(START + 4 * 60_000);
 
@@ -311,4 +242,18 @@ it("orders entries by time", () => {
 		"message-55555555-5555-4555-8555-555555555555",
 		"step-2",
 	]);
+});
+
+it("renders a historical question as a log entry without alternate answer controls", () => {
+	const markup = renderToStaticMarkup(
+		<WorkItemRunView
+			run={run({
+				live: false,
+				steps: [{ seq: 0, at: START, kind: "question", text: "Which table?" }],
+			})}
+		/>,
+	);
+	expect(markup).toContain("Which table?");
+	expect(markup).not.toContain("run-question");
+	expect(markup).not.toContain("textarea");
 });

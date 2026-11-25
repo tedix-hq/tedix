@@ -9,13 +9,11 @@ import {
 	rootAttemptBudgetAvailable,
 	childReportStatements,
 } from "./child-delegation";
-import { WorkAttemptStepSchema } from "@tedix/api-contract/schemas/work-attempt-steps";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type {
 	RepositoryCandidateDescriptor,
 	RepositoryCandidatePublicationRecord,
 } from "@tedix/api-contract/schemas/repository-candidate";
-import { recordPersistedCardCreationEdges } from "../decision-graph-writers";
 import {
 	WorkAttemptRepositorySchema,
 	type WorkAttemptRepository,
@@ -23,7 +21,6 @@ import {
 } from "@tedix/api-contract/schemas/work-items";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { prepareLaneHandoff, laneHandoffStatements } from "./lane-handoffs";
 import { workAttemptFailureReason } from "./attempt-failure";
 import { lifecycleEventInsert } from "./crud";
 import { retireDecisionReviews } from "./decision-review-retirement";
@@ -1133,8 +1130,6 @@ export async function settleWorkItemAttempt(
 		externalSessionKey?: string;
 		outcome: WorkAttemptOutcome;
 		summary?: string;
-		needsUser?: string;
-		requestId?: string;
 		metadata?: Record<string, JsonValue>;
 		repositoryLifecycle?: WorkAttemptRepositoryLifecycle;
 		completion?: { actor: WorkActor; expectedWorkItemVersion: number };
@@ -1145,16 +1140,13 @@ export async function settleWorkItemAttempt(
 ): Promise<{
 	workItem: WorkItem;
 	attempt: WorkAttempt;
-	interactionId?: string;
-	/** The Attempt was already settled by an earlier call with this hand-off. */
-	replayed?: true;
 }> {
 	const settledAt = params.settledAt ?? new Date().toISOString();
 	const completion = params.completion;
-	if (completion && (params.outcome !== "succeeded" || params.needsUser))
+	if (completion && params.outcome !== "succeeded")
 		throw new WorkFactoryError(
 			"NOT_READY",
-			"Closeout requires a succeeded Attempt without a handoff",
+			"Closeout requires a succeeded Attempt",
 		);
 	const completionFence = completion
 		? and(
@@ -1164,40 +1156,6 @@ export async function settleWorkItemAttempt(
 				eq(workItems.disposition, "accepted"),
 			)
 		: undefined;
-	if (params.needsUser) {
-		const [settled] = await db
-			.select()
-			.from(workAttempts)
-			.where(
-				and(
-					eq(workAttempts.orgId, params.orgId),
-					eq(workAttempts.workItemId, params.workItemId),
-					eq(workAttempts.id, params.attemptId),
-					eq(workAttempts.executorType, params.executor.type),
-					eq(workAttempts.executorId, params.executor.id),
-					params.sessionId
-						? eq(workAttempts.executorSessionId, params.sessionId)
-						: isNull(workAttempts.executorSessionId),
-					params.externalSessionKey
-						? eq(workAttempts.externalSessionKey, params.externalSessionKey)
-						: isNull(workAttempts.externalSessionKey),
-					eq(workAttempts.outcome, params.outcome),
-					sql`json_extract(${workAttempts.metadata},'$.laneHandoff.nextClick')=${params.needsUser.trim()}`,
-					sql`json_extract(${workAttempts.metadata},'$.laneHandoff.requestId') IS ${params.requestId ?? null}`,
-					sql`EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id=${workAttempts.orgId} AND i.work_item_id=${workAttempts.workItemId} AND i.id=json_extract(${workAttempts.metadata},'$.laneHandoff.interactionId'))`,
-				),
-			)
-			.limit(1);
-		if (settled) {
-			const receipt = settled.metadata.laneHandoff as { interactionId: string };
-			return {
-				workItem: await getScopedWorkItem(db, params.orgId, params.workItemId),
-				attempt: settled,
-				interactionId: receipt.interactionId,
-				replayed: true,
-			};
-		}
-	}
 	const failureReason =
 		params.outcome === "failed" || params.outcome === "rejected"
 			? workAttemptFailureReason(params.summary, params.metadata)
@@ -1250,18 +1208,6 @@ export async function settleWorkItemAttempt(
 				: params.outcome === "rejected"
 					? "failed"
 					: params.outcome;
-		const work = params.needsUser
-			? await getScopedWorkItem(db, params.orgId, params.workItemId)
-			: null;
-		const handoff = work
-			? await prepareLaneHandoff(db, {
-					work,
-					attempt: prior,
-					nextClick: params.needsUser!,
-					requestId: params.requestId,
-					now: settledAt,
-				})
-			: null;
 		const settlementMetadata = buildWorkAttemptSettlementMetadata({
 			priorMetadata: prior.metadata,
 			metadata: failureReason
@@ -1336,21 +1282,12 @@ export async function settleWorkItemAttempt(
 				outcome: params.outcome,
 				summary,
 				finishedAt: settledAt,
-				metadata: handoff
+				metadata: completion
 					? {
 							...settlementMetadata,
-							laneHandoff: {
-								interactionId: handoff.interactionId,
-								nextClick: handoff.nextClick,
-								requestId: params.requestId ?? null,
-							},
+							closedWorkVersion: completion.expectedWorkItemVersion,
 						}
-					: completion
-						? {
-								...settlementMetadata,
-								closedWorkVersion: completion.expectedWorkItemVersion,
-							}
-						: settlementMetadata,
+					: settlementMetadata,
 				version: sql`${workAttempts.version} + 1`,
 			})
 			.where(
@@ -1454,84 +1391,36 @@ export async function settleWorkItemAttempt(
 					sql`EXISTS (SELECT 1 FROM work_attempts AS settlement_winner WHERE settlement_winner.id=${params.attemptId} AND settlement_winner.admission_id=${workBudgetReservations.admissionId} AND settlement_winner.org_id=${workBudgetReservations.orgId} AND settlement_winner.work_item_id=${workBudgetReservations.workItemId} AND settlement_winner.version=${prior.version + 1} AND settlement_winner.runtime_state=${runtimeState})`,
 				),
 			);
-		// The step report tells the watching chat promptly. Settlement also
-		// stores the question, so a missed report cannot leave a parked run
-		// with no way to answer.
-		const question = WorkAttemptStepSchema.safeParse(
-			settlementMetadata.runQuestion,
-		).data;
-		const persistQuestion =
-			params.outcome === "cancelled" && question?.kind === "question"
-				? db
-						.insert(workAttemptSteps)
-						.select(
-							db
-								.select({
-									id: sql<string>`${crypto.randomUUID()}`.as("step_id"),
-									orgId: workAttempts.orgId,
-									workItemId: workAttempts.workItemId,
-									attemptId: workAttempts.id,
-									seq: sql<number>`${question.seq}`.as("step_seq"),
-									at: sql<number>`${question.at}`.as("step_at"),
-									kind: sql<"question">`'question'`.as("step_kind"),
-									text: sql<string>`${question.text}`.as("step_text"),
-									choices: sql<
-										string[] | null
-									>`${question.choices ? JSON.stringify(question.choices) : null}`.as(
-										"step_choices",
-									),
-								})
-								.from(workAttempts)
-								.where(
-									and(
-										eq(workAttempts.id, params.attemptId),
-										eq(workAttempts.orgId, params.orgId),
-										eq(workAttempts.workItemId, params.workItemId),
-										eq(workAttempts.version, prior.version + 1),
-										eq(workAttempts.finishedAt, settledAt),
-										eq(workAttempts.outcome, "cancelled"),
-									),
-								),
-						)
-						.onConflictDoNothing({
-							target: [workAttemptSteps.attemptId, workAttemptSteps.seq],
-						})
-				: undefined;
-		// A message insert checks the live Attempt atomically. In this same
-		// settlement batch, account for follow-ups accepted after the final read.
-		// A parked question stays last so its answer can resume the session.
-		const refuseLateFollowUps = !persistQuestion
-			? db.insert(workAttemptSteps).select(
-					db
-						.select({
-							id: sql<string>`${crypto.randomUUID()}`.as("step_id"),
-							orgId: workAttempts.orgId,
-							workItemId: workAttempts.workItemId,
-							attemptId: workAttempts.id,
-							seq: sql<number>`(SELECT coalesce(max(step.seq), -1) + 1 FROM work_attempt_steps step WHERE step.attempt_id = ${params.attemptId})`.as(
-								"step_seq",
-							),
-							at: sql<number>`${Date.parse(settledAt)}`.as("step_at"),
-							kind: sql<"error">`'error'`.as("step_kind"),
-							text: sql<string>`'Follow-up not applied: the run ended before another turn could start.'`.as(
-								"step_text",
-							),
-							choices: sql<null>`NULL`.as("step_choices"),
-						})
-						.from(workAttempts)
-						.where(
-							and(
-								eq(workAttempts.id, params.attemptId),
-								eq(workAttempts.orgId, params.orgId),
-								eq(workAttempts.workItemId, params.workItemId),
-								eq(workAttempts.version, prior.version + 1),
-								eq(workAttempts.finishedAt, settledAt),
-								eq(workAttempts.outcome, params.outcome),
-								sql`EXISTS (SELECT 1 FROM ${workAttemptMessages} WHERE ${workAttemptMessages.attemptId} = ${workAttempts.id} AND ${workAttemptMessages.orgId} = ${workAttempts.orgId} AND ${workAttemptMessages.workItemId} = ${workAttempts.workItemId} AND ${workAttemptMessages.kind} = 'follow_up' AND ${workAttemptMessages.appliedAt} IS NULL)`,
-							),
-						),
-				)
-			: undefined;
+		const refuseLateFollowUps = db.insert(workAttemptSteps).select(
+			db
+				.select({
+					id: sql<string>`${crypto.randomUUID()}`.as("step_id"),
+					orgId: workAttempts.orgId,
+					workItemId: workAttempts.workItemId,
+					attemptId: workAttempts.id,
+					seq: sql<number>`(SELECT coalesce(max(step.seq), -1) + 1 FROM work_attempt_steps step WHERE step.attempt_id = ${params.attemptId})`.as(
+						"step_seq",
+					),
+					at: sql<number>`${Date.parse(settledAt)}`.as("step_at"),
+					kind: sql<"error">`'error'`.as("step_kind"),
+					text: sql<string>`'Follow-up not applied: the run ended before another turn could start.'`.as(
+						"step_text",
+					),
+					choices: sql<null>`NULL`.as("step_choices"),
+				})
+				.from(workAttempts)
+				.where(
+					and(
+						eq(workAttempts.id, params.attemptId),
+						eq(workAttempts.orgId, params.orgId),
+						eq(workAttempts.workItemId, params.workItemId),
+						eq(workAttempts.version, prior.version + 1),
+						eq(workAttempts.finishedAt, settledAt),
+						eq(workAttempts.outcome, params.outcome),
+						sql`EXISTS (SELECT 1 FROM ${workAttemptMessages} WHERE ${workAttemptMessages.attemptId} = ${workAttempts.id} AND ${workAttemptMessages.orgId} = ${workAttempts.orgId} AND ${workAttemptMessages.workItemId} = ${workAttempts.workItemId} AND ${workAttemptMessages.kind} = 'follow_up' AND ${workAttemptMessages.appliedAt} IS NULL)`,
+					),
+				),
+		);
 		const [settledRows] = await db.batch([
 			// The event and optional completion each depend on the preceding write.
 			settleMutation,
@@ -1548,17 +1437,7 @@ export async function settleWorkItemAttempt(
 				summary,
 				now: settledAt,
 			}),
-			...(persistQuestion ? [persistQuestion] : []),
-			...(refuseLateFollowUps ? [refuseLateFollowUps] : []),
-			...(handoff && work
-				? laneHandoffStatements(db, {
-						work,
-						attempt: prior,
-						handoff,
-						summary,
-						now: settledAt,
-					})
-				: []),
+			refuseLateFollowUps,
 		]);
 		const attempt = settledRows[0];
 		if (attempt) {
@@ -1568,16 +1447,10 @@ export async function settleWorkItemAttempt(
 					workItemId: params.workItemId,
 					now: settledAt,
 				});
-			if (handoff)
-				await recordPersistedCardCreationEdges(
-					db,
-					params.orgId,
-					handoff.interactionId,
-				);
+
 			return {
 				workItem: await getScopedWorkItem(db, params.orgId, params.workItemId),
 				attempt,
-				...(handoff ? { interactionId: handoff.interactionId } : {}),
 			};
 		}
 		if (completion) {

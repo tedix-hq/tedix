@@ -5418,21 +5418,6 @@ test("registers a lane on its admitted Attempt and rejects the flag on other ver
 	);
 });
 
-test("settle sends the exact human next click and original request to the server", async () => {
-	const { ctx, sources } = makeContext(
-		{
-			outcome: "succeeded",
-			note: "Draft: /docs/example",
-			needsUser: "Confirm address and send",
-			requestId: ITEM,
-		},
-		ATTEMPT,
-	);
-	expect(await runWork(`settle ${ITEM}`, ctx)).toBe(0);
-	expect(sources[0]).toContain('"needsUser":"Confirm address and send"');
-	expect(sources[0]).toContain(`"requestId":"${ITEM}"`);
-});
-
 describe("comment text options", () => {
 	test.each(["--body", "--message", "--text"])(
 		"posts the trimmed %s value",

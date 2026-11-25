@@ -98,29 +98,6 @@ export const appendAttemptStepsProcedure = runnerOs.appendAttemptSteps.handler(
 				steps: input.steps,
 				appliedMessageIds: input.appliedMessageIds,
 			});
-			// A question the run asks is passed to the chat that started the run.
-			// Only a step stored by this call counts, so a retried report tells
-			// the chat once; telling it must not delay or fail the runner.
-			const stored = new Set(result.acceptedSeqs);
-			const questions = input.steps.filter(
-				(step) => step.kind === "question" && stored.has(step.seq),
-			);
-			if (questions.length && executor.type === "external_agent") {
-				const { notifyAgentRunQuestion } =
-					await import("../../../services/agent-run-ended-notice");
-				const notices = Promise.all(
-					questions.map((step) =>
-						notifyAgentRunQuestion(context, workItem, {
-							attemptId: input.attemptId,
-							seq: step.seq,
-							text: step.text,
-							choices: step.choices,
-						}),
-					),
-				);
-				if (context.waitUntil) context.waitUntil(notices);
-				else await notices;
-			}
 			return {
 				approvalWait:
 					executor.type === "external_agent"
@@ -152,23 +129,9 @@ export const listAttemptStepsProcedure = readerOs.listAttemptSteps.handler(
 				afterSeq: input.afterSeq,
 				limit: input.limit,
 			});
-			const continuation = workItem.metadata?.questionContinuation;
-			const answered =
-				continuation &&
-				typeof continuation === "object" &&
-				"attemptId" in continuation &&
-				continuation.attemptId === result.attemptId;
 			return {
 				attemptId: result.attemptId,
 				live: result.live,
-				...(!result.live
-					? {
-							questionOpen:
-								workItem.disposition === "accepted" &&
-								result.questionVersion === workItem.version &&
-								!answered,
-						}
-					: {}),
 				steps: result.steps.map((step) => ({
 					seq: step.seq,
 					at: step.at,

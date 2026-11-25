@@ -126,17 +126,19 @@ An ordinary remote connector cannot wake an idle chat.
 
 ## Continue an authorized repository task
 
-When a registered local lane has a result that needs its requesting person
-(an answer, a decision, or a draft to send), hand it off with
-`tedix lane done "<what was done; document/Work link>" --needs-user "<exact next click>"`.
-Pass `--request-id <ledger-id>` when the original private request is known.
-Use this for every human-dependent lane result; a report file alone is not a
-handoff. Settlement creates one Needs-you Interaction, marks the ledger waiting
-on the person, and leaves Work open. Never send the draft or make the decision
-for them. The person can choose Done or Snooze 1 day. Bound Claude/Codex event
-channels show the ask at the next prompt; read its current record before acting.
-After 24 hours the morning digest reminds once per day; after seven days the
-original owner reviews relevance through the existing Interaction review flow.
+When a run needs its requesting person, reuse an equivalent open canonical
+Work Interaction or discover `create_work_interaction` and create one scoped
+to the Work Item. Derive the requested person from verified Work ownership,
+include the result link and one plain question, and retain the returned request
+ID and version. Never send the draft or make the decision for them.
+
+Use the blocking `wait_work_items` call (CLI: `tedix work wait <id>`) and preserve
+its cursor. Snapshot a cursor before reading the exact request so an answer
+cannot fall between the read and the wait. Re-read the canonical request and
+response after a wake; a timeout does not authorize answer-list polling. A
+registered dispatcher run returns `waiting_on_user` with the canonical request's
+actual identity and fence; the dispatcher owns Attempt settlement and resumption.
+Do not ask by encoding a final `question` result or a settlement handoff field.
 
 Agents must create worktrees under `.worktrees/` (or harness-managed locations), never sibling clones.
 

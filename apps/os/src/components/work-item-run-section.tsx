@@ -16,8 +16,6 @@ import {
 	type WorkRunAttempt,
 	WorkRunEntryRow,
 	workRunEntries,
-	workRunOpenQuestion,
-	WorkRunQuestion,
 	workRunStatus,
 	WorkRunStopConfirm,
 } from "@/components/work-item-run";
@@ -75,7 +73,6 @@ export function WorkItemRunView({
 		[steps, messages],
 	);
 	const stopRequested = run.messages.some((message) => message.kind === "stop");
-	const question = workRunOpenQuestion(run);
 	const fieldId = `work-run-follow-up-${run.attemptId ?? "none"}`;
 	const sendDraft = (interrupt: boolean) => {
 		const body = draft.trim();
@@ -134,7 +131,7 @@ export function WorkItemRunView({
 					The agent has not reported a step yet.
 				</p>
 			)}
-			{run.live || question ? (
+			{run.live ? (
 				<form
 					className="grid gap-3"
 					onSubmit={(event) => {
@@ -142,27 +139,14 @@ export function WorkItemRunView({
 						sendDraft(false);
 					}}
 				>
-					{question ? (
-						<WorkRunQuestion
-							question={question}
-							onAnswer={onSend ? (answer) => onSend(answer, false) : undefined}
-							sending={sending}
-						/>
-					) : null}
-					<Label htmlFor={fieldId}>
-						{question ? "Answer in your own words" : "Send a follow-up"}
-					</Label>
+					<Label htmlFor={fieldId}>Send a follow-up</Label>
 					<Textarea
 						id={fieldId}
 						value={draft}
 						onChange={(event) => setDraft(event.target.value)}
 						maxLength={4000}
 						disabled={sending}
-						placeholder={
-							question
-								? undefined
-								: "The agent reads it when its current step ends. Send now stops that step first."
-						}
+						placeholder="The agent reads it when its current step ends. Send now stops that step first."
 					/>
 					{sendError ? (
 						<p role="alert" className="m-0">
@@ -173,7 +157,7 @@ export function WorkItemRunView({
 						<Button type="submit" disabled={!draft.trim() || sending}>
 							{sending ? "Sending…" : "Send"}
 						</Button>
-						{run.live && !question ? (
+						{run.live ? (
 							<>
 								<Button
 									type="button"

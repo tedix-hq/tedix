@@ -57,7 +57,7 @@ tedix lane remote-job send|receive|inspect --input <file> --workspace <profile> 
 
 tedix lane start "<title>" --project <id> [--work-item <id>]
 tedix lane brief <brief-file> [--host codex|claude]  # enriched brief for launchers
-tedix lane done|fail "<note>" [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
+tedix lane done|fail "<note>" [--commit <sha> ...]
 
 Run inside the lane's own Codex/Claude session after tedix agent start.
 Uses normal Work admission and a session-scoped pointer; never inherits a launcher's
@@ -179,7 +179,6 @@ export async function runLane(
 		existing: string | undefined,
 		briefFile: string | undefined,
 		host: string | undefined;
-	let needsUser: string | undefined, requestId: string | undefined;
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i]!;
 		if (
@@ -190,8 +189,6 @@ export async function runLane(
 				"--project",
 				"--work-item",
 				"--commit",
-				"--needs-user",
-				"--request-id",
 				"--brief-file",
 				"--host",
 			].includes(arg)
@@ -202,11 +199,6 @@ export async function runLane(
 			if (arg === "--project") project = value;
 			else if (arg === "--work-item") existing = value;
 			else if (arg === "--commit") commits.push(value);
-			else if (arg === "--needs-user") {
-				needsUser = value.trim();
-				if (!needsUser)
-					throw new Error("--needs-user needs an exact next click");
-			} else if (arg === "--request-id") requestId = value;
 			else if (arg === "--brief-file") briefFile = value;
 			else if (arg === "--host") host = value;
 			else scope.push(arg === "-w" ? "--workspace" : arg, value);
@@ -261,8 +253,7 @@ export async function runLane(
 					session.startsWith("codex:") ? "codex" : "claude-code",
 				)
 			: undefined;
-	const note =
-		words.join(" ").trim() || (needsUser ? "Lane result ready." : "");
+	const note = words.join(" ").trim();
 	if (verb === "start") {
 		if (!note || !project)
 			throw new Error("lane start requires a title and --project");
@@ -333,8 +324,6 @@ export async function runLane(
 					"--note",
 					note,
 					...commits.flatMap((sha) => ["--commit", sha]),
-					...(needsUser ? ["--needs-user", needsUser] : []),
-					...(requestId ? ["--request-id", requestId] : []),
 				],
 				lane,
 			);

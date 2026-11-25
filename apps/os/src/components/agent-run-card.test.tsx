@@ -205,49 +205,4 @@ describe("AgentRunCardView", () => {
 		expect(failed.host.querySelector("a")).not.toBeNull();
 		failed.unmount();
 	});
-
-	it("sends an answer from the chat card after the run ends", async () => {
-		const onAnswer = vi.fn(async (_answer: string) => ({}));
-		const asking = { ...run(2), live: false };
-		asking.steps.push({
-			seq: 2,
-			at: START + 5_000,
-			kind: "question",
-			text: "Which table holds the plan?",
-			choices: ["accounts", "subscriptions"],
-		});
-		const { host, unmount } = await mount(
-			<AgentRunCardView
-				agentRun={agentRun}
-				run={asking}
-				onAnswer={onAnswer}
-				LinkComponent={TaskLink}
-			/>,
-		);
-		const group = host.querySelector('[data-slot="run-question"]')!;
-		expect(group.textContent).toContain("Which table holds the plan?");
-		await act(async () => {
-			[...group.querySelectorAll("button")]
-				.find((button) => button.textContent === "accounts")!
-				.click();
-		});
-		const input = group.querySelector("input")!;
-		await act(async () => {
-			Object.getOwnPropertyDescriptor(
-				HTMLInputElement.prototype,
-				"value",
-			)!.set!.call(input, " Neither, use plans ");
-			input.dispatchEvent(new Event("input", { bubbles: true }));
-		});
-		await act(async () => {
-			group
-				.querySelector("form")!
-				.dispatchEvent(
-					new Event("submit", { bubbles: true, cancelable: true }),
-				);
-			await new Promise((resolve) => setTimeout(resolve, 10));
-		});
-		expect(onAnswer.mock.calls).toEqual([["accounts"], ["Neither, use plans"]]);
-		unmount();
-	});
 });

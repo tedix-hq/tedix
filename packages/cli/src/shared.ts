@@ -160,8 +160,6 @@ export interface CliOptions {
 	/** Structured Work factory procedure input: inline JSON or @path. */
 	workInput?: string;
 	workOutcome?: string;
-	workNeedsUser?: string;
-	workRequestId?: string;
 	/** `work settle`: repeatable --commit values, in the order given. */
 	workCommits?: string[];
 	workClaimKey?: string;

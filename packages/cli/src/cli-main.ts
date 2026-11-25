@@ -1392,12 +1392,6 @@ export async function main() {
 						? { taskContract: options.workTaskContract }
 						: {}),
 					...(options.workOutcome ? { outcome: options.workOutcome } : {}),
-					...(options.workNeedsUser
-						? { needsUser: options.workNeedsUser }
-						: {}),
-					...(options.workRequestId
-						? { requestId: options.workRequestId }
-						: {}),
 					...(options.workCommits?.length
 						? { commit: options.workCommits }
 						: {}),

@@ -349,29 +349,24 @@ with its outcome:
 tedix -w acme work delegate --done <id> --note "Merged; docs check green"
 ```
 
-For a registered local lane, always hand a result that needs the person back
-through settlement, including a waiting-on-user question, a draft to send, or a
-decision:
+When a run needs a person, reuse an equivalent open Work Interaction or create
+one with `work interaction-create`. Name the person explicitly from verified
+Work ownership, and link the result they need to review. Do not settle a
+successful result to create a question.
 
 ```bash
-tedix lane done "Draft prepared: /docs/example-reply; Work /work/items/<id>" \
-  --needs-user "Confirm the address and send the reply" --request-id <ledger-id>
+tedix -w acme work interaction-create --input '{"workItemId":"<work-id>","kind":"question","subject":"Send the prepared reply?","prompt":"Draft: /docs/example-reply","reason":"Only the requesting person can send this reply.","requestedFrom":{"type":"user","id":"<user-id>"}}'
+tedix -w acme work wait <work-id> --input '{"interactionId":"<request-id>","timeoutMs":0}'
 ```
 
-Omit `--request-id` when no original ledger row is known. Tedix resolves the
-requesting user from recorded lane ownership; it never guesses a recipient.
-Settlement atomically creates one equivalent Needs-you ask and marks the
-request ledger "waiting on you". Work stays open. The ask links the result and
-has **Done** and **Snooze 1 day** actions. Include the document link in the note;
-writing a report file alone does not hand off the result.
-
-Unanswered asks older than 24 hours appear in the morning digest (08:00–12:00
-UTC), at most once per day per ask, and remain once in Attention's **Waiting on
-you** column. Snooze hides the ask for 24 hours. After seven days the original
-owner rechecks relevance through the existing ask-review flow. A bound
-`tedix channel claude` or `tedix channel codex <thread-id>` receives the private
-Interaction event as **Needs you: …**, with a command to read the exact next
-click. A channel delivery is not evidence that the human acted.
+Save the returned cursor, then read the exact Interaction. If it still needs
+an answer, call `work wait` with that cursor. A wake tells the run to read the
+canonical request and response; it is not approval. Preserve the cursor across
+timeouts instead of polling answer lists. A dispatcher-managed run returns
+`waiting_on_user` with the request's actual ID, version, organization and
+requested person; the dispatcher owns its Attempt settlement and continuation.
+Never send the draft or make the person's decision for them. Results and
+questions stay linked in Tedix OS; a local report file is only a working buffer.
 
 ## Operate from workspace chat
 

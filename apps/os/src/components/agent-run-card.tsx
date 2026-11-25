@@ -20,8 +20,6 @@ import {
 	type WorkRunAttempt,
 	WorkRunEntryRow,
 	workRunEntries,
-	workRunOpenQuestion,
-	WorkRunQuestion,
 	workRunStatus,
 	WorkRunStopConfirm,
 } from "@/components/work-item-run";
@@ -96,7 +94,6 @@ export function AgentRunCardView({
 	attempt,
 	viewerId,
 	ownMessageIds,
-	onAnswer,
 	answering = false,
 	onInterrupt,
 	onStop,
@@ -114,8 +111,6 @@ export function AgentRunCardView({
 	attempt?: WorkRunAttempt;
 	viewerId?: string;
 	ownMessageIds?: ReadonlySet<string>;
-	/** Sends the person's answer to a question the run is waiting on. */
-	onAnswer?: (answer: string) => Promise<unknown>;
 	answering?: boolean;
 	onInterrupt?: (input: {
 		body: string;
@@ -170,8 +165,7 @@ export function AgentRunCardView({
 	const visible = hidden ? entries.slice(hidden) : entries;
 	const title = agentRun.title || "Agent run";
 	const outcome = attempt?.outcome;
-	const question = workRunOpenQuestion(run);
-	const canInterrupt = live && !question && !stopRequested && run?.attemptId;
+	const canInterrupt = live && !stopRequested && run?.attemptId;
 	const composingInterrupt =
 		canInterrupt && canInterrupt === interruptAttemptId;
 
@@ -253,14 +247,6 @@ export function AgentRunCardView({
 						))}
 					</ul>
 				) : null}
-				{question ? (
-					<WorkRunQuestion
-						question={question}
-						onAnswer={onAnswer}
-						sending={answering}
-						answerBox
-					/>
-				) : null}
 				<div className="flex min-w-0 flex-wrap items-center gap-2">
 					{/* Link-styled, but a real link: Button would announce it as a
 					    button (role="button") although it navigates. */}
@@ -288,7 +274,7 @@ export function AgentRunCardView({
 							Interrupt
 						</Button>
 					) : null}
-					{live && !question ? (
+					{live ? (
 						<Button
 							type="button"
 							variant="outline"
@@ -410,12 +396,6 @@ export function AgentRunCard({
 			permissionHold={hold?.request.prompt}
 			viewerId={viewerId}
 			ownMessageIds={ownMessageIds}
-			onAnswer={(answer) =>
-				send.mutateAsync({
-					body: answer,
-					attemptId: run?.attemptId ?? undefined,
-				})
-			}
 			answering={send.isPending}
 			onInterrupt={send.mutateAsync}
 			onStop={() => stop.mutateAsync()}

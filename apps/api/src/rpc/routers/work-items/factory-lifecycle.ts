@@ -1217,15 +1217,20 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 		);
 		try {
 			const { complete, settlement } = input;
+			if (input.metadata && "runQuestion" in input.metadata)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Create a canonical Work Interaction before returning waiting_on_user",
+				);
 			if (input.metadata && "settlement" in input.metadata)
 				throw createError(
 					ErrorCodes.BAD_REQUEST,
 					"Put result proof in the typed settlement field.",
 				);
-			if (complete && (input.outcome !== "succeeded" || input.needsUser))
+			if (complete && input.outcome !== "succeeded")
 				throw createError(
 					ErrorCodes.BAD_REQUEST,
-					"Closeout requires outcome succeeded without a handoff.",
+					"Closeout requires outcome succeeded.",
 				);
 			if (complete && workItem.disposition === "completed") {
 				const prior = await getRecordedWorkItemAttempt(context.db, {
@@ -1330,16 +1335,8 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 					toJsonRecord(receiptMetadata),
 				),
 			};
-			const { laneNextStepNeedsPerson, routeLaneNextStepToAgent } =
-				await import("../../../services/lane-handoff-routing");
-			const agentNextStep =
-				executor.type !== "human" &&
-				input.needsUser &&
-				!laneNextStepNeedsPerson(input.needsUser)
-					? input.needsUser
-					: undefined;
 			const settledAt = new Date().toISOString();
-			const { replayed, ...settled } = await settleWorkItemAttempt(context.db, {
+			const settled = await settleWorkItemAttempt(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				attemptId: input.attemptId,
@@ -1349,8 +1346,6 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				externalSessionKey: external?.externalSessionKey,
 				outcome: input.outcome,
 				summary: input.summary,
-				needsUser: agentNextStep ? undefined : input.needsUser,
-				requestId: input.requestId,
 				metadata: external
 					? toJsonRecord(stampExternalAgentMetadata(external, metadata))
 					: toJsonRecord(metadata),
@@ -1359,44 +1354,30 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				costMicros: input.costMicros,
 				settledAt,
 			});
-			// Only the settle that ended the Attempt reports it; a replayed
-			// hand-off settle returns the same Attempt again.
-			if (!replayed) {
-				const { notifyAgentRunEnded } =
-					await import("../../../services/agent-run-ended-notice");
-				// The settle is recorded; reporting it to the chat must not delay or
-				// fail the runner's response.
-				const notice = notifyAgentRunEnded(
-					context,
-					settled.workItem,
-					settled.attempt,
-				);
-				if (context.waitUntil) context.waitUntil(notice);
-				else await notice;
-				const { recordAgentRunOutcomeLesson } =
-					await import("../../../services/agent-run-outcome-lesson");
-				// The tedi that started the run remembers how it ended.
-				const lesson = recordAgentRunOutcomeLesson(
-					context,
-					settled.workItem,
-					settled.attempt,
-				);
-				if (context.waitUntil) context.waitUntil(lesson);
-				else await lesson;
-			}
+			const { notifyAgentRunEnded } =
+				await import("../../../services/agent-run-ended-notice");
+			// The settle is recorded; reporting it to the chat must not delay or
+			// fail the runner's response.
+			const notice = notifyAgentRunEnded(
+				context,
+				settled.workItem,
+				settled.attempt,
+			);
+			if (context.waitUntil) context.waitUntil(notice);
+			else await notice;
+			const { recordAgentRunOutcomeLesson } =
+				await import("../../../services/agent-run-outcome-lesson");
+			// The tedi that started the run remembers how it ended.
+			const lesson = recordAgentRunOutcomeLesson(
+				context,
+				settled.workItem,
+				settled.attempt,
+			);
+			if (context.waitUntil) context.waitUntil(lesson);
+			else await lesson;
 			if (completion)
 				await recordWorkCompletedLearning(context, settled.workItem);
-			if (!agentNextStep || executor.type === "human")
-				return { ...settled, settlement };
-			const ask = await routeLaneNextStepToAgent(context.db, {
-				work: settled.workItem,
-				executor,
-				externalSessionKey: external?.externalSessionKey,
-				nextClick: agentNextStep,
-				summary: settled.attempt.summary ?? input.summary,
-				now: settledAt,
-			});
-			return { ...settled, settlement, interactionId: ask.id };
+			return { ...settled, settlement };
 		} catch (error) {
 			rethrowWorkItemWriteError(error);
 		}

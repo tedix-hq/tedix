@@ -121,8 +121,6 @@ export interface WorkOptions {
 	doneWhen?: string;
 	/** `settle`: succeeded|landed_unverified|failed|cancelled|expired. */
 	outcome?: string;
-	needsUser?: string;
-	requestId?: string;
 	/** `settle`: repeatable `--commit <sha>`; each is resolved locally. */
 	commit?: string[];
 	/** `submit-evidence`: acceptance claim key. */
@@ -250,7 +248,7 @@ Lifecycle:
   run <id> [--note <result text>] [--commit <sha> ...] -- <command> [args...]
   heartbeat <id> [--watch [seconds]]
   settle <id> --outcome succeeded|landed_unverified|failed|cancelled|expired [--note <summary>]
-              [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
+              [--commit <sha> ...]
   complete <id>
   cancel <id> [--reason <summary>]
   move <id> --project <id>   (owner/admin; objective Work takes that project's objective)

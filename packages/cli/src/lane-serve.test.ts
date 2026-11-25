@@ -23,7 +23,6 @@ import { CodexLaneResultJsonSchema } from "./lane-result";
 import {
 	LaneDispatcher,
 	followUpRefusal,
-	questionRefusal,
 	LaneCommitFetchError,
 	ARCHIVED_RUNS_KEPT,
 	DISPATCHER_LOG_CAP_BYTES,
@@ -10991,6 +10990,30 @@ describe("structured dispatcher outcomes", () => {
 			},
 		);
 	});
+	it("rejects a retired final-question declaration without completing or opening another ask", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.commits = [];
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...common(), outcome: "question", question: "Which table?" })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(f.events.filter(requestsCompletion)).toHaveLength(0);
+		expect(f.events.some((event) => event.verb === "interaction-create")).toBe(
+			false,
+		);
+		expect(
+			f.control.stepCalls.some((call) =>
+				call.steps.some((step) => step.kind === "question"),
+			),
+		).toBe(false);
+		expect(f.events.find((event) => event.verb === "settle")?.args).toContain(
+			"failed",
+		);
+	});
+
 	it("retains one human request across ticks and restart, then releases it on a Work edit while fresh Work advances", async () => {
 		const f = fixture();
 		f.items.splice(1);
@@ -13131,86 +13154,6 @@ describe("watching and steering a run", () => {
 		}
 	});
 
-	const asks = (question: string, choices?: string[]) => {
-		const { outcome: _outcome, ...fence } = completedResult(item(1));
-		return `Asking.\nTEDIX_LANE_RESULT ${JSON.stringify({ ...fence, outcome: "question", question, ...(choices ? { choices } : {}) })}`;
-	};
-
-	it("releases the Attempt and resumes the same native session with a late answer", async () => {
-		const f = fixture();
-		f.items.splice(1);
-		f.control.uniqueAttempts = true;
-		const sessions: string[] = [];
-		f.control.duringTurn = (turn) => {
-			sessions.push(turn.args[turn.args.indexOf("resume") + 1]!);
-			f.control.finalMessage =
-				turn.number === 1
-					? asks("Which table holds the plan?", ["accounts", "subscriptions"])
-					: "Used subscriptions.";
-		};
-		await f.dispatcher.tick();
-		await until(() => f.releases.length === 1);
-		liveFence(f);
-		f.releases[0]!();
-		await f.dispatcher.drain();
-
-		const settled = f.events.find((event) => event.verb === "settle")!;
-		expect(settled.args[settled.args.indexOf("--outcome") + 1]).toBe(
-			"cancelled",
-		);
-		expect(settled.input?.metadata).toMatchObject({
-			runQuestion: { kind: "question", text: "Which table holds the plan?" },
-			laneResult: { outcome: "deferred" },
-		});
-		expect(sentSteps(f).map((step) => step.kind)).toEqual([
-			"started",
-			"question",
-		]);
-		expect(sentSteps(f).at(-1)?.choices).toEqual(["accounts", "subscriptions"]);
-
-		f.control.history.data[0]!.outcome = "cancelled";
-		f.control.history.data[0]!.metadata = settled.input?.metadata;
-		// Even after the usual deferral timer, only an answer can wake this run.
-		const path = join(f.dir, `${item().id}-2.json`);
-		const waiting = JSON.parse(readFileSync(path, "utf8"));
-		waiting.recheckAt = 0;
-		writeFileSync(path, JSON.stringify(waiting));
-		const restarted = f.restart();
-		await restarted.tick();
-		expect(
-			f.events.filter(
-				(event) => event.verb === "start" && event.args[4] === "work",
-			),
-		).toHaveLength(1);
-
-		const answerId = "77777777-7777-4777-8777-777777777777";
-		f.items[0]!.metadata = {
-			...f.items[0]!.metadata,
-			questionContinuation: {
-				attemptId: "fictional-attempt-1",
-				messageId: answerId,
-			},
-		};
-		f.control.stepReplies = [[fromOwner(answerId, "subscriptions")]];
-		await restarted.tick();
-		await until(() => f.releases.length === 2);
-		f.releases[1]!();
-		await restarted.drain();
-
-		expect(sessions).toEqual([sessions[0]!, sessions[0]!]);
-		expect(f.briefs).toHaveLength(2);
-		expect(f.briefs[1]).toContain('You asked: "Which table holds the plan?".');
-		expect(f.briefs[1]).toContain("From user fictional-owner:\nsubscriptions");
-		expect(
-			f.control.stepCalls
-				.filter((call) => call.applied.length)
-				.map((call) => [call.attemptId, call.applied]),
-		).toEqual([["fictional-attempt-2", [answerId]]]);
-		expect(
-			f.events.filter((event) => event.verb === "settle").at(-1)?.args,
-		).toContain("succeeded");
-	});
-
 	const liveFence = (f: ReturnType<typeof fixture>) => {
 		const saved = JSON.parse(
 			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
@@ -13225,39 +13168,6 @@ describe("watching and steering a run", () => {
 			},
 		];
 	};
-
-	it("does not pass on a question that asks for a secret, a sign-in, consent or MFA", async () => {
-		for (const question of [
-			"What is the API key for the billing service?",
-			"Can you paste your password here?",
-			"Could you sign in to the dashboard for me?",
-			"Please approve the OAuth consent screen.",
-			"Tell me the verification code you received.",
-		])
-			expect(questionRefusal(question), question).toContain("not passed on");
-		for (const question of [
-			"Should the token cache live in memory or on disk?",
-			"Which table holds the plan: accounts or subscriptions?",
-			"Do you want the sign-in page tests moved too?",
-		])
-			expect(questionRefusal(question), question).toBeUndefined();
-
-		const f = fixture();
-		f.items.splice(1);
-		f.control.finalMessage = asks(
-			"What is the API key for the billing service?",
-		);
-		await f.dispatcher.tick();
-		await until(() => f.releases.length === 1);
-		liveFence(f);
-		f.releases[0]!();
-		await f.dispatcher.drain();
-		expect(sentSteps(f).map((step) => step.kind)).not.toContain("question");
-		const settle = f.events.find((event) => event.verb === "settle")!;
-		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
-			"Deferred: Question not passed on",
-		);
-	});
 
 	it("leaves the turn running when its agent has no clean stop, and applies the follow-up after it", async () => {
 		const flush = flushNow();

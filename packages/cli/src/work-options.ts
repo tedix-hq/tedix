@@ -18,8 +18,6 @@ const valueOptions = {
 	"--task-contract": "workTaskContract",
 	"--input": "workInput",
 	"--outcome": "workOutcome",
-	"--needs-user": "workNeedsUser",
-	"--request-id": "workRequestId",
 	"--claim-key": "workClaimKey",
 	"--evidence-kind": "workEvidenceKind",
 	"--evidence-media-type": "workEvidenceMediaType",

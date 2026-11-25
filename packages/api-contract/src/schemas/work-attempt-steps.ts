@@ -153,12 +153,8 @@ export const ListWorkAttemptStepsResultSchema = z.object({
 	live: z
 		.boolean()
 		.describe(
-			"True while the run has no outcome and its lease has not expired. An ended run can still take an answer to its open question.",
+			"True while the run has no outcome and its lease has not expired.",
 		),
-	questionOpen: z
-		.boolean()
-		.optional()
-		.describe("Whether the ended run still accepts an answer."),
 	steps: z.array(WorkAttemptStepSchema),
 	messages: z.array(WorkAttemptMessageSchema),
 });

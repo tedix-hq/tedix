@@ -2424,128 +2424,41 @@ async function laneFixture(onPrepare?: (query: string) => void) {
 		startedAt: "2026-08-20T00:10:00.000Z",
 		expiresAt: "2026-08-20T02:00:00.000Z",
 	});
-	const settle = () =>
-		settleWorkItemAttempt(db, {
-			orgId: "org",
-			workItemId: "work",
-			attemptId: attempt.id,
-			executor: { type: "tedi", id: "tedi" },
-			outcome: "succeeded",
-			summary: "Draft prepared: /docs/example-reply",
-			needsUser: "Confirm the address and send the reply",
-			settledAt: "2026-08-20T00:20:00.000Z",
-		});
-	return { sqlite, db, attempt, settle };
-}
-
-describe("lane human handoffs with production triggers", () => {
-	it("seeks the requesting host session within its organization and preserves colons in its key", async () => {
-		const queries: string[] = [];
-		const { sqlite, settle } = await laneFixture((query) => {
-			if (query.includes('from "work_agent_sessions"')) queries.push(query);
-		});
-		sqlite.exec(`
-			INSERT INTO organizations(id,name,slug) VALUES('other','Other','other');
-			INSERT INTO work_agent_sessions(id,organization_id,user_id,harness,session_key,state,state_since,last_event_at) VALUES
-				('foreign','other','wrong','codex','lead:child','working','2026-08-20','2026-08-20'),
-				('other-harness','org','wrong','claude-code','lead:child','working','2026-08-20','2026-08-20'),
-				('requester','org','user','codex','lead:child','working','2026-08-20','2026-08-20');
-			UPDATE work_items SET source_session_key='codex:lead:child',accountable_owner_id='wrong' WHERE id='work';
-		`);
-		const result = await settle();
-		expect(
-			sqlite
-				.prepare("SELECT target_id FROM work_interactions WHERE id=?")
-				.get(result.interactionId!)?.target_id,
-		).toBe("user");
-		expect(queries).toHaveLength(1);
-		const plan = sqlite
-			.prepare(`EXPLAIN QUERY PLAN ${queries[0]}`)
-			.all(...Array((queries[0]!.match(/\?/g) ?? []).length).fill(null))
-			.map((row) => String(row.detail))
-			.join("\n");
-		expect(plan).toContain(
-			"USING INDEX idx_work_agent_sessions_org_harness_session (organization_id=? AND harness=? AND session_key=?)",
-		);
-		expect(
-			sqlite
-				.prepare("SELECT harness,session_key FROM agent_session_requests")
-				.get(),
-		).toEqual({ harness: "codex", session_key: "lead:child" });
-	});
-	it("settles atomically, addresses the requester, preserves Work, and replays one receipt", async () => {
-		const { sqlite, settle, db } = await laneFixture();
-		const result = await settle();
-		expect(result.workItem.disposition).toBe("accepted");
-		const ask = sqlite
-			.prepare("SELECT * FROM work_interactions WHERE id=?")
-			.get(result.interactionId!)!;
-		expect(ask.target_id).toBe("user");
-		expect(ask.prompt).toContain("/docs/example-reply");
-		expect(ask.prompt).toContain("/work/items/work");
-		expect(JSON.parse(String(ask.metadata)).followThrough.reviewAt).toBe(
-			"2026-08-27T00:20:00.000Z",
-		);
-		expect(
-			sqlite
-				.prepare("SELECT status,evidence FROM agent_session_requests")
-				.get(),
-		).toEqual({
-			status: "waiting_on_user",
-			evidence: `/work/interactions/${result.interactionId}`,
-		});
-		expect((await settle()).interactionId).toBe(result.interactionId);
-		expect(
-			sqlite.prepare("SELECT count(*) n FROM work_interactions").get()!.n,
-		).toBe(1);
-		expect(
-			(
-				await listRequestedWorkInteractionEvents(db, {
-					orgId: "org",
-					after: null,
-					targetId: "user",
-					limit: 10,
-				})
-			).length,
-		).toBe(1);
-	});
-	it("reuses an equivalent existing human ask", async () => {
-		const { db, sqlite, settle } = await laneFixture();
+	// Historical asks stay actionable after settlement stops creating them.
+	const seedAsk = async () => {
+		const interactionId = "historical-ask";
 		await createWorkInteraction(db, {
-			id: "existing-ask",
+			id: interactionId,
 			orgId: "org",
 			workItemId: "work",
 			kind: "question",
 			subject: "Confirm the address and send the reply",
-			prompt: "Ready for your review",
+			prompt: "Draft prepared: /docs/example-reply",
 			creator: { type: "tedi", id: "tedi" },
 			targetType: "user",
 			targetId: "user",
-			now: "2026-08-20T00:15:00.000Z",
+			metadata: {
+				laneHandoff: {
+					key: "confirm",
+					nextClick: "Confirm the address and send the reply",
+					requestId: "historical-ledger",
+				},
+			},
+			reviewAfterDays: 7,
+			now: "2026-08-20T00:20:00.000Z",
 		});
-		expect((await settle()).interactionId).toBe("existing-ask");
-		expect(
-			sqlite.prepare("SELECT count(*) n FROM work_interactions").get()!.n,
-		).toBe(1);
-	});
-	it("rolls settlement back if the ask cannot be persisted", async () => {
-		const { sqlite, settle, attempt } = await laneFixture();
 		sqlite.exec(
-			"CREATE TRIGGER reject_lane_ask BEFORE INSERT ON work_interactions BEGIN SELECT RAISE(ABORT,'ask rejected'); END",
+			"INSERT INTO agent_session_requests(id,organization_id,user_id,harness,session_key,kind,text,status,evidence,source_at,source_key,status_changed_at) VALUES('historical-ledger','org','user','codex','lead','ask','Review','waiting_on_user','/work/interactions/historical-ask','2026-08-20T00:20:00.000Z','historical','2026-08-20T00:20:00.000Z')",
 		);
-		await expect(settle()).rejects.toThrow("ask rejected");
-		expect(
-			sqlite
-				.prepare("SELECT outcome FROM work_attempts WHERE id=?")
-				.get(attempt.id)!.outcome,
-		).toBeNull();
-		expect(
-			sqlite.prepare("SELECT count(*) n FROM agent_session_requests").get()!.n,
-		).toBe(0);
-	});
+		return { interactionId };
+	};
+	return { sqlite, db, attempt, seedAsk };
+}
+
+describe("lane human handoffs with production triggers", () => {
 	it("nudges only after 24h, once per morning per ask, and asks its owner to review after seven days", async () => {
-		const { db, settle } = await laneFixture();
-		await settle();
+		const { db, seedAsk } = await laneFixture();
+		await seedAsk();
 		expect(await nudgeLaneHandoffs(db, "2026-08-20T08:00:00.000Z")).toBe(0);
 		expect(await nudgeLaneHandoffs(db, "2026-08-21T07:59:00.000Z")).toBe(0);
 		expect(await nudgeLaneHandoffs(db, "2026-08-21T08:00:00.000Z")).toBe(1);
@@ -2560,8 +2473,8 @@ describe("lane human handoffs with production triggers", () => {
 		).toHaveLength(1);
 	});
 	it("withdraws a reminder once its original ask leaves open and never reminds about a closed ask", async () => {
-		const { db, sqlite, settle } = await laneFixture();
-		const { interactionId } = await settle();
+		const { db, sqlite, seedAsk } = await laneFixture();
+		const { interactionId } = await seedAsk();
 		expect(await nudgeLaneHandoffs(db, "2026-08-21T08:00:00.000Z")).toBe(1);
 		const reminder = sqlite
 			.prepare(
@@ -2609,8 +2522,8 @@ describe("lane human handoffs with production triggers", () => {
 		).toBe(0);
 	});
 	it("snoozes for exactly one day, then Done resolves the ask and ledger with the response fence", async () => {
-		const { db, sqlite, settle } = await laneFixture();
-		const { interactionId } = await settle();
+		const { db, sqlite, seedAsk } = await laneFixture();
+		const { interactionId } = await seedAsk();
 		await respondToWorkInteraction(db, {
 			id: "snooze",
 			orgId: "org",
@@ -2680,7 +2593,6 @@ describe("lane human handoffs with production triggers", () => {
 				attemptId: attempt.id,
 				executor: { type: "tedi", id: "other" },
 				outcome: "succeeded",
-				needsUser: "Review",
 				settledAt: "2026-08-20T00:20:00.000Z",
 			}),
 		).rejects.toThrow("authoritative");
@@ -2691,7 +2603,6 @@ describe("lane human handoffs with production triggers", () => {
 				attemptId: attempt.id,
 				executor: { type: "tedi", id: "tedi" },
 				outcome: "succeeded",
-				needsUser: "Review",
 				settledAt: "2026-08-21T00:20:00.000Z",
 			}),
 		).rejects.toThrow("authoritative");
@@ -2701,45 +2612,9 @@ describe("lane human handoffs with production triggers", () => {
 	});
 });
 
-it("updates the original request and prevents the observer from overruling the human ask", async () => {
-	const { sqlite, db, attempt } = await laneFixture();
-	sqlite.exec(
-		"INSERT INTO agent_session_requests(id,organization_id,user_id,harness,session_key,kind,text,status,source_at,source_key,status_changed_at) VALUES('original','org','user','codex','lead','request','Prepare reply','in_progress','2026-08-20T00:00:00.000Z','source-original','2026-08-20T00:00:00.000Z')",
-	);
-	const result = await settleWorkItemAttempt(db, {
-		orgId: "org",
-		workItemId: "work",
-		attemptId: attempt.id,
-		executor: { type: "tedi", id: "tedi" },
-		outcome: "succeeded",
-		needsUser: "Review the prepared reply",
-		requestId: "original",
-		settledAt: "2026-08-20T00:20:00.000Z",
-	});
-	const { updateAgentSessionRequests } =
-		await import("../agent-session-requests");
-	await updateAgentSessionRequests(db, {
-		organizationId: "org",
-		userId: "user",
-		updates: [{ id: "original", status: "done", evidence: "agent says done" }],
-		now: "2026-08-20T00:21:00.000Z",
-	});
-	expect(
-		sqlite
-			.prepare("SELECT id,status,evidence FROM agent_session_requests")
-			.all(),
-	).toEqual([
-		{
-			id: "original",
-			status: "waiting_on_user",
-			evidence: `/work/interactions/${result.interactionId}`,
-		},
-	]);
-});
-
 it("withdraws the linked waiting ledger row when the original owner closes an obsolete ask", async () => {
-	const { db, sqlite, settle } = await laneFixture();
-	const { interactionId } = await settle();
+	const { db, sqlite, seedAsk } = await laneFixture();
+	const { interactionId } = await seedAsk();
 	await reviewWorkInteraction(db, {
 		orgId: "org",
 		interactionId: interactionId!,

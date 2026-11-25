@@ -172,39 +172,6 @@ describe("Attempt lease write fences", () => {
 		},
 	);
 
-	it("keeps a parked question last so a late answer can resume its session", async () => {
-		const { db } = await fixture();
-		const at = "2026-10-01T00:01:00.000Z";
-		const question = {
-			seq: 0,
-			at: Date.parse(at),
-			kind: "question" as const,
-			text: "Which table?",
-		};
-		await settleWorkItemAttempt(db, {
-			...caller,
-			outcome: "cancelled",
-			metadata: { dispatchVersion: 1, runQuestion: question },
-			settledAt: at,
-		});
-		expect(
-			await sendWorkAttemptMessage(db, {
-				orgId: caller.orgId,
-				workItemId: caller.workItemId,
-				kind: "follow_up",
-				body: "Pricing",
-				sender: { type: "user", id: "owner" },
-				at,
-			}),
-		).not.toBeNull();
-		const log = await listWorkAttemptSteps(db, {
-			orgId: caller.orgId,
-			workItemId: caller.workItemId,
-			at,
-		});
-		expect(log.steps.map((step) => step.kind)).toEqual(["question"]);
-	});
-
 	it.each(["at expiry", "after expiry", "superseded", "wrong session"])(
 		"rejects heartbeat, settle and complete: %s",
 		async (scenario) => {

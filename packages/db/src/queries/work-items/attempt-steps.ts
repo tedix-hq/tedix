@@ -106,6 +106,12 @@ export async function appendWorkAttemptSteps(
 			`Attempt ${params.attemptId} is no longer authoritative`,
 		);
 
+	if (params.steps.some((step) => step.kind === "question"))
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Ask through a canonical Work Interaction, not a run step",
+		);
+
 	const rows = params.steps.map((step) => ({
 		id: crypto.randomUUID(),
 		orgId: params.orgId,
@@ -154,15 +160,7 @@ export async function appendWorkAttemptSteps(
 											workAttempts.externalSessionKey,
 											params.externalSessionKey,
 										),
-										or(
-											inArray(workAttempts.outcome, ["expired", "failed"]),
-											sql`(${workAttempts.outcome} = 'cancelled'
-											AND ${workAttemptMessages.id} = (
-												SELECT json_extract(${workItems.metadata}, '$.questionContinuation.messageId')
-												FROM ${workItems} WHERE ${workItems.id} = ${params.workItemId}
-												AND ${workItems.orgId} = ${params.orgId}
-											))`,
-										),
+										inArray(workAttempts.outcome, ["expired", "failed"]),
 									),
 								),
 							),
@@ -258,7 +256,6 @@ export interface ListWorkAttemptStepsResult {
 	live: boolean;
 	/** How the Attempt ended; null while it has not, or when there is none. */
 	outcome: WorkAttempt["outcome"];
-	questionVersion?: number;
 	steps: WorkAttemptStepRow[];
 	messages: WorkAttemptMessageRow[];
 }
@@ -330,13 +327,6 @@ export async function listWorkAttemptSteps(
 		attemptId: attempt.id,
 		live: isWorkAttemptLive(attempt, at),
 		outcome: attempt.outcome,
-		questionVersion:
-			attempt.outcome === "cancelled" &&
-			typeof attempt.metadata.runQuestion === "object" &&
-			attempt.metadata.runQuestion !== null &&
-			typeof attempt.metadata.dispatchVersion === "number"
-				? attempt.metadata.dispatchVersion
-				: undefined,
 		steps,
 		messages,
 	};
@@ -407,7 +397,7 @@ export async function queueWorkItemFollowUp(
 	return message ?? null;
 }
 
-/** Queue steering on the newest run or answer its outstanding question. */
+/** Queue steering on the newest live run. Answers belong to Work Interactions. */
 export async function sendWorkAttemptMessage(
 	db: DbQueryClient,
 	params: SendWorkAttemptMessageParams,
@@ -418,23 +408,6 @@ export async function sendWorkAttemptMessage(
 	const live = sql`${workAttempts.outcome} IS NULL
 		AND ${inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES)}
 		AND ${workAttempts.expiresAt} > ${at}`;
-	const lastQuestionSeq = sql`(
-		SELECT CASE WHEN step.kind = 'question' THEN step.seq END
-		FROM work_attempt_steps step WHERE step.attempt_id = ${workAttempts.id}
-		ORDER BY step.seq DESC LIMIT 1
-	)`;
-	const unanswered = sql`(
-		${lastQuestionSeq} IS NOT NULL
-		AND NOT (
-			coalesce(json_extract(${workItems.metadata}, '$.questionContinuation.attemptId'), '') = ${workAttempts.id}
-			AND json_extract(${workItems.metadata}, '$.questionContinuation.seq') = ${lastQuestionSeq}
-		)
-		AND NOT EXISTS (
-			SELECT 1 FROM ${workAttemptMessages}
-			WHERE ${workAttemptMessages.attemptId} = ${workAttempts.id}
-			AND ${workAttemptMessages.kind} = 'stop'
-		)
-	)`;
 	const insert = db
 		.insert(workAttemptMessages)
 		.select(
@@ -478,54 +451,18 @@ export async function sendWorkAttemptMessage(
 					AND successor.attempt_number > ${workAttempts.attemptNumber}
 				)`,
 						interrupt
-							? sql`(${live} AND ${lastQuestionSeq} IS NULL AND NOT EXISTS (
-								SELECT 1 FROM ${workAttemptMessages}
-								WHERE ${workAttemptMessages.attemptId} = ${workAttempts.id}
-								AND ${workAttemptMessages.kind} = 'stop'
-							))`
-							: params.kind === "stop"
-								? sql`(${live} AND ${lastQuestionSeq} IS NULL)`
-								: sql`(
-					(${live} AND ${lastQuestionSeq} IS NULL) OR (
-						${unanswered} AND ${workItems.disposition} = 'accepted'
-						AND (${live} OR (
-							${workAttempts.outcome} = 'cancelled'
-							AND json_extract(${workAttempts.metadata}, '$.runQuestion.seq') = ${lastQuestionSeq}
-							AND json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${workItems.version}
-						))
-					)
-				)`,
+							? sql`(${live} AND NOT EXISTS (
+							SELECT 1 FROM ${workAttemptMessages}
+							WHERE ${workAttemptMessages.attemptId} = ${workAttempts.id}
+							AND ${workAttemptMessages.kind} = 'stop'
+						))`
+							: live,
 					),
 				),
 		)
 		.returning();
 
-	if (params.kind === "stop" || interrupt) return (await insert)[0] ?? null;
-
-	// Only an answer to the last step wakes the runner. Store the signal in
-	// the same batch as the message, without changing the Work revision.
-	const continuation = sql`(
-		SELECT json_object('messageId', ${id}, 'attemptId', msg.attempt_id, 'seq', step.seq)
-		FROM work_attempt_messages msg
-		JOIN work_attempt_steps step ON step.attempt_id = msg.attempt_id
-		WHERE msg.id = ${id} AND step.seq = (
-			SELECT max(last.seq) FROM work_attempt_steps last WHERE last.attempt_id = msg.attempt_id
-		) AND step.kind = 'question'
-	)`;
-	const signal = db
-		.update(workItems)
-		.set({
-			metadata: sql`json_set(coalesce(${workItems.metadata}, '{}'), '$.questionContinuation', json(${continuation}))`,
-		})
-		.where(
-			and(
-				eq(workItems.id, params.workItemId),
-				eq(workItems.orgId, params.orgId),
-				sql`${continuation} IS NOT NULL`,
-			),
-		);
-	const [[message]] = await db.batch([insert, signal]);
-	return message ?? null;
+	return (await insert)[0] ?? null;
 }
 
 /**

@@ -510,8 +510,6 @@ export async function workSettle(
 			attemptId,
 			outcome,
 			...(ctx.work.note?.trim() ? { summary: ctx.work.note.trim() } : {}),
-			...(ctx.work.needsUser ? { needsUser: ctx.work.needsUser } : {}),
-			...(ctx.work.requestId ? { requestId: ctx.work.requestId } : {}),
 			...(settlement ? { settlement } : {}),
 			...(input.complete !== undefined ? { complete: input.complete } : {}),
 			...(metadata ? { metadata } : {}),

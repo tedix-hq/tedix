@@ -1568,21 +1568,6 @@ export const workItemsContract = oc
 						"cancelled",
 						"expired",
 					]),
-					needsUser: z
-						.string()
-						.trim()
-						.min(1)
-						.max(2_000)
-						.optional()
-						.describe(
-							"Exact next click the requesting person must take. Creates one Needs-you ask atomically with settlement when the click names an owner-only act (money, legal or tax, consent or credentials, access, deletion, publishing or messaging); any other next step is filed with the Work's agent steward or this lane instead. Does not complete the Work.",
-						),
-					requestId: z
-						.uuid()
-						.optional()
-						.describe(
-							"Original private request-ledger row, when known. Must belong to the requesting user and this Work's project.",
-						),
 					summary: z.string().max(10_000).optional(),
 					complete: z
 						.strictObject({

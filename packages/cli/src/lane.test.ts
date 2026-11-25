@@ -26,9 +26,9 @@ describe("lane attribution and dispatch", () => {
 	});
 });
 
-it("rejects a blank human next click before connecting or settling Work", async () => {
+it("rejects the retired human-handoff flag before connecting or settling Work", async () => {
 	const { runLane } = await import("./lane");
 	await expect(runLane(["done", "--needs-user", "   "])).rejects.toThrow(
-		"exact next click",
+		"Unknown lane option --needs-user",
 	);
 });

@@ -199,37 +199,22 @@ describe("run log and steering", () => {
 		).toEqual({ [urgent.id]: true, [stop.id]: false });
 	});
 
-	it("stores a question with its offered answers and returns them in the log", async () => {
+	it("refuses question steps so asks use the canonical Interaction", async () => {
 		const { person, tedi } = fixture();
-		const report = {
-			id: work,
-			attemptId: attempt,
-			steps: [
-				{
-					seq: 0,
-					at: 1,
-					kind: "question" as const,
-					text: "Which table holds the plan?",
-					choices: ["accounts", "subscriptions"],
-				},
-				{ seq: 1, at: 2, kind: "message" as const, text: "Waiting." },
-			],
-		};
 		await expect(
-			call(appendAttemptStepsProcedure, tedi("runner"), report),
-		).resolves.toMatchObject({ accepted: 2 });
-		await expect(
-			call(appendAttemptStepsProcedure, tedi("runner"), report),
-		).resolves.toMatchObject({ accepted: 0 });
-		const log = await call(
-			listAttemptStepsProcedure,
-			person("member-subject"),
-			{ id: work, limit: 200 },
-		);
-		expect(log.steps).toEqual([
-			{ ...report.steps[0], choices: ["accounts", "subscriptions"] },
-			report.steps[1],
-		]);
+			call(appendAttemptStepsProcedure, tedi("runner"), {
+				id: work,
+				attemptId: attempt,
+				steps: [{ seq: 0, at: 1, kind: "question", text: "Which table?" }],
+			}),
+		).rejects.toThrow("canonical Work Interaction");
+		expect(
+			(
+				await call(listAttemptStepsProcedure, person("owner-subject"), {
+					id: work,
+				})
+			).steps,
+		).toEqual([]);
 	});
 
 	it("lets only the Work Item's owner or steward send or stop", async () => {
@@ -318,47 +303,38 @@ describe("run log and steering", () => {
 			});
 	});
 
-	it("accepts one answer for the newest ended question from the owner", async () => {
+	it("preserves historical question steps without accepting alternate answers", async () => {
 		const { person } = fixture();
 		const owner = person("owner-subject");
-		const question = {
+		await owner.db.insert(workAttemptSteps).values({
+			id: "historical-question",
+			orgId: org,
+			workItemId: work,
+			attemptId: attempt,
 			seq: 0,
-			at: Date.now(),
+			at: 1,
 			kind: "question",
 			text: "Which table?",
-		};
-		// The final question must survive even when the runner's step report was lost.
+		});
 		await settleWorkItemAttempt(owner.db, {
 			orgId: org,
 			workItemId: work,
 			attemptId: attempt,
 			executor: { type: "tedi", id: "runner" },
 			outcome: "cancelled",
-			metadata: { dispatchVersion: 1, runQuestion: question },
 		});
-		const read = () =>
-			call(listAttemptStepsProcedure, owner, { id: work, limit: 200 });
-		await expect(read()).resolves.toMatchObject({
+		expect(
+			await call(listAttemptStepsProcedure, owner, { id: work }),
+		).toMatchObject({
 			live: false,
-			questionOpen: true,
-			steps: [question],
-		});
-		const answer = { id: work, attemptId: attempt, body: "Plans" };
-		await expect(
-			call(sendAttemptMessageProcedure, person("member-subject"), answer),
-		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		const message = await call(
-			sendAttemptMessageProcedure,
-			person("owner-subject"),
-			answer,
-		);
-		await expect(read()).resolves.toMatchObject({
-			live: false,
-			questionOpen: false,
-			messages: [message],
+			steps: [{ kind: "question", text: "Which table?" }],
 		});
 		await expect(
-			call(sendAttemptMessageProcedure, person("owner-subject"), answer),
+			call(sendAttemptMessageProcedure, owner, {
+				id: work,
+				attemptId: attempt,
+				body: "Plans",
+			}),
 		).rejects.toMatchObject({ code: "CONFLICT" });
 	});
 
