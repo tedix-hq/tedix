@@ -447,6 +447,49 @@ describe("Home request source adapter", () => {
 			warning.mockRestore();
 		}
 	});
+	it("closes a request after its reader recovery attempts are exhausted", async () => {
+		const { context, db } = await fixture();
+		await db
+			.update(kernelRequests)
+			.set({ sourceKind: "agent_session_request", nextDueAt: now });
+		config.value.maxReaderAttempts = 2;
+		localRecovery.reconcile.mockImplementation(async () => {
+			throw new Error("source reader unavailable");
+		});
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+				0,
+			);
+			let [row] = await db.select().from(kernelRequests);
+			expect(row!.nextAction).toBe("restore_request_reader");
+			expect(row!.snapshot.readerRecoveryAttempts).toBe(1);
+			expect(row!.nextDueAt).not.toBeNull();
+
+			await db.update(kernelRequests).set({ nextDueAt: now });
+			expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+				0,
+			);
+			[row] = await db.select().from(kernelRequests);
+			expect(row!.version).toBe(3);
+			expect(row!.snapshot.state).toBe("cancelled");
+			expect(row!.snapshot.readerRecoveryAttempts).toBe(2);
+			expect(row!.nextAction).toBe("reader_recovery_exhausted");
+			expect(row!.nextDueAt).toBeNull();
+
+			expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+				0,
+			);
+			expect(localRecovery.reconcile).toHaveBeenCalledTimes(2);
+			expect(
+				await listDueKernelRequestOrganizations(db, new Date().toISOString()),
+			).toEqual([]);
+		} finally {
+			warning.mockRestore();
+			localRecovery.reconcile.mockReset();
+			delete config.value.maxReaderAttempts;
+		}
+	});
 	it("recovers overdue requests while leaving future and closed requests untouched", async () => {
 		const { context, db } = await fixture();
 		await db.update(kernelRequests).set({ nextDueAt: now });

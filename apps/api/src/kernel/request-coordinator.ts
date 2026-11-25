@@ -165,6 +165,7 @@ export function advanceKernelRequest(
 					attemptId: null,
 					acceptanceKey: null,
 					probeAttempts: 0,
+					readerRecoveryAttempts: 0,
 					observations: [],
 					outcome: null,
 					delivery: null,
@@ -192,6 +193,7 @@ export function advanceKernelRequest(
 					outcome: null,
 					delivery: null,
 					probeAttempts: 0,
+					readerRecoveryAttempts: 0,
 				};
 			break;
 		case "terminal":

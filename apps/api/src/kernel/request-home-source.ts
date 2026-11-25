@@ -41,6 +41,8 @@ import {
 	withKernelReconcileBudget,
 } from "./request-reconcile-budget";
 
+const DEFAULT_MAX_READER_ATTEMPTS = 3;
+
 export async function readKernelRequestPolicy(
 	context: Pick<BaseContext, "db">,
 	organizationId: string,
@@ -473,18 +475,37 @@ async function reconcileDueRequests(
 			// A reader can fail after a durable transition. Fence the current row,
 			// not the stale input, and never reopen a request closed meanwhile.
 			const current = await getKernelRequest(context.db, row);
-			if (current?.nextDueAt && current.nextDueAt <= new Date().toISOString())
+			if (current?.nextDueAt && current.nextDueAt <= new Date().toISOString()) {
+				const deferred = error instanceof KernelReconcileDeferred;
+				const readerRecoveryAttempts = deferred
+					? current.snapshot.readerRecoveryAttempts
+					: (current.snapshot.readerRecoveryAttempts ?? 0) + 1;
+				const exhausted =
+					!deferred &&
+					(readerRecoveryAttempts ?? 0) >=
+						(rowPolicy.maxReaderAttempts ?? DEFAULT_MAX_READER_ATTEMPTS);
 				transitions.push({
 					...current,
 					expectedVersion: current.version,
 					eventId: `${current.id}:${current.version + 1}`,
-					nextAction:
-						error instanceof KernelReconcileDeferred
-							? current.nextAction
+					snapshot: {
+						...current.snapshot,
+						...(readerRecoveryAttempts === undefined
+							? {}
+							: { readerRecoveryAttempts }),
+						...(exhausted ? { state: "cancelled" as const } : {}),
+					},
+					nextAction: deferred
+						? current.nextAction
+						: exhausted
+							? "reader_recovery_exhausted"
 							: "restore_request_reader",
-					nextDueAt: new Date(Date.now() + policy.retryMs).toISOString(),
+					nextDueAt: exhausted
+						? null
+						: new Date(Date.now() + policy.retryMs).toISOString(),
 					now: new Date().toISOString(),
 				});
+			}
 			console.warn("[kernel-request] recovery deferred", {
 				requestId: row.id,
 				errorType: error instanceof Error ? error.name : "unknown",

@@ -109,6 +109,7 @@ export const KernelRequestSnapshotSchema = z
 		checks: z.array(KernelAcceptanceCheckSchema).max(20),
 		acceptanceKey: z.string().nullable(),
 		probeAttempts: z.number().int().nonnegative().optional(),
+		readerRecoveryAttempts: z.number().int().nonnegative().optional(),
 		laneCheckpoint: LaneCheckpointSchema.optional(),
 		observations: z.array(KernelAcceptanceObservationSchema).max(20),
 		outcome: z.enum(["verified", "failed", "unknown"]).nullable(),
@@ -146,6 +147,15 @@ export const KernelRequestPolicySchema = z
 		retryMs: z.number().int().min(1000).max(3_600_000),
 		probeTimeoutMs: z.number().int().min(100).max(30_000),
 		maxProbeAttempts: z.number().int().min(1).max(20),
+		maxReaderAttempts: z
+			.number()
+			.int()
+			.min(1)
+			.max(20)
+			.optional()
+			.describe(
+				"Reader recovery attempts before closing a request; defaults to 3.",
+			),
 		runBudgetMs: z.number().int().min(100).max(30_000),
 		workAttemptDelivery: z
 			.object({
