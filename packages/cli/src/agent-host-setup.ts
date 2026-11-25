@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { REMOVABLE_HOSTS, removeTedix } from "./agent-host-remove";
 import { credentialDirectory } from "./credential-store";
 import { devinConfigDirectory, setupDevin } from "./devin-config";
 import {
@@ -68,10 +69,13 @@ Usage:
   tedix setup agents --claude --verify Verify a read inside Claude (uses its model)
   tedix setup agents --update        Preview and refresh installed host plugins
   tedix setup agents --dry-run       Show planned host commands without installing
+  tedix setup agents --remove --codex Remove Tedix from one agent (also --claude,
+                                     --devin, --opencode) so it can be connected fresh
 
-The host plugin bundles Tedix skills, a remote MCP connection, and lifecycle
-hooks that run "tedix hooks <name>" at session start, prompt submit, tool use,
-stop and session end. Each hook exits silently when the tedix CLI is missing
+The host plugin bundles Tedix skills and a remote MCP connection. The copy the
+Tedix Mac app installs also adds lifecycle hooks that run "tedix hooks <name>"
+at session start, prompt submit, tool use, stop and session end; the published
+plugin this command installs has no hooks. Each hook exits silently when the tedix CLI is missing
 and does nothing until you opt in: a repository binding or
 TEDIX_PLUGIN_PREFLIGHT=1 for context reads, enable-decision-capture for turn
 recording, ~/.tedix/agent-status.json for status reports. To turn the hooks
@@ -712,6 +716,33 @@ export async function runAgentHostSetup(
 	run: HostCommandRunner = runHostCommand,
 	confirm?: (prompt: string) => Promise<boolean>,
 ): Promise<number> {
+	if (args.includes("--remove")) {
+		const hosts = REMOVABLE_HOSTS.filter((host) => args.includes(`--${host}`));
+		if (
+			hosts.length !== 1 ||
+			args.length !== 2 + Number(args.includes("--yes"))
+		)
+			throw new Error(
+				"Use --remove with exactly one of --codex, --claude, --devin or --opencode.",
+			);
+		const host = hosts[0]!;
+		if (
+			!args.includes("--yes") &&
+			!(await (confirm ?? promptForConsent)(
+				`Remove Tedix from ${host}? Its Tedix sign-in, plugin, hooks and connection go; ${host} itself and its own account stay. Continue?`,
+			))
+		) {
+			console.log("Nothing was removed.");
+			return 1;
+		}
+		const done = removeTedix(host, (command, rest) => run(command, rest));
+		console.log(
+			done.length
+				? `${host}: ${done.join("; ")}. Connect it again with tedix setup agents --${host}.`
+				: `${host}: Tedix was not set up there; nothing to remove.`,
+		);
+		return 0;
+	}
 	if (args.includes("--verify")) {
 		const host = args.includes("--codex")
 			? "codex"

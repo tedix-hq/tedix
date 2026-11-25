@@ -44,7 +44,8 @@ export function opencodeConfigFile(env = process.env) {
 }
 
 /** Any earlier Tedix adapter: a checkout, a hand-copied release or this setup's copy. */
-function isTedixPlugin(entry: unknown): boolean {
+/** A `plugin` list entry that is a Tedix adapter, with or without options. */
+export function isTedixPlugin(entry: unknown): boolean {
 	const spec = Array.isArray(entry) ? entry[0] : entry;
 	return (
 		typeof spec === "string" &&

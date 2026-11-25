@@ -24,7 +24,7 @@ import {
 } from "./harness-target";
 import type { LocalModelPreferences } from "./local-model-client";
 import { log } from "./log";
-import { runnersPath } from "./runners-file";
+import { readRunners, runnersPath, setRunnerField } from "./runners-file";
 import {
 	configDir,
 	findTedix,
@@ -1211,6 +1211,7 @@ const ACTIONS = [
 	"run-tasks",
 	"choose-folder",
 	"clear-folder",
+	"remove",
 	"sessions-on",
 	"sessions-off",
 	"account-sign-in",
@@ -1229,6 +1230,10 @@ export interface SetupHost {
 	openSignIn: (url: string) => Promise<void>;
 	/** Starts this Mac's runners when none run; leaves running ones alone. */
 	startRunnersIfStopped: () => Promise<void>;
+	/** Asks the person before Tedix is taken out of an agent. */
+	confirmRemove: (name: string) => Promise<boolean>;
+	/** Which agents run tasks changed outside the task switches. */
+	tasksChanged: () => void;
 }
 
 async function readSessionProjects(): Promise<void> {
@@ -1324,6 +1329,8 @@ export async function setupAction(
 		appSignIn: signInToApp,
 		openSignIn,
 		startRunnersIfStopped,
+		confirmRemove,
+		tasksChanged,
 	}: SetupHost,
 ): Promise<void> {
 	if (!ACTIONS.includes(action)) return;
@@ -1466,6 +1473,35 @@ export async function setupAction(
 	const probeEnv = command
 		? { PATH: [dirname(command), harnessPath()].join(delimiter) }
 		: undefined;
+	if (action === "remove") {
+		if (!(await confirmRemove(toolName))) return;
+		await step(`remove:${tool.id}`, async (say) => {
+			say(`Removing Tedix from ${toolName}…`);
+			await must(
+				tedix(
+					[
+						"-w",
+						"connect",
+						"setup",
+						"agents",
+						"--remove",
+						`--${tool.id}`,
+						"--yes",
+					],
+					{ env: probeEnv, onLine: say, timeoutMs: 180_000 },
+				),
+			);
+			// It no longer reaches Tedix, so it must not take tasks either.
+			readRunners().forEach((runner) => {
+				if (runner.executor === tool.executor && runner.enabled)
+					setRunnerField(runner.index, "enabled", false);
+			});
+			tasksChanged();
+			setVerified(tool.id);
+			return `Tedix is removed from ${toolName}. Choose Connect to add it again.`;
+		});
+		return refreshSetup(true);
+	}
 	if (action === "account-sign-in" && tool.accountSignIn && command) {
 		await step(`account:${tool.id}`, async (say) => {
 			// Claude Code wants a terminal for its sign-in; `script` gives it one.

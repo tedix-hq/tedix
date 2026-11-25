@@ -429,6 +429,13 @@ function tools(now: PanelState): Group[] {
 				// Held back from tasks, its connection still works: say so, so the
 				// row does not look broken beside the line that says why.
 				view.ready ? READY_MARK(limit ? "Connected" : "Ready") : view.action,
+				// Takes Tedix out so it can be connected fresh; it asks first.
+				tool.tedix === "added" &&
+					!view.working &&
+					button("Remove Tedix", "link", () => act("remove", tool.id), false, {
+						pending: "Removing…",
+						key: `remove:${tool.id}`,
+					}),
 				toggle(
 					`Use ${tool.name} for tasks`,
 					on,

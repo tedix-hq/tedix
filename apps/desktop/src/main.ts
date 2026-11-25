@@ -2350,6 +2350,18 @@ else if (process.argv.includes("--local-model")) {
 					matchOpenAtLogin();
 					await startRunnersIfStopped();
 				},
+				confirmRemove: async (name) =>
+					(
+						await dialog.showMessageBox(asking, {
+							type: "question",
+							message: `Remove Tedix from ${name}?`,
+							detail: `${name} is signed out of Tedix, and the Tedix plugin, hooks and connection are taken out of it. ${name} stops running Tedix tasks on this Mac. ${name} itself, its account and your other settings stay. You can choose Connect again at any time.`,
+							buttons: ["Remove", "Cancel"],
+							defaultId: 1,
+							cancelId: 1,
+						})
+					).response === 0,
+				tasksChanged: matchOpenAtLogin,
 			});
 			await refresh();
 		});

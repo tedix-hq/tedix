@@ -311,6 +311,13 @@ Git marketplaces are refreshed through the host plugin manager. If a marketplace
 points to a local checkout, update that checkout yourself first; setup keeps
 its source and does not switch or delete it.
 
+To take Tedix out of one agent and connect it fresh, run
+`tedix setup agents --remove --codex` (or `--claude`, `--devin`, `--opencode`).
+It signs that agent out of Tedix where the agent can, removes the Tedix plugin
+and its marketplace, the Tedix hooks and the Tedix connection, and keeps the
+agent's own account and other settings. Plugins an agent syncs from its account
+in the cloud are left to that agent.
+
 To bring a new member's history in, run `tedix learn onboard --dry-run`, then
 `tedix learn onboard`. The dry run quickly shows session counts per host and
 organization, preference-note counts and topic candidates from titles, without
