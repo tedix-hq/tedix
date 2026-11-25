@@ -510,14 +510,10 @@ export async function findRepositoryPushObservations(
 	p: { orgId: string; projectId: string; shas: string[]; since: string },
 ): Promise<RepositoryPushRecord[]> {
 	const resolver = createCommitResolver(db);
+	const requested = [...new Set(p.shas)].slice(0, 30);
+	await resolver.resolveMany(requested);
 	const shas = [
-		...new Set(
-			(
-				await Promise.all(
-					[...new Set(p.shas)].slice(0, 30).map(resolver.aliasesFor),
-				)
-			).flat(),
-		),
+		...new Set((await Promise.all(requested.map(resolver.aliasesFor))).flat()),
 	];
 	if (!shas.length) return [];
 	const list = db
@@ -566,6 +562,13 @@ export async function findRepositoryPushObservations(
 			},
 		];
 	});
+	await resolver.resolveMany(
+		records.flatMap((row) => [
+			row.sha,
+			...(row.beforeSha ? [row.beforeSha] : []),
+			...row.commitShas,
+		]),
+	);
 	return Promise.all(
 		records.map(async (row) => ({
 			...row,
@@ -591,14 +594,10 @@ export async function findWorkImplementationPushes(
 	},
 ) {
 	const resolver = createCommitResolver(db);
+	const requested = [...new Set(params.commitShas)].slice(0, 30);
+	await resolver.resolveMany(requested);
 	const shas = [
-		...new Set(
-			(
-				await Promise.all(
-					[...new Set(params.commitShas)].slice(0, 30).map(resolver.aliasesFor),
-				)
-			).flat(),
-		),
+		...new Set((await Promise.all(requested.map(resolver.aliasesFor))).flat()),
 	];
 	if (!shas.length) return [];
 	const list = db

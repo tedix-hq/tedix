@@ -154,6 +154,12 @@ export async function listWorkActivity(
 		.limit(cap + 1);
 	const page = rows.slice(0, cap);
 	const resolver = createCommitResolver(db);
+	await resolver.resolveMany(
+		page.flatMap((row) => {
+			const sha = settlementFromMetadata(row.metadata ?? {})?.commitSha;
+			return sha ? [sha] : [];
+		}),
+	);
 	const events: WorkActivityRow[] = await Promise.all(
 		page.map(async (r) => {
 			const md = (r.metadata ?? {}) as Record<string, unknown>;

@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { gitCommitAliases } from "../../schema/git-commit-aliases";
+import { schemaDdl } from "../../test/schema-ddl";
 import { listOrgWorkAttempts, listOrgWorkRecovery } from "./projections";
 
 const DDL = `
@@ -29,11 +31,103 @@ CREATE TABLE work_item_relations (
 );
 `;
 
-function fixture() {
+function fixture(statements: string[] = []) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
+	sqlite.exec(schemaDdl(gitCommitAliases));
+	return {
+		sqlite,
+		db: createDbQueryClient(
+			createD1Facade(sqlite, {
+				onPrepare: (query) => {
+					statements.push(query);
+				},
+			}),
+		),
+	};
 }
+
+it("resolves 50 attempt rows with 100 distinct commit fields in two alias statements", async () => {
+	const statements: string[] = [];
+	const { sqlite, db } = fixture(statements);
+	seedItem(sqlite, { id: "item", createdAt: "2026-08-20T10:00:00Z" });
+	const expected = new Map<string, Record<string, unknown>>();
+	const stored = new Map<string, Record<string, unknown>>();
+	for (let i = 0; i < 50; i++) {
+		const old = [i * 2, i * 2 + 1].map(
+			(n) => `a${n.toString(16).padStart(39, "0")}`,
+		);
+		const canonical = [i * 2, i * 2 + 1].map(
+			(n) => `b${n.toString(16).padStart(39, "0")}`,
+		);
+		for (let j = 0; j < 2; j++)
+			await db
+				.insert(gitCommitAliases)
+				.values({
+					oldSha: old[j]!,
+					newSha: canonical[j]!,
+					repository: "example/product",
+				});
+		const id = `attempt-${i}`;
+		seedAttempt(sqlite, {
+			id,
+			itemId: "item",
+			startedAt: "2026-08-20T10:00:00Z",
+		});
+		const settlement =
+			i === 0
+				? {
+						mode: "local_branch",
+						evidenceId: "00000000-0000-4000-8000-000000000001",
+						evidenceUri: "artifact://test/proof",
+						branch: "example",
+						baseCommit: old[0],
+						commitSha: old[1],
+						commitShas: old,
+					}
+				: {
+						mode: "repository_commit",
+						repository: "example/product",
+						commitSha: old[0],
+						runCommitSha: old[1],
+						runId: 1,
+						runAttempt: 1,
+						evidenceUri: "artifact://test/proof",
+					};
+		stored.set(id, { settlement });
+		expected.set(id, {
+			settlement:
+				i === 0
+					? {
+							...settlement,
+							baseCommit: canonical[0],
+							commitSha: canonical[1],
+							commitShas: canonical,
+						}
+					: {
+							...settlement,
+							commitSha: canonical[0],
+							runCommitSha: canonical[1],
+						},
+		});
+		sqlite
+			.prepare("UPDATE work_attempts SET metadata = ? WHERE id = ?")
+			.run(JSON.stringify({ settlement }), id);
+	}
+	statements.length = 0;
+	const page = await listOrgWorkAttempts(db, { orgId: "org-a", limit: 50 });
+	expect(page.data).toHaveLength(50);
+	for (const row of page.data)
+		expect(row.attempt.metadata).toEqual(expected.get(row.attempt.id));
+	expect(
+		statements.filter((query) => query.includes('from "git_commit_aliases"')),
+	).toHaveLength(2);
+	for (const row of sqlite
+		.prepare("SELECT id, metadata FROM work_attempts")
+		.all() as { id: string; metadata: string }[])
+		expect(JSON.parse(row.metadata)).toEqual(stored.get(row.id));
+	sqlite.close();
+});
 
 function seedItem(
 	sqlite: DatabaseSync,

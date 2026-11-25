@@ -707,7 +707,7 @@ it("matches settlement aliases in both push readers without rewriting stored pro
 		repository: "example/product",
 	});
 	await expect(
-		createCommitResolver(db).canonicalCommit(oldSha.slice(0, 7)),
+		createCommitResolver(db).resolveMany([newSha, oldSha.slice(0, 7)]),
 	).rejects.toThrow("Ambiguous");
 	sqlite.close();
 });

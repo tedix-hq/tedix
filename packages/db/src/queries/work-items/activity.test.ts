@@ -7,7 +7,7 @@ import { workEvents } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import { listWorkActivity } from "./activity";
 
-function seed(equalTimes = false) {
+function seed(equalTimes = false, statements: string[] = []) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(schemaDdl(gitCommitAliases));
 	sqlite.exec(`
@@ -25,7 +25,13 @@ function seed(equalTimes = false) {
 		sqlite.exec(
 			"UPDATE work_events SET occurred_at = '2026-08-28T04:33:00.000Z' WHERE id = 'e3'",
 		);
-	return createDbClient(createD1Facade(sqlite));
+	return createDbClient(
+		createD1Facade(sqlite, {
+			onPrepare: (query) => {
+				statements.push(query);
+			},
+		}),
+	);
 }
 
 describe("listWorkActivity", () => {
@@ -159,31 +165,48 @@ describe("listWorkActivity", () => {
 	});
 });
 
-it("shows canonical settlement ids without changing event payloads", async () => {
-	const db = seed();
-	const oldSha = "a".repeat(40),
-		newSha = "b".repeat(40);
-	await db
-		.insert(gitCommitAliases)
-		.values({ oldSha, newSha, repository: "example/product" });
-	const payload = { settlement: { mode: "commit", commitShas: [oldSha] } };
-	await db.insert(workEvents).values({
-		id: "alias-event",
-		orgId: "org",
-		workItemId: "sweep",
-		eventType: "attempt.settled",
-		actorType: "system",
-		actorId: "system",
-		payload,
-		occurredAt: "2026-08-29T00:00:00Z",
-	});
+it("resolves 50 distinct activity commits in one alias statement without changing payloads", async () => {
+	const statements: string[] = [];
+	const db = seed(false, statements);
+	const expected = new Map<string, string>();
+	const payloads = new Map<string, unknown>();
+	for (let i = 0; i < 50; i++) {
+		const oldSha = `a${i.toString(16).padStart(39, "0")}`;
+		const newSha = `b${i.toString(16).padStart(39, "0")}`;
+		// An absent alias (including a dropped commit) must remain visible.
+		if (i !== 49)
+			await db
+				.insert(gitCommitAliases)
+				.values({ oldSha, newSha, repository: "example/product" });
+		const id = `alias-${i}`;
+		const stored = i % 2 === 0 ? newSha.toUpperCase() : oldSha;
+		const payload = { settlement: { mode: "commit", commitShas: [stored] } };
+		payloads.set(id, payload);
+		expected.set(id, i === 49 ? oldSha : newSha);
+		await db
+			.insert(workEvents)
+			.values({
+				id,
+				orgId: "org",
+				workItemId: "sweep",
+				eventType: "attempt.settled",
+				actorType: "system",
+				actorId: "system",
+				payload,
+				occurredAt: "2026-08-29T00:00:00Z",
+			});
+	}
+	statements.length = 0;
+	const { events } = await listWorkActivity(db, { orgId: "org", limit: 50 });
+	expect(events).toHaveLength(50);
+	for (const event of events)
+		expect(event.settlement?.commitSha).toBe(expected.get(event.id));
 	expect(
-		(await listWorkActivity(db, { orgId: "org", limit: 1 })).events[0]
-			?.settlement,
-	).toEqual({ mode: "commit", commitSha: newSha });
-	expect(
-		(await db.select({ payload: workEvents.payload }).from(workEvents)).find(
-			(row) => row.payload.settlement,
-		)?.payload,
-	).toEqual(payload);
+		statements.filter((query) => query.includes('from "git_commit_aliases"')),
+	).toHaveLength(1);
+	for (const row of await db
+		.select({ id: workEvents.id, payload: workEvents.payload })
+		.from(workEvents)) {
+		if (payloads.has(row.id)) expect(row.payload).toEqual(payloads.get(row.id));
+	}
 });

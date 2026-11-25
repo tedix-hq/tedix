@@ -1,6 +1,7 @@
 import {
 	canonicalSettlementMetadata,
 	createCommitResolver,
+	settlementCommitShas,
 } from "../git-commit-aliases";
 import {
 	and,
@@ -183,8 +184,12 @@ export async function listOrgWorkAttempts(
 		.orderBy(desc(workAttempts.startedAt), desc(workAttempts.id))
 		.limit(limit + 1);
 	const resolver = createCommitResolver(db);
+	const page = rows.slice(0, limit) as WorkAttemptProjectionRow[];
+	await resolver.resolveMany(
+		page.flatMap((row) => settlementCommitShas(row.attempt.metadata)),
+	);
 	const data = await Promise.all(
-		(rows.slice(0, limit) as WorkAttemptProjectionRow[]).map(async (row) => ({
+		page.map(async (row) => ({
 			...row,
 			attempt: {
 				...row.attempt,
