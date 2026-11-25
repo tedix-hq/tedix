@@ -13276,7 +13276,10 @@ describe("watching and steering a run", () => {
 				"cancelled",
 			);
 			expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
-				"Stopped by user fictional-owner",
+				"Stopped by a person",
+			);
+			expect(settle.args[settle.args.indexOf("--note") + 1]).not.toContain(
+				"fictional-owner",
 			);
 			const path = join(f.dir, `${item().id}-2.json`);
 			const receipt = JSON.parse(readFileSync(path, "utf8"));
@@ -13284,12 +13287,12 @@ describe("watching and steering a run", () => {
 				phase: "settled",
 				outcome: "cancelled",
 				held: true,
-				note: "Stopped by user fictional-owner",
+				note: "Stopped by a person",
 			});
 			expect(receipt.interrupted).toBeUndefined();
 			expect(sentSteps(f).map((step) => [step.kind, step.text])).toEqual([
 				["started", expect.any(String)],
-				["stopped", "Stopped by user fictional-owner"],
+				["stopped", "Stopped by a person"],
 				["finished", "Agent run ended: cancelled"],
 			]);
 			// The stop is acknowledged after the agent ended, not when it arrived.

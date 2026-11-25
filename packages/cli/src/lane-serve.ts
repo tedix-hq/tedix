@@ -7262,7 +7262,7 @@ ${message.body}`,
 					if (message.kind === "stop") {
 						if (run.stop) return;
 						run.stop = message;
-						steps.add("stopped", `Stopped by ${sentBy(message)}`);
+						steps.add("stopped", "Stopped by a person");
 						this.log("run-stop-requested", item.id, sentBy(message));
 						stopAgent();
 						return;
@@ -7763,7 +7763,7 @@ ${firstBrief}`;
 				receipt.outcome = "cancelled";
 				receipt.transportInterrupted = false;
 				receipt.held = true;
-				receipt.note = `Stopped by ${sentBy(run.stop)}`;
+				receipt.note = "Stopped by a person";
 				delete receipt.pendingCommitProof;
 				this.log("execution-held", item.id, receipt.note);
 			} else if (receipt.approvalWait) {
