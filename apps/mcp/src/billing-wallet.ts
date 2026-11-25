@@ -624,12 +624,9 @@ export class BillingWallet {
 		}
 		const next = walletAlarmMarks(this.#db);
 		if (next.unflushedAt !== null)
-			await this.#storage.setAlarm(
-				Math.max(
-					nowMs + 1_000,
-					Math.min(next.unflushedAt + FLUSH_DELAY_MS, nowMs + FLUSH_DELAY_MS),
-				),
-			);
+			// Unsettled events can outlive their first flush deadline. Their
+			// age must not shorten the next window into a busy alarm loop.
+			await this.#storage.setAlarm(Date.now() + FLUSH_DELAY_MS);
 		else if (next.flushedAt !== null)
 			await this.#storage.setAlarm(next.flushedAt + EVENT_RETENTION_MS);
 	}

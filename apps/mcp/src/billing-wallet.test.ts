@@ -110,6 +110,60 @@ describe("billing wallet", () => {
 		});
 	});
 
+	it.each(["code_run", "ai"] as const)(
+		"waits a full flush window while only an unsettled %s remains",
+		async (kind) => {
+			const flushDelayMs = 5 * 60_000;
+			let nowMs = Date.parse("2026-11-01T00:00:00.000Z");
+			const clock = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+			const storage = fakeStorage();
+			wallet = new BillingWallet(storage, { DB: {} as D1Database });
+			try {
+				if (kind === "code_run")
+					expect(await wallet.charge(member("run-1"))).toMatchObject({
+						allowed: true,
+					});
+				else
+					expect(
+						await wallet.hold({
+							organizationId: "org-1",
+							holdId: "hold-1",
+							idempotencyKey: "call-1",
+							tediId: null,
+							userId: "member-1",
+							credits: 1,
+							expiresAt: new Date(nowMs + 60_000).toISOString(),
+						}),
+					).toMatchObject({ allowed: true });
+
+				// The flush deadline is overdue, but the run is still inside
+				// its grace period or the expired model hold is unsettled.
+				nowMs += 2 * flushDelayMs;
+				for (let i = 0; i < 2; i++) {
+					await wallet.alarm();
+					expect(postWalletFlush).not.toHaveBeenCalled();
+					expect(await storage.getAlarm()).toBeGreaterThanOrEqual(
+						nowMs + flushDelayMs,
+					);
+					nowMs = (await storage.getAlarm())!;
+				}
+
+				// Waiting must not discard the event or prevent its settlement.
+				if (kind === "code_run")
+					wallet.settle({ eventId: "run-1", anonymousLoads: 1, namedLoads: 0 });
+				else
+					await wallet.settleHold({
+						holdId: "hold-1",
+						providerCostMicros: 1,
+					});
+				await wallet.alarm();
+				expect(postWalletFlush).toHaveBeenCalledTimes(1);
+			} finally {
+				clock.mockRestore();
+			}
+		},
+	);
+
 	it("flushes one group per subject and retries a failed flush under the same flush id", async () => {
 		await wallet.charge(member("run-1"));
 		await wallet.charge({ ...member("run-2"), userId: "member-2" });
