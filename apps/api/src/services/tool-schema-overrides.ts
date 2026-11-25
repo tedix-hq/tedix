@@ -942,6 +942,7 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"attention/removeDeckRule": "write",
 	"attention/rankCurationInbox": "write",
 	"attention/listFeedForYou": "read",
+	"repositoryObserver/countCommitAliases": "read",
 	"repositoryObserver/configure": "write",
 	"repositoryObserver/observe": "write",
 	"repositoryObserver/report": "write",
