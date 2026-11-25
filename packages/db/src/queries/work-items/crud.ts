@@ -550,7 +550,7 @@ export async function listWorkItemsPage(
 		options.dispatchReadyOnly
 			? sql`${storeWorkItems.dispatchState} = 'ready'`
 			: undefined,
-		options.dispatchReadyOnly ? laneDispatchHasNoSettledResult() : undefined,
+		options.dispatchReadyOnly ? laneDispatchHasNoSettledResult(db) : undefined,
 		// Work whose start date is still ahead is not offered to a runner.
 		options.dispatchReadyOnly
 			? or(
@@ -1555,7 +1555,7 @@ export async function updateWorkItemSpecification(
 	const [approvalScope] = planningOnly
 		? await db
 				.select({
-					version: planningApprovalVersion(prior).as("approval_version"),
+					version: planningApprovalVersion(db, prior).as("approval_version"),
 				})
 				.from(storeWorkItems)
 				.where(

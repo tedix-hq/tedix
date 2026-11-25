@@ -40,6 +40,17 @@ export function jsonRead(
 	}
 	return value;
 }
+/** SQL NULL means absent; JSON null retains its own type. */
+export function jsonType(
+	db: object,
+	column: SQLWrapper,
+	path: readonly string[],
+): SQL {
+	if (coreStore(db) === "postgres")
+		return sql`jsonb_typeof(${jsonRead(db, column, path, "json")})`;
+	const kind = sql`json_type(${column}, ${sqliteJsonPath(path)})`;
+	return sql`CASE ${kind} WHEN 'text' THEN 'string' WHEN 'integer' THEN 'number' WHEN 'real' THEN 'number' WHEN 'true' THEN 'boolean' WHEN 'false' THEN 'boolean' ELSE ${kind} END`;
+}
 export function jsonWrite(
 	db: object,
 	column: SQLWrapper,

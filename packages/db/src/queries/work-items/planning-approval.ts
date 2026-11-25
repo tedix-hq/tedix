@@ -1,11 +1,20 @@
 import { and, eq, sql } from "drizzle-orm";
-import type { DbQueryClient } from "../../query-client";
-import { workItems, type WorkItem } from "../../schema/work-items";
+import { coreTable } from "../../core-store/client";
 import {
-	workApprovalProposals,
-	workApprovalDecisions,
+	coreStore,
+	jsonRead,
+	jsonParameter,
+	booleanValue,
+} from "../../core-store/dialect";
+import type { DbQueryClient } from "../../query-client";
+import {
+	workItems as d1WorkItems,
+	type WorkItem,
+} from "../../schema/work-items";
+import {
+	workApprovalProposals as d1WorkApprovalProposals,
+	workApprovalDecisions as d1WorkApprovalDecisions,
 } from "../../schema/work-factory";
-import type { JsonValue } from "@tedix/api-contract/schemas/common";
 
 type ApprovalWork = Pick<
 	WorkItem,
@@ -13,33 +22,38 @@ type ApprovalWork = Pick<
 >;
 
 /** Only the specification writer emits this server-owned continuity receipt. */
-export function planningApprovalVersion(item: ApprovalWork | typeof workItems) {
-	return sql<number>`COALESCE((
-		SELECT json_extract(e.payload, '$.planningApproval.fromVersion')
+export function planningApprovalVersion(
+	db: object,
+	item: ApprovalWork | typeof d1WorkItems,
+) {
+	return sql<number>`${sql`COALESCE((
+		SELECT ${jsonRead(db, sql`e.payload`, ["planningApproval", "fromVersion"], "number")}
 		FROM work_events e
 		WHERE e.org_id=${item.orgId} AND e.work_item_id=${item.id}
 		AND e.event_type IN ('work.created', 'work.accepted', 'work.specification_updated')
 		AND e.event_type='work.specification_updated'
-		AND json_extract(e.payload, '$.planningApproval.toVersion')=${item.version}
-		AND json_extract(e.payload, '$.planningApproval.admissionSpecRevision')=${item.admissionSpecRevision}
+		AND ${jsonRead(db, sql`e.payload`, ["planningApproval", "toVersion"], "number")}=${item.version}
+		AND ${jsonRead(db, sql`e.payload`, ["planningApproval", "admissionSpecRevision"], "text")}=${item.admissionSpecRevision}
 		-- Sorting the few lifecycle rows beats walking the item's whole history.
-		ORDER BY +e.sequence DESC LIMIT 1
-	), ${item.version})`;
+		ORDER BY ${coreStore(db) === "postgres" ? sql`e.sequence` : sql`+e.sequence`} DESC LIMIT 1
+	), ${item.version})`}`.mapWith(Number);
 }
 
 /** Exact reviewed version, or a receipt spanning only planning updates. */
 export function matchesWorkApprovalVersion(
-	item: ApprovalWork | typeof workItems,
+	db: object,
+	item: ApprovalWork | typeof d1WorkItems,
 ) {
-	return sql`(${workApprovalProposals.workItemVersion} BETWEEN ${planningApprovalVersion(item)} AND ${item.version})`;
+	return sql`(${coreTable(db, d1WorkApprovalProposals).workItemVersion} BETWEEN ${planningApprovalVersion(db, item)} AND ${item.version})`;
 }
 
 /** Server-written owner decisions authorize this specification, never later agent edits. */
 export function ownerWorkDelegation(
+	db: object,
 	item:
 		| (ApprovalWork &
 				Pick<WorkItem, "accountableOwnerType" | "accountableOwnerId">)
-		| typeof workItems,
+		| typeof d1WorkItems,
 	now: string,
 ) {
 	// Nest the correlated expression so Drizzle preserves outer-table qualifiers in SELECTs.
@@ -47,16 +61,19 @@ export function ownerWorkDelegation(
 		SELECT 1 FROM work_events delegation
 		WHERE delegation.org_id=${item.orgId} AND delegation.work_item_id=${item.id}
 		AND delegation.event_type IN ('work.created', 'work.accepted', 'work.specification_updated')
-		AND julianday(delegation.occurred_at)>julianday(${now})-1
-		AND julianday(delegation.occurred_at)<=julianday(${now})
-		AND json_extract(delegation.payload, '$.workItemVersion')
-			BETWEEN ${planningApprovalVersion(item)} AND ${item.version}
+		AND ${
+			coreStore(db) === "postgres"
+				? sql`delegation.occurred_at::timestamptz > ${now}::timestamptz - interval '24 hours' AND delegation.occurred_at::timestamptz <= ${now}::timestamptz`
+				: sql`julianday(delegation.occurred_at)>julianday(${now})-1 AND julianday(delegation.occurred_at)<=julianday(${now})`
+		}
+		AND ${jsonRead(db, sql`delegation.payload`, ["workItemVersion"], "number")}
+			BETWEEN ${planningApprovalVersion(db, item)} AND ${item.version}
 		AND (
 			(delegation.actor_type='user' AND delegation.actor_id=${item.accountableOwnerId}
 			 AND delegation.actor_session_id IS NULL AND (
 				delegation.event_type IN ('work.created','work.accepted') OR
 				(delegation.event_type='work.specification_updated'
-				 AND json_extract(delegation.payload, '$.ownerStarted')=1)
+				 AND ${jsonRead(db, sql`delegation.payload`, ["ownerStarted"], "boolean")}=${booleanValue(db, true)})
 			 ))
 		)
 	))`}`;
@@ -67,9 +84,10 @@ export async function hasOwnerWorkDelegation(
 	item: WorkItem,
 	now: string,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const [row] = await db
 		.select({
-			delegated: ownerWorkDelegation(workItems, now).as("owner_delegated"),
+			delegated: ownerWorkDelegation(db, workItems, now).as("owner_delegated"),
 		})
 		.from(workItems)
 		.where(
@@ -85,10 +103,11 @@ export async function hasOwnerWorkDelegation(
 
 /** Legacy owner receipts also require a current owner action, regardless of stored expiry. */
 export function ownerWorkApprovalIsCurrent(
-	item: Parameters<typeof ownerWorkDelegation>[0],
+	db: object,
+	item: Parameters<typeof ownerWorkDelegation>[1],
 	now: string,
 ) {
-	return sql`(COALESCE(json_extract(${workApprovalProposals.proposal}, '$.source'), '')!='owner_delegation' OR ${ownerWorkDelegation(item, now)})`;
+	return sql`(COALESCE(${jsonRead(db, coreTable(db, d1WorkApprovalProposals).proposal, ["source"])}, '')!='owner_delegation' OR ${ownerWorkDelegation(db, item, now)})`;
 }
 
 /** Persist the owner's start approval in the same batch as its versioned lifecycle event. */
@@ -98,6 +117,9 @@ export function ownerWorkApprovalStatements(
 	now: string,
 ) {
 	if (item.riskLevel !== "high") return [];
+	const workItems = coreTable(db, d1WorkItems);
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
 	const id = crypto.randomUUID();
 	const proposal = db.insert(workApprovalProposals).select(
 		db
@@ -108,9 +130,9 @@ export function ownerWorkApprovalStatements(
 				workItemVersion: workItems.version,
 				authorityKey: sql<string>`'risk:high'`.as("authority_key"),
 				action: sql<string>`'admission'`.as("action"),
-				proposal: sql<
-					Record<string, JsonValue>
-				>`'{"source":"owner_delegation"}'`.as("proposal"),
+				proposal: jsonParameter(db, { source: "owner_delegation" }).as(
+					"proposal",
+				),
 				requesterType: sql<"system">`'system'`.as("requester_type"),
 				requesterId: sql<string>`'tedix'`.as("requester_id"),
 				approverType: sql<"user">`'user'`.as("approver_type"),
@@ -131,7 +153,7 @@ export function ownerWorkApprovalStatements(
 					eq(workItems.orgId, item.orgId),
 					eq(workItems.id, item.id),
 					eq(workItems.version, item.version),
-					ownerWorkDelegation(workItems, now),
+					ownerWorkDelegation(db, workItems, now),
 				),
 			),
 	);

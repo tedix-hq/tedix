@@ -479,7 +479,7 @@ async function deriveReadiness(
 	const ownerDelegated = await hasOwnerWorkDelegation(db, item, derivedAt);
 	const [attemptLimit] = await db
 		.select({
-			available: workAttemptLimitAvailable().as("attempt_limit_available"),
+			available: workAttemptLimitAvailable(db).as("attempt_limit_available"),
 		})
 		.from(workItems)
 		.where(and(eq(workItems.orgId, params.orgId), eq(workItems.id, item.id)))
@@ -589,8 +589,8 @@ async function deriveReadiness(
 				and(
 					eq(workItems.orgId, workApprovalProposals.orgId),
 					eq(workItems.id, workApprovalProposals.workItemId),
-					matchesWorkApprovalVersion(workItems),
-					ownerWorkApprovalIsCurrent(workItems, derivedAt),
+					matchesWorkApprovalVersion(db, workItems),
+					ownerWorkApprovalIsCurrent(db, workItems, derivedAt),
 				),
 			)
 			.innerJoin(
@@ -662,10 +662,10 @@ export async function listWorkItemReadinessProjection(
 	const rows = await db
 		.select({
 			...workItemStoredColumns,
-			attemptLimitAvailable: workAttemptLimitAvailable().as(
+			attemptLimitAvailable: workAttemptLimitAvailable(db).as(
 				"attempt_limit_available",
 			),
-			ownerDelegated: ownerWorkDelegation(workItems, observedAt).as(
+			ownerDelegated: ownerWorkDelegation(db, workItems, observedAt).as(
 				"owner_delegated",
 			),
 		})
@@ -783,8 +783,8 @@ export async function listWorkItemReadinessProjection(
 					and(
 						eq(workItems.orgId, workApprovalProposals.orgId),
 						eq(workItems.id, workApprovalProposals.workItemId),
-						matchesWorkApprovalVersion(workItems),
-						ownerWorkApprovalIsCurrent(workItems, observedAt),
+						matchesWorkApprovalVersion(db, workItems),
+						ownerWorkApprovalIsCurrent(db, workItems, observedAt),
 					),
 				)
 				.innerJoin(

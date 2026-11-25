@@ -1,3 +1,10 @@
+import { coreTable } from "../../core-store/client";
+import {
+	jsonRead,
+	jsonType,
+	jsonParameter,
+	booleanValue,
+} from "../../core-store/dialect";
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { TaskContractTermsSchema } from "@tedix/api-contract/schemas/task-contract-terms";
 import { assertChildTaskContract } from "@tedix/api-contract/utils/task-contract-terms";
@@ -508,77 +515,80 @@ export function childReportStatements(
 		now: string;
 	},
 ) {
+	const storeWorkItems = coreTable(db, workItems);
+	const storeWorkAttempts = coreTable(db, workAttempts);
+	const storeWorkItemComments = coreTable(db, workItemComments);
+	const storeWorkAttemptMessages = coreTable(db, workAttemptMessages);
 	const body = `Child Work ${p.workItemId}: ${p.outcome}. ${p.summary ?? "No summary supplied."}`;
 	const winner = and(
-		eq(workItems.orgId, p.orgId),
-		eq(workItems.id, p.workItemId),
-		eq(workAttempts.id, p.attemptId),
-		eq(workAttempts.version, p.settledVersion),
-		sql`json_type(${workItems.metadata}, '$.childDelegation.parentAttemptId')='text'`,
+		eq(storeWorkItems.orgId, p.orgId),
+		eq(storeWorkItems.id, p.workItemId),
+		eq(storeWorkAttempts.id, p.attemptId),
+		eq(storeWorkAttempts.version, p.settledVersion),
+		sql`${jsonType(db, storeWorkItems.metadata, ["childDelegation", "parentAttemptId"])}='string'`,
 	);
 	return [
 		db
-			.insert(workItemComments)
+			.insert(storeWorkItemComments)
 			.select(
 				db
 					.select({
 						id: sql<string>`${`child-report:${p.attemptId}`}`.as("id"),
-						orgId: workItems.orgId,
-						workItemId: sql<string>`${workItems.parentWorkItemId}`.as(
+						orgId: storeWorkItems.orgId,
+						workItemId: sql<string>`${storeWorkItems.parentWorkItemId}`.as(
 							"work_item_id",
 						),
 						authorType: sql<"system">`'system'`.as("author_type"),
 						authorId: sql<string>`'child-work'`.as("author_id"),
 						body: sql<string>`${body}`.as("body"),
-						metadata: sql<
-							Record<string, JsonValue>
-						>`${JSON.stringify({ childWorkItemId: p.workItemId, childAttemptId: p.attemptId })}`.as(
-							"metadata",
-						),
+						metadata: jsonParameter(db, {
+							childWorkItemId: p.workItemId,
+							childAttemptId: p.attemptId,
+						}).as("metadata"),
 						createdAt: sql<string>`${p.now}`.as("created_at"),
 					})
-					.from(workItems)
+					.from(storeWorkItems)
 					.innerJoin(
-						workAttempts,
+						storeWorkAttempts,
 						and(
-							eq(workAttempts.orgId, workItems.orgId),
-							eq(workAttempts.workItemId, workItems.id),
+							eq(storeWorkAttempts.orgId, storeWorkItems.orgId),
+							eq(storeWorkAttempts.workItemId, storeWorkItems.id),
 						),
 					)
 					.where(winner),
 			)
 			.onConflictDoNothing(),
 		db
-			.insert(workAttemptMessages)
+			.insert(storeWorkAttemptMessages)
 			.select(
 				db
 					.select({
 						id: sql<string>`${`child-report:${p.attemptId}`}`.as("id"),
-						orgId: workItems.orgId,
-						workItemId: sql<string>`${workItems.parentWorkItemId}`.as(
+						orgId: storeWorkItems.orgId,
+						workItemId: sql<string>`${storeWorkItems.parentWorkItemId}`.as(
 							"work_item_id",
 						),
-						attemptId:
-							sql<string>`json_extract(${workItems.metadata}, '$.childDelegation.parentAttemptId')`.as(
-								"attempt_id",
-							),
+						attemptId: jsonRead(db, storeWorkItems.metadata, [
+							"childDelegation",
+							"parentAttemptId",
+						]).as("attempt_id"),
 						kind: sql<"follow_up">`'follow_up'`.as("kind"),
 						body: sql<string>`${body}`.as("body"),
-						senderType: workAttempts.executorType,
-						senderId: workAttempts.executorId,
-						interrupt: sql<boolean>`0`.as("interrupt"),
+						senderType: storeWorkAttempts.executorType,
+						senderId: storeWorkAttempts.executorId,
+						interrupt: booleanValue(db, false).as("interrupt"),
 						createdAt: sql<string>`${p.now}`.as("created_at"),
 					})
-					.from(workItems)
+					.from(storeWorkItems)
 					.innerJoin(
-						workAttempts,
+						storeWorkAttempts,
 						and(
-							eq(workAttempts.orgId, workItems.orgId),
-							eq(workAttempts.workItemId, workItems.id),
+							eq(storeWorkAttempts.orgId, storeWorkItems.orgId),
+							eq(storeWorkAttempts.workItemId, storeWorkItems.id),
 						),
 					)
 					.where(winner),
 			)
 			.onConflictDoNothing(),
-	];
+	] as const;
 }

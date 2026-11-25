@@ -360,7 +360,7 @@ async function evaluate(
 		};
 	const [attemptLimit] = await db
 		.select({
-			available: workAttemptLimitAvailable().as("attempt_limit_available"),
+			available: workAttemptLimitAvailable(db).as("attempt_limit_available"),
 		})
 		.from(workItems)
 		.where(and(eq(workItems.orgId, p.orgId), eq(workItems.id, item.id)))
@@ -522,8 +522,8 @@ async function evaluate(
 			and(
 				eq(workItems.orgId, workApprovalProposals.orgId),
 				eq(workItems.id, workApprovalProposals.workItemId),
-				matchesWorkApprovalVersion(workItems),
-				ownerWorkApprovalIsCurrent(workItems, p.now),
+				matchesWorkApprovalVersion(db, workItems),
+				ownerWorkApprovalIsCurrent(db, workItems, p.now),
 			),
 		)
 		.innerJoin(

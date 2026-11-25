@@ -1101,10 +1101,10 @@ export async function ensureWorkRiskApproval(
 					eq(workApprovalProposals.workItemVersion, item.version),
 					and(
 						ne(workApprovalProposals.status, "pending"),
-						matchesWorkApprovalVersion(item),
+						matchesWorkApprovalVersion(db, item),
 					),
 				),
-				ownerWorkApprovalIsCurrent(item, now),
+				ownerWorkApprovalIsCurrent(db, item, now),
 				eq(workApprovalProposals.authorityKey, authorityKey),
 				eq(workApprovalProposals.action, "admission"),
 			),

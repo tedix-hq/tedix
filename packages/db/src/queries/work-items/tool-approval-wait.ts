@@ -1,7 +1,9 @@
 import { and, eq, gt, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead, jsonType } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
-import { tediApprovalRequests } from "../../schema/approvals";
-import { workAttempts } from "../../schema/work-items";
+import { tediApprovalRequests as d1TediApprovalRequests } from "../../schema/approvals";
+import { workAttempts as d1WorkAttempts } from "../../schema/work-items";
 
 /** Only the gateway's exact-call request for this Work revision can park a run. */
 export async function findWorkToolApprovalWait(
@@ -14,6 +16,8 @@ export async function findWorkToolApprovalWait(
 		now: string;
 	},
 ) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	if (!p.attemptId) {
 		const [suspended] = await db
 			.select({ id: workAttempts.id })
@@ -23,8 +27,8 @@ export async function findWorkToolApprovalWait(
 					eq(workAttempts.orgId, p.orgId),
 					eq(workAttempts.workItemId, p.workItemId),
 					eq(workAttempts.outcome, "cancelled"),
-					sql`json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${p.workVersion}`,
-					sql`json_type(${workAttempts.metadata}, '$.approvalWait.id') = 'text'`,
+					sql`${jsonRead(db, workAttempts.metadata, ["dispatchVersion"], "number")} = ${p.workVersion}`,
+					sql`${jsonType(db, workAttempts.metadata, ["approvalWait", "id"])} = 'string'`,
 				),
 			)
 			.limit(1);
@@ -42,14 +46,16 @@ export async function findWorkToolApprovalWait(
 				eq(tediApprovalRequests.orgId, p.orgId),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, p.now),
-				eq(tediApprovalRequests.workItemId, p.workItemId),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.requestingWorkVersion') = ${p.workVersion}`,
-				sql`json_type(${tediApprovalRequests.payload}, '$.requestingAgent.principalId') = 'text'`,
-				sql`json_type(${tediApprovalRequests.payload}, '$.requestingAttemptId') = 'text'`,
+				coreStore(db) === "postgres"
+					? sql`${jsonType(db, tediApprovalRequests.payload, ["workItemId"])} = 'string' AND ${jsonRead(db, tediApprovalRequests.payload, ["workItemId"])} = ${p.workItemId}`
+					: eq(tediApprovalRequests.workItemId, p.workItemId),
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["requestingWorkVersion"], "number")} = ${p.workVersion}`,
+				sql`${jsonType(db, tediApprovalRequests.payload, ["requestingAgent", "principalId"])} = 'string'`,
+				sql`${jsonType(db, tediApprovalRequests.payload, ["requestingAttemptId"])} = 'string'`,
 				p.attemptId
-					? sql`json_extract(${tediApprovalRequests.payload}, '$.requestingAttemptId') = ${p.attemptId}`
+					? sql`${jsonRead(db, tediApprovalRequests.payload, ["requestingAttemptId"])} = ${p.attemptId}`
 					: undefined,
-				sql`(${tediApprovalRequests.status} = 'pending' OR (${tediApprovalRequests.status} = 'approved' AND coalesce(json_extract(${tediApprovalRequests.payload}, '$.execution.status'), '') NOT IN ('executed', 'failed')))`,
+				sql`(${tediApprovalRequests.status} = 'pending' OR (${tediApprovalRequests.status} = 'approved' AND coalesce(${jsonRead(db, tediApprovalRequests.payload, ["execution", "status"])}, '') NOT IN ('executed', 'failed')))`,
 			),
 		)
 		.limit(1);

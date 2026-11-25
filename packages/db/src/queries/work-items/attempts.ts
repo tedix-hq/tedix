@@ -415,7 +415,7 @@ async function assertLaneHasNoSettledResult(
 	params: { orgId: string; workItemId: string },
 ) {
 	const [row] = await db
-		.select({ available: laneDispatchHasNoSettledResult().as("available") })
+		.select({ available: laneDispatchHasNoSettledResult(db).as("available") })
 		.from(workItems)
 		.where(
 			and(
@@ -634,9 +634,9 @@ export async function startWorkItemAttempt(
 						),
 						eq(workItems.disposition, "accepted"),
 						rootAttemptBudgetAvailable(params.orgId, rootWork.id),
-						workAttemptLimitAvailable(),
+						workAttemptLimitAvailable(db),
 						params.metadata?.lane === true
-							? laneDispatchHasNoSettledResult()
+							? laneDispatchHasNoSettledResult(db)
 							: undefined,
 					),
 				),
