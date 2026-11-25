@@ -17,6 +17,7 @@ const resources = vi.hoisted(() => ({
 	list: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
+	OS_API_URL: `${window.location.origin}/api`,
 	osApi: {
 		osWorkspaces: { resources, outputs: { list: vi.fn(), library: vi.fn() } },
 	},
@@ -57,7 +58,13 @@ beforeEach(() => {
 	resources.requestFileUpload.mockResolvedValue({
 		resourceId: "file-1",
 		partSize: 4,
-		parts: [{ partNumber: 1, size: 4, url: "/upload-part" }],
+		parts: [
+			{
+				partNumber: 1,
+				size: 4,
+				url: "https://api.example.test/workspace-file-uploads/o/w/r/1?exp=1&sig=s",
+			},
+		],
 	});
 	resources.confirmFileUpload.mockResolvedValue({
 		outputId: "output-1",
@@ -106,7 +113,7 @@ describe("WorkspaceFileUpload", () => {
 			size: 4,
 		});
 		expect(fetch).toHaveBeenCalledWith(
-			"/upload-part",
+			`${window.location.origin}/api/workspace-file-uploads/o/w/r/1?exp=1&sig=s`,
 			expect.objectContaining({ method: "PUT", credentials: "omit" }),
 		);
 		expect(resources.confirmFileUpload).toHaveBeenCalledWith({

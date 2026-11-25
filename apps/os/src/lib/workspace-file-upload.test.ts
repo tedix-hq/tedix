@@ -4,7 +4,10 @@ const api = vi.hoisted(() => ({
 	requestFileUpload: vi.fn(),
 	confirmFileUpload: vi.fn(),
 }));
-vi.mock("./api", () => ({ osApi: { osWorkspaces: { resources: api } } }));
+vi.mock("./api", () => ({
+	OS_API_URL: `${window.location.origin}/api`,
+	osApi: { osWorkspaces: { resources: api } },
+}));
 import { uploadWorkspaceFile } from "./workspace-file-upload";
 afterEach(() => {
 	vi.resetAllMocks();
@@ -23,9 +26,13 @@ describe("workspace file upload", () => {
 				{
 					partNumber: 1,
 					size: WORKSPACE_FILE_PART_BYTES,
-					url: "https://upload.example.test/1",
+					url: "https://api.example.test/workspace-file-uploads/o/w/r/1?exp=1&sig=s",
 				},
-				{ partNumber: 2, size: 3, url: "https://upload.example.test/2" },
+				{
+					partNumber: 2,
+					size: 3,
+					url: "https://api.example.test/workspace-file-uploads/o/w/r/2?exp=1&sig=s",
+				},
 			],
 		});
 		const fetch = vi
@@ -42,6 +49,12 @@ describe("workspace file upload", () => {
 			mimeType: "video/webm",
 			size,
 		});
+		expect(fetch.mock.calls[0]?.[0]).toBe(
+			`${window.location.origin}/api/workspace-file-uploads/o/w/r/1?exp=1&sig=s`,
+		);
+		expect(fetch.mock.calls[1]?.[0]).toBe(
+			`${window.location.origin}/api/workspace-file-uploads/o/w/r/2?exp=1&sig=s`,
+		);
 		expect(fetch.mock.calls[0]?.[1].body).toBeInstanceOf(Blob);
 		expect(fetch.mock.calls[0]?.[1].body.size).toBe(WORKSPACE_FILE_PART_BYTES);
 		expect(fetch.mock.calls[1]?.[1].body.size).toBe(3);
@@ -59,7 +72,13 @@ describe("workspace file upload", () => {
 		api.requestFileUpload.mockResolvedValue({
 			resourceId: "file-1",
 			partSize: WORKSPACE_FILE_PART_BYTES,
-			parts: [{ partNumber: 1, size: 1, url: "https://upload.example.test/1" }],
+			parts: [
+				{
+					partNumber: 1,
+					size: 1,
+					url: "https://api.example.test/workspace-file-uploads/o/w/r/1?exp=1&sig=s",
+				},
+			],
 		});
 		vi.stubGlobal(
 			"fetch",

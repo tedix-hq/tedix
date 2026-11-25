@@ -1,5 +1,22 @@
 import { WORKSPACE_FILE_MAX_BYTES } from "@tedix/api-contract/schemas/workspace-files";
-import { osApi } from "./api";
+import { OS_API_URL, osApi } from "./api";
+
+/**
+ * Part URLs are signed capabilities minted on the API origin, which some
+ * networks cannot resolve while the OS origin stays reachable. When the OS
+ * client reaches the API same-origin through its `/api` proxy, send the bytes
+ * through it too; the proxy forwards the capability untouched and apps/api
+ * verifies it exactly as it does a direct PUT.
+ */
+function partUploadUrl(partUrl: string): string {
+	const url = new URL(partUrl, window.location.origin);
+	const api = new URL(OS_API_URL, window.location.origin);
+	if (api.origin !== window.location.origin) return partUrl;
+	const path = url.pathname.startsWith("/api/")
+		? url.pathname
+		: `${api.pathname.replace(/\/+$/, "")}${url.pathname}`;
+	return `${window.location.origin}${path}${url.search}`;
+}
 
 async function uploadParts(
 	workspaceId: string,
@@ -20,7 +37,7 @@ async function uploadParts(
 	const parts: { partNumber: number; etag: string }[] = [];
 	for (const part of upload.parts) {
 		const offset = (part.partNumber - 1) * upload.partSize;
-		const response = await fetch(part.url, {
+		const response = await fetch(partUploadUrl(part.url), {
 			method: "PUT",
 			body: file.slice(offset, offset + part.size),
 			credentials: "omit",

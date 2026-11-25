@@ -1904,6 +1904,48 @@ describe("Tedix OS origin router", () => {
 		expect(proxied.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
 	});
 
+	it("proxies signed workspace-file part PUTs without a session, body intact", async () => {
+		const seen: Request[] = [];
+		const env: OsRouterEnv = {
+			ASSETS: { fetch: async () => new Response("shell") },
+			API_SERVICE: {
+				fetch: async (proxied: Request) => {
+					seen.push(proxied);
+					return Response.json({ partNumber: 1, etag: "a" });
+				},
+			},
+		};
+		const response = await handleOsRequest(
+			new Request(
+				"https://acme.os.tedix.dev/api/workspace-file-uploads/org-1/ws-1/res-1/1?exp=123&sig=abc",
+				{
+					method: "PUT",
+					headers: {
+						// The upload deliberately sends no session; ambient
+						// credentials must not reach apps/api either way.
+						Cookie: "keep=value",
+						Authorization: "Bearer ambient",
+						"Content-Type": "application/octet-stream",
+					},
+					body: "part-bytes",
+				},
+			),
+			env,
+			provisionedWithTenant,
+		);
+		expect(response.status).toBe(200);
+		expect(seen).toHaveLength(1);
+		const proxied = seen[0] as Request;
+		expect(proxied.url).toBe(
+			"https://api/workspace-file-uploads/org-1/ws-1/res-1/1?exp=123&sig=abc",
+		);
+		expect(proxied.method).toBe("PUT");
+		expect(await proxied.text()).toBe("part-bytes");
+		expect(proxied.headers.get("Cookie")).toBeNull();
+		expect(proxied.headers.get("Authorization")).toBeNull();
+		expect(proxied.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
+	});
+
 	it.each([200, 403])(
 		"times RPC tenant resolution and API transport without buffering a %i response",
 		async (status) => {

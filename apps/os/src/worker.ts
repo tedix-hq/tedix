@@ -160,6 +160,13 @@ const GUEST_SHARE_API_PATH =
 const GUEST_SHARE_FILE_PATH =
 	/^\/api\/os-shared\/file\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,100}$/;
 /**
+ * Workspace-file part uploads proxied same-origin: the HMAC `exp`/`sig`
+ * capability minted by requestFileUpload is the credential, verified by
+ * apps/api exactly as on the API origin. The browser sends no session cookie
+ * (`credentials: "omit"`), so these PUTs pass without a product session.
+ */
+const WORKSPACE_FILE_UPLOAD_API_PATH = /^\/api\/workspace-file-uploads\//;
+/**
  * The share calls that may carry the visitor's own host session: an
  * `organization` or `invited` link needs to know who is opening it. The app
  * calls never do; their share session is the only credential.
@@ -1296,6 +1303,26 @@ export async function handleOsRequest(
 						)
 					: null;
 			if (recipientSession) headers.set("Cookie", recipientSession);
+			return proxyApiRequest(
+				new Request(request, { headers }),
+				env,
+				url,
+				hostTenantId,
+			);
+		}
+		// Signed workspace-file part uploads carry their own HMAC capability
+		// and deliberately send no session cookie, so — like the share-link
+		// calls above — they pass without a product session. Ambient
+		// credentials are stripped; apps/api verifies exp + sig itself.
+		// authz: public — apps/api verifies the signed part capability; a forwarded session adds nothing.
+		if (
+			!cliApi &&
+			request.method === "PUT" &&
+			WORKSPACE_FILE_UPLOAD_API_PATH.test(url.pathname)
+		) {
+			const headers = new Headers(request.headers);
+			headers.delete("Cookie");
+			headers.delete("Authorization");
 			return proxyApiRequest(
 				new Request(request, { headers }),
 				env,
