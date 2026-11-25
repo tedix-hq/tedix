@@ -449,6 +449,22 @@ function fixture({
 				response = devinAttempts.has(args[6]!)
 					? { data: [devinAttempts.get(args[6]!)], nextCursor: null }
 					: control.history;
+				if (control.history.data.length > 100 && !devinAttempts.has(args[6]!)) {
+					const offset = input.cursor
+						? control.history.data.findIndex(
+								(row) => row.id === input.cursor.id,
+							) + 1
+						: 0;
+					const data = control.history.data.slice(offset, offset + input.limit);
+					const last = data.at(-1);
+					response = {
+						data,
+						nextCursor:
+							offset + data.length < control.history.data.length
+								? { startedAt: last!.startedAt, id: last!.id }
+								: null,
+					};
+				}
 			} else if (verb === "evidence") {
 				if (control.evidenceError) throw control.evidenceError;
 				response = control.evidence;
@@ -2087,6 +2103,48 @@ describe("dispatcher admission", () => {
 			f.events.filter((event) => event.verb === "start" && event.input),
 		).toHaveLength(0);
 	});
+	it.each(["none", "live", "result"])(
+		"pages 120 Attempts before admission with %s on the second page",
+		async (fence) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.control.history.data = Array.from({ length: 120 }, (_, index) => ({
+				id: `historical-${index}`,
+				startedAt: new Date(Date.now() - index * 1000).toISOString(),
+				outcome: "failed",
+				metadata: { dispatchVersion: 2 },
+			}));
+			if (fence !== "none")
+				Object.assign(f.control.history.data[119]!, {
+					outcome: fence === "live" ? null : "succeeded",
+					expiresAt: new Date(Date.now() + 300_000).toISOString(),
+				});
+			await f.dispatcher.tick();
+			if (fence === "none") {
+				await until(() => f.releases.length === 1);
+				f.releases[0]!();
+			}
+			await f.dispatcher.drain();
+			expect(
+				f.events.filter((event) => event.verb === "start" && event.input),
+			).toHaveLength(fence === "none" ? 1 : 0);
+			const reads = f.events.filter(
+				(event) => event.verb === "dispatch-attempts",
+			);
+			expect(reads.slice(0, 2).map((event) => event.input)).toEqual([
+				{ limit: 100 },
+				{
+					limit: 100,
+					cursor: {
+						startedAt: f.control.history.data.find(
+							(row) => row.id === "historical-99",
+						)!.startedAt,
+						id: "historical-99",
+					},
+				},
+			]);
+		},
+	);
 	describe("unknown admission after a transient error", () => {
 		const stuck = (f: ReturnType<typeof fixture>) => {
 			const path = join(f.dir, `${item(1).id}-2.json`);
@@ -2121,6 +2179,34 @@ describe("dispatcher admission", () => {
 			expect(admissions(f).map((event) => event.args[6])).toEqual([item(1).id]);
 			for (const release of f.releases) release();
 			await f.dispatcher.drain();
+		});
+		it("finds this session's Attempt on the second history page", async () => {
+			const f = fixture();
+			f.items.splice(1);
+			const path = stuck(f);
+			f.control.history.data = Array.from({ length: 120 }, (_, index) => ({
+				id: `historical-${index}`,
+				startedAt: new Date(Date.now() - index * 1000).toISOString(),
+				outcome: "failed",
+				metadata: { dispatchVersion: 1 },
+			}));
+			Object.assign(f.control.history.data[119]!, {
+				externalSessionKey: "codex:lost-session",
+				outcome: null,
+				metadata: { dispatchVersion: 2 },
+				expiresAt: new Date(Date.now() + 300_000).toISOString(),
+			});
+			await f.dispatcher.tick();
+			await f.dispatcher.drain();
+			expect(admissions(f)).toHaveLength(0);
+			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+				attemptId: "historical-119",
+				admissionState: "admitted",
+				outcome: "failed",
+			});
+			expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(
+				1,
+			);
 		});
 		it("settles this session's live Attempt when no process exists", async () => {
 			const f = fixture();

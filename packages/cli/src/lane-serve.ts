@@ -6394,20 +6394,7 @@ export class LaneDispatcher {
 					));
 			if (reason || item.version !== candidate.version)
 				throw new Error(reason ?? "Work changed before admission");
-			const history = await this.call<{
-				data: WorkAttempt[];
-				nextCursor: string | null;
-			}>([
-				"work",
-				"dispatch-attempts",
-				item.id,
-				"--input",
-				JSON.stringify({ limit: 100 }),
-			]);
-			if (!Array.isArray(history.data) || history.nextCursor !== null)
-				throw new Error(
-					"Complete Attempt history is unavailable; admission remains held",
-				);
+			const history = await this.admissionHistory(item.id);
 			const questionAttempt = history.data.find(
 				(attempt) =>
 					attempt.outcome === "cancelled" &&
@@ -9340,6 +9327,39 @@ ${firstBrief}`;
 			receipt,
 		);
 	}
+	private async admissionHistory(itemId: string) {
+		const data: WorkAttempt[] = [];
+		let cursor: { startedAt: string; id: string } | undefined;
+		const seen = new Set<string>();
+		do {
+			const page = await this.call<{
+				data: WorkAttempt[];
+				nextCursor: { startedAt: string; id: string } | null;
+			}>([
+				"work",
+				"dispatch-attempts",
+				itemId,
+				"--input",
+				JSON.stringify({ limit: 100, cursor }),
+			]);
+			if (
+				!Array.isArray(page.data) ||
+				(page.nextCursor !== null &&
+					(!isRecord(page.nextCursor) ||
+						typeof page.nextCursor.startedAt !== "string" ||
+						typeof page.nextCursor.id !== "string" ||
+						!page.data.length ||
+						seen.has(JSON.stringify(page.nextCursor))))
+			)
+				throw new Error(
+					"Complete Attempt history is unavailable; admission remains held",
+				);
+			data.push(...page.data);
+			cursor = page.nextCursor ?? undefined;
+			if (cursor) seen.add(JSON.stringify(cursor));
+		} while (cursor);
+		return { data, nextCursor: null };
+	}
 	/**
 	 * A lost admission response leaves the receipt "unknown". Canonical
 	 * Attempts decide it: adopt this session's Attempt, or re-admit when none
@@ -9349,15 +9369,7 @@ ${firstBrief}`;
 		const path = this.path({ id: receipt.itemId, version: receipt.version });
 		let history: { data: WorkAttempt[]; nextCursor: string | null };
 		try {
-			history = await this.call<typeof history>([
-				"work",
-				"dispatch-attempts",
-				receipt.itemId,
-				"--input",
-				JSON.stringify({ limit: 100 }),
-			]);
-			if (!Array.isArray(history.data) || history.nextCursor !== null)
-				throw new Error("Complete Attempt history is unavailable");
+			history = await this.admissionHistory(receipt.itemId);
 		} catch (error) {
 			receipt.admissionCheckFailures =
 				(receipt.admissionCheckFailures ?? 0) + 1;
