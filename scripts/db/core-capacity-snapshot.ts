@@ -3,8 +3,7 @@
 /**
  * Daily read-only snapshot of a shared D1 database, grouped by what the tables
  * hold: core business data, organization and tedi memory, append-only history
- * and the app catalog cache. Evidence for the Postgres-vs-D1 decision in
- * docs/engineering/core-database-decision.md.
+ * and the app catalog cache. Evidence for capacity planning.
  *
  * Uses the `cf` CLI login of the operator machine; nothing here writes to D1.
  * D1 statements go through the audited scripts/lib/remote-d1.ts path.

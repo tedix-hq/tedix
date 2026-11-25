@@ -4,7 +4,7 @@
  *
  * Examples:
  * - "https://www.mediamarkt.de" -> "mediamarkt.de"
- * - "www.example" -> "example"
+ * - "www.example.com" -> "example.com"
  * - "kleinanzeigen.de/path" -> "kleinanzeigen.de"
  *
  * @param url - URL or domain string to extract from

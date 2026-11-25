@@ -253,8 +253,8 @@ export async function observeRepositoryEvent(
 		workItemId: String(row.metadata?.targetWorkItemId ?? id),
 	};
 	// A push is recorded as delivery evidence for Work closeout. Its advisory
-	// review turn was dropped on 22 Nov 2026: in two weeks 724 reports landed
-	// on already-settled items that nobody opened, .
+	// review turn was dropped: its reports landed on already-settled items that
+	// nobody opened.
 	if (event.kind === "push") return { ...receipt, status: "recorded" };
 	if (row.metadata?.report && event.kind !== "ship_red")
 		return { ...receipt, status: "reported" };

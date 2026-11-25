@@ -2,7 +2,7 @@
  * Slugify a string into a URL-safe format
  * Examples:
  * - "MediaMarkt" -> "mediamarkt"
- * - "example" -> "mobile-de"
+ * - "Example.com" -> "example-com"
  * - "eBay Kleinanzeigen" -> "ebay-kleinanzeigen"
  */
 export function slugify(input: string, maxLength = 50): string {

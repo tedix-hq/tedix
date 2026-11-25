@@ -2,8 +2,7 @@ import type { GatewayChangeRecordInput } from "@tedix/api-contract/schemas/audit
 
 /**
  * The organization log store's RPC surface, as the workspace runtime's
- * `InternalEntrypoint` exposes it to the api. Design:
- * `docs/engineering/organization-log-store.md`.
+ * `InternalEntrypoint` exposes it to the api.
  *
  * Every method takes the organization id first. The store is the only place
  * an organization's change records live: a runtime without the store binding

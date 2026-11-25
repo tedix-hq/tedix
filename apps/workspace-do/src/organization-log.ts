@@ -1,8 +1,7 @@
 /**
  * One organization's log store: its gateway change ledger, chained as each
  * record is appended, checkpointed and signed, with an evidence bundle per
- * checkpoint and a manifest per day in the EU archive. Design and cutover:
- * `docs/engineering/organization-log-store.md`.
+ * checkpoint and a manifest per day in the EU archive.
  *
  * Records keep the gateway ledger's contract byte for byte: the same body
  * JSON, the same digest over the reader view (`GatewayChangeRecordSchema`),

@@ -1,6 +1,6 @@
 /**
  * The gateway change ledger, read and written through the organization's log
- * store (`docs/engineering/organization-log-store.md`). The store is the only
+ * store. The store is the only
  * place records are written and read: a store that cannot answer, or that is
  * not live, fails the call. There is no other copy to fall back to.
  */
