@@ -3,7 +3,7 @@ import {
 	CARD_SECRET_MESSAGE,
 	containsCardSecret,
 } from "@tedix/api-contract/utils/card-secrets";
-import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, or, sql, type SQL } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkItemComment,
@@ -26,19 +26,28 @@ export function decisionRelevantWorkComment(request: {
 	creatorId?: string;
 	createdAt?: string;
 }) {
-	if (!request.createdAt) return sql`1`;
+	return decisionRelevantWorkCommentFields({
+		createdAt: sql`${request.createdAt || null}`,
+		creatorType: sql`${request.creatorType ?? null}`,
+		creatorId: sql`${request.creatorId || null}`,
+	});
+}
+
+/** The same relevance rule for a set of requests held in a query relation. */
+export function decisionRelevantWorkCommentFields(request: {
+	createdAt: SQL;
+	creatorType: SQL;
+	creatorId: SQL;
+}) {
 	const answerRecord = sql`(json_extract(${workItemComments.metadata}, '$.schema') = 'tedix.decision-answer.v1' AND ${workItemComments.createdAt} > ${request.createdAt})`;
-	if (
-		!["tedi", "external_agent"].includes(request.creatorType ?? "") ||
-		!request.creatorId
-	)
-		return sql`NOT coalesce(${answerRecord}, 0)`;
-	return sql`NOT coalesce(${answerRecord} OR (
-		${workItemComments.authorType} = ${request.creatorType}
+	return sql`(${request.createdAt} IS NULL OR NOT coalesce(${answerRecord} OR (
+		${request.creatorType} IN ('tedi', 'external_agent')
+		AND ${request.creatorId} IS NOT NULL
+		AND ${workItemComments.authorType} = ${request.creatorType}
 		AND ${workItemComments.authorId} = ${request.creatorId}
 		AND json_extract(${workItemComments.metadata}, '$.decisionImpact') = 'progress'
 		AND ${workItemComments.createdAt} > ${request.createdAt}
-	), 0)`;
+	), 0))`;
 }
 
 export interface AddWorkItemCommentParams {

@@ -55,8 +55,19 @@ it("bounds the full forwarded Deck read independently of inbox row count", async
 			"INSERT INTO projects(id,org_id,name,key,created_at) VALUES ('00000000-0000-4000-8000-000000000005',?,'Reviews','REV','2026-01-01')",
 		)
 		.run(orgId);
+	const sourceWorkId = "00000000-0000-4000-8000-000000000006";
+	sqlite
+		.prepare(
+			"INSERT INTO work_items(id,org_id,title,disposition,version,admission_spec_revision,created_at) VALUES (?,?,'Source','accepted',1,'revision','2025-01-01')",
+		)
+		.run(sourceWorkId, orgId);
+	sqlite
+		.prepare(
+			"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,created_at) VALUES ('new-facts',?,?,'user','reader','New facts to review','2026-02-01')",
+		)
+		.run(orgId, sourceWorkId);
 	const insert = sqlite.prepare(
-		"INSERT INTO work_interactions(id,org_id,project_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,status,created_at) VALUES (?,?,'00000000-0000-4000-8000-000000000005','question',?,'Choose a topic','user','reader','user','reader','open',?)",
+		`INSERT INTO work_interactions(id,org_id,project_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,status,created_at,metadata) VALUES (?,?,'00000000-0000-4000-8000-000000000005','question',?,'Choose a topic','user','reader','user','reader','open',?,'{"decisionSources":[{"kind":"work","id":"00000000-0000-4000-8000-000000000006","version":1,"commentCount":0}]}')`,
 	);
 	const statements: string[] = [];
 	const read = async () => {
@@ -95,7 +106,7 @@ it("bounds the full forwarded Deck read independently of inbox row count", async
 		const first = await read();
 		expect(first.complete).toBe(true);
 		expect(first.cards).toHaveLength(1);
-		expect(statements).toHaveLength(24);
+		expect(statements).toHaveLength(27);
 		statements.length = 0;
 		for (let i = 1; i < 20; i++)
 			insert.run(
@@ -107,7 +118,7 @@ it("bounds the full forwarded Deck read independently of inbox row count", async
 		const many = await read();
 		expect(many.complete).toBe(true);
 		expect(many.cards).toHaveLength(20);
-		expect(statements).toHaveLength(23);
+		expect(statements).toHaveLength(26);
 		for (const table of [
 			"organization_members",
 			"principal_identities",

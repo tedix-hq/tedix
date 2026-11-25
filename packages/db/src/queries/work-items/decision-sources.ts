@@ -11,7 +11,10 @@ import { auditEvents } from "../../schema/audit-events";
 import { tediEmailMessages, tediEmailThreads } from "../../schema/tedi-email";
 import { creditBudgetCardCurrent } from "./budgets";
 import { getWorkItemById } from "./crud";
-import { decisionRelevantWorkComment } from "./comments";
+import {
+	decisionRelevantWorkComment,
+	decisionRelevantWorkCommentFields,
+} from "./comments";
 import { workItemComments, workItems } from "../../schema/work-items";
 import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { workInteractions } from "../../schema/work-factory";
@@ -64,6 +67,10 @@ export type DecisionSourcePrefetch = {
 		{ disposition: string; version: number; executorId: string | null }
 	>;
 	commentCounts: Map<string, number>;
+	workReviews: Map<
+		Request,
+		Map<string, boolean | { through: string; note: string }>
+	>;
 };
 
 function citedWorkIds(request: Request): string[] {
@@ -95,6 +102,7 @@ export async function prefetchDecisionSources(
 	const prefetch: DecisionSourcePrefetch = {
 		works: new Map(),
 		commentCounts: new Map(),
+		workReviews: new Map(),
 	};
 	if (!ids.length) return prefetch;
 	const [works, comments] = await db.batch([
@@ -132,7 +140,90 @@ export async function prefetchDecisionSources(
 			id,
 			Number(comments.find((row) => row.workItemId === id)?.comments ?? 0),
 		);
+	await prefetchChangedWorkComments(db, orgId, requests, prefetch);
 	return prefetch;
+}
+
+async function prefetchChangedWorkComments(
+	db: DbQueryClient,
+	orgId: string,
+	requests: Request[],
+	prefetch: DecisionSourcePrefetch,
+) {
+	const pins = requests.flatMap((request, requestIndex) => {
+		const envelope = DecisionEnvelopeSchema.safeParse(
+			request.metadata.decisionDeck,
+		);
+		const sources = [
+			request.metadata.decisionSources,
+			envelope.success ? envelope.data.sources : undefined,
+		].flatMap((raw) => DecisionSourcesSchema.safeParse(raw).data ?? []);
+		return sources.flatMap((source) =>
+			source.kind === "work" &&
+			prefetch.works.get(source.id)?.version === source.version &&
+			(prefetch.commentCounts.get(source.id) ?? 0) > source.commentCount
+				? [
+						{
+							requestIndex,
+							workId: source.id,
+							commentCount: source.commentCount,
+							createdAt: request.createdAt || null,
+							creatorType: request.creatorType ?? null,
+							creatorId: request.creatorId || null,
+						},
+					]
+				: [],
+		);
+	});
+	if (!pins.length) return;
+	const relevant = decisionRelevantWorkCommentFields({
+		createdAt: sql`pins.created_at`,
+		creatorType: sql`pins.creator_type`,
+		creatorId: sql`pins.creator_id`,
+	});
+	// One JSON parameter holds the whole bounded inbox page, not one query per pin.
+	const rows = await db.all<{
+		request_index: number;
+		work_id: string;
+		comment_count: number;
+		latest: string | null;
+	}>(sql`WITH pins AS (
+		SELECT DISTINCT json_extract(value, '$.requestIndex') AS request_index,
+			json_extract(value, '$.workId') AS work_id,
+			json_extract(value, '$.commentCount') AS comment_count,
+			json_extract(value, '$.createdAt') AS created_at,
+			json_extract(value, '$.creatorType') AS creator_type,
+			json_extract(value, '$.creatorId') AS creator_id
+		FROM json_each(${JSON.stringify(pins)})
+	), counts AS (
+		SELECT pins.request_index, pins.work_id, pins.comment_count,
+			coalesce(sum(CASE WHEN ${workItemComments.createdAt} <= pins.created_at THEN 1 ELSE 0 END), 0) AS baseline_count,
+			coalesce(sum(CASE WHEN ${relevant} THEN 1 ELSE 0 END), 0) AS relevant_count
+		FROM pins CROSS JOIN ${workItemComments}
+		WHERE ${workItemComments.orgId} = ${orgId} AND ${workItemComments.workItemId} = pins.work_id
+		GROUP BY pins.request_index, pins.work_id, pins.comment_count
+	)
+	SELECT pins.request_index, pins.work_id, pins.comment_count,
+		CASE WHEN counts.baseline_count = pins.comment_count AND counts.relevant_count = pins.comment_count THEN NULL
+		ELSE (SELECT json_object('through', ${workItemComments.createdAt}, 'note', substr(${workItemComments.body}, 1, 600))
+			FROM ${workItemComments}
+			WHERE ${workItemComments.orgId} = ${orgId} AND ${workItemComments.workItemId} = pins.work_id
+				AND (counts.baseline_count <> pins.comment_count OR ${relevant})
+			ORDER BY ${workItemComments.createdAt} DESC, ${workItemComments.id} DESC LIMIT 1)
+		END AS latest
+	FROM pins INNER JOIN counts ON counts.request_index = pins.request_index AND counts.work_id = pins.work_id AND counts.comment_count = pins.comment_count`);
+	for (const row of rows) {
+		const request = requests[row.request_index]!;
+		const reviews = prefetch.workReviews.get(request) ?? new Map();
+		const latest = row.latest
+			? (JSON.parse(row.latest) as { through: string; note: string })
+			: null;
+		reviews.set(
+			`${row.work_id}:${row.comment_count}`,
+			latest ? { ...latest, note: latest.note.slice(0, 600) } : true,
+		);
+		prefetch.workReviews.set(request, reviews);
+	}
 }
 
 async function citedWork(
@@ -354,6 +445,15 @@ async function decisionSourceMatches(
 				if (prefetched === source.commentCount) return true;
 				if (prefetched < source.commentCount) return false;
 			}
+			const review = prefetch?.workReviews
+				.get(request)
+				?.get(`${source.id}:${source.commentCount}`);
+			if (review !== undefined)
+				return typeof review === "boolean" ||
+					!reviewedThrough ||
+					review.through > reviewedThrough
+					? review
+					: true;
 			const relevant = decisionRelevantWorkComment(request);
 			const [comments] = await db
 				.select({
