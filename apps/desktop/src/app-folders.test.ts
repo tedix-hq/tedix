@@ -84,6 +84,13 @@ test("a folder already in the new place keeps the old one, which is not deleted"
 	expect(lines.join("\n")).toContain("Partitions already in");
 });
 
+test("a new Mac has nothing to move and nothing to report", () => {
+	const home = realpathSync(mkdtempSync(join(tmpdir(), "tedix-folders-")));
+	homes.push(home);
+	const appData = join(home, "Library", "Application Support");
+	expect(moveAppFolders({ appData, home, packaged: true })).toEqual([]);
+});
+
 test("a copy run from source uses dev/ inside the same folder", () => {
 	const f = oldMac();
 	const folders = { ...f.folders, packaged: false };

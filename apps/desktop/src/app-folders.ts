@@ -125,6 +125,8 @@ export function moveAppFolders(folders: AppFolders): string[] {
 	step("command-line tool link", () => {
 		// `~/.local/bin/tedix` names the app's copy by its full path.
 		const link = join(home, ".local", "bin", "tedix");
+		// A new Mac has no link yet; the app makes one once its copy is in place.
+		if (!exists(link)) return;
 		const target = readlinkSync(link);
 		if (!target.startsWith(`${oldData}/`) || exists(oldData)) return;
 		const next = join(userData, target.slice(oldData.length + 1));
