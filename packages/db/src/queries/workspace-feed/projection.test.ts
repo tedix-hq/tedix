@@ -307,7 +307,10 @@ for (const store of ["d1", "postgres"] as const) {
 			const batch = vi.spyOn(db, "batch");
 			await applyWorkspaceChangeEvents(db, [
 				event(1, { summary: { title: "100%_literal", workItemIds: ids } }),
-				event(2, { id: "other-output", summary: { title: "100anything" } }),
+				event(2, {
+					id: "other-output",
+					summary: { title: "100anything ÉCOLE" },
+				}),
 			]);
 			expect(batch).toHaveBeenCalledTimes(1);
 			batch.mockRestore();
@@ -326,6 +329,13 @@ for (const store of ["d1", "postgres"] as const) {
 					)
 				).map((row) => row.index.title),
 			).toEqual(["100%_literal"]);
+			expect(
+				await listWorkspaceOutputLibrary(
+					db,
+					{ organizationId: ORG, viewer },
+					{ search: "école" },
+				),
+			).toEqual([]);
 			await applyWorkspaceChangeEvents(db, [
 				event(3, { summary: { workItemIds: [] } }),
 			]);

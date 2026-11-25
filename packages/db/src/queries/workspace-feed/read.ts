@@ -5,6 +5,7 @@
 
 import { and, desc, eq, exists, inArray, lt, or, sql } from "drizzle-orm";
 import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import { osWorkspaces as d1OsWorkspaces } from "../../schema/os-workspaces";
 import {
@@ -158,9 +159,13 @@ export async function listWorkspaceOutputLibrary(
 	const term = options.search?.trim();
 	if (term) {
 		const pattern = likePattern(term);
+		const title =
+			coreStore(db) === "postgres"
+				? sql`translate(${workspaceOutputIndex.title}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`
+				: sql`lower(${workspaceOutputIndex.title})`;
 		conditions.push(
 			or(
-				sql`lower(${workspaceOutputIndex.title}) LIKE ${pattern} ESCAPE '\\'`,
+				sql`${title} LIKE ${pattern} ESCAPE '\\'`,
 				sql`${workspaceOutputIndex.searchText} LIKE ${pattern} ESCAPE '\\'`,
 			)!,
 		);
