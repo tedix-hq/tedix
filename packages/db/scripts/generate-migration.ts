@@ -68,8 +68,15 @@ function canonicalMain(repoRoot: string): string {
 
 function migrationNamesAt(repoRoot: string, revision: string): string[] {
 	if (revision === NULL_SHA) return [];
+	// Without --full-tree, ls-tree limits output to the caller's subdirectory,
+	// so a run from packages/db would see no published migrations.
 	return git(
-		["ls-tree", "--name-only", `${revision}:${migrationDirectory}`],
+		[
+			"ls-tree",
+			"--full-tree",
+			"--name-only",
+			`${revision}:${migrationDirectory}`,
+		],
 		repoRoot,
 	)
 		.split("\n")
