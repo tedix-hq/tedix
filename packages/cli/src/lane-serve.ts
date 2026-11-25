@@ -9370,8 +9370,9 @@ ${firstBrief}`;
 					"settle",
 					receipt.itemId,
 					"--outcome",
-					// Incomplete outcomes and invalid CI declarations are verdicts,
-					// not crashes: the server never reruns them on the same revision.
+					// Incomplete outcomes and invalid CI declarations settle rejected.
+					// Ordinary Work can retry, subject to the failed/rejected streak wait;
+					// policy-managed lanes block a rejected verdict on this revision.
 					receipt.outcome === "failed" &&
 					((receipt.laneResult?.outcome === "incomplete" &&
 						(!receipt.verification || receipt.verificationRefuted)) ||

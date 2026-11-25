@@ -25,7 +25,14 @@ export function laneDispatchHasNoSettledResult(db: object) {
 	)`}`;
 }
 
-/** Shared by readiness, admission preview and the atomic Attempt INSERT. */
+/**
+ * Shared by readiness, admission preview and the atomic Attempt INSERT.
+ * Ordinary Work excludes cancellations and rejected verdicts from maxAttempts,
+ * preserving the retry allowance for repaired revisions. Incomplete rejected
+ * runs instead count toward workDeferralWait's consecutive-failure backoff;
+ * policy-managed lanes also block revision-stamped rejected verdicts.
+ * Factory Work counts every Attempt against its cycle cap.
+ */
 export function workAttemptLimitAvailable(db: object) {
 	const workItems = coreTable(db, d1WorkItems);
 	const integerLimit =

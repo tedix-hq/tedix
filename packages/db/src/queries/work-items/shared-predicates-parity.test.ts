@@ -130,7 +130,7 @@ for (const store of ["d1", "postgres"] as const)
 		const attempt = async (
 			id: string,
 			workItemId: string,
-			outcome: "failed" | "cancelled" | "succeeded",
+			outcome: "failed" | "cancelled" | "rejected" | "succeeded",
 			metadata = {},
 			attemptNumber = 1,
 		) => {
@@ -203,6 +203,9 @@ for (const store of ["d1", "postgres"] as const)
 			await item("cancelled", { maxAttempts: 1 });
 			await attempt("cancelled-run", "cancelled", "cancelled");
 			expect(await available("cancelled")).toBe(true);
+			await item("rejected", { maxAttempts: 1 });
+			await attempt("rejected-run", "rejected", "rejected");
+			expect(await available("rejected")).toBe(true);
 		});
 		it("blocks a settled current specification until a later decision continuation", async () => {
 			await item("settled");
