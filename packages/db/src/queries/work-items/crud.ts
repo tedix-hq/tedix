@@ -1576,6 +1576,11 @@ export async function updateWorkItemSpecification(
 		.set({
 			metadata: {
 				...(clearNeedsProject ? sortedMetadata : prior.metadata),
+				// A person who names the tool keeps the task on it: routing and
+				// failover move only Work that a person left to them.
+				...(requestedExecutor && params.actor.type === "user"
+					? { onlyExecutor: true }
+					: {}),
 				specificationUpdateId,
 				...(dispatch ? { laneDispatchReceiptId: receiptId } : {}),
 				...(laneDispatch?.reason || laneDispatch?.note || laneDispatch?.score

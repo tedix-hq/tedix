@@ -55,6 +55,8 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	expect(changed.dispatchState).toBe("ready");
 	expect(changed.executorId).toBe("codex");
 	expect(changed.executorType).toBe("external_agent");
+	// The person's choice holds: the router and failover leave it alone.
+	expect(changed.metadata?.onlyExecutor).toBe(true);
 	await expect(
 		updateWorkItemSpecification(db, {
 			...base,

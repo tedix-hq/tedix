@@ -100,6 +100,7 @@ it("stores executor selection without losing other metadata and rejects another 
 		specificationUpdateId: expect.any(String),
 		laneDispatch: null,
 		laneDispatchReceiptId: expect.any(String),
+		onlyExecutor: true,
 	});
 	expect(updated).toMatchObject({
 		executorType: "external_agent",
