@@ -3,6 +3,49 @@ import type { DbQueryClient } from "../../query-client";
 import { type WorkItem, workAttempts } from "../../schema/work-items";
 import { workAdmissions } from "../../schema/work-factory";
 
+/** From this many failed Attempts in a row, the task waits before the next one. */
+const FAILURES_BEFORE_WAIT = 4;
+
+/**
+ * The wait after failed Attempts in a row on one Work version, newest first.
+ * A failed Attempt has outcome `failed` (the run broke) or `rejected` (the
+ * runner settled a result that says the task is incomplete); a task that
+ * cannot be finished produces both, mixed. A success, a landed result, a
+ * deferral, an Attempt whose runner went away (`expired`) or a new Work
+ * version ends the row.
+ * The spacing is the one repeated deferrals get: 1, 4, then 24 hours.
+ */
+export function failedAttemptsWait(
+	attempts: {
+		outcome: string | null;
+		finishedAt: string | null;
+		workItemVersion: number;
+	}[],
+	version: number,
+	now: string,
+): string | undefined {
+	let count = 0;
+	for (const attempt of attempts) {
+		if (
+			(attempt.outcome !== "failed" && attempt.outcome !== "rejected") ||
+			attempt.workItemVersion !== version
+		)
+			break;
+		count++;
+	}
+	const finishedAt = attempts[0]?.finishedAt;
+	if (count < FAILURES_BEFORE_WAIT || !finishedAt) return;
+	const hours =
+		count === FAILURES_BEFORE_WAIT
+			? 1
+			: count === FAILURES_BEFORE_WAIT + 1
+				? 4
+				: 24;
+	const retryAt = Date.parse(finishedAt) + hours * 3_600_000;
+	if (retryAt <= Date.parse(now)) return;
+	return `Failed ${count} times in a row on this task version. Recheck at ${new Date(retryAt).toISOString()}; revising the task wakes it sooner.`;
+}
+
 /** Readiness uses durable history, including on runners without local receipts. */
 export async function workDeferralWait(
 	db: DbQueryClient,
@@ -32,7 +75,9 @@ export async function workDeferralWait(
 			),
 		)
 		.orderBy(desc(workAttempts.attemptNumber))
-		.limit(4);
+		.limit(FAILURES_BEFORE_WAIT + 2);
+	const failed = failedAttemptsWait(attempts, item.version, now);
+	if (failed) return failed;
 	const latest = attempts[0];
 	const result = latest?.metadata.laneResult;
 	if (
