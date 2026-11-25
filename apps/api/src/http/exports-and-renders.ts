@@ -258,7 +258,6 @@ export function registerExportsAndRenders(
 		);
 		if (!orgId) return c.text("No organization context", 403);
 
-		const { coreDb, coreQueryDb } = await import("@tedix/db/core-store/scope");
 		const { getOsOutput } =
 			await import("../services/workspace-output-storage");
 		const { getOsOutputRevisionByNumber } =

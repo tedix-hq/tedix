@@ -163,7 +163,7 @@ const dispatchScheduled = async (
 				event,
 				"orphan-workflow-cleanup",
 				async () => {
-					const { coreDb, coreQueryDb } =
+					const { coreDb } =
 						await import("@tedix/db/core-store/scope");
 					const { cleanupOrphanWorkflows } =
 						await import("./orphan-workflow-cleanup");
@@ -193,7 +193,7 @@ const dispatchScheduled = async (
 			// Each tick reads one bounded slice; the checkpoint carries unfinished
 			// scope counts to later ticks instead of draining the whole inventory.
 			if (minute % 6 < 2) {
-				const { coreDb, coreQueryDb } =
+				const { coreDb } =
 					await import("@tedix/db/core-store/scope");
 				const { dispatchStallRecovery } = await import("./stall-recovery");
 				// Recovery has its own receipt and lifetime; it must not hold replay or later paths.
@@ -269,7 +269,7 @@ const dispatchScheduled = async (
 		// arms it; unarmed it costs one bucket read and no D1.
 		if (cron === "*/2 * * * *") {
 			try {
-				const { coreDb, coreQueryDb } =
+				const { coreQueryDb } =
 					await import("@tedix/db/core-store/scope");
 				const { runOutputRevisionThinningTick } =
 					await import("../services/os-output-revision-thinning");
@@ -413,7 +413,7 @@ const dispatchScheduled = async (
 
 		if (fleetEnabled && maintenanceIsDue("output-asset-gc", event)) {
 			await trackPlatformCronPath(env, event, "output-asset-gc", async () => {
-				const { coreDb, coreQueryDb } =
+				const { coreDb } =
 					await import("@tedix/db/core-store/scope");
 				const { sweepDeletedOrganizationOutputAssets } =
 					await import("../services/os-output-asset-gc");
@@ -484,7 +484,7 @@ const dispatchScheduled = async (
 		}
 
 		if (maintenanceIsDue("factory-weight-update", event)) {
-			const { coreDb, coreQueryDb } =
+			const { coreDb } =
 				await import("@tedix/db/core-store/scope");
 			const { updateFactoryWeights } = await import("./factory-weight-update");
 			await trackPlatformCronPath(env, event, "factory-weight-update", () =>
@@ -523,7 +523,7 @@ const dispatchScheduled = async (
 		// Project recurring Work: one item per template and month, idempotent.
 		if (fleetEnabled && maintenanceIsDue("recurring-work", event)) {
 			const { fileRecurringWork } = await import("./recurring-work");
-			const { coreDb, coreQueryDb } =
+			const { coreDb } =
 				await import("@tedix/db/core-store/scope");
 			await trackPlatformCronPath(env, event, "recurring-work", () =>
 				fileRecurringWork(coreDb(env), new Date(event.scheduledTime)),
