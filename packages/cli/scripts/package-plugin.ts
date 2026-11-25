@@ -172,7 +172,7 @@ function localHooks(root: string, host: Host): any {
 			(definition) => definition.hooks.length,
 		);
 	}
-	for (const definitions of Object.values<any[]>(hooks.hooks))
+	for (const [event, definitions] of Object.entries<any[]>(hooks.hooks))
 		for (const definition of definitions)
 			for (const handler of definition.hooks) {
 				if (!hookName(handler.command))
@@ -181,6 +181,12 @@ function localHooks(root: string, host: Host): any {
 					);
 				// Shell form: the guard needs a shell to test for the CLI.
 				if (host === "claude") delete handler.additionalContextLimit;
+				// Codex runs SessionEnd hooks synchronously within 3 seconds and
+				// warns about anything else, which hides whether they are trusted.
+				if (host !== "claude" && event === "SessionEnd") {
+					delete handler.async;
+					handler.timeout = Math.min(handler.timeout ?? 3, 3);
+				}
 			}
 	return hooks;
 }

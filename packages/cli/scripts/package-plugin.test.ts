@@ -387,12 +387,18 @@ describe("plugin packager", () => {
 			"https://connect.mcp.tedix.dev/mcp",
 		);
 		expect(new Set(Object.keys(hooks))).toEqual(EVENTS);
-		// The status reporter observes every turn boundary but always runs in the background.
+		// The status reporter observes every turn boundary and runs in the
+		// background, except at Codex's SessionEnd, which runs synchronously.
 		const status = handlers(hooks).filter(
 			(handler) => hookName(handler) === "status",
 		);
 		expect(status).toHaveLength(7);
-		expect(status.every((handler) => handler.async === true)).toBe(true);
+		const sessionEnd = new Set(handlers({ SessionEnd: hooks.SessionEnd }));
+		expect(
+			status
+				.filter((handler) => !sessionEnd.has(handler))
+				.every((handler) => handler.async === true),
+		).toBe(true);
 		// Recording handlers run in the background and cannot block or steer the session.
 		const capture = handlers(hooks).filter((handler) =>
 			hookName(handler)?.startsWith("capture-"),
@@ -577,6 +583,12 @@ describe("plugin packager", () => {
 				definitions.every((definition) => definition.hooks.length > 0),
 			),
 		).toBe(true);
+		// Codex warns about async or slow SessionEnd hooks, and a warning hid
+		// whether the hooks were trusted.
+		for (const handler of handlers({ SessionEnd: openai.hooks.SessionEnd })) {
+			expect(handler.async).toBeUndefined();
+			expect(handler.timeout).toBeLessThanOrEqual(3);
+		}
 	});
 
 	test("every source hook is guarded against a missing CLI", () => {

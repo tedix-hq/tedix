@@ -502,11 +502,11 @@ async function codexSetup(
 						(typeof hook.command === "string" &&
 							/(?:^|[\s/])tedix['"]?\s+hooks\s/.test(hook.command)),
 				);
+			// Errors leave the hook list incomplete. Warnings (Codex clamping a
+			// timeout, say) do not change whether a hook is trusted.
 			if (
 				entries.some(
-					(entry) =>
-						(Array.isArray(entry.errors) && entry.errors.length) ||
-						(Array.isArray(entry.warnings) && entry.warnings.length),
+					(entry) => Array.isArray(entry.errors) && entry.errors.length,
 				)
 			)
 				return "unknown";
