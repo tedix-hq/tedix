@@ -162,14 +162,9 @@ assert.deepEqual(
 	[],
 );
 {
-	// 200k fallback window: blocking compaction above 170k, background from 120k,
-	// so a 180k imported history is summarized instead of resent every turn.
+	// A 180k imported history must compact before generation in the 200k window.
 	const settings = conversationCompactionSettings(200_000);
 	assert.equal(200_000 - settings.reserveTokens, 170_000);
-	assert.equal(
-		200_000 - settings.reserveTokens - settings.backgroundTokens,
-		120_000,
-	);
 	assert.equal(settings.keepRecentTokens, 20_000);
 }
 const usage = {

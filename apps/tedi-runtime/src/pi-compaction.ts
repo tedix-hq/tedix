@@ -6,16 +6,15 @@ import {
 } from "./observer-llm";
 
 /**
- * Generation blocks to compact above 85% of the input budget; background
- * compaction starts at 60%, so a long conversation (or a large imported
- * legacy history) is summarized before it is resent uncached every turn.
+ * Compact before generation above 85% of the input budget. The run's accounting
+ * journal has one active provider attempt, so compaction must not infer in parallel.
  */
 export function conversationCompactionSettings(contextWindow: number) {
 	return {
 		enabled: true,
 		reserveTokens: Math.ceil(contextWindow * 0.15),
 		keepRecentTokens: 20000,
-		backgroundTokens: Math.ceil(contextWindow * 0.25),
+		backgroundTokens: 0,
 	};
 }
 

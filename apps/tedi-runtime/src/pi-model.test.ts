@@ -14,6 +14,18 @@ import type {
 } from "@ai-sdk/provider";
 import type { Api, Model, AssistantMessage } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
+import { createModels } from "@earendil-works/pi-ai";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import {
+	Harness,
+	MemoryStorage,
+	createRegistry,
+	defineExtension,
+	hook,
+	CompactionTask,
+} from "@earendil-works/pi-durable";
+import { PiTurnAccounting } from "./pi-turn-accounting";
+import { conversationCompactionSettings } from "./pi-compaction";
 import {
 	createTedixPiProvider,
 	estimateSdkPromptTokens,
@@ -976,10 +988,146 @@ test("concurrent Claude 5.5 dispatches normalize persisted histories per model",
 		);
 });
 
-for (const entry of cases) {
-	await entry.run();
-	console.log(`PASS ${entry.name}`);
-}
+test("native threshold compaction cannot race a conversation reservation or usage receipt", async () => {
+	for (const historyRows of [32, 45]) {
+		const rows = new Map<string, unknown>();
+		const receipts: Array<number | null> = [];
+		const accounting = new PiTurnAccounting(
+			{
+				get: async (key: string) => structuredClone(rows.get(key)),
+				put: async (key: string, value: unknown) => {
+					rows.set(key, structuredClone(value));
+				},
+			} as Pick<DurableObjectStorage, "get" | "put">,
+			{
+				assertActive: async () => {},
+				reserveStep: async () => {},
+				recordStep: async ({ actualTokens }) => {
+					receipts.push(actualTokens);
+				},
+			},
+		);
+		const selected = { ...model, contextWindow: 200_000 };
+		const calls: string[] = [];
+		const models = createModels();
+		models.setProvider(
+			createTedixPiProvider({
+				catalog: () => [selected],
+				resolveModel: () =>
+					v2([{ ...finish, finishReason: "stop" }], () =>
+						calls.push("conversation"),
+					),
+				prepare: async (_model, context) => {
+					await accounting.begin("run");
+					await accounting.prepareStep({ messages: context.messages }, {});
+					return { receipt: await accounting.captureProviderAttempt() };
+				},
+				settled: async (receipt) => {
+					await accounting.recordProviderUsage(
+						{ inputTokens: 12, outputTokens: 4, totalTokens: 16 },
+						[],
+						receipt!,
+					);
+				},
+			}),
+		);
+		const complete = governedPiCompactionCompletion({
+			model: selected,
+			accounting,
+			runId: () => "run",
+			assertReady: () => {},
+			resolveSdkModel: () =>
+				v2(
+					[
+						{ type: "text-start", id: "summary" },
+						{ type: "text-delta", id: "summary", delta: "retained facts" },
+						{ type: "text-end", id: "summary" },
+						{
+							type: "finish",
+							finishReason: "stop",
+							usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
+						},
+					],
+					() => calls.push("compaction"),
+				),
+		});
+		const extension = defineExtension({
+			name: "compaction-regression",
+			hooks: [
+				hook(CompactionTask, {
+					beforeCompact: async () => ({
+						summary: await complete({
+							env: {} as never,
+							messages: [{ role: "user", content: "summarize history" }],
+						}),
+					}),
+				}),
+			],
+		});
+		const registry = createRegistry();
+		registry.install(extension);
+		const pi = await Harness.open(
+			new MemoryStorage(),
+			{
+				models,
+				registry,
+				settings: {
+					compaction: conversationCompactionSettings(selected.contextWindow),
+					retry: { enabled: false, maxRetries: 0 },
+				},
+			},
+			BACKGROUND_CONTEXT,
+		);
+		try {
+			const conversation = await pi.root(BACKGROUND_CONTEXT, {
+				agent: {
+					model: { provider: selected.provider, modelId: selected.id },
+					extensions: [extension],
+				},
+			});
+			for (let index = 0; index < historyRows; index++) {
+				await conversation.submit(
+					{
+						type: "write",
+						entry: {
+							kind: "fixture.history",
+							model: [
+								{ role: "user", content: "x".repeat(16_000), timestamp: index },
+							],
+						},
+					},
+					BACKGROUND_CONTEXT,
+				);
+			}
+			const submission = await conversation.submit(
+				{ type: "input", content: "answer" },
+				BACKGROUND_CONTEXT,
+			);
+			const terminal = await submission.wait(BACKGROUND_CONTEXT);
+			assert.equal(
+				terminal.status,
+				"done",
+				JSON.stringify({
+					terminal,
+					checkpoint: await accounting.inspect("run"),
+				}),
+			);
+			await pi.waitForIdle(BACKGROUND_CONTEXT);
+			await accounting.assertComplete();
+			assert.deepEqual(
+				calls,
+				historyRows === 32 ? ["conversation"] : ["compaction", "conversation"],
+			);
+			assert.deepEqual(receipts, historyRows === 32 ? [16] : [10, 16]);
+			assert.equal(
+				(await accounting.usage()).totalTokens,
+				historyRows === 32 ? 16 : 26,
+			);
+		} finally {
+			await pi.close(BACKGROUND_CONTEXT);
+		}
+	}
+});
 
 test("compaction settles its captured reservation after mutable host ownership changes", async () => {
 	let currentRun = "original";
@@ -1030,3 +1178,8 @@ test("compaction settles its captured reservation after mutable host ownership c
 	assert.equal(currentRun, "subsequent");
 	assert.equal(recorded, original);
 });
+
+for (const entry of cases) {
+	await entry.run();
+	console.log(`PASS ${entry.name}`);
+}

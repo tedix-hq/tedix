@@ -93,7 +93,7 @@ describe("Production ConversationFacet on native Pi", () => {
 		expect(await agent.nativeCompactionSettings()).toEqual({
 			reserveTokens: 40_800,
 			keepRecentTokens: 20_000,
-			backgroundTokens: 68_000,
+			backgroundTokens: 0,
 		});
 		await agent.setup("tool");
 		const running = agent.turn("active-settings", {
@@ -116,7 +116,7 @@ describe("Production ConversationFacet on native Pi", () => {
 		expect(await agent.nativeCompactionSettings()).toEqual({
 			reserveTokens: 30_000,
 			keepRecentTokens: 20_000,
-			backgroundTokens: 50_000,
+			backgroundTokens: 0,
 		});
 		await agent.turn("large-settings-again", { modelRef: largeModel });
 		expect((await agent.nativeCompactionSettings()).reserveTokens).toBe(40_800);
