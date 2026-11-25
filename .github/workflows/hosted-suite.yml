@@ -9,7 +9,7 @@ name: Hosted tests after deploy and nightly
 # and certify nothing: Ship still requires the push gate's `Main CI`.
 # Failures reach repair Work through tedix-observer.yml.
 
-run-name: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && format('Nightly full suite @ {0}', github.sha) || 'Post-deploy tests (watch)') || inputs.full && format('Full hosted suite @ {0}', inputs.sha || github.sha) || format('Post-deploy tests @ {0}', inputs.sha) }}
+run-name: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && format('Nightly full suite (tests skip if none selected) @ {0}', github.sha) || 'Post-deploy watch (tests skip if live commit unchanged, unknown, or no tests affected)') || inputs.full && format('Full hosted suite (tests skip if none selected) @ {0}', inputs.sha || github.sha) || format('Post-deploy tests (skip if none affected) @ {0}', inputs.sha) }}
 
 on:
   schedule:

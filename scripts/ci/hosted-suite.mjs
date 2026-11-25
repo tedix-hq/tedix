@@ -10,7 +10,9 @@ import { laneSelection, suiteSelection } from "./full-suite-hourly.mjs";
 
 export const HOSTED_WORKFLOW = "hosted-suite.yml";
 export const DEPLOYED_TITLE = "Post-deploy tests @ ";
-export const WATCH_TITLE = "Post-deploy tests (watch)";
+export const WATCH_TITLE =
+	"Post-deploy watch (tests skip if live commit unchanged, unknown, or no tests affected)";
+const LEGACY_WATCH_TITLE = "Post-deploy tests (watch)";
 export const NIGHTLY_CRON = "17 2 * * *";
 export const STATUS_CONTEXT = "Hosted suite / post-deploy";
 const SHA = /^[0-9a-f]{40}$/;
@@ -77,8 +79,12 @@ export async function readHealthShas(
 
 export function deployedRunSha(run) {
 	const title = run.display_title ?? "";
-	if (!title.startsWith(DEPLOYED_TITLE)) return null;
-	const sha = title.slice(DEPLOYED_TITLE.length).trim();
+	const prefix = [
+		DEPLOYED_TITLE,
+		"Post-deploy tests (skip if none affected) @ ",
+	].find((value) => title.startsWith(value));
+	if (!prefix) return null;
+	const sha = title.slice(prefix.length).trim();
 	return SHA.test(sha) ? sha : null;
 }
 
@@ -91,6 +97,26 @@ export function testedSha(run, jobs = []) {
 		if (named) return named;
 	}
 	return null;
+}
+
+// A title or aggregate alone does not prove a test ran. Preserve plan/setup
+// failures as incidents, but never use a no-test success to clear a red run.
+export function ranTests(jobs) {
+	return jobs.some((job) =>
+		(job.steps ?? []).some(
+			(step) =>
+				(step.name === "Test suite" ||
+					step.name === "Local onboarding smoke" ||
+					step.name === "Run bun run test:scripts") &&
+				["success", "failure", "timed_out"].includes(step.conclusion),
+		),
+	);
+}
+
+export function testedPostDeploySha(run, jobs) {
+	const watch = [WATCH_TITLE, LEGACY_WATCH_TITLE].includes(run.display_title);
+	if (!watch && !deployedRunSha(run)) return null;
+	return ranTests(jobs) ? testedSha(run, jobs) : null;
 }
 
 async function github(path, { method = "GET", body, env = process.env } = {}) {
@@ -204,17 +230,22 @@ export async function plan(env = process.env) {
 		}
 		const base = await greenBase(runs, sha, {
 			runId: env.GITHUB_RUN_ID,
-			testedOf: async (run) =>
-				run.display_title === WATCH_TITLE
-					? testedSha(
-							run,
-							(
-								await github(
-									`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`,
-								)
-							).jobs,
-						)
-					: deployedRunSha(run),
+			testedOf: async (run) => {
+				if (
+					![WATCH_TITLE, LEGACY_WATCH_TITLE].includes(run.display_title) &&
+					!deployedRunSha(run)
+				)
+					return null;
+				const jobs = [];
+				for (let page = 1; ; page++) {
+					const result = await github(
+						`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100&page=${page}`,
+					);
+					jobs.push(...result.jobs);
+					if (result.jobs.length < 100) break;
+				}
+				return testedPostDeploySha(run, jobs);
+			},
 		});
 		if (base) {
 			files = execFileSync(
@@ -267,15 +298,16 @@ export function hostedObservation({
 		!["failure", "success"].includes(run.conclusion)
 	)
 		throw new Error("Not a completed main hosted-suite run");
-	// A passing watch run without a tested commit found nothing newly live. A
-	// failing one broke before choosing a commit; report it on its own.
+	// A successful run is not evidence of recovery unless a test step ran.
+	// Preserve failures even when planning or setup failed before tests started.
 	const named = testedSha(run, jobs);
-	if (!named && run.conclusion === "success") return null;
+	if (run.conclusion === "success" && (!named || !ranTests(jobs))) return null;
 	const tested = named ?? run.head_sha;
 	if (!SHA.test(tested ?? ""))
 		throw new Error("An exact tested commit is required");
 	const deployed =
-		deployedRunSha(run) !== null || run.display_title === WATCH_TITLE;
+		deployedRunSha(run) !== null ||
+		[WATCH_TITLE, LEGACY_WATCH_TITLE].includes(run.display_title);
 	const failed = jobs.filter((job) =>
 		["failure", "timed_out", "action_required"].includes(job.conclusion),
 	);

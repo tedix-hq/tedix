@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	deployedSha,
+	deployedRunSha,
 	greenBase,
 	hostedObservation,
+	testedPostDeploySha,
 	WATCH_TITLE,
 } from "./hosted-suite.mjs";
 
@@ -23,6 +25,16 @@ describe("deployed commit", () => {
 });
 
 describe("post-deploy range", () => {
+	test("recognizes old and explanatory post-deploy titles", () => {
+		expect(deployedRunSha({ display_title: `Post-deploy tests @ ${b}` })).toBe(
+			b,
+		);
+		expect(
+			deployedRunSha({
+				display_title: `Post-deploy tests (skip if none affected) @ ${b}`,
+			}),
+		).toBe(b);
+	});
 	const run = (id: number, sha: string, conclusion = "success") => ({
 		id,
 		status: "completed",
@@ -38,6 +50,19 @@ describe("post-deploy range", () => {
 		expect(
 			await greenBase([run(9, c), run(8, d)], c, { runId: 9, isAncestor }),
 		).toBeNull();
+	});
+	test("does not use a green no-test run as a baseline", async () => {
+		const jobs = {
+			3: [{ steps: [{ name: "Test suite", conclusion: "skipped" }] }],
+			2: [{ steps: [{ name: "Test suite", conclusion: "success" }] }],
+		};
+		expect(
+			await greenBase([run(3, b), run(2, a)], c, {
+				isAncestor,
+				testedOf: (candidate: { id: number; display_title: string }) =>
+					testedPostDeploySha(candidate, jobs[candidate.id as 2 | 3]),
+			}),
+		).toBe(a);
 	});
 });
 
@@ -78,13 +103,47 @@ describe("hosted observation", () => {
 				conclusion: "success",
 				display_title: `Nightly full suite @ ${c}`,
 			},
-			jobs: [],
+			jobs: [
+				{
+					name: "Workspace apps/api",
+					steps: [{ name: "Test suite", conclusion: "success" }],
+				},
+			],
 		});
 		expect(nightly).toMatchObject({
 			sha: c,
 			kind: "ci_green",
 			surface: "hosted-full",
 		});
+	});
+	test("a titled success with skipped tests cannot clear a failure", () => {
+		expect(
+			hostedObservation({
+				projectId: "p",
+				repository: "example/product",
+				run: {
+					...base,
+					conclusion: "success",
+					display_title: `Post-deploy tests @ ${b}`,
+				},
+				jobs: [
+					{
+						name: "Workspace apps/api",
+						steps: [{ name: "Test suite", conclusion: "skipped" }],
+					},
+				],
+			}),
+		).toBeNull();
+	});
+	test("reports plan failures without test steps", () => {
+		expect(
+			hostedObservation({
+				projectId: "p",
+				repository: "example/product",
+				run: { ...base, conclusion: "failure", display_title: WATCH_TITLE },
+				jobs: [{ name: "plan", conclusion: "failure" }],
+			}),
+		).toMatchObject({ sha: d, kind: "ci_red", surface: "post-deploy" });
 	});
 	test("reads a watch run's tested commit from its aggregate, and skips an idle one", () => {
 		const watch = { ...base, display_title: WATCH_TITLE };
