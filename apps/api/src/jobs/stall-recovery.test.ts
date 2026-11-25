@@ -169,9 +169,14 @@ describe("autonomous stall recovery", () => {
 		const insert = sqlite.prepare(
 			"INSERT INTO projects(id,org_id,key,name,created_at) VALUES (?, 'fictional-orchard', ?, 'Batch scope', ?)",
 		);
-		for (let i = 0; i < 105; i++) {
+		for (let i = 0; i < 5; i++) {
 			const id = `batch-${String(i).padStart(3, "0")}`;
 			insert.run(id, id, now);
+			sqlite
+				.prepare(
+					"INSERT INTO work_items(id,org_id,project_id,title,disposition,admission_spec_revision,created_at) VALUES(?,'fictional-orchard',?,'Pending','proposed','revision-1','2026-10-01')",
+				)
+				.run(`work-${id}`, id);
 		}
 		// Fresh scopes need no wake; only the two original scopes are idle.
 		const fetch = vi.fn(async () =>
@@ -185,7 +190,7 @@ describe("autonomous stall recovery", () => {
 		expect(await dispatchStallRecovery(db, env, tick)).toBe(0);
 		expect(
 			JSON.parse((await getStallRecoveryCheckpoint(db, "production"))!),
-		).toEqual({ after: "project:batch-099", scheduledTime: tick });
+		).toEqual({ after: "project:batch-004", scheduledTime: tick });
 		expect(await dispatchStallRecovery(db, env, tick)).toBe(0);
 		expect(await getStallRecoveryCheckpoint(db, "staging")).toBeNull();
 		expect(await dispatchStallRecovery(db, env, tick + 120_000)).toBe(2);
@@ -195,7 +200,7 @@ describe("autonomous stall recovery", () => {
 		expect(await dispatchStallRecovery(db, env, tick + 240_000)).toBe(0);
 		expect(
 			JSON.parse((await getStallRecoveryCheckpoint(db, "production"))!).after,
-		).toBe("project:batch-099");
+		).toBe("project:batch-004");
 		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 	it("records delivery from the canonical failed run without redispatching that wake", async () => {
@@ -541,9 +546,14 @@ describe("autonomous stall recovery", () => {
 		const insert = sqlite.prepare(
 			"INSERT INTO projects(id,org_id,key,name,created_at) VALUES (?, 'fictional-orchard', ?, 'Fresh scope', ?)",
 		);
-		for (let i = 0; i < 99; i++) {
+		for (let i = 0; i < 4; i++) {
 			const id = `batch-${String(i).padStart(3, "0")}`;
 			insert.run(id, id, now);
+			sqlite
+				.prepare(
+					"INSERT INTO work_items(id,org_id,project_id,title,disposition,admission_spec_revision,created_at) VALUES(?,'fictional-orchard',?,'Pending','proposed','revision-1','2026-10-01')",
+				)
+				.run(`work-${id}`, id);
 		}
 		let unavailable = true;
 		const requests: Array<{ host: string | null; key: string }> = [];

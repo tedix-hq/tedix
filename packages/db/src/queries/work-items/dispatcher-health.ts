@@ -13,6 +13,7 @@ import {
 	desc,
 	eq,
 	exists,
+	gt,
 	inArray,
 	isNotNull,
 	notExists,
@@ -26,6 +27,7 @@ import { policyPacks } from "../../schema/control-plane";
 import { kernelRequests } from "../../schema/kernel-requests";
 import { organizationMembers } from "../../schema/organization-members";
 import { organizations } from "../../schema/organizations";
+import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
 import { workInteractions } from "../../schema/work-factory";
 import { workAttempts, workItems } from "../../schema/work-items";
 import type { DbQueryClient } from "../../query-client";
@@ -173,7 +175,10 @@ export interface DispatcherActivity {
 /** Platform timestamps over tracker-enabled organizations; no tenant identifiers leave this query. */
 export async function readDispatcherActivity(
 	db: DbQueryClient,
+	orgIds?: string[],
 ): Promise<DispatcherActivity> {
+	if (orgIds?.length === 0)
+		return { lastAdmissionAt: null, lastTrackerActionAt: null };
 	const o = alias(organizations, "o");
 	const [row] = await db
 		.select({
@@ -185,7 +190,13 @@ export async function readDispatcherActivity(
 			>`max(${lastTrackerAction(db, o.id)})`.as("last_tracker_at"),
 		})
 		.from(o)
-		.where(sql`${trackerEnabled(db, o.id)} = 1`);
+		.where(
+			and(
+				sql`${trackerEnabled(db, o.id)} = 1`,
+				// bound-params: the only scoped caller passes the five-org cron page.
+				orgIds === undefined ? undefined : inArray(o.id, orgIds),
+			),
+		);
 	return {
 		lastAdmissionAt: row?.last_admission_at ?? null,
 		lastTrackerActionAt: row?.last_tracker_at ?? null,
@@ -266,7 +277,9 @@ function dispatchable(db: DbQueryClient, orgId: SQLWrapper): SQL | undefined {
  */
 export async function listDispatcherHealthOrgs(
 	db: DbQueryClient,
+	orgIds?: string[],
 ): Promise<DispatcherHealthOrgRow[]> {
+	if (orgIds?.length === 0) return [];
 	// The alarm addresses its item to a user; target_type keeps this on an index.
 	const h = alias(workInteractions, "h");
 	const alertOf = (orgId: SQLWrapper) =>
@@ -293,7 +306,9 @@ export async function listDispatcherHealthOrgs(
 					.orderBy(h.createdAt, h.id)
 					.limit(1)}`.as("alert_id"),
 			})
-			.from(o),
+			.from(o)
+			// bound-params: the only scoped caller passes the five-org cron page.
+			.where(orgIds === undefined ? undefined : inArray(o.id, orgIds)),
 	);
 	const t = db.$with("t").as(
 		db
@@ -397,4 +412,107 @@ export async function listDispatcherHealthOrgs(
 		openAlertCreatorId: r.alert_creator_id,
 		answeredAlertAt: r.answered_alert_at,
 	}));
+}
+
+const DISPATCHER_HEALTH_ORGS_PER_TICK = 5;
+
+/**
+ * Page candidate organizations before policy/history lookups. Keep open alarms
+ * eligible even without active Work so recovery can clear them.
+ */
+export async function readDispatcherHealthPage(
+	db: DbQueryClient,
+	environment: string,
+	scheduledTime: number,
+) {
+	const scheduleId = `dispatcher-health:${environment}`;
+	const [checkpoint] = await db
+		.select({ through: platformCronCheckpoints.through })
+		.from(platformCronCheckpoints)
+		.where(eq(platformCronCheckpoints.scheduleId, scheduleId))
+		.limit(1);
+	const previous = checkpoint?.through ?? null;
+	const cursor: { after: string; scheduledTime: number } = previous
+		? JSON.parse(previous)
+		: { after: "", scheduledTime: 0 };
+	if (cursor.scheduledTime >= scheduledTime)
+		return {
+			rows: [],
+			activity: { lastAdmissionAt: null, lastTrackerActionAt: null },
+			orgsChecked: 0,
+			previous,
+			next: null,
+			scheduleId,
+		};
+	const o = alias(organizations, "o");
+	const alert = alias(workInteractions, "active_alert");
+	const candidates = await db
+		.select({ id: o.id })
+		.from(o)
+		.where(
+			and(
+				gt(o.id, cursor.after),
+				or(
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(w)
+							.where(dispatchable(db, o.id)),
+					),
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(alert)
+							.where(
+								and(
+									eq(alert.orgId, o.id),
+									eq(alert.targetType, "user"),
+									eq(alert.status, "open"),
+									sql`json_extract(${alert.metadata}, '$.schema') = ${DISPATCHER_HEALTH_SCHEMA}`,
+								),
+							),
+					),
+				),
+			),
+		)
+		.orderBy(o.id)
+		.limit(DISPATCHER_HEALTH_ORGS_PER_TICK);
+	const orgIds = candidates.map((row) => row.id);
+	const [rows, activity] = await Promise.all([
+		listDispatcherHealthOrgs(db, orgIds),
+		readDispatcherActivity(db, orgIds),
+	]);
+	return {
+		rows,
+		activity,
+		orgsChecked: candidates.length,
+		previous,
+		scheduleId,
+		next: JSON.stringify({
+			after:
+				candidates.length < DISPATCHER_HEALTH_ORGS_PER_TICK
+					? ""
+					: candidates.at(-1)!.id,
+			scheduledTime,
+		}),
+	};
+}
+
+/** Advance only after every alarm in the page was handled successfully. */
+export async function advanceDispatcherHealthPage(
+	db: DbQueryClient,
+	page: { scheduleId: string; previous: string | null; next: string | null },
+) {
+	if (page.next === null) return;
+	await db
+		.insert(platformCronCheckpoints)
+		.values({ scheduleId: page.scheduleId, through: page.next })
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: { through: page.next },
+			setWhere:
+				page.previous === null
+					? sql`0`
+					: eq(platformCronCheckpoints.through, page.previous),
+		});
 }

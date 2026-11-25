@@ -8,11 +8,68 @@ import {
 	listDispatcherHealthReports,
 	listDispatcherWorkReferences,
 	readDispatcherActivity,
+	readDispatcherHealthPage,
+	advanceDispatcherHealthPage,
 	upsertDispatcherHealthReport,
 } from "./dispatcher-health";
 
 const T0 = "2026-10-21T20:00:00.000Z";
 const T1 = "2026-10-21T21:00:00.000Z";
+
+it("pages active organizations across empty alarm pages, clears old alerts, and fences retries", async () => {
+	const sqlite = seed();
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	// Active Work without a tracker produces empty alarm pages. Progress must
+	// follow candidates rather than the subset that has alarm facts.
+	for (let i = 0; i < 12; i++) {
+		const org = `a-${String(i).padStart(2, "0")}`;
+		sqlite
+			.prepare("INSERT INTO organizations(id,name,slug) VALUES(?,?,?)")
+			.run(org, org, org);
+		sqlite
+			.prepare(
+				"INSERT INTO work_items(id,org_id,title,disposition,executor_type,executor_id,dispatch_state,admission_spec_revision,created_at) VALUES(?,?,?,'accepted','external_agent','codex','ready','revision-1','2026-10-01')",
+			)
+			.run(`w-${org}`, org, "Pending");
+	}
+	sqlite.exec(
+		"INSERT INTO organizations(id,name,slug) VALUES('z-old','Old','z-old')",
+	);
+	sqlite.exec(
+		"INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,role,status) VALUES('old-owner','z-old','owner','owner','owner@example.com','owner','active')",
+	);
+	sqlite
+		.prepare(
+			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata) VALUES('old','z-old','gone','coordination','S','P','user','owner','user','owner',?,?)",
+		)
+		.run(T1, JSON.stringify({ schema: DISPATCHER_HEALTH_SCHEMA }));
+	let time = 1;
+	const visited: string[] = [];
+	let first = await readDispatcherHealthPage(db, "production", time++);
+	expect(first.orgsChecked).toBe(5);
+	expect(first.rows).toEqual([]);
+	const stale = await readDispatcherHealthPage(db, "production", 99);
+	await advanceDispatcherHealthPage(db, first);
+	for (let tick = 0; tick < 3; tick++) {
+		const page = await readDispatcherHealthPage(db, "production", time++);
+		expect(page.orgsChecked).toBeLessThanOrEqual(5);
+		visited.push(...page.rows.map((row) => row.orgId));
+		await advanceDispatcherHealthPage(db, page);
+	}
+	expect(visited).toEqual(["busy", "z-old"]);
+	await advanceDispatcherHealthPage(db, stale);
+	first = await readDispatcherHealthPage(db, "production", time);
+	expect(first.rows).toEqual([]);
+	expect(first.orgsChecked).toBe(5);
+	await advanceDispatcherHealthPage(db, first);
+	expect(
+		(await readDispatcherHealthPage(db, "production", time)).orgsChecked,
+	).toBe(0);
+	expect(
+		(await readDispatcherHealthPage(db, "staging", time)).orgsChecked,
+	).toBe(5);
+	sqlite.close();
+});
 
 function seed() {
 	const sqlite = createMigratedSqlite({ foreignKeys: false });
@@ -311,6 +368,21 @@ describe("dispatcher health queries", () => {
 		for (const search of workSearches) {
 			expect(search).toContain("idx_work_items_lane_ready");
 		}
+		const start = statements.length;
+		await readDispatcherHealthPage(db, "production", 1);
+		const candidate = statements
+			.slice(start)
+			.find((text) => text.includes("active_alert"))!;
+		const candidatePlan = (
+			prepare(`EXPLAIN QUERY PLAN ${candidate}`).all(
+				...Array.from(candidate.matchAll(/\?/g), () => null),
+			) as { detail: string }[]
+		)
+			.map((row) => row.detail)
+			.join("\n");
+		expect(candidatePlan).toContain("idx_work_items_lane_ready");
+		expect(candidatePlan).not.toMatch(/SCAN (w|x|active_alert)\b/);
+		expect(candidate).not.toMatch(/kernel_requests|policy_packs/);
 	});
 
 	it("exposes only the two platform timestamps", async () => {

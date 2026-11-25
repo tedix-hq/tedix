@@ -5,12 +5,17 @@ const db = vi.hoisted(() => ({
 	activity: vi.fn(),
 	create: vi.fn(),
 	cancel: vi.fn(),
+	advance: vi.fn(),
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/queries/work-items/dispatcher-health", () => ({
 	DISPATCHER_HEALTH_SCHEMA: "tedix.dispatcher-health.v1",
-	listDispatcherHealthOrgs: db.orgs,
-	readDispatcherActivity: db.activity,
+	readDispatcherHealthPage: async () => ({
+		rows: await db.orgs(),
+		activity: await db.activity(),
+		orgsChecked: 1,
+	}),
+	advanceDispatcherHealthPage: db.advance,
 }));
 vi.mock("@tedix/db/queries/work-items/interactions", () => ({
 	createWorkInteraction: db.create,
@@ -47,6 +52,7 @@ const row = () => ({
 beforeEach(() => {
 	alert = null;
 	facts = {};
+	db.advance.mockReset().mockResolvedValue(undefined);
 	db.orgs.mockReset().mockImplementation(async () => [row()]);
 	db.activity.mockReset().mockResolvedValue({
 		lastAdmissionAt: ago(5),
@@ -63,13 +69,23 @@ beforeEach(() => {
 });
 
 describe("runDispatcherHealthAlarm", () => {
+	it("retains the page for retry when an alarm write fails", async () => {
+		facts = { lastAdmissionAt: ago(46) };
+		db.create.mockRejectedValueOnce(new Error("write failed"));
+		await expect(runDispatcherHealthAlarm(env, NOW)).rejects.toThrow(
+			"Dispatcher-health alarm failed for 1 orgs",
+		);
+		expect(db.advance).not.toHaveBeenCalled();
+		await runDispatcherHealthAlarm(env, NOW);
+		expect(db.advance).toHaveBeenCalledOnce();
+	});
 	it("raises nothing while both signals are fresh, and records both ages", async () => {
 		const counts = await runDispatcherHealthAlarm(env, NOW);
 		expect(db.create).not.toHaveBeenCalled();
 		expect(counts).toMatchObject({
 			raised: 0,
-			admissionAgeSeconds: 300,
-			trackerAgeSeconds: 420,
+			pageAdmissionAgeSeconds: 300,
+			pageTrackerAgeSeconds: 420,
 		});
 	});
 

@@ -6,6 +6,8 @@ import {
 	advanceStallRecoveryCheckpoint,
 	getStallRecoveryCheckpoint,
 	listContinuityScopes,
+	readStallRecoveryPage,
+	type StallRecoveryCursor,
 } from "./stall-recovery";
 
 const sqlite = createMigratedSqlite();
@@ -19,6 +21,69 @@ const db = createDbClient(
 );
 /** The statement that reads the history outside Work, apart from the Work statement. */
 const isHistory = (sql: string) => sql.includes("os_gadget_executions");
+
+it("keeps configured empty scopes and drains legacy pages without recounting Work", async () => {
+	const sqlite = createMigratedSqlite({ foreignKeys: false });
+	const db = createDbClient(createD1Facade(sqlite));
+	for (let i = 0; i < 12; i++) {
+		const id = `p-${String(i).padStart(2, "0")}`;
+		sqlite
+			.prepare(
+				"INSERT INTO projects(id,org_id,key,name,created_at) VALUES(?,'orchard',?,?,'2026-10-01')",
+			)
+			.run(id, id, id);
+		sqlite
+			.prepare(
+				"INSERT INTO work_items(id,org_id,project_id,title,disposition,admission_spec_revision,created_at) VALUES(?,'orchard',?,?,'proposed','revision-1','2026-10-01')",
+			)
+			.run(`w-${id}`, id, "Pending");
+	}
+	sqlite.exec(`INSERT INTO projects(id,org_id,key,name,created_at,metadata) VALUES
+		('empty','forest','EMPTY','Empty','2026-10-01','{}'),
+		('promise','forest','PROMISE','Promise','2026-10-01','{"continuity":{"cadence":{"everyHours":24,"minResults":1,"description":"Daily result"}}}');
+		INSERT INTO tedi_objectives(id,org_id,tedi_id,title,created_at,gate_config) VALUES
+		('goal','forest','owner','Goal','2026-10-01','{"continuity":{"idleHours":24}}');`);
+	const all = await listContinuityScopes(db);
+	const expected = all.filter((s) => s.pendingCount > 0 || s.policy !== null);
+	let cursor: StallRecoveryCursor = { after: "" };
+	const observed = [];
+	do {
+		const { scopes, ...next } = await readStallRecoveryPage(
+			db,
+			cursor,
+			"production",
+		);
+		expect(scopes.length).toBeLessThanOrEqual(5);
+		observed.push(...scopes);
+		cursor = JSON.parse(JSON.stringify(next));
+	} while (cursor.after || cursor.pending?.length);
+	expect(observed).toEqual(expected);
+	// Old checkpoints may leave many completed slices alongside unfinished
+	// Work. Completed slices must be delivered once, not read again from row 0.
+	cursor = {
+		after: "project:promise",
+		atEnd: true,
+		pending: expected.map((scope) => ({
+			...scope,
+			workEnd: null,
+			objectiveId: null,
+		})),
+	};
+	const legacy = [];
+	do {
+		const { scopes, ...next } = await readStallRecoveryPage(
+			db,
+			cursor,
+			"production",
+		);
+		expect(scopes.length).toBeLessThanOrEqual(5);
+		legacy.push(...scopes);
+		cursor = JSON.parse(JSON.stringify(next));
+	} while (cursor.after || cursor.pending?.length);
+	expect(legacy).toEqual(expected);
+	sqlite.close();
+});
+
 beforeAll(() => {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(`INSERT INTO tedis(id,organization_id,name,slug,status) VALUES ('owner','fictional-orchard','Owner','owner','active');

@@ -6,16 +6,17 @@
  * older), put ONE "For you" item in the org owner's inbox. The item stays open
  * while the condition persists (no repeat) and is cancelled on recovery.
  *
- * Both ages are also written to this path's cron receipt, so the platform cron
- * health read shows them without a second source.
+ * Each tick handles a durable page of active organizations or open alarms.
+ * Receipt ages describe that page; the control-plane read still exposes the
+ * platform-wide activity timestamps.
  */
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { createDbClient } from "@tedix/db/client";
 import {
 	DISPATCHER_HEALTH_SCHEMA,
-	listDispatcherHealthOrgs,
-	readDispatcherActivity,
+	readDispatcherHealthPage,
+	advanceDispatcherHealthPage,
 	type DispatcherHealthOrgRow,
 } from "@tedix/db/queries/work-items/dispatcher-health";
 import {
@@ -71,15 +72,17 @@ function ownerAnsweredThisStall(row: DispatcherHealthOrgRow): boolean {
 }
 
 export async function runDispatcherHealthAlarm(
-	env: Pick<CloudflareEnv, "DB">,
+	env: Pick<CloudflareEnv, "DB" | "ENVIRONMENT">,
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
 	const db = createDbClient(env.DB);
 	const now = new Date(scheduledTime).toISOString();
-	const [rows, activity] = await Promise.all([
-		listDispatcherHealthOrgs(db),
-		readDispatcherActivity(db),
-	]);
+	const page = await readDispatcherHealthPage(
+		db,
+		env.ENVIRONMENT,
+		scheduledTime,
+	);
+	const { rows, activity } = page;
 	let raised = 0;
 	let cleared = 0;
 	let failed = 0;
@@ -137,13 +140,15 @@ export async function runDispatcherHealthAlarm(
 	}
 	if (failed > 0)
 		throw new Error(`Dispatcher-health alarm failed for ${failed} orgs`);
+	await advanceDispatcherHealthPage(db, page);
 	const admissionAge = ageSeconds(activity.lastAdmissionAt, scheduledTime);
 	const trackerAge = ageSeconds(activity.lastTrackerActionAt, scheduledTime);
 	return {
+		orgsChecked: page.orgsChecked,
 		orgsWithWork: rows.filter((r) => r.dispatchableCount > 0).length,
 		raised,
 		cleared,
-		...(admissionAge === null ? {} : { admissionAgeSeconds: admissionAge }),
-		...(trackerAge === null ? {} : { trackerAgeSeconds: trackerAge }),
+		...(admissionAge === null ? {} : { pageAdmissionAgeSeconds: admissionAge }),
+		...(trackerAge === null ? {} : { pageTrackerAgeSeconds: trackerAge }),
 	};
 }

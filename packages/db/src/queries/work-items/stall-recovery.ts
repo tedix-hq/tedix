@@ -87,6 +87,8 @@ interface ContinuitySliceParams {
 	/** Work Items are read in rowid order; null starts from the first. */
 	workAfter: number | null;
 	workLimit: number;
+	/** Cron can omit empty, unconfigured scopes; interactive inventory cannot. */
+	recoveryOnly?: boolean;
 }
 
 /**
@@ -118,6 +120,7 @@ function readContinuityScopeSlice(
 		only,
 		workAfter,
 		workLimit,
+		recoveryOnly = false,
 	}: ContinuitySliceParams,
 ): Promise<ContinuityScopeSlice[]> {
 	const onlyProject = only?.startsWith("project:") ? only.slice(8) : undefined;
@@ -134,7 +137,14 @@ function readContinuityScopeSlice(
  CASE WHEN json_type(p.metadata, '$.continuity') = 'object' THEN json_extract(p.metadata, '$.continuity') END AS policy, p.created_at AS createdAt,
  coalesce(p.lead_tedi_id, o.tedi_id) AS owner, p.objective_id AS objectiveId
  FROM projects p LEFT JOIN tedi_objectives o ON o.id = p.objective_id AND o.org_id = p.org_id AND o.status = 'active'
- WHERE p.status = 'active'
+  WHERE p.status = 'active'
+  ${
+		recoveryOnly
+			? sql`AND (json_type(p.metadata, '$.continuity') = 'object' OR EXISTS (
+  SELECT 1 FROM work_items w WHERE w.org_id = p.org_id AND w.project_id = p.id AND w.disposition IN ('proposed','accepted')
+  ))`
+			: sql``
+	}
  AND p.id > ${after.startsWith("project:") ? after.slice(8) : ""}
  ${after && !after.startsWith("project:") && after > "project:" ? sql`AND p.id < ${""}` : sql``}
  ${only === undefined ? sql`` : onlyProject === undefined ? sql`AND p.id < ${""}` : sql`AND p.id = ${onlyProject}`}
@@ -144,7 +154,14 @@ function readContinuityScopeSlice(
  SELECT 'objective:' || o.id, o.id, o.org_id, 'objective', o.title,
  CASE WHEN json_type(o.gate_config, '$.continuity') = 'object' THEN json_extract(o.gate_config, '$.continuity') END, o.created_at,
  o.tedi_id, o.id
- FROM tedi_objectives o WHERE o.status = 'active'
+  FROM tedi_objectives o WHERE o.status = 'active'
+  ${
+		recoveryOnly
+			? sql`AND (json_type(o.gate_config, '$.continuity') = 'object' OR EXISTS (
+  SELECT 1 FROM work_items w WHERE w.org_id = o.org_id AND w.objective_id = o.id AND w.disposition IN ('proposed','accepted')
+  ))`
+			: sql``
+	}
  AND o.id > ${after.startsWith("objective:") ? after.slice(10) : ""}
  ${after && !after.startsWith("objective:") && after > "objective:" ? sql`AND o.id < ${""}` : sql``}
  ${only === undefined ? sql`` : onlyObjective === undefined ? sql`AND o.id < ${""}` : sql`AND o.id = ${onlyObjective}`}
@@ -579,10 +596,13 @@ export interface StallRecoveryCursor {
 	atEnd?: boolean;
 }
 
+const STALL_RECOVERY_SCOPES_PER_TICK = 5;
+
 /**
  * One cron tick reads at most 1,000 Work Items, rather than draining every
  * continuation of a 100-scope page in the same invocation. Partial counts
  * stay in the durable checkpoint; only complete scopes may trigger recovery.
+ * At most five scopes reach history assessment or wake delivery in a tick.
  */
 export async function readStallRecoveryPage(
 	db: DbQueryClient,
@@ -593,7 +613,9 @@ export async function readStallRecoveryPage(
 	let slices: ContinuityScopeSlice[];
 	let after = cursor.after;
 	let atEnd = cursor.atEnd ?? false;
-	if (cursor.pending?.length) {
+	if (cursor.pending?.[0]?.workEnd === null) {
+		slices = cursor.pending;
+	} else if (cursor.pending?.length) {
 		const [partial, ...rest] = cursor.pending;
 		const [more] = await readContinuityScopeSlice(db, {
 			after: "",
@@ -623,15 +645,21 @@ export async function readStallRecoveryPage(
 			after,
 			orgId: undefined,
 			environment,
-			scopeLimit: CONTINUITY_SCOPE_BATCH_SIZE,
+			scopeLimit: STALL_RECOVERY_SCOPES_PER_TICK,
 			workAfter: null,
-			workLimit: workBudget / CONTINUITY_SCOPE_BATCH_SIZE,
+			workLimit: workBudget / STALL_RECOVERY_SCOPES_PER_TICK,
+			recoveryOnly: true,
 		});
 		after = slices.at(-1)?.key ?? "";
-		atEnd = slices.length < CONTINUITY_SCOPE_BATCH_SIZE;
+		atEnd = slices.length < STALL_RECOVERY_SCOPES_PER_TICK;
 	}
-	const pending = slices.filter((scope) => scope.workEnd !== null);
-	const complete = slices.filter((scope) => scope.workEnd === null);
+	// Older checkpoints can contain a 100-scope page. Drain those without
+	// exceeding the new assessment budget or discarding any continuation.
+	const complete = slices
+		.filter((scope) => scope.workEnd === null)
+		.slice(0, STALL_RECOVERY_SCOPES_PER_TICK);
+	const completed = new Set(complete.map((scope) => scope.key));
+	const pending = slices.filter((scope) => !completed.has(scope.key));
 	const workspaces: ContinuityHistorySeen = new Map();
 	const objectives: ContinuityHistorySeen = new Map();
 	const sessions = new Map<string, string | null>();

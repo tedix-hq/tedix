@@ -603,7 +603,9 @@ describe.each([
 describe("continuity inventory results", () => {
 	it("resumes a bounded cron slice without assessing partial counts or losing scopes", async () => {
 		const { db, sqlite, statements } = fixture(true);
-		const expected = await listContinuityScopes(db);
+		const expected = (await listContinuityScopes(db)).filter(
+			(scope) => scope.pendingCount > 0 || scope.policy !== null,
+		);
 		statements.length = 0;
 		let cursor: StallRecoveryCursor = { after: "" };
 		const observed: ContinuityScope[] = [];
@@ -615,6 +617,7 @@ describe("continuity inventory results", () => {
 				JSON.parse(JSON.stringify(cursor)),
 				"production",
 			);
+			expect(scopes.length).toBeLessThanOrEqual(5);
 			expect(statements.slice(start).filter((q) => !isHistory(q))).toHaveLength(
 				1,
 			);
@@ -625,7 +628,7 @@ describe("continuity inventory results", () => {
 			observed.push(...scopes);
 			cursor = next;
 			ticks++;
-			expect(ticks).toBeLessThan(30);
+			expect(ticks).toBeLessThan(100);
 		} while (cursor.after || cursor.pending?.length);
 		expect(ticks).toBeGreaterThan(2);
 		expect(observed.sort((a, b) => a.key.localeCompare(b.key))).toEqual(
