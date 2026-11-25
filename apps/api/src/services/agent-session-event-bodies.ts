@@ -67,42 +67,57 @@ export async function retainAgentSessionEventBodies(
 	db: DbQueryClient,
 	eventBodies: AgentSessionEventBodyStore,
 	now: Date,
-	limit = 100,
+	// Leave headroom below D1's 1,000-query invocation limit for other retention work.
+	limit = 500,
+	timeBudgetMs = 60_000,
 ) {
 	const before = new Date(now.getTime() - 14 * 86400_000).toISOString();
-	const rows = await listAgentSessionBodiesForRetention(db, before, limit);
+	const deadline = Date.now() + timeBudgetMs;
+	let attempted = 0;
 	let moved = 0;
 	let inlineBytesMoved = 0;
-	for (const row of rows) {
-		const archiveReflections =
-			row.processedAt !== null && row.processedAt < before;
-		const body = await hydrateAgentSessionEventBody(row, {
-			...row,
-			eventBodies,
-		});
-		const key = await eventBodies.write(row, {
-			body: body.body,
-			activity: body.activity,
-			lessonReflection: body.lessonReflection,
-		});
-		if (
-			await archiveAgentSessionEventBody(
-				db,
-				row,
-				key,
-				now.toISOString(),
-				archiveReflections,
-			)
-		) {
-			moved++;
-			inlineBytesMoved += new TextEncoder().encode(
-				row.body +
-					(row.activity ?? "") +
-					(archiveReflections && row.lessonReflection
-						? JSON.stringify(row.lessonReflection)
-						: ""),
-			).byteLength;
+	while (attempted < limit && Date.now() < deadline) {
+		const rows = await listAgentSessionBodiesForRetention(
+			db,
+			before,
+			limit - attempted,
+		);
+		const movedBeforePage = moved;
+		for (const row of rows) {
+			if (Date.now() >= deadline) return { moved, inlineBytesMoved };
+			attempted++;
+			const archiveReflections =
+				row.processedAt !== null && row.processedAt < before;
+			const body = await hydrateAgentSessionEventBody(row, {
+				...row,
+				eventBodies,
+			});
+			const key = await eventBodies.write(row, {
+				body: body.body,
+				activity: body.activity,
+				lessonReflection: body.lessonReflection,
+			});
+			if (
+				await archiveAgentSessionEventBody(
+					db,
+					row,
+					key,
+					now.toISOString(),
+					archiveReflections,
+				)
+			) {
+				moved++;
+				inlineBytesMoved += new TextEncoder().encode(
+					row.body +
+						(row.activity ?? "") +
+						(archiveReflections && row.lessonReflection
+							? JSON.stringify(row.lessonReflection)
+							: ""),
+				).byteLength;
+			}
 		}
+		// A concurrent processor may have changed every candidate in this page.
+		if (moved === movedBeforePage) break;
 	}
 	return { moved, inlineBytesMoved };
 }

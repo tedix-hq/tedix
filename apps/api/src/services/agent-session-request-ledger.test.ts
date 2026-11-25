@@ -3475,3 +3475,70 @@ it("backfills recent processed bodies and archives reflections after 14 days wit
 		lessonReflection: { inputKey: "recent", response: "recent reflection" },
 	});
 });
+
+it("drains more than one body page and resumes after time and row limits", async () => {
+	const db = fixture();
+	const eventBodies = agentSessionEventBodies(bodyBucket());
+	await recordAgentSessionEvents(db, {
+		...SCOPE,
+		now: T0,
+		events: Array.from({ length: 205 }, (_, i) => ({
+			...SCOPE,
+			repository: null,
+			kind: "turn" as const,
+			body: `Transcript ${i}`,
+			activity: `Activity ${i}`,
+			sourceAt: T0,
+			sourceKey: `backfill-${i}`,
+		})),
+	});
+	await db.update(agentSessionEvents).set({
+		status: "processed",
+		processedAt: T0,
+		lessonReflection: { inputKey: "lesson", response: "cached lesson" },
+	});
+	const now = new Date("2026-11-24T12:00:00.000Z");
+	const clock = vi.spyOn(Date, "now").mockReturnValue(0);
+	try {
+		const result = await retainAgentSessionEventBodies(
+			db,
+			{
+				...eventBodies,
+				async write(owner, body) {
+					const key = await eventBodies.write(owner, body);
+					clock.mockReturnValue(1000);
+					return key;
+				},
+			},
+			now,
+			500,
+			1000,
+		);
+		expect(result.moved).toBe(1);
+	} finally {
+		clock.mockRestore();
+	}
+	expect(
+		(await retainAgentSessionEventBodies(db, eventBodies, now, 150)).moved,
+	).toBe(150);
+	expect(
+		(await retainAgentSessionEventBodies(db, eventBodies, now)).moved,
+	).toBe(54);
+	for (const row of await db.select().from(agentSessionEvents)) {
+		expect(row).toMatchObject({
+			body: "",
+			activity: null,
+			lessonReflection: null,
+			bodyArchivedAt: now.toISOString(),
+		});
+		const i = row.sourceKey.slice("backfill-".length);
+		expect(await eventBodies.read(row, row.bodyR2Key!)).toEqual({
+			body: `Transcript ${i}`,
+			activity: `Activity ${i}`,
+			lessonReflection: { inputKey: "lesson", response: "cached lesson" },
+		});
+	}
+	expect(
+		(await retainAgentSessionEventBodies(db, eventBodies, now)).moved,
+	).toBe(0);
+});
