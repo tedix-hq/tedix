@@ -716,7 +716,7 @@ it("matches two-hop settlement aliases in both push readers without rewriting st
 	sqlite.close();
 });
 
-it("resolves a page of two-hop aliases with one read per hop and preserves missing ids", async () => {
+it("resolves a page of two-hop aliases in one read and preserves missing ids", async () => {
 	const { db, sqlite } = fixture();
 	try {
 		const ids = Array.from({ length: 200 }, (_, i) =>
@@ -732,16 +732,16 @@ it("resolves a page of two-hop aliases with one read per hop and preserves missi
 			insert.run(mid!, final!, "example/project");
 		}
 		const missing = "d".repeat(40);
-		const reads = vi.spyOn(db, "select");
+		const reads = vi.spyOn(db, "all");
 		const resolver = createCommitResolver(db);
 		expect(
 			await resolver.resolveMany([...ids.map(([old]) => old!), missing]),
 		).toEqual([...ids.map(([, , final]) => final!), missing]);
-		expect(reads).toHaveBeenCalledTimes(3);
+		expect(reads).toHaveBeenCalledTimes(1);
 		expect(await resolver.resolveMany(ids.map(([, mid]) => mid!))).toEqual(
 			ids.map(([, , final]) => final!),
 		);
-		expect(reads).toHaveBeenCalledTimes(3);
+		expect(reads).toHaveBeenCalledTimes(1);
 	} finally {
 		vi.restoreAllMocks();
 		sqlite.close();
@@ -757,11 +757,11 @@ it("bounds alias traversal to four hops, rejects cycles and resolves a dropped c
 		);
 		for (let i = 0; i < ids.length - 1; i++)
 			insert.run(ids[i]!, ids[i + 1]!, "example/project");
-		const reads = vi.spyOn(db, "select");
+		const reads = vi.spyOn(db, "all");
 		expect(await createCommitResolver(db).resolveMany([ids[0]!])).toEqual([
 			ids[4],
 		]);
-		expect(reads).toHaveBeenCalledTimes(4);
+		expect(reads).toHaveBeenCalledTimes(1);
 		insert.run("a".repeat(40), "b".repeat(40), "example/project");
 		insert.run("b".repeat(40), "0".repeat(40), "example/project");
 		expect(await createCommitResolver(db).canonicalCommit("a".repeat(40))).toBe(

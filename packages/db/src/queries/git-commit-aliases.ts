@@ -11,40 +11,33 @@ export function createCommitResolver(db: DbQueryClient) {
 	const loaded = new Set<string>();
 	const prefixes = new Map<string, string>();
 	async function loadChains(keys: string[]) {
-		let frontier = [...new Set(keys)];
-		const expanded = new Set<string>();
-		for (let hop = 0; hop < 4 && frontier.length; hop++) {
-			const missing = frontier.filter((key) => !loaded.has(key));
-			if (missing.length) {
-				// JSON arrays keep a page within D1's bind limit at every hop.
-				const ids = JSON.stringify(missing);
-				const matches = await db
-					.select({
-						oldSha: gitCommitAliases.oldSha,
-						newSha: gitCommitAliases.newSha,
-					})
-					.from(gitCommitAliases)
-					.where(
-						or(
-							sql`${gitCommitAliases.oldSha} IN (SELECT value FROM json_each(${ids}))`,
-							sql`${gitCommitAliases.newSha} IN (SELECT value FROM json_each(${ids}))`,
-						),
-					);
-				for (const row of matches) {
-					forward.set(row.oldSha, row.newSha);
-					backward.set(row.newSha, row.oldSha);
-				}
-				for (const key of missing) loaded.add(key);
+		const missing = [...new Set(keys)].filter((key) => !loaded.has(key));
+		if (!missing.length) return;
+		// Seek both indexed endpoints through at most four hops in one page read.
+		// LEFT JOIN also caches missing aliases and terminal endpoints.
+		const matches = await db.all<{
+			key: string;
+			oldSha: string | null;
+			newSha: string | null;
+		}>(sql`
+			WITH RECURSIVE alias_keys(sha, hop) AS (
+				SELECT value, 0 FROM json_each(${JSON.stringify(missing)})
+				UNION
+				SELECT CASE WHEN a.old_sha = k.sha THEN a.new_sha ELSE a.old_sha END, k.hop + 1
+				FROM alias_keys k
+				JOIN ${gitCommitAliases} a ON a.old_sha = k.sha OR a.new_sha = k.sha
+				WHERE k.hop < 3
+			)
+			SELECT k.sha AS key, a.old_sha AS oldSha, a.new_sha AS newSha
+			FROM alias_keys k
+			LEFT JOIN ${gitCommitAliases} a ON a.old_sha = k.sha OR a.new_sha = k.sha
+		`);
+		for (const row of matches) {
+			loaded.add(row.key);
+			if (row.oldSha !== null && row.newSha !== null) {
+				forward.set(row.oldSha, row.newSha);
+				backward.set(row.newSha, row.oldSha);
 			}
-			for (const key of frontier) expanded.add(key);
-			frontier = [
-				...new Set(
-					frontier.flatMap((key) => [
-						...(forward.has(key) ? [forward.get(key)!] : []),
-						...(backward.has(key) ? [backward.get(key)!] : []),
-					]),
-				),
-			].filter((key) => !expanded.has(key));
 		}
 	}
 	function chainFor(key: string) {

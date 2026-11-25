@@ -276,6 +276,7 @@ describe("workspace memory migration contract", () => {
 
 	it("matches canonical columns, indexes, local foreign keys and memory-local triggers/views", () => {
 		const platform = createMigratedSqlite();
+		databases.push(platform);
 		const local = tenant();
 		for (const table of memoryTables) {
 			expect(
@@ -303,16 +304,80 @@ describe("workspace memory migration contract", () => {
 		// Central wake scheduling writes to an outbox outside the memory store.
 		const canonical = platform
 			.prepare(
-				"SELECT name, sql FROM sqlite_schema WHERE (type='trigger' AND tbl_name LIKE 'memory_%' AND name NOT IN ('commitment_wake_outbox_memory_insert','commitment_wake_outbox_memory_update')) OR (type='view' AND name LIKE 'memory_fact_%') OR (type='table' AND name IN ('memory_fact_fts','memory_fact_fts_recall')) ORDER BY name",
+				"SELECT name, sql FROM sqlite_schema WHERE (type='trigger' AND tbl_name LIKE 'memory_%') OR (type='view' AND name LIKE 'memory_fact_%') OR (type='table' AND name IN ('memory_fact_fts','memory_fact_fts_recall')) ORDER BY name",
 			)
 			.all();
-		for (const row of canonical)
+		// Shared Work dispatch owns these two triggers, not the memory store.
+		const platformWakeTriggers = [
+			"commitment_wake_outbox_memory_insert",
+			"commitment_wake_outbox_memory_update",
+		];
+		expect(
+			canonical
+				.filter((row) => platformWakeTriggers.includes(String(row.name)))
+				.map((row) => row.name)
+				.sort(),
+		).toEqual(platformWakeTriggers);
+		for (const row of canonical) {
+			if (platformWakeTriggers.includes(String(row.name))) {
+				expect(
+					local
+						.prepare("SELECT name FROM sqlite_schema WHERE name=?")
+						.get(row.name!),
+				).toBeUndefined();
+				continue;
+			}
 			expect(
 				local
 					.prepare("SELECT name, sql FROM sqlite_schema WHERE name=?")
 					.get(row.name!),
 				String(row.name),
 			).toEqual(row);
+		}
+		expect(
+			local
+				.prepare(
+					"SELECT name FROM sqlite_schema WHERE name='commitment_wake_outbox'",
+				)
+				.get(),
+		).toBeUndefined();
+		platform.exec(
+			"INSERT INTO organizations(id,name,slug) VALUES ('fictional-org','Example','example')",
+		);
+		local.exec(
+			"INSERT INTO memory_store_identity VALUES (1,'fictional-org','organization','fictional-org','2026-11-25')",
+		);
+		for (const db of [platform, local]) {
+			db.exec(`
+				INSERT INTO memory_facts(id,organization_id,content,fact_type,metadata,created_at,updated_at,valid_from)
+				VALUES ('commitment','fictional-org','Review tomorrow','commitment','{"dueAt":"2026-11-26T12:00:00.000Z"}','2026-11-25','2026-11-25','2026-11-25');
+				UPDATE memory_facts SET metadata='{"dueAt":"2026-11-27T12:00:00.000Z"}'
+				WHERE id='commitment';
+			`);
+		}
+		expect(
+			platform
+				.prepare(
+					"SELECT org_id, source_kind, source_id, due_at FROM commitment_wake_outbox ORDER BY due_at",
+				)
+				.all(),
+		).toEqual(
+			["2026-11-26T12:00:00.000Z", "2026-11-27T12:00:00.000Z"].map(
+				(due_at) => ({
+					org_id: "fictional-org",
+					source_kind: "memory",
+					source_id: "commitment",
+					due_at,
+				}),
+			),
+		);
+		expect(
+			local.prepare("SELECT * FROM memory_facts WHERE id='commitment'").get(),
+		).toEqual(
+			platform
+				.prepare("SELECT * FROM memory_facts WHERE id='commitment'")
+				.get(),
+		);
 		expect(local.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 	});
 

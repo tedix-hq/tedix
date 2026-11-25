@@ -3060,11 +3060,49 @@ it("human release migration preserves reservations, Attempt links and guards", (
 	const before = tables.map((table) =>
 		sqlite.prepare(`SELECT * FROM ${table} ORDER BY id`).all(),
 	);
-	const triggers = sqlite
+	const originalTriggers = sqlite
 		.prepare(
 			"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
 		)
 		.all();
+	// Later migrations retain every guard and add search, timer and wake triggers.
+	const triggers = [
+		...originalTriggers,
+		{ name: "work_item_title_search_delete" },
+		{ name: "work_item_title_search_insert" },
+		{ name: "work_item_title_search_update" },
+		...[
+			"approval_expiry",
+			"work_approval_redrive",
+			"interaction_review_dispatch",
+			"delegated_run_deadline_sweep",
+			"agent_run_supervision",
+			"orphan_run_sweep",
+			"work_attempt_lease_sweep",
+		].flatMap((kind) =>
+			["insert", "update", "delete"].map((operation) => ({
+				name: `work_due_${kind}_${operation}`,
+			})),
+		),
+		{ name: "work_due_review_response_insert" },
+		{ name: "work_due_review_response_update" },
+		...[
+			"work_approval",
+			"tedi_approval",
+			"gadget",
+			"skill",
+			"work_item",
+			"work_idle",
+			"interaction",
+			"memory",
+		].flatMap((kind) =>
+			["insert", "update"].map((operation) => ({
+				name: `commitment_wake_outbox_${kind}_${operation}`,
+			})),
+		),
+		{ name: "commitment_wake_outbox_work_event_insert" },
+		{ name: "commitment_wake_outbox_interaction_response_insert" },
+	].sort((a, b) => (String(a.name) < String(b.name) ? -1 : 1));
 	sqlite.exec("BEGIN");
 	sqlite.exec(migrations[boundary]!.sql);
 	expect(
@@ -3073,7 +3111,7 @@ it("human release migration preserves reservations, Attempt links and guards", (
 				"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
 			)
 			.all(),
-	).toEqual(triggers);
+	).toEqual(originalTriggers);
 	for (const migration of migrations.slice(boundary + 1))
 		sqlite.exec(migration.sql);
 	sqlite.exec("COMMIT");
@@ -3087,9 +3125,7 @@ it("human release migration preserves reservations, Attempt links and guards", (
 			.prepare(
 				"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
 			)
-			.all()
-			// Later migrations may add triggers, but must retain every old guard.
-			.filter((row) => triggers.some((trigger) => trigger.name === row.name)),
+			.all(),
 	).toEqual(triggers);
 	expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 	expect(() =>
