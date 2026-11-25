@@ -576,6 +576,8 @@
 		"test:run": "python3 scripts/admit-db-check.py vp test run",
 		"test:watch": "vp test",
 		"db:migrate:generate": "bun scripts/generate-migration.ts",
+		"db:pg:generate": "drizzle-kit generate --config drizzle-pg.config.ts",
+		"db:pg:relations": "bun scripts/generate-pg-relations.ts",
 		"migration:restamp": "bun scripts/generate-migration.ts --restamp",
 		"db:schema:check": "bun scripts/generate-migration.ts --check && bun scripts/generate-tenant-store-migration.ts --check",
 		"db:tenant-store:generate": "bun scripts/generate-tenant-store-migration.ts",

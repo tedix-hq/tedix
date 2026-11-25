@@ -5,7 +5,8 @@ import { createDbQueryClient, type DbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
 import { tableDdl } from "../test/schema-ddl";
 import { createPGliteFacade } from "../test/pglite-facade";
-import { pgTableDdl } from "../test/pg-schema-ddl";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { fileURLToPath } from "node:url";
 import { coreTable, createCoreStore } from "./client";
 import {
 	anyIds,
@@ -34,7 +35,6 @@ import {
 	listAgentReviewsForTriage,
 	recordAgentReviewTriageNotice,
 } from "../queries/work-items/agent-review-triage";
-import type { PgTable } from "drizzle-orm/pg-core";
 
 const at = "2026-10-20T12:00:00.000Z";
 for (const store of ["d1", "postgres"] as const)
@@ -69,13 +69,16 @@ for (const store of ["d1", "postgres"] as const)
 				const fixture = await createPGliteFacade();
 				db = fixture.db;
 				close = fixture.close;
-				for (const table of tables)
-					for (const ddl of pgTableDdl(
-						coreTable(db, table) as unknown as PgTable,
-					))
-						await fixture.engine.exec(ddl).catch((error) => {
-							throw new Error(ddl, { cause: error });
-						});
+				for (const migration of readMigrationFiles({
+					migrationsFolder: fileURLToPath(
+						new URL("../../drizzle-pg", import.meta.url),
+					),
+				}))
+					for (const ddl of migration.sql) await fixture.engine.exec(ddl);
+				await fixture.engine.exec(`
+INSERT INTO organizations(id,name,slug) VALUES ('org','Org','org'),('other','Other','other');
+INSERT INTO projects(id,org_id,key,name,created_at) VALUES ('project','org','TEST','Test','${at}');
+`);
 			}
 			await db.insert(coreTable(db, workItems)).values([
 				{

@@ -100,8 +100,13 @@ A ported query selects each physical table with `coreTable(db, d1Table)`.
 The shared row and insert types stay at the query boundary; native Pg builders
 use the generated pg-core table at runtime. Await builders and use explicit
 `.returning()` projections. Raw `db.all`, `get`, `values`, and `run` have
-compatible result wrappers. D1-specific builder methods, raw `$client` SQL,
-and domain Relations v2 definitions belong to the owning lane's port.
+compatible result wrappers. D1-specific builder methods and raw `$client` SQL
+belong to the owning lane's port. Both Postgres drivers use the complete
+Relations v2 graph generated from the shared domain definitions. After changing
+`src/schema/relations.ts` or its parts, run
+`bun run --cwd packages/db db:pg:relations` and format the generated
+`src/schema-pg/relations.ts`. This provides `db.query` relationships; embedded
+SQLite SQL in filters or extras still needs its owning lane's dialect port.
 
 `@tedix/db/core-store/dialect` contains JSON reads/writes, epoch and timestamp
 expressions, ASCII-folding LIKE, substring matching, boolean values and
@@ -130,6 +135,52 @@ Foreign keys and ordinary indexes are preserved.
 `src/schema-pg/review.json` lists checks, generated expressions,
 and expression/partial indexes that each lane must port and review before its
 domain can run on Postgres. No generator or fixture opens a production database.
+
+Generate the offline Postgres core migration with
+`bun run --cwd packages/db db:pg:generate --name <change>`. The dedicated
+`drizzle-pg.config.ts` reads only `schema-pg/core.ts` and writes `drizzle-pg/`;
+it loads no environment files and has no connection credentials. Keep this
+history separate from the D1 migrations. Its first migration represents the
+scaffold, including the outstanding lane reviews above, not a production cutover.
+
+`pgTableDdl()` preserves the constraints declared by a pg-core table: partial
+and expression indexes, foreign key actions, checks and unique constraints.
+It does not translate the unported SQLite expressions in `review.json`.
+The parity fixture applies the entire generated Postgres migration before
+seeding parents, so foreign keys remain enabled.
+
+For the real-wire batch check, start an isolated local PostgreSQL database and
+set `TEST_POSTGRES_URL` to its loopback connection URL, then run
+`bun run --cwd packages/db test:run src/core-store/batch-wire.test.ts`.
+The test creates and removes its own schema. A TCP proxy decodes frontend Sync
+and backend ReadyForQuery messages to prove one protocol exchange for each
+batch, alongside ordered results, rollback and skipped later writes. Without
+the URL, this opt-in check is skipped; PGlite is not wire evidence.
+
+#### Porting a SQLite trigger
+
+Inventory the trigger's insert, update and delete effects, including changes
+of organization, conflict handling and rollback. Port row effects to a
+Postgres `RETURNS trigger` function using `NEW` and `OLD`, and attach it with
+`FOR EACH ROW`. A `BEFORE` trigger must return `NEW` (or `OLD` for delete);
+an `AFTER` trigger can return `NULL`. Use `IS DISTINCT FROM` for nullable
+comparisons. Qualify the existing row on the right side of `ON CONFLICT`.
+Install triggers and backfill their derived state in one migration transaction
+while blocking writes to the source table. Keep the function and trigger in
+that domain's migration; Drizzle schema generation does not create triggers.
+
+[The Work Item count example](examples/pg-work-item-counts.sql) ports all three
+`WORK_ITEM_ORG_COUNT_TRIGGERS` from `src/schema/work-items.ts` into one `AFTER`
+function. It increments on insert, decrements on delete, and transfers counts
+on an organization change. The focused DDL test executes this file and checks
+backfill, unchanged-owner updates, moves, deletes and transaction rollback.
+It is a worked example, not an automatically installed core migration.
+
+An alternative is to express the derived write in the same `db.batch()` as
+its source write. Use a conditional statement or a data-modifying CTE so a
+failed CAS or no-op source write cannot update the derived row. Every writer,
+including imports and cascades, must then use that path; otherwise retain a
+trigger. A separate awaited write does not preserve atomicity.
 
 Each lane owns its query files, schema constraints, triggers and complete
 batches. Changes to shared clients, dialect helpers, generation or the batch

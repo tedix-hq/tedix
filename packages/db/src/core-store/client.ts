@@ -1,6 +1,6 @@
 import { getTableName, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { defineRelations } from "drizzle-orm";
+import { relations } from "../schema-pg/relations";
 import postgres from "postgres";
 import { createDbClient, type DbClient } from "../client";
 import * as schema from "../schema-pg/core";
@@ -77,7 +77,7 @@ export function createCoreStore(env: CoreStoreEnv): {
 		fetch_types: false,
 		max: 5,
 	});
-	const native = drizzle({ client: sql, relations: defineRelations(schema) });
+	const native = drizzle({ client: sql, relations });
 	const run: RunAtomicBatch = async (statements) => {
 		// postgres.js 4 sends one extended-protocol batch with one Sync.
 		// PostgreSQL commits it as one implicit transaction, or rolls it all back.

@@ -1,6 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { defineRelations } from "drizzle-orm";
-import * as schema from "../schema-pg/core";
+import { relations } from "../schema-pg/relations";
 import { drizzle } from "drizzle-orm/pglite";
 import { adaptPostgresClient } from "../core-store/client";
 
@@ -8,7 +7,7 @@ import { adaptPostgresClient } from "../core-store/client";
 export async function createPGliteFacade() {
 	const engine = new PGlite();
 	const db = adaptPostgresClient(
-		drizzle({ client: engine, relations: defineRelations(schema) }),
+		drizzle({ client: engine, relations }),
 		(statements) =>
 			engine.transaction(async (transaction) => {
 				const results = [];
