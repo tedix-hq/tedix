@@ -105,7 +105,7 @@ if (args[0] === 'acp') {
  const mcp = JSON.parse(fs.readFileSync(process.env.XDG_CONFIG_HOME+'/devin/mcp_config.json', 'utf8'));
  fs.writeFileSync('mcp-invocation.json',JSON.stringify(mcp));
  fs.writeFileSync('invocation.json',JSON.stringify({args,cwd:process.cwd(),config,inherited:process.env.CLAUDE_CODE_SESSION_ID,root:process.env.TEDIX_DEVIN_LANE_ROOT,session:process.env.TEDIX_AGENT_SESSION,workspace:process.env.TEDIX_WORKSPACE,organization:process.env.TEDIX_ORGANIZATION,tmpdir:process.env.TMPDIR,bunCache:process.env.BUN_INSTALL_CACHE_DIR}));
- fs.writeFileSync(args[args.indexOf('--export')+1], JSON.stringify({session_id:'quiet-river',steps:[]}));
+ fs.writeFileSync(args[args.indexOf('--export')+1], JSON.stringify({session_id:'quiet-river',steps:[{source:'agent',metrics:{prompt_tokens:120,completion_tokens:30,cached_tokens:20}}],final_metrics:{total_prompt_tokens:120,total_completion_tokens:30,total_cached_tokens:20}}));
  console.log('Fake Devin completed the brief.');
 }
 `,
@@ -350,6 +350,19 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 		"Fake Devin completed",
 	);
 	expect(reports.at(-1).telemetry.outcome).toBe("succeeded");
+	expect(reports.at(-1).telemetry).toMatchObject({
+		usage: { input: 120, output: 30, cached: 20, reasoning: 0 },
+		usageSamples: [
+			{
+				model: "model-2026-10-01",
+				input: 120,
+				output: 30,
+				cached: 20,
+				reasoning: 0,
+				cacheWrite: 0,
+			},
+		],
+	});
 });
 
 test("a headless permission rejection keeps a Devin turn that still declares success", async () => {

@@ -2,7 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseAtifUsage, parseLaneTranscript } from "./lane-telemetry";
+import {
+	parseAtifTelemetry,
+	parseAtifUsage,
+	parseLaneTranscript,
+} from "./lane-telemetry";
 import { LaneTelemetryInputSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 
 async function transcript(
@@ -48,6 +52,60 @@ it("retains reported ATIF totals and distinguishes absent usage from zero", () =
 	expect(
 		parseAtifUsage({ total_prompt_tokens: 0, total_completion_tokens: 0 }),
 	).toEqual({ input: 0, output: 0, cached: 0, reasoning: 0 });
+});
+it("retains ATIF request sizes and model overrides for tiered pricing", () => {
+	const trajectory = {
+		agent: { model_name: "default-model" },
+		steps: [
+			{ source: "user" },
+			{
+				source: "agent",
+				metrics: {
+					prompt_tokens: 90,
+					completion_tokens: 10,
+					cached_tokens: 80,
+				},
+			},
+			{
+				source: "agent",
+				model_name: "other-model",
+				metrics: { prompt_tokens: 100, completion_tokens: 20 },
+			},
+		],
+	};
+	expect(parseAtifTelemetry(trajectory, null)).toEqual({
+		usage: { input: 190, output: 30, cached: 80, reasoning: 0 },
+		usageSamples: [
+			{
+				model: "default-model",
+				input: 90,
+				output: 10,
+				cached: 80,
+				reasoning: 0,
+				cacheWrite: 0,
+			},
+			{
+				model: "other-model",
+				input: 100,
+				output: 20,
+				cached: 0,
+				reasoning: 0,
+				cacheWrite: 0,
+			},
+		],
+	});
+	const final_metrics = {
+		total_prompt_tokens: 300,
+		total_completion_tokens: 50,
+	};
+	expect(
+		parseAtifTelemetry(
+			{ ...trajectory, final_metrics, steps: [{ source: "agent" }] },
+			null,
+		),
+	).toEqual({
+		usage: { input: 300, output: 50, cached: 0, reasoning: 0 },
+	});
 });
 const tokens = (input: number) => ({
 	type: "event_msg",

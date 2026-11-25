@@ -511,8 +511,12 @@ that store and never exchanges; an expired credential says so, and a denied read
 of the host store reports access denied.
 
 Claude Code hooks report into the same lane when launched by the wrapper.
+Owner Claude Code hooks also read tokens from their native transcript.
+OpenCode reports step tokens, and Devin exports request tokens in ATIF format.
 Other executors can write the common observation JSON to
-`TEDIX_LANE_TELEMETRY_PATH`. Missing facts stay unknown. Costs require complete
+`TEDIX_LANE_TELEMETRY_PATH`. Set `--rate-scope` on a lane run or report, or
+`TEDIX_LANE_RATE_SCOPE` for owner hooks, to the published deployment scope.
+Missing facts stay unknown. Costs require complete
 request usage and matching published model/scope rows; cached and reasoning
 counts are subsets, and context tiers apply per request. Estimates use rates
 at report time and never rewrite historical billing. Failed final uploads keep

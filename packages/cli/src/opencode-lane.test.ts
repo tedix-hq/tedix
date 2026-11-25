@@ -12,7 +12,9 @@ import { createOpenCodeLaneThread } from "./opencode-lane-thread";
 import { openCodeExportHasNoToolAction, runLaneProcess } from "./lane-run";
 import { resumeThenFresh } from "./lane-routing";
 const dirs: string[] = [];
+const originalPath = process.env.PATH;
 afterEach(() => {
+	process.env.PATH = originalPath;
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -30,11 +32,15 @@ it("recovers a stopped backend before resuming, falls back only on missing sessi
 		executable,
 		`#!${process.execPath}
 import { appendFileSync } from 'node:fs';
+if (process.argv[2] === 'run') {
+ console.log(JSON.stringify({type:'step_finish',sessionID:${JSON.stringify(id)},part:{id:'step-1',tokens:{input:2,output:1}}}));
+ process.exit(0);
+}
 const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(request) {
  const url = new URL(request.url); appendFileSync(${JSON.stringify(requests)}, JSON.stringify({path:url.pathname,method:request.method})+'\\n');
  if (!request.headers.get('authorization')?.startsWith('Basic ')) return new Response('',{status:401});
  if (url.pathname === '/api/info') return Response.json({version:'2.3.4'});
- if (url.pathname === '/api/config') return Response.json([{type:'document',info:{model:{providerID:'other',model:'lower-priority'}}},{type:'directory'},{type:'document',info:{model:{providerID:'azure',model:'fictional-default'}}}]);
+ if (url.pathname === '/api/config') return Response.json([{type:'document',info:{model:{providerID:'other',model:'lower-priority'}}},{type:'directory'},{type:'document',info:{model:{providerID:'azure',model:'native/fictional-default'}}}]);
  if (url.pathname === '/api/session' || url.pathname === '/api/session/${id}') return Response.json({data:{id:${JSON.stringify(id)},location:{directory:${JSON.stringify(dir)}}}});
  return new Response('',{status:404});
 }}); console.log('opencode server listening on '+server.url.origin);`,
@@ -68,8 +74,42 @@ const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(request) {
 	// No model from Tedix: OpenCode's own default is used.
 	expect(
 		await createOpenCodeLaneThread(dir, "", undefined, executable),
-	).toMatchObject({ model: "fictional-default", modelProvider: "azure" });
+	).toMatchObject({
+		model: "native/fictional-default",
+		modelProvider: "azure",
+	});
 	expect(readFileSync(requests, "utf8")).not.toContain("prompt");
+	const brief = join(dir, "brief.txt");
+	writeFileSync(brief, "Inspect a fictional widget");
+	process.env.PATH = `${dir}:${originalPath}`;
+	const reports: Record<string, unknown>[] = [];
+	expect(
+		await runLaneProcess(
+			[
+				"run",
+				"--executor",
+				"opencode",
+				"--project",
+				"11111111-1111-4111-8111-111111111111",
+				"--brief",
+				brief,
+				"--",
+				executable,
+				"run",
+			],
+			{
+				cwd: dir,
+				report: async (input) => {
+					reports.push(input);
+					return {};
+				},
+			},
+		),
+	).toBe(0);
+	expect(reports.at(-1)?.telemetry).toMatchObject({
+		provider: "azure",
+		usageSamples: [{ model: "native/fictional-default", input: 2, output: 1 }],
+	});
 });
 it("fails closed on backend startup failure", async () => {
 	await expect(
@@ -131,6 +171,7 @@ it.each(["ok", "error", "foreign"])(
 			finalMessage: string;
 			outcome: string;
 			usage: unknown;
+			usageSamples: unknown;
 		};
 		expect(telemetry.outcome).toBe(mode === "ok" ? "succeeded" : "failed");
 		expect(telemetry.usage).toEqual({
@@ -139,6 +180,16 @@ it.each(["ok", "error", "foreign"])(
 			cached: 40,
 			reasoning: 5,
 		});
+		expect(telemetry.usageSamples).toEqual([
+			{
+				model: "model",
+				input: 150,
+				output: 20,
+				cached: 40,
+				reasoning: 5,
+				cacheWrite: 10,
+			},
+		]);
 		if (mode === "ok") expect(telemetry.finalMessage).toBe("final result");
 		if (mode === "error") expect(telemetry.finalMessage).toContain("429");
 	},

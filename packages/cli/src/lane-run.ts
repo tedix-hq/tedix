@@ -34,7 +34,7 @@ import {
 	type LaneLimits,
 	type LaneLimitState,
 } from "./lane-limits";
-import { parseAtifUsage, type LaneObservation } from "./lane-telemetry";
+import { parseAtifTelemetry, type LaneObservation } from "./lane-telemetry";
 import { laneTurnOutput } from "./lane-output";
 import { laneAgentSteps, type LaneStep } from "./lane-steps";
 import { transientReadFailure } from "./read-retry";
@@ -292,12 +292,14 @@ async function runLaneProcessWithReporter(
 			try {
 				const { parseLaneTranscript } = await import("./lane-telemetry");
 				const parsed = await parseLaneTranscript(path, input.harness);
+				const rateScope =
+					options.get("--rate-scope") ??
+					input.telemetry?.rateScope ??
+					process.env.TEDIX_LANE_RATE_SCOPE;
 				input.telemetry = {
 					...parsed.telemetry,
 					source: "hook",
-					...(process.env.TEDIX_LANE_RATE_SCOPE
-						? { rateScope: process.env.TEDIX_LANE_RATE_SCOPE }
-						: {}),
+					...(rateScope ? { rateScope } : {}),
 				};
 				if (input.state === "working") {
 					input.telemetry.finishedAt = null;
@@ -416,7 +418,9 @@ async function runLaneProcessWithReporter(
 				: executor === "claude-code"
 					? "anthropic"
 					: opencode
-						? (options.get("--model")?.split("/")[0] ?? null)
+						? (nativeThread?.modelProvider ??
+							options.get("--model")?.split("/")[0] ??
+							null)
 						: tedi
 							? "tedix"
 							: null,
@@ -913,7 +917,9 @@ async function runLaneProcessWithReporter(
 								checkLimit();
 								if (telemetry.model)
 									(telemetry.usageSamples ??= []).push({
-										model: telemetry.model,
+										model: nativeThread
+											? telemetry.model
+											: telemetry.model.slice(telemetry.model.indexOf("/") + 1),
 										...usage.data,
 										cacheWrite,
 									});
@@ -1174,7 +1180,9 @@ async function runLaneProcessWithReporter(
 					throw new Error(
 						"Devin transcript identity differs from the admitted session",
 					);
-				telemetry.usage = parseAtifUsage(exported.final_metrics);
+				const observed = parseAtifTelemetry(exported, telemetry.model);
+				telemetry.usage = observed.usage;
+				telemetry.usageSamples = observed.usageSamples;
 				telemetry.shas = [
 					...new Set(telemetry.finalMessage.match(/\b[a-f0-9]{40}\b/g) ?? []),
 				].slice(0, 100);

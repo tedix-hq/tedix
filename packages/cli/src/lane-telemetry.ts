@@ -17,6 +17,53 @@ export function parseAtifUsage(
 	});
 	return result.success ? result.data : null;
 }
+
+export function parseAtifTelemetry(
+	trajectory: {
+		final_metrics?: Record<string, unknown>;
+		agent?: { model_name?: string };
+		steps?: {
+			source?: string;
+			model_name?: string;
+			metrics?: Record<string, unknown>;
+		}[];
+	},
+	defaultModel: string | null,
+): Pick<LaneObservation, "usage" | "usageSamples"> {
+	const usage = parseAtifUsage(trajectory.final_metrics);
+	const samples: NonNullable<LaneObservation["usageSamples"]> = [];
+	for (const step of trajectory.steps ?? []) {
+		if (step.source !== "agent") continue;
+		const parsed = LaneTelemetryInputSchema.shape.usageSamples
+			.unwrap()
+			.element.safeParse({
+				model: step.model_name ?? trajectory.agent?.model_name ?? defaultModel,
+				input: step.metrics?.prompt_tokens,
+				output: step.metrics?.completion_tokens,
+				cached: step.metrics?.cached_tokens ?? 0,
+				reasoning: 0,
+				cacheWrite: 0,
+			});
+		// An incomplete export must not become a fully priced session.
+		if (!parsed.success || samples.length === 10000) return { usage };
+		samples.push(parsed.data);
+	}
+	if (!samples.length) return { usage };
+	return {
+		usage:
+			usage ??
+			samples.reduce(
+				(total, sample) => ({
+					input: total.input + sample.input,
+					output: total.output + sample.output,
+					cached: total.cached + sample.cached,
+					reasoning: 0,
+				}),
+				{ input: 0, output: 0, cached: 0, reasoning: 0 },
+			),
+		usageSamples: samples,
+	};
+}
 export interface ParsedLane {
 	modelTurns: number;
 	sessionKey: string;

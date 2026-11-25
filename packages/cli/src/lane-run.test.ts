@@ -645,6 +645,77 @@ it("stores outcome text before truncation while preserving structured telemetry"
 	);
 });
 
+it("reports owner Claude request tokens and preserves its explicit pricing scope", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "claude-owner-usage-"));
+	dirs.push(dir);
+	const path = join(dir, "owner.jsonl");
+	writeFileSync(
+		path,
+		JSON.stringify({
+			type: "assistant",
+			sessionId: "owner-session",
+			timestamp: "2026-11-25T10:00:00Z",
+			message: {
+				id: "response-one",
+				model: "fictional-model",
+				stop_reason: "end_turn",
+				content: [],
+				usage: {
+					input_tokens: 5,
+					cache_read_input_tokens: 10,
+					cache_creation_input_tokens: 3,
+					output_tokens: 2,
+				},
+			},
+		}),
+	);
+	for (const explicitFlag of [true, false]) {
+		const reports: Record<string, unknown>[] = [];
+		await runLaneProcess(
+			[
+				"report",
+				"--lane-transcript",
+				path,
+				"--input",
+				JSON.stringify({
+					harness: "claude-code",
+					sessionKey: "owner-session",
+					state: "working",
+					summary: "Reading a widget",
+					label: "Widget",
+					...(!explicitFlag
+						? { telemetry: { rateScope: "fictional-scope" } }
+						: {}),
+				}),
+				...(explicitFlag ? ["--rate-scope", "fictional-scope"] : []),
+			],
+			{
+				report: async (input) => {
+					reports.push(input);
+					return {};
+				},
+			},
+		);
+		expect(reports[0]?.telemetry).toMatchObject({
+			source: "hook",
+			provider: "anthropic",
+			rateScope: "fictional-scope",
+			finishedAt: null,
+			usage: { input: 18, cached: 10, output: 2, reasoning: 0 },
+			usageSamples: [
+				{
+					model: "fictional-model",
+					input: 18,
+					cached: 10,
+					output: 2,
+					reasoning: 0,
+					cacheWrite: 3,
+				},
+			],
+		});
+	}
+});
+
 it("pins the child's organization and workspace without inheriting a launcher Attempt", async () => {
 	const { args, out } = fixture();
 	expect(
