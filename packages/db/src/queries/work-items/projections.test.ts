@@ -47,7 +47,7 @@ function fixture(statements: string[] = []) {
 	};
 }
 
-it("resolves 50 attempt rows with 100 distinct commit fields in two alias statements", async () => {
+it("resolves 50 attempt rows with 100 distinct commit fields in one alias statement", async () => {
 	const statements: string[] = [];
 	const { sqlite, db } = fixture(statements);
 	seedItem(sqlite, { id: "item", createdAt: "2026-08-20T10:00:00Z" });
@@ -118,8 +118,8 @@ it("resolves 50 attempt rows with 100 distinct commit fields in two alias statem
 	for (const row of page.data)
 		expect(row.attempt.metadata).toEqual(expected.get(row.attempt.id));
 	expect(
-		statements.filter((query) => query.includes('from "git_commit_aliases"')),
-	).toHaveLength(2);
+		statements.filter((query) => query.includes('"git_commit_aliases"')),
+	).toHaveLength(1);
 	for (const row of sqlite
 		.prepare("SELECT id, metadata FROM work_attempts")
 		.all() as { id: string; metadata: string }[])
