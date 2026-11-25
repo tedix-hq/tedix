@@ -32,6 +32,58 @@ afterEach(async () => {
 });
 
 describe("OrganizationProfileForm", () => {
+	it("saves custom health thresholds through organization settings", async () => {
+		api.organizations.update.mockReset().mockResolvedValue({});
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		roots.push(root);
+		const client = new QueryClient({
+			defaultOptions: {
+				queries: { retry: false },
+				mutations: { retry: false },
+			},
+		});
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<OrganizationProfileForm
+						organizationId="org-fictional"
+						defaultValues={{
+							name: "Example",
+							slug: "example",
+							dispatcherHealth: {
+								staleAfterMinutes: 90,
+								reportStaleAfterSeconds: 600,
+								alarmIntervalMinutes: 10,
+								enabled: false,
+							},
+						}}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		await act(async () =>
+			container
+				.querySelector("form")!
+				.dispatchEvent(
+					new Event("submit", { bubbles: true, cancelable: true }),
+				),
+		);
+		expect(api.organizations.update).toHaveBeenCalledWith(
+			expect.objectContaining({
+				organizationId: "org-fictional",
+				metadata: expect.objectContaining({
+					dispatcherHealth: {
+						staleAfterMinutes: 90,
+						reportStaleAfterSeconds: 600,
+						alarmIntervalMinutes: 10,
+						enabled: false,
+					},
+				}),
+			}),
+		);
+	});
 	it("announces invalid logo uploads to assistive technology", async () => {
 		const container = document.createElement("div");
 		document.body.append(container);

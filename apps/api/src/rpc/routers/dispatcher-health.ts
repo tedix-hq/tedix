@@ -4,6 +4,7 @@ import { dispatcherHealthContract } from "@tedix/api-contract/contracts/dispatch
 import { SupervisorActivitySchema } from "@tedix/api-contract/schemas/dispatcher-health";
 import type { DispatcherHealthReportRow } from "@tedix/db/schema/dispatcher-health";
 import {
+	getDispatcherHealthSettings,
 	listDispatcherHealthReports,
 	listDispatcherWorkReferences,
 	upsertDispatcherHealthReport,
@@ -12,13 +13,15 @@ import { requireOrgId } from "../org-scope";
 import { machineReporterAccount } from "./machines-principal";
 import { type BaseContext, withAuth, withAuthorization } from "../orpc";
 
-const DISPATCHER_HEALTH_STALE_AFTER_SECONDS = 300;
-
 const os = implement(dispatcherHealthContract)
 	.$context<BaseContext>()
 	.use(withAuth);
 
-function toReport(row: DispatcherHealthReportRow, now: Date) {
+function toReport(
+	row: DispatcherHealthReportRow,
+	now: Date,
+	staleAfterSeconds: number,
+) {
 	const ageSeconds = Math.max(
 		0,
 		Math.floor((now.getTime() - Date.parse(row.reportedAt)) / 1_000),
@@ -39,8 +42,8 @@ function toReport(row: DispatcherHealthReportRow, now: Date) {
 				? null
 				: { reason: row.topReason, count: row.topReasonCount },
 		ageSeconds,
-		staleAfterSeconds: DISPATCHER_HEALTH_STALE_AFTER_SECONDS,
-		stale: ageSeconds > DISPATCHER_HEALTH_STALE_AFTER_SECONDS,
+		staleAfterSeconds,
+		stale: ageSeconds > staleAfterSeconds,
 	};
 }
 
@@ -73,7 +76,8 @@ const reportProcedure = os.report
 			reportedBy,
 			rulesSkillId: input.rulesSkillId ?? null,
 		});
-		return toReport(row, now);
+		const settings = await getDispatcherHealthSettings(context.db, orgId);
+		return toReport(row, now, settings.reportStaleAfterSeconds);
 	});
 
 const rulesProcedure = os.getRunnerRules
@@ -91,12 +95,13 @@ const listProcedure = os.list
 			context.db,
 			requireOrgId(context),
 		);
-		const reports = rows.map((row) => toReport(row, now));
+		const { reportStaleAfterSeconds: staleAfterSeconds } =
+			await getDispatcherHealthSettings(context.db, requireOrgId(context));
+		const reports = rows.map((row) => toReport(row, now, staleAfterSeconds));
 		const fresh = reports.filter(
 			(row) =>
 				!row.stale &&
-				now.getTime() - Date.parse(row.observedAt) <=
-					DISPATCHER_HEALTH_STALE_AFTER_SECONDS * 1000,
+				now.getTime() - Date.parse(row.observedAt) <= staleAfterSeconds * 1000,
 		);
 		const ids = fresh.flatMap(({ duty }) => [
 			...(duty?.activity?.current.map(({ id }) => id) ?? []),
@@ -124,8 +129,7 @@ const listProcedure = os.list
 					report.running &&
 					fresh.includes(report) &&
 					observedAt <= now.getTime() &&
-					now.getTime() - observedAt <=
-						DISPATCHER_HEALTH_STALE_AFTER_SECONDS * 1000
+					now.getTime() - observedAt <= staleAfterSeconds * 1000
 						? {
 								...duty.skips,
 								entries: duty.skips.entries.filter(

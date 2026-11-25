@@ -198,6 +198,7 @@ function AdminOrganizationBody({
 							description: organization.description,
 							website: organization.metadata?.website || null,
 							contactEmail: organization.metadata?.contactEmail || null,
+							dispatcherHealth: organization.metadata?.dispatcherHealth,
 						}}
 					/>
 				</Suspense>

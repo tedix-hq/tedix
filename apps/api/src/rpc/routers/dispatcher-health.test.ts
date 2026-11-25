@@ -11,6 +11,7 @@ import type { BaseContext } from "../orpc";
 
 const mocks = vi.hoisted(() => ({
 	listDispatcherHealthReports: vi.fn(),
+	getDispatcherHealthSettings: vi.fn(),
 	listDispatcherWorkReferences: vi.fn(),
 	upsertDispatcherHealthReport: vi.fn(),
 }));
@@ -55,6 +56,9 @@ function context(organizationId?: string): BaseContext {
 }
 
 beforeEach(() => {
+	mocks.getDispatcherHealthSettings
+		.mockReset()
+		.mockResolvedValue({ reportStaleAfterSeconds: 300 });
 	vi.useFakeTimers();
 	vi.setSystemTime(new Date(NOW));
 	mocks.listDispatcherHealthReports.mockReset().mockResolvedValue([row]);
@@ -67,6 +71,26 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("dispatcher health router", () => {
+	it("uses this organization's heartbeat grace for lane freshness", async () => {
+		const client = createRouterClient(dispatcherHealthContractRouter, {
+			context: context("org-1"),
+		});
+		expect((await client.list({})).data[0]).toMatchObject({
+			stale: true,
+			staleAfterSeconds: 300,
+		});
+		mocks.getDispatcherHealthSettings.mockResolvedValue({
+			reportStaleAfterSeconds: 600,
+		});
+		expect((await client.list({})).data[0]).toMatchObject({
+			stale: false,
+			staleAfterSeconds: 600,
+		});
+		expect(mocks.getDispatcherHealthSettings).toHaveBeenLastCalledWith(
+			expect.anything(),
+			"org-1",
+		);
+	});
 	it("derives the organization and assigns the server report timestamp", async () => {
 		const client = createRouterClient(dispatcherHealthContractRouter, {
 			context: context("org-1"),

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
+import { UpdateOrganizationInputSchema } from "./organization";
 import {
+	DispatcherHealthSettingsSchema,
+	resolveDispatcherHealthSettings,
 	ReportDispatcherHealthInputSchema,
 	SupervisorDutyHealthSchema,
 	DispatcherReliabilitySchema,
@@ -127,4 +130,33 @@ it("accepts arbitrary executor activity while bounding task references", () => {
 			},
 		}).success,
 	).toBe(false);
+});
+
+it("validates organization health thresholds and preserves unset defaults", () => {
+	expect(resolveDispatcherHealthSettings(undefined)).toEqual({
+		staleAfterMinutes: 45,
+		reportStaleAfterSeconds: 300,
+		alarmIntervalMinutes: 2,
+		enabled: true,
+	});
+	expect(
+		resolveDispatcherHealthSettings({ staleAfterMinutes: 90 }),
+	).toMatchObject({
+		staleAfterMinutes: 90,
+		reportStaleAfterSeconds: 300,
+		alarmIntervalMinutes: 2,
+	});
+	expect(
+		UpdateOrganizationInputSchema.parse({
+			metadata: { dispatcherHealth: { staleAfterMinutes: 90 } },
+		}).metadata?.dispatcherHealth,
+	).toEqual({ staleAfterMinutes: 90 });
+	for (const value of [
+		{ staleAfterMinutes: 0 },
+		{ staleAfterMinutes: 1.5 },
+		{ reportStaleAfterSeconds: -1 },
+		{ alarmIntervalMinutes: 3 },
+		{ alarmIntervalMinutes: 1442 },
+	])
+		expect(DispatcherHealthSettingsSchema.safeParse(value).success).toBe(false);
 });

@@ -8,6 +8,10 @@
  */
 
 import {
+	DEFAULT_DISPATCHER_HEALTH_SETTINGS,
+	resolveDispatcherHealthSettings,
+} from "@tedix/api-contract/schemas/dispatcher-health";
+import {
 	and,
 	asc,
 	desc,
@@ -44,6 +48,18 @@ export type UpsertDispatcherHealthReportParams = Omit<
 	NewDispatcherHealthReportRow,
 	"orgId"
 > & { orgId: string };
+
+export async function getDispatcherHealthSettings(
+	db: DbQueryClient,
+	orgId: string,
+) {
+	const [row] = await db
+		.select({ metadata: organizations.metadata })
+		.from(organizations)
+		.where(eq(organizations.id, orgId))
+		.limit(1);
+	return resolveDispatcherHealthSettings(row?.metadata?.dispatcherHealth);
+}
 
 /** Resolve reported references without exposing another organization's Work. */
 export async function listDispatcherWorkReferences(
@@ -209,6 +225,7 @@ export interface DispatcherHealthOrgRow {
 	trackerEnabled: boolean;
 	/** Org config `metadata.dispatcherHealth.staleAfterMinutes`; null = platform default. */
 	staleAfterMinutes: number | null;
+	alarmIntervalMinutes?: number;
 	/** Org config `metadata.dispatcherHealth.enabled === false` turns the alarm off. */
 	alarmEnabled: boolean;
 	/** Accepted, lane-ready Work with an executor and no active Attempt. */
@@ -229,6 +246,7 @@ type OrgRow = {
 	org_id: string;
 	tracker_enabled: number;
 	stale_after: number | null;
+	alarm_interval: number | null;
 	alarm_enabled: number | string | null;
 	waiting: number;
 	work_item_id: string | null;
@@ -333,6 +351,11 @@ export async function listDispatcherHealthOrgs(
 			>`json_extract(${t.orgMetadata}, '$.dispatcherHealth.staleAfterMinutes')`.as(
 				"stale_after",
 			),
+			alarm_interval: sql<
+				number | null
+			>`json_extract(${t.orgMetadata}, '$.dispatcherHealth.alarmIntervalMinutes')`.as(
+				"alarm_interval",
+			),
 			alarm_enabled: sql<
 				number | string | null
 			>`json_extract(${t.orgMetadata}, '$.dispatcherHealth.enabled')`.as(
@@ -401,6 +424,9 @@ export async function listDispatcherHealthOrgs(
 			r.stale_after !== null && Number(r.stale_after) > 0
 				? Number(r.stale_after)
 				: null,
+		alarmIntervalMinutes: resolveDispatcherHealthSettings({
+			alarmIntervalMinutes: r.alarm_interval ?? undefined,
+		}).alarmIntervalMinutes,
 		alarmEnabled: !(r.alarm_enabled === 0 || r.alarm_enabled === "false"),
 		dispatchableCount: Number(r.waiting),
 		workItemId: r.work_item_id,
@@ -478,13 +504,59 @@ export async function readDispatcherHealthPage(
 		.orderBy(o.id)
 		.limit(DISPATCHER_HEALTH_ORGS_PER_TICK);
 	const orgIds = candidates.map((row) => row.id);
-	const [rows, activity] = await Promise.all([
+	const [allRows, activity] = await Promise.all([
 		listDispatcherHealthOrgs(db, orgIds),
 		readDispatcherActivity(db, orgIds),
 	]);
+	// Persist elapsed time per org: clock-modulo checks can starve a paged org.
+	const custom = allRows.filter(
+		(row) =>
+			(row.alarmIntervalMinutes ??
+				DEFAULT_DISPATCHER_HEALTH_SETTINGS.alarmIntervalMinutes) >
+			DEFAULT_DISPATCHER_HEALTH_SETTINGS.alarmIntervalMinutes,
+	);
+	const checks = custom.length
+		? await db
+				.select({
+					scheduleId: platformCronCheckpoints.scheduleId,
+					through: platformCronCheckpoints.through,
+				})
+				.from(platformCronCheckpoints)
+				.where(
+					// bound-params: custom is a subset of the five-org candidate page.
+					inArray(
+						platformCronCheckpoints.scheduleId,
+						custom.map((row) => `${scheduleId}:${row.orgId}`),
+					),
+				)
+		: [];
+	const lastChecks = new Map(
+		checks.map((row) => [row.scheduleId, Number(row.through)]),
+	);
+	const rows = allRows.filter((row) => {
+		const last = lastChecks.get(`${scheduleId}:${row.orgId}`);
+		return (
+			last === undefined ||
+			scheduledTime - last >=
+				(row.alarmIntervalMinutes ??
+					DEFAULT_DISPATCHER_HEALTH_SETTINGS.alarmIntervalMinutes) *
+					60000
+		);
+	});
 	return {
 		rows,
 		activity,
+		cadenceChecks: rows
+			.filter(
+				(row) =>
+					(row.alarmIntervalMinutes ??
+						DEFAULT_DISPATCHER_HEALTH_SETTINGS.alarmIntervalMinutes) >
+					DEFAULT_DISPATCHER_HEALTH_SETTINGS.alarmIntervalMinutes,
+			)
+			.map((row) => ({
+				scheduleId: `${scheduleId}:${row.orgId}`,
+				through: String(scheduledTime),
+			})),
 		orgsChecked: candidates.length,
 		previous,
 		scheduleId,
@@ -501,18 +573,35 @@ export async function readDispatcherHealthPage(
 /** Advance only after every alarm in the page was handled successfully. */
 export async function advanceDispatcherHealthPage(
 	db: DbQueryClient,
-	page: { scheduleId: string; previous: string | null; next: string | null },
+	page: {
+		scheduleId: string;
+		previous: string | null;
+		next: string | null;
+		cadenceChecks?: { scheduleId: string; through: string }[];
+	},
 ) {
 	if (page.next === null) return;
-	await db
-		.insert(platformCronCheckpoints)
-		.values({ scheduleId: page.scheduleId, through: page.next })
-		.onConflictDoUpdate({
-			target: platformCronCheckpoints.scheduleId,
-			set: { through: page.next },
-			setWhere:
-				page.previous === null
-					? sql`0`
-					: eq(platformCronCheckpoints.through, page.previous),
-		});
+	await db.batch([
+		db
+			.insert(platformCronCheckpoints)
+			.values({ scheduleId: page.scheduleId, through: page.next })
+			.onConflictDoUpdate({
+				target: platformCronCheckpoints.scheduleId,
+				set: { through: page.next },
+				setWhere:
+					page.previous === null
+						? sql`0`
+						: eq(platformCronCheckpoints.through, page.previous),
+			}),
+		...(page.cadenceChecks ?? []).map((check) =>
+			db
+				.insert(platformCronCheckpoints)
+				.values(check)
+				.onConflictDoUpdate({
+					target: platformCronCheckpoints.scheduleId,
+					set: { through: check.through },
+					setWhere: sql`cast(${platformCronCheckpoints.through} as integer) < ${Number(check.through)}`,
+				}),
+		),
+	]);
 }

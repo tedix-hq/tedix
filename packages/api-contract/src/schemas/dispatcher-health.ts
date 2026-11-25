@@ -1,6 +1,46 @@
 import * as z from "zod";
 import { MachineNameSchema, ReportedMachineToolsSchema } from "./machines";
 
+export const DispatcherHealthSettingsSchema = z.strictObject({
+	staleAfterMinutes: z.number().int().min(1).max(10080).optional(),
+	reportStaleAfterSeconds: z.number().int().min(1).max(604800).optional(),
+	alarmIntervalMinutes: z
+		.number()
+		.int()
+		.min(2)
+		.max(1440)
+		.multipleOf(2)
+		.optional(),
+	enabled: z.boolean().optional(),
+});
+export type DispatcherHealthSettings = z.infer<
+	typeof DispatcherHealthSettingsSchema
+>;
+
+export const DEFAULT_DISPATCHER_HEALTH_SETTINGS = {
+	staleAfterMinutes: 45,
+	reportStaleAfterSeconds: 300,
+	alarmIntervalMinutes: 2,
+	enabled: true,
+} as const;
+
+export function resolveDispatcherHealthSettings(value: unknown) {
+	const parsed = DispatcherHealthSettingsSchema.safeParse(value);
+	const settings = parsed.success ? parsed.data : {};
+	return {
+		staleAfterMinutes:
+			settings.staleAfterMinutes ??
+			DEFAULT_DISPATCHER_HEALTH_SETTINGS.staleAfterMinutes,
+		reportStaleAfterSeconds:
+			settings.reportStaleAfterSeconds ??
+			DEFAULT_DISPATCHER_HEALTH_SETTINGS.reportStaleAfterSeconds,
+		alarmIntervalMinutes:
+			settings.alarmIntervalMinutes ??
+			DEFAULT_DISPATCHER_HEALTH_SETTINGS.alarmIntervalMinutes,
+		enabled: settings.enabled ?? DEFAULT_DISPATCHER_HEALTH_SETTINGS.enabled,
+	};
+}
+
 const BoundedIdSchema = z.string().trim().min(1).max(128);
 
 const SupervisorWorkSchema = z.object({

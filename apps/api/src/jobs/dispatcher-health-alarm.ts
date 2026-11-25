@@ -11,6 +11,7 @@
  * platform-wide activity timestamps.
  */
 
+import { DEFAULT_DISPATCHER_HEALTH_SETTINGS } from "@tedix/api-contract/schemas/dispatcher-health";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { createDbClient } from "@tedix/db/client";
 import {
@@ -25,7 +26,8 @@ import {
 } from "@tedix/db/queries/work-items/interactions";
 
 /** Platform default; an organization overrides it in `metadata.dispatcherHealth`. */
-export const DEFAULT_DISPATCHER_STALE_AFTER_MINUTES = 45;
+export const DEFAULT_DISPATCHER_STALE_AFTER_MINUTES =
+	DEFAULT_DISPATCHER_HEALTH_SETTINGS.staleAfterMinutes;
 
 export const DISPATCHER_HEALTH_SUBJECT =
 	"Work is waiting but the dispatcher has gone quiet";

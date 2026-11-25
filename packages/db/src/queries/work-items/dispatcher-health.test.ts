@@ -4,6 +4,7 @@ import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	DISPATCHER_HEALTH_SCHEMA,
+	getDispatcherHealthSettings,
 	listDispatcherHealthOrgs,
 	listDispatcherHealthReports,
 	listDispatcherWorkReferences,
@@ -68,6 +69,43 @@ it("pages active organizations across empty alarm pages, clears old alerts, and 
 	expect(
 		(await readDispatcherHealthPage(db, "staging", time)).orgsChecked,
 	).toBe(5);
+	sqlite.close();
+});
+
+it("persists per-organization alarm cadence without delaying default organizations", async () => {
+	const sqlite = seed();
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	sqlite.exec(
+		`UPDATE organizations SET metadata = '{"dispatcherHealth":{"staleAfterMinutes":90,"alarmIntervalMinutes":10,"reportStaleAfterSeconds":600}}' WHERE id = 'busy'`,
+	);
+	expect(await getDispatcherHealthSettings(db, "busy")).toMatchObject({
+		staleAfterMinutes: 90,
+		reportStaleAfterSeconds: 600,
+		alarmIntervalMinutes: 10,
+	});
+	expect(await getDispatcherHealthSettings(db, "idle")).toMatchObject({
+		staleAfterMinutes: 45,
+		reportStaleAfterSeconds: 300,
+		alarmIntervalMinutes: 2,
+	});
+	const start = Date.parse(T1);
+	const first = await readDispatcherHealthPage(db, "test", start);
+	expect(first.rows[0]).toMatchObject({ orgId: "busy", staleAfterMinutes: 90 });
+	await advanceDispatcherHealthPage(db, first);
+	expect(
+		(await readDispatcherHealthPage(db, "test", start + 120000)).rows,
+	).toEqual([]);
+	expect(
+		(await readDispatcherHealthPage(db, "test", start + 600000)).rows[0]?.orgId,
+	).toBe("busy");
+	sqlite.exec(`UPDATE organizations SET metadata = NULL WHERE id = 'busy'`);
+	expect(
+		(await readDispatcherHealthPage(db, "test", start + 120000)).rows[0],
+	).toMatchObject({
+		orgId: "busy",
+		staleAfterMinutes: null,
+		alarmIntervalMinutes: 2,
+	});
 	sqlite.close();
 });
 

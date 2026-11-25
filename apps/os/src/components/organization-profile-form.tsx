@@ -13,6 +13,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ImageSquare, Trash, UploadSimple } from "@phosphor-icons/react";
 import { useCallback, useRef, useState } from "react";
 import * as z from "zod";
+import {
+	DispatcherHealthSettingsSchema,
+	resolveDispatcherHealthSettings,
+	type DispatcherHealthSettings,
+} from "@tedix/api-contract/schemas/dispatcher-health";
 import { FormInput } from "@/components/forms/form-input";
 import { FormTextarea } from "@/components/forms/form-textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -32,7 +37,39 @@ import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 
+const HEALTH_FIELDS = [
+	[
+		"staleAfterMinutes",
+		"Dispatcher quiet time (minutes)",
+		"Alert when Work waits and either dispatcher signal is older than this. Default: 45.",
+	],
+	[
+		"reportStaleAfterSeconds",
+		"Runner heartbeat grace (seconds)",
+		"Mark runner and lane health unknown after this long without a fresh report. Default: 300.",
+	],
+	[
+		"alarmIntervalMinutes",
+		"Alarm check interval (minutes)",
+		"Check at most this often, in multiples of two minutes. Recovery is checked on the same interval. Default: 2.",
+	],
+] as const;
+
+const healthInput = (key: (typeof HEALTH_FIELDS)[number][0]) =>
+	z
+		.string()
+		.refine(
+			(value) =>
+				value.trim() !== "" &&
+				DispatcherHealthSettingsSchema.shape[key].safeParse(Number(value))
+					.success,
+			"Enter a whole number in the allowed range; intervals must be multiples of two.",
+		);
+
 const OrganizationProfileSchema = z.object({
+	staleAfterMinutes: healthInput("staleAfterMinutes"),
+	reportStaleAfterSeconds: healthInput("reportStaleAfterSeconds"),
+	alarmIntervalMinutes: healthInput("alarmIntervalMinutes"),
 	name: z.string().min(1, "Name is required").max(100),
 	slug: z
 		.string()
@@ -64,6 +101,7 @@ interface OrganizationProfileFormProps {
 		description?: string | null;
 		website?: string | null;
 		contactEmail?: string | null;
+		dispatcherHealth?: DispatcherHealthSettings;
 	};
 }
 
@@ -111,7 +149,11 @@ export function OrganizationProfileForm({
 			name: string;
 			slug: string;
 			description: string | null;
-			metadata?: { website?: string; contactEmail?: string };
+			metadata?: {
+				website?: string;
+				contactEmail?: string;
+				dispatcherHealth?: DispatcherHealthSettings;
+			};
 		}) => osApi.organizations.update(input),
 		onSuccess: async () => {
 			await invalidateOrganization();
@@ -120,6 +162,9 @@ export function OrganizationProfileForm({
 		onMutate: () => setSaved(false),
 	});
 
+	const health = resolveDispatcherHealthSettings(
+		defaultValues.dispatcherHealth,
+	);
 	const form = useZodForm({
 		schema: OrganizationProfileSchema,
 		validateOn: "blur",
@@ -129,6 +174,9 @@ export function OrganizationProfileForm({
 			description: defaultValues.description ?? "",
 			website: defaultValues.website ?? "",
 			contactEmail: defaultValues.contactEmail ?? "",
+			staleAfterMinutes: String(health.staleAfterMinutes),
+			reportStaleAfterSeconds: String(health.reportStaleAfterSeconds),
+			alarmIntervalMinutes: String(health.alarmIntervalMinutes),
 		},
 		onSubmit: async ({ value }) => {
 			updateOrganization.mutate({
@@ -136,14 +184,16 @@ export function OrganizationProfileForm({
 				name: value.name.trim(),
 				slug: normalizeSlug(value.slug),
 				description: emptyToUndefined(value.description) ?? null,
-				metadata:
-					emptyToUndefined(value.website) ||
-					emptyToUndefined(value.contactEmail)
-						? {
-								website: emptyToUndefined(value.website),
-								contactEmail: emptyToUndefined(value.contactEmail),
-							}
-						: undefined,
+				metadata: {
+					website: emptyToUndefined(value.website),
+					contactEmail: emptyToUndefined(value.contactEmail),
+					dispatcherHealth: {
+						...defaultValues.dispatcherHealth,
+						staleAfterMinutes: Number(value.staleAfterMinutes),
+						reportStaleAfterSeconds: Number(value.reportStaleAfterSeconds),
+						alarmIntervalMinutes: Number(value.alarmIntervalMinutes),
+					},
+				},
 			});
 		},
 	});
@@ -260,6 +310,37 @@ export function OrganizationProfileForm({
 								/>
 							)}
 						</FormField>
+
+						<Separator />
+						<Text>Runner health alarms</Text>
+						{HEALTH_FIELDS.map(([name, label, description]) => (
+							<FormField
+								key={name}
+								form={form}
+								name={name}
+								label={label}
+								description={description}
+							>
+								{(field, meta) => (
+									<FormInput
+										field={field}
+										id={meta.id}
+										type="number"
+										min={name === "alarmIntervalMinutes" ? 2 : 1}
+										max={
+											name === "staleAfterMinutes"
+												? 10080
+												: name === "reportStaleAfterSeconds"
+													? 604800
+													: 1440
+										}
+										step={name === "alarmIntervalMinutes" ? 2 : 1}
+										descriptionId={meta.descriptionId}
+										errorId={meta.errorId}
+									/>
+								)}
+							</FormField>
+						))}
 
 						{updateOrganization.isError ? (
 							<Alert variant="destructive">

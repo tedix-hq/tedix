@@ -173,9 +173,14 @@ describe("runDispatcherHealthAlarm", () => {
 	});
 
 	it("takes the threshold from organization config", async () => {
+		facts = { lastAdmissionAt: ago(46) };
+		await runDispatcherHealthAlarm(env, NOW);
+		expect(db.create).toHaveBeenCalledOnce();
 		facts = { lastAdmissionAt: ago(46), staleAfterMinutes: 90 };
 		await runDispatcherHealthAlarm(env, NOW);
-		expect(db.create).not.toHaveBeenCalled();
+		expect(db.create).toHaveBeenCalledOnce();
+		expect(db.cancel).toHaveBeenCalledOnce();
+		db.create.mockClear();
 		facts = { lastAdmissionAt: ago(46), alarmEnabled: false };
 		await runDispatcherHealthAlarm(env, NOW);
 		expect(db.create).not.toHaveBeenCalled();

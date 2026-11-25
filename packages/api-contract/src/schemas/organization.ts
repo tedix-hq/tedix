@@ -4,6 +4,7 @@
  */
 
 import * as z from "zod";
+import { DispatcherHealthSettingsSchema } from "./dispatcher-health";
 import { DelegatedApprovalsPolicySchema } from "./delegated-approvals";
 import { WorkDelegationSettingsSchema } from "./lane-execution";
 import { ModelFallbackPolicySchema } from "./model-fallback";
@@ -514,6 +515,7 @@ export type PersonalAgentDiscovery = z.infer<
 >;
 
 export const OrganizationMetadataSchema = z.object({
+	dispatcherHealth: DispatcherHealthSettingsSchema.optional(),
 	personalAgentProtocol: PersonalAgentDiscoveryConfigSchema.optional(),
 	sensitiveDataEgressApproval: z
 		.boolean()
