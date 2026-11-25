@@ -231,9 +231,9 @@ function problemItem(now: PanelState): Item | undefined {
 		cli.kind === "missing" &&
 			"Tedix could not finish setting up this Mac. Quit and open Tedix again; if this stays, install the app again.",
 		!(now.setup.signedIn && now.setup.app.state === "in") && "Not signed in.",
-		now.setup.reach !== "ok" &&
-			now.setup.reach !== "checking" &&
-			"Tedix could not be reached.",
+		// Only a check that ran and got no answer; a Mac that is not signed
+		// in is never checked, and "Not signed in." already says so.
+		now.setup.reach === "unavailable" && "Tedix could not be reached.",
 		tasksStopped(now) && "Tasks are not running.",
 	].filter((line): line is string => Boolean(line));
 	if (!problems.length) return undefined;
@@ -608,6 +608,60 @@ function mac(now: PanelState): Group[] {
 	const stopped = tasksStopped(now);
 	const starting = tasksStarting(now);
 	const runs = status.activeRuns;
+	// With no agent switched on for tasks there is nothing to run or pause.
+	const noRunner = !status.runners.some((runner) => runner.enabled);
+	const tasksRow: Item = noRunner
+		? {
+				title: "This Mac does not run tasks yet",
+				sub: "To let it, sign in and switch on Use for tasks for an agent under Agents.",
+				words: "pause resume restart tasks",
+			}
+		: {
+				title: now.app.paused
+					? "Tasks are paused"
+					: stopped
+						? "Tasks are not running"
+						: starting
+							? "Starting tasks…"
+							: runs
+								? `${runs} ${runs === 1 ? "task" : "tasks"} running`
+								: "Ready for tasks",
+				tone: stopped ? "warn" : undefined,
+				// Tedix keeps the Mac awake, but on battery macOS still sleeps
+				// when the lid closes and running tasks wait until it opens.
+				sub:
+					now.app.onBattery && !now.app.paused && !stopped
+						? "On battery, tasks pause when you close the lid. Plug this Mac in to keep them running."
+						: undefined,
+				control: [
+					starting
+						? undefined
+						: now.app.paused
+							? button(
+									"Resume",
+									"plain",
+									() => tedixShell.action("restart"),
+									now.busy,
+									{ pending: "Resuming…", key: "runners" },
+								)
+							: stopped
+								? button(
+										"Restart",
+										"plain",
+										() => tedixShell.action("restart"),
+										now.busy,
+										{ pending: "Restarting…", key: "runners" },
+									)
+								: button(
+										"Pause",
+										"plain",
+										() => tedixShell.action("pause"),
+										now.busy,
+										{ pending: "Pausing…", key: "runners" },
+									),
+				],
+				words: "pause resume restart tasks",
+			};
 	return [
 		{
 			items: [
@@ -629,52 +683,7 @@ function mac(now: PanelState): Group[] {
 					],
 					words: "write machine",
 				},
-				{
-					title: now.app.paused
-						? "Tasks are paused"
-						: stopped
-							? "Tasks are not running"
-							: starting
-								? "Starting tasks…"
-								: runs
-									? `${runs} ${runs === 1 ? "task" : "tasks"} running`
-									: "Ready for tasks",
-					tone: stopped ? "warn" : undefined,
-					// Tedix keeps the Mac awake, but on battery macOS still sleeps
-					// when the lid closes and running tasks wait until it opens.
-					sub:
-						now.app.onBattery && !now.app.paused && !stopped
-							? "On battery, tasks pause when you close the lid. Plug this Mac in to keep them running."
-							: undefined,
-					control: [
-						starting
-							? undefined
-							: now.app.paused
-								? button(
-										"Resume",
-										"plain",
-										() => tedixShell.action("restart"),
-										now.busy,
-										{ pending: "Resuming…", key: "runners" },
-									)
-								: stopped
-									? button(
-											"Restart",
-											"plain",
-											() => tedixShell.action("restart"),
-											now.busy,
-											{ pending: "Restarting…", key: "runners" },
-										)
-									: button(
-											"Pause",
-											"plain",
-											() => tedixShell.action("pause"),
-											now.busy,
-											{ pending: "Pausing…", key: "runners" },
-										),
-					],
-					words: "pause resume restart tasks",
-				},
+				tasksRow,
 				...status.activeTasks.map((task): Item => ({
 					title: task.title ?? "Task",
 					sub: EXECUTOR_NAMES[task.executor ?? ""],
