@@ -70,6 +70,7 @@ function row(view: {
 	control?: Child;
 	working?: string;
 	failed?: string;
+	details?: string;
 	retry?: () => void;
 	cancel?: () => void;
 }): HTMLElement {
@@ -100,6 +101,10 @@ function row(view: {
 				"fail",
 				el("span", "", view.failed),
 				view.retry && button("Try again", "link", view.retry),
+				view.details &&
+					button("Copy details", "link", () => {
+						void tedixShell.copy(view.details!);
+					}),
 			),
 	);
 }
@@ -224,6 +229,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 						: view.action,
 				working: view.working,
 				failed: view.error,
+				details: view.details,
 				retry: view.retry,
 				cancel: view.cancel,
 			});

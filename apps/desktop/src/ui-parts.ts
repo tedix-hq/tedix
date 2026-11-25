@@ -158,7 +158,7 @@ export function openAgentApp(state: PanelState, tool: ToolRow) {
 	if (tool.found === "found" && !tool.desktop) return;
 	return button(
 		app === "chatgpt" && tool.readVerified && tool.hookTrust !== "trusted"
-			? "Review hooks in ChatGPT"
+			? "Allow Tedix in ChatGPT"
 			: `Open ${tool.name}`,
 		"quiet",
 		() => tedixShell.open(`${app}-app`),
@@ -199,6 +199,8 @@ export interface ToolView {
 	ready: boolean;
 	working?: string;
 	error?: string;
+	/** What the failed step printed, behind a "Details" link. */
+	details?: string;
 	retry?: () => void;
 	cancel?: () => void;
 }
@@ -252,6 +254,7 @@ export function toolView(
 	const base = failed
 		? {
 				error: (failed[1] as StepRun).error,
+				details: (failed[1] as StepRun).details,
 				retry: () =>
 					act(
 						failed[0] === "verify" && tool.connection === "signed-out"
@@ -349,7 +352,7 @@ export function toolView(
 		return {
 			ready: true,
 			sub: reviewInChatGPT
-				? "Review the Tedix hooks in ChatGPT under Settings → Hooks."
+				? "In ChatGPT, open Settings → Hooks and allow Tedix. This lets Tedix add your team's instructions when a chat starts and add related task context to your messages, and, if Show my sessions in Tedix is on, save a summary of each session."
 				: "",
 		};
 	if (runner?.enabled && tool.id === "codex" && tool.hookTrust !== "trusted")
@@ -358,8 +361,8 @@ export function toolView(
 			ready: false,
 			tone: "warn",
 			sub: reviewInChatGPT
-				? "Review the Tedix hooks in ChatGPT under Settings → Hooks."
-				: "Open ChatGPT Work to review the Tedix hooks before running tasks.",
+				? "In ChatGPT, open Settings → Hooks and allow Tedix. This lets Tedix add your team's instructions when a chat starts and add related task context to your messages, and, if Show my sessions in Tedix is on, save a summary of each session."
+				: "Before ChatGPT runs tasks, open ChatGPT Work and allow the Tedix hooks in Settings → Hooks. They let Tedix add your team's instructions and task context to the chat.",
 			action: reviewInChatGPT
 				? openAgentApp(state, tool)
 				: state.setup.desktopApps.chatgpt

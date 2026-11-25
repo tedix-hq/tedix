@@ -143,6 +143,7 @@ let setupWindow: BrowserWindow | undefined;
 let routingLaunch = false;
 let status: Status | undefined;
 let lastOutput = "";
+let helpNote = "";
 let busy = false;
 /** A `tedix://` link that arrived before the window existed. */
 let startLink: string | undefined;
@@ -158,6 +159,7 @@ async function state(): Promise<PanelState> {
 		setup: setupState(),
 		summary: summary(status),
 		lastOutput,
+		helpNote,
 		busy,
 		openAtLogin: app.isPackaged
 			? app.getLoginItemSettings().openAtLogin
@@ -1999,6 +2001,54 @@ async function openOsPage(path: string): Promise<void> {
 }
 
 /**
+ * Opens Get help in the Tedix window, filled in with what setup found on this
+ * Mac. The person reviews it and approves before it is sent, and gets a
+ * receipt there. Without a signed-in Tedix window, the details are copied and
+ * Settings says what to do instead.
+ */
+async function getHelp(): Promise<void> {
+	const report = setupState().report;
+	const view = os;
+	const copied = () => {
+		clipboard.writeText(report.slice(0, 20_000));
+		helpNote =
+			appSignIn.state === "in"
+				? "Tedix could not open Get help. The setup details are copied: in Tedix, open Get help and paste them."
+				: "Sign in to Tedix to send this. The setup details are copied: after signing in, open Get help and paste them.";
+	};
+	if (appSignIn.state !== "in" || !view || view.webContents.isDestroyed()) {
+		copied();
+		return refresh();
+	}
+	showMain();
+	const prefill = {
+		title: "An agent will not connect on this Mac",
+		expected: "The agent connects to Tedix and can run tasks.",
+		actual: report,
+		page: "Mac app: Settings > Setup details",
+	};
+	const opened = await view.webContents
+		.executeJavaScript(
+			`(async (detail) => {
+				for (let tries = 0; tries < 50; tries++) {
+					const event = new CustomEvent("tedix:get-help", { detail });
+					window.dispatchEvent(event);
+					if (detail.handled) return true;
+					await new Promise((resolve) => setTimeout(resolve, 200));
+				}
+				return false;
+			})(${JSON.stringify(prefill)})`,
+		)
+		.catch(() => false);
+	log(
+		`help: Get help ${opened ? "opened with the setup details" : "not opened; details copied"}`,
+	);
+	if (opened) helpNote = "";
+	else copied();
+	return refresh();
+}
+
+/**
  * Starts a new chat in the Tedix window with `text`: opens a new chat,
  * waits for its message field, fills it in and sends it. When the page
  * cannot send yet, the text stays in the field for the person to send.
@@ -2239,6 +2289,7 @@ else if (process.argv.includes("--local-model")) {
 		ipcMain.handle("action", (event, name: PanelAction) => {
 			const asking = fromLocalPage(event);
 			if (name === "save-claude-plugin") return saveClaudePlugin(asking);
+			if (name === "get-help") return getHelp();
 			if (name === "restart") return restartRunners(true);
 			if (name === "pause") return pauseAsked();
 			if (name === "cli-back") return void goBackCli();

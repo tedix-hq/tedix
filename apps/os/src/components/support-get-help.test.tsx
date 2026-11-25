@@ -95,4 +95,47 @@ describe("Get help consent preview", () => {
 			window.history.replaceState({}, "", "/");
 		}
 	});
+
+	it("opens filled in from the Mac app but sends nothing until the person approves", async () => {
+		const client = new QueryClient(),
+			container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<SupportGetHelp organization="Example team" />
+				</QueryClientProvider>,
+			),
+		);
+		try {
+			const detail = {
+				title: "An agent will not connect on this Mac",
+				expected: "The agent connects.",
+				actual: "Tedix 0.1.0 on macOS",
+				page: "Mac app: Settings > Setup details",
+				handled: false,
+			};
+			await act(async () => {
+				window.dispatchEvent(new CustomEvent("tedix:get-help", { detail }));
+			});
+			expect(detail.handled).toBe(true);
+			const values = Array.from(
+				document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+					"input:not([type=checkbox]),textarea",
+				),
+			).map((field) => field.value);
+			expect(values).toContain("An agent will not connect on this Mac");
+			expect(values).toContain("Tedix 0.1.0 on macOS");
+			const send = Array.from(document.querySelectorAll("button")).find(
+				(x) => x.textContent === "File support request",
+			)!;
+			expect(send.disabled).toBe(true);
+			expect(file).not.toHaveBeenCalled();
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+			client.clear();
+		}
+	});
 });

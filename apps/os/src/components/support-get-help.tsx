@@ -1,6 +1,6 @@
 import { Question } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useContext, useId, useState } from "react";
+import { useContext, useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { DropdownMenuItem } from "@/components/kumo/dropdown-menu";
 import { OsTopbarMenuContext } from "@/components/os-topbar-actions-context";
@@ -27,6 +27,11 @@ import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { Link } from "@/components/kumo/link";
 
+/** What the Mac app passes when its "Get help" opens this form. */
+type HelpPrefill = Partial<
+	Pick<SupportReport, "title" | "expected" | "actual" | "page">
+>;
+
 export function SupportGetHelp({ organization }: { organization: string }) {
 	const menu = useContext(OsTopbarMenuContext);
 	const client = useQueryClient();
@@ -42,7 +47,20 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 		statusUrl: string;
 	} | null>(null);
 	const [key, setKey] = useState("");
-	function start() {
+	// The Mac app's "Get help" opens this form filled in with what it found
+	// on the Mac; the person still reviews and approves before anything is sent.
+	useEffect(() => {
+		const open = (event: Event) => {
+			const detail = (event as CustomEvent<HelpPrefill & { handled?: boolean }>)
+				.detail;
+			if (!detail) return;
+			detail.handled = true;
+			start(detail);
+		};
+		window.addEventListener("tedix:get-help", open);
+		return () => window.removeEventListener("tedix:get-help", open);
+	});
+	function start(prefill: HelpPrefill = {}) {
 		const recent = client
 			.getQueryCache()
 			.getAll()
@@ -50,13 +68,13 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 			.sort((a, b) => b.state.errorUpdatedAt - a.state.errorUpdatedAt)[0]
 			?.state.error;
 		setReport({
-			title: "",
-			expected: "",
-			actual: "",
+			title: prefill.title?.slice(0, 200) ?? "",
+			expected: prefill.expected?.slice(0, 2000) ?? "",
+			actual: prefill.actual?.slice(0, 2000) ?? "",
 			steps: "",
 			impact: "",
 			diagnosticRefs: [],
-			page: window.location.pathname,
+			page: prefill.page?.slice(0, 500) ?? window.location.pathname,
 			lastError:
 				recent instanceof Error
 					? redactSupportText(recent.message).slice(0, 500)
@@ -110,7 +128,7 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 			{menu ? (
 				menu.target &&
 				createPortal(
-					<DropdownMenuItem onClick={start}>
+					<DropdownMenuItem onClick={() => start()}>
 						<Question aria-hidden size={18} />
 						Get help
 					</DropdownMenuItem>,
@@ -119,7 +137,7 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 			) : (
 				<Button
 					variant="ghost"
-					onClick={start}
+					onClick={() => start()}
 					aria-label="Get help"
 					title="Get help"
 					className="max-sm:size-11 max-sm:p-0"

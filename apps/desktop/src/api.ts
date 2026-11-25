@@ -10,6 +10,8 @@ export interface PanelState {
 	setup: SetupState;
 	summary: string;
 	lastOutput: string;
+	/** Why Get help copied the setup details instead of opening the form. */
+	helpNote: string;
 	busy: boolean;
 	/** Undefined when the app runs unpackaged, where the switch is hidden. */
 	openAtLogin?: boolean;
@@ -63,7 +65,8 @@ export type PanelAction =
 	| "open-logs"
 	| "open-routing"
 	| "close-settings"
-	| "save-claude-plugin";
+	| "save-claude-plugin"
+	| "get-help";
 export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 /** The pages the chat-app rows may open in the browser. */
 export type PanelLink =

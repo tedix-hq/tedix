@@ -317,6 +317,8 @@ export interface ToolRow {
 	canSignInAccount: boolean;
 	/** One sentence on what is wrong or what happens next. */
 	note: string;
+	/** The tool's own words behind `note`, for the copied setup details only. */
+	detail?: string;
 }
 
 /** Who is signed in to Tedix in the app's own window. */
@@ -583,10 +585,12 @@ async function step(
 			return changed();
 		}
 		const reason = safe(error instanceof Error ? error.message : String(error));
+		const detail = error instanceof StepFailure ? safe(error.detail) : reason;
 		steps[key] = {
 			error: reason,
-			details: [`Step: ${key}`, ...lines.slice(-40), reason].join("\n"),
+			details: [`Step: ${key}`, ...lines.slice(-40), detail].join("\n"),
 		};
+		if (detail !== reason) log(`setup: ${key} said: ${detail}`);
 		log(`setup: ${key} failed (${reason})`);
 	}
 	delete stops[key];
@@ -610,9 +614,21 @@ async function must(
 	const reason =
 		lines.find((line) => /✘|failed|error|could not|timed out/i.test(line)) ??
 		lines.at(-1);
-	throw new Error(
+	throw new StepFailure(
 		reason?.slice(0, 400) ?? "The command failed without a message.",
 	);
+}
+
+/**
+ * A step that failed inside a command. People see one plain sentence and a
+ * next click; the command's own line stays in the step's details.
+ */
+class StepFailure extends Error {
+	constructor(readonly detail: string) {
+		super(
+			"This did not finish. Try again; if it fails again, choose Get help in Settings.",
+		);
+	}
 }
 
 async function readSignIn(): Promise<void> {
@@ -834,8 +850,8 @@ async function readAgentStatusNow(): Promise<void> {
 	} catch {
 		agentStatus = {
 			problem: findTedix()
-				? "This version of the command-line tool cannot report it."
-				: "Needs the command-line tool.",
+				? "Tedix cannot check this app yet. It updates itself; choose Look again later."
+				: "Tedix is still setting up this Mac. If this stays, quit and open Tedix again.",
 		};
 	}
 	changed();
@@ -970,7 +986,8 @@ function toolRows(): ToolRow[] {
 				? host.hookTrust
 				: "unknown";
 		if (host?.problem && !facts.hasTedix) {
-			row.note = `${tool.name} did not answer: ${String(host.problem).split("\n")[0]!.slice(0, 200)}`;
+			row.note = `${tool.name} did not answer when Tedix checked it. Open ${tool.name}, then choose Look again.`;
+			row.detail = String(host.problem).split("\n")[0]!.slice(0, 200);
 			return row;
 		}
 		row.tedix =
@@ -1048,6 +1065,7 @@ function setupReport(tools: ToolRow[]): string {
 				`  The command's own Tedix sign-in: ${facts.other.connection}`,
 			);
 		if (row.note) lines.push(`  Says: ${row.note}`);
+		if (row.detail) lines.push(`  Its answer: ${row.detail}`);
 		for (const kind of ["account", "connect", "verify"]) {
 			const ran = steps[`${kind}:${tool.id}`];
 			if (ran?.error) lines.push(`  Last ${kind} failed: ${clean(ran.error)}`);
@@ -1192,12 +1210,17 @@ const ACTIONS = [
 	"verify",
 	"run-tasks",
 	"choose-folder",
+	"clear-folder",
 	"sessions-on",
 	"sessions-off",
 	"account-sign-in",
 	"open-sign-in",
 ] as const;
 export type SetupAction = (typeof ACTIONS)[number];
+
+/** A folder that holds a Git checkout: what code tasks work in. */
+const isCodeProject = (folder: string) =>
+	existsSync(join(folder, ".git")) || existsSync(join(folder, "HEAD"));
 
 /** What the checklist needs from the window: a folder chooser and the app's own sign-in. */
 export interface SetupHost {
@@ -1320,7 +1343,21 @@ export async function setupAction(
 	}
 	if (action === "choose-folder") {
 		const repo = await chooseFolder();
-		if (repo) saveSettings({ repo });
+		if (!repo) return changed();
+		if (!isCodeProject(repo))
+			steps.folder = {
+				error:
+					"Code tasks need a project folder that holds code managed with Git, and this folder does not. Choose another folder, or choose Use without a folder: agents then run every task that needs no code.",
+			};
+		else {
+			delete steps.folder;
+			saveSettings({ repo });
+		}
+		return changed();
+	}
+	if (action === "clear-folder") {
+		delete steps.folder;
+		saveSettings({ repo: "" });
 		return changed();
 	}
 	if (action === "manage-cli" || action === "restore-cli") {
@@ -1625,9 +1662,9 @@ export async function setupAction(
 				settings().repo || (earlier.repo === empty ? "" : earlier.repo);
 			const repo = chosen || empty;
 			if (chosen) {
-				if (!existsSync(join(repo, ".git")) && !existsSync(join(repo, "HEAD")))
+				if (!isCodeProject(repo))
 					throw new Error(
-						`${repo} is not a code project (it has no Git repository). Choose a code project's folder in Settings.`,
+						"Code tasks need a project folder that holds code managed with Git, and the folder in Settings does not. Under Project folder, choose Use without a folder or another folder, then try again.",
 					);
 				saveSettings({ repo });
 			} else mkdirSync(repo, { recursive: true });

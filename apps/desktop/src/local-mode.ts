@@ -111,7 +111,7 @@ async function chooseDemo() {
 	accounts = [];
 	const owner = window;
 	const render = (message: string) =>
-		showPage(`<main><h1>Try Tedix on this Mac</h1><p>Explore a sample project and its files. To chat, use a model on this Mac or connect Cloudflare.</p>
+		showPage(`<main><h1>Try Tedix on this Mac</h1><p>Explore a sample project and its files. Chat in the demo needs an AI model: use one already on this Mac (from Ollama or LM Studio), or connect a Cloudflare account to use the AI models Cloudflare offers.</p>
 		<p role="status">${escape(message)}</p>
 		<div class="actions">${action("start", "Explore sample", true)}${action("models", "Chat on this Mac")}${action("cloudflare", "Connect Cloudflare")}${action("back", "Back to setup")}</div></main>`);
 	render("Looking for models on this Mac…");

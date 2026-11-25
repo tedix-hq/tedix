@@ -112,7 +112,11 @@ const go = (id: SettingsSection) => {
 	void tedixShell.state().then(receive);
 };
 
-function fail(text: string | undefined, retry?: () => void): Child {
+function fail(
+	text: string | undefined,
+	retry?: () => void,
+	details?: string,
+): Child {
 	return (
 		text &&
 		el(
@@ -120,6 +124,11 @@ function fail(text: string | undefined, retry?: () => void): Child {
 			"fail",
 			el("span", "", text),
 			retry && button("Retry", "link", retry),
+			details &&
+				button("Details", "link", () => tedixShell.copy(details), false, {
+					done: "Details copied",
+					key: `details:${text}`,
+				}),
 		)
 	);
 }
@@ -164,7 +173,7 @@ function versionItem(now: PanelState): Item {
 			: update.kind === "done"
 				? update.text
 				: ready
-					? `Update ready · ${now.app.updateReady ?? `command-line tool ${now.app.cliOffer}`}`
+					? `Update ready${now.app.updateReady ? ` · ${now.app.updateReady}` : ""}`
 					: now.app.checked && now.app.checked !== "Up to date"
 						? now.app.checked
 						: ["Up to date", when(now.app.checkedAt)]
@@ -220,7 +229,7 @@ function problemItem(now: PanelState): Item | undefined {
 	const { cli } = now.setup;
 	const problems = [
 		cli.kind === "missing" &&
-			"Tedix's helper is missing. Install the app again.",
+			"Tedix could not finish setting up this Mac. Quit and open Tedix again; if this stays, install the app again.",
 		!(now.setup.signedIn && now.setup.app.state === "in") && "Not signed in.",
 		now.setup.reach !== "ok" &&
 			now.setup.reach !== "checking" &&
@@ -345,11 +354,17 @@ function plainUsage(text: string, toolName: string): string {
 
 /** What setup found on this Mac, to send when an agent will not connect. */
 const setupDetails = (now: PanelState): Item => ({
-	title: "Setup details",
-	sub: "What Tedix found on this Mac. Send it to us when an agent will not connect.",
+	title: "Get help",
+	sub:
+		now.helpNote ||
+		"If an agent will not connect, send Tedix support what Tedix found on this Mac. You see it and approve it before it is sent.",
 	control: [
+		button("Get help", "plain", () => tedixShell.action("get-help"), false, {
+			pending: "Opening…",
+			key: "get-help",
+		}),
 		button(
-			"Copy setup details",
+			"Copy details",
 			"quiet",
 			() => tedixShell.copy(now.setup.report),
 			false,
@@ -421,7 +436,7 @@ function tools(now: PanelState): Group[] {
 					!now.setup.signedIn,
 				),
 			],
-			below: fail(view.error, view.retry),
+			below: fail(view.error, view.retry, view.details),
 			words: "sign in add check",
 		};
 	});
@@ -479,8 +494,13 @@ function tools(now: PanelState): Group[] {
 						button("Choose…", "plain", () => act("choose-folder"), false, {
 							pending: "Choosing…",
 						}),
+						(now.setup.repo || now.setup.steps.folder?.error) &&
+							button("Use without a folder", "quiet", () =>
+								act("clear-folder"),
+							),
 					],
-					words: "repository repo",
+					below: fail(now.setup.steps.folder?.error),
+					words: "repository repo folder",
 				},
 				{
 					title: "Look for agents again",
@@ -515,7 +535,8 @@ function routingGroup(routing: Routing): Group {
 		...(clef
 			? [
 					{
-						title: "Clef picks the agent; rules are the backup.",
+						title:
+							"Tedix picks the best agent for each task. If it cannot, these rules decide.",
 						plain: true,
 						words: "clef routing",
 					},
@@ -523,10 +544,10 @@ function routingGroup(routing: Routing): Group {
 			: []),
 		{
 			title: same
-				? `${clef ? "Backup: every" : "Right now every"} task goes to ${toolNames(routing.rules[0]!.tools)}.`
+				? `${clef ? "Otherwise every" : "Right now every"} task goes to ${toolNames(routing.rules[0]!.tools)}.`
 				: clef
-					? "Backup: each kind of task goes to its own tool."
-					: "Each kind of task goes to its own tool.",
+					? "Otherwise each kind of task goes to its own agent."
+					: "Each kind of task goes to its own agent.",
 			plain: true,
 			sub: routing.file
 				? `Set on this Mac${changed ? ` on ${changed}` : ""}.`
@@ -593,6 +614,7 @@ function mac(now: PanelState): Group[] {
 				serving !== undefined && { title: "Name", control: [name] },
 				serving !== undefined && {
 					title: "Let tedis edit files and run commands",
+					sub: "Tedis are Tedix's own assistants. With this on, a tedi can change files and run commands for a task, in a work folder Tedix sets up for it on this Mac. Commands run as you, so they can reach what your Mac account can. Off: tedis can only read.",
 					control: [
 						toggle(
 							"Let tedis edit files and run commands",
