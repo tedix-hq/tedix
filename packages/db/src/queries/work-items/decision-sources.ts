@@ -1,5 +1,13 @@
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+} from "../../core-store/dialect";
+import { interactionAuditTime } from "./interaction-store";
 import { informationalCapture } from "@tedix/api-contract/utils/deck-ask";
-import { and, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import {
 	DecisionEnvelopeSchema,
 	DecisionSourcesSchema,
@@ -7,17 +15,22 @@ import {
 } from "@tedix/api-contract/schemas/os-decision-deck";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import type { DbQueryClient } from "../../query-client";
-import { auditEvents } from "../../schema/audit-events";
-import { tediEmailMessages, tediEmailThreads } from "../../schema/tedi-email";
+import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
+import {
+	tediEmailMessages as d1TediEmailMessages,
+	tediEmailThreads as d1TediEmailThreads,
+} from "../../schema/tedi-email";
 import { creditBudgetCardCurrent } from "./budgets";
-import { getWorkItemById } from "./crud";
 import {
 	decisionRelevantWorkComment,
 	decisionRelevantWorkCommentFields,
 } from "./comments";
-import { workItemComments, workItems } from "../../schema/work-items";
-import { workspaceOutputIndex } from "../../schema/workspace-feed";
-import { workInteractions } from "../../schema/work-factory";
+import {
+	workItemComments as d1WorkItemComments,
+	workItems as d1WorkItems,
+} from "../../schema/work-items";
+import { workspaceOutputIndex as d1WorkspaceOutputIndex } from "../../schema/workspace-feed";
+import { workInteractions as d1WorkInteractions } from "../../schema/work-factory";
 
 type Request = {
 	workItemId?: string | null;
@@ -98,6 +111,8 @@ export async function prefetchDecisionSources(
 	orgId: string,
 	requests: Request[],
 ): Promise<DecisionSourcePrefetch> {
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const workItems = coreTable(db, d1WorkItems);
 	const ids = [...new Set(requests.flatMap(citedWorkIds))];
 	const prefetch: DecisionSourcePrefetch = {
 		works: new Map(),
@@ -114,12 +129,7 @@ export async function prefetchDecisionSources(
 				executorId: workItems.executorId,
 			})
 			.from(workItems)
-			.where(
-				and(
-					eq(workItems.orgId, orgId),
-					sql`${workItems.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
-				),
-			),
+			.where(and(eq(workItems.orgId, orgId), anyIds(db, workItems.id, ids))),
 		db
 			.select({
 				workItemId: workItemComments.workItemId,
@@ -129,7 +139,7 @@ export async function prefetchDecisionSources(
 			.where(
 				and(
 					eq(workItemComments.orgId, orgId),
-					sql`${workItemComments.workItemId} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
+					anyIds(db, workItemComments.workItemId, ids),
 				),
 			)
 			.groupBy(workItemComments.workItemId),
@@ -150,6 +160,7 @@ async function prefetchChangedWorkComments(
 	requests: Request[],
 	prefetch: DecisionSourcePrefetch,
 ) {
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	const pins = requests.flatMap((request, requestIndex) => {
 		const envelope = DecisionEnvelopeSchema.safeParse(
 			request.metadata.decisionDeck,
@@ -179,24 +190,32 @@ async function prefetchChangedWorkComments(
 	const input = db.$with("changed_work_pins").as(
 		db
 			.selectDistinct({
-				requestIndex: sql<number>`json_extract(value, '$.requestIndex')`.as(
-					"request_index",
+				requestIndex:
+					sql<number>`${jsonRead(db, sql`value`, ["requestIndex"], "number")}`.as(
+						"request_index",
+					),
+				workId: sql<string>`${jsonRead(db, sql`value`, ["workId"])}`.as(
+					"work_id",
 				),
-				workId: sql<string>`json_extract(value, '$.workId')`.as("work_id"),
-				commentCount: sql<number>`json_extract(value, '$.commentCount')`.as(
-					"comment_count",
-				),
-				createdAt: sql<string | null>`json_extract(value, '$.createdAt')`.as(
-					"created_at",
-				),
+				commentCount:
+					sql<number>`${jsonRead(db, sql`value`, ["commentCount"], "number")}`.as(
+						"comment_count",
+					),
+				createdAt: sql<
+					string | null
+				>`${jsonRead(db, sql`value`, ["createdAt"])}`.as("created_at"),
 				creatorType: sql<
 					string | null
-				>`json_extract(value, '$.creatorType')`.as("creator_type"),
-				creatorId: sql<string | null>`json_extract(value, '$.creatorId')`.as(
-					"creator_id",
-				),
+				>`${jsonRead(db, sql`value`, ["creatorType"])}`.as("creator_type"),
+				creatorId: sql<
+					string | null
+				>`${jsonRead(db, sql`value`, ["creatorId"])}`.as("creator_id"),
 			})
-			.from(sql`json_each(${JSON.stringify(pins)})`),
+			.from(
+				coreStore(db) === "postgres"
+					? sql`jsonb_array_elements(${jsonParameter(db, pins)}) AS pins(value)`
+					: sql`json_each(${JSON.stringify(pins)})`,
+			),
 	);
 	const relevant = decisionRelevantWorkCommentFields({
 		createdAt: sql`${input.createdAt}`,
@@ -231,7 +250,7 @@ async function prefetchChangedWorkComments(
 	const latestComment = db
 		.select({
 			latest:
-				sql<string>`json_object('through', ${workItemComments.createdAt}, 'note', substr(${workItemComments.body}, 1, 600))`.as(
+				sql<string>`${coreStore(db) === "postgres" ? sql`jsonb_build_object('through', ${workItemComments.createdAt}, 'note', substr(${workItemComments.body}, 1, 600))::text` : sql`json_object('through', ${workItemComments.createdAt}, 'note', substr(${workItemComments.body}, 1, 600))`}`.as(
 					"latest",
 				),
 		})
@@ -288,7 +307,17 @@ async function citedWork(
 	prefetch?: DecisionSourcePrefetch,
 ) {
 	if (prefetch?.commentCounts.has(id)) return prefetch.works.get(id) ?? null;
-	return (await getWorkItemById(db, id, orgId)) ?? null;
+	const workItems = coreTable(db, d1WorkItems);
+	const [row] = await db
+		.select({
+			disposition: workItems.disposition,
+			version: workItems.version,
+			executorId: workItems.executorId,
+		})
+		.from(workItems)
+		.where(and(eq(workItems.id, id), eq(workItems.orgId, orgId)))
+		.limit(1);
+	return row ?? null;
 }
 
 export async function decisionSourcesReview(
@@ -408,6 +437,8 @@ export async function retireDecisionSourceCard(
 		now: string;
 	},
 ) {
+	const auditEvents = coreTable(db, d1AuditEvents);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const fence = crypto.randomUUID();
 	const [retired] = await db.batch([
 		db
@@ -440,10 +471,10 @@ export async function retireDecisionSourceCard(
 					resourceType: sql<string>`'work_interaction'`.as("resource_type"),
 					resourceId: workInteractions.id,
 					metadata:
-						sql<string>`${JSON.stringify({ reason: "decision_sources_changed", at: p.now })}`.as(
+						sql<string>`${jsonParameter(db, { reason: "decision_sources_changed", at: p.now })}`.as(
 							"metadata",
 						),
-					timestamp: sql<number>`${Math.floor(Date.parse(p.now) / 1000)}`.as(
+					timestamp: sql<number>`${interactionAuditTime(db, p.now)}`.as(
 						"timestamp",
 					),
 				})
@@ -490,6 +521,10 @@ async function decisionSourceMatches(
 	reviewedThrough?: string,
 	prefetch?: DecisionSourcePrefetch,
 ): Promise<boolean | { through: string; note: string }> {
+	const tediEmailMessages = coreTable(db, d1TediEmailMessages);
+	const tediEmailThreads = coreTable(db, d1TediEmailThreads);
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	switch (source.kind) {
 		case "work": {
 			const work = await citedWork(db, orgId, source.id, prefetch);

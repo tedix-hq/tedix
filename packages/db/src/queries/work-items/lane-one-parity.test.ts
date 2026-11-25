@@ -11,6 +11,13 @@ import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createPGliteFacade } from "../../test/pglite-facade";
 import { schemaDdl } from "../../test/schema-ddl";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
+import { workDue } from "../../schema/work-due";
+import {
+	externalAgentPrincipals,
+	externalAgentSessions,
+} from "../../schema/external-agent-identity";
+import { commitmentWakeOutbox } from "../../schema/work-items";
 import { organizations } from "../../schema/organizations";
 import { organizationMembers } from "../../schema/organization-members";
 import { tedis } from "../../schema/tedis";
@@ -31,8 +38,18 @@ import {
 	workInteractions,
 	workInteractionResponses,
 	workInteractionDeliveries,
+	workInteractionAttention,
+	workInteractionCardRevisions,
+	workInteractionReplyDrafts,
 } from "../../schema/work-factory";
 import { osGadgetExecutions, osWorkspaces } from "../../schema/os-workspaces";
+import {
+	listWorkInteractionInbox,
+	listLastRelatedDecisions,
+	setWorkInteractionAttention,
+	getWorkInteractionAttention,
+	getWorkInteraction,
+} from "./interactions";
 import {
 	listCardObjectives,
 	listCardSourceWorkFacts,
@@ -100,10 +117,27 @@ for (const store of ["d1", "postgres"] as const)
 					workInteractions,
 					workInteractionResponses,
 					workInteractionDeliveries,
+					workInteractionAttention,
+					workInteractionCardRevisions,
+					workInteractionReplyDrafts,
+					workDue,
+					externalAgentPrincipals,
+					externalAgentSessions,
+					commitmentWakeOutbox,
 					osWorkspaces,
 					osGadgetExecutions,
 				].forEach(include);
 				sqlite.exec(schemaDdl(...tables));
+				const migrated = createMigratedSqlite();
+				for (const row of migrated
+					.prepare(
+						"SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name LIKE 'work_interaction%'",
+					)
+					.all()) {
+					sqlite.exec(`DROP TRIGGER IF EXISTS "${row.name}"`);
+					sqlite.exec(String(row.sql));
+				}
+				migrated.close();
 				db = createDbQueryClient(
 					createD1Facade(sqlite, { maxBoundParams: 100 }),
 				);
@@ -121,6 +155,16 @@ for (const store of ["d1", "postgres"] as const)
 				},
 				{ id: "river", name: "River", slug: "river", metadata: {} },
 			]);
+			await db.insert(coreTable(db, organizationMembers)).values(
+				["reader", "someone"].map((id) => ({
+					id,
+					organizationId: "orchard",
+					userId: id,
+					descopeUserId: id,
+					email: `${id}@example.test`,
+				})),
+			);
+
 			await db.insert(coreTable(db, tedis)).values({
 				id: "gardener",
 				organizationId: "orchard",
@@ -197,7 +241,7 @@ for (const store of ["d1", "postgres"] as const)
 					orgId: "orchard",
 					workItemId: "source",
 					kind: "question",
-					status: "resolved",
+					status: "open",
 					subject: "Harvest?",
 					prompt: "Ready?",
 					creatorType: "user",
@@ -212,7 +256,7 @@ for (const store of ["d1", "postgres"] as const)
 					orgId: "orchard",
 					workItemId: "source",
 					kind: "question",
-					status: "resolved",
+					status: "open",
 					subject: "Private",
 					prompt: "Private",
 					creatorType: "user",
@@ -227,7 +271,7 @@ for (const store of ["d1", "postgres"] as const)
 					orgId: "orchard",
 					workItemId: "source",
 					kind: "question",
-					status: "cancelled",
+					status: "open",
 					subject: "  Harvest? ",
 					prompt: "Ready?",
 					creatorType: "user",
@@ -243,7 +287,7 @@ for (const store of ["d1", "postgres"] as const)
 					id: "answer",
 					orgId: "orchard",
 					interactionId: "card",
-					resolvedRequestVersion: 1,
+					resolvedRequestVersion: 2,
 					resolutionFence: "answer",
 					responderType: "user",
 					responderId: "reader",
@@ -257,7 +301,7 @@ for (const store of ["d1", "postgres"] as const)
 					id: "private-answer",
 					orgId: "orchard",
 					interactionId: "private",
-					resolvedRequestVersion: 1,
+					resolvedRequestVersion: 2,
 					resolutionFence: "private-answer",
 					responderType: "user",
 					responderId: "someone",
@@ -267,6 +311,16 @@ for (const store of ["d1", "postgres"] as const)
 					respondedAt: at,
 				},
 			]);
+			const interactions = coreTable(db, workInteractions);
+			await db
+				.update(interactions)
+				.set({
+					status: "cancelled",
+					cancelledAt: at,
+					resolutionFence: "cancel",
+					version: 2,
+				})
+				.where(eq(interactions.id, "refused"));
 		}, 30000);
 		afterAll(async () => {
 			await close?.();
@@ -304,7 +358,11 @@ for (const store of ["d1", "postgres"] as const)
 				).get("card"),
 			).toMatchObject({ blocksCount: 1, blocksRunning: true });
 			expect(await listDeckSweepOrganizations(db)).toEqual(["orchard"]);
-			expect(await listDeckSweepRecipients(db, "orchard", 10)).toEqual([]);
+			expect(
+				(await listDeckSweepRecipients(db, "orchard", 10))
+					.flatMap((row) => row.recipientIds)
+					.sort(),
+			).toEqual(["reader", "someone"]);
 			expect(
 				(
 					await listRecipientCards(db, {
@@ -414,6 +472,168 @@ for (const store of ["d1", "postgres"] as const)
 				}),
 			).toEqual([]);
 		});
+		it("pages native inbox rows without leaking generated fields and keeps attention scoped", async () => {
+			await setWorkInteractionAttention(db, {
+				orgId: "orchard",
+				interactionId: "card",
+				kind: "fyi",
+				need: null,
+				asks: 0,
+				decidedAt: at,
+			});
+			expect(
+				await getWorkInteractionAttention(db, {
+					orgId: "river",
+					interactionId: "card",
+				}),
+			).toBeNull();
+			const page = await listWorkInteractionInbox(db, {
+				orgId: "orchard",
+				targetType: "user",
+				targetId: "reader",
+				states: ["resolved"],
+				subjectSearch: "HARVEST",
+				urgency: "later",
+				observedAt: at,
+			});
+			expect(page.data).toHaveLength(1);
+			expect(page.data[0]).toMatchObject({
+				request: { id: "card", metadata: { host: "codex" } },
+				effectiveState: "resolved",
+				responseCount: 1,
+				attentionKind: "fyi",
+			});
+			expect(page.data[0]!.request).not.toHaveProperty("source");
+			expect(page.data[0]!.request).not.toHaveProperty("delegatedOwnerId");
+			expect(
+				(
+					await getWorkInteraction(db, {
+						orgId: "orchard",
+						interactionId: "card",
+					})
+				)?.metadata.host,
+			).toBe("codex");
+		});
+
+		it("guards responses, rolls back a later write failure and maintains related history and wake projections", async () => {
+			const requests = coreTable(db, workInteractions);
+			const responses = coreTable(db, workInteractionResponses);
+			const source = {
+				kind: "output",
+				id: "harvest-plan",
+				revisionId: "draft",
+			};
+			await db.insert(requests).values({
+				id: "guarded",
+				orgId: "orchard",
+				workItemId: "source",
+				kind: "question",
+				subject: "Approve harvest",
+				prompt: "Ready?",
+				creatorType: "user",
+				creatorId: "reader",
+				targetType: "user",
+				targetId: "reader",
+				createdAt: at,
+				metadata: { decisionSources: [source] },
+			});
+			const reply = {
+				id: "guarded-answer",
+				orgId: "orchard",
+				interactionId: "guarded",
+				resolvedRequestVersion: 2,
+				resolutionFence: "guarded-answer",
+				responderType: "user" as const,
+				responderId: "reader",
+				responseKind: "answer" as const,
+				body: "Yes",
+				resolvesRequest: true,
+				respondedAt: "2026-11-25T14:00:00.000Z",
+			};
+			await expect(
+				db
+					.insert(responses)
+					.values({ ...reply, id: "wrong-reader", responderId: "someone" }),
+			).rejects.toThrow();
+			await expect(
+				db.batch([
+					db.insert(responses).values(reply),
+					db.insert(responses).values({ ...reply, id: "stale-answer" }),
+				]),
+			).rejects.toThrow();
+			expect(
+				await getWorkInteraction(db, {
+					orgId: "orchard",
+					interactionId: "guarded",
+				}),
+			).toMatchObject({ status: "open", version: 1 });
+			expect(
+				await db
+					.select({ id: responses.id })
+					.from(responses)
+					.where(eq(responses.interactionId, "guarded")),
+			).toEqual([]);
+			await db.insert(responses).values(reply);
+			expect(
+				await getWorkInteraction(db, {
+					orgId: "orchard",
+					interactionId: "guarded",
+				}),
+			).toMatchObject({
+				status: "resolved",
+				version: 2,
+				resolutionFence: reply.resolutionFence,
+			});
+			await expect(
+				db
+					.update(requests)
+					.set({ prompt: "Changed" })
+					.where(eq(requests.id, "guarded")),
+			).rejects.toThrow();
+			await expect(
+				db.delete(responses).where(eq(responses.id, reply.id)),
+			).rejects.toThrow();
+			await db.insert(requests).values({
+				id: "related",
+				orgId: "orchard",
+				projectId: "trees",
+				kind: "question",
+				subject: "Next harvest",
+				prompt: "Ready?",
+				creatorType: "user",
+				creatorId: "reader",
+				targetType: "user",
+				targetId: "reader",
+				createdAt: at,
+				metadata: { decisionSources: [source] },
+			});
+			expect(
+				await listLastRelatedDecisions(db, "orchard", [
+					...Array.from({ length: 150 }, (_, i) => `missing-${i}`),
+					"related",
+				]),
+			).toMatchObject([
+				{
+					interactionId: "related",
+					decision: { requestId: "guarded", body: "Yes" },
+				},
+			]);
+			const due = coreTable(db, workDue);
+			expect(
+				await db
+					.select({ kind: due.kind })
+					.from(due)
+					.where(eq(due.objectId, "guarded")),
+			).toContainEqual({ kind: "interaction-review-dispatch" });
+			const outbox = coreTable(db, commitmentWakeOutbox);
+			expect(
+				await db
+					.select({ sourceId: outbox.sourceId })
+					.from(outbox)
+					.where(eq(outbox.sourceId, reply.id)),
+			).toEqual([{ sourceId: reply.id }]);
+		});
+
 		it("reads Attention aggregates, boolean JSON and project briefs with tenant boundaries", async () => {
 			expect(await attentionProjectExists(db, "river", "trees")).toBe(false);
 			expect((await attentionProjectBriefs(db, "orchard"))[0]).toMatchObject({

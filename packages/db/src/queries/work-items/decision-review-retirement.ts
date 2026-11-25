@@ -1,11 +1,16 @@
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+} from "../../core-store/dialect";
+import { interactionColumns, interactionAuditTime } from "./interaction-store";
 import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { isFactsChangedReview } from "@tedix/api-contract/utils/deck-action-boundary";
 import type { DbQueryClient } from "../../query-client";
-import { auditEvents } from "../../schema/audit-events";
-import {
-	workInteractions,
-	workInteractionStoredColumns,
-} from "../../schema/work-factory";
+import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
+import { workInteractions as d1WorkInteractions } from "../../schema/work-factory";
 
 /** Also follows the original card's Work link for project-filed legacy reviews. */
 export async function retireDecisionReviews(
@@ -14,6 +19,7 @@ export async function retireDecisionReviews(
 		orgId: string;
 		now: string;
 		originalId?: string;
+		originalIds?: readonly string[];
 		workItemId?: string;
 		dismiss?: {
 			id: string;
@@ -24,9 +30,11 @@ export async function retireDecisionReviews(
 		};
 	},
 ) {
+	const auditEvents = coreTable(db, d1AuditEvents);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const terminal = sql`EXISTS (SELECT 1 FROM work_interactions original
 		WHERE original.org_id=${workInteractions.orgId}
-		AND original.id=json_extract(${workInteractions.metadata},'$.replacesDecisionId')
+		AND original.id=${jsonRead(db, workInteractions.metadata, ["replacesDecisionId"])}
 		AND (original.status IN ('resolved','cancelled','expired') OR EXISTS (
 			SELECT 1 FROM work_items w WHERE w.org_id=original.org_id
 			AND w.id=original.work_item_id AND w.disposition IN ('completed','cancelled'))))
@@ -35,12 +43,19 @@ export async function retireDecisionReviews(
 	const scope = and(
 		eq(workInteractions.orgId, p.orgId),
 		eq(workInteractions.status, "open"),
-		sql`json_extract(${workInteractions.metadata},'$.decisionDeck.classId')='decision-facts-changed'`,
+		sql`${jsonRead(db, workInteractions.metadata, ["decisionDeck", "classId"])}='decision-facts-changed'`,
 		p.originalId
-			? sql`json_extract(${workInteractions.metadata},'$.replacesDecisionId')=${p.originalId}`
+			? sql`${jsonRead(db, workInteractions.metadata, ["replacesDecisionId"])}=${p.originalId}`
+			: undefined,
+		p.originalIds
+			? anyIds(
+					db,
+					jsonRead(db, workInteractions.metadata, ["replacesDecisionId"]),
+					p.originalIds,
+				)
 			: undefined,
 		p.workItemId
-			? sql`(${workInteractions.workItemId}=${p.workItemId} OR EXISTS (SELECT 1 FROM work_interactions original WHERE original.org_id=${p.orgId} AND original.id=json_extract(${workInteractions.metadata},'$.replacesDecisionId') AND original.work_item_id=${p.workItemId}))`
+			? sql`(${workInteractions.workItemId}=${p.workItemId} OR EXISTS (SELECT 1 FROM work_interactions original WHERE original.org_id=${p.orgId} AND original.id=${jsonRead(db, workInteractions.metadata, ["replacesDecisionId"])} AND original.work_item_id=${p.workItemId}))`
 			: undefined,
 		p.dismiss
 			? and(
@@ -53,20 +68,21 @@ export async function retireDecisionReviews(
 	let after: string | undefined;
 	while (true) {
 		const rows = await db
-			.select(workInteractionStoredColumns)
+			.select(interactionColumns(db))
 			.from(workInteractions)
 			.where(and(scope, after ? gt(workInteractions.id, after) : undefined))
 			.orderBy(asc(workInteractions.id))
 			.limit(50);
 		if (!rows.length) break;
 		after = rows[rows.length - 1]!.id;
+		const statements = [];
 		for (const row of rows) {
 			if (!isFactsChangedReview(row)) continue;
 			const fence = crypto.randomUUID();
 			const reason = p.dismiss
 				? "review_dismissed"
 				: "earlier_decision_or_work_closed";
-			const [closed] = await db.batch([
+			statements.push(
 				db
 					.update(workInteractions)
 					.set({
@@ -80,7 +96,9 @@ export async function retireDecisionReviews(
 							scope,
 							eq(workInteractions.id, row.id),
 							eq(workInteractions.version, row.version),
-							sql`json(${workInteractions.metadata})=json(${JSON.stringify(row.metadata)})`,
+							coreStore(db) === "postgres"
+								? sql`${workInteractions.metadata}=${jsonParameter(db, row.metadata)}`
+								: sql`json(${workInteractions.metadata})=json(${JSON.stringify(row.metadata)})`,
 						),
 					)
 					.returning({ id: workInteractions.id }),
@@ -99,13 +117,12 @@ export async function retireDecisionReviews(
 							resourceType: sql<string>`'work_interaction'`.as("resource_type"),
 							resourceId: workInteractions.id,
 							metadata:
-								sql<string>`${JSON.stringify({ reason, replacesDecisionId: row.metadata.replacesDecisionId, workItemId: p.workItemId ?? row.workItemId, note: p.dismiss?.note ?? "The earlier decision or its Work closed; this review approves no action." })}`.as(
+								sql<string>`${jsonParameter(db, { reason, replacesDecisionId: row.metadata.replacesDecisionId, workItemId: p.workItemId ?? row.workItemId, note: p.dismiss?.note ?? "The earlier decision or its Work closed; this review approves no action." })}`.as(
 									"metadata",
 								),
-							timestamp:
-								sql<number>`${Math.floor(Date.parse(p.now) / 1000)}`.as(
-									"timestamp",
-								),
+							timestamp: sql<number>`${interactionAuditTime(db, p.now)}`.as(
+								"timestamp",
+							),
 						})
 						.from(workInteractions)
 						.where(
@@ -116,8 +133,16 @@ export async function retireDecisionReviews(
 							),
 						),
 				),
-			]);
-			retired += closed.length;
+			);
+		}
+		if (statements.length) {
+			const results = await db.batch(
+				statements as [(typeof statements)[number], ...typeof statements],
+			);
+			for (let index = 0; index < results.length; index += 2) {
+				const closed = results[index];
+				if (Array.isArray(closed)) retired += closed.length;
+			}
 		}
 	}
 	return retired;

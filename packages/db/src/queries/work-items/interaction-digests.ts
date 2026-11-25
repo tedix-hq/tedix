@@ -1,12 +1,20 @@
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
+import { interactionColumns } from "./interaction-store";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
-	workInteractions,
-	workInteractionStoredColumns,
+	workInteractions as d1WorkInteractions,
 	type WorkInteraction,
 } from "../../schema/work-factory";
-import { requireWorkItem } from "./factory-validation";
+import { WorkControlError } from "./factory-validation";
+import { workItems as d1WorkItems } from "../../schema/work-items";
 import { nudgeLaneHandoffs } from "./lane-handoffs";
 
 /** Four-hour digests, with overnight preparation held for the 08:00 UTC brief. */
@@ -23,57 +31,90 @@ export async function flushWorkInteractionDigests(
 	db: DbQueryClient,
 	now: string,
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const workItems = coreTable(db, d1WorkItems);
 	await nudgeLaneHandoffs(db, now);
 	const nearDeadline = new Date(Date.parse(now) + 86_400_000).toISOString();
 	const slotStart = new Date(
 		Math.floor(Date.parse(now) / 14_400_000) * 14_400_000,
 	).toISOString();
 	const rows = await db
-		.select(workInteractionStoredColumns)
+		.select({
+			...interactionColumns(db),
+			sourceDisposition: sql<string | null>`${workItems.disposition}`.as(
+				"source_disposition",
+			),
+			sourceDeadline: sql<string | null>`${workItems.deadline}`.as(
+				"source_deadline",
+			),
+			sourceDueDate: sql<string | null>`${workItems.dueDate}`.as(
+				"source_due_date",
+			),
+		})
 		.from(workInteractions)
+		.leftJoin(
+			workItems,
+			and(
+				eq(workItems.orgId, workInteractions.orgId),
+				eq(workItems.id, workInteractions.workItemId),
+			),
+		)
 		.where(
 			and(
 				eq(workInteractions.status, "open"),
 				eq(workInteractions.targetType, "user"),
-				sql`json_extract(${workInteractions.metadata},'$.notification.state')='deferred'`,
+				sql`${jsonRead(db, workInteractions.metadata, ["notification", "state"])}='deferred'`,
 				sql`(${workInteractions.expiresAt}<=${now} OR ${workInteractions.dueAt}<${nearDeadline}
 					OR EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND (w.disposition IN ('completed','cancelled') OR coalesce(w.deadline,w.due_date)<${nearDeadline}))
-					OR (json_extract(${workInteractions.metadata},'$.notification.deliverAt')<=${now} AND NOT EXISTS (SELECT 1 FROM work_interactions digest WHERE digest.org_id=${workInteractions.orgId} AND digest.target_id=${workInteractions.targetId} AND json_extract(digest.metadata,'$.notification.state')='digest' AND digest.created_at>=${slotStart})))`,
+					OR (${jsonRead(db, workInteractions.metadata, ["notification", "deliverAt"])}<=${now} AND NOT EXISTS (SELECT 1 FROM work_interactions digest WHERE digest.org_id=${workInteractions.orgId} AND digest.target_id=${workInteractions.targetId} AND ${jsonRead(db, sql`digest.metadata`, ["notification", "state"])}='digest' AND digest.created_at>=${slotStart})))`,
 			),
 		)
 		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
 		.limit(100);
 	const groups = new Map<string, WorkInteraction[]>();
+	const statements = [];
+	const digestIndexes: number[] = [];
 	let suppressed = 0,
 		escalated = 0,
 		digests = 0;
 	for (const row of rows) {
-		const work = row.workItemId
-			? await requireWorkItem(db, row.orgId, row.workItemId)
-			: null;
+		if (row.workItemId && row.sourceDisposition === null)
+			throw new WorkControlError("NOT_FOUND", "Work item not found");
 		const obsolete =
 			(row.expiresAt !== null && row.expiresAt <= now) ||
-			work?.disposition === "completed" ||
-			work?.disposition === "cancelled";
-		const deadline = [row.dueAt, work?.deadline, work?.dueDate]
+			row.sourceDisposition === "completed" ||
+			row.sourceDisposition === "cancelled";
+		const deadline = [row.dueAt, row.sourceDeadline, row.sourceDueDate]
 			.filter((at): at is string => Boolean(at))
 			.sort()[0];
 		const urgent = Boolean(
 			deadline && Date.parse(deadline) - Date.parse(now) < 86_400_000,
 		);
 		if (obsolete || urgent) {
-			await db
-				.update(workInteractions)
-				.set({
-					metadata: sql`json_set(${workInteractions.metadata},'$.notification.state',${obsolete ? "suppressed" : "immediate"},'$.notification.reason',${obsolete ? "already_handled" : "deadline_under_24h"})`,
-				})
-				.where(
-					and(
-						eq(workInteractions.orgId, row.orgId),
-						eq(workInteractions.id, row.id),
-						eq(workInteractions.status, "open"),
+			statements.push(
+				db
+					.update(workInteractions)
+					.set({
+						metadata: jsonWrite(
+							db,
+							jsonWrite(
+								db,
+								workInteractions.metadata,
+								["notification", "state"],
+								obsolete ? "suppressed" : "immediate",
+							),
+							["notification", "reason"],
+							obsolete ? "already_handled" : "deadline_under_24h",
+						),
+					})
+					.where(
+						and(
+							eq(workInteractions.orgId, row.orgId),
+							eq(workInteractions.id, row.id),
+							eq(workInteractions.status, "open"),
+						),
 					),
-				);
+			);
 			if (obsolete) suppressed++;
 			else escalated++;
 			continue;
@@ -104,7 +145,8 @@ export async function flushWorkInteractionDigests(
 		const ids = group.map((row) => row.id);
 		// The membership test prevents a racing tick from claiming rows omitted
 		// from the winning digest. A late arrival waits for the following slot.
-		const [created] = await db.batch([
+		digestIndexes.push(statements.length);
+		statements.push(
 			db
 				.insert(workInteractions)
 				.select(
@@ -130,12 +172,12 @@ export async function flushWorkInteractionDigests(
 									"subject",
 								),
 							prompt:
-								sql<string>`group_concat('- ' || ${workInteractions.subject} || ': ' || substr(${workInteractions.prompt},1,500) || char(10) || 'Request: ' || ${workInteractions.id}, char(10))`.as(
+								sql<string>`${coreStore(db) === "postgres" ? sql`string_agg` : sql`group_concat`}('- ' || ${workInteractions.subject} || ': ' || substr(${workInteractions.prompt},1,500) || ${coreStore(db) === "postgres" ? sql`chr(10)` : sql`char(10)`} || 'Request: ' || ${workInteractions.id}, ${coreStore(db) === "postgres" ? sql`chr(10)` : sql`char(10)`})`.as(
 									"prompt",
 								),
 							metadata: sql<
 								Record<string, JsonValue>
-							>`json_object('notification',json_object('state','digest','requestIds',json_group_array(${workInteractions.id})))`.as(
+							>`${coreStore(db) === "postgres" ? sql`jsonb_build_object('notification',jsonb_build_object('state','digest','requestIds',jsonb_agg(${workInteractions.id})))` : sql`json_object('notification',json_object('state','digest','requestIds',json_group_array(${workInteractions.id})))`}`.as(
 								"metadata",
 							),
 							createdAt: sql<string>`${now}`.as("created_at"),
@@ -146,10 +188,10 @@ export async function flushWorkInteractionDigests(
 								eq(workInteractions.orgId, first.orgId),
 								eq(workInteractions.targetId, first.targetId!),
 								eq(workInteractions.status, "open"),
-								sql`json_extract(${workInteractions.metadata},'$.notification.state')='deferred'`,
+								sql`${jsonRead(db, workInteractions.metadata, ["notification", "state"])}='deferred'`,
 								sql`(${workInteractions.dueAt} IS NULL OR ${workInteractions.dueAt}>=${nearDeadline})`,
 								// bound-params: at most 20 digest members
-								inArray(workInteractions.id, ids),
+								anyIds(db, workInteractions.id, ids),
 								sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${now})`,
 								sql`NOT EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND (w.disposition IN ('completed','cancelled') OR coalesce(w.deadline,w.due_date)<${nearDeadline}))`,
 							),
@@ -158,24 +200,40 @@ export async function flushWorkInteractionDigests(
 				)
 				.onConflictDoNothing()
 				.returning({ id: workInteractions.id }),
-			...group.map((row) =>
-				db
-					.update(workInteractions)
-					.set({
-						metadata: sql`json_set(${workInteractions.metadata},'$.notification.state','bundled','$.notification.digestId',${id})`,
-					})
-					.where(
-						and(
-							eq(workInteractions.orgId, row.orgId),
-							eq(workInteractions.id, row.id),
-							eq(workInteractions.status, "open"),
-							sql`json_extract(${workInteractions.metadata},'$.notification.state')='deferred'`,
-							sql`EXISTS (SELECT 1 FROM work_interactions digest, json_each(digest.metadata,'$.notification.requestIds') member WHERE digest.org_id=${row.orgId} AND digest.id=${id} AND member.value=${row.id})`,
+			db
+				.update(workInteractions)
+				.set({
+					metadata: jsonWrite(
+						db,
+						jsonWrite(
+							db,
+							workInteractions.metadata,
+							["notification", "state"],
+							"bundled",
 						),
+						["notification", "digestId"],
+						id,
 					),
-			),
-		]);
-		digests += created.length;
+				})
+				.where(
+					and(
+						eq(workInteractions.orgId, first.orgId),
+						anyIds(db, workInteractions.id, ids),
+						eq(workInteractions.status, "open"),
+						sql`${jsonRead(db, workInteractions.metadata, ["notification", "state"])}='deferred'`,
+						sql`EXISTS (SELECT 1 FROM work_interactions digest, ${coreStore(db) === "postgres" ? sql`jsonb_array_elements_text(${jsonRead(db, sql`digest.metadata`, ["notification", "requestIds"], "json")}) AS member(value)` : sql`json_each(digest.metadata,'$.notification.requestIds') member`} WHERE digest.org_id=${first.orgId} AND digest.id=${id} AND member.value=${workInteractions.id})`,
+					),
+				),
+		);
+	}
+	if (statements.length) {
+		const results = await db.batch(
+			statements as [(typeof statements)[number], ...typeof statements],
+		);
+		for (const index of digestIndexes) {
+			const created = results[index];
+			if (Array.isArray(created)) digests += created.length;
+		}
 	}
 	return { digests, suppressed, escalated };
 }

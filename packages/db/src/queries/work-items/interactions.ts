@@ -1,3 +1,20 @@
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	booleanValue,
+	containsText,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
+import {
+	interactionAuditTime,
+	interactionDay,
+	interactionColumns,
+	interactionJsonType,
+	removeInteractionPaths,
+} from "./interaction-store";
 import { advancePlatformCronCheckpoint } from "../platform-cron-executions";
 import { WorkInteractionConditionSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { buildWorkDecisionContinuationStatement } from "./comments";
@@ -31,16 +48,18 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
-import { agentSessionRequests } from "../../schema/agent-session-requests";
+import { agentSessionRequests as d1AgentSessionRequests } from "../../schema/agent-session-requests";
 import { nextInteractionDigestAt } from "./interaction-digests";
-import { workItems, workItemComments } from "../../schema/work-items";
 import {
-	workInteractionAttention,
-	workInteractionDeliveries,
-	workInteractionResponses,
-	workInteractionDecisionHistory,
-	workInteractions,
-	workInteractionStoredColumns,
+	workItems as d1WorkItems,
+	workItemComments as d1WorkItemComments,
+} from "../../schema/work-items";
+import {
+	workInteractionAttention as d1WorkInteractionAttention,
+	workInteractionDeliveries as d1WorkInteractionDeliveries,
+	workInteractionResponses as d1WorkInteractionResponses,
+	workInteractionDecisionHistory as d1WorkInteractionDecisionHistory,
+	workInteractions as d1WorkInteractions,
 	type WorkInteraction,
 	type WorkInteractionKind,
 	type WorkInteractionResponse,
@@ -48,8 +67,7 @@ import {
 	type WorkInteractionTargetType,
 } from "../../schema/work-factory";
 import { prefixedColumns } from "../../utils/select";
-import { chunkForBoundParams } from "../../utils/batch";
-import { policyPacks } from "../../schema/control-plane";
+import { policyPacks as d1PolicyPacks } from "../../schema/control-plane";
 import {
 	COORDINATION_TTL_DEFAULT_HOURS,
 	COORDINATION_TTL_MAX_HOURS,
@@ -66,13 +84,13 @@ import {
 	DecisionEnvelopeSchema,
 	matchesDeckClass,
 } from "@tedix/api-contract/schemas/os-decision-deck";
-import { auditEvents } from "../../schema/audit-events";
-import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
-import { organizations } from "../../schema/organizations";
-import { tedis } from "../../schema/tedis";
+import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
+import { platformCronCheckpoints as d1PlatformCronCheckpoints } from "../../schema/platform-cron-executions";
+import { organizations as d1Organizations } from "../../schema/organizations";
+import { tedis as d1Tedis } from "../../schema/tedis";
 
 export type WorkInteractionAttentionRow =
-	typeof workInteractionAttention.$inferSelect;
+	typeof d1WorkInteractionAttention.$inferSelect;
 import {
 	WorkControlError,
 	requireActivePrincipal,
@@ -131,6 +149,7 @@ export async function createWorkInteraction(
 	db: DbQueryClient,
 	p: CreateWorkInteractionParams,
 ): Promise<WorkInteraction> {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	if (!p.workItemId && !p.caseId && !p.projectId)
 		throw new WorkControlError(
 			"NOT_FOUND",
@@ -264,20 +283,20 @@ export async function createWorkInteraction(
 		sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
 		eq(workInteractions.creatorType, p.creator.type),
 		eq(workInteractions.creatorId, p.creator.id),
-		sql`${workInteractions.creatorSessionId} IS ${creatorSessionId}`,
-		sql`${workInteractions.creatorExternalSessionKey} IS ${p.creator.externalSessionKey ?? null}`,
-		sql`${workInteractions.workItemId} IS ${p.workItemId ?? null}`,
-		sql`${workInteractions.caseId} IS ${p.caseId ?? null}`,
-		sql`${workInteractions.projectId} IS ${p.projectId ?? null}`,
+		sql`${workInteractions.creatorSessionId} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${creatorSessionId}`,
+		sql`${workInteractions.creatorExternalSessionKey} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${p.creator.externalSessionKey ?? null}`,
+		sql`${workInteractions.workItemId} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${p.workItemId ?? null}`,
+		sql`${workInteractions.caseId} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${p.caseId ?? null}`,
+		sql`${workInteractions.projectId} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${p.projectId ?? null}`,
 		eq(workInteractions.targetType, p.targetType),
 		eq(workInteractions.targetId, p.targetId),
 		eq(workInteractions.kind, p.kind),
 		eq(workInteractions.subject, p.subject),
 		eq(workInteractions.prompt, p.prompt),
-		sql`json_remove(${workInteractions.metadata}, '$.notification', '$.followThrough') = json_remove(${JSON.stringify(metadata)}, '$.notification', '$.followThrough')`,
+		sql`${removeInteractionPaths(db, workInteractions.metadata, [["notification"], ["followThrough"]])} = ${removeInteractionPaths(db, jsonParameter(db, metadata), [["notification"], ["followThrough"]])}`,
 		p.metadata?.blockerRouting
 			? undefined
-			: sql`${workInteractions.dueAt} IS ${p.dueAt ?? null} AND ${workInteractions.expiresAt} IS ${p.expiresAt ?? null}`,
+			: sql`${workInteractions.dueAt} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${p.dueAt ?? null} AND ${workInteractions.expiresAt} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${p.expiresAt ?? null}`,
 	);
 	const dedupe = ["question", "input"].includes(p.kind);
 	const created = (
@@ -318,7 +337,9 @@ export async function createWorkInteraction(
 						resolutionFence: sql<null>`NULL`.as("resolution_fence"),
 						createdAt: sql<string>`${p.now}`.as("created_at"),
 						version: sql<number>`1`.as("version"),
-						metadata: sql<string>`${JSON.stringify(metadata)}`.as("metadata"),
+						metadata: sql<string>`${jsonParameter(db, metadata)}`.as(
+							"metadata",
+						),
 					})
 					.from(sql`(SELECT 1)`)
 					.where(
@@ -330,11 +351,11 @@ export async function createWorkInteraction(
 			.onConflictDoNothing({
 				target: [workInteractions.orgId, workInteractions.id],
 			})
-			.returning(workInteractionStoredColumns)
+			.returning(interactionColumns(db))
 	)[0];
 	if (!created && dedupe) {
 		const [existing] = await db
-			.select(workInteractionStoredColumns)
+			.select(interactionColumns(db))
 			.from(workInteractions)
 			.where(equivalent)
 			.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
@@ -380,6 +401,7 @@ interface RepositoryCiAlertParams {
 }
 
 function repositoryCiScope(
+	db: DbQueryClient,
 	w: {
 		orgId: SQLWrapper;
 		projectId: SQLWrapper;
@@ -392,10 +414,10 @@ function repositoryCiScope(
 		eq(w.orgId, p.orgId),
 		eq(w.projectId, p.projectId),
 		sql`${w.repositoryObserver}=1`,
-		sql`json_extract(${w.metadata}, '$.event.kind')='ci_red'`,
-		sql`json_extract(${w.metadata}, '$.event.repository')=${p.repository}`,
-		sql`json_extract(${w.metadata}, '$.event.branch')=${p.branch}`,
-		sql`json_extract(${w.metadata}, '$.event.surface')=${p.surface}`,
+		sql`${jsonRead(db, w.metadata, ["event", "kind"])}='ci_red'`,
+		sql`${jsonRead(db, w.metadata, ["event", "repository"])}=${p.repository}`,
+		sql`${jsonRead(db, w.metadata, ["event", "branch"])}=${p.branch}`,
+		sql`${jsonRead(db, w.metadata, ["event", "surface"])}=${p.surface}`,
 	);
 }
 
@@ -410,6 +432,8 @@ export async function createRepositoryCiAlert(
 		prompt: string;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	await validateActor(db, p.orgId, { type: "tedi", id: p.ownerTediId });
 	await requireActivePrincipal(db, {
 		orgId: p.orgId,
@@ -452,15 +476,19 @@ export async function createRepositoryCiAlert(
 					targetType: sql<"user">`'user'`.as("target_type"),
 					targetId: sql<string>`${p.escalationUserId}`.as("target_id"),
 					createdAt: sql<string>`${p.now}`.as("created_at"),
-					metadata: sql<Record<string, JsonValue>>`${metadata}`.as("metadata"),
+					metadata: sql<
+						Record<string, JsonValue>
+					>`${coreStore(db) === "postgres" ? sql`${metadata}::jsonb` : sql`${metadata}`}`.as(
+						"metadata",
+					),
 				})
 				.from(w)
 				.where(
 					and(
-						repositoryCiScope(w, p),
+						repositoryCiScope(db, w, p),
 						eq(w.id, p.workItemId),
 						inArray(w.disposition, ["proposed", "accepted"]),
-						sql`json_extract(${w.metadata}, '$.ciRecoveredAt') IS NULL`,
+						sql`${jsonRead(db, w.metadata, ["ciRecoveredAt"])} IS NULL`,
 						notExists(
 							db
 								.select({ one: sql`1` })
@@ -471,10 +499,10 @@ export async function createRepositoryCiAlert(
 								)
 								.where(
 									and(
-										repositoryCiScope(open, p),
+										repositoryCiScope(db, open, p),
 										eq(a.status, "open"),
 										eq(a.kind, "coordination"),
-										sql`json_extract(${a.metadata}, '$.reason')=${ciAlertReason}`,
+										sql`${jsonRead(db, a.metadata, ["reason"])}=${ciAlertReason}`,
 									),
 								),
 						),
@@ -505,11 +533,13 @@ export async function refreshRepositoryCiAlerts(
 	db: DbQueryClient,
 	p: RepositoryCiAlertParams & { green: boolean },
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const scope = and(
 		eq(workInteractions.orgId, p.orgId),
 		eq(workInteractions.kind, "coordination"),
 		eq(workInteractions.status, "open"),
-		sql`json_extract(${workInteractions.metadata}, '$.reason')=${ciAlertReason}`,
+		sql`${jsonRead(db, workInteractions.metadata, ["reason"])}=${ciAlertReason}`,
 		eq(workInteractions.creatorType, "tedi"),
 		eq(workInteractions.creatorId, p.ownerTediId),
 		eq(workInteractions.targetType, "user"),
@@ -525,10 +555,10 @@ export async function refreshRepositoryCiAlerts(
 						eq(workItems.orgId, p.orgId),
 						eq(workItems.projectId, p.projectId),
 						sql`${workItems.repositoryObserver}=1`,
-						sql`json_extract(${workItems.metadata}, '$.event.kind')='ci_red'`,
-						sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
-						sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
-						sql`json_extract(${workItems.metadata}, '$.event.surface')=${p.surface}`,
+						sql`${jsonRead(db, workItems.metadata, ["event", "kind"])}='ci_red'`,
+						sql`${jsonRead(db, workItems.metadata, ["event", "repository"])}=${p.repository}`,
+						sql`${jsonRead(db, workItems.metadata, ["event", "branch"])}=${p.branch}`,
+						sql`${jsonRead(db, workItems.metadata, ["event", "surface"])}=${p.surface}`,
 					),
 				),
 		),
@@ -537,10 +567,15 @@ export async function refreshRepositoryCiAlerts(
 		return db
 			.update(workInteractions)
 			.set({
-				metadata: sql`json_set(${workInteractions.metadata}, '$.notification.refreshedAt', ${p.now})`,
+				metadata: jsonWrite(
+					db,
+					workInteractions.metadata,
+					["notification", "refreshedAt"],
+					p.now,
+				),
 			})
 			.where(scope)
-			.returning(workInteractionStoredColumns);
+			.returning(interactionColumns(db));
 	return closeClearedInteractions(db, scope!, p.now, "CI checks are green.");
 }
 
@@ -556,14 +591,16 @@ function interactionCondition(row: WorkInteraction) {
 	return undefined;
 }
 
-function clearingCondition() {
-	const kind = sql`CASE WHEN json_type(${workInteractions.metadata}, '$.resolveWhen') IS NOT NULL
-		THEN json_extract(${workInteractions.metadata}, '$.resolveWhen.kind')
-		WHEN json_type(${workInteractions.metadata}, '$.blockerWorkItemId')='text' THEN 'blocker_resolved'
-		WHEN ${workInteractions.kind}='coordination' AND json_extract(${workInteractions.metadata}, '$.reason')=${ciAlertReason} THEN 'ci_green' END`;
-	const workId = sql`CASE WHEN json_type(${workInteractions.metadata}, '$.resolveWhen') IS NOT NULL
-		THEN json_extract(${workInteractions.metadata}, '$.resolveWhen.workItemId')
-		WHEN json_type(${workInteractions.metadata}, '$.blockerWorkItemId')='text' THEN json_extract(${workInteractions.metadata}, '$.blockerWorkItemId')
+function clearingCondition(db: DbQueryClient) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const kind = sql`CASE WHEN ${interactionJsonType(db, workInteractions.metadata, ["resolveWhen"])} IS NOT NULL
+		THEN ${jsonRead(db, workInteractions.metadata, ["resolveWhen", "kind"])}
+		WHEN ${interactionJsonType(db, workInteractions.metadata, ["blockerWorkItemId"])}='text' THEN 'blocker_resolved'
+		WHEN ${workInteractions.kind}='coordination' AND ${jsonRead(db, workInteractions.metadata, ["reason"])}=${ciAlertReason} THEN 'ci_green' END`;
+	const workId = sql`CASE WHEN ${interactionJsonType(db, workInteractions.metadata, ["resolveWhen"])} IS NOT NULL
+		THEN ${jsonRead(db, workInteractions.metadata, ["resolveWhen", "workItemId"])}
+		WHEN ${interactionJsonType(db, workInteractions.metadata, ["blockerWorkItemId"])}='text' THEN ${jsonRead(db, workInteractions.metadata, ["blockerWorkItemId"])}
 		ELSE ${workInteractions.workItemId} END`;
 	return sql`EXISTS (SELECT 1 FROM ${workItems} cleared_work
 		WHERE cleared_work.org_id=${workInteractions.orgId} AND cleared_work.id=${workId}
@@ -571,8 +608,8 @@ function clearingCondition() {
 			(${kind}='blocker_resolved' AND cleared_work.disposition='completed')
 			OR (${kind}='ci_green'
 				AND cleared_work.repository_observer=1
-				AND json_extract(cleared_work.metadata, '$.event.kind')='ci_red'
-				AND json_type(cleared_work.metadata, '$.ciRecoveredAt')='text')
+				AND ${jsonRead(db, sql`cleared_work.metadata`, ["event", "kind"])}='ci_red'
+				AND ${interactionJsonType(db, sql`cleared_work.metadata`, ["ciRecoveredAt"])}='text')
 		))`;
 }
 
@@ -583,6 +620,9 @@ function clearedInteractionStatements(
 	now: string,
 	fence: string,
 ) {
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const auditEvents = coreTable(db, d1AuditEvents);
 	const receipt = and(
 		eq(workInteractions.orgId, row.orgId),
 		eq(workInteractions.id, row.id),
@@ -602,10 +642,10 @@ function clearedInteractionStatements(
 					resourceType: sql<string>`'work_interaction'`.as("resourceType"),
 					resourceId: workInteractions.id,
 					metadata:
-						sql<string>`${JSON.stringify({ note, condition: interactionCondition(row) ?? null, fence })}`.as(
+						sql<string>`${jsonParameter(db, { note, condition: interactionCondition(row) ?? null, fence })}`.as(
 							"metadata",
 						),
-					timestamp: sql<Date>`${Math.floor(Date.parse(now) / 1000)}`.as(
+					timestamp: sql<Date>`${interactionAuditTime(db, now)}`.as(
 						"timestamp",
 					),
 				})
@@ -626,7 +666,7 @@ function clearedInteractionStatements(
 									"body",
 								),
 								metadata:
-									sql<string>`${JSON.stringify({ source: "interaction-condition", requestId: row.id, fence })}`.as(
+									sql<string>`${jsonParameter(db, { source: "interaction-condition", requestId: row.id, fence })}`.as(
 										"metadata",
 									),
 								createdAt: sql<string>`${now}`.as("createdAt"),
@@ -646,20 +686,24 @@ async function closeClearedInteractions(
 	note?: string,
 	limit = 50,
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const rows = await db
-		.select(workInteractionStoredColumns)
+		.select(interactionColumns(db))
 		.from(workInteractions)
 		.where(sql`${eligible}`)
 		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
 		.limit(limit);
 	const closed: WorkInteraction[] = [];
+	const statements = [];
+	const updateIndexes: number[] = [];
 	for (const row of rows) {
 		const condition = WorkInteractionConditionSchema.safeParse(
 			interactionCondition(row),
 		);
 		if (!note && !condition.success) continue;
 		const fence = crypto.randomUUID();
-		const [[updated]] = await db.batch([
+		updateIndexes.push(statements.length);
+		statements.push(
 			db
 				.update(workInteractions)
 				.set({
@@ -676,7 +720,7 @@ async function closeClearedInteractions(
 						eq(workInteractions.version, row.version),
 					),
 				)
-				.returning(workInteractionStoredColumns),
+				.returning(interactionColumns(db)),
 			...clearedInteractionStatements(
 				db,
 				row,
@@ -687,14 +731,28 @@ async function closeClearedInteractions(
 				now,
 				fence,
 			),
-		]);
+		);
+	}
+	if (!statements.length) return closed;
+	const results = await db.batch(
+		statements as [(typeof statements)[number], ...typeof statements],
+	);
+	const originals = new Map<string, string[]>();
+	for (const index of updateIndexes) {
+		const result = results[index];
+		const updated = Array.isArray(result) ? result[0] : undefined;
 		if (!updated) continue;
+		closed.push(updated);
+		const ids = originals.get(updated.orgId) ?? [];
+		ids.push(updated.id);
+		originals.set(updated.orgId, ids);
+	}
+	for (const [orgId, originalIds] of originals) {
 		await retireDecisionReviews(db, {
-			orgId: row.orgId,
-			originalId: row.id,
+			orgId,
+			originalIds,
 			now,
 		});
-		closed.push(updated);
 	}
 	return closed;
 }
@@ -710,6 +768,9 @@ export async function reconcileWorkInteractionConditions(
 		limit: number;
 	},
 ): Promise<{ closed: number }> {
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
+	const organizations = coreTable(db, d1Organizations);
 	const limit = Math.min(50, Math.max(0, p.limit));
 	if (!limit) return { closed: 0 };
 	if (!p.orgId) {
@@ -765,7 +826,7 @@ export async function reconcileWorkInteractionConditions(
 		p.targetId ? eq(workInteractions.targetId, p.targetId) : undefined,
 		eq(workInteractions.status, "open"),
 		inArray(workInteractions.creatorType, ["system", "tedi", "external_agent"]),
-		clearingCondition(),
+		clearingCondition(db),
 	);
 	const rows = await closeClearedInteractions(
 		db,
@@ -819,6 +880,7 @@ export async function autoReplyToCorrect(
 		"orgId" | "id" | "status" | "kind" | "targetType"
 	>,
 ): Promise<WorkInteractionResponse | null> {
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
 	if (
 		request.status !== "resolved" ||
 		request.kind !== "question" ||
@@ -834,7 +896,7 @@ export async function autoReplyToCorrect(
 				eq(workInteractionResponses.interactionId, request.id),
 				eq(workInteractionResponses.resolvesRequest, true),
 				eq(workInteractionResponses.responderType, "tedi"),
-				sql`json_extract(${workInteractionResponses.metadata},'$.draftOutcome')='auto'`,
+				sql`${jsonRead(db, workInteractionResponses.metadata, ["draftOutcome"])}='auto'`,
 			),
 		)
 		.limit(1);
@@ -845,12 +907,17 @@ export async function respondToWorkInteraction(
 	db: DbQueryClient,
 	p: RespondWorkInteractionParams,
 ): Promise<WorkInteractionResponse> {
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
+	const workInteractionDeliveries = coreTable(db, d1WorkInteractionDeliveries);
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const auditEvents = coreTable(db, d1AuditEvents);
 	if (containsCardSecret([p.body, p.metadata]))
 		throw new WorkControlError("INVALID_TRANSITION", CARD_SECRET_MESSAGE);
 	await validateActor(db, p.orgId, p.responder);
 	const request = (
 		await db
-			.select(workInteractionStoredColumns)
+			.select(interactionColumns(db))
 			.from(workInteractions)
 			.where(
 				and(
@@ -1005,12 +1072,13 @@ export async function respondToWorkInteraction(
 					artifactDigest: sql<string | null>`${p.artifactDigest ?? null}`.as(
 						"artifact_digest",
 					),
-					resolvesRequest: sql<boolean>`${resolvesRequest ? 1 : 0}`.as(
-						"resolves_request",
-					),
+					resolvesRequest:
+						sql<boolean>`${booleanValue(db, resolvesRequest)}`.as(
+							"resolves_request",
+						),
 					metadata: sql<
 						Record<string, JsonValue>
-					>`${JSON.stringify(metadata)}`.as("metadata"),
+					>`${jsonParameter(db, metadata)}`.as("metadata"),
 					respondedAt: sql<string>`${p.now}`.as("responded_at"),
 				})
 				.from(workInteractions)
@@ -1059,13 +1127,12 @@ export async function respondToWorkInteraction(
 									resourceId: workInteractionResponses.interactionId,
 									metadata: sql<
 										Record<string, JsonValue>
-									>`${JSON.stringify({ responseId: p.id, receipt: request.metadata.delegatedApproval, reason: p.body, cardAction: p.metadata?.cardAction ?? null })}`.as(
+									>`${jsonParameter(db, { responseId: p.id, receipt: request.metadata.delegatedApproval, reason: p.body, cardAction: p.metadata?.cardAction ?? null })}`.as(
 										"metadata",
 									),
-									timestamp:
-										sql<Date>`${Math.floor(Date.parse(p.now) / 1000)}`.as(
-											"timestamp",
-										),
+									timestamp: sql<Date>`${interactionAuditTime(db, p.now)}`.as(
+										"timestamp",
+									),
 								})
 								.from(workInteractionResponses)
 								.where(
@@ -1104,7 +1171,16 @@ export async function respondToWorkInteraction(
 						db
 							.update(workInteractions)
 							.set({
-								metadata: sql`json_remove(json_set(${workInteractions.metadata}, '$.followThrough.reviewAt', ${p.now}), '$.followThrough.reviewWakeVersion')`,
+								metadata: removeInteractionPaths(
+									db,
+									jsonWrite(
+										db,
+										workInteractions.metadata,
+										["followThrough", "reviewAt"],
+										p.now,
+									),
+									[["followThrough", "reviewWakeVersion"]],
+								),
 							})
 							.where(
 								and(
@@ -1120,7 +1196,14 @@ export async function respondToWorkInteraction(
 						db
 							.update(workInteractions)
 							.set({
-								metadata: sql`json_set(${workInteractions.metadata},'$.followThrough.snoozedUntil',${laneAction === "snooze" ? new Date(Date.parse(p.now) + 86_400_000).toISOString() : p.now})`,
+								metadata: jsonWrite(
+									db,
+									workInteractions.metadata,
+									["followThrough", "snoozedUntil"],
+									laneAction === "snooze"
+										? new Date(Date.parse(p.now) + 86_400_000).toISOString()
+										: p.now,
+								),
 							})
 							.where(
 								and(
@@ -1152,14 +1235,16 @@ export async function respondToWorkInteraction(
 			db
 				.update(workInteractions)
 				.set({
-					metadata: sql`json_remove(${workInteractions.metadata},'$.followThrough.receipt')`,
+					metadata: removeInteractionPaths(db, workInteractions.metadata, [
+						["followThrough", "receipt"],
+					]),
 				})
 				.where(
 					and(
 						eq(workInteractions.orgId, p.orgId),
 						eq(workInteractions.id, p.interactionId),
-						sql`json_type(${workInteractions.metadata},'$.followThrough.receipt') IS NOT NULL`,
-						sql`EXISTS (SELECT 1 FROM work_interaction_responses r WHERE r.org_id=${p.orgId} AND r.id=${p.id} AND (r.resolves_request=1 OR json_extract(r.metadata,'$.corrects') IS NOT NULL))`,
+						sql`${interactionJsonType(db, workInteractions.metadata, ["followThrough", "receipt"])} IS NOT NULL`,
+						sql`EXISTS (SELECT 1 FROM work_interaction_responses r WHERE r.org_id=${p.orgId} AND r.id=${p.id} AND (r.resolves_request=${booleanValue(db, true)} OR ${jsonRead(db, sql`r.metadata`, ["corrects"])} IS NOT NULL))`,
 					),
 				),
 		]);
@@ -1228,6 +1313,8 @@ export async function delegateWorkInteraction(
 		via?: "steward";
 	},
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const tedis = coreTable(db, d1Tedis);
 	if (p.actor.type !== "user")
 		throw new WorkControlError(
 			"INVALID_PRINCIPAL",
@@ -1302,7 +1389,7 @@ export async function delegateWorkInteraction(
 					sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
 				),
 			)
-			.returning(workInteractionStoredColumns)
+			.returning(interactionColumns(db))
 	)[0];
 	if (!row)
 		throw new WorkControlError("CONFLICT", "Question is no longer delegatable");
@@ -1321,6 +1408,7 @@ export async function cancelWorkInteraction(
 		now: string;
 	},
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	await validateActor(db, p.orgId, p.actor);
 	const resolutionFence = crypto.randomUUID();
 	const isCreator = and(
@@ -1350,7 +1438,7 @@ export async function cancelWorkInteraction(
 					...(p.actorIsAdmin ? [] : [or(isCreator, isRecipient)]),
 				),
 			)
-			.returning(workInteractionStoredColumns)
+			.returning(interactionColumns(db))
 	)[0];
 	if (!row) {
 		const current = (
@@ -1400,6 +1488,7 @@ export async function setWorkInteractionAttention(
 	db: DbQueryClient,
 	p: SetWorkInteractionAttentionParams,
 ): Promise<void> {
+	const workInteractionAttention = coreTable(db, d1WorkInteractionAttention);
 	const values = {
 		kind: p.kind,
 		need: p.need,
@@ -1423,6 +1512,7 @@ export async function getWorkInteractionAttention(
 	db: DbQueryClient,
 	p: { orgId: string; interactionId: string },
 ): Promise<WorkInteractionAttentionRow | null> {
+	const workInteractionAttention = coreTable(db, d1WorkInteractionAttention);
 	return (
 		(
 			await db
@@ -1453,6 +1543,7 @@ export async function expireWorkInteraction(
 		now: string;
 	},
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	return (
 		(
 			await db
@@ -1476,30 +1567,40 @@ export async function expireWorkInteraction(
 	);
 }
 
-function supportDraftCandidateSource() {
+function supportDraftCandidateSource(db: DbQueryClient) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	return and(
-		sql`json_type(${workInteractions.metadata}, '$.supportTicketId') = 'text'`,
-		sql`json_type(${workInteractions.metadata}, '$.supportVersion') = 'integer'`,
+		sql`${interactionJsonType(db, workInteractions.metadata, ["supportTicketId"])} = 'text'`,
+		sql`${interactionJsonType(db, workInteractions.metadata, ["supportVersion"])} = 'integer'`,
 		or(
 			sql`${workInteractions.source} = 'support-draft'`,
 			and(
 				sql`${workInteractions.source} = 'night-source-adapter'`,
-				sql`json_extract(${workInteractions.metadata}, '$.originalSource') = 'support-work-draft'`,
-				sql`json_extract(${workInteractions.metadata}, '$.sourceKey') = 'support-draft:' || json_extract(${workInteractions.metadata}, '$.supportTicketId') || ':' || json_extract(${workInteractions.metadata}, '$.supportVersion')`,
-				sql`json_extract(${workInteractions.metadata}, '$.decisionDeck.classId') = 'support.reply'`,
-				sql`json_extract(${workInteractions.metadata}, '$.decisionDeck.kind') = 'outbound'`,
+				sql`${jsonRead(db, workInteractions.metadata, ["originalSource"])} = 'support-work-draft'`,
+				sql`${jsonRead(db, workInteractions.metadata, ["sourceKey"])} = 'support-draft:' || ${jsonRead(db, workInteractions.metadata, ["supportTicketId"])} || ':' || ${jsonRead(db, workInteractions.metadata, ["supportVersion"], "number")}`,
+				sql`${jsonRead(db, workInteractions.metadata, ["decisionDeck", "classId"])} = 'support.reply'`,
+				sql`${jsonRead(db, workInteractions.metadata, ["decisionDeck", "kind"])} = 'outbound'`,
 			),
 		),
 	);
 }
 
-function supportDraftSupersession(now: string, supersededBy: string) {
+function supportDraftSupersession(
+	db: DbQueryClient,
+	now: string,
+	supersededBy: string,
+) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	return {
 		status: "expired" as const,
 		expiredAt: now,
 		resolutionFence: crypto.randomUUID(),
 		version: sql`${workInteractions.version}+1`,
-		metadata: sql`json_set(${workInteractions.metadata}, '$.supersession', json(${JSON.stringify({ reason: "newer_support_draft", supersededBy, at: now })}))`,
+		metadata: jsonWrite(db, workInteractions.metadata, ["supersession"], {
+			reason: "newer_support_draft",
+			supersededBy,
+			at: now,
+		}),
 	};
 }
 
@@ -1508,31 +1609,34 @@ export async function supersedeSupportDraftInteractions(
 	db: DbQueryClient,
 	p: { orgId: string; ticketId: string; targetId: string; now: string },
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const sameSource = and(
 		eq(workInteractions.orgId, p.orgId),
 		eq(workInteractions.targetType, "user"),
 		eq(workInteractions.targetId, p.targetId),
-		sql`json_extract(${workInteractions.metadata}, '$.supportTicketId') = ${p.ticketId}`,
-		supportDraftCandidateSource(),
+		sql`${jsonRead(db, workInteractions.metadata, ["supportTicketId"])} = ${p.ticketId}`,
+		supportDraftCandidateSource(db),
 	);
 	const [latest] = await db
 		.select({ id: workInteractions.id, metadata: workInteractions.metadata })
 		.from(workInteractions)
 		.where(and(sameSource, sql`${workInteractions.source} = 'support-draft'`))
 		.orderBy(
-			desc(sql`json_extract(${workInteractions.metadata}, '$.supportVersion')`),
+			desc(
+				sql`${jsonRead(db, workInteractions.metadata, ["supportVersion"], "number")}`,
+			),
 			desc(workInteractions.id),
 		)
 		.limit(1);
 	if (!latest) return [];
 	return db
 		.update(workInteractions)
-		.set(supportDraftSupersession(p.now, latest.id))
+		.set(supportDraftSupersession(db, p.now, latest.id))
 		.where(
 			and(
 				sameSource,
 				eq(workInteractions.status, "open"),
-				sql`json_extract(${workInteractions.metadata}, '$.supportVersion') < ${latest.metadata.supportVersion}`,
+				sql`${jsonRead(db, workInteractions.metadata, ["supportVersion"], "number")} < ${latest.metadata.supportVersion}`,
 			),
 		)
 		.returning({ id: workInteractions.id });
@@ -1549,6 +1653,8 @@ export async function sweepSupersededSupportDraftInteractions(
 		limit: number;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const newer = alias(workInteractions, "newer_support_draft");
 	const replacement = db
 		.select({ id: newer.id })
@@ -1559,13 +1665,13 @@ export async function sweepSupersededSupportDraftInteractions(
 				eq(newer.targetType, "user"),
 				eq(newer.targetId, p.targetId),
 				sql`${newer.source} = 'support-draft'`,
-				sql`json_type(${newer.metadata}, '$.supportVersion') = 'integer'`,
-				sql`json_extract(${newer.metadata}, '$.supportTicketId') = json_extract(${workInteractions.metadata}, '$.supportTicketId')`,
-				sql`json_extract(${newer.metadata}, '$.supportVersion') > json_extract(${workInteractions.metadata}, '$.supportVersion')`,
+				sql`${interactionJsonType(db, newer.metadata, ["supportVersion"])} = 'integer'`,
+				sql`${jsonRead(db, newer.metadata, ["supportTicketId"])} = ${jsonRead(db, workInteractions.metadata, ["supportTicketId"])}`,
+				sql`${jsonRead(db, newer.metadata, ["supportVersion"], "number")} > ${jsonRead(db, workInteractions.metadata, ["supportVersion"], "number")}`,
 			),
 		)
 		.orderBy(
-			desc(sql`json_extract(${newer.metadata}, '$.supportVersion')`),
+			desc(sql`${jsonRead(db, newer.metadata, ["supportVersion"], "number")}`),
 			desc(newer.id),
 		)
 		.limit(1);
@@ -1582,7 +1688,7 @@ export async function sweepSupersededSupportDraftInteractions(
 				eq(workInteractions.targetType, "user"),
 				eq(workInteractions.targetId, p.targetId),
 				eq(workInteractions.status, "open"),
-				supportDraftCandidateSource(),
+				supportDraftCandidateSource(db),
 				exists(replacement),
 				p.projectId
 					? or(
@@ -1609,7 +1715,7 @@ export async function sweepSupersededSupportDraftInteractions(
 	const [first, ...rest] = selected.map((row) =>
 		db
 			.update(workInteractions)
-			.set(supportDraftSupersession(p.now, row.supersededBy))
+			.set(supportDraftSupersession(db, p.now, row.supersededBy))
 			.where(
 				and(
 					eq(workInteractions.orgId, p.orgId),
@@ -1633,17 +1739,20 @@ export async function sweepSupersededSupportDraftInteractions(
  * active policy pack, else the published system default, else 48 h; clamped
  * like `parseKernelGovernancePolicy`. Correlated on the outer interaction row.
  */
-function interactionTtlHoursSql(request = false) {
-	const field = request
-		? "$.governancePolicy.requestTtlHours"
-		: "$.governancePolicy.coordinationTtlHours";
+function interactionTtlHoursSql(db: DbQueryClient, request = false) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const policyPacks = coreTable(db, d1PolicyPacks);
+	const field = [
+		"governancePolicy",
+		request ? "requestTtlHours" : "coordinationTtlHours",
+	];
 	const min = request ? REQUEST_TTL_MIN_HOURS : COORDINATION_TTL_MIN_HOURS;
 	const max = request ? REQUEST_TTL_MAX_HOURS : COORDINATION_TTL_MAX_HOURS;
 	const fallback = request
 		? REQUEST_TTL_DEFAULT_HOURS
 		: COORDINATION_TTL_DEFAULT_HOURS;
-	const numeric = sql`CASE WHEN json_type(pp.definition, ${field}) IN ('integer','real') THEN json_extract(pp.definition, ${field}) END`;
-	return sql`min(${max}, max(${min}, round(coalesce(
+	const numeric = jsonRead(db, sql`pp.definition`, field, "number");
+	return sql`${coreStore(db) === "postgres" ? sql`least` : sql`min`}(${max}, ${coreStore(db) === "postgres" ? sql`greatest` : sql`max`}(${min}, round(coalesce(
 		(SELECT ${numeric} FROM ${policyPacks} pp WHERE pp.organization_id = ${workInteractions.orgId} AND pp.status = 'active' ORDER BY pp.version DESC LIMIT 1),
 		(SELECT ${numeric} FROM ${policyPacks} pp WHERE pp.organization_id IS NULL AND pp.scope = 'system' AND pp.slug = 'system-default' AND pp.status = 'active' AND pp.published_at IS NOT NULL ORDER BY pp.version DESC LIMIT 1),
 		${fallback}))))`;
@@ -1663,11 +1772,12 @@ const OBSOLETE_REQUEST_REASONS = {
 } as const;
 type ObsoleteRequestCause = keyof typeof OBSOLETE_REQUEST_REASONS;
 
-function staleLaneReminder(now: string) {
-	return sql`(json_type(${workInteractions.metadata},'$.laneNudge') IS 'object' AND NOT EXISTS (
+function staleLaneReminder(db: DbQueryClient, now: string) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	return sql`(${interactionJsonType(db, workInteractions.metadata, ["laneNudge"])} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} 'object' AND NOT EXISTS (
 		SELECT 1 FROM work_interactions original
 		WHERE original.org_id=${workInteractions.orgId}
-		AND original.id=json_extract(${workInteractions.metadata},'$.laneNudge.requestId')
+		AND original.id=${jsonRead(db, workInteractions.metadata, ["laneNudge", "requestId"])}
 		AND original.target_type=${workInteractions.targetType} AND original.target_id=${workInteractions.targetId}
 		AND original.status='open' AND (original.expires_at IS NULL OR original.expires_at>${now})
 	))`;
@@ -1712,6 +1822,7 @@ export async function listInteractionExpiryReceipts(
 	orgId: string,
 	limit = 10,
 ) {
+	const auditEvents = coreTable(db, d1AuditEvents);
 	return db
 		.select()
 		.from(auditEvents)
@@ -1736,6 +1847,13 @@ export async function sweepObsoleteWorkInteractions(
 	db: DbQueryClient,
 	p: { now: string; limit: number; dryRun?: boolean },
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const auditEvents = coreTable(db, d1AuditEvents);
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
+	const organizations = coreTable(db, d1Organizations);
 	const budget = Math.min(100, Math.max(0, Math.floor(p.limit)));
 	const empty = {
 		observed: 0,
@@ -1752,7 +1870,7 @@ export async function sweepObsoleteWorkInteractions(
 		.limit(1);
 	if (previous && previous.through >= p.now) return empty;
 	const runId = crypto.randomUUID();
-	const gate = sql`EXISTS (SELECT 1 FROM ${platformCronCheckpoints} WHERE ${platformCronCheckpoints.scheduleId}=${EXPIRY_SCAN} AND ${platformCronCheckpoints.through}=${p.now} AND json_extract(${platformCronCheckpoints.cursor}, '$.tediId')=${runId})`;
+	const gate = sql`EXISTS (SELECT 1 FROM ${platformCronCheckpoints} WHERE ${platformCronCheckpoints.scheduleId}=${EXPIRY_SCAN} AND ${platformCronCheckpoints.through}=${p.now} AND ${jsonRead(db, platformCronCheckpoints.cursor, ["tediId"])}=${runId})`;
 	const orgs = await db
 		.select({ id: organizations.id })
 		.from(organizations)
@@ -1782,7 +1900,8 @@ export async function sweepObsoleteWorkInteractions(
 				.from(platformCronCheckpoints)
 				.where(
 					// bound-params: the organization query above selects at most ten IDs.
-					inArray(
+					anyIds(
+						db,
 						platformCronCheckpoints.scheduleId,
 						orgs.map((org) => `${EXPIRY_SCAN}:${org.id}`),
 					),
@@ -1798,12 +1917,12 @@ export async function sweepObsoleteWorkInteractions(
 	const fences: string[] = [];
 	const unanswered = sql`NOT EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${workInteractions.orgId} AND ${workInteractionResponses.interactionId}=${workInteractions.id})`;
 	const passedExpiry = sql`(${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.now})`;
-	const staleCoordination = sql`(${workInteractions.kind}='coordination' AND ${workInteractions.targetType}='user' AND ${workInteractions.expiresAt} IS NULL AND julianday(coalesce(json_extract(${workInteractions.metadata},'$.notification.refreshedAt'), json_extract(${workInteractions.metadata},'$.refreshedAt'), ${workInteractions.createdAt})) <= julianday(${p.now}) - ${interactionTtlHoursSql()} / 24.0)`;
-	const staleAsk = sql`(${workInteractions.kind} IN ('question','input','handoff') AND ${workInteractions.targetType}='user' AND ${workInteractions.source} IS NOT 'lane-dispatch-blocker' AND ${workInteractions.expiresAt} IS NULL AND julianday(${workInteractions.createdAt}) <= julianday(${p.now}) - ${interactionTtlHoursSql(true)} / 24.0)`;
+	const staleCoordination = sql`(${workInteractions.kind}='coordination' AND ${workInteractions.targetType}='user' AND ${workInteractions.expiresAt} IS NULL AND ${interactionDay(db, sql`coalesce(${jsonRead(db, workInteractions.metadata, ["notification", "refreshedAt"])}, ${jsonRead(db, workInteractions.metadata, ["refreshedAt"])}, ${workInteractions.createdAt})`)} <= ${interactionDay(db, sql`${p.now}`)} - ${interactionTtlHoursSql(db)} / 24.0)`;
+	const staleAsk = sql`(${workInteractions.kind} IN ('question','input','handoff') AND ${workInteractions.targetType}='user' AND ${workInteractions.source} ${coreStore(db) === "postgres" ? sql`IS DISTINCT FROM` : sql`IS NOT`} 'lane-dispatch-blocker' AND ${workInteractions.expiresAt} IS NULL AND ${interactionDay(db, workInteractions.createdAt)} <= ${interactionDay(db, sql`${p.now}`)} - ${interactionTtlHoursSql(db, true)} / 24.0)`;
 	const terminalWork = sql`(${workInteractions.kind} IN ('question','input','handoff') AND EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId} AND ${workItems.disposition} IN ('completed','cancelled')))`;
-	const triageUnavailable = sql`(json_extract(${workInteractions.metadata},'$.schema')='tedix.decision-capture.v1' AND json_extract(${workInteractions.metadata},'$.triage.status') IS NOT 'ok')`;
-	const legacyProposal = sql`(json_extract(${workInteractions.metadata},'$.schema')='tedix.work-proposal.v1' AND ${workInteractions.expiresAt} IS NULL AND julianday(${workInteractions.createdAt})<=julianday(${p.now})-14)`;
-	const obsolete = sql`(${staleLaneReminder(p.now)} OR ${passedExpiry} OR ${staleCoordination} OR ${staleAsk} OR ${terminalWork} OR ${triageUnavailable} OR ${legacyProposal})`;
+	const triageUnavailable = sql`(${jsonRead(db, workInteractions.metadata, ["schema"])}='tedix.decision-capture.v1' AND ${jsonRead(db, workInteractions.metadata, ["triage", "status"])} ${coreStore(db) === "postgres" ? sql`IS DISTINCT FROM` : sql`IS NOT`} 'ok')`;
+	const legacyProposal = sql`(${jsonRead(db, workInteractions.metadata, ["schema"])}='tedix.work-proposal.v1' AND ${workInteractions.expiresAt} IS NULL AND ${interactionDay(db, workInteractions.createdAt)}<=${interactionDay(db, sql`${p.now}`)}-14)`;
+	const obsolete = sql`(${staleLaneReminder(db, p.now)} OR ${passedExpiry} OR ${staleCoordination} OR ${staleAsk} OR ${terminalWork} OR ${triageUnavailable} OR ${legacyProposal})`;
 	for (const org of orgs) {
 		if (writes + 2 > budget) break;
 		const checkpointId = `${EXPIRY_SCAN}:${org.id}`;
@@ -1813,9 +1932,9 @@ export async function sweepObsoleteWorkInteractions(
 		if (!dryRun && writes + 4 > budget) break;
 		const rows = await db
 			.select({
-				...workInteractionStoredColumns,
+				...interactionColumns(db),
 				cause: sql<ObsoleteRequestCause>`CASE
-                    WHEN ${staleLaneReminder(p.now)} THEN 'original_request_closed'
+                    WHEN ${staleLaneReminder(db, p.now)} THEN 'original_request_closed'
                     WHEN ${passedExpiry} THEN 'expiry_passed'
                     WHEN ${triageUnavailable} THEN 'triage_unavailable'
                     WHEN ${terminalWork} THEN 'work_closed'
@@ -1912,7 +2031,7 @@ export async function sweepObsoleteWorkInteractions(
 									"body",
 								),
 								metadata:
-									sql<string>`${JSON.stringify({ source: "interaction-expiry", requestId: row.id, cause: row.cause, runId })}`.as(
+									sql<string>`${jsonParameter(db, { source: "interaction-expiry", requestId: row.id, cause: row.cause, runId })}`.as(
 										"metadata",
 									),
 								createdAt: sql<string>`${p.now}`.as("createdAt"),
@@ -1951,10 +2070,10 @@ export async function sweepObsoleteWorkInteractions(
 						metadata:
 							// Drive exact-ID probes from this bounded page, rather than
 							// scanning all of the organization's expired request history.
-							sql<string>`json_set(${JSON.stringify(metadata)},'$.expiredIds',json((SELECT json_group_array(expired.id) FROM json_each(${JSON.stringify(ids)}) candidates CROSS JOIN work_interactions expired ON expired.id=candidates.value WHERE expired.org_id=${org.id} AND expired.resolution_fence=${fence} AND expired.status='expired')))`.as(
+							sql`${coreStore(db) === "postgres" ? sql`jsonb_set(${jsonParameter(db, metadata)}, '{expiredIds}', (SELECT coalesce(jsonb_agg(expired.id), '[]'::jsonb) FROM work_interactions expired WHERE ${anyIds(db, sql`expired.id`, ids)} AND expired.org_id=${org.id} AND expired.resolution_fence=${fence} AND expired.status='expired'))` : sql`json_set(${JSON.stringify(metadata)},'$.expiredIds',json((SELECT json_group_array(expired.id) FROM json_each(${JSON.stringify(ids)}) candidates CROSS JOIN work_interactions expired ON expired.id=candidates.value WHERE expired.org_id=${org.id} AND expired.resolution_fence=${fence} AND expired.status='expired')))`}`.as(
 								"metadata",
 							),
-						timestamp: sql<number>`${Math.floor(Date.parse(p.now) / 1000)}`.as(
+						timestamp: sql<number>`${interactionAuditTime(db, p.now)}`.as(
 							"timestamp",
 						),
 					})
@@ -2013,7 +2132,7 @@ export async function sweepObsoleteWorkInteractions(
 		.select({ metadata: auditEvents.metadata })
 		.from(auditEvents)
 		// bound-params: at most one fence for each of the ten selected organizations.
-		.where(inArray(auditEvents.id, fences));
+		.where(anyIds(db, auditEvents.id, fences));
 	return {
 		observed,
 		candidates,
@@ -2043,6 +2162,8 @@ export async function restoreExpiredWorkInteraction(
 		now: string;
 	},
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const auditEvents = coreTable(db, d1AuditEvents);
 	await validateActor(db, p.orgId, p.actor);
 	if (p.actor.type !== "user")
 		throw new WorkControlError(
@@ -2124,7 +2245,7 @@ export async function restoreExpiredWorkInteraction(
 					targetId: workInteractions.targetId,
 					dueAt: workInteractions.dueAt,
 					createdAt: sql<string>`${p.now}`.as("createdAt"),
-					metadata: sql<string>`${JSON.stringify(metadata)}`.as("metadata"),
+					metadata: sql<string>`${jsonParameter(db, metadata)}`.as("metadata"),
 					id: sql<string>`${id}`.as("id"),
 					status: sql<string>`'open'`.as("status"),
 					version: sql<number>`1`.as("version"),
@@ -2138,7 +2259,7 @@ export async function restoreExpiredWorkInteraction(
 						eq(workInteractions.status, "expired"),
 						eq(workInteractions.resolutionFence, row.resolutionFence!),
 						sql`NOT EXISTS (SELECT 1 FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.interactionId})`,
-						sql`NOT EXISTS (SELECT 1 FROM work_interactions successor WHERE successor.org_id=${p.orgId} AND json_extract(successor.metadata,'$.restoredFrom.id')=${p.interactionId} AND json_extract(successor.metadata,'$.restoredFrom.receiptId')=${p.receiptId})`,
+						sql`NOT EXISTS (SELECT 1 FROM work_interactions successor WHERE successor.org_id=${p.orgId} AND ${jsonRead(db, sql`successor.metadata`, ["restoredFrom", "id"])}=${p.interactionId} AND ${jsonRead(db, sql`successor.metadata`, ["restoredFrom", "receiptId"])}=${p.receiptId})`,
 						sql`NOT EXISTS (SELECT 1 FROM work_items source WHERE source.org_id=${p.orgId} AND source.id=${row.workItemId} AND source.disposition IN ('completed','cancelled'))`,
 					),
 				),
@@ -2152,10 +2273,11 @@ export async function getWorkInteraction(
 	db: DbQueryClient,
 	p: { orgId: string; interactionId: string },
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	return (
 		(
 			await db
-				.select(workInteractionStoredColumns)
+				.select(interactionColumns(db))
 				.from(workInteractions)
 				.where(
 					and(
@@ -2177,6 +2299,7 @@ export async function listWorkInteractionResponses(
 		afterId?: string;
 	},
 ) {
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
 	return db
 		.select()
 		.from(workInteractionResponses)
@@ -2204,6 +2327,7 @@ export async function snoozeWorkInteraction(
 		now: string;
 	},
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	await validateActor(db, p.orgId, p.actor);
 	if (p.actor.type !== "user")
 		throw new WorkControlError(
@@ -2218,7 +2342,12 @@ export async function snoozeWorkInteraction(
 	const [row] = await db
 		.update(workInteractions)
 		.set({
-			metadata: sql`json_set(${workInteractions.metadata}, '$.followThrough.snoozedUntil', ${new Date(p.until).toISOString()})`,
+			metadata: jsonWrite(
+				db,
+				workInteractions.metadata,
+				["followThrough", "snoozedUntil"],
+				new Date(p.until).toISOString(),
+			),
 		})
 		.where(
 			and(
@@ -2234,7 +2363,7 @@ export async function snoozeWorkInteraction(
 				),
 			),
 		)
-		.returning(workInteractionStoredColumns);
+		.returning(interactionColumns(db));
 	if (!row)
 		throw new WorkControlError(
 			"CONFLICT",
@@ -2272,11 +2401,21 @@ export async function listWorkInteractionInbox(
 		observedAt: string;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workInteractionAttention = coreTable(db, d1WorkInteractionAttention);
+	const workInteractionDeliveries = coreTable(db, d1WorkInteractionDeliveries);
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const {
+		source: _source,
+		delegatedOwnerId: _delegatedOwnerId,
+		...requestColumns
+	} = prefixedColumns(workInteractions, "work_interaction");
 	const effective = sql<
 		"open" | "resolved" | "cancelled" | "expired"
 	>`CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.observedAt} THEN 'expired' ELSE ${workInteractions.status} END`;
 	const limit = Math.min(p.limit ?? 50, 200);
-	const urgency = sql`CASE WHEN json_extract(${workInteractions.metadata},'$.notification.state')='immediate' THEN 'now' WHEN ${workInteractionAttention.kind}='fyi' THEN 'later' ELSE COALESCE(json_extract(${workInteractions.metadata},'$.triage.urgency'),'later') END`;
+	const urgency = sql`CASE WHEN ${jsonRead(db, workInteractions.metadata, ["notification", "state"])}='immediate' THEN 'now' WHEN ${workInteractionAttention.kind}='fyi' THEN 'later' ELSE COALESCE(${jsonRead(db, workInteractions.metadata, ["triage", "urgency"])},'later') END`;
 	const resolution = alias(workInteractionResponses, "resolution");
 	// Select the page before evaluating related decision history for each result.
 	const inboxPage = db.$with("work_interaction_inbox_page").as(
@@ -2301,11 +2440,15 @@ export async function listWorkInteractionInbox(
 				and(
 					eq(workInteractions.orgId, p.orgId),
 					p.excludeSessionCapture
-						? sql`json_extract(${workInteractions.metadata},'$.schema') IS NOT 'tedix.decision-capture.v1'`
+						? sql`${jsonRead(db, workInteractions.metadata, ["schema"])} ${coreStore(db) === "postgres" ? sql`IS DISTINCT FROM` : sql`IS NOT`} 'tedix.decision-capture.v1'`
 						: undefined,
-					sql`(${workInteractions.status}<>'open' OR NOT ${staleLaneReminder(p.observedAt)})`,
+					sql`(${workInteractions.status}<>'open' OR NOT ${staleLaneReminder(db, p.observedAt)})`,
 					p.subjectSearch
-						? sql`instr(lower(${workInteractions.subject}), lower(${p.subjectSearch})) > 0`
+						? containsText(
+								db,
+								sql`lower(${workInteractions.subject})`,
+								p.subjectSearch.toLowerCase(),
+							)
 						: undefined,
 					// bound-params: states is a closed four-value interaction-state enum
 					p.states?.length ? inArray(effective, p.states) : undefined,
@@ -2313,11 +2456,11 @@ export async function listWorkInteractionInbox(
 					p.kinds?.length ? inArray(workInteractions.kind, p.kinds) : undefined,
 					p.decisionKind === "approval"
 						? sql`(
-					(json_type(${workInteractions.metadata},'$.approvalOperation')='text'
-					AND length(trim(json_extract(${workInteractions.metadata},'$.approvalOperation')))>0
-					AND json_type(${workInteractions.metadata},'$.approvalTarget')='text'
-					AND length(trim(json_extract(${workInteractions.metadata},'$.approvalTarget')))>0)
-					OR json_extract(${workInteractions.metadata},'$.decisionDeck.kind')='approval'
+					(${interactionJsonType(db, workInteractions.metadata, ["approvalOperation"])}='text'
+					AND length(trim(${jsonRead(db, workInteractions.metadata, ["approvalOperation"])}))>0
+					AND ${interactionJsonType(db, workInteractions.metadata, ["approvalTarget"])}='text'
+					AND length(trim(${jsonRead(db, workInteractions.metadata, ["approvalTarget"])}))>0)
+					OR ${jsonRead(db, workInteractions.metadata, ["decisionDeck", "kind"])}='approval'
 				)`
 						: undefined,
 					p.workItemId
@@ -2344,10 +2487,10 @@ export async function listWorkInteractionInbox(
 							? isNull(workInteractions.targetId)
 							: undefined,
 					p.targetType === "user"
-						? sql`coalesce(json_extract(${workInteractions.metadata},'$.notification.state'),'immediate') NOT IN ('deferred','bundled','suppressed')`
+						? sql`coalesce(${jsonRead(db, workInteractions.metadata, ["notification", "state"])},'immediate') NOT IN ('deferred','bundled','suppressed')`
 						: undefined,
 					p.targetType === "user"
-						? sql`(${workInteractions.status}<>'open' OR coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${p.observedAt})`
+						? sql`(${workInteractions.status}<>'open' OR coalesce(${jsonRead(db, workInteractions.metadata, ["followThrough", "snoozedUntil"])},'')<=${p.observedAt})`
 						: undefined,
 					p.urgency === "now"
 						? sql`${urgency}='now'`
@@ -2365,7 +2508,7 @@ export async function listWorkInteractionInbox(
 	const rows = await db
 		.with(inboxPage)
 		.select({
-			request: prefixedColumns(workInteractions, "work_interaction"),
+			request: requestColumns,
 			effectiveState: effective.as("effective_state"),
 			workItem: {
 				id: sql`${workItems.id}`
@@ -2400,17 +2543,17 @@ export async function listWorkInteractionInbox(
 				),
 				source: sql<
 					string | null
-				>`json_extract(${resolution.metadata},'$.source')`.as(
+				>`${jsonRead(db, resolution.metadata, ["source"])}`.as(
 					"work_interaction_resolution_source",
 				),
 				sessionId: sql<
 					string | null
-				>`json_extract(${resolution.metadata},'$.sessionId')`.as(
+				>`${jsonRead(db, resolution.metadata, ["sessionId"])}`.as(
 					"work_interaction_resolution_session_id",
 				),
 				delivery: sql<
 					string | null
-				>`json_extract(${resolution.metadata},'$.delivery')`.as(
+				>`${jsonRead(db, resolution.metadata, ["delivery"])}`.as(
 					"work_interaction_resolution_delivery",
 				),
 				deliveredAt: sql<
@@ -2488,10 +2631,19 @@ export async function listLastRelatedDecisions(
 	orgId: string,
 	interactionIds: string[],
 ) {
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
+	const workInteractionDecisionHistory = coreTable(
+		db,
+		d1WorkInteractionDecisionHistory,
+	);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const decisions = [];
 	const prior = alias(workInteractions, "p");
 	const answer = alias(workInteractionResponses, "a");
-	const sources = (metadata: SQLWrapper) => sql<string | null>`coalesce(
+	const sources = (metadata: SQLWrapper) =>
+		coreStore(db) === "postgres"
+			? sql`coalesce(nullif(${jsonRead(db, metadata, ["decisionSources"], "json")}, 'null'::jsonb), ${jsonRead(db, metadata, ["decisionDeck", "sources"], "json")})`
+			: sql<string | null>`coalesce(
 		nullif(${metadata} -> '$.decisionSources', 'null'),
 		${metadata} -> '$.decisionDeck.sources')`;
 	const cards = alias(workInteractions, "c");
@@ -2499,14 +2651,23 @@ export async function listLastRelatedDecisions(
 	const history = workInteractionDecisionHistory;
 	const cardSources = sources(cards.metadata);
 	const sourceValue = sql`CASE WHEN s.type = 'object' THEN s.value ELSE '{}' END`;
-	const keys = sql`(
+	const keys =
+		coreStore(db) === "postgres"
+			? sql`(
+ SELECT jsonb_build_array('work', ${cards.workItemId})::text AS relation_key WHERE ${cards.workItemId} IS NOT NULL
+ UNION
+ SELECT jsonb_build_array('source', s.value->>'kind', s.value->>'id', s.value->>'tediId')::text
+ FROM jsonb_array_elements(CASE WHEN jsonb_typeof(${cardSources})='array' THEN ${cardSources} ELSE '[]'::jsonb END) s(value)
+ WHERE s.value->>'kind' IS NOT NULL AND s.value->>'id' IS NOT NULL
+ ) relation_keys`
+			: sql`(
 		SELECT json_array('work', ${cards.workItemId}) AS relation_key
 		WHERE ${cards.workItemId} IS NOT NULL
 		UNION
-		SELECT json_array('source', json_extract(${sourceValue}, '$.kind'),
-			json_extract(${sourceValue}, '$.id'), json_extract(${sourceValue}, '$.tediId'))
+		SELECT json_array('source', ${jsonRead(db, sourceValue, ["kind"])},
+			${jsonRead(db, sourceValue, ["id"])}, ${jsonRead(db, sourceValue, ["tediId"])})
 		FROM json_each(CASE WHEN json_type(${cardSources}) = 'array' THEN ${cardSources} ELSE '[]' END) s
-		WHERE json_extract(${sourceValue}, '$.kind') IS NOT NULL AND json_extract(${sourceValue}, '$.id') IS NOT NULL
+		WHERE ${jsonRead(db, sourceValue, ["kind"])} IS NOT NULL AND ${jsonRead(db, sourceValue, ["id"])} IS NOT NULL
 	) relation_keys`;
 	// Seek one answer per key, then compare only those winners by answer time.
 	const latestForKey = db
@@ -2535,7 +2696,7 @@ export async function listLastRelatedDecisions(
 		)
 		.orderBy(desc(candidateAnswer.respondedAt), desc(candidateAnswer.id))
 		.limit(1);
-	for (const ids of chunkForBoundParams(interactionIds, 50)) {
+	if (interactionIds.length) {
 		const rows = await db
 			.select({
 				interactionId: sql<string>`${cards.id}`.as("interaction_id"),
@@ -2553,8 +2714,8 @@ export async function listLastRelatedDecisions(
 				prior,
 				and(eq(prior.orgId, orgId), eq(prior.id, answer.interactionId)),
 			)
-			.where(and(eq(cards.orgId, orgId), inArray(cards.id, ids)))
-			.limit(ids.length);
+			.where(and(eq(cards.orgId, orgId), anyIds(db, cards.id, interactionIds)))
+			.limit(interactionIds.length);
 		decisions.push(
 			...rows.map((row) => ({
 				interactionId: row.interactionId,
@@ -2600,6 +2761,7 @@ export async function listRequestedWorkInteractionEvents(
 		limit: number;
 	},
 ): Promise<RequestedWorkInteractionEventRow[]> {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	return db
 		.select({
 			id: workInteractions.id,
@@ -2622,9 +2784,9 @@ export async function listRequestedWorkInteractionEvents(
 				p.targetId ? eq(workInteractions.targetId, p.targetId) : undefined,
 				p.kind ? eq(workInteractions.kind, p.kind) : undefined,
 				p.laneRequestsOnly
-					? sql`${workInteractions.kind} = 'handoff' AND ${workInteractions.targetType} = 'user' AND ${workInteractions.workItemId} IS NOT NULL AND ${workInteractions.status} = 'open' AND (${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt} > ${new Date().toISOString()}) AND json_extract(${workInteractions.metadata}, '$.laneRequest.harness') IN ('codex','claude-code')`
+					? sql`${workInteractions.kind} = 'handoff' AND ${workInteractions.targetType} = 'user' AND ${workInteractions.workItemId} IS NOT NULL AND ${workInteractions.status} = 'open' AND (${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt} > ${new Date().toISOString()}) AND ${jsonRead(db, workInteractions.metadata, ["laneRequest", "harness"])} IN ('codex','claude-code')`
 					: undefined,
-				sql`(${workInteractions.targetType}<>'user' OR coalesce(json_extract(${workInteractions.metadata},'$.notification.state'),'immediate') NOT IN ('deferred','bundled','suppressed'))`,
+				sql`(${workInteractions.targetType}<>'user' OR coalesce(${jsonRead(db, workInteractions.metadata, ["notification", "state"])},'immediate') NOT IN ('deferred','bundled','suppressed'))`,
 				p.after
 					? sql`(${workInteractions.createdAt}>${p.after.at} OR (${workInteractions.createdAt}=${p.after.at} AND ${workInteractions.id}>${p.after.id}))`
 					: undefined,
@@ -2639,6 +2801,7 @@ export async function getLatestWorkInteractionPosition(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<{ at: string; id: string } | null> {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const [row] = await db
 		.select({ at: workInteractions.createdAt, id: workInteractions.id })
 		.from(workInteractions)
@@ -2660,6 +2823,8 @@ export async function listWorkInteractionResponseEvents(
 		limit: number;
 	},
 ) {
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	return db
 		.select({
 			id: workInteractionResponses.id,
@@ -2706,6 +2871,7 @@ export async function getLatestWorkInteractionResponsePosition(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<{ at: string; id: string } | null> {
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
 	const [row] = await db
 		.select({
 			at: workInteractionResponses.respondedAt,
