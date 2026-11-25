@@ -99,7 +99,7 @@ const ok = { content: [{ type: "text" as const, text: "ok" }] };
 
 describe("durable gateway ledger", () => {
 	it.each(["native", "code_mode"])(
-		"writes no record for a Work read or heartbeat through %s, and one for a state change",
+		"records every Work call, reads and heartbeats included, through %s",
 		async (surface) => {
 			const { context } = setup();
 			const agent = context();
@@ -145,11 +145,14 @@ describe("durable gateway ledger", () => {
 			}
 			await Promise.all(pending);
 			const records = await new GatewayAccountabilityAdapter(context()).list();
-			expect(records.map((record) => record.operation)).toEqual([
-				surface === "native"
-					? "settle_work_attempt"
-					: "cto.settle_work_attempt",
-			]);
+			expect(records.map((record) => record.operation)).toEqual(
+				calls.map(([toolId]) =>
+					surface === "native" ? toolId : `cto.${toolId}`,
+				),
+			);
+			expect(records.every((record) => record.outcome === "applied")).toBe(
+				true,
+			);
 		},
 	);
 

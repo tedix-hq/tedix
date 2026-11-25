@@ -11,9 +11,9 @@
  * `append` stores one ChangeRecord per call that changed something or was
  * refused, through the API (one insert, no read); `needsChangeRecord` in
  * `change-record-policy.ts` decides. An applied read or liveness report is
- * returned unstored (`sequence` 0) and writes nothing, for Work tools too:
- * recording each of those grew the ledger by thousands of rows an hour.
- * A record holds
+ * returned unstored (`sequence` 0) and writes nothing — except for Work
+ * tools, whose every call is recorded again now that the ledger lives in
+ * the organization's log store instead of the main database. A record holds
  * arguments only as `argsHash`. The gateway picks its `id` and `recordedAt`.
  *
  * A refused call waits for its record. A call that was allowed and has run
@@ -293,6 +293,8 @@ const LEDGER_WRITE_TIMEOUT_MS = 3000;
 export const LEDGER_WRITE_RETRY_MS = [1000, 3000, 10_000] as const;
 
 export interface GatewayLedgerOptions {
+	/** Work usage measurement includes successful reads and liveness calls. */
+	recordAllCalls?: boolean;
 	/** The called tool declares `skipAppliedChangeRecord` in its policy. */
 	skipAppliedChangeRecord?: boolean;
 	/** The Work Item the call was about, stamped on every record it writes. */
@@ -417,6 +419,7 @@ export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
 		const context = this.agent.ctx;
 		let record: ChangeRecord;
 		if (
+			!this.options.recordAllCalls &&
 			!needsChangeRecord({
 				outcome: input.outcome,
 				riskTier: input.decision.riskTier,
@@ -613,7 +616,14 @@ export async function recordGatewayRefusal(
 async function ledgerOptions(
 	gates: GatewayCallGates,
 ): Promise<GatewayLedgerOptions> {
+	const config = gates.tool.config;
 	return {
+		// Classify by the owning API, including tedi aliases, rather than names
+		// or caller arguments. Lowercase `workflows` is a separate domain.
+		recordAllCalls:
+			config?.transport === "rpc" &&
+			typeof config.endpoint === "string" &&
+			/^work(?:[A-Z][A-Za-z]*)?\//.test(config.endpoint),
 		skipAppliedChangeRecord: declaresSkipAppliedChangeRecord(
 			gates.tool.meta as Record<string, unknown> | null | undefined,
 		),
