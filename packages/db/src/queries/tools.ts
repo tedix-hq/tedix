@@ -15,20 +15,27 @@ import {
 	EMPTY_TOOL_INPUT_SCHEMA,
 	withDerivedToolOperationalRiskPolicy,
 } from "@tedix/api-contract/schemas/tools";
-import { and, asc, count, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNotNull, ne, or, sql } from "drizzle-orm";
 import {
 	inferOutputSchema,
 	mergeOutputSchemas,
 	INFERRED_SCHEMA_PROVENANCE,
 } from "@tedix/api-contract/utils/output-schema-inference";
 import type { DbClient } from "../client";
-import { apps } from "../schema/apps";
+import { coreTable } from "../core-store/client";
+import { apps as schemaApps } from "../schema/apps";
 import type { AppTool, NewAppTool } from "../schema/tools";
-import { appTools } from "../schema/tools";
-import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
+import { appTools as schemaAppTools } from "../schema/tools";
+import { batchNonEmpty } from "../utils/batch";
+import {
+	anyIds,
+	coreStore,
+	booleanValue,
+	containsText,
+	jsonRead,
+	jsonType,
+} from "../core-store/dialect";
 import { prefixedColumns } from "../utils/select";
-
-const D1_IN_LIST_CHUNK = 50;
 
 // ============================================================================
 // Read Operations
@@ -39,6 +46,8 @@ export async function listDeclaredActionToolsForOrganization(
 	db: DbClient,
 	organizationId: string,
 ) {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select({
 			appId: sql<string>`${apps.id}`.as("inventory_app_id"),
@@ -75,6 +84,8 @@ export async function findWorkspaceConnectionTool(
 		connectionScope: "user" | "tenant";
 	},
 ) {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	const rows = await db
 		.select({ appId: appTools.appId, toolId: appTools.toolId })
 		.from(appTools)
@@ -83,9 +94,9 @@ export async function findWorkspaceConnectionTool(
 			and(
 				eq(apps.organizationId, input.organizationId),
 				eq(appTools.toolId, input.toolName),
-				sql`json_extract(${apps.metadata}, '$.mcpConfig.connectionProviderId') = ${input.providerId}`,
-				sql`json_extract(${apps.metadata}, '$.mcpConfig.connectionInstanceId') = ${input.connectionInstanceId}`,
-				sql`json_extract(${apps.metadata}, '$.mcpConfig.connectionScope') = ${input.connectionScope}`,
+				sql`${jsonRead(db, apps.metadata, ["mcpConfig", "connectionProviderId"])} = ${input.providerId}`,
+				sql`${jsonRead(db, apps.metadata, ["mcpConfig", "connectionInstanceId"])} = ${input.connectionInstanceId}`,
+				sql`${jsonRead(db, apps.metadata, ["mcpConfig", "connectionScope"])} = ${input.connectionScope}`,
 			),
 		)
 		.limit(2);
@@ -97,6 +108,8 @@ export async function listComposerToolsForOrganization(
 	db: DbClient,
 	organizationId: string,
 ) {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select({
 			appSlug: apps.slug,
@@ -112,7 +125,8 @@ export async function listComposerToolsForOrganization(
 				ne(apps.visibility, "disabled"),
 				eq(appTools.enabled, true),
 				ne(appTools.visibility, "private"),
-				sql`json_type(${appTools.config}, '$.composer') = 'true'`,
+				sql`${jsonType(db, appTools.config, ["composer"])} = 'boolean'`,
+				sql`${jsonRead(db, appTools.config, ["composer"], "boolean")} = ${booleanValue(db, true)}`,
 			),
 		)
 		.orderBy(asc(apps.slug), asc(appTools.toolId));
@@ -123,6 +137,8 @@ export async function listSetupToolsForOrganization(
 	db: DbClient,
 	organizationId: string,
 ) {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select({
 			id: appTools.id,
@@ -146,6 +162,7 @@ export async function getToolsByAppId(
 	db: DbClient,
 	appId: string,
 ): Promise<AppTool[]> {
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select()
 		.from(appTools)
@@ -157,6 +174,7 @@ export async function listPendingToolReviewsForApp(
 	db: DbClient,
 	appId: string,
 ) {
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select({
 			rowId: appTools.id,
@@ -164,7 +182,7 @@ export async function listPendingToolReviewsForApp(
 			// A held change is reviewed by the hash of its new definition.
 			schemaSourceHash: sql<
 				string | null
-			>`coalesce(json_extract(${appTools.reviewPending}, '$.schemaSourceHash'), ${appTools.schemaSourceHash})`,
+			>`coalesce(${jsonRead(db, appTools.reviewPending, ["schemaSourceHash"])}, ${appTools.schemaSourceHash})`,
 			diff: appTools.reviewDiff,
 			reviewBatchId: appTools.reviewBatchId,
 		})
@@ -222,11 +240,12 @@ export async function listToolsPage(
 	appId: string,
 	options: ListToolsPageOptions,
 ): Promise<ListToolsPageResult> {
+	const appTools = coreTable(db, schemaAppTools);
 	const terms = toolSearchTerms(options.query);
 	const searchable = sql`lower(replace(replace(${appTools.toolId} || ' ' || ${appTools.title} || ' ' || coalesce(${appTools.description}, ''), '_', ' '), '-', ' '))`;
 	const search =
 		terms.length > 0
-			? and(...terms.map((term) => sql`instr(${searchable}, ${term}) > 0`))
+			? and(...terms.map((term) => containsText(db, searchable, term)))
 			: undefined;
 	const filteredWhere = search
 		? and(eq(appTools.appId, appId), search)
@@ -235,7 +254,7 @@ export async function listToolsPage(
 	const counts = await db
 		.select({
 			inventoryTotal: count(appTools.id),
-			matchedTotal: sql<number>`sum(case when ${search ?? sql`1`} then 1 else 0 end)`,
+			matchedTotal: sql<number>`sum(case when ${search ?? sql`true`} then 1 else 0 end)`,
 		})
 		.from(appTools)
 		.where(eq(appTools.appId, appId));
@@ -268,18 +287,21 @@ export type ToolScopePreviewResult = Pick<
 	| "enabled"
 >;
 
-const scopePreviewColumns = {
-	id: appTools.id,
-	appId: appTools.appId,
-	toolId: appTools.toolId,
-	toolTypeId: appTools.toolTypeId,
-	annotations: appTools.annotations,
-	writeCapability: appTools.writeCapability,
-	authRequired: appTools.authRequired,
-	visibility: appTools.visibility,
-	config: appTools.config,
-	enabled: appTools.enabled,
-};
+function scopePreviewColumns(db: DbClient) {
+	const appTools = coreTable(db, schemaAppTools);
+	return {
+		id: appTools.id,
+		appId: appTools.appId,
+		toolId: appTools.toolId,
+		toolTypeId: appTools.toolTypeId,
+		annotations: appTools.annotations,
+		writeCapability: appTools.writeCapability,
+		authRequired: appTools.authRequired,
+		visibility: appTools.visibility,
+		config: appTools.config,
+		enabled: appTools.enabled,
+	};
+}
 
 /**
  * Read only the authorization fields used by MCP scope preview.
@@ -292,8 +314,9 @@ export async function listToolsForScopePreview(
 	db: DbClient,
 	appId: string,
 ): Promise<ToolScopePreviewResult[]> {
+	const appTools = coreTable(db, schemaAppTools);
 	return db
-		.select(scopePreviewColumns)
+		.select(scopePreviewColumns(db))
 		.from(appTools)
 		.where(eq(appTools.appId, appId))
 		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
@@ -304,21 +327,14 @@ export async function listToolsForScopePreviewByAppIds(
 	db: DbClient,
 	appIds: string[],
 ): Promise<ToolScopePreviewResult[]> {
-	const rows: ToolScopePreviewResult[] = [];
-	// Keep each response small even when an aggregator exposes hundreds of tools.
-	for (const chunk of chunkForBoundParams(
-		[...new Set(appIds.filter(Boolean))],
-		10,
-	)) {
-		rows.push(
-			...(await db
-				.select(scopePreviewColumns)
-				.from(appTools)
-				.where(inArray(appTools.appId, chunk))
-				.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt))),
-		);
-	}
-	return rows;
+	const appTools = coreTable(db, schemaAppTools);
+	const ids = [...new Set(appIds.filter(Boolean))];
+	if (!ids.length) return [];
+	return db
+		.select(scopePreviewColumns(db))
+		.from(appTools)
+		.where(anyIds(db, appTools.appId, ids))
+		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
 }
 
 export interface ToolInvocationLabelRow {
@@ -338,6 +354,8 @@ export async function listToolInvocationLabelsForOrganization(
 	db: DbClient,
 	organizationId: string,
 ): Promise<ToolInvocationLabelRow[]> {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select({
 			toolId: appTools.toolId,
@@ -373,34 +391,26 @@ export async function listConnectionToolPoliciesByAppIds(
 	db: DbClient,
 	appIds: string[],
 ): Promise<ConnectionToolPolicyRow[]> {
-	const rows: ConnectionToolPolicyRow[] = [];
-	for (const chunk of chunkForBoundParams(
-		[...new Set(appIds.filter(Boolean))],
-		D1_IN_LIST_CHUNK,
-	)) {
-		rows.push(
-			...(await db
-				.select({
-					appId: appTools.appId,
-					toolId: appTools.toolId,
-					title: appTools.title,
-					meta: appTools.meta,
-					authType: sql<
-						string | null
-					>`json_extract(${appTools.config}, '$.auth.type')`.as("auth_type"),
-					connectionId: sql<
-						string | null
-					>`json_extract(${appTools.config}, '$.auth.connectionId')`.as(
-						"connection_id",
-					),
-				})
-				.from(appTools)
-				.where(
-					and(inArray(appTools.appId, chunk), eq(appTools.enabled, true)),
-				)),
-		);
-	}
-	return rows;
+	const appTools = coreTable(db, schemaAppTools);
+	const ids = [...new Set(appIds.filter(Boolean))];
+	if (!ids.length) return [];
+	return db
+		.select({
+			appId: appTools.appId,
+			toolId: appTools.toolId,
+			title: appTools.title,
+			meta: appTools.meta,
+			authType: sql<
+				string | null
+			>`${jsonRead(db, appTools.config, ["auth", "type"])}`.as("auth_type"),
+			connectionId: sql<
+				string | null
+			>`${jsonRead(db, appTools.config, ["auth", "connectionId"])}`.as(
+				"connection_id",
+			),
+		})
+		.from(appTools)
+		.where(and(anyIds(db, appTools.appId, ids), eq(appTools.enabled, true)));
 }
 
 /** Tool inventory ordered by its stable public identifier for schema sync. */
@@ -408,6 +418,7 @@ export async function listToolsForSchemaSync(
 	db: DbClient,
 	appId: string,
 ): Promise<AppTool[]> {
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select()
 		.from(appTools)
@@ -426,6 +437,7 @@ export async function listToolIdsForSchemaSync(
 	db: DbClient,
 	appId: string,
 ): Promise<string[]> {
+	const appTools = coreTable(db, schemaAppTools);
 	const rows = await db
 		.select({ toolId: appTools.toolId })
 		.from(appTools)
@@ -443,49 +455,31 @@ export async function listToolIdsForSchemaSync(
  * exactly those two key sets returns the same rows the unscoped read would have
  * matched, and nothing else.
  *
- * Both key lists are chunked: D1 caps bound parameters at 100 per statement and
- * each chunk also binds `app_id`.
+ * Both key lists bind one set each, avoiding parameter limits and read fan-outs.
  */
 export async function listToolsForSchemaSyncScoped(
 	db: DbClient,
 	appId: string,
 	scope: { toolIds?: string[]; endpoints?: string[] },
 ): Promise<AppTool[]> {
+	const appTools = coreTable(db, schemaAppTools);
 	const toolIds = [...new Set((scope.toolIds ?? []).filter(Boolean))];
 	const endpoints = [...new Set((scope.endpoints ?? []).filter(Boolean))];
 	if (toolIds.length === 0 && endpoints.length === 0) return [];
 
-	const byId = new Map<string, AppTool>();
-
-	for (const chunk of chunkForBoundParams(toolIds, D1_IN_LIST_CHUNK)) {
-		const rows = await db
-			.select()
-			.from(appTools)
-			.where(and(eq(appTools.appId, appId), inArray(appTools.toolId, chunk)))
-			.orderBy(asc(appTools.toolId));
-		for (const row of rows) byId.set(row.id, row);
-	}
-
-	for (const chunk of chunkForBoundParams(endpoints, D1_IN_LIST_CHUNK)) {
-		const rows = await db
-			.select()
-			.from(appTools)
-			.where(
-				and(
-					eq(appTools.appId, appId),
-					inArray(
-						sql<string>`json_extract(${appTools.config}, '$.endpoint')`,
-						chunk,
-					),
+	return db
+		.select()
+		.from(appTools)
+		.where(
+			and(
+				eq(appTools.appId, appId),
+				or(
+					anyIds(db, appTools.toolId, toolIds),
+					anyIds(db, jsonRead(db, appTools.config, ["endpoint"]), endpoints),
 				),
-			)
-			.orderBy(asc(appTools.toolId));
-		for (const row of rows) byId.set(row.id, row);
-	}
-
-	return [...byId.values()].sort((left, right) =>
-		left.toolId < right.toolId ? -1 : left.toolId > right.toolId ? 1 : 0,
-	);
+			),
+		)
+		.orderBy(asc(appTools.toolId));
 }
 
 /**
@@ -518,6 +512,8 @@ export async function getToolByIdForOrganization(
 	db: DbClient,
 	input: { organizationId: string; toolId: string },
 ): Promise<AppTool | undefined> {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	const [row] = await db
 		.select(prefixedColumns(appTools, "tool"))
 		.from(appTools)
@@ -537,6 +533,8 @@ export async function getToolByAppAndToolIdForOrganization(
 	db: DbClient,
 	input: { organizationId: string; appId: string; toolId: string },
 ): Promise<AppTool | undefined> {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	const [row] = await db
 		.select(prefixedColumns(appTools, "tool"))
 		.from(appTools)
@@ -593,6 +591,7 @@ export async function upsertTool(
 		inputSchema?: NewAppTool["inputSchema"] | null;
 	},
 ): Promise<AppTool> {
+	const appTools = coreTable(db, schemaAppTools);
 	// Enforce: no plaintext secrets in tool configs
 	validateNoPlaintextSecrets(tool.config);
 
@@ -660,6 +659,7 @@ export async function upsertTool(
  * @param toolId - Tool primary key ID to delete
  */
 export async function deleteTool(db: DbClient, toolId: string): Promise<void> {
+	const appTools = coreTable(db, schemaAppTools);
 	await db.delete(appTools).where(eq(appTools.id, toolId));
 }
 
@@ -673,6 +673,7 @@ export async function updateToolSchemaProjection(
 		now: string;
 	},
 ): Promise<void> {
+	const appTools = coreTable(db, schemaAppTools);
 	await db
 		.update(appTools)
 		.set({
@@ -693,7 +694,7 @@ export async function updateToolSchemaProjection(
  * only the sync bookkeeping moves:
  *
  * - `touchIds`: provenance columns already match; only `schema_synced_at`
- *   advances, in one `UPDATE … WHERE id IN (…)` per ≤50-id chunk.
+ *   advances, in one set-based `UPDATE`.
  * - `certify`: provenance columns drifted (hash, ref, dialect, source); each
  *   row is re-certified in place with its own hash.
  *
@@ -711,14 +712,17 @@ export async function refreshToolSchemaProvenance(
 		now: string;
 	},
 ): Promise<void> {
+	const appTools = coreTable(db, schemaAppTools);
 	const touchIds = [...new Set(input.touchIds)];
 	const queries = [
-		...chunkForBoundParams(touchIds, D1_IN_LIST_CHUNK).map((chunk) =>
-			db
-				.update(appTools)
-				.set({ schemaSyncedAt: input.now })
-				.where(inArray(appTools.id, chunk)),
-		),
+		...(touchIds.length
+			? [
+					db
+						.update(appTools)
+						.set({ schemaSyncedAt: input.now })
+						.where(anyIds(db, appTools.id, touchIds)),
+				]
+			: []),
 		...input.certify.map((row) =>
 			db
 				.update(appTools)
@@ -753,15 +757,16 @@ export async function listToolContractHashesForSchemaSync(
 	db: DbClient,
 	appId: string,
 ): Promise<ToolContractHashResult[]> {
+	const appTools = coreTable(db, schemaAppTools);
 	return db
 		.select({
 			toolId: appTools.toolId,
 			transport: sql<
 				string | null
-			>`json_extract(${appTools.config}, '$.transport')`,
+			>`${jsonRead(db, appTools.config, ["transport"])}`,
 			endpoint: sql<
 				string | null
-			>`json_extract(${appTools.config}, '$.endpoint')`,
+			>`${jsonRead(db, appTools.config, ["endpoint"])}`,
 			contractHash: appTools.contractHash,
 		})
 		.from(appTools)
@@ -778,6 +783,7 @@ export async function recordToolContractHashes(
 	db: DbClient,
 	rows: Array<{ id: string; contractHash: string }>,
 ): Promise<void> {
+	const appTools = coreTable(db, schemaAppTools);
 	if (rows.length === 0) return;
 	await db.batch(
 		batchNonEmpty(
@@ -803,6 +809,7 @@ export async function toggleToolEnabled(
 	toolId: string,
 	enabled: boolean,
 ): Promise<void> {
+	const appTools = coreTable(db, schemaAppTools);
 	const now = new Date().toISOString();
 
 	await db
@@ -825,6 +832,7 @@ export async function bulkUpdateToolSortOrders(
 	db: DbClient,
 	updates: Array<{ toolId: string; sortOrder: number }>,
 ): Promise<void> {
+	const appTools = coreTable(db, schemaAppTools);
 	if (updates.length === 0) return;
 
 	const now = new Date().toISOString();
@@ -844,6 +852,8 @@ export async function inferCatalogToolOutputSchemas(
 	toolName: string,
 	sample: () => unknown,
 ): Promise<number> {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	const rows = await db
 		.select({ id: appTools.id, outputSchema: appTools.outputSchema })
 		.from(appTools)
@@ -853,16 +863,16 @@ export async function inferCatalogToolOutputSchemas(
 				eq(apps.catalogAppId, catalogAppId),
 				eq(appTools.toolId, toolName),
 				eq(appTools.sensitiveData, false),
-				sql`json_extract(${appTools.config}, '$.transport') = 'mcp'`,
-				sql`json_extract(${appTools.config}, '$.mcpServerId') = ${catalogAppId}`,
-				sql`json_extract(${appTools.config}, '$.mcpToolName') = ${toolName}`,
-				sql`(${appTools.outputSchema} IS NULL OR json_extract(${appTools.outputSchema}, '$.x-tedix-provenance') = 'inferred')`,
+				sql`${jsonRead(db, appTools.config, ["transport"])} = 'mcp'`,
+				sql`${jsonRead(db, appTools.config, ["mcpServerId"])} = ${catalogAppId}`,
+				sql`${jsonRead(db, appTools.config, ["mcpToolName"])} = ${toolName}`,
+				sql`(${appTools.outputSchema} IS NULL OR ${jsonRead(db, appTools.outputSchema, ["x-tedix-provenance"])} = 'inferred')`,
 			),
 		);
 	if (!rows.length) return 0;
 	const inferred = inferOutputSchema(sample());
-	let updated = 0;
-	for (const row of rows) {
+	const now = new Date().toISOString();
+	const updates = rows.map((row) => {
 		const previous = row.outputSchema
 			? Object.fromEntries(
 					Object.entries(row.outputSchema).filter(
@@ -874,20 +884,25 @@ export async function inferCatalogToolOutputSchemas(
 			...mergeOutputSchemas(previous, inferred),
 			[INFERRED_SCHEMA_PROVENANCE]: "inferred",
 		};
-		const changed = await db
-			.update(appTools)
-			.set({ outputSchema: schema, updatedAt: new Date().toISOString() })
-			.where(
-				and(
-					eq(appTools.id, row.id),
-					eq(appTools.sensitiveData, false),
-					row.outputSchema === null
-						? sql`${appTools.outputSchema} IS NULL`
-						: eq(appTools.outputSchema, row.outputSchema),
-				),
-			)
-			.returning({ id: appTools.id });
-		updated += changed.length;
-	}
-	return updated;
+		return { id: row.id, previous: row.outputSchema, schema };
+	});
+	const payload = JSON.stringify(updates);
+	const candidates =
+		coreStore(db) === "postgres"
+			? sql`SELECT id, previous, schema FROM jsonb_to_recordset(${payload}::jsonb) AS candidate(id text, previous jsonb, schema jsonb)`
+			: sql`SELECT json_extract(value, '$.id') AS id, json_extract(value, '$.previous') AS previous, json_extract(value, '$.schema') AS schema FROM json_each(${payload})`;
+	// One set-based write; the previous schema and sensitivity are checked again
+	// under the write lock, so an intervening declaration cannot be overwritten.
+	const unchanged =
+		coreStore(db) === "postgres"
+			? sql`${appTools.outputSchema} IS NOT DISTINCT FROM candidate.previous`
+			: sql`${appTools.outputSchema} IS candidate.previous`;
+	const changed = await db.all<{
+		id: string;
+	}>(sql`WITH candidate AS (${candidates})
+		UPDATE ${appTools} SET output_schema = (SELECT schema FROM candidate WHERE candidate.id = ${appTools.id}), updated_at = ${now}
+		WHERE ${appTools.sensitiveData} = ${booleanValue(db, false)} AND ${appTools.id} IN (
+			SELECT candidate.id FROM candidate WHERE ${unchanged}
+		) RETURNING id`);
+	return changed.length;
 }

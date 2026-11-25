@@ -1,13 +1,15 @@
+import { coreTable } from "../core-store/client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import type { UserConfig } from "../schema/user-configs";
-import { userConfigs } from "../schema/user-configs";
+import { userConfigs as schemaUserConfigs } from "../schema/user-configs";
 
 export async function getUserConfig(
 	db: DbQueryClient,
 	input: { userId: string; namespace: string; key: string },
 ): Promise<UserConfig | null> {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	const rows = await db
 		.select()
 		.from(userConfigs)
@@ -28,6 +30,7 @@ export async function listUserConfigs(
 	db: DbQueryClient,
 	input: { userId: string; namespace: string; limit?: number },
 ): Promise<UserConfig[]> {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	return db
 		.select()
 		.from(userConfigs)
@@ -50,6 +53,7 @@ export async function upsertUserConfig(
 		value: Record<string, JsonValue>;
 	},
 ): Promise<UserConfig> {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	const now = new Date().toISOString();
 	await db
 		.insert(userConfigs)
@@ -105,6 +109,7 @@ export async function putUserConfig(
 		expectedRevision: number;
 	},
 ): Promise<PutUserConfigResult> {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	const now = new Date().toISOString();
 	const rows =
 		input.expectedRevision === 0

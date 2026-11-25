@@ -1,15 +1,20 @@
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonRead } from "../core-store/dialect";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { OfficeActivityRow } from "@tedix/api-contract/schemas/office-activity";
 import type { DbQueryClient } from "../query-client";
-import { userConfigs } from "../schema/user-configs";
+import { userConfigs as schemaUserConfigs } from "../schema/user-configs";
 import { getUserConfig } from "./user-configs";
 import {
-	workInteractions,
-	workInteractionResponses,
-	workInteractionDeliveries,
+	workInteractions as schemaWorkInteractions,
+	workInteractionResponses as schemaWorkInteractionResponses,
+	workInteractionDeliveries as schemaWorkInteractionDeliveries,
 } from "../schema/work-factory";
-import { workAgentSessions } from "../schema/work-agent-sessions";
-import { workEvents, workAttempts } from "../schema/work-items";
+import { workAgentSessions as schemaWorkAgentSessions } from "../schema/work-agent-sessions";
+import {
+	workEvents as schemaWorkEvents,
+	workAttempts as schemaWorkAttempts,
+} from "../schema/work-items";
 
 /** Supervisor reply rows keep their own share, so busy hooks cannot evict them. */
 export const OFFICE_HOOK_LIMIT = 150;
@@ -22,6 +27,44 @@ function identity(owner: { organizationId: string; userId: string }) {
 		namespace: "office.operations.v1",
 		key: owner.organizationId,
 	};
+}
+
+function postgresObservationValue(
+	db: DbQueryClient,
+	row: OfficeActivityRow,
+	cutoff: string,
+) {
+	const userConfigs = coreTable(db, schemaUserConfigs);
+	const sameReport =
+		row.source === "hook"
+			? sql`value->>'source' = 'hook' AND value->>'host' = ${row.host}
+		AND value->>'sessionKey' = ${row.sessionKey} AND value->>'trigger' = ${row.trigger}
+		AND COALESCE(value->>'reportedState', '') = ${row.reportedState ?? ""}
+		AND value->>'at' >= ${cutoff}`
+			: sql`false`;
+	const incoming = sql`excluded.value->'rows'->0`;
+	const merged =
+		row.source !== "hook"
+			? incoming
+			: sql`${incoming} || jsonb_build_object(
+		'occurrences', LEAST(1000000, ${row.occurrences}::numeric + COALESCE((SELECT SUM((value->>'occurrences')::numeric) FROM matched), 0)),
+		'firstAt', LEAST(${row.firstAt ?? row.at}::text, COALESCE((SELECT MIN(COALESCE(value->>'firstAt', value->>'at')) FROM matched), ${row.at}::text)),
+		'at', GREATEST(${row.at}::text, COALESCE((SELECT MAX(value->>'at') FROM matched), ''))
+	)`;
+	return sql`(WITH stored AS (
+		SELECT value FROM jsonb_array_elements(COALESCE(${userConfigs.value}->'rows', '[]'::jsonb)) AS old(value)
+	), matched AS (SELECT value FROM stored WHERE ${sameReport}),
+	duplicate AS (SELECT 1 FROM stored WHERE value->>'id' = ${row.id}),
+	candidates AS (
+		SELECT value FROM stored WHERE EXISTS (SELECT 1 FROM duplicate) OR NOT (${sameReport})
+		UNION ALL SELECT ${merged} WHERE NOT EXISTS (SELECT 1 FROM duplicate)
+	), ranked AS (
+		SELECT value, ROW_NUMBER() OVER (PARTITION BY value->>'source' = 'supervisor'
+		ORDER BY value->>'at' DESC, value->>'id' DESC) AS position
+		FROM candidates WHERE value->>'at' >= ${cutoff}
+	)
+	SELECT jsonb_build_object('rows', COALESCE(jsonb_agg(value ORDER BY value->>'at' DESC, value->>'id' DESC), '[]'::jsonb))
+	FROM ranked WHERE position <= CASE WHEN value->>'source' = 'supervisor' THEN ${OFFICE_SUPERVISOR_LIMIT}::integer ELSE ${OFFICE_HOOK_LIMIT}::integer END)`;
 }
 
 /** One bounded personal snapshot per tenant, never an append-only event ledger.
@@ -37,6 +80,7 @@ export async function recordOfficeObservation(
 	row: OfficeActivityRow,
 	now: string,
 ) {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	const key = identity(owner);
 	const cutoff = new Date(Date.parse(now) - OFFICE_HISTORY_MS).toISOString();
 	const stored = sql`json_each(${userConfigs.value}, '$.rows')`;
@@ -68,7 +112,10 @@ export async function recordOfficeObservation(
 		.onConflictDoUpdate({
 			target: [userConfigs.userId, userConfigs.namespace, userConfigs.key],
 			set: {
-				value: sql`json_object('rows', json((SELECT json_group_array(json(value)) FROM (
+				value:
+					coreStore(db) === "postgres"
+						? postgresObservationValue(db, row, cutoff)
+						: sql`json_object('rows', json((SELECT json_group_array(json(value)) FROM (
  SELECT value FROM (
  SELECT value, json_extract(value, '$.source') AS source, ROW_NUMBER() OVER (
  PARTITION BY json_extract(value, '$.source') = 'supervisor'
@@ -102,6 +149,11 @@ export async function officeReplyReference(
 		responseId?: string;
 	},
 ) {
+	const workInteractions = coreTable(db, schemaWorkInteractions);
+	const workInteractionResponses = coreTable(
+		db,
+		schemaWorkInteractionResponses,
+	);
 	if (!input.requestId || !input.responseId) return null;
 	const native = input.sessionKey.replace(new RegExp(`^${input.host}:`), "");
 	const [row] = await db
@@ -126,8 +178,8 @@ export async function officeReplyReference(
 					owner.userId,
 					owner.descopeUserId,
 				]),
-				sql`json_extract(${workInteractions.metadata}, '$.sessionId') IN (${input.sessionKey}, ${native})`,
-				sql`json_extract(${workInteractions.metadata}, '$.host') = ${input.host}`,
+				sql`${jsonRead(db, workInteractions.metadata, ["sessionId"])} IN (${input.sessionKey}, ${native})`,
+				sql`${jsonRead(db, workInteractions.metadata, ["host"])} = ${input.host}`,
 			),
 		)
 		.limit(1);
@@ -140,6 +192,26 @@ export async function readOfficeCanonicalSources(
 	owner: { organizationId: string; userId: string; descopeUserId: string },
 	since: string,
 ) {
+	const workInteractions = coreTable(db, schemaWorkInteractions);
+	const workInteractionResponses = coreTable(
+		db,
+		schemaWorkInteractionResponses,
+	);
+	const workInteractionDeliveries = coreTable(
+		db,
+		schemaWorkInteractionDeliveries,
+	);
+	const workAgentSessions = coreTable(db, schemaWorkAgentSessions);
+	const workEvents = coreTable(db, schemaWorkEvents);
+	const workAttempts = coreTable(db, schemaWorkAttempts);
+	const sessionSeparator =
+		coreStore(db) === "d1"
+			? sql`instr(own_attempt.external_session_key, ':')`
+			: sql`strpos(own_attempt.external_session_key, ':')`;
+	const sessionHarness =
+		coreStore(db) === "d1"
+			? sql`substr(own_attempt.external_session_key, 1, ${sessionSeparator} - 1)`
+			: sql`split_part(own_attempt.external_session_key, ':', 1)`;
 	const replies = await db
 		.select({
 			responseId: sql<string>`${workInteractionResponses.id}`.as(
@@ -149,12 +221,12 @@ export async function readOfficeCanonicalSources(
 			workItemId: workInteractions.workItemId,
 			sessionKey: sql<
 				string | null
-			>`json_extract(${workInteractions.metadata}, '$.sessionId')`.as(
+			>`${jsonRead(db, workInteractions.metadata, ["sessionId"])}`.as(
 				"office_reply_session",
 			),
 			host: sql<
 				string | null
-			>`json_extract(${workInteractions.metadata}, '$.host')`.as(
+			>`${jsonRead(db, workInteractions.metadata, ["host"])}`.as(
 				"office_reply_host",
 			),
 			savedAt: workInteractionResponses.respondedAt,
@@ -188,8 +260,8 @@ export async function readOfficeCanonicalSources(
 					owner.descopeUserId,
 				]),
 				gte(workInteractionResponses.respondedAt, since),
-				sql`json_extract(${workInteractions.metadata}, '$.sessionId') IS NOT NULL`,
-				sql`COALESCE(json_extract(${workInteractionResponses.metadata}, '$.delivery'), '') <> 'none'`,
+				sql`${jsonRead(db, workInteractions.metadata, ["sessionId"])} IS NOT NULL`,
+				sql`COALESCE(${jsonRead(db, workInteractionResponses.metadata, ["delivery"])}, '') <> 'none'`,
 			),
 		)
 		.orderBy(
@@ -222,7 +294,7 @@ export async function readOfficeCanonicalSources(
 				eq(workAttempts.orgId, workEvents.orgId),
 				// `+started_at` keeps the lookup on the (org, item) key instead of an
 				// org-wide started_at range; see office-activity.plan.test.ts.
-				sql`(${workAttempts.id} = ${workEvents.attemptId} OR (${workEvents.eventType} = 'work.completed' AND ${workEvents.attemptId} IS NULL AND ${workAttempts.id} = (SELECT latest.id FROM ${workAttempts} latest WHERE latest.org_id = ${workEvents.orgId} AND latest.work_item_id = ${workEvents.workItemId} AND +latest.started_at <= ${workEvents.occurredAt} ORDER BY latest.attempt_number DESC LIMIT 1)))`,
+				sql`(${workAttempts.id} = ${workEvents.attemptId} OR (${workEvents.eventType} = 'work.completed' AND ${workEvents.attemptId} IS NULL AND ${workAttempts.id} = (SELECT latest.id FROM ${workAttempts} latest WHERE latest.org_id = ${workEvents.orgId} AND latest.work_item_id = ${workEvents.workItemId} AND ${coreStore(db) === "d1" ? sql`+latest.started_at` : sql`latest.started_at`} <= ${workEvents.occurredAt} ORDER BY latest.attempt_number DESC LIMIT 1)))`,
 			),
 		)
 		.where(
@@ -232,11 +304,18 @@ export async function readOfficeCanonicalSources(
 				gte(workEvents.occurredAt, since),
 				// Attempts store `harness:session`; hook-reported sessions store the
 				// bare id under their harness. Older Attempts stored the bare id.
-				sql`(EXISTS (SELECT 1 FROM ${workAttempts} own_attempt JOIN ${workAgentSessions} s ON s.organization_id = own_attempt.org_id AND s.user_id = ${owner.userId} AND s.harness = substr(own_attempt.external_session_key, 1, instr(own_attempt.external_session_key, ':') - 1) AND s.session_key = substr(own_attempt.external_session_key, instr(own_attempt.external_session_key, ':') + 1) WHERE own_attempt.org_id = ${owner.organizationId} AND own_attempt.work_item_id = ${workEvents.workItemId} AND instr(own_attempt.external_session_key, ':') > 0) OR EXISTS (SELECT 1 FROM ${workAgentSessions} s JOIN ${workAttempts} own_attempt ON own_attempt.org_id = s.organization_id AND own_attempt.external_session_key = s.session_key WHERE s.organization_id = ${owner.organizationId} AND s.user_id = ${owner.userId} AND own_attempt.work_item_id = ${workEvents.workItemId}))`,
+				sql`(EXISTS (SELECT 1 FROM ${workAttempts} own_attempt JOIN ${workAgentSessions} s ON s.organization_id = own_attempt.org_id AND s.user_id = ${owner.userId} AND s.harness = ${sessionHarness} AND s.session_key = substr(own_attempt.external_session_key, ${sessionSeparator} + 1) WHERE own_attempt.org_id = ${owner.organizationId} AND own_attempt.work_item_id = ${workEvents.workItemId} AND ${sessionSeparator} > 0) OR EXISTS (SELECT 1 FROM ${workAgentSessions} s JOIN ${workAttempts} own_attempt ON own_attempt.org_id = s.organization_id AND own_attempt.external_session_key = s.session_key WHERE s.organization_id = ${owner.organizationId} AND s.user_id = ${owner.userId} AND own_attempt.work_item_id = ${workEvents.workItemId}))`,
 			),
 		)
 		// Do not trade the event-type/time range for the org-wide ordering index.
-		.orderBy(desc(sql`+${workEvents.occurredAt}`), desc(workEvents.id))
+		.orderBy(
+			desc(
+				coreStore(db) === "d1"
+					? sql`+${workEvents.occurredAt}`
+					: workEvents.occurredAt,
+			),
+			desc(workEvents.id),
+		)
 		.limit(100);
 	return { replies, events };
 }
@@ -247,6 +326,7 @@ export async function pruneOfficeObservations(
 	owner: { userId: string; organizationId: string },
 	now: string,
 ) {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	await db
 		.delete(userConfigs)
 		.where(
@@ -264,6 +344,7 @@ export async function pruneExpiredOfficeSnapshots(
 	db: DbQueryClient,
 	now: string,
 ) {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	const rows = await db
 		.delete(userConfigs)
 		.where(sql`${userConfigs.id} IN (
