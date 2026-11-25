@@ -230,6 +230,11 @@ export const agentSessionEvents = sqliteTable(
 		index("idx_agent_session_events_body_retention")
 			.on(table.processedAt, table.id)
 			.where(sql`status = 'processed' AND body_archived_at IS NULL`),
+		index("idx_agent_session_events_body_backfill")
+			.on(table.processedAt, table.id)
+			.where(
+				sql`status = 'processed' AND body_archived_at IS NULL AND body_r2_key IS NULL`,
+			),
 		index("idx_agent_session_events_pending_heads").on(
 			table.organizationId,
 			table.userId,

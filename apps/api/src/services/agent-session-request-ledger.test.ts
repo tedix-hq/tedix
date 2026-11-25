@@ -3259,7 +3259,7 @@ it("stores new events in R2 and feeds the observer and reflector their full text
 	).rejects.toThrow("Session event body missing");
 });
 
-it("archives only old processed bodies and preserves cached reflections and report reads", async () => {
+it("backfills recent processed bodies and archives reflections after 14 days without losing reads", async () => {
 	const db = fixture();
 	const bucket = bodyBucket();
 	const eventBodies = agentSessionEventBodies(bucket);
@@ -3301,7 +3301,7 @@ it("archives only old processed bodies and preserves cached reflections and repo
 		.update(agentSessionEvents)
 		.set({
 			status: "processed",
-			processedAt: T0,
+			processedAt: "2026-11-10T11:59:59.999Z",
 			lessonReflection: {
 				inputKey: "lesson",
 				response: "cached lesson",
@@ -3312,7 +3312,11 @@ it("archives only old processed bodies and preserves cached reflections and repo
 		.where(eq(agentSessionEvents.sourceKey, "turn"));
 	await db
 		.update(agentSessionEvents)
-		.set({ status: "processed", processedAt: "2026-11-24T00:00:00.000Z" })
+		.set({
+			status: "processed",
+			processedAt: "2026-11-10T12:00:00.000Z",
+			lessonReflection: { inputKey: "recent", response: "recent reflection" },
+		})
 		.where(eq(agentSessionEvents.sourceKey, "prompt"));
 	const now = new Date("2026-11-24T12:00:00.000Z");
 	const [turn] = await db
@@ -3346,7 +3350,7 @@ it("archives only old processed bodies and preserves cached reflections and repo
 		),
 	).toBe(false);
 	const moved = await retainAgentSessionEventBodies(db, eventBodies, now);
-	expect(moved.moved).toBe(1);
+	expect(moved.moved).toBe(2);
 	expect(moved.inlineBytesMoved).toBeGreaterThan(100);
 	const rows = await db.select().from(agentSessionEvents);
 	expect(rows.find((row) => row.id === turn!.id)).toMatchObject({
@@ -3358,9 +3362,18 @@ it("archives only old processed bodies and preserves cached reflections and repo
 	expect(rows.find((row) => row.sourceKey === "pending")?.body).toBe(
 		"Pending event",
 	);
-	expect(rows.find((row) => row.sourceKey === "prompt")?.body).toBe(
-		"Original request",
-	);
+	expect(rows.find((row) => row.sourceKey === "prompt")).toMatchObject({
+		body: "",
+		bodyR2Key: expect.any(String),
+		bodyArchivedAt: null,
+		lessonReflection: { inputKey: "recent", response: "recent reflection" },
+	});
+	expect(
+		await eventBodies.read(
+			owner,
+			rows.find((row) => row.sourceKey === "prompt")!.bodyR2Key!,
+		),
+	).toMatchObject({ body: "Original request" });
 	const lookup = { ...owner, id: turn!.id, inputKey: "lesson" };
 	expect(await getAgentSessionLessonReflection(db, lookup)).toBe(
 		"cached lesson updated",
@@ -3435,4 +3448,30 @@ it("archives only old processed bodies and preserves cached reflections and repo
 				.where(eq(agentSessionEvents.id, turn!.id))
 		)[0]?.lessonReflection,
 	).toBeNull();
+	expect(
+		(
+			await retainAgentSessionEventBodies(
+				db,
+				eventBodies,
+				new Date(now.getTime() + 1),
+			)
+		).moved,
+	).toBe(2);
+	expect(await getAgentSessionLessonReflection(db, lookup)).toBe(
+		"new inference",
+	);
+	const [archivedPrompt] = await db
+		.select()
+		.from(agentSessionEvents)
+		.where(eq(agentSessionEvents.sourceKey, "prompt"));
+	expect(archivedPrompt).toMatchObject({
+		lessonReflection: null,
+		bodyArchivedAt: expect.any(String),
+	});
+	expect(
+		await eventBodies.read(owner, archivedPrompt!.bodyR2Key!),
+	).toMatchObject({
+		body: "Original request",
+		lessonReflection: { inputKey: "recent", response: "recent reflection" },
+	});
 });

@@ -1,0 +1,1 @@
+CREATE INDEX `idx_agent_session_events_body_backfill` ON `agent_session_events` (`processed_at`,`id`) WHERE status = 'processed' AND body_archived_at IS NULL AND body_r2_key IS NULL;

@@ -1457,13 +1457,14 @@ export async function fileAgentSessionRequest(
 	return row ?? null;
 }
 
-/** A bounded indexed page; active/failed events and recent processed bodies stay untouched. */
+/** Archive old reflections, then backfill recent inline bodies; active/failed events stay untouched. */
 export async function listAgentSessionBodiesForRetention(
 	db: DbQueryClient,
 	before: string,
 	limit = 100,
 ) {
-	return db
+	const pageSize = Math.min(100, Math.max(1, limit));
+	const old = await db
 		.select()
 		.from(agentSessionEvents)
 		.where(
@@ -1474,7 +1475,22 @@ export async function listAgentSessionBodiesForRetention(
 			),
 		)
 		.orderBy(agentSessionEvents.processedAt, agentSessionEvents.id)
-		.limit(Math.min(100, Math.max(1, limit)));
+		.limit(pageSize);
+	if (old.length === pageSize) return old;
+	const recent = await db
+		.select()
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.status, "processed"),
+				isNull(agentSessionEvents.bodyArchivedAt),
+				isNull(agentSessionEvents.bodyR2Key),
+				gte(agentSessionEvents.processedAt, before),
+			),
+		)
+		.orderBy(agentSessionEvents.processedAt, agentSessionEvents.id)
+		.limit(pageSize - old.length);
+	return [...old, ...recent];
 }
 
 /** Publish the uploaded snapshot only if no processor/replay changed it meanwhile. */
@@ -1483,6 +1499,7 @@ export async function archiveAgentSessionEventBody(
 	row: AgentSessionEventRow,
 	key: string,
 	now: string,
+	archiveReflections = true,
 ) {
 	const rows = await db
 		.update(agentSessionEvents)
@@ -1490,9 +1507,9 @@ export async function archiveAgentSessionEventBody(
 			bodyR2Key: key,
 			body: "",
 			activity: null,
-			lessonReflection: null,
+			lessonReflection: archiveReflections ? null : row.lessonReflection,
 			hasActivity: row.hasActivity || Boolean(row.activity),
-			bodyArchivedAt: now,
+			bodyArchivedAt: archiveReflections ? now : null,
 		})
 		.where(
 			and(

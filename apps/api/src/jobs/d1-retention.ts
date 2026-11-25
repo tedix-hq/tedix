@@ -1,7 +1,7 @@
 /// <reference path="../../worker-configuration.d.ts" />
 /**
  * D1 retention tick, every 15 minutes. Policy rows in `d1_retention_policies` decide
- * the table archives; processed session bodies use the shared 30-day window.
+ * the table archives; session bodies are backfilled and reflections archived after 14 days.
  * Archives go to the private tedi bucket under `d1-archive/v1/`; the
  * `move_to_logs_db` mode also needs the optional `LOGS_DB` binding.
  *

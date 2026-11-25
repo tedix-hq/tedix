@@ -2032,6 +2032,10 @@
 		{
 			"name": "20261124212102_agent_session_event_bodies/migration.sql",
 			"sha256": "e7b16df395bcb2d5320412f6f13a1194cba4ec3020b118538e97d3477e8c2dcb"
+		},
+		{
+			"name": "20261125041804_agent_session_body_backfill/migration.sql",
+			"sha256": "10ac76e9d753470a91c44b1e600b5b999dd8666472b170d3b29a55437503ff1f"
 		}
 	]
 }

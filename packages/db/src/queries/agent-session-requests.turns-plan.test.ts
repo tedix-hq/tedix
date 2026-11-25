@@ -74,6 +74,13 @@ it("seeks old processed bodies through the partial retention index", async () =>
 			.join(" | ");
 		expect(plan).toContain("idx_agent_session_events_body_retention");
 		expect(plan).not.toContain("TEMP B-TREE");
+		const backfillPlan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${statements[1]}`)
+			.all("processed", before, 100)
+			.map((row) => String(row.detail))
+			.join(" | ");
+		expect(backfillPlan).toContain("idx_agent_session_events_body_backfill");
+		expect(backfillPlan).not.toContain("TEMP B-TREE");
 	} finally {
 		sqlite.close();
 	}

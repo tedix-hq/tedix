@@ -62,18 +62,20 @@ export function agentSessionEventBodies(
 	};
 }
 
-/** Move processed payloads after 30 days; never delete the event or its object. */
+/** Backfill processed bodies and archive reflections after 14 days, preserving rows and objects. */
 export async function retainAgentSessionEventBodies(
 	db: DbQueryClient,
 	eventBodies: AgentSessionEventBodyStore,
 	now: Date,
 	limit = 100,
 ) {
-	const before = new Date(now.getTime() - 30 * 86400_000).toISOString();
+	const before = new Date(now.getTime() - 14 * 86400_000).toISOString();
 	const rows = await listAgentSessionBodiesForRetention(db, before, limit);
 	let moved = 0;
 	let inlineBytesMoved = 0;
 	for (const row of rows) {
+		const archiveReflections =
+			row.processedAt !== null && row.processedAt < before;
 		const body = await hydrateAgentSessionEventBody(row, {
 			...row,
 			eventBodies,
@@ -83,12 +85,22 @@ export async function retainAgentSessionEventBodies(
 			activity: body.activity,
 			lessonReflection: body.lessonReflection,
 		});
-		if (await archiveAgentSessionEventBody(db, row, key, now.toISOString())) {
+		if (
+			await archiveAgentSessionEventBody(
+				db,
+				row,
+				key,
+				now.toISOString(),
+				archiveReflections,
+			)
+		) {
 			moved++;
 			inlineBytesMoved += new TextEncoder().encode(
 				row.body +
 					(row.activity ?? "") +
-					(row.lessonReflection ? JSON.stringify(row.lessonReflection) : ""),
+					(archiveReflections && row.lessonReflection
+						? JSON.stringify(row.lessonReflection)
+						: ""),
 			).byteLength;
 		}
 	}
