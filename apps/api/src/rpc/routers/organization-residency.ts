@@ -1,9 +1,10 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { osAudit } from "../os-audit";
 import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
-import { createDbClient } from "@tedix/db/client";
+
 import { implement } from "@orpc/server";
 import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	getOrganizationResidencyPolicy,
 	setOrganizationResidencyPolicy,
@@ -18,7 +19,7 @@ import { AUTHZ, withAuth, type BaseContext } from "../orpc";
 import { requireOrgId } from "../org-scope";
 
 function primaryResidencyDb(context: BaseContext) {
-	return context.env.DB ? createDbClient(context.env.DB) : context.db;
+	return context.env.DB ? coreDb(context.env) : context.db;
 }
 
 const os = implement(organizationsContract)

@@ -10,12 +10,12 @@ export async function runCostAnomalyCheck(
 ): Promise<Record<string, number>> {
 	console.log(`[Scheduled] Running cost anomaly check (${runId})`);
 	try {
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb } = await import("@tedix/db/core-store/scope");
 		const { getDailySpendRate } = await import("@tedix/db/queries/tedi-usage");
 		const { listOrganizations } =
 			await import("@tedix/db/queries/organizations");
 		const { getTedisByOrganization } = await import("@tedix/db/queries/tedis");
-		const db = createDbClient(env.DB);
+		const db = coreDb(env);
 
 		let checked = 0;
 		let warnings = 0;

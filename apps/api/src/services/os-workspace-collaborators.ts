@@ -3,6 +3,7 @@
  * the sharing operations around it. Access is the permission graph in
  * `os-collaborator-graph.ts`, recomputed from stored edges on every call.
  */
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { loadWorkspaceAccess } from "@tedix/db/queries/os-workspace-access";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
@@ -46,10 +47,7 @@ import {
 	getOsGadgetRevision,
 	listOsGadgets,
 } from "@tedix/db/queries/os-workspaces/gadgets";
-import {
-	createDbQueryClient,
-	type DbQueryClient,
-} from "@tedix/db/query-client";
+import { type DbQueryClient } from "@tedix/db/query-client";
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
 import { cutWorkspaceAppSessions } from "./os-app-session-revocation";
@@ -102,7 +100,7 @@ export async function hashWorkspaceShareKey(key: string): Promise<string> {
 const ACCESS_DENIED = "You don't have access to this workspace";
 
 function db(context: BaseContext): DbQueryClient {
-	return createDbQueryClient(context.env.DB);
+	return coreQueryDb(context.env);
 }
 
 /** People and authenticated tedis act under their own principal id. */

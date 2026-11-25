@@ -13,6 +13,7 @@ import {
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { SkillRunStatus } from "@tedix/api-contract/schemas/cognitive";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import type { DbClient } from "@tedix/db/client";
 import { getSkillEntryBySlug } from "@tedix/db/queries/cognitive/skill-crud";
 import { getRuntimeProfileById } from "@tedix/db/queries/control-plane/definitions";
@@ -30,7 +31,7 @@ import {
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getTediById } from "@tedix/db/queries/tedis";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type { TediApprovalRequest } from "@tedix/db/schema/approvals";
 import type { SkillEntry } from "@tedix/db/schema/cognitive";
 import type { ModelPolicy } from "@tedix/db/schema/control-plane";
@@ -292,7 +293,7 @@ async function terminalizeAwaiting(
 		execution.workflowInstanceId === null
 	) {
 		return (
-			(await failClaimedOsGadgetExecution(createDbQueryClient(context.env.DB), {
+			(await failClaimedOsGadgetExecution(coreQueryDb(context.env), {
 				organizationId: execution.organizationId,
 				executionId: execution.id,
 				runId: execution.id,
@@ -301,7 +302,7 @@ async function terminalizeAwaiting(
 		);
 	}
 	const settled = await settleAwaitingApprovalOsGadgetExecution(
-		createDbQueryClient(context.env.DB),
+		coreQueryDb(context.env),
 		{
 			organizationId: execution.organizationId,
 			executionId: execution.id,
@@ -330,7 +331,7 @@ export async function settleOsGadgetApproval(
 	if (!payload) {
 		return { handled: false, execution: null, dispatched: false };
 	}
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	let execution = await getOsGadgetExecution(db, {
 		organizationId: approval.orgId,
 		executionId: payload.executionId,
@@ -661,7 +662,7 @@ export async function failOsGadgetApprovalDispatch(
 	const payload = approvalPayload(approval);
 	if (!payload) return null;
 	return (
-		(await failClaimedOsGadgetExecution(createDbQueryClient(context.env.DB), {
+		(await failClaimedOsGadgetExecution(coreQueryDb(context.env), {
 			organizationId: approval.orgId,
 			executionId: payload.executionId,
 			runId: payload.executionId,

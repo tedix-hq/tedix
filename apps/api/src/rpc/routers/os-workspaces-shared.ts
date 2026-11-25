@@ -20,6 +20,7 @@ import {
 	OsGadgetManifestSchema,
 	OsWorkspaceBlueprintDecisionSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getOsBlueprint } from "@tedix/db/queries/os-workspaces/blueprints";
 import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
 import { getOsOutput } from "../../services/workspace-output-storage";
@@ -48,7 +49,7 @@ import {
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import type {
 	OsBlueprintRevisionRow,
@@ -192,7 +193,7 @@ export function resolveCollaborationSource(context: BaseContext): {
 }
 
 export function queryDb(context: BaseContext) {
-	return createDbQueryClient(context.env.DB);
+	return coreQueryDb(context.env);
 }
 
 /**
@@ -559,7 +560,7 @@ export async function ensureWorkspaceProjectLink(
 	context: BaseContext,
 	params: { organizationId: string; workspaceId: string; projectId: string },
 ): Promise<{ link: OsWorkspaceProjectRow; created: boolean }> {
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const existing = await getOsWorkspaceProject(db, params);
 	if (existing?.status === "active") return { link: existing, created: false };
 	const now = new Date().toISOString();
@@ -613,7 +614,7 @@ async function ensureWorkspaceTenantLink(
 		runsAt?: WorkspaceSkillRunsAt;
 	},
 ): Promise<{ created: boolean; updated?: boolean; resourceId: string }> {
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const scope = {
 		organizationId: params.organizationId,
 		workspaceId: params.workspaceId,

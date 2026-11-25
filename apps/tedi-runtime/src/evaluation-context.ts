@@ -122,7 +122,7 @@ export async function admitEvaluation(input: {
 		throw new Error("Evaluation requires authenticated workflow provenance");
 	const { getSkillRun } = await import("@tedix/db/queries/skill-runs");
 	const run = await getSkillRun(
-		(await import("@tedix/db/client")).createDbClient(input.env.DB),
+		(await import("@tedix/db/core-store/scope")).coreDb(input.env),
 		workflowRunId,
 		input.orgId,
 		input.env.ENVIRONMENT === "production" ? "production" : "development",
@@ -272,7 +272,7 @@ export async function assertEvaluationWork(
 		"workItemId" | "workAttemptId" | "workExternalSessionKey"
 	>,
 ): Promise<void> {
-	const db = (await import("@tedix/db/client")).createDbClient(env.DB);
+	const db = (await import("@tedix/db/core-store/scope")).coreDb(env);
 	const { getWorkItemById } = await import("@tedix/db/queries/work-items/crud");
 	const work = await getWorkItemById(db, admission.workItemId, orgId);
 	if (work?.disposition !== "accepted")
@@ -297,7 +297,7 @@ export async function assertEvaluationAuthority(
 ) {
 	const { getSkillRun } = await import("@tedix/db/queries/skill-runs");
 	const run = await getSkillRun(
-		(await import("@tedix/db/client")).createDbClient(env.DB),
+		(await import("@tedix/db/core-store/scope")).coreDb(env),
 		admission.workflowRunId,
 		orgId,
 		env.ENVIRONMENT === "production" ? "production" : "development",

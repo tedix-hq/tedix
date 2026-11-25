@@ -713,7 +713,7 @@ export class EvidenceBridge extends WorkerEntrypoint<
 		const { recordRunArtifact } =
 			await import("@tedix/db/queries/skill-run-artifacts");
 		await recordRunArtifact(
-			createDbClient(this.env.DB),
+			coreDb(this.env),
 			{ organizationId: this.ctx.props.mcp.orgId },
 			{
 				runId,

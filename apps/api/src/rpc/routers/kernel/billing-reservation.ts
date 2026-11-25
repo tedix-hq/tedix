@@ -1,7 +1,7 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { modelInputModality } from "@tedix/api-contract/schemas/data-residency";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
-import { createDbClient } from "@tedix/db/client";
+
 import type { AuthorizeRuntimeInferenceInput } from "@tedix/api-contract/schemas/runtime-entitlements";
 import {
 	AuthorizeRuntimeInferenceResponseSchema,
@@ -12,6 +12,7 @@ import type { z } from "zod";
 import { resolveBillingSettlementMode } from "../../../lib/billing-settlement-mode";
 import { authorizeRuntimeInference } from "../../../services/runtime-entitlement-admission";
 import type { KernelGatewayContext } from "./gateway-attribution";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 const providerCredentials = new WeakMap<
 	KernelGatewayContext,
@@ -148,7 +149,7 @@ export async function reserveKernelBilling(
 	const idempotencyKey = `kernel-inference:${crypto.randomUUID()}`;
 	const settlementMode = resolveBillingSettlementMode(env);
 	const decision = await authorizeRuntimeInference({
-		db: createDbClient(env.DB),
+		db: coreDb(env),
 		env,
 		plane: "organization_kernel",
 		request: {

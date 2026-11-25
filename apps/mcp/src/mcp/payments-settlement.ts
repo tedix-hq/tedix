@@ -1,5 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getMcpPaymentEventByIdForOrg } from "@tedix/db/queries/mcp-payments";
 import {
 	buildPaymentRequiredResult,
@@ -46,10 +47,10 @@ export async function loadFacilitatorReceipt(params: {
 }): Promise<Record<string, unknown> | null> {
 	const organizationId = paymentOrganizationId(params.agent);
 	if (!params.agent.env.DB || !organizationId) return null;
-	const event = await getMcpPaymentEventByIdForOrg(
-		createDbClient(params.agent.env.DB),
-		{ id: params.receiptId, organizationId },
-	);
+	const event = await getMcpPaymentEventByIdForOrg(coreDb(params.agent.env), {
+		id: params.receiptId,
+		organizationId,
+	});
 	if (
 		!event ||
 		event.status !== "settled" ||

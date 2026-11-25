@@ -1,7 +1,8 @@
+import { coreDb } from "@tedix/db/core-store/scope";
 import { canonicalCommit } from "@tedix/db/queries/git-commit-aliases";
 import { startCheckoutOperation } from "../../../workstation/checkout-lock";
 import { WorkstationBootstrapReadinessSchema } from "@tedix/api-contract/schemas/workstation";
-import { createDbClient } from "@tedix/db/client";
+
 import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
 import { scrubText } from "@tedix/context-core/trace-safety";
 import type { Context } from "hono";
@@ -141,10 +142,7 @@ async function applyRepoTreePreflight(
 			original?.startSha && c.env.DB
 				? {
 						...original,
-						startSha: await canonicalCommit(
-							createDbClient(c.env.DB),
-							original.startSha,
-						),
+						startSha: await canonicalCommit(coreDb(c.env), original.startSha),
 					}
 				: original;
 		preflight = await ensureCleanRepoTreeForTurn(c.get("sandbox"), tediConfig, {
@@ -245,7 +243,7 @@ export async function provisionWorkstation(c: Context<AppEnv>) {
 				403,
 			);
 		try {
-			await getAuthoritativeWorkItemAttempt(createDbClient(c.env.DB), {
+			await getAuthoritativeWorkItemAttempt(coreDb(c.env), {
 				orgId: tediConfig.organizationId,
 				workItemId,
 				attemptId,
@@ -399,7 +397,7 @@ export async function readWorkstationStatus(c: Context<AppEnv>) {
 		);
 	}
 	const bundle = await getWorkstationLeaseBundle(
-		createDbClient(c.env.DB),
+		coreDb(c.env),
 		selectedSession.session.leaseId,
 	);
 	if (!bundle) {
@@ -487,16 +485,11 @@ export async function joinWorkstation(c: Context<AppEnv>) {
 			traceId: traceIdFromRequest(c) ?? stringBodyValue(body, "traceId"),
 			workItemId: stringBodyValue(body, "workItemId"),
 		};
-		const result = await joinWorkstationLease(
-			createDbClient(c.env.DB),
-			leaseId,
-			seats,
-			{
-				expectedOrganizationId: tediConfig.organizationId,
-				expectedProfileId: ACTIVE_WORKSTATION_PROFILE_ID,
-				joinContext,
-			},
-		);
+		const result = await joinWorkstationLease(coreDb(c.env), leaseId, seats, {
+			expectedOrganizationId: tediConfig.organizationId,
+			expectedProfileId: ACTIVE_WORKSTATION_PROFILE_ID,
+			joinContext,
+		});
 		if (!result.ok) {
 			if (result.reason === "not_lease_lead") {
 				return c.json(
@@ -593,10 +586,7 @@ export async function releaseWorkstation(c: Context<AppEnv>) {
 		);
 	}
 	const tediConfig = c.get("tediConfig");
-	const bundle = await getWorkstationLeaseBundle(
-		createDbClient(c.env.DB),
-		leaseId,
-	);
+	const bundle = await getWorkstationLeaseBundle(coreDb(c.env), leaseId);
 	if (
 		!bundle ||
 		c.get("workstationRuntimeSelection")?.leaseId !== leaseId ||
@@ -680,10 +670,7 @@ export async function releaseWorkstation(c: Context<AppEnv>) {
 		return finishRelease({ ok: true, alreadyReleased: true, bundle });
 	try {
 		// The lease may have changed while this release waited for other writers.
-		const current = await getWorkstationLeaseBundle(
-			createDbClient(c.env.DB),
-			leaseId,
-		);
+		const current = await getWorkstationLeaseBundle(coreDb(c.env), leaseId);
 		if (
 			!current ||
 			current.workstationLease.organizationId !== tediConfig.organizationId ||
@@ -769,19 +756,15 @@ export async function releaseWorkstation(c: Context<AppEnv>) {
 		}
 		await assertCheckoutAuthority(c, true);
 
-		const result = await releaseWorkstationLease(
-			createDbClient(c.env.DB),
-			leaseId,
-			{
-				expectedOrganizationId: tediConfig.organizationId,
-				releaseContext: {
-					reason: stringBodyValue(body, "reason"),
-					releasedBySlug: tediConfig.slug,
-					releasedByTediId: tediConfig.id,
-					traceId: traceIdFromRequest(c) ?? stringBodyValue(body, "traceId"),
-				},
+		const result = await releaseWorkstationLease(coreDb(c.env), leaseId, {
+			expectedOrganizationId: tediConfig.organizationId,
+			releaseContext: {
+				reason: stringBodyValue(body, "reason"),
+				releasedBySlug: tediConfig.slug,
+				releasedByTediId: tediConfig.id,
+				traceId: traceIdFromRequest(c) ?? stringBodyValue(body, "traceId"),
 			},
-		);
+		});
 		if (!result.ok) {
 			// A definite refusal is safe to reopen only with fresh unchanged authority.
 			const reopened = await startCheckoutOperation(c.get("sandbox"), {

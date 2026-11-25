@@ -1,6 +1,7 @@
 import { RepositoryCandidateAccessInputSchema } from "@tedix/api-contract/schemas/repository-candidate";
 import { roleImpliesPermission } from "@tedix/auth/rbac";
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
+import { type DbClient } from "@tedix/db/client";
 import { resolveActiveExternalAgentSession } from "@tedix/db/queries/external-agent-identity/sessions";
 import { getTediById } from "@tedix/db/queries/tedis";
 import {
@@ -70,7 +71,7 @@ export async function repositoryCandidateAccess(
 	if (!parsed.success) return new Response(null, { status: 400 });
 	const denied = () =>
 		Response.json({ allowed: false, roles: {}, expiresAt: null });
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const { descriptor, userIds } = parsed.data;
 	const [work, attempt] = await Promise.all([
 		getWorkItemById(db, descriptor.workItemId, descriptor.organizationId),

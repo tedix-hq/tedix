@@ -1,4 +1,4 @@
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	reconcileWorkInteractionConditions,
 	sweepObsoleteWorkInteractions,
@@ -73,7 +73,7 @@ export async function runWorkAttemptLeaseSweeperTick(
 	dueIds?: string[],
 ): Promise<Record<string, number>> {
 	return {
-		...(await sweepElapsedWorkAttempts(createDbQueryClient(env.DB), {
+		...(await sweepElapsedWorkAttempts(coreQueryDb(env), {
 			now: new Date(scheduledTime).toISOString(),
 			limit: MAX_ATTEMPTS_PER_TICK,
 			dueIds,
@@ -86,14 +86,14 @@ export async function runWorkMaintenanceTick(
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
 	const lanesStale = await recordStaleLanes(
-		createDbQueryClient(env.DB),
+		coreQueryDb(env),
 		new Date(scheduledTime).toISOString(),
 	);
 	// Closes kernel-delegation items whose failed Attempt nobody retried in a
 	// week. The search reads every Work Item (28k rows, 0.4 s on 2026-11-12), and
 	// a week-long window does not need a two-minute cadence: once an hour.
 	const stale = staleDelegationSweepDue(scheduledTime)
-		? await sweepStaleFailedDelegationWorkItems(createDbQueryClient(env.DB), {
+		? await sweepStaleFailedDelegationWorkItems(coreQueryDb(env), {
 				now: new Date(scheduledTime).toISOString(),
 				limit: MAX_ATTEMPTS_PER_TICK,
 			})
@@ -104,23 +104,23 @@ export async function runWorkMaintenanceTick(
 		);
 	}
 	const uncontracted = staleDelegationSweepDue(scheduledTime)
-		? await sweepUncontractedChildWorkItems(createDbQueryClient(env.DB), {
+		? await sweepUncontractedChildWorkItems(coreQueryDb(env), {
 				now: new Date(scheduledTime).toISOString(),
 				limit: MAX_ATTEMPTS_PER_TICK,
 			})
 		: { observed: 0, cancelled: 0, skipped: 0 };
-	await reconcileWorkInteractionConditions(createDbQueryClient(env.DB), {
+	await reconcileWorkInteractionConditions(coreQueryDb(env), {
 		now: new Date(scheduledTime).toISOString(),
 		limit: 25,
 	});
 	const interactions = interactionExpirySweepDue(scheduledTime)
-		? await sweepObsoleteWorkInteractions(createDbQueryClient(env.DB), {
+		? await sweepObsoleteWorkInteractions(coreQueryDb(env), {
 				now: new Date(scheduledTime).toISOString(),
 				limit: MAX_INTERACTION_WRITES_PER_TICK,
 			})
 		: { observed: 0, expired: 0, candidates: 0, writes: 0, dryRun: 0 };
 	return {
-		...(await sweepStuckOutboundReviews(createDbQueryClient(env.DB), {
+		...(await sweepStuckOutboundReviews(coreQueryDb(env), {
 			now: new Date(scheduledTime).toISOString(),
 			limit: MAX_INTERACTION_WRITES_PER_TICK,
 		})),
@@ -129,12 +129,12 @@ export async function runWorkMaintenanceTick(
 		// hour, with the stale-delegation sweep, it also looks at every older
 		// stopped lane, for one that became due after its own tick.
 		lanesNotified: await notifyStoppedLanes(
-			createDbQueryClient(env.DB),
+			coreQueryDb(env),
 			new Date(scheduledTime).toISOString(),
 			{ wholeLedger: staleDelegationSweepDue(scheduledTime) },
 		),
 		...(await flushWorkInteractionDigests(
-			createDbQueryClient(env.DB),
+			coreQueryDb(env),
 			new Date(scheduledTime).toISOString(),
 		)),
 		interactionsExpired: interactions.expired,

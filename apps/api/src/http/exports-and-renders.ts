@@ -30,9 +30,9 @@ export function registerExportsAndRenders(
 		} catch {
 			return c.text("Unauthorized", 401);
 		}
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb, coreQueryDb } = await import("@tedix/db/core-store/scope");
 		const orgId = await resolveMediaRouteOrgId(
-			createDbClient(c.env.DB),
+			coreDb(c.env),
 			payload,
 			c.req.header("X-Tedix-Tenant-Id") ?? undefined,
 		);
@@ -103,12 +103,12 @@ export function registerExportsAndRenders(
 		) {
 			return c.text("Invalid portable snapshot page", 400);
 		}
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb, coreQueryDb } = await import("@tedix/db/core-store/scope");
 		const { readPortableSnapshotPageForOrganization } =
 			await import("../rpc/routers/tedis/portable-snapshot");
 		try {
 			const page = await readPortableSnapshotPageForOrganization(
-				createDbClient(c.env.DB),
+				coreDb(c.env),
 				ticket.organizationId,
 				{ tediId: ticket.tediId, section: section.data, limit, afterId },
 			);
@@ -183,12 +183,12 @@ export function registerExportsAndRenders(
 		if (!page.success || page.data.section !== c.req.param("section")) {
 			return c.text("Invalid portable import page", 400);
 		}
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb, coreQueryDb } = await import("@tedix/db/core-store/scope");
 		const { writePortableImportPage } =
 			await import("../rpc/routers/tedis/portable-import");
 		try {
 			const acceptedRows = await writePortableImportPage(
-				createDbClient(c.env.DB),
+				coreDb(c.env),
 				ticket,
 				page.data,
 			);
@@ -250,20 +250,20 @@ export function registerExportsAndRenders(
 			return c.text("Unauthorized", 401);
 		}
 
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb, coreQueryDb } = await import("@tedix/db/core-store/scope");
 		const orgId = await resolveMediaRouteOrgId(
-			createDbClient(c.env.DB),
+			coreDb(c.env),
 			payload,
 			c.req.header("X-Tedix-Tenant-Id") ?? undefined,
 		);
 		if (!orgId) return c.text("No organization context", 403);
 
-		const { createDbQueryClient } = await import("@tedix/db/query-client");
+		const { coreDb, coreQueryDb } = await import("@tedix/db/core-store/scope");
 		const { getOsOutput } =
 			await import("../services/workspace-output-storage");
 		const { getOsOutputRevisionByNumber } =
 			await import("../services/os-workspace-outputs");
-		const db = createDbQueryClient(c.env.DB);
+		const db = coreQueryDb(c.env);
 		const output = await getOsOutput(db, {
 			organizationId: orgId,
 			outputId,

@@ -7,10 +7,10 @@ export async function expireOverdueApprovals(
 	env: CloudflareEnv,
 	dueIds?: string[],
 ): Promise<Record<string, number>> {
-	const { createDbClient } = await import("@tedix/db/client");
+	const { coreDb } = await import("@tedix/db/core-store/scope");
 	const { expireStaleApprovals } = await import("@tedix/db/queries/approvals");
 
-	const expired = await expireStaleApprovals(createDbClient(env.DB), {
+	const expired = await expireStaleApprovals(coreDb(env), {
 		dueIds,
 	});
 	return { expired };

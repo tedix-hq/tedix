@@ -13,7 +13,7 @@ export async function hasActiveVoiceMembership(
 			import("@tedix/db/client"),
 			import("@tedix/db/queries/organization-members"),
 		]);
-		const db = createDbClient(env.DB);
+		const db = coreDb(env);
 		const member = await getMemberByUserId(db, organizationId, descopeUserId);
 		if (!member || member.status !== "active") return false;
 		if (member.kind !== "browser_agent") return true;

@@ -22,6 +22,7 @@
  * step does.
  */
 
+import { coreDb } from "@tedix/db/core-store/scope";
 import type { DbClient } from "@tedix/db/client";
 import {
 	safeErrorClassification,
@@ -211,7 +212,7 @@ export async function runRetentionMaintenance(
 			: startedMs + RETENTION_CLEANUP_BUDGET_MS;
 	console.log(`[Scheduled] Running retention cleanup (${runId})`);
 	const { createDbClient } = await import("@tedix/db/client");
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const scheduledDate = new Date(event.scheduledTime);
 	const checkpoints =
 		await import("@tedix/db/queries/platform-cron-executions");
@@ -806,7 +807,7 @@ function retentionCleanupSteps(
 				const { runAuditDailyExport } =
 					await import("../services/audit-daily-export");
 				// Tool events live in the logs store; read both like the audit API does.
-				const exportDb = createDbClient(env.DB);
+				const exportDb = coreDb(env);
 				configureLogStore(exportDb, env);
 				const auditExport = await runAuditDailyExport({
 					db: exportDb,

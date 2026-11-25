@@ -1,4 +1,4 @@
-import { createDbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	type McpSettlementBudgetGuard,
 	sumSettledMcpPaymentAmount,
@@ -86,7 +86,7 @@ export async function evaluateBudget(params: {
 	const organizationId = paymentOrganizationId(params.agent);
 	if (!organizationId) return denial("missing_organization_id");
 
-	const db = createDbClient(params.agent.env.DB);
+	const db = coreDb(params.agent.env);
 	const cutoff = sqliteTimestamp(
 		new Date(Date.now() - budget.windowSeconds * 1000),
 	);

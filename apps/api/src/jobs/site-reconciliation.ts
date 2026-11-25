@@ -3,14 +3,14 @@
 export async function runSiteReconciliationTick(
 	env: CloudflareEnv,
 ): Promise<Record<string, number>> {
-	const { createDbClient } = await import("@tedix/db/client");
+	const { coreDb } = await import("@tedix/db/core-store/scope");
 	const { listSiteReconciliationOrganizations } =
 		await import("@tedix/db/queries/site-reconciliation");
 	const { reconcileOrganizationSites } =
 		await import("../services/site-reconciliation");
 	const { inspectCmsMediaResource } =
 		await import("../services/cms-media-resources");
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const organizations = await listSiteReconciliationOrganizations(db, 100);
 	let sites = 0;
 	let findings = 0;

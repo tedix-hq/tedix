@@ -1,11 +1,12 @@
 import { organizationModelEnv } from "./unrouted-model-egress";
 import * as z from "zod";
 import { hasPermission } from "@tedix/auth/rbac";
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	getMemberByUserId,
 	getMemberByCanonicalUserId,
 } from "@tedix/db/queries/organization-members";
-import { createDbClient } from "@tedix/db/client";
+
 import {
 	pendingFilingLessons,
 	listUnfiledRequests,
@@ -41,7 +42,7 @@ export async function processRequestFilingQueue(
 	owner: { organizationId: string; userId: string; ownerSubject: string },
 	limit = 10,
 ) {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const member =
 		(await getMemberByCanonicalUserId(
 			db,

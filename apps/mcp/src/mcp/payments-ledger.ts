@@ -1,4 +1,4 @@
-import { createDbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import {
 	insertMcpPaymentEvent,
@@ -241,7 +241,7 @@ export async function recordPaymentEvent(params: {
 			guardError: false,
 			recorded: false,
 		};
-	const db = createDbClient(params.agent.env.DB);
+	const db = coreDb(params.agent.env);
 	const decisionRationale = paymentDecisionRationale({
 		eventType: params.eventType,
 		status: params.status,
@@ -370,7 +370,7 @@ export async function reservePaymentRequirement(params: {
 	const organizationId = paymentOrganizationId(params.agent);
 	if (!organizationId) return;
 
-	const db = createDbClient(params.agent.env.DB);
+	const db = coreDb(params.agent.env);
 	const ttlSeconds = params.policy.ttlSeconds ?? DEFAULT_PAYMENT_TTL_SECONDS;
 	const expiresAt = new Date(Date.now() + ttlSeconds * 1000)
 		.toISOString()

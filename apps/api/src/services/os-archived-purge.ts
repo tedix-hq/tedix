@@ -17,6 +17,7 @@ import type {
 	OsArchivedPurgeResult,
 	OsArchivedPurgeSkipReason,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	insertAuditEventsBatch,
 	type InsertAuditEventParams,
@@ -39,7 +40,7 @@ import {
 import { listOsIdsWithCollaborationProposals } from "@tedix/db/queries/os-workspaces/collaboration";
 import { deleteOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { hasProviderInstallationForWorkspace } from "@tedix/db/queries/provider-installations";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import {
 	D1ReadTimeoutError,
 	isTransientD1ReadError,
@@ -179,7 +180,7 @@ interface PurgeRun {
 }
 
 function db(context: BaseContext) {
-	return createDbQueryClient(context.env.DB);
+	return coreQueryDb(context.env);
 }
 
 function deletionAudit(

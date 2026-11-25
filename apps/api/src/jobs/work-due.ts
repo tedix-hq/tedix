@@ -1,4 +1,4 @@
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { claimWorkDue, releaseWorkDue } from "@tedix/db/queries/work-due";
 import { WORK_DUE_KINDS, type WorkDueKind } from "@tedix/db/schema/work-due";
 
@@ -13,7 +13,7 @@ export async function dispatchWorkDue(
 	scheduledTime: number,
 	track: Track,
 ) {
-	const db = createDbQueryClient(env.DB);
+	const db = coreQueryDb(env);
 	const now = new Date(scheduledTime).toISOString();
 	const rows = await claimWorkDue(
 		db,

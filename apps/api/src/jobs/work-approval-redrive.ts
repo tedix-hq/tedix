@@ -1,6 +1,7 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import {
 	listPendingTediWorkApprovals,
@@ -152,7 +153,7 @@ export async function dispatchWorkApprovalRedrives(
 	scheduledTime: number,
 	dueIds?: string[],
 ): Promise<Record<string, number>> {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const observedAt = new Date(scheduledTime).toISOString();
 	const candidates = await listPendingTediWorkApprovals(db, {
 		dueIds,

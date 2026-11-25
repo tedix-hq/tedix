@@ -1,4 +1,5 @@
 import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
 import { fetchNamedConnection } from "../rpc/routers/connections/policy-resolution";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
@@ -11,7 +12,7 @@ import { getManagementClient } from "@tedix/auth/client";
 import { getAssignedAppRoles } from "@tedix/auth/fga";
 import { listAppReferenceMetadataByOrganization } from "@tedix/db/queries/apps";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { assertOsWorkspaceVisible } from "./os-workspace-visibility";
@@ -49,7 +50,7 @@ export async function authorizeWorkspaceResourceRead(
 	},
 ): Promise<{ resource: OsWorkspaceResourceRow; requiredScopes: string[] }> {
 	const organizationId = requireOrgId(context);
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const workspace = await getOsWorkspace(db, {
 		organizationId,
 		workspaceId: input.workspaceId,

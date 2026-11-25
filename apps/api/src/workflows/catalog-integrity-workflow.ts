@@ -4,7 +4,8 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	completeWorkflowRunRecord,
 	createWorkflowRunRecord,
@@ -27,7 +28,7 @@ export class CatalogIntegrityWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<CatalogIntegrityWorkflowInput>,
 		step: WorkflowStep,
 	) {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const payload = event.payload ?? {};
 		const ledgerId = await step.do("record workflow start", async () => {
 			const ledger = await createWorkflowRunRecord(db, {

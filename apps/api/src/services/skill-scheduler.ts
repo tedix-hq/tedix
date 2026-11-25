@@ -5,7 +5,8 @@ import {
 	OsDerivedAccessEnvelopeSchema,
 	type OsDerivedAccessEnvelope,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { listActiveSkillPersonalResourceDelegations } from "@tedix/db/queries/personal-resource-delegations";
 import type { PersonalResourceDelegationRow } from "@tedix/db/schema/personal-resource-delegations";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
@@ -466,7 +467,7 @@ export async function dispatchDueSkillSchedules(
 	env: CloudflareEnv,
 	scheduledTime: number,
 ): Promise<SkillScheduleScanResult> {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const observedAt = new Date(scheduledTime).toISOString();
 	const due = await listDueSkillSchedules(db, observedAt, 50);
 	const result: SkillScheduleScanResult = {

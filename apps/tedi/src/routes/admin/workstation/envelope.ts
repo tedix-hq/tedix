@@ -12,10 +12,11 @@ import {
 } from "@tedix/api-contract/schemas/workstation";
 import { workstationEgressPolicySummary } from "../../../runtime/workstation-egress";
 import { WORKSTATION_DIR } from "../../../workstation/paths";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import type { Context } from "hono";
 import { upsertWorkstationLeaseBundle } from "../../../workstation/persistence";
-import { createDbClient } from "@tedix/db/client";
+
 import {
 	getWorkstationLeaseBundle as getWorkstationLeaseRowBundle,
 	bindWorkstationLeaseRepositoryAuthority,
@@ -302,7 +303,7 @@ export async function persistentWorkstationEnvelope(
 	}
 	try {
 		const persisted = await upsertWorkstationLeaseBundle(
-			createDbClient(c.env.DB),
+			coreDb(c.env),
 			envelope,
 		);
 		await persistWorkstationBodyGeneration(
@@ -316,7 +317,7 @@ export async function persistentWorkstationEnvelope(
 			?.replace(/^\/home\/tedi\/workstation\/repos\//, "")
 			.replace(/^\/workspace\/repos\//, "");
 		const rowBundle = await getWorkstationLeaseRowBundle(
-			createDbClient(c.env.DB),
+			coreDb(c.env),
 			persisted.workstationLease.id,
 		);
 		if (
@@ -331,13 +332,13 @@ export async function persistentWorkstationEnvelope(
 			repo &&
 			repoReady(repo)
 		) {
-			await getAuthoritativeWorkItemAttempt(createDbClient(c.env.DB), {
+			await getAuthoritativeWorkItemAttempt(coreDb(c.env), {
 				orgId: rowBundle.workstationLease.orgId,
 				workItemId: rowBundle.workstationLease.workItemId,
 				attemptId: rowBundle.workstationLease.attemptId,
 				executor: { type: "tedi", id: c.get("tediConfig").id },
 			});
-			await bindWorkstationLeaseRepositoryAuthority(createDbClient(c.env.DB), {
+			await bindWorkstationLeaseRepositoryAuthority(coreDb(c.env), {
 				leaseId: persisted.workstationLease.id,
 				orgId: rowBundle.workstationLease.orgId,
 				workItemId: rowBundle.workstationLease.workItemId,
@@ -382,7 +383,7 @@ export async function persistWorkstationBodyGeneration(
 	const leaseGenerationStatus =
 		status === "ready" ? "ready" : status === "blocked" ? "failed" : "starting";
 	const now = new Date().toISOString();
-	await updateWorkstationLeaseBodyGeneration(createDbClient(c.env.DB), {
+	await updateWorkstationLeaseBodyGeneration(coreDb(c.env), {
 		leaseId,
 		generationId,
 		status: leaseGenerationStatus,
@@ -413,7 +414,7 @@ export async function persistWorkstationBodyInstance(
 	const instance = c.get("workstationBodyInstance");
 	if (!(instance && c.env.DB)) return;
 	try {
-		await recordWorkstationLeaseBodyInstance(createDbClient(c.env.DB), {
+		await recordWorkstationLeaseBodyInstance(coreDb(c.env), {
 			instanceId: instance.id,
 			instanceName: instance.name,
 			leaseId,

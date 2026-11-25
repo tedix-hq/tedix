@@ -13,7 +13,8 @@
 
 import { DEFAULT_DISPATCHER_HEALTH_SETTINGS } from "@tedix/api-contract/schemas/dispatcher-health";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	DISPATCHER_HEALTH_SCHEMA,
 	readDispatcherHealthPage,
@@ -77,7 +78,7 @@ export async function runDispatcherHealthAlarm(
 	env: Pick<CloudflareEnv, "DB" | "ENVIRONMENT">,
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const now = new Date(scheduledTime).toISOString();
 	const page = await readDispatcherHealthPage(
 		db,

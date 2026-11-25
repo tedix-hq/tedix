@@ -17,11 +17,9 @@ import {
 	type WorkspaceChangeSummary,
 	organizationFeedScope,
 } from "@tedix/api-contract/schemas/workspace-feed";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { appendWorkspaceFeedLedger } from "@tedix/db/queries/workspace-feed/ledger";
-import {
-	createDbQueryClient,
-	type DbQueryClient,
-} from "@tedix/db/query-client";
+import { type DbQueryClient } from "@tedix/db/query-client";
 import type {
 	OsOutputRevisionRow,
 	OsOutputRow,
@@ -221,7 +219,7 @@ export async function handleWorkspaceChangeMessage(
 	const message = parseWorkspaceChangeMessage(body);
 	if (!message) return "ack";
 	const consumer = createWorkspaceFeedConsumer({
-		db: createDbQueryClient(env.DB),
+		db: coreQueryDb(env),
 		log: (text, detail) => console.warn(text, detail),
 	});
 	let outcome: "ack" | "retry" = "retry";

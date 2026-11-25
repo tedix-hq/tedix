@@ -16,7 +16,7 @@ import {
 import type { AppEnv, TediConfig } from "../../../types";
 import { getWorkstationLeaseBundle } from "../../../workstation/persistence";
 import type { Context } from "hono";
-import { createDbClient } from "@tedix/db/client";
+
 import { startCheckoutOperation } from "../../../workstation/checkout-lock";
 import {
 	type RuntimeBodyGeneration,
@@ -40,6 +40,7 @@ import type {
 	ProofWritingLauncher,
 	WorkstationSessionSelection,
 } from "./types";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 export function isWorkstationRequest(
 	method: string,
@@ -107,10 +108,7 @@ export async function assertCheckoutAuthority(
 	const selection = c.get("workstationRuntimeSelection");
 	const config = c.get("tediConfig");
 	const bundle = selection?.leaseId
-		? await getWorkstationLeaseBundle(
-				createDbClient(c.env.DB),
-				selection.leaseId,
-			)
+		? await getWorkstationLeaseBundle(coreDb(c.env), selection.leaseId)
 		: null;
 	const lease = bundle?.workstationLease;
 	const participant = lease?.participants.find((p) => p.tediId === config.id);

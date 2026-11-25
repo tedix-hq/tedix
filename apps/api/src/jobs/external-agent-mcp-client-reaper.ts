@@ -68,7 +68,7 @@ export async function runExternalAgentMcpClientReaperTick(
 	// Local without Descope management creds: nothing to reap remotely.
 	if (!env.DESCOPE_PROJECT_ID || !env.DESCOPE_MANAGEMENT_KEY) return {};
 
-	const { createDbClient } = await import("@tedix/db/client");
+	const { coreDb } = await import("@tedix/db/core-store/scope");
 	const { requireAihEnv } = await import("../rpc/routers/descope-aih-env");
 	const {
 		deleteDescopeMcpServerClient,
@@ -82,7 +82,7 @@ export async function runExternalAgentMcpClientReaperTick(
 		markExternalAgentMcpCredentialsReaped,
 	} = await import("@tedix/db/queries/external-agent-identity/mcp-credentials");
 
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const aihEnv = requireAihEnv(env);
 	const nowIso = new Date().toISOString();
 	const sleep =

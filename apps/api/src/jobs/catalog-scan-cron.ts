@@ -22,8 +22,8 @@ export async function runMcpScan(
 	const counts = { workflowsDispatched: 0 };
 	let frequentProviderSlugs: string[] = [];
 	try {
-		const { createDbClient } = await import("@tedix/db/client");
-		const policy = await loadCatalogMaintenancePolicy(createDbClient(env.DB));
+		const { coreDb } = await import("@tedix/db/core-store/scope");
+		const policy = await loadCatalogMaintenancePolicy(coreDb(env));
 		frequentProviderSlugs = policy.frequentProviderSlugs;
 	} catch (error) {
 		errors.push(error);
@@ -66,10 +66,10 @@ export async function runToolTestAndQualityScores(
 	// Calculate quality scores (runs after MCP scan from 5am should be complete)
 	let appsScored = 0;
 	try {
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb } = await import("@tedix/db/core-store/scope");
 		const { calculateAndUpdateScores } =
 			await import("@tedix/db/queries/catalog/quality-scores");
-		const db = createDbClient(env.DB);
+		const db = coreDb(env);
 		appsScored = await calculateAndUpdateScores(db, 100);
 		console.log(`[Scheduled] Quality scores updated for ${appsScored} apps`);
 	} catch (scoreError) {
@@ -96,9 +96,9 @@ async function runCatalogDriftAndSync(
 	env: CloudflareEnv,
 	runId: string,
 ): Promise<void> {
-	const { createDbClient } = await import("@tedix/db/client");
+	const { coreDb } = await import("@tedix/db/core-store/scope");
 	const { listApiSyncApps } = await import("@tedix/db/queries/apps");
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 
 	console.log(`[Scheduled] Starting CatalogDriftWorkflow (${runId})`);
 	try {

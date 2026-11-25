@@ -14,7 +14,8 @@ import {
 	buildRuntimeRunId,
 	buildTediConversationId,
 } from "@tedix/api-contract/utils/runtime-identity";
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
+import { type DbClient } from "@tedix/db/client";
 import { listTediRuntimeEventsForRouter } from "@tedix/db/queries/cognitive-runtime";
 import { listTediRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import {
@@ -197,7 +198,7 @@ export function dispatchAgentRunSupervision(
 	dueIds?: string[],
 ): Promise<Record<string, number>> {
 	return superviseAgentRuns({
-		db: createDbClient(env.DB),
+		db: coreDb(env),
 		env,
 		send: (request) => env.TEDI_SERVICE.fetch(request),
 		now: Math.max(scheduledTime, Date.now()),

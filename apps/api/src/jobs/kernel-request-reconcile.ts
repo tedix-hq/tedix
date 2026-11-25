@@ -1,5 +1,5 @@
-import { createDbQueryClient } from "@tedix/db/query-client";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS,
 	listDispatcherAttemptCaptureOrganizations,
@@ -31,7 +31,7 @@ export async function reconcileDueKernelRequests(
 		requestRecoveryFailures: 0,
 	};
 	if (!env.KERNEL) return counts;
-	const db = createDbQueryClient(env.DB);
+	const db = coreQueryDb(env);
 	// Dispatcher settlements enter the tracker inside the same reconcile call.
 	const organizations = new Set(
 		[

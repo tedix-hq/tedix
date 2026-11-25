@@ -13,7 +13,8 @@
  * The `WORKFLOWS` binding in `cloudflare.config.ts` names this class
  * (`SkillWorkflow`).
  */
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { resolveFactoryRunContext } from "@tedix/db/queries/factories";
 import { loadPinnedFactoryContext } from "./factory-context";
 import type { WorkflowStep } from "cloudflare:workers";
@@ -173,7 +174,7 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 
 			const factory = await withWorkflowEvidenceRetry("factory.context", () =>
 				loadPinnedFactoryContext(env.DB, meta.runId!, () =>
-					resolveFactoryRunContext(createDbClient(env.DB), {
+					resolveFactoryRunContext(coreDb(env), {
 						orgId: snapshot.orgId,
 						skillId: snapshot.skillId,
 					}),

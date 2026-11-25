@@ -14,7 +14,8 @@
  * That refusal lets the next provider run; credit refusals end the call.
  */
 
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
+import { type DbClient } from "@tedix/db/client";
 import { resolveDirectProviderUsagePrice } from "@tedix/db/queries/billing/provider-model-rates";
 import {
 	getVoiceBillingReservation,
@@ -114,7 +115,7 @@ export async function reserveVoiceUsage(
 		throw new VoiceCreditRefusal("pricing_unavailable");
 
 	const reservationId = crypto.randomUUID();
-	const decision = await reserveBillingUsage(createDbClient(env.DB), {
+	const decision = await reserveBillingUsage(coreDb(env), {
 		organizationId: subject.organizationId,
 		tediId: subject.tediId ?? null,
 		userId: subject.userId,
@@ -183,7 +184,7 @@ export async function finishRuntimeVoiceUsage(
 	env: VoiceBillingEnv,
 	input: import("@tedix/voice/billing").RuntimeVoiceCompletion,
 ): Promise<void> {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const reservation = await getVoiceBillingReservation(db, input);
 	if (!reservation) throw new Error("Voice reservation not found");
 	const now = new Date().toISOString();
@@ -232,7 +233,7 @@ export function createVoiceBilling(
 	input: VoiceBillingSubject & { env: VoiceBillingEnv; nowMs?: () => number },
 ): VoiceBilling | undefined {
 	if (resolveBillingSettlementMode(input.env) !== "managed") return undefined;
-	const db = createDbClient(input.env.DB);
+	const db = coreDb(input.env);
 	const clock = input.nowMs ?? Date.now;
 	const iso = () => new Date(clock()).toISOString();
 	return {

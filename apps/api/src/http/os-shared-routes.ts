@@ -52,7 +52,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 				shareRecipient(c.req.raw, c.env),
 			]);
 		return handleOsShareRedemption(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			bodyString(await c.req.json().catch(() => null), "token"),
 			recipient.authorize,
 			recipient.identify,
@@ -70,7 +70,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		const body = await c.req.json().catch(() => null);
 		return requestOsShareEmailCode(
 			c.env,
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			{
 				id: bodyString(body, "id"),
 				email: bodyString(body, "email"),
@@ -88,7 +88,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 				import("@tedix/db/query-client"),
 			]);
 		const body = await c.req.json().catch(() => null);
-		return verifyOsShareEmailCode(c.env, createDbQueryClient(c.env.DB), {
+		return verifyOsShareEmailCode(c.env, coreQueryDb(c.env), {
 			id: bodyString(body, "id"),
 			email: bodyString(body, "email"),
 			code: bodyString(body, "code"),
@@ -107,7 +107,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 				shareRecipient(c.req.raw, c.env),
 			]);
 		return handleOsShareOpen(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			bodyString(await c.req.json().catch(() => null), "id"),
 			c.req.header("X-Tedix-Tenant-Id") ?? null,
 			recipient.authorize,
@@ -126,7 +126,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 				import("@tedix/db/query-client"),
 			]);
 		return handleOsSharePreview(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			bodyString(await c.req.json().catch(() => null), "id"),
 			c.req.header("X-Tedix-Tenant-Id") ?? null,
 		);
@@ -141,7 +141,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			]);
 		const body = await c.req.json().catch(() => null);
 		return handleOsShareSessionRead(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			bodyString(body, "sessionToken"),
 			recipient.authorize,
 			recipient.identify,
@@ -163,7 +163,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			]);
 		const body = await c.req.json().catch(() => null);
 		return handleOsShareSessionOutput(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			bodyString(body, "sessionToken"),
 			bodyString(body, "outputId"),
 			recipient.authorize,
@@ -184,7 +184,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		const body = await c.req.json().catch(() => null);
 		return handleOsShareFile(
 			c.env,
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			bodyString(body, "sessionToken"),
 			bodyString(body, "outputId"),
 			recipient.authorize,
@@ -202,7 +202,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		return serveOsShareFile(
 			c.req.raw,
 			c.env,
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			{
 				sessionId: c.req.param("sessionId"),
 				outputId: c.req.param("outputId"),
@@ -222,7 +222,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		);
 		return handleGuestAppOpen(
 			c.env,
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
 		);
 	});
@@ -233,7 +233,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		);
 		return handleGuestAppCall(
 			c.env,
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
 			(work) => c.executionCtx.waitUntil(work),
 		);
@@ -244,7 +244,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
 		);
 		return handleGuestAppRead(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
 		);
 	});
@@ -255,7 +255,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
 		);
 		return handleGuestAppSave(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
 		);
 	});
@@ -267,7 +267,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 				import("@tedix/db/query-client"),
 			]);
 		return handleGuestAppChanges(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
 		);
 	});
@@ -279,7 +279,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 				import("@tedix/db/query-client"),
 			]);
 		return handleGuestAppRevision(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
 		);
 	});
@@ -291,7 +291,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 				import("@tedix/db/query-client"),
 			]);
 		return handleGuestAppImage(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
 		);
 	});
@@ -305,7 +305,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 				shareRecipient(c.req.raw, c.env),
 			]);
 		return handleOsShareRedemption(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			c.req.param("token"),
 			recipient.authorize,
 			recipient.identify,

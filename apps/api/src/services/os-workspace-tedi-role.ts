@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	grantOsWorkspaceAccess,
 	loadOsWorkspacePermissionRows,
@@ -5,7 +6,7 @@ import {
 import { readWorkspaceRuntimeRole } from "@tedix/db/queries/os-workspace-access";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { BaseContext } from "../rpc/orpc";
 
@@ -45,7 +46,7 @@ export async function ensureWorkspaceTediRole(
 			organizationId: params.organizationId,
 			workspaceId: params.workspaceId,
 		};
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		const [workspace, tedi] = await Promise.all([
 			getOsWorkspace(db, scope),
 			getTediByIdForOrganization(

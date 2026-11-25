@@ -8,8 +8,8 @@ export async function runDailyBillingAndCatalogMaintenance(
 	runId: string,
 ): Promise<Record<string, number>> {
 	console.log(`[Scheduled] Running billing/catalog maintenance (${runId})`);
-	const { createDbClient } = await import("@tedix/db/client");
-	const db = createDbClient(env.DB);
+	const { coreDb } = await import("@tedix/db/core-store/scope");
+	const db = coreDb(env);
 
 	// Keep historical classification independent from catalog maintenance so
 	// an unrelated 2am failure cannot starve backlog convergence.

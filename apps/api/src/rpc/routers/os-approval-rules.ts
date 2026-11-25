@@ -12,6 +12,7 @@ import type {
 	OsApprovalRule,
 	OsApprovalRuleMatch,
 } from "@tedix/api-contract/contracts/os-approval-rules";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { listApprovalRequests } from "@tedix/db/queries/approvals";
 import {
 	createOsApprovalRule,
@@ -22,7 +23,7 @@ import {
 	listOsApprovalRules,
 	setOsApprovalRuleEnabled,
 } from "@tedix/db/queries/os-approval-rules";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type { OsApprovalRuleRow } from "@tedix/db/schema/os-approval-rules";
 import { withOrg } from "../org-scope";
 import {
@@ -59,7 +60,7 @@ const adminRules = authed.use(AUTHZ.osAdmin);
 const APPLY_SWEEP_LIMIT = 200;
 
 function queryDb(context: BaseContext) {
-	return createDbQueryClient(context.env.DB);
+	return coreQueryDb(context.env);
 }
 
 function mapRule(row: OsApprovalRuleRow): OsApprovalRule {

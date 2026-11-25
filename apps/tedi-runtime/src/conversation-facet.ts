@@ -1564,7 +1564,7 @@ export class ConversationFacet extends PiAgent<
 			this.state.runId === input.runId && this.state.modelCatalog
 				? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
 				: await getModelCatalogConfig(
-						(await import("@tedix/db/client")).createDbClient(this.env.DB),
+						(await import("@tedix/db/core-store/scope")).coreDb(this.env),
 					);
 		const prior = this.state.turnCount;
 		const gate = new DelegationBudgetGate(this.ctx.storage);

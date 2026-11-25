@@ -6,8 +6,9 @@ import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { errorMessage } from "@tedix/worker-kit/error-message";
 import { type WorkstationRuntimeBody } from "../../../workstation/computer-body";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { toJsonRecord } from "@tedix/db/utils/json";
-import { createDbClient } from "@tedix/db/client";
+
 import {
 	getWorkstationLeaseBundle,
 	upsertWorkstationLeaseBundle,
@@ -585,7 +586,7 @@ export async function persistWorkstationProcessEvidence(
 	}
 	if (!c.env.DB) return { reason: "db_binding_unavailable", status: "skipped" };
 	try {
-		const db = createDbClient(c.env.DB);
+		const db = coreDb(c.env);
 		const bundle = await getWorkstationLeaseBundle(db, evidence.leaseId);
 		if (!bundle) return { reason: "lease_not_found", status: "skipped" };
 		const refs = evidence.artifactRefs;

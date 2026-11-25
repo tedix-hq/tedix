@@ -19,7 +19,8 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getAppById } from "@tedix/db/queries/app-records";
 import {
 	getContentSource,
@@ -203,7 +204,7 @@ export class ContentIngestionWorkflow extends WorkflowEntrypoint<
 			"load-source",
 			{ retries: { limit: 2, delay: "2 seconds" }, timeout: "15 seconds" },
 			async () => {
-				const db = createDbClient(this.env.DB);
+				const db = coreDb(this.env);
 				const source = await getContentSource(db, sourceId);
 				if (!source)
 					throw new NonRetryableError(`Source not found: ${sourceId}`);
@@ -319,7 +320,7 @@ export class ContentIngestionWorkflow extends WorkflowEntrypoint<
 
 		if (urls.length === 0) {
 			await step.do("mark-empty", { timeout: "10 seconds" }, async () => {
-				const db = createDbClient(this.env.DB);
+				const db = coreDb(this.env);
 				await updateContentSourceIngestStatus(db, sourceId, {
 					lastIngestStatus: "success",
 					documentCount: 0,
@@ -392,7 +393,7 @@ export class ContentIngestionWorkflow extends WorkflowEntrypoint<
 						let page: ScrapedPage | null;
 						let browserTelemetry: IngestionBrowserTelemetry | undefined;
 						if (isPdfSource) {
-							const residencyDb = createDbClient(this.env.DB);
+							const residencyDb = coreDb(this.env);
 							const owner = await getAppById(residencyDb, appId);
 							if (!owner?.organizationId)
 								throw new Error(
@@ -452,7 +453,7 @@ export class ContentIngestionWorkflow extends WorkflowEntrypoint<
 							throw new Error("Scraper returned empty page");
 						}
 
-						const db = createDbClient(this.env.DB);
+						const db = coreDb(this.env);
 						await indexContentDocument(db, this.env, {
 							appId,
 							appSlug,
@@ -498,7 +499,7 @@ export class ContentIngestionWorkflow extends WorkflowEntrypoint<
 			"update-status",
 			{ retries: { limit: 2, delay: "2 seconds" }, timeout: "10 seconds" },
 			async () => {
-				const db = createDbClient(this.env.DB);
+				const db = coreDb(this.env);
 				await updateContentSourceIngestStatus(db, sourceId, {
 					lastIngestStatus: ingestionSucceeded ? "success" : "failed",
 					documentCount: docsWritten,

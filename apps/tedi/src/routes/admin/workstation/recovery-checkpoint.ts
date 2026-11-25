@@ -1,3 +1,4 @@
+import { coreDb } from "@tedix/db/core-store/scope";
 import { createCommitResolver } from "@tedix/db/queries/git-commit-aliases";
 import type { Context } from "hono";
 import type { AppEnv } from "../../../types";
@@ -19,7 +20,7 @@ import {
 } from "../../../workstation/recovery-checkpoint";
 import { startCheckoutOperation } from "../../../workstation/checkout-lock";
 import { getWorkstationLeaseBundle } from "../../../workstation/persistence";
-import { createDbClient } from "@tedix/db/client";
+
 import { errorMessage } from "@tedix/worker-kit/error-message";
 import {
 	r2PrefixForTedi,
@@ -187,10 +188,7 @@ export async function recoveryCheckpointOperation(
 			error: "Checkpoint requires exact lease authority",
 		};
 	const bundle = c.env.DB
-		? await getWorkstationLeaseBundle(
-				createDbClient(c.env.DB),
-				selection.leaseId,
-			)
+		? await getWorkstationLeaseBundle(coreDb(c.env), selection.leaseId)
 		: null;
 	if (c.env.DB && !bundle)
 		return {
@@ -201,7 +199,7 @@ export async function recoveryCheckpointOperation(
 		await assertCheckoutAuthority(c, !!closingLeaseId);
 		if (!c.env.DB || !bundle) return;
 		const current = await getWorkstationLeaseBundle(
-			createDbClient(c.env.DB),
+			coreDb(c.env),
 			selection.leaseId!,
 		);
 		if (
@@ -271,9 +269,7 @@ export async function recoveryCheckpointOperation(
 				};
 			return { status: "clean", reason: "no-checkpoint-needed" };
 		}
-		const resolver = c.env.DB
-			? createCommitResolver(createDbClient(c.env.DB))
-			: undefined;
+		const resolver = c.env.DB ? createCommitResolver(coreDb(c.env)) : undefined;
 		return await run({
 			preparedStartSha: resolver
 				? await resolver.canonicalCommit(original.startSha)

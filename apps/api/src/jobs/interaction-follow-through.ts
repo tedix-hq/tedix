@@ -1,4 +1,4 @@
-import { createDbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import {
 	latestCardChangeRequest,
@@ -39,7 +39,7 @@ export async function dispatchInteractionReviews(
 	scheduledTime: number,
 	dueIds?: string[],
 ) {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const now = new Date(scheduledTime).toISOString();
 	let reviews = 0;
 	const failures: unknown[] = [];

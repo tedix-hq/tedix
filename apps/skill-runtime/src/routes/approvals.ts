@@ -1,6 +1,6 @@
 import type { SkillRuntimeEnv } from "../env";
 import type { Hono } from "hono";
-import { createDbClient } from "@tedix/db/client";
+
 import { requirePendingConnectionRecovery } from "../workflow-connection-recovery";
 import { logControlFailure, logRuntimeFailure } from "../control-log";
 import {
@@ -33,6 +33,7 @@ import {
 	workflowControlRetiredConflict,
 	readEngineStatus,
 } from "../control-admission";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 const RejectionRequestSchema = ApprovalRequestSchema;
 
@@ -306,7 +307,7 @@ export function registerApprovalRoutes(app: Hono<AppEnv>) {
 
 		try {
 			if (parsed.data.type.startsWith("connection_recovery_")) {
-				await requirePendingConnectionRecovery(createDbClient(c.env.DB), {
+				await requirePendingConnectionRecovery(coreDb(c.env), {
 					organizationId: run.orgId,
 					runId: run.runId,
 					executionEpoch: run.executionEpoch,

@@ -1,8 +1,8 @@
-import { createDbClient } from "@tedix/db/client";
 import { checkSiteVersions } from "../services/site-versions";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 export async function runSiteVersionCheckTick(env: CloudflareEnv) {
-	const reports = await checkSiteVersions({ db: createDbClient(env.DB), env });
+	const reports = await checkSiteVersions({ db: coreDb(env), env });
 	return {
 		projects: reports.length,
 		sites: reports.reduce((total, report) => total + report.sites.length, 0),

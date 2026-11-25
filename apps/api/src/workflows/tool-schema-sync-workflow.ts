@@ -30,7 +30,7 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import type { ToolSchemaSyncInput } from "@tedix/api-contract/contracts/tool-schema-sync";
-import { createDbClient } from "@tedix/db/client";
+
 import {
 	emptyBatchAggregate,
 	mergeSyncBatchReport,
@@ -42,6 +42,7 @@ import {
 	type ToolSchemaSyncBatchAggregate,
 	type ToolSchemaSyncBatchReport,
 } from "./tool-schema-sync-batching";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 interface FrozenPlan {
 	appId: string;
@@ -69,7 +70,7 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<ToolSchemaSyncWorkflowInput>,
 		step: WorkflowStep,
 	) {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		if (event.payload.kind === "publish_tool_metadata") {
 			const expected = event.payload.expectedMigration;
 			// apply:false is a compatibility fence: an older deployed workflow can

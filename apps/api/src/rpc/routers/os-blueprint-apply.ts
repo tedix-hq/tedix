@@ -5,6 +5,7 @@ import { BlueprintApplyReceiptSchema } from "@tedix/api-contract/schemas/bluepri
 import { parseStoredOsBlueprintDefinition } from "@tedix/api-contract/schemas/os-workspaces";
 import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprints";
 import { getBlueprintApplyReceipt } from "@tedix/db/queries/os-workspaces/provisioning";
 import { instantiateOsBlueprint } from "../../services/os-workspace-outputs";
@@ -13,7 +14,7 @@ import { ensureWorkspaceTediRole } from "../../services/os-workspace-tedi-role";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import {
 	AUTHZ,
 	type BaseContext,
@@ -124,13 +125,10 @@ async function prepare(
 			ErrorCodes.BAD_REQUEST,
 			"Only a published blueprint can be applied",
 		);
-	const revision = await getOsBlueprintRevision(
-		createDbQueryClient(context.env.DB),
-		{
-			organizationId: blueprint.organizationId,
-			revisionId: blueprint.currentRevisionId,
-		},
-	);
+	const revision = await getOsBlueprintRevision(coreQueryDb(context.env), {
+		organizationId: blueprint.organizationId,
+		revisionId: blueprint.currentRevisionId,
+	});
 	if (!revision)
 		throw createError(ErrorCodes.NOT_FOUND, "Blueprint revision not found");
 	try {
@@ -200,7 +198,7 @@ const apply = authed
 				message: "Blueprint dependencies did not resolve",
 				data: { preflight },
 			});
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		async function replay() {
 			const stored = await getBlueprintApplyReceipt(
 				db,

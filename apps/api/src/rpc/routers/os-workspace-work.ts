@@ -4,6 +4,7 @@ import {
 	type OsWorkspaceProject,
 	OsWorkspaceProjectSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	getOsWorkspaceProject,
 	listOsWorkspaceProjects,
@@ -14,7 +15,7 @@ import {
 	parseOsWorkspaceSummaryPayload,
 } from "@tedix/db/queries/os-workspaces/summaries";
 import { getProjectById } from "@tedix/db/queries/projects";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type { OsWorkspaceProjectRow } from "@tedix/db/schema/os-workspaces";
 import {
 	AUTHZ,
@@ -41,7 +42,7 @@ const mapLink = (row: OsWorkspaceProjectRow): OsWorkspaceProject =>
 const listProjects = readWork.work.listProjects.handler(
 	async ({ input, context }) => {
 		const workspace = await requireWorkspace(context, input.workspaceId);
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		// The Work board reads the workspace's published summary row for active
 		// links; it lags the link write by the queue lag (bounded seconds).
 		// Anything the summary does not model — no row yet, or a `removed`
@@ -100,7 +101,7 @@ const attachProject = authorWork.work.attachProject.handler(
 const removeProject = authorWork.work.removeProject.handler(
 	async ({ input, context }) => {
 		const workspace = await requireWorkspace(context, input.workspaceId);
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		const current = await getOsWorkspaceProject(db, {
 			organizationId: workspace.organizationId,
 			workspaceId: workspace.id,

@@ -10,8 +10,9 @@
  * organization `org-1`, tenant `tenant-1`, user `user-1`, key `key-1`.
  */
 import type { JWTPayload } from "@tedix/auth/types";
-import { createDbClient } from "@tedix/db/client";
+
 import type { BaseContext } from "./orpc";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 const DEFAULT_URL = "https://api.tedix.test/rpc";
 
@@ -56,9 +57,7 @@ function sharedFields(options: TestContextOptions): Partial<BaseContext> {
 	const context: Partial<BaseContext> = {
 		db:
 			options.db ??
-			(env.DB
-				? (createDbClient(env.DB) as BaseContext["db"])
-				: ({} as BaseContext["db"])),
+			(env.DB ? (coreDb(env) as BaseContext["db"]) : ({} as BaseContext["db"])),
 		env,
 		headers:
 			options.headers instanceof Headers

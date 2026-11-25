@@ -2,11 +2,12 @@ import {
 	buildTediContextWakeRequest,
 	deliverTediContextWake,
 } from "./tedi-context-wake";
-import { createDbClient } from "@tedix/db/client";
+
 import {
 	buildRuntimeRunId,
 	buildTediConversationId,
 } from "@tedix/api-contract/utils/runtime-identity";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { listTediRuntimeEventsForRouter } from "@tedix/db/queries/cognitive-runtime";
 import { listTediRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import { ensureCommitmentFollowup } from "../services/tedi-context-wake";
@@ -83,7 +84,7 @@ export async function processCommitmentWakePage(
 		maxPages?: number;
 	} = {},
 ): Promise<Record<string, number>> {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const deadline = Date.now() + RUN_BUDGET_MS;
 	const deliveryDeadline = deadline - OPERATION_TIMEOUT_MS;
 	async function bounded<T>(

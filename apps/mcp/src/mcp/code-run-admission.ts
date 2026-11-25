@@ -2,7 +2,8 @@
 
 import { BillingSettlementModeSchema } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { CODE_RUN_CREDITS } from "@tedix/api-contract/utils/credit-pricing";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { admitCodeRun } from "@tedix/db/queries/billing/credit-pool";
 import type { ModelAuthoredLoaderCall } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import {
@@ -65,7 +66,7 @@ export async function admitCodeModeRun(input: {
 	const tediId = caller?.authType === "tedi" ? (caller.tediId ?? null) : null;
 	const userId =
 		caller && caller.authType !== "tedi" ? (caller.userId ?? null) : null;
-	const decision = await admitCodeRun(createDbClient(input.env.DB), {
+	const decision = await admitCodeRun(coreDb(input.env), {
 		organizationId,
 		executionId: input.executionId,
 		tediId,

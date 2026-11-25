@@ -35,12 +35,13 @@ import type {
 	WorkstationLease,
 } from "@tedix/api-contract/schemas/workstation";
 import { getWorkstationLeaseBundle } from "../../../workstation/persistence";
-import { createDbClient } from "@tedix/db/client";
+
 import {
 	persistentWorkstationEnvelope,
 	workstationEnvelope,
 	markWorkstationBodyStatus,
 } from "./envelope";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 export const log = createTediLogger("tedi.workstation.process");
 const MIN_ASYNC_PROCESS_TIMEOUT_MS = 1_000;
@@ -324,10 +325,7 @@ export async function workstationProcessAccessForRequest(
 			status: 503,
 		};
 	}
-	const bundle = await getWorkstationLeaseBundle(
-		createDbClient(c.env.DB),
-		leaseId,
-	);
+	const bundle = await getWorkstationLeaseBundle(coreDb(c.env), leaseId);
 	if (!bundle) {
 		return {
 			ok: false,

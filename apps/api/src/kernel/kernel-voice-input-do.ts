@@ -44,7 +44,7 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 						import("../services/unrouted-model-egress"),
 					]);
 				await requireUnrestrictedModelEgress(
-					createDbQueryClient(this.env.DB),
+					coreQueryDb(this.env),
 					organizationId,
 					"Live voice",
 				);
@@ -203,7 +203,7 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 					import("@tedix/db/client"),
 					import("../lib/voice-provider-usage"),
 				]);
-			await recordVoiceProviderUsage(createDbClient(this.env.DB), input);
+			await recordVoiceProviderUsage(coreDb(this.env), input);
 		} catch (error) {
 			logKernelVoiceFailure("voice.input_usage_write_failed", error);
 		}

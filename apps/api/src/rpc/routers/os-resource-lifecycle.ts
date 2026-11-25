@@ -3,6 +3,7 @@ import {
 	type OsBlueprintWithVisibility,
 	osWorkspacesContract,
 } from "@tedix/api-contract/contracts/os-workspaces";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	deleteOsBlueprint,
 	getOsBlueprint,
@@ -19,7 +20,7 @@ import {
 	getOsOutput,
 } from "../../services/workspace-output-storage";
 import { listOsShareLinks } from "@tedix/db/queries/os-shares";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type { OsBlueprintRow } from "@tedix/db/schema/os-workspaces";
 import { mapOsOutputRow } from "../../services/os-output-library";
 import { parseBlueprintLineage } from "../../services/os-blueprint-portability";
@@ -42,7 +43,7 @@ const authorOs = authed.use(AUTHZ.osAuthor);
 const adminOs = authed.use(AUTHZ.osAdmin);
 
 function queryDb(context: BaseContext) {
-	return createDbQueryClient(context.env.DB);
+	return coreQueryDb(context.env);
 }
 
 function mapBlueprint(row: OsBlueprintRow): OsBlueprintWithVisibility {

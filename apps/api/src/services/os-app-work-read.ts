@@ -2,9 +2,10 @@ import { call } from "@orpc/server";
 import { AppRuntimeWorkReadSchema } from "@tedix/api-contract/schemas/os-app-runtime";
 import { JsonValueSchema } from "@tedix/api-contract/schemas/common";
 import type { WorkspaceAppSession } from "@tedix/auth/workspace-app-session";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import { createOsGadgetExecution } from "@tedix/db/queries/os-workspaces/executions";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
 
@@ -59,7 +60,7 @@ export async function readWorkspaceAppWork(
 		},
 		{ context },
 	);
-	await createOsGadgetExecution(createDbQueryClient(context.env.DB), {
+	await createOsGadgetExecution(coreQueryDb(context.env), {
 		id: crypto.randomUUID(),
 		organizationId: resource.organizationId,
 		workspaceId: resource.workspaceId,

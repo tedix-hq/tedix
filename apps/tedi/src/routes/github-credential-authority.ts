@@ -1,4 +1,4 @@
-import { createDbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
@@ -105,7 +105,7 @@ githubCredentialAuthority.post(
 		)
 			return c.json({ authorized: false, reason: "correlation_missing" }, 403);
 
-		const db = createDbClient(c.env.DB);
+		const db = coreDb(c.env);
 		const [organization, tedi, bundle] = await Promise.all([
 			getOrganizationById(db, organizationId),
 			getTediByIdForOrganization(db, tediId, organizationId),

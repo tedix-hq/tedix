@@ -28,10 +28,8 @@ import {
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { mintWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import { ROLE_PERMISSION_GRANTS, type Role } from "@tedix/auth/rbac";
-import {
-	createDbQueryClient,
-	type DbQueryClient,
-} from "@tedix/db/query-client";
+import { coreDb, coreQueryDb } from "@tedix/db/core-store/scope";
+import { type DbQueryClient } from "@tedix/db/query-client";
 import { getMemberAccessByUserId } from "@tedix/db/queries/organization-members";
 import { getOsGadgetExecution } from "@tedix/db/queries/os-workspaces/executions";
 import {
@@ -324,7 +322,7 @@ export async function dispatchDueAppTriggers(
 	scheduledTime: number,
 ): Promise<AppTriggerScanResult> {
 	const { createDbClient } = await import("@tedix/db/client");
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const rows = await listTriggeredRuntimeApps(db, { limit: APP_LIMIT });
 	const result: AppTriggerScanResult = {
 		apps: rows.length,
@@ -462,7 +460,7 @@ export async function handleAppTriggerWebhook(
 		triggerId,
 	}).then((secret) => hmacHex(secret, `${timestamp}.${body}`));
 	if (!timingSafeEqual(signature, `sha256=${expected}`)) return denied();
-	const db = createDbQueryClient(c.env.DB);
+	const db = coreQueryDb(c.env);
 	const gadget = await getOsGadget(db, { organizationId, gadgetId });
 	const revision = gadget?.currentRevisionId
 		? await getOsGadgetRevision(db, {

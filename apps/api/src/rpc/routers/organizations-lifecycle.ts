@@ -1,6 +1,6 @@
 /** Organization offboarding lifecycle: cancel, delete and syncFromDescope. */
 import { deleteOrganizationWorkspaceDocuments } from "../../services/workspace-document-delete";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { assertDescopeOk } from "@tedix/auth/descope";
 import { loadAllDescopeMcpServers } from "@tedix/auth/aih-client";
@@ -8,6 +8,7 @@ import { getDescopeManagement } from "../../lib/descope-management";
 import { deleteAllAppRelations } from "@tedix/auth/fga";
 import { descopeIssuer } from "@tedix/auth/principal-identity";
 import { isPlatformPrincipal } from "@tedix/auth/types";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
 import { deleteApp, getAppMetadataJson } from "@tedix/db/queries/app-records";
 import { deleteMcpServerRegistration } from "../../lib/provider-facts-cache";
@@ -251,7 +252,7 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 		}
 
 		await deleteOrganizationWorkspaceDocuments(
-			createDbQueryClient(context.env.DB),
+			coreQueryDb(context.env),
 			organizationId,
 		);
 

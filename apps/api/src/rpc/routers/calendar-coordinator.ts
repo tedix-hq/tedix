@@ -1,7 +1,8 @@
 import { implement } from "@orpc/server";
 import { calendarCoordinatorContract } from "@tedix/api-contract/contracts/calendar-coordinator";
 import { CalendarConfigurationSchema } from "@tedix/api-contract/schemas/calendar-coordinator";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import * as ledger from "@tedix/db/queries/calendar-coordinator";
 import {
 	AUTHZ,
@@ -47,7 +48,7 @@ export const calendarCoordinatorContractRouter = {
 		await requireWorkspace(context, input.workspaceId);
 		return (
 			await ledger.listCalendarCoordinators(
-				createDbQueryClient(context.env.DB),
+				coreQueryDb(context.env),
 				requireOrgId(context),
 				input.workspaceId,
 			)
@@ -86,7 +87,7 @@ export const calendarCoordinatorContractRouter = {
 					"Selected calendar cannot be read",
 				);
 		}
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		if (input.id) {
 			const prior = await loadCalendarConfig(context, organizationId, input.id);
 			if (

@@ -2,8 +2,9 @@
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { rotateTediAccessKey } from "@tedix/auth/tedi-identity";
-import { createDbClient } from "@tedix/db/client";
+
 import { emitAuditEvent } from "../rpc/audit-helpers";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 export const TEDI_ACCESS_KEY_ROTATE_AFTER_DAYS = 60;
 const MAX_ROTATIONS_PER_TICK = 25;
@@ -38,7 +39,7 @@ export async function runTediAccessKeyRotationTick(
 	const { getProvisioningConfig } =
 		await import("../rpc/routers/tedis/helpers");
 
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const cutoff = new Date(
 		now.getTime() - TEDI_ACCESS_KEY_ROTATE_AFTER_DAYS * 86_400_000,
 	).toISOString();

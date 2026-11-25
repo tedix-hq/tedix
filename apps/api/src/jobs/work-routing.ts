@@ -12,7 +12,8 @@
 
 import { WorkStewardshipPolicySchema } from "@tedix/api-contract/schemas/work-stewardship";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
+import { type DbClient } from "@tedix/db/client";
 import {
 	listRoutableWork,
 	listWorkRoutingOrgs,
@@ -118,7 +119,7 @@ export async function dispatchWorkRouting(
 	env: Pick<CloudflareEnv, "DB" | "ENVIRONMENT" | "TEDI_SERVICE">,
 	scheduledTime: number,
 ): Promise<{ delegated: number; reserved: number }> {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const now = new Date(scheduledTime).toISOString();
 	let delegated = 0;
 	let reserved = 0;

@@ -15,7 +15,7 @@
  * Mounted before tedi resolution: a reap is fleet-scoped and has no subdomain.
  */
 
-import { createDbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { listReapableWorkstationBodies } from "@tedix/db/queries/workstations";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
@@ -55,7 +55,7 @@ workstationReaper.post("/internal/workstation/reap", async (c) => {
 		);
 	}
 
-	const bodies = await listReapableWorkstationBodies(createDbClient(c.env.DB), {
+	const bodies = await listReapableWorkstationBodies(coreDb(c.env), {
 		limit: MAX_BODIES_PER_REAP,
 	});
 	const results: WorkstationBodyReapResult[] = [];

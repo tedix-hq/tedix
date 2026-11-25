@@ -31,8 +31,8 @@ export async function runBillingAndGatewayCostTick(
 		await import("../lib/billing-settlement-mode");
 	const settlementMode = resolveBillingSettlementMode(env);
 	try {
-		const { createDbClient } = await import("@tedix/db/client");
-		const db = createDbClient(env.DB);
+		const { coreDb } = await import("@tedix/db/core-store/scope");
+		const db = coreDb(env);
 		const billingNow = new Date().toISOString();
 		const affected = {
 			periodsRenewed: 0,

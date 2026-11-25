@@ -1,5 +1,6 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import * as ledger from "@tedix/db/queries/calendar-coordinator";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
@@ -51,7 +52,7 @@ export async function loadCalendarConfig(
 	organizationId: string,
 	id: string,
 ) {
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const row = await ledger.getCalendarCoordinator(db, {
 		organizationId,
 		configurationId: id,
@@ -82,14 +83,11 @@ export async function resolveCalendarRoutes(
 	await assertCalendarTarget(context, config);
 	const adapters = new Map<string, CalendarAdapter>();
 	for (const route of config.calendars) {
-		const resource = await getOsWorkspaceResource(
-			createDbQueryClient(context.env.DB),
-			{
-				organizationId: config.organizationId,
-				workspaceId: config.workspaceId,
-				resourceId: route.workspaceResourceId,
-			},
-		);
+		const resource = await getOsWorkspaceResource(coreQueryDb(context.env), {
+			organizationId: config.organizationId,
+			workspaceId: config.workspaceId,
+			resourceId: route.workspaceResourceId,
+		});
 		if (
 			!resource ||
 			resource.status !== "active" ||
@@ -137,7 +135,7 @@ export async function previewCalendarConfig(
 	config: Configuration,
 	ownershipSeed: string,
 ) {
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const scope = {
 		organizationId: config.organizationId,
 		configurationId: config.id,
@@ -192,7 +190,7 @@ export async function createCalendarApplyStore(
 			);
 		requireTediRequestIdentity(context, config.tediId);
 	}
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const scope = {
 		organizationId: config.organizationId,
 		configurationId: config.id,
@@ -445,7 +443,7 @@ export async function reconcileCalendarSubscription(
 		throw new Error(
 			"Notification reconciliation requires the selected worker identity",
 		);
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const row = await ledger.getCalendarCoordinatorForSubscription(
 		db,
 		organizationId,

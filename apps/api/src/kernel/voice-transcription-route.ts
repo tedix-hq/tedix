@@ -1,4 +1,3 @@
-import { createDbClient } from "@tedix/db/client";
 import { requireUnrestrictedModelEgress } from "../services/unrouted-model-egress";
 import {
 	createVoiceBilling,
@@ -7,6 +6,7 @@ import {
 import { encodeBase64Audio, transcribeAudioAttachment } from "@tedix/voice/stt";
 import { authenticateKernelEdge } from "./edge-auth";
 import { logKernelVoiceFailure } from "./kernel-voice-log";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 const MAX_DICTATION_BYTES = 25 * 1024 * 1024;
 
@@ -32,7 +32,7 @@ export async function handleKernelVoiceTranscription(
 		);
 	try {
 		await requireUnrestrictedModelEgress(
-			createDbClient(env.DB),
+			coreDb(env),
 			auth.identity.organizationId,
 			"Speech transcription",
 		);

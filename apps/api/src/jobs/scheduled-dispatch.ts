@@ -163,10 +163,11 @@ const dispatchScheduled = async (
 				event,
 				"orphan-workflow-cleanup",
 				async () => {
-					const { createDbClient } = await import("@tedix/db/client");
+					const { coreDb, coreQueryDb } =
+						await import("@tedix/db/core-store/scope");
 					const { cleanupOrphanWorkflows } =
 						await import("./orphan-workflow-cleanup");
-					return cleanupOrphanWorkflows(createDbClient(env.DB), env);
+					return cleanupOrphanWorkflows(coreDb(env), env);
 				},
 			);
 			// Remote follow-through keeps its own receipts: a wedged tedi or
@@ -192,7 +193,8 @@ const dispatchScheduled = async (
 			// Each tick reads one bounded slice; the checkpoint carries unfinished
 			// scope counts to later ticks instead of draining the whole inventory.
 			if (minute % 6 < 2) {
-				const { createDbClient } = await import("@tedix/db/client");
+				const { coreDb, coreQueryDb } =
+					await import("@tedix/db/core-store/scope");
 				const { dispatchStallRecovery } = await import("./stall-recovery");
 				// Recovery has its own receipt and lifetime; it must not hold replay or later paths.
 				const recovery = trackPlatformCronPath(
@@ -201,7 +203,7 @@ const dispatchScheduled = async (
 					"stall-recovery",
 					async () => ({
 						resumeRequested: await dispatchStallRecovery(
-							createDbClient(env.DB),
+							coreDb(env),
 							env,
 							event.scheduledTime,
 						),
@@ -267,11 +269,12 @@ const dispatchScheduled = async (
 		// arms it; unarmed it costs one bucket read and no D1.
 		if (cron === "*/2 * * * *") {
 			try {
-				const { createDbQueryClient } = await import("@tedix/db/query-client");
+				const { coreDb, coreQueryDb } =
+					await import("@tedix/db/core-store/scope");
 				const { runOutputRevisionThinningTick } =
 					await import("../services/os-output-revision-thinning");
 				const result = await runOutputRevisionThinningTick({
-					db: createDbQueryClient(env.DB),
+					db: coreQueryDb(env),
 					runtime: (
 						env as unknown as {
 							WORKSPACE_RUNTIME?: Parameters<
@@ -410,12 +413,13 @@ const dispatchScheduled = async (
 
 		if (fleetEnabled && maintenanceIsDue("output-asset-gc", event)) {
 			await trackPlatformCronPath(env, event, "output-asset-gc", async () => {
-				const { createDbClient } = await import("@tedix/db/client");
+				const { coreDb, coreQueryDb } =
+					await import("@tedix/db/core-store/scope");
 				const { sweepDeletedOrganizationOutputAssets } =
 					await import("../services/os-output-asset-gc");
 				return {
 					assetsRemoved: await sweepDeletedOrganizationOutputAssets({
-						db: createDbClient(env.DB),
+						db: coreDb(env),
 						bucket: env.R2_BUCKET,
 					}),
 				};
@@ -480,13 +484,11 @@ const dispatchScheduled = async (
 		}
 
 		if (maintenanceIsDue("factory-weight-update", event)) {
-			const { createDbClient } = await import("@tedix/db/client");
+			const { coreDb, coreQueryDb } =
+				await import("@tedix/db/core-store/scope");
 			const { updateFactoryWeights } = await import("./factory-weight-update");
 			await trackPlatformCronPath(env, event, "factory-weight-update", () =>
-				updateFactoryWeights(
-					createDbClient(env.DB),
-					new Date(event.scheduledTime),
-				),
+				updateFactoryWeights(coreDb(env), new Date(event.scheduledTime)),
 			);
 		}
 
@@ -521,12 +523,10 @@ const dispatchScheduled = async (
 		// Project recurring Work: one item per template and month, idempotent.
 		if (fleetEnabled && maintenanceIsDue("recurring-work", event)) {
 			const { fileRecurringWork } = await import("./recurring-work");
-			const { createDbClient } = await import("@tedix/db/client");
+			const { coreDb, coreQueryDb } =
+				await import("@tedix/db/core-store/scope");
 			await trackPlatformCronPath(env, event, "recurring-work", () =>
-				fileRecurringWork(
-					createDbClient(env.DB),
-					new Date(event.scheduledTime),
-				),
+				fileRecurringWork(coreDb(env), new Date(event.scheduledTime)),
 			);
 		}
 	} catch (error) {

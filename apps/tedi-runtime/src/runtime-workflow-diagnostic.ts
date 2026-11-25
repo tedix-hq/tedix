@@ -31,7 +31,7 @@ export async function readOwnedRuntimeWorkflow(input: {
 		!input.runId.startsWith(`${input.tediId}:`)
 	)
 		throw new Error("RUNTIME_WORKFLOW_OWNER_MISMATCH");
-	const db = (await import("@tedix/db/client")).createDbClient(input.env.DB);
+	const db = (await import("@tedix/db/core-store/scope")).coreDb(input.env);
 	const { getTediByIdForOrganization } =
 		await import("@tedix/db/queries/tedis");
 	let owner;

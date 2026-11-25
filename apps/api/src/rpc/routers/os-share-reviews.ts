@@ -4,7 +4,8 @@ import {
 	OsReviewBatchSchema,
 	OsReviewFeedbackSchema,
 } from "@tedix/api-contract/contracts/os-shares";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	createOsReviewBatch,
 	getActiveOsReviewBatchForGadget,
@@ -89,7 +90,7 @@ async function sourceAllowed(
 }
 async function activeShare(context: BaseContext, shareId: string) {
 	const organizationId = requireOrgId(context);
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const link = await getScopedOsShareLink(db, {
 		organizationId,
 		shareLinkId: shareId,
@@ -193,7 +194,7 @@ const get = read.reviews.get.handler(async ({ context, input }) => {
 const listFeedback = author.reviews.listFeedback.handler(
 	async ({ context, input }) => {
 		const organizationId = requireOrgId(context);
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		const batch = await getOsReviewBatch(
 			db,
 			organizationId,
@@ -285,7 +286,7 @@ async function workspaceReviewer(
 		input.gadgetId,
 	);
 	if (gadget.status !== "active") unavailable();
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const batch = await getActiveOsReviewBatchForGadget(db, {
 		organizationId,
 		gadgetId: gadget.id,

@@ -1,5 +1,6 @@
 import { RepositoryInspectionRequestSchema } from "@tedix/api-contract/schemas/workstation";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getWorkstationInspectionAuthority } from "@tedix/db/queries/workstations";
 import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
 import type { Context } from "hono";
@@ -30,7 +31,7 @@ export async function inspectRepositoryRoute(c: Context<AppEnv>) {
 		return c.json({ error: "invalid repository inspection request" }, 400);
 	if (!tedi.organizationId)
 		return c.json({ error: "organization required" }, 403);
-	const db = createDbClient(c.env.DB);
+	const db = coreDb(c.env);
 	const before = await getWorkstationInspectionAuthority(db, {
 		orgId: tedi.organizationId,
 		workItemId,

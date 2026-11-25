@@ -16,7 +16,8 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	getApprovalRequestById,
 	expireStaleApprovals,
@@ -45,7 +46,7 @@ export class ApprovalWorkflow extends WorkflowEntrypoint<
 > {
 	async run(event: WorkflowEvent<ApprovalWorkflowParams>, step: WorkflowStep) {
 		const { approvalRequestId, tediId, orgId, ttlHours } = event.payload;
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 
 		// Step 1: Expire any stale approvals across the table (housekeeping — idempotent SQL UPDATE)
 		await step.do(

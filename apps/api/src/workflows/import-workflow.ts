@@ -18,7 +18,8 @@ import {
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import type { Vertical } from "@tedix/api-contract/schemas/app";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	getAppById,
 	getAppMetadataJson,
@@ -279,7 +280,7 @@ export class ImportWorkflow extends WorkflowEntrypoint<
 		appId: string,
 		inputFieldMappings?: Record<string, string[]>,
 	): Promise<LoadedConfig> {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const app = await getAppById(db, appId);
 
 		if (!app) {
@@ -339,7 +340,7 @@ export class ImportWorkflow extends WorkflowEntrypoint<
 				errors: [],
 			};
 		}
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const importedAt = new Date().toISOString();
 		const errors: string[] = [];
 
@@ -437,7 +438,7 @@ export class ImportWorkflow extends WorkflowEntrypoint<
 			itemsUpdated: number;
 		},
 	): Promise<void> {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 
 		const app = await getAppById(db, appId);
 		if (!app) {

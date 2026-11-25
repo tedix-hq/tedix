@@ -1,5 +1,6 @@
 import type { ExecutionRequirement } from "@tedix/api-contract/schemas/execution-evidence";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	acceptWorkItem,
 	createWorkItem,
@@ -9,7 +10,7 @@ import { getOsWorkspaceProject } from "@tedix/db/queries/os-workspaces/projects"
 import { getProjectById } from "@tedix/db/queries/projects";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type {
 	OsWorkspaceResourceRow,
 	OsWorkspaceRow,
@@ -248,7 +249,7 @@ export async function prepareWorkspaceRepositoryWork(
 			params.input.tediId,
 			params.workspace.organizationId,
 		),
-		deps.getProjectLink(createDbQueryClient(context.env.DB), {
+		deps.getProjectLink(coreQueryDb(context.env), {
 			organizationId: params.workspace.organizationId,
 			workspaceId: params.workspace.id,
 			projectId: params.input.projectId,

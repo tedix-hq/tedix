@@ -1,4 +1,4 @@
-import { createDbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { withTransientD1ReadRetry } from "@tedix/db/utils/d1-retry";
 import {
 	captureCloudflareAutoRouting,
@@ -133,7 +133,7 @@ export async function authorizeRuntimeInference(
 		}
 		enterPhase("residency_and_replay_reads");
 		// The raw binding reads the primary rather than a caller-supplied request bookmark.
-		const residencyDb = input.env.DB ? createDbClient(input.env.DB) : input.db;
+		const residencyDb = input.env.DB ? coreDb(input.env) : input.db;
 		// Residency and grant failures take precedence over a parallel replay-read failure.
 		const existingRead = withTransientD1ReadRetry(
 			"inference_admission_replay",

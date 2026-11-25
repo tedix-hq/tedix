@@ -18,7 +18,8 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getAppBySlug } from "@tedix/db/queries/apps";
 import { updateJobProgress, updateJobStatus } from "@tedix/db/queries/jobs";
 import { toJsonValue } from "@tedix/db/utils/json";
@@ -145,7 +146,7 @@ export class McpEvalWorkflow extends WorkflowEntrypoint<
 > {
 	async run(event: WorkflowEvent<McpEvalWorkflowParams>, step: WorkflowStep) {
 		const { jobId, appSlug, model, customTests } = event.payload;
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const overallStart = Date.now();
 
 		// Step 1: Mark job as running

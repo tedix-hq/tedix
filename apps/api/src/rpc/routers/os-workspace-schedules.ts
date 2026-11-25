@@ -16,6 +16,7 @@ import {
 	reviewedPersonalResourceReadScopes,
 } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import {
@@ -42,7 +43,7 @@ import { getLatestReportedSkillRun } from "@tedix/db/queries/skill-runs";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import { getToolByAppAndToolIdForOrganization } from "@tedix/db/queries/tools";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import {
 	AUTHZ,
@@ -271,7 +272,7 @@ const list = readOs.schedules.list.handler(async ({ input, context }) => {
 	const organizationId = workspace.organizationId;
 	const owner = signedInOwner(context, workspace);
 	const resources = (
-		await listOsWorkspaceResources(createDbQueryClient(context.env.DB), {
+		await listOsWorkspaceResources(coreQueryDb(context.env), {
 			organizationId,
 			workspaceId: workspace.id,
 			status: "active",
@@ -377,7 +378,7 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 				ErrorCodes.FORBIDDEN,
 				"Only the Workspace's owner, signed in, can let a skill read their account",
 			);
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		const link = await getOsWorkspaceResource(db, {
 			organizationId,
 			workspaceId: workspace.id,
@@ -539,7 +540,7 @@ const setPersonalAccess = authorOs.schedules.setPersonalAccess.handler(
 		const workspace = await requireWorkspace(context, input.workspaceId);
 		const organizationId = workspace.organizationId;
 		const caller = signedInPerson(context);
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		const resources = await listOsWorkspaceResources(db, {
 			organizationId,
 			workspaceId: workspace.id,
@@ -659,15 +660,12 @@ const runNow = authorOs.schedules.runNow.handler(async ({ input, context }) => {
 			ErrorCodes.FORBIDDEN,
 			"Only a signed-in person can run a Workspace skill now",
 		);
-	const resources = await listOsWorkspaceResources(
-		createDbQueryClient(context.env.DB),
-		{
-			organizationId,
-			workspaceId: workspace.id,
-			status: "active",
-			limit: 200,
-		},
-	);
+	const resources = await listOsWorkspaceResources(coreQueryDb(context.env), {
+		organizationId,
+		workspaceId: workspace.id,
+		status: "active",
+		limit: 200,
+	});
 	const linked = resources.some(
 		(row) =>
 			isWorkspaceSkillResource(row) && row.providerResourceId === input.skillId,
@@ -783,7 +781,7 @@ const link = authorOs.schedules.link.handler(async ({ input, context }) => {
 /** Remove the Workspace's link to a skill; the skill itself is untouched. */
 const unlink = authorOs.schedules.unlink.handler(async ({ input, context }) => {
 	const workspace = await requireWorkspace(context, input.workspaceId);
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const current = await findOsWorkspaceTenantResource(db, {
 		organizationId: workspace.organizationId,
 		workspaceId: workspace.id,
@@ -818,7 +816,7 @@ const linkFactorySkills = authorOs.schedules.linkFactorySkills.handler(
 			organizationId: workspace.organizationId,
 			workspaceId: workspace.id,
 		};
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		const [candidates, resources] = await Promise.all([
 			listOsWorkspaceSkillLinkCandidates(db, scope),
 			listOsWorkspaceResources(db, { ...scope, status: "active", limit: 500 }),

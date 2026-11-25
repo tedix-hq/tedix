@@ -4,7 +4,8 @@
  * at 04:10 UTC; see `services/tedi-memory-reflection`.
  */
 
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
+import { type DbClient } from "@tedix/db/client";
 import { listTediRuntimeEventsForRouter } from "@tedix/db/queries/cognitive-runtime";
 import { listRecentlyActiveTedis } from "@tedix/db/queries/tedi-memory";
 import type { TediHostEnv } from "../lib/platform-hosts";
@@ -87,7 +88,7 @@ export async function dispatchTediMemoryReflection(
 			Object.assign(
 				counts,
 				await reflectOnQuietConversations({
-					db: createDbClient(env.DB),
+					db: coreDb(env),
 					env,
 					send: (request) => env.TEDI_SERVICE.fetch(request),
 					now: Math.max(scheduledTime, Date.now()),
@@ -133,7 +134,7 @@ async function enrichMemory(
 		await import("@tedix/db/queries/memory-graph/hybrid-recall");
 	const { backfillFactCitations } =
 		await import("@tedix/db/queries/memory-graph/fact-citations");
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 
 	const orgs = await listOrganizations(db);
 	let searchRowsBackfilled = 0;

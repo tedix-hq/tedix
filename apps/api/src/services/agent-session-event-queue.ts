@@ -1,6 +1,7 @@
 import { agentSessionEventBodies } from "./agent-session-event-bodies";
 import * as z from "zod";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getMemberByCanonicalUserId } from "@tedix/db/queries/organization-members";
 import { listPendingAgentSessionEvents } from "@tedix/db/queries/agent-session-requests";
 import { captureLocalKernelRequests } from "../kernel/request-local-source";
@@ -45,7 +46,7 @@ export async function processAgentSessionEventQueue(
 	env: CloudflareEnv,
 	owner: Owner,
 ) {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const member = await getMemberByCanonicalUserId(
 		db,
 		owner.organizationId,

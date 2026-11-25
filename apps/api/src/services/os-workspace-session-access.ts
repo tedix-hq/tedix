@@ -1,4 +1,4 @@
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getOsWorkspaceForCollaboration } from "@tedix/db/queries/os-collaborators";
 import { getOsCollaborationProposal } from "@tedix/db/queries/os-workspaces/collaboration";
 import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
@@ -28,7 +28,7 @@ export async function workspaceSessionAccess(
 	if (request.method !== "POST") return new Response(null, { status: 405 });
 	const parsed = inputSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) return new Response(null, { status: 400 });
-	const database = createDbQueryClient(env.DB);
+	const database = coreQueryDb(env);
 	if (parsed.data.appDraft) {
 		const { gadgetId, proposalId, baseRevisionId } = parsed.data.appDraft;
 		const workspace = await getOsWorkspaceForCollaboration(database, {

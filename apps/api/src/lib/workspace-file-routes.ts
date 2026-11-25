@@ -12,8 +12,8 @@ import {
 	workspaceFilePartSize,
 	streamWorkspaceFile,
 } from "./workspace-files";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { createDbQueryClient } from "@tedix/db/query-client";
 
 /** Binary upload is bounded per part and never enters the RPC/base64 path. */
 export async function uploadWorkspaceFilePart(
@@ -53,7 +53,7 @@ export async function uploadWorkspaceFilePart(
 			"This upload has expired or is no longer available. Request a new upload URL.",
 			{ status: 410 },
 		);
-	const workspace = await getOsWorkspace(createDbQueryClient(env.DB), {
+	const workspace = await getOsWorkspace(coreQueryDb(env), {
 		organizationId: org,
 		workspaceId,
 	});

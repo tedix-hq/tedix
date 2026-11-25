@@ -87,7 +87,7 @@ export async function observerCompletion(
 		opts.modelCatalog ??
 		(opts.env.DB
 			? await getModelCatalogConfig(
-					(await import("@tedix/db/client")).createDbClient(opts.env.DB),
+					(await import("@tedix/db/core-store/scope")).coreDb(opts.env),
 				)
 			: undefined);
 	const ref =

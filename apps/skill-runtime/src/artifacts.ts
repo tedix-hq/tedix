@@ -92,8 +92,8 @@ async function recordArtifactForRun(
 				...(sha256 ? { sha256 } : {}),
 			},
 		});
-		const { createDbClient } = await import("@tedix/db/client");
-		const db = createDbClient(env.DB);
+		const { coreDb } = await import("@tedix/db/core-store/scope");
+		const db = coreDb(env);
 		const row = await recordRunArtifact(db, tenantScope, {
 			runId,
 			path,
@@ -108,8 +108,8 @@ async function recordArtifactForRun(
 		return { ok: true, id: row.id, sizeBytes, storage: "r2", sha256 };
 	}
 
-	const { createDbClient } = await import("@tedix/db/client");
-	const db = createDbClient(env.DB);
+	const { coreDb } = await import("@tedix/db/core-store/scope");
+	const db = coreDb(env);
 	const row = await recordRunArtifact(db, tenantScope, {
 		runId,
 		path,
@@ -159,8 +159,8 @@ async function recordBlobForRun(
 			...(sha256 ? { sha256 } : {}),
 		},
 	});
-	const { createDbClient } = await import("@tedix/db/client");
-	const db = createDbClient(env.DB);
+	const { coreDb } = await import("@tedix/db/core-store/scope");
+	const db = coreDb(env);
 	const row = await recordRunArtifact(db, tenantScope, {
 		runId,
 		path,
@@ -188,9 +188,9 @@ export class ArtifactBridge extends WorkerEntrypoint<
 		const input = parsed.data;
 		const compact = compactTimelineReceipt(input);
 		if (compact || input.path.startsWith("timeline/")) {
-			const { createDbClient } = await import("@tedix/db/client");
+			const { coreDb } = await import("@tedix/db/core-store/scope");
 			// Inline rows survive isolate replay and require no R2 body reads.
-			await recordRunArtifact(createDbClient(this.env.DB), this.ctx.props, {
+			await recordRunArtifact(coreDb(this.env), this.ctx.props, {
 				runId: this.ctx.props.runId,
 				path: compact ? "timeline/" + input.path : input.path,
 				value: compact ? storedTimelineReceipt(compact) : input.value,

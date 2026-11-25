@@ -20,7 +20,8 @@ import {
 	DescopeAuditBatchSchema,
 	type DescopeAuditEvent,
 } from "@tedix/api-contract/schemas/descope-webhook";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { getOrganizationByDescopeId } from "@tedix/db/queries/organizations";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -387,7 +388,7 @@ export async function handleDescopeAuditWebhook(
 		}
 
 		// Acknowledge only after the bounded batch has persisted.
-		const db = createDbClient(c.env.DB);
+		const db = coreDb(c.env);
 		const orgCache: OrgCache = new Map();
 		let processed = 0;
 		let skipped = 0;

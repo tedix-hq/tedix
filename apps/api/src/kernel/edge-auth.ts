@@ -12,7 +12,8 @@ import {
 	extractBearerToken,
 	extractWebSocketBearerToken,
 } from "@tedix/worker-kit/request-auth";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getOrganizationByDescopeId } from "@tedix/db/queries/organizations";
 import { verifyKernelWsToken } from "./ws-token";
 import { hasActiveVoiceMembership } from "./voice-membership";
@@ -78,7 +79,7 @@ export async function authenticateKernelEdge(
 				// when it resolves to the token's scoped org (cold path — one DB
 				// read only on mismatch).
 				const requestedOrg = await getOrganizationByDescopeId(
-					createDbClient(env.DB),
+					coreDb(env),
 					requestedOrganizationId,
 				).catch(() => null);
 				if (requestedOrg?.id !== scoped.organizationId) {
@@ -138,7 +139,7 @@ export async function authenticateKernelSessionJwt(
 		};
 	}
 
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const tenantId = getTenantId(payload);
 	let claimOrganizationId: string | null = null;
 	if (tenantId) {

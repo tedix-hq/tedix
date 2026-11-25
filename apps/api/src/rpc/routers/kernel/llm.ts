@@ -1,5 +1,6 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catalog-config";
 import {
@@ -66,7 +67,7 @@ export async function configuredKernelModel(
 	context?: KernelGatewayContext | string,
 ) {
 	if (!env.DB) return null;
-	const config = await getModelCatalogConfig(createDbClient(env.DB));
+	const config = await getModelCatalogConfig(coreDb(env));
 	return kernelModel(env, override, context, config);
 }
 
@@ -75,7 +76,7 @@ export async function configuredKernelRouteModel(
 	context?: KernelGatewayContext | string,
 ) {
 	if (!env.DB) return null;
-	const config = await getModelCatalogConfig(createDbClient(env.DB));
+	const config = await getModelCatalogConfig(coreDb(env));
 	const ref = config.defaults?.kernelRouteModelRef;
 	return (
 		(ref ? kernelModel(env, { modelRef: ref }, context, config) : null) ??

@@ -1,4 +1,3 @@
-import { createDbClient } from "@tedix/db/client";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import {
@@ -6,6 +5,7 @@ import {
 	fileAgentReview,
 	readAgentReviewReceipt,
 } from "./services/agent-review";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 export const agentReviewRoutes = new Hono<{ Bindings: CloudflareEnv }>();
 
@@ -71,17 +71,14 @@ agentReviewRoutes.post("/", async (c) => {
 	} catch {
 		return c.json({ error: "Invalid JSON" }, 400);
 	}
-	return c.json(
-		await fileAgentReview(createDbClient(c.env.DB), c.env, input),
-		201,
-	);
+	return c.json(await fileAgentReview(coreDb(c.env), c.env, input), 201);
 });
 
 agentReviewRoutes.get("/:id", async (c) => {
 	const id = c.req.param("id");
 	if (!/^[a-f0-9-]{36}$/.test(id))
 		return c.json({ error: "Receipt not found" }, 404);
-	await readAgentReviewReceipt(createDbClient(c.env.DB), c.env, id);
+	await readAgentReviewReceipt(coreDb(c.env), c.env, id);
 	return c.text("received");
 });
 

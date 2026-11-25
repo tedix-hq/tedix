@@ -8,6 +8,7 @@ import {
 	OsDerivedAccessEnvelopeSchema,
 	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { listConnectionProviderNames } from "@tedix/db/queries/connection-providers";
 import {
 	addOsShareLinkInvitee,
@@ -53,7 +54,7 @@ import {
 } from "@tedix/db/queries/os-workspaces/resources";
 import { findKernelRuntimeRunForOutputRevision } from "@tedix/db/queries/kernel-runtime-runs";
 import { getRunSensitiveDataLatch } from "@tedix/db/queries/sensitive-data-latch";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type {
 	OsShareLinkInviteeRow,
 	OsShareLinkRow,
@@ -108,7 +109,7 @@ const audienceOs = authed.use(
 );
 
 function queryDb(context: BaseContext) {
-	return createDbQueryClient(context.env.DB);
+	return coreQueryDb(context.env);
 }
 
 /**

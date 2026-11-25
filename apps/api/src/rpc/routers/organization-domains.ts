@@ -3,7 +3,8 @@ import { osAudit } from "../os-audit";
 import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
 import { implement } from "@orpc/server";
 import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	getMemberByCanonicalUserId,
 	getMemberByUserId,
@@ -38,7 +39,7 @@ import {
 const os = implement(organizationsContract).$context<BaseContext>();
 const authed = os.use(withAuth).use(osAudit(ORGANIZATION_SETTINGS_AUDIT));
 function primaryDb(context: BaseContext) {
-	return context.env.DB ? createDbClient(context.env.DB) : context.db;
+	return context.env.DB ? coreDb(context.env) : context.db;
 }
 async function owner(context: BaseContext) {
 	const organizationId = requireOrgId(context);

@@ -3,7 +3,8 @@ import {
 	type WorkspacePersonMemoryResult,
 } from "@tedix/api-contract/schemas/workspace-person-memory";
 import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { listPrivateFactsOfTedis } from "@tedix/db/queries/memory-graph/fact-search";
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
@@ -55,7 +56,7 @@ export async function readWorkspacePersonMemory(
 		);
 	const request = parsed.data;
 	const organizationId = request.organizationId;
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	try {
 		const workspace = await getOsWorkspace(db, request);
 		if (!workspace || workspace.status !== "active")

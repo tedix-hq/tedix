@@ -57,7 +57,8 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { mcpTasks } from "@tedix/db/schema/mcp-tasks";
 import { toJsonRecord, toJsonValue } from "@tedix/db/utils/json";
 import { eq } from "drizzle-orm";
@@ -266,7 +267,7 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 		step: WorkflowStep,
 	): Promise<void> {
 		const { taskId } = event.payload;
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 
 		// Step 1 — load the task lifecycle scalars (Serializable across the step
 		// boundary). The exec-config + caller snapshots (JSON objects) are re-read

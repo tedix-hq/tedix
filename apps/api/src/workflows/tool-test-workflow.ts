@@ -21,6 +21,7 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getOrganizationBySlug } from "@tedix/db/queries/organizations";
 import { executeJevJudgment } from "../services/jev-judgment";
 import {
@@ -28,7 +29,7 @@ import {
 	OUTPUT_QUALITY_QUESTIONS,
 } from "../services/jev-output-quality";
 import type { KernelExecutionAttempt } from "../rpc/routers/kernel/gateway-attribution";
-import { createDbClient } from "@tedix/db/client";
+
 import { getCatalogAppById } from "@tedix/db/queries/catalog/get-app";
 import { getCatalogMcpTools } from "@tedix/db/queries/catalog/mcp-tools";
 import {
@@ -117,7 +118,7 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 				`timeout=${timeout}ms, testType=${testType}, explicitTargets=${explicitTargets?.length ?? 0}`,
 		);
 
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const platformOrgId =
 			testType === "ai_eval"
 				? await step.do(
@@ -283,7 +284,7 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 		workflowId: string,
 		platformOrgId: string | null,
 	): Promise<BatchResult> {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		let tested = 0;
 		let successful = 0;
 		let failed = 0;
@@ -386,7 +387,7 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 						"Tool model evaluation requires organization attribution",
 					);
 				await requireUnrestrictedModelEgress(
-					createDbClient(this.env.DB),
+					coreDb(this.env),
 					platformOrgId,
 					"Tool model evaluation",
 				);
@@ -423,7 +424,7 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 		if (result.success && !result.isError && rawResult) {
 			try {
 				await inferCatalogToolOutputSchemas(
-					createDbClient(this.env.DB),
+					coreDb(this.env),
 					tool.catalogAppId,
 					tool.toolName,
 					() => unwrapCallToolResult(rawResult, tool.toolName),
@@ -447,7 +448,7 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 			try {
 				const qualityResult = await scoreOutputQuality(
 					async (state) => {
-						const db = createDbClient(this.env.DB);
+						const db = coreDb(this.env);
 						if (!platformOrgId) return { result: null, tokensUsed: 0 };
 						const judgment = await executeJevJudgment({
 							db,

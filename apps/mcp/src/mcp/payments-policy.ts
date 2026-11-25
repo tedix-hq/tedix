@@ -1,4 +1,4 @@
-import { createDbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getEffectiveMcpPaymentPolicy } from "@tedix/db/queries/mcp-payments";
 import { getToolById } from "@tedix/db/queries/tools";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -202,7 +202,7 @@ export async function resolveToolPaymentPolicy(params: {
 	const orgId = paymentOrganizationId(params.agent);
 	if (orgId) {
 		try {
-			const db = createDbClient(params.agent.env.DB);
+			const db = coreDb(params.agent.env);
 			const managedBudget = await getEffectiveMcpPaymentPolicy(db, {
 				organizationId: orgId,
 				tediId: params.agent.callerIdentity?.tediId ?? null,
@@ -248,7 +248,7 @@ export async function resolveToolPaymentPolicy(params: {
 
 	try {
 		const persisted = await getToolById(
-			createDbClient(params.agent.env.DB),
+			coreDb(params.agent.env),
 			params.tool.id,
 		);
 		if (!persisted) return { kind: "resolved", policy };

@@ -4,13 +4,14 @@ import {
 	OsGadgetStateRecordSchema,
 	OsGadgetStateMutationResultSchema,
 } from "@tedix/api-contract/schemas/os-gadget-state";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	getGadgetState,
 	listGadgetState,
 	mutateGadgetState,
 } from "@tedix/db/queries/os-workspaces/gadget-state";
 import type { OsGadgetStateRow } from "@tedix/db/schema/os-gadget-state";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import {
 	AUTHZ,
 	type BaseContext,
@@ -41,11 +42,7 @@ function project(row: OsGadgetStateRow) {
 }
 const get = read.get.handler(async ({ context, input }) => {
 	const { scope } = await authorizeGadgetState(context, input, false);
-	const row = await getGadgetState(
-		createDbQueryClient(context.env.DB),
-		scope,
-		input.key,
-	);
+	const row = await getGadgetState(coreQueryDb(context.env), scope, input.key);
 	if (row)
 		await authorizeGadgetStateSources(
 			context,
@@ -56,11 +53,10 @@ const get = read.get.handler(async ({ context, input }) => {
 });
 const list = read.list.handler(async ({ context, input }) => {
 	const { scope } = await authorizeGadgetState(context, input, false);
-	const rows = await listGadgetState(
-		createDbQueryClient(context.env.DB),
-		scope,
-		{ ...input, limit: input.limit + 1 },
-	);
+	const rows = await listGadgetState(coreQueryDb(context.env), scope, {
+		...input,
+		limit: input.limit + 1,
+	});
 	const visible = rows.slice(0, input.limit);
 	for (const row of rows)
 		await authorizeGadgetStateSources(
@@ -93,7 +89,7 @@ async function mutate(
 	);
 	if (!fence)
 		throw createError(ErrorCodes.FORBIDDEN, "A live app execution is required");
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const old = await getGadgetState(db, scope, input.key);
 	if (old)
 		await authorizeGadgetStateSources(

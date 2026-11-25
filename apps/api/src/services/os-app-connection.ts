@@ -8,6 +8,7 @@ import {
 } from "@tedix/api-contract/schemas/tools";
 import type { WorkspaceConnectionActor } from "@tedix/api-contract/schemas/workspace-connection-read";
 import type { WorkspaceAppSession } from "@tedix/auth/workspace-app-session";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getAppByIdWithToolsForOrganization } from "@tedix/db/queries/app-records";
 import {
 	getConnectionInstance,
@@ -18,7 +19,7 @@ import {
 	createOsGadgetExecution,
 	settleOsAppCallExecution,
 } from "@tedix/db/queries/os-workspaces/executions";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { requestFirstPartyMcp } from "../lib/first-party-mcp";
@@ -369,7 +370,7 @@ export async function callWorkspaceResourceConnection(
 		{ appSlug: surface.app.slug, toolId: tool.toolId, actingUserId, tediId },
 		access,
 	);
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	if (access.denied) {
 		const message = ownAccessRefusal(resource.providerId, access.outcome);
 		await createOsGadgetExecution(db, {

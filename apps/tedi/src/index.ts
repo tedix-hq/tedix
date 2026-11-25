@@ -14,7 +14,8 @@ import {
 	createWorkstationEpisodeIds,
 	createWorkstationLease,
 } from "@tedix/api-contract/schemas/workstation";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { updateTediLastHeartbeat } from "@tedix/db/queries/tedis";
 import { durableObjectIdFromName } from "@tedix/worker-kit/durable-objects";
 import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
@@ -153,10 +154,7 @@ async function explicitWorkstationRuntimeSelection(
 			status: 503,
 		};
 	}
-	const bundle = await getWorkstationLeaseBundle(
-		createDbClient(c.env.DB),
-		leaseId,
-	);
+	const bundle = await getWorkstationLeaseBundle(coreDb(c.env), leaseId);
 	if (!bundle) {
 		return {
 			ok: false,
@@ -491,9 +489,7 @@ app.use("*", async (c, next) => {
 		const lastWrite = userHeartbeatAt.get(tediConfig.id) ?? 0;
 		if (Date.now() - lastWrite > USER_HEARTBEAT_DEBOUNCE_MS) {
 			userHeartbeatAt.set(tediConfig.id, Date.now());
-			updateTediLastHeartbeat(createDbClient(c.env.DB), tediConfig.id).catch(
-				() => {},
-			);
+			updateTediLastHeartbeat(coreDb(c.env), tediConfig.id).catch(() => {});
 		}
 	}
 

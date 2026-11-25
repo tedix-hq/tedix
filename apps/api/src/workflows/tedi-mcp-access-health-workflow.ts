@@ -12,7 +12,8 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getAppById } from "@tedix/db/queries/app-records";
 import { getAppBySlug, getAppsByOrganization } from "@tedix/db/queries/apps";
 import {
@@ -76,7 +77,7 @@ export class TediMcpAccessHealthWorkflow extends WorkflowEntrypoint<
 	) {
 		const payload = event.payload ?? {};
 		const repairInvalid = payload.repairInvalid ?? false;
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 
 		const organizations = await step.do("load organizations", async () =>
 			loadOrganizations(db, payload),

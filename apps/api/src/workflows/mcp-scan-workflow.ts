@@ -24,7 +24,8 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { listBaseAppsForCatalogApp } from "@tedix/db/queries/apps";
 import {
 	resolveDriftReport,
@@ -410,7 +411,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				(targets.length ? `, targets=${targets.length}` : ""),
 		);
 
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const ledgerId = await step.do("record workflow start", async () => {
 			const ledger = await createWorkflowRunRecord(db, {
 				workflowType: "mcp_scan",
@@ -658,7 +659,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 		timeout: number,
 	): Promise<BatchResult> {
 		const startedAt = Date.now();
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		let checked = 0;
 		let healthy = 0;
 		let unhealthy = 0;
@@ -1034,7 +1035,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 						await import("@tedix/db/utils/secrets-encryption");
 					const { updateCatalogAppScanAuth } =
 						await import("@tedix/db/queries/catalog/get-app");
-					const snapshotDb = createDbClient(this.env.DB);
+					const snapshotDb = coreDb(this.env);
 					const encrypted = await encryptCatalogAppSecret(
 						this.env.SECRETS_MASTER_KEY,
 						app.id,
@@ -1345,7 +1346,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 		const header = app.scanConnectionHeader || "Authorization";
 		const template = app.scanConnectionTemplate || "{token}";
 
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		let resolvedToken: string | undefined;
 
 		if (this.env.DESCOPE_MANAGEMENT_KEY) {

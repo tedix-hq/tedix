@@ -1,5 +1,6 @@
 import { implement } from "@orpc/server";
 import { osCollaboratorsContract } from "@tedix/api-contract/contracts/os-collaborators";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	dismissOsSharedWorkspace,
 	searchOrganizationPeople,
@@ -9,7 +10,7 @@ import {
 	listOsWorkspaceEventsAfter,
 } from "@tedix/db/queries/os-workspace-events";
 import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import { operationAllowed } from "@tedix/api-contract/schemas/os-collaborators";
 import {
 	addWorkspaceCollaborator,
@@ -79,7 +80,7 @@ const events = collaborator.events
 		),
 	)
 	.handler(async ({ input, context }) => {
-		const db = createDbQueryClient(context.env.DB);
+		const db = coreQueryDb(context.env);
 		const full = () =>
 			requireWorkspaceCollaboratorAccess(
 				context,
@@ -180,15 +181,12 @@ const suggestPeople = collaborator.suggestPeople
 	.handler(async ({ input, context }) => {
 		const userId = requireCollaboratorIdentity(context);
 		return {
-			people: await searchOrganizationPeople(
-				createDbQueryClient(context.env.DB),
-				{
-					organizationId: requireOrgId(context, "people suggestions"),
-					query: input.query,
-					excludeUserId: userId,
-					limit: input.limit,
-				},
-			),
+			people: await searchOrganizationPeople(coreQueryDb(context.env), {
+				organizationId: requireOrgId(context, "people suggestions"),
+				query: input.query,
+				excludeUserId: userId,
+				limit: input.limit,
+			}),
 		};
 	});
 
@@ -323,7 +321,7 @@ const dismissShared = collaborator.dismissShared
 	)
 	.handler(async ({ input, context }) => {
 		const userId = requireCollaboratorIdentity(context);
-		await dismissOsSharedWorkspace(createDbQueryClient(context.env.DB), {
+		await dismissOsSharedWorkspace(coreQueryDb(context.env), {
 			workspaceId: input.workspaceId,
 			userId,
 			now: new Date().toISOString(),

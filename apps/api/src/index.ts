@@ -211,8 +211,8 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 			import("./services/workspace-approval-push"),
 		]);
 		return pushWaitingWorkspaceApprovals(
-			{ db: createDbClient(this.env.DB), env: this.env },
-			createDbQueryClient(this.env.DB),
+			{ db: coreDb(this.env), env: this.env },
+			coreQueryDb(this.env),
 			Date.now(),
 			scope,
 		);
@@ -256,7 +256,7 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 		const { authorizeWorkspaceInference } =
 			await import("./services/workspace-inference-admission");
 		return authorizeWorkspaceInference({
-			db: createDbClient(this.env.DB),
+			db: coreDb(this.env),
 			env: this.env,
 			request: AuthorizeWorkspaceInferenceInputSchema.parse(input),
 		});
@@ -274,7 +274,7 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 		const { releaseInferenceReservation } =
 			await import("./services/workspace-inference-admission");
 		return releaseInferenceReservation({
-			db: createDbClient(this.env.DB),
+			db: coreDb(this.env),
 			wallet: (await import("./lib/wallet-rpc")).walletRpc(this.env),
 			request: ReleaseInferenceReservationInputSchema.parse(input),
 		});

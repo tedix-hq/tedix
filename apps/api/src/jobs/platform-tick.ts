@@ -24,7 +24,7 @@ export async function dispatchGraphProjectionDrains(
 	const { getGraphDbSecrets } = await import("../integrations/graph-db/client");
 	if (!getGraphDbSecrets(env)) return { configured: 0 };
 	try {
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb } = await import("@tedix/db/core-store/scope");
 		const {
 			getGraphProjectionCursor,
 			listGraphProjectionCertificationOrganizations,
@@ -38,7 +38,7 @@ export async function dispatchGraphProjectionDrains(
 			createGraphProjectionDrainBatch,
 			selectGraphProjectionDispatchOrganizations,
 		} = await import("../services/graph-projection-scheduling");
-		const db = createDbClient(env.DB);
+		const db = coreDb(env);
 		const measureBacklog = graphProjectionBacklogDue(event.scheduledTime);
 		const [backlogOrgIds, staleCertificationOrgIds] = await Promise.all([
 			listGraphProjectionOrganizations(
@@ -180,9 +180,9 @@ export async function runAlwaysOnKeepalive(
 	ctx: ExecutionContext,
 ): Promise<void> {
 	try {
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb } = await import("@tedix/db/core-store/scope");
 		const { getAlwaysOnTedis } = await import("@tedix/db/queries/tedis");
-		const db = createDbClient(env.DB);
+		const db = coreDb(env);
 		const alwaysOn = await getAlwaysOnTedis(db);
 		const tediSvc = env.TEDI_SERVICE;
 		if (alwaysOn.length > 0) {
@@ -287,14 +287,14 @@ export async function sweepOrphanRunsTick(
 	dueIds?: string[],
 ): Promise<Record<string, number>> {
 	try {
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb } = await import("@tedix/db/core-store/scope");
 		const { sweepOrphanRuns } =
 			await import("../rpc/routers/cognitive-runtime/recovery-artifacts");
 		const { propagateSweptChildFailureToHomeRun } =
 			await import("../rpc/routers/kernel/run-store");
 		const { cleanupOrphanWorkflows } =
 			await import("./orphan-workflow-cleanup");
-		const db = createDbClient(env.DB);
+		const db = coreDb(env);
 		// The Home-side writers only touch `context.db`; the scheduled tick has
 		// no request, so a db-only context is the honest shape here.
 		const homeContext = {

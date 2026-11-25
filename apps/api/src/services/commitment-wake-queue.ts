@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	getDueCommitmentWake,
 	listDueCommitmentWakes,
@@ -24,7 +25,7 @@ export async function enqueueDueCommitmentWakes(
 ) {
 	if (!env.AUTOMATION_EVENTS)
 		throw new Error("Commitment wakes require the automation events queue");
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const now = new Date(Math.max(Date.now(), scheduledTime)).toISOString();
 	const due = await listDueCommitmentWakes(db, now, env.ENVIRONMENT);
 	await env.AUTOMATION_EVENTS.sendBatch([
@@ -53,7 +54,7 @@ export async function handleCommitmentWakeMessage(
 ): Promise<"ack" | "retry"> {
 	const parsed = CommitmentWakeQueueSchema.safeParse(body);
 	if (!parsed.success) return "ack";
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const { processCommitmentWakePage } =
 		await import("../jobs/commitment-wakes");
 	try {

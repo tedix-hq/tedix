@@ -5,6 +5,7 @@ import {
 } from "../../services/workspace-document-placement";
 import { verifiedExternalAgent } from "./work-items-principal";
 import { createWorkspaceDocumentOwner } from "../../services/workspace-document-owner";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
 import { buildSurfaceUrl } from "@tedix/tenant-directory";
 import { platformDomain } from "@tedix/worker-kit/platform-hosts";
@@ -43,7 +44,7 @@ import {
 	listUserConfigs,
 	upsertUserConfig,
 } from "@tedix/db/queries/user-configs";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { requireOrgId } from "../org-scope";
 import {
@@ -86,7 +87,7 @@ const authorOs = authed.use(AUTHZ.osAuthor);
 const adminOs = authed.use(AUTHZ.osAdmin);
 
 function queryDb(context: BaseContext) {
-	return createDbQueryClient(context.env.DB);
+	return coreQueryDb(context.env);
 }
 
 function creator(context: BaseContext): { kind: OsCreatedByKind; id: string } {

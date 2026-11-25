@@ -8,6 +8,7 @@ import {
 	OsDerivedAccessEnvelopeSchema,
 	type OsDerivedAccessEnvelope,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getOsGadgetExecutionByRunId } from "@tedix/db/queries/os-workspaces/executions";
 import { getOsGadgetRevision } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
@@ -15,7 +16,7 @@ import {
 	type GadgetStateScope,
 	type GadgetStateFence,
 } from "@tedix/db/queries/os-workspaces/gadget-state";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import { requireOrgId } from "../rpc/org-scope";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
 import {
@@ -80,7 +81,7 @@ export async function authorizeGadgetState(
 			ErrorCodes.FORBIDDEN,
 			"App state requires authenticated runtime provenance",
 		);
-	const db = createDbQueryClient(context.env.DB);
+	const db = coreQueryDb(context.env);
 	const execution = await getOsGadgetExecutionByRunId(db, {
 		organizationId,
 		tediId: context.tediId,

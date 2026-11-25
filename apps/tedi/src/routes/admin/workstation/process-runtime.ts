@@ -21,7 +21,7 @@ import {
 	pushPublicationProof,
 } from "../../../workstation/push-publication";
 import { getWorkstationLeaseBundle } from "../../../workstation/persistence";
-import { createDbClient } from "@tedix/db/client";
+
 import { canAccessInactiveWorkstation } from "../../../workstation/inactive-lease-access";
 import {
 	type WorkstationSessionSelection,
@@ -55,6 +55,7 @@ import {
 	workstationOperationLockedInvocation,
 	workstationSessionLockedInvocation,
 } from "./locks";
+import { coreDb } from "@tedix/db/core-store/scope";
 
 export function processContextFromBody(
 	c: Context<AppEnv>,
@@ -503,7 +504,7 @@ export async function workstationSessionSelectionForRequest(
 	}
 
 	const bundle = await getWorkstationLeaseBundle(
-		createDbClient(c.env.DB),
+		coreDb(c.env),
 		requestedLeaseId,
 	);
 	if (!bundle) {

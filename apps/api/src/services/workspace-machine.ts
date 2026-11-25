@@ -4,12 +4,13 @@ import {
 	WorkspaceMachineInputSchema,
 	type WorkspaceMachineResult,
 } from "@tedix/api-contract/schemas/workspace-machine";
-import { createDbClient } from "@tedix/db/client";
+
 import {
 	COMPUTER_ACCESS_OFF,
 	workspaceMachineAccess,
 } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { listMachineOwners } from "@tedix/db/queries/machines";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
@@ -56,7 +57,7 @@ export async function useWorkspaceMachine(
 		);
 	const request = parsed.data;
 	const orgId = request.organizationId;
-	const deps = { db: createDbClient(env.DB), env };
+	const deps = { db: coreDb(env), env };
 	try {
 		const workspace = await getOsWorkspace(deps.db, request);
 		if (!workspace || workspace.status !== "active")

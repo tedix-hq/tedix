@@ -1,7 +1,8 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { retireStaleLaneDelegationRequests } from "@tedix/db/queries/work-items/lane-delegation-requests";
 import type { DecisionContext } from "@tedix/api-contract/schemas/decision-graph";
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { type DbClient } from "@tedix/db/client";
 import { listAgentDecisionsWithOutcome } from "@tedix/db/queries/agent-decisions";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import {
@@ -611,7 +612,7 @@ export async function sweepDeckPipeline(
 	env: CloudflareEnv,
 	scheduledTime = Date.now(),
 ): Promise<Record<string, number>> {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const now = new Date(scheduledTime);
 	const totals = { organizations: 0, retired: 0, merged: 0, errors: 0 };
 	// Lane permission cards retire in every organization, deck learning or not.

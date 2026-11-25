@@ -55,7 +55,8 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { syncCatalogMcpTools } from "@tedix/db/queries/catalog/mcp-tools";
 import {
 	getCatalogSnapshotStats,
@@ -201,7 +202,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			`[App Catalog Sync] Starting ${syncType} sync, logId: ${syncLogId}`,
 		);
 
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 
 		let detectedSource: Source | null = null;
 
@@ -1184,7 +1185,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 		batchOffset: number,
 		batchSize: number,
 	): Promise<R2FileBatchResult> {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const { source, filename } = detectedSource;
 		const allowCreate = detectedSource.allowCreate ?? true;
 
@@ -1669,7 +1670,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 		errors: string[];
 		sourceAppIds: string[];
 	}> {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		let source: Source;
 		const apps: SyncCatalogAppInput[] = [];
 		const transformErrors: string[] = [];
@@ -1854,7 +1855,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 	private async prePopulateToolsFromClaudeRegistry(
 		servers: RawClaudeServerEntry[],
 	): Promise<{ toolsSynced: number; errors: string[] }> {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		let toolsSynced = 0;
 		const errors: string[] = [];
 

@@ -200,10 +200,10 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 	}
 	/** The signed revision's stored code, refused unless it hashes to the session's digest. */
 	async #revisionFiles(session: VerifiedSession) {
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb } = await import("@tedix/db/core-store/scope");
 		const { getOsGadgetCode } =
 			await import("@tedix/db/queries/os-workspaces/gadgets");
-		const row = await getOsGadgetCode(createDbClient(this.env.DB), {
+		const row = await getOsGadgetCode(coreDb(this.env), {
 			organizationId: session.organizationId,
 			revisionId: session.revisionId,
 		});

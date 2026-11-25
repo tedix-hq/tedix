@@ -15,6 +15,7 @@
  * own summary.
  */
 
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import type { DbClient } from "@tedix/db/client";
 import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
 import type { KernelRuntimeEvent } from "@tedix/db/queries/kernel-runtime-events";
@@ -23,7 +24,7 @@ import {
 	computeOsWorkspaceSummary,
 	type OsWorkspaceSummaryPayload,
 } from "@tedix/db/queries/os-workspaces/summaries";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import * as z from "zod";
 
 export const WORKSPACE_SUMMARY_MESSAGE_KIND = "workspace_summary" as const;
@@ -71,7 +72,7 @@ export async function publishOsWorkspaceSummary(
 	const queue = env.AUTOMATION_EVENTS;
 	if (!queue) return { queued: false };
 	const payload: OsWorkspaceSummaryPayload = await computeOsWorkspaceSummary(
-		createDbQueryClient(env.DB),
+		coreQueryDb(env),
 		params,
 	);
 	const message: WorkspaceSummaryQueueMessage = {
@@ -166,7 +167,7 @@ export async function handleWorkspaceSummaryMessage(
 	if (!parsed.success) return "ack";
 	const message = parsed.data;
 	try {
-		await applyOsWorkspaceSummary(createDbQueryClient(env.DB), {
+		await applyOsWorkspaceSummary(coreQueryDb(env), {
 			organizationId: message.organizationId,
 			workspaceId: message.workspaceId,
 			revision: message.revision,

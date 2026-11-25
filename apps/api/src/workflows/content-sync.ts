@@ -15,7 +15,8 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
 import {
 	listContentSources,
@@ -181,7 +182,7 @@ export class ContentSyncWorkflow extends WorkflowEntrypoint<
 		interval?: "daily" | "weekly" | "monthly",
 		specificAppId?: string,
 	): Promise<GetAppsStepResult> {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 
 		// Get all apps
 		const allApps = await getAllApps(db, { appId: specificAppId });
@@ -223,7 +224,7 @@ export class ContentSyncWorkflow extends WorkflowEntrypoint<
 		app: AppToSync,
 		force: boolean,
 	): Promise<AppSyncResult> {
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const results: SourceSyncResult[] = [];
 
 		for (const source of app.sources) {

@@ -1,4 +1,4 @@
-import { createDbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getProjectById } from "@tedix/db/queries/projects";
 import {
 	claimAgentReviewRetry,
@@ -17,7 +17,7 @@ export async function sweepAgentReviewTriage(
 	const counts = { retried: 0, purged: 0 };
 	const projectId = agentReviewProjectId(env);
 	if (!projectId) return counts;
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const project = await getProjectById(db, projectId);
 	if (
 		!project ||

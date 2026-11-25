@@ -36,7 +36,7 @@ export async function sweepDelegatedRunDeadlines(
 		delegatedRunOrganizations: 0,
 		delegatedRunSweepErrors: 0,
 	};
-	const { createDbClient } = await import("@tedix/db/client");
+	const { coreDb } = await import("@tedix/db/core-store/scope");
 	const { listQuietDelegatedRuns } =
 		await import("@tedix/db/queries/kernel-runtime-runs");
 	const { KERNEL_DELEGATE_FIRST_EVENT_TIMEOUT_MS } =
@@ -45,7 +45,7 @@ export async function sweepDelegatedRunDeadlines(
 		await import("../rpc/routers/kernel/home-plan");
 	const { reconcileHomeRunRowsFromChildStatus } =
 		await import("../rpc/routers/kernel/run-store-reconciliation");
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const rows = await listQuietDelegatedRuns(db, {
 		dueIds,
 		before: new Date(

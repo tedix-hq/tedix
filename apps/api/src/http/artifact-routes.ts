@@ -124,10 +124,10 @@ export function registerArtifactRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			}));
 		if (!ok) return c.text("Invalid or expired artifact token", 403);
 
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb } = await import("@tedix/db/core-store/scope");
 		const { getTediArtifactById } =
 			await import("@tedix/db/queries/kernel-runtime-events");
-		const db = createDbClient(c.env.DB);
+		const db = coreDb(c.env);
 		const { getTediById } = await import("@tedix/db/queries/tedis");
 		const tedi = await getTediById(db, tediId);
 		if (!tedi) return c.text("Artifact not found", 404);
@@ -228,8 +228,8 @@ export function registerArtifactRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			return c.text("Unauthorized", 401);
 		}
 
-		const { createDbClient } = await import("@tedix/db/client");
-		const db = createDbClient(c.env.DB);
+		const { coreDb } = await import("@tedix/db/core-store/scope");
+		const db = coreDb(c.env);
 		const orgId = await resolveMediaRouteOrgId(
 			db,
 			payload,

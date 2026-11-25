@@ -17,7 +17,7 @@ export function registerPublicBlueprintRoutes(
 				import("@tedix/db/query-client"),
 			]);
 		return handlePublicBlueprintPage(
-			createDbQueryClient(c.env.DB),
+			coreQueryDb(c.env),
 			c.req.param("blueprintId"),
 		);
 	});

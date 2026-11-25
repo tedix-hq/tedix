@@ -12,7 +12,8 @@
  */
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb, coreQueryDb } from "@tedix/db/core-store/scope";
 import { readD1SizeBytes } from "@tedix/db/queries/d1-size";
 import { pruneExpiredOfficeSnapshots } from "@tedix/db/queries/office-activity";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -77,12 +78,12 @@ async function runD1RetentionArchives(
 	const logs = logsDatabase(env);
 	const now = new Date(event.scheduledTime);
 	const gadgetBodies = await retainGadgetExecutionBodies(
-		createDbQueryClient(env.DB),
+		coreQueryDb(env),
 		env.R2_BUCKET,
 		now,
 	);
 	const result = await runD1Retention({
-		db: createDbQueryClient(env.DB),
+		db: coreQueryDb(env),
 		logsDb: logs ? createDbQueryClient(logs) : undefined,
 		bucket: env.TEDI_R2_BUCKET,
 		now,
@@ -115,7 +116,7 @@ async function runD1RetentionArchives(
 	let sessionBodyRetention: Record<string, number> = {};
 	try {
 		const bodies = await retainAgentSessionEventBodies(
-			createDbQueryClient(env.DB),
+			coreQueryDb(env),
 			agentSessionEventBodies(env.TEDI_R2_BUCKET),
 			now,
 		);
@@ -133,7 +134,7 @@ async function runD1RetentionArchives(
 	}
 	const sizes = await runD1SizeCheck(env, now.toISOString());
 	const officeDeleted = await pruneExpiredOfficeSnapshots(
-		createDbQueryClient(env.DB),
+		coreQueryDb(env),
 		now.toISOString(),
 	);
 	return {
@@ -168,7 +169,7 @@ export async function runD1SizeCheck(
 	const probes: D1SizeProbe[] = [
 		{
 			store: "main",
-			bytes: await readD1SizeBytes(createDbQueryClient(env.DB)),
+			bytes: await readD1SizeBytes(coreQueryDb(env)),
 		},
 		...(logs
 			? [
@@ -179,7 +180,7 @@ export async function runD1SizeCheck(
 				]
 			: []),
 	];
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const numbers: Record<string, number> = {};
 	for (const probe of probes) {
 		const prefix = `d1${probe.store === "main" ? "Main" : "Logs"}`;

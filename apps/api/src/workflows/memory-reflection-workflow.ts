@@ -1,4 +1,5 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { consolidateMemory } from "@tedix/db/queries/memory-graph/observations";
 import { organizationModelEnv } from "../services/unrouted-model-egress";
 /**
@@ -26,7 +27,7 @@ import {
 	type WorkflowStep,
 	type WorkflowStepConfig,
 } from "cloudflare:workers";
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { type DbClient } from "@tedix/db/client";
 import {
 	getTediLearnedCapabilities,
 	upsertTediLearnedCapability,
@@ -299,7 +300,7 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 > {
 	async run(event: WorkflowEvent<ReflectionParams>, step: WorkflowStep) {
 		const { organizationId, tediId, scope, ownerUserId } = event.payload;
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const steps = <T>(
 			name: string,
 			config: WorkflowStepConfig,

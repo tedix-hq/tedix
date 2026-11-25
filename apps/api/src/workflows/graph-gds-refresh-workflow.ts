@@ -12,7 +12,8 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	cancelGraphProjectionMaintenance,
 	failGraphProjectionMaintenance,
@@ -67,7 +68,7 @@ export class GraphGdsRefreshWorkflow extends WorkflowEntrypoint<
 		step: WorkflowStep,
 	): Promise<GraphGdsRefreshWorkflowResult> {
 		const payload = event.payload;
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 
 		await step.do(
 			"mark GDS refresh running",

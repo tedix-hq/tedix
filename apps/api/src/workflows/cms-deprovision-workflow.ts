@@ -4,7 +4,8 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	deleteApp,
 	getAppMetadataJson,
@@ -82,7 +83,7 @@ export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
 > {
 	async run(event: WorkflowEvent<CmsDeprovisionParams>, step: WorkflowStep) {
 		const { siteId, organizationId } = event.payload;
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const operation = await step.do(
 			"verify deprovision receipt",
 			{

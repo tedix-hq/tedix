@@ -1,4 +1,3 @@
-import { createDbClient } from "@tedix/db/client";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
@@ -6,6 +5,7 @@ import {
 	authenticatePersonalAgent,
 	receivePersonalAgentFinding,
 } from "./services/personal-agent-inbound";
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	listPersonalAgentOutcomes,
 	acknowledgePersonalAgentOutcome,
@@ -40,7 +40,7 @@ personalAgentInboundRoutes.get(`${path}/outcomes`, async (c) => {
 	const after = Number(c.req.query("after") ?? "0");
 	if (!Number.isSafeInteger(after) || after < 0)
 		return c.json({ error: "Invalid cursor" }, 400);
-	const db = createDbClient(c.env.DB);
+	const db = coreDb(c.env);
 	await authenticatePersonalAgent(db, c.env.SECRETS_MASTER_KEY, {
 		...c.req.param(),
 		token,
@@ -77,7 +77,7 @@ personalAgentInboundRoutes.post(`${path}/outcomes/ack`, async (c) => {
 		})
 		.safeParse(await c.req.json());
 	if (!parsed.success) return c.json({ error: "Invalid acknowledgment" }, 400);
-	const db = createDbClient(c.env.DB);
+	const db = coreDb(c.env);
 	await authenticatePersonalAgent(db, c.env.SECRETS_MASTER_KEY, {
 		...c.req.param(),
 		token,
@@ -126,16 +126,12 @@ personalAgentInboundRoutes.post(path, async (c) => {
 		return c.json({ error: "Invalid or revoked enrollment" }, 401);
 	const masterKey = c.env.SECRETS_MASTER_KEY;
 	if (!masterKey) return c.json({ error: "Intake unavailable" }, 503);
-	const receipt = await receivePersonalAgentFinding(
-		createDbClient(c.env.DB),
-		masterKey,
-		{
-			...c.req.param(),
-			token,
-			finding,
-			channel: isForm ? "browser_form" : "webhook",
-		},
-	);
+	const receipt = await receivePersonalAgentFinding(coreDb(c.env), masterKey, {
+		...c.req.param(),
+		token,
+		finding,
+		channel: isForm ? "browser_form" : "webhook",
+	});
 	if (isForm)
 		return c.html(
 			`<!doctype html><html lang="en"><meta charset="utf-8"><title>Finding received</title><h1>Finding received</h1><p>${receipt.duplicate ? "Already captured" : "Captured"}. No action was executed.</p><p>Receipt: ${receipt.workItemId}</p><p>Captured at: ${receipt.capturedAt}</p></html>`,

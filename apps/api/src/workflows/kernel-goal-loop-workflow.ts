@@ -44,7 +44,8 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { createRouterClient } from "@orpc/server";
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
+import { type DbClient } from "@tedix/db/client";
 import { listKernelRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import { getGoalLoopWorkItemSnapshot } from "@tedix/db/queries/work-items/crud";
 import { type BaseContext, createContext } from "../rpc/orpc";
@@ -174,7 +175,7 @@ export class KernelGoalLoopWorkflow extends WorkflowEntrypoint<
 			(await step.do("resolve-conversation-id", async () =>
 				crypto.randomUUID(),
 			));
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		let turnCounter = 0;
 
 		const runTurn = async (content: string): Promise<GoalLoopSettledTurn> => {

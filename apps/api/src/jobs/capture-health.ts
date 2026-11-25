@@ -11,7 +11,8 @@
  */
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
-import { createDbClient } from "@tedix/db/client";
+
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	CAPTURE_HEALTH_SCHEMA,
 	type CaptureHealthRow,
@@ -45,7 +46,7 @@ export async function runCaptureHealthHeartbeat(
 	env: Pick<CloudflareEnv, "DB">,
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
-	const db = createDbClient(env.DB);
+	const db = coreDb(env);
 	const now = new Date(scheduledTime).toISOString();
 	const rows = await listCaptureHealth(db, {
 		since: new Date(scheduledTime - DAY_MS).toISOString(),

@@ -1,4 +1,4 @@
-import { createDbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { resolveOrganizationHostname } from "@tedix/db/queries/organization-domains";
 import { implement } from "@orpc/server";
 import { osTenantContract } from "@tedix/api-contract/contracts/os-tenant";
@@ -45,7 +45,7 @@ const resolve = service.resolve.handler(async ({ input, context }) => {
 const resolveHostname = service.resolveHostname.handler(
 	async ({ input, context }) => {
 		const row = await resolveOrganizationHostname(
-			context.env.DB ? createDbClient(context.env.DB) : context.db,
+			context.env.DB ? coreDb(context.env) : context.db,
 			input.hostname,
 		);
 		return {

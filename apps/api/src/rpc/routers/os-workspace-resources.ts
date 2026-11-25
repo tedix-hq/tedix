@@ -3,6 +3,7 @@ import {
 	requireConnectionSender,
 } from "../../services/workspace-available-connections";
 import { adoptDefaultPersonalConnection } from "./connections/policy-resolution";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	createConnectionInstance,
 	listConnectionInstances,
@@ -39,7 +40,7 @@ import {
 	renameOsWorkspaceResource,
 	restoreOsWorkspaceResource,
 } from "../../services/workspace-resource-storage";
-import { createDbQueryClient } from "@tedix/db/query-client";
+
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
 import { requireOrgId } from "../org-scope";
 import {
@@ -73,7 +74,7 @@ const readOs = authed.use(AUTHZ.osRead);
 const authorOs = authed.use(AUTHZ.osAuthor);
 
 function queryDb(context: BaseContext) {
-	return createDbQueryClient(context.env.DB);
+	return coreQueryDb(context.env);
 }
 
 function parseJson(value: string): unknown {
