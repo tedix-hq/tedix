@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.16 (2026-11-25)
+
+### Patch Changes
+
+- 83ce8f2: A runner no longer resumes a task in a retained checkout that shares no history with main; the task gets a fresh checkout and the old folder is left in place.
+
 ## 0.37.15 (2026-11-25)
 
 ### Patch Changes
