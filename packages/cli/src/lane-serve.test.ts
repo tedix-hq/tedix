@@ -5461,12 +5461,15 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 	});
 	it.each([
-		["picks another tool", true],
-		["is unavailable", false],
-		["is unsure", "unsure"],
+		["picks another tool", true, 0.82, "82", "35"],
+		["is unavailable", false, 0, "0", "35"],
+		["is unsure", true, 0.3, "30", "35"],
+		["is just below threshold", true, 0.349, "34.9", "35.0"],
+		["is at threshold", true, 0.35, "35.0", "35.0"],
+		["is just above threshold", true, 0.351, "35.1", "35.0"],
 	] as const)(
 		"asks Clef once per revision; when Clef %s the task says so",
-		async (_name, answers) => {
+		async (_name, answers, likely, percent, threshold) => {
 			const { restart, deps, items, events, dir, config, releases } = fixture();
 			const routing = join(dir, "routing.json");
 			writeFileSync(
@@ -5487,23 +5490,13 @@ describe("dispatcher admission", () => {
 			deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
 				if (args[5] !== "choose-tool") return base<T>(args, env);
 				asked.push(JSON.parse(args[args.indexOf("--input") + 1]!));
-				if (answers === "unsure")
-					return {
-						status: "ok",
-						executor: "opencode",
-						confidence: 0.08,
-						probabilities: { codex: 0.29, opencode: 0.3 },
-						model: "@cf/cloudflare/clef-flash",
-						latencyMs: 400,
-						reason: null,
-					} as T;
 				return (
 					answers
 						? {
 								status: "ok",
 								executor: "opencode",
 								confidence: 0.12,
-								probabilities: { codex: 0.18, opencode: 0.82 },
+								probabilities: { codex: 0.18, opencode: likely },
 								model: "@cf/cloudflare/clef-flash",
 								latencyMs: 400,
 								reason: null,
@@ -5539,7 +5532,7 @@ describe("dispatcher admission", () => {
 				(event) =>
 					event.verb === "dispatch-reassign" && event.input?.idleReassignment,
 			);
-			if (answers === "unsure") {
+			if (answers && likely < 0.35) {
 				expect(moves).toHaveLength(0);
 				expect(
 					events.some(
@@ -5547,7 +5540,7 @@ describe("dispatcher admission", () => {
 							event.verb === "comment" &&
 							event.args.some((arg) =>
 								arg.startsWith(
-									"Clef would pick OpenCode but rates it only 30% likely (threshold 35%), so the routing rules decide and the task stays with Codex.",
+									`Clef would pick OpenCode but rates it only ${percent}% likely (threshold ${threshold}%), so the routing rules decide and the task stays with Codex.`,
 								),
 							),
 					),
@@ -5560,7 +5553,7 @@ describe("dispatcher admission", () => {
 						fromExecutor: "codex",
 						reason: "chosen",
 						detail: expect.stringContaining(
-							"Clef chose OpenCode (82% likely): small routine edits and docs",
+							`Clef chose OpenCode (${percent}% likely): small routine edits and docs`,
 						),
 					},
 				});

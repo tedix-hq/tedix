@@ -6120,6 +6120,9 @@ export class LaneDispatcher {
 			? (answer.probabilities?.[answer.executor] ?? answer.confidence ?? 0)
 			: 0;
 		const minimum = this.policy.clefMinConfidence ?? 0.35;
+		const precision = Math.abs(likely - minimum) < 0.01 ? 1 : 0;
+		const likelyPercent = (likely * 100).toFixed(precision);
+		const minimumPercent = (minimum * 100).toFixed(precision);
 		const fromName = AGENT_NAMES[from] ?? from;
 		if (
 			answer.status !== "ok" ||
@@ -6130,7 +6133,7 @@ export class LaneDispatcher {
 			const why =
 				answer.status !== "ok"
 					? `Clef did not answer (${answer.reason ?? "unavailable"})`
-					: `Clef would pick ${AGENT_NAMES[answer.executor ?? ""] ?? answer.executor} but rates it only ${Math.round(likely * 100)}% likely (threshold ${Math.round(minimum * 100)}%)`;
+					: `Clef would pick ${AGENT_NAMES[answer.executor ?? ""] ?? answer.executor} but rates it only ${likelyPercent}% likely (threshold ${minimumPercent}%)`;
 			const body = `${why}, so the routing rules decide${from === "any-local" ? "" : ` and the task stays with ${fromName}`}.`;
 			this.log("tool-choice", item.id, body);
 			await comment(body);
@@ -6139,7 +6142,7 @@ export class LaneDispatcher {
 		}
 		const name = AGENT_NAMES[answer.executor] ?? answer.executor;
 		const decider = answer.model.includes("jev") ? "Jev" : "Clef";
-		const detail = `${decider} chose ${name} (${Math.round(likely * 100)}% likely): ${this.policy.tools![answer.executor]!.strengths}${loadNote(answer.executor, offered, load)}`;
+		const detail = `${decider} chose ${name} (${likelyPercent}% likely): ${this.policy.tools![answer.executor]!.strengths}${loadNote(answer.executor, offered, load)}`;
 		const receiptLine = `Model ${answer.model}, ${answer.latencyMs} ms, billed as Workers AI usage.`;
 		if (answer.executor === from) {
 			this.log("tool-choice", item.id, detail);
