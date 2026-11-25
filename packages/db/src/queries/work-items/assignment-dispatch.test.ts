@@ -57,6 +57,13 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	expect(changed.executorType).toBe("external_agent");
 	// The person's choice holds: the router and failover leave it alone.
 	expect(changed.metadata?.onlyExecutor).toBe(true);
+	// Handing it back to the routing rules lets them move it again.
+	const routed = await updateWorkItemSpecification(db, {
+		...base,
+		executor: "any-local",
+		expectedWorkItemVersion: changed.version,
+	});
+	expect(routed.metadata?.onlyExecutor).toBe(false);
 	await expect(
 		updateWorkItemSpecification(db, {
 			...base,
@@ -66,9 +73,9 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	).rejects.toThrow();
 	expect(
 		sqlite.prepare("SELECT count(*) AS n FROM work_item_comments").get()?.n,
-	).toBe(2);
+	).toBe(3);
 	expect(sqlite.prepare("SELECT count(*) AS n FROM work_events").get()?.n).toBe(
-		2,
+		3,
 	);
 	sqlite.close();
 });

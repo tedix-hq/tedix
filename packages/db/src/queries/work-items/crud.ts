@@ -1577,9 +1577,10 @@ export async function updateWorkItemSpecification(
 			metadata: {
 				...(clearNeedsProject ? sortedMetadata : prior.metadata),
 				// A person who names the tool keeps the task on it: routing and
-				// failover move only Work that a person left to them.
+				// failover move only Work that a person left to them, which
+				// includes choosing "any-local".
 				...(requestedExecutor && params.actor.type === "user"
-					? { onlyExecutor: true }
+					? { onlyExecutor: requestedExecutor.id !== "any-local" }
 					: {}),
 				specificationUpdateId,
 				...(dispatch ? { laneDispatchReceiptId: receiptId } : {}),

@@ -275,7 +275,9 @@ export const createProcedure = authOs.create.handler(
 				metadata: toJsonRecord({
 					...metadata,
 					// A person who names the tool keeps the task on it.
-					...(executor !== undefined && createdBy?.type === "user"
+					...(executor !== undefined &&
+					executor !== "any-local" &&
+					createdBy?.type === "user"
 						? { onlyExecutor: true }
 						: {}),
 					...(laneDispatch?.score === undefined &&
