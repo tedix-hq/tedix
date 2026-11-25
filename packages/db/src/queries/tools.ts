@@ -911,7 +911,7 @@ export async function inferCatalogToolOutputSchemas(
 			})
 			.from(
 				coreStore(db) === "postgres"
-					? sql`jsonb_array_elements(${payload}::jsonb) AS input(value)`
+					? sql`jsonb_array_elements(${payload}::text::jsonb) AS input(value)`
 					: sql`json_each(${payload}) AS input`,
 			),
 	);

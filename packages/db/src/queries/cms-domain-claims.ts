@@ -1,3 +1,5 @@
+import { coreTable } from "../core-store/client";
+import { runCmsWrite, runCmsWriteBatch } from "./cms-write-batch";
 import {
 	and,
 	eq,
@@ -13,10 +15,10 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import {
-	cmsDomainClaims,
+	cmsDomainClaims as schemaCmsDomainClaims,
 	type CmsDomainClaimRow,
 } from "../schema/cms-domain-claims";
-import { cmsSites } from "../schema/cms-sites";
+import { cmsSites as schemaCmsSites } from "../schema/cms-sites";
 
 const PROVISIONING_STALE_MS = 5 * 60 * 1000;
 
@@ -38,93 +40,98 @@ export async function reserveCmsDomainClaim(
 	db: DbQueryClient,
 	input: ReserveCmsDomainClaimParams,
 ): Promise<CmsDomainClaimRow | null> {
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const hostname = input.hostname.toLowerCase();
 	const kind = input.kind ?? "primary";
 	if (kind === "www_alias" && !hostname.startsWith("www.")) return null;
 	const now = new Date().toISOString();
 	const existingSite = alias(cmsSites, "existing_cms_site");
 	const existingClaim = alias(cmsDomainClaims, "existing_cms_domain_claim");
-	const [claim] = await db
-		.insert(cmsDomainClaims)
-		.select(
-			db
-				.select({
-					id: sql<string>`${input.id}`.as("id"),
-					organizationId: cmsSites.organizationId,
-					siteId: cmsSites.id,
-					hostname: sql<string>`${hostname}`.as("hostname"),
-					kind: sql<"primary" | "www_alias">`${kind}`.as("kind"),
-					verificationToken: sql<string>`${input.verificationToken}`.as(
-						"verification_token",
-					),
-					providerHostnameId: sql<string | null>`NULL`.as(
-						"provider_hostname_id",
-					),
-					status: sql<"pending">`'pending'`.as("status"),
-					expiresAt: sql<string>`${input.expiresAt}`.as("expires_at"),
-					createdAt: sql<string>`${now}`.as("created_at"),
-					updatedAt: sql<string>`${now}`.as("updated_at"),
-				})
-				.from(cmsSites)
-				.where(
-					and(
-						eq(cmsSites.id, input.siteId),
-						eq(cmsSites.organizationId, input.organizationId),
-						eq(cmsSites.status, "active"),
-						...(kind === "www_alias"
-							? [
-									isNotNull(cmsSites.customDomain),
-									sql`${hostname} = 'www.' || ${cmsSites.customDomain}`,
-									exists(
-										db
-											.select({ id: existingClaim.id })
-											.from(existingClaim)
-											.where(
-												and(
-													eq(
-														existingClaim.organizationId,
-														input.organizationId,
+	const [claim] = await runCmsWrite(
+		db,
+		db
+			.insert(cmsDomainClaims)
+			.select(
+				db
+					.select({
+						id: sql<string>`${input.id}`.as("id"),
+						organizationId: cmsSites.organizationId,
+						siteId: cmsSites.id,
+						hostname: sql<string>`${hostname}`.as("hostname"),
+						kind: sql<"primary" | "www_alias">`${kind}`.as("kind"),
+						verificationToken: sql<string>`${input.verificationToken}`.as(
+							"verification_token",
+						),
+						providerHostnameId: sql<string | null>`NULL`.as(
+							"provider_hostname_id",
+						),
+						status: sql<"pending">`'pending'`.as("status"),
+						expiresAt: sql<string>`${input.expiresAt}`.as("expires_at"),
+						createdAt: sql<string>`${now}`.as("created_at"),
+						updatedAt: sql<string>`${now}`.as("updated_at"),
+					})
+					.from(cmsSites)
+					.where(
+						and(
+							eq(cmsSites.id, input.siteId),
+							eq(cmsSites.organizationId, input.organizationId),
+							eq(cmsSites.status, "active"),
+							...(kind === "www_alias"
+								? [
+										isNotNull(cmsSites.customDomain),
+										sql`${hostname} = 'www.' || ${cmsSites.customDomain}`,
+										exists(
+											db
+												.select({ id: existingClaim.id })
+												.from(existingClaim)
+												.where(
+													and(
+														eq(
+															existingClaim.organizationId,
+															input.organizationId,
+														),
+														eq(existingClaim.siteId, input.siteId),
+														eq(existingClaim.kind, "primary"),
+														eq(existingClaim.status, "active"),
+														isNotNull(existingClaim.providerHostnameId),
+														eq(existingClaim.hostname, cmsSites.customDomain),
 													),
-													eq(existingClaim.siteId, input.siteId),
-													eq(existingClaim.kind, "primary"),
-													eq(existingClaim.status, "active"),
-													isNotNull(existingClaim.providerHostnameId),
-													eq(existingClaim.hostname, cmsSites.customDomain),
 												),
+										),
+									]
+								: []),
+							notExists(
+								db
+									.select({ id: existingClaim.id })
+									.from(existingClaim)
+									.where(
+										and(
+											eq(existingClaim.siteId, input.siteId),
+											or(
+												eq(existingClaim.status, "pending"),
+												eq(existingClaim.status, "provisioning"),
 											),
-									),
-								]
-							: []),
-						notExists(
-							db
-								.select({ id: existingClaim.id })
-								.from(existingClaim)
-								.where(
-									and(
-										eq(existingClaim.siteId, input.siteId),
-										or(
-											eq(existingClaim.status, "pending"),
-											eq(existingClaim.status, "provisioning"),
 										),
 									),
-								),
-						),
-						notExists(
-							db
-								.select({ id: existingSite.id })
-								.from(existingSite)
-								.where(
-									and(
-										eq(existingSite.customDomain, hostname),
-										ne(existingSite.id, input.siteId),
+							),
+							notExists(
+								db
+									.select({ id: existingSite.id })
+									.from(existingSite)
+									.where(
+										and(
+											eq(existingSite.customDomain, hostname),
+											ne(existingSite.id, input.siteId),
+										),
 									),
-								),
+							),
 						),
 					),
-				),
-		)
-		.onConflictDoNothing()
-		.returning();
+			)
+			.onConflictDoNothing()
+			.returning(),
+	);
 	return claim ?? null;
 }
 
@@ -132,6 +139,7 @@ export async function getCmsDomainClaimForSite(
 	db: DbQueryClient,
 	key: CmsDomainClaimKey,
 ): Promise<CmsDomainClaimRow | null> {
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
 	const [claim] = await db
 		.select()
 		.from(cmsDomainClaims)
@@ -150,6 +158,7 @@ export async function listCmsDomainClaimsForSite(
 	db: DbQueryClient,
 	key: Pick<CmsDomainClaimKey, "organizationId" | "siteId">,
 ): Promise<CmsDomainClaimRow[]> {
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
 	return db
 		.select()
 		.from(cmsDomainClaims)
@@ -167,42 +176,47 @@ export async function beginCmsDomainProvisioning(
 	input: CmsDomainClaimKey,
 	now = new Date(),
 ): Promise<CmsDomainClaimRow | null> {
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const timestamp = now.toISOString();
 	const staleBefore = new Date(
 		now.getTime() - PROVISIONING_STALE_MS,
 	).toISOString();
-	const [claim] = await db
-		.update(cmsDomainClaims)
-		.set({ status: "provisioning", updatedAt: timestamp })
-		.where(
-			and(
-				eq(cmsDomainClaims.id, input.id),
-				eq(cmsDomainClaims.organizationId, input.organizationId),
-				eq(cmsDomainClaims.siteId, input.siteId),
-				or(
-					eq(cmsDomainClaims.status, "pending"),
-					and(
-						eq(cmsDomainClaims.status, "provisioning"),
-						sql`${cmsDomainClaims.updatedAt} <= ${staleBefore}`,
+	const [claim] = await runCmsWrite(
+		db,
+		db
+			.update(cmsDomainClaims)
+			.set({ status: "provisioning", updatedAt: timestamp })
+			.where(
+				and(
+					eq(cmsDomainClaims.id, input.id),
+					eq(cmsDomainClaims.organizationId, input.organizationId),
+					eq(cmsDomainClaims.siteId, input.siteId),
+					or(
+						eq(cmsDomainClaims.status, "pending"),
+						and(
+							eq(cmsDomainClaims.status, "provisioning"),
+							sql`${cmsDomainClaims.updatedAt} <= ${staleBefore}`,
+						),
+					),
+					isNull(cmsDomainClaims.providerHostnameId),
+					gt(cmsDomainClaims.expiresAt, timestamp),
+					exists(
+						db
+							.select({ id: cmsSites.id })
+							.from(cmsSites)
+							.where(
+								and(
+									eq(cmsSites.id, input.siteId),
+									eq(cmsSites.organizationId, input.organizationId),
+									eq(cmsSites.status, "active"),
+								),
+							),
 					),
 				),
-				isNull(cmsDomainClaims.providerHostnameId),
-				gt(cmsDomainClaims.expiresAt, timestamp),
-				exists(
-					db
-						.select({ id: cmsSites.id })
-						.from(cmsSites)
-						.where(
-							and(
-								eq(cmsSites.id, input.siteId),
-								eq(cmsSites.organizationId, input.organizationId),
-								eq(cmsSites.status, "active"),
-							),
-						),
-				),
-			),
-		)
-		.returning();
+			)
+			.returning(),
+	);
 	return claim ?? null;
 }
 
@@ -214,35 +228,41 @@ export async function finishCmsDomainProvisioning(
 		provisioningStartedAt: string;
 	},
 ): Promise<CmsDomainClaimRow | null> {
-	const [claim] = await db
-		.update(cmsDomainClaims)
-		.set({
-			providerHostnameId: input.providerHostnameId,
-			status: "pending",
-			updatedAt: new Date().toISOString(),
-		})
-		.where(
-			and(
-				eq(cmsDomainClaims.id, input.id),
-				eq(cmsDomainClaims.organizationId, input.organizationId),
-				eq(cmsDomainClaims.siteId, input.siteId),
-				eq(cmsDomainClaims.status, "provisioning"),
-				eq(cmsDomainClaims.updatedAt, input.provisioningStartedAt),
-				or(
-					isNull(cmsDomainClaims.providerHostnameId),
-					eq(cmsDomainClaims.providerHostnameId, input.providerHostnameId),
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const [claim] = await runCmsWrite(
+		db,
+		db
+			.update(cmsDomainClaims)
+			.set({
+				providerHostnameId: input.providerHostnameId,
+				status: "pending",
+				updatedAt: new Date().toISOString(),
+			})
+			.where(
+				and(
+					eq(cmsDomainClaims.id, input.id),
+					eq(cmsDomainClaims.organizationId, input.organizationId),
+					eq(cmsDomainClaims.siteId, input.siteId),
+					eq(cmsDomainClaims.status, "provisioning"),
+					eq(cmsDomainClaims.updatedAt, input.provisioningStartedAt),
+					or(
+						isNull(cmsDomainClaims.providerHostnameId),
+						eq(cmsDomainClaims.providerHostnameId, input.providerHostnameId),
+					),
 				),
-			),
-		)
-		.returning();
+			)
+			.returning(),
+	);
 	return claim ?? null;
 }
 
-/** Commit the verified claim and public route in one D1 batch. */
+/** Commit the verified claim and public route in one batch. */
 export async function activateCmsDomainClaim(
 	db: DbQueryClient,
 	input: CmsDomainClaimKey,
 ): Promise<CmsDomainClaimRow | null> {
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const claim = await getCmsDomainClaimForSite(db, input);
 	if (
 		!claim ||
@@ -269,7 +289,7 @@ export async function activateCmsDomainClaim(
 				),
 			),
 	);
-	const [siteRows, claimRows] = await db.batch([
+	const [siteRows, claimRows] = await runCmsWriteBatch(db, [
 		db
 			.update(cmsSites)
 			.set({
@@ -322,52 +342,57 @@ export async function activateCmsWwwAliasClaim(
 	db: DbQueryClient,
 	input: CmsDomainClaimKey,
 ): Promise<CmsDomainClaimRow | null> {
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const now = new Date().toISOString();
 	const primary = alias(cmsDomainClaims, "active_primary_claim");
-	const [claim] = await db
-		.update(cmsDomainClaims)
-		.set({ status: "active", updatedAt: now })
-		.where(
-			and(
-				eq(cmsDomainClaims.id, input.id),
-				eq(cmsDomainClaims.organizationId, input.organizationId),
-				eq(cmsDomainClaims.siteId, input.siteId),
-				eq(cmsDomainClaims.kind, "www_alias"),
-				eq(cmsDomainClaims.status, "pending"),
-				isNotNull(cmsDomainClaims.providerHostnameId),
-				gt(cmsDomainClaims.expiresAt, now),
-				exists(
-					db
-						.select({ id: cmsSites.id })
-						.from(cmsSites)
-						.where(
-							and(
-								eq(cmsSites.id, input.siteId),
-								eq(cmsSites.organizationId, input.organizationId),
-								eq(cmsSites.status, "active"),
-								isNotNull(cmsSites.customDomain),
-								sql`${cmsDomainClaims.hostname} = 'www.' || ${cmsSites.customDomain}`,
-								exists(
-									db
-										.select({ id: primary.id })
-										.from(primary)
-										.where(
-											and(
-												eq(primary.organizationId, input.organizationId),
-												eq(primary.siteId, input.siteId),
-												eq(primary.kind, "primary"),
-												eq(primary.status, "active"),
-												isNotNull(primary.providerHostnameId),
-												eq(primary.hostname, cmsSites.customDomain),
+	const [claim] = await runCmsWrite(
+		db,
+		db
+			.update(cmsDomainClaims)
+			.set({ status: "active", updatedAt: now })
+			.where(
+				and(
+					eq(cmsDomainClaims.id, input.id),
+					eq(cmsDomainClaims.organizationId, input.organizationId),
+					eq(cmsDomainClaims.siteId, input.siteId),
+					eq(cmsDomainClaims.kind, "www_alias"),
+					eq(cmsDomainClaims.status, "pending"),
+					isNotNull(cmsDomainClaims.providerHostnameId),
+					gt(cmsDomainClaims.expiresAt, now),
+					exists(
+						db
+							.select({ id: cmsSites.id })
+							.from(cmsSites)
+							.where(
+								and(
+									eq(cmsSites.id, input.siteId),
+									eq(cmsSites.organizationId, input.organizationId),
+									eq(cmsSites.status, "active"),
+									isNotNull(cmsSites.customDomain),
+									sql`${cmsDomainClaims.hostname} = 'www.' || ${cmsSites.customDomain}`,
+									exists(
+										db
+											.select({ id: primary.id })
+											.from(primary)
+											.where(
+												and(
+													eq(primary.organizationId, input.organizationId),
+													eq(primary.siteId, input.siteId),
+													eq(primary.kind, "primary"),
+													eq(primary.status, "active"),
+													isNotNull(primary.providerHostnameId),
+													eq(primary.hostname, cmsSites.customDomain),
+												),
 											),
-										),
+									),
 								),
 							),
-						),
+					),
 				),
-			),
-		)
-		.returning();
+			)
+			.returning(),
+	);
 	return claim ?? null;
 }
 
@@ -377,6 +402,8 @@ export async function beginRemovingCmsDomainClaim(
 	input: CmsDomainClaimKey,
 	now = new Date(),
 ): Promise<CmsDomainClaimRow | null> {
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const claim = await getCmsDomainClaimForSite(db, input);
 	if (!claim) return null;
 	if (claim.status === "removing" || claim.status === "removing_provisioning")
@@ -391,7 +418,7 @@ export async function beginRemovingCmsDomainClaim(
 		claim.status === "provisioning" && !claim.providerHostnameId
 			? "removing_provisioning"
 			: "removing";
-	const [claimRows] = await db.batch([
+	const [claimRows] = await runCmsWriteBatch(db, [
 		db
 			.update(cmsDomainClaims)
 			.set({ status: removingStatus, updatedAt: timestamp })
@@ -446,36 +473,41 @@ export async function beginRemovingReplacedCmsDomainClaim(
 	db: DbQueryClient,
 	input: CmsDomainClaimKey,
 ): Promise<CmsDomainClaimRow | null> {
-	const [claim] = await db
-		.update(cmsDomainClaims)
-		.set({ status: "removing", updatedAt: new Date().toISOString() })
-		.where(
-			and(
-				eq(cmsDomainClaims.id, input.id),
-				eq(cmsDomainClaims.organizationId, input.organizationId),
-				eq(cmsDomainClaims.siteId, input.siteId),
-				or(
-					eq(cmsDomainClaims.status, "active"),
-					eq(cmsDomainClaims.status, "removing"),
-				),
-				exists(
-					db
-						.select({ id: cmsSites.id })
-						.from(cmsSites)
-						.where(
-							and(
-								eq(cmsSites.id, input.siteId),
-								eq(cmsSites.organizationId, input.organizationId),
-								or(
-									isNull(cmsSites.customDomain),
-									ne(cmsSites.customDomain, cmsDomainClaims.hostname),
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const cmsSites = coreTable(db, schemaCmsSites);
+	const [claim] = await runCmsWrite(
+		db,
+		db
+			.update(cmsDomainClaims)
+			.set({ status: "removing", updatedAt: new Date().toISOString() })
+			.where(
+				and(
+					eq(cmsDomainClaims.id, input.id),
+					eq(cmsDomainClaims.organizationId, input.organizationId),
+					eq(cmsDomainClaims.siteId, input.siteId),
+					or(
+						eq(cmsDomainClaims.status, "active"),
+						eq(cmsDomainClaims.status, "removing"),
+					),
+					exists(
+						db
+							.select({ id: cmsSites.id })
+							.from(cmsSites)
+							.where(
+								and(
+									eq(cmsSites.id, input.siteId),
+									eq(cmsSites.organizationId, input.organizationId),
+									or(
+										isNull(cmsSites.customDomain),
+										ne(cmsSites.customDomain, cmsDomainClaims.hostname),
+									),
 								),
 							),
-						),
+					),
 				),
-			),
-		)
-		.returning();
+			)
+			.returning(),
+	);
 	return claim ?? null;
 }
 
@@ -483,19 +515,23 @@ export async function removeCmsDomainClaim(
 	db: DbQueryClient,
 	input: CmsDomainClaimKey,
 ): Promise<boolean> {
-	const deleted = await db
-		.delete(cmsDomainClaims)
-		.where(
-			and(
-				eq(cmsDomainClaims.id, input.id),
-				eq(cmsDomainClaims.organizationId, input.organizationId),
-				eq(cmsDomainClaims.siteId, input.siteId),
-				or(
-					eq(cmsDomainClaims.status, "removing"),
-					eq(cmsDomainClaims.status, "removing_provisioning"),
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const deleted = await runCmsWrite(
+		db,
+		db
+			.delete(cmsDomainClaims)
+			.where(
+				and(
+					eq(cmsDomainClaims.id, input.id),
+					eq(cmsDomainClaims.organizationId, input.organizationId),
+					eq(cmsDomainClaims.siteId, input.siteId),
+					or(
+						eq(cmsDomainClaims.status, "removing"),
+						eq(cmsDomainClaims.status, "removing_provisioning"),
+					),
 				),
-			),
-		)
-		.returning({ id: cmsDomainClaims.id });
+			)
+			.returning({ id: cmsDomainClaims.id }),
+	);
 	return deleted.length === 1;
 }

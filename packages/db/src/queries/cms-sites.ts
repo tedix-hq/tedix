@@ -1,3 +1,7 @@
+import { coreStore, jsonRead } from "../core-store/dialect";
+import { cmsDateTime } from "./cms-write-batch";
+import { coreTable } from "../core-store/client";
+import { runCmsWrite, runCmsWriteBatch } from "./cms-write-batch";
 import {
 	and,
 	count,
@@ -12,11 +16,15 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
-import { apps } from "../schema/apps";
-import { cmsDeprovisionOperations } from "../schema/cms-deprovision-operations";
-import { cmsDomainClaims } from "../schema/cms-domain-claims";
-import { cmsRestoreFences } from "../schema/cms-restore-fences";
-import { cmsSites, type CmsSite, type NewCmsSite } from "../schema/cms-sites";
+import { apps as schemaApps } from "../schema/apps";
+import { cmsDeprovisionOperations as schemaCmsDeprovisionOperations } from "../schema/cms-deprovision-operations";
+import { cmsDomainClaims as schemaCmsDomainClaims } from "../schema/cms-domain-claims";
+import { cmsRestoreFences as schemaCmsRestoreFences } from "../schema/cms-restore-fences";
+import {
+	cmsSites as schemaCmsSites,
+	type CmsSite,
+	type NewCmsSite,
+} from "../schema/cms-sites";
 
 export interface RotateCmsSitePageCacheRevisionParams {
 	siteId: string;
@@ -31,6 +39,7 @@ export async function rotateCmsSitePageCacheRevision(
 	db: DbQueryClient,
 	input: RotateCmsSitePageCacheRevisionParams,
 ): Promise<void> {
+	const cmsSites = coreTable(db, schemaCmsSites);
 	if (
 		input.entryBucket !== undefined &&
 		(!Number.isInteger(input.entryBucket) ||
@@ -42,25 +51,40 @@ export async function rotateCmsSitePageCacheRevision(
 		input.entryBucket === undefined
 			? "$.pageCacheSharedRevision"
 			: `$.pageCacheEntryRevisions."${input.entryBucket}"`;
-	await db
-		.update(cmsSites)
-		.set({
-			config: sql`json_set(coalesce(${cmsSites.config}, '{}'), '$.pageCacheRevision', ${input.revision}, ${revisionPath}, ${input.revision})`,
-		})
-		.where(
-			and(
-				eq(cmsSites.id, input.siteId),
-				eq(cmsSites.slug, input.slug),
-				eq(cmsSites.restoreEpoch, input.restoreEpoch),
-				sql`json_extract(${cmsSites.config}, '$.pageCacheRevision') IS NOT ${input.revision}`,
+	const config = sql`coalesce(${cmsSites.config}, '{}'::jsonb)`;
+	const pgRevision = sql`${config} || jsonb_build_object('pageCacheRevision', ${input.revision}::text)`;
+	const pgConfig =
+		input.entryBucket === undefined
+			? sql`${pgRevision} || jsonb_build_object('pageCacheSharedRevision', ${input.revision}::text)`
+			: sql`jsonb_set(${pgRevision}, '{pageCacheEntryRevisions}', coalesce(${config}->'pageCacheEntryRevisions', '{}'::jsonb) || jsonb_build_object(${String(input.entryBucket)}::text, ${input.revision}::text), true)`;
+	await runCmsWrite(
+		db,
+		db
+			.update(cmsSites)
+			.set({
+				config:
+					coreStore(db) === "d1"
+						? sql`json_set(coalesce(${cmsSites.config}, '{}'), '$.pageCacheRevision', ${input.revision}, ${revisionPath}, ${input.revision})`
+						: pgConfig,
+			})
+			.where(
+				and(
+					eq(cmsSites.id, input.siteId),
+					eq(cmsSites.slug, input.slug),
+					eq(cmsSites.restoreEpoch, input.restoreEpoch),
+					coreStore(db) === "d1"
+						? sql`json_extract(${cmsSites.config}, '$.pageCacheRevision') IS NOT ${input.revision}`
+						: sql`${jsonRead(db, cmsSites.config, ["pageCacheRevision"])} IS DISTINCT FROM ${input.revision}`,
+				),
 			),
-		);
+	);
 }
 
 export async function getCmsSiteById(
 	db: DbQueryClient,
 	id: string,
 ): Promise<CmsSite | null> {
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const [row] = await db
 		.select()
 		.from(cmsSites)
@@ -73,6 +97,7 @@ export async function getCmsSiteBySlug(
 	db: DbQueryClient,
 	slug: string,
 ): Promise<CmsSite | null> {
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const [row] = await db
 		.select()
 		.from(cmsSites)
@@ -85,6 +110,7 @@ export async function getCmsSiteByHostname(
 	db: DbClient,
 	hostname: string,
 ): Promise<CmsSite | null> {
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const normalized = hostname.toLowerCase();
 	const platform = normalized.match(/^([a-z0-9-]+)\.cms\.tedix\.(?:dev|tech)$/);
 	if (platform?.[1]) return getCmsSiteBySlug(db, platform[1]);
@@ -101,6 +127,8 @@ export async function getCmsSiteByActiveWwwAlias(
 	db: DbQueryClient,
 	hostname: string,
 ): Promise<CmsSite | null> {
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const normalized = hostname.toLowerCase();
 	if (!normalized.startsWith("www.")) return null;
 	const primary = alias(cmsDomainClaims, "active_primary_claim");
@@ -152,6 +180,7 @@ export async function listCmsSitesByOrganization(
 	db: DbQueryClient,
 	organizationId: string,
 ): Promise<CmsSite[]> {
+	const cmsSites = coreTable(db, schemaCmsSites);
 	return db
 		.select()
 		.from(cmsSites)
@@ -162,6 +191,7 @@ export async function getCmsSiteByIdForOrganization(
 	db: DbQueryClient,
 	input: { id: string; organizationId: string },
 ): Promise<CmsSite | null> {
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const [row] = await db
 		.select()
 		.from(cmsSites)
@@ -180,10 +210,14 @@ export async function setCmsSiteStatus(
 	id: string,
 	status: "active" | "paused",
 ): Promise<void> {
-	await db
-		.update(cmsSites)
-		.set({ status, updatedAt: new Date().toISOString() })
-		.where(eq(cmsSites.id, id));
+	const cmsSites = coreTable(db, schemaCmsSites);
+	await runCmsWrite(
+		db,
+		db
+			.update(cmsSites)
+			.set({ status, updatedAt: new Date().toISOString() })
+			.where(eq(cmsSites.id, id)),
+	);
 }
 
 /** Pause an owned site and its authoring proxy only while restore is not closed. */
@@ -191,6 +225,13 @@ export async function pauseCmsSiteUnlessRestoring(
 	db: DbQueryClient,
 	input: { id: string; organizationId: string; authoringAppId: string | null },
 ): Promise<boolean> {
+	const apps = coreTable(db, schemaApps);
+	const cmsDeprovisionOperations = coreTable(
+		db,
+		schemaCmsDeprovisionOperations,
+	);
+	const cmsRestoreFences = coreTable(db, schemaCmsRestoreFences);
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const noRestore = notExists(
 		db
 			.select({ siteId: cmsRestoreFences.siteId })
@@ -238,7 +279,8 @@ export async function pauseCmsSiteUnlessRestoring(
 			),
 		)
 		.returning({ id: cmsSites.id });
-	if (!input.authoringAppId) return (await siteUpdate).length === 1;
+	if (!input.authoringAppId)
+		return (await runCmsWrite(db, siteUpdate)).length === 1;
 	const pausedSite = exists(
 		db
 			.select({ id: cmsSites.id })
@@ -254,7 +296,7 @@ export async function pauseCmsSiteUnlessRestoring(
 				),
 			),
 	);
-	const [updated] = await db.batch([
+	const [updated] = await runCmsWriteBatch(db, [
 		siteUpdate,
 		db
 			.update(apps)
@@ -272,11 +314,18 @@ export async function pauseCmsSiteUnlessRestoring(
 	return updated.length === 1;
 }
 
-/** Reactivate the site and its authoring proxy in one D1 batch, unless cleanup was reserved. */
+/** Reactivate the site and its authoring proxy in one batch, unless cleanup was reserved. */
 export async function restoreCmsSiteUnlessDeprovisioning(
 	db: DbQueryClient,
 	input: { id: string; organizationId: string; authoringAppId: string | null },
 ): Promise<boolean> {
+	const apps = coreTable(db, schemaApps);
+	const cmsDeprovisionOperations = coreTable(
+		db,
+		schemaCmsDeprovisionOperations,
+	);
+	const cmsRestoreFences = coreTable(db, schemaCmsRestoreFences);
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const noRestore = notExists(
 		db
 			.select({ siteId: cmsRestoreFences.siteId })
@@ -322,7 +371,7 @@ export async function restoreCmsSiteUnlessDeprovisioning(
 		)
 		.returning({ id: cmsSites.id });
 	if (!input.authoringAppId) {
-		const updated = await siteUpdate;
+		const updated = await runCmsWrite(db, siteUpdate);
 		return updated.length === 1;
 	}
 	const activeSite = exists(
@@ -337,7 +386,7 @@ export async function restoreCmsSiteUnlessDeprovisioning(
 				),
 			),
 	);
-	const [updated] = await db.batch([
+	const [updated] = await runCmsWriteBatch(db, [
 		siteUpdate,
 		db
 			.update(apps)
@@ -360,35 +409,44 @@ export async function activateCmsSiteAfterMedia(
 	db: DbQueryClient,
 	input: { siteId: string; slug: string },
 ): Promise<CmsSite | null> {
-	const rows = await db
-		.update(cmsSites)
-		.set({ status: "active", updatedAt: sql`datetime('now')` })
-		.where(
-			and(
-				eq(cmsSites.id, input.siteId),
-				eq(cmsSites.slug, input.slug),
-				eq(cmsSites.status, "provisioning"),
-				notExists(
-					db
-						.select({ one: sql`1` })
-						.from(cmsRestoreFences)
-						.where(eq(cmsRestoreFences.siteId, cmsSites.id)),
+	const cmsDeprovisionOperations = coreTable(
+		db,
+		schemaCmsDeprovisionOperations,
+	);
+	const cmsRestoreFences = coreTable(db, schemaCmsRestoreFences);
+	const cmsSites = coreTable(db, schemaCmsSites);
+	const rows = await runCmsWrite(
+		db,
+		db
+			.update(cmsSites)
+			.set({ status: "active", updatedAt: cmsDateTime(db) })
+			.where(
+				and(
+					eq(cmsSites.id, input.siteId),
+					eq(cmsSites.slug, input.slug),
+					eq(cmsSites.status, "provisioning"),
+					notExists(
+						db
+							.select({ one: sql`1` })
+							.from(cmsRestoreFences)
+							.where(eq(cmsRestoreFences.siteId, cmsSites.id)),
+					),
+					notExists(
+						db
+							.select({ one: sql`1` })
+							.from(cmsDeprovisionOperations)
+							.where(eq(cmsDeprovisionOperations.id, cmsSites.id)),
+					),
 				),
-				notExists(
-					db
-						.select({ one: sql`1` })
-						.from(cmsDeprovisionOperations)
-						.where(eq(cmsDeprovisionOperations.id, cmsSites.id)),
-				),
-			),
-		)
-		.returning({ id: cmsSites.id });
+			)
+			.returning({ id: cmsSites.id }),
+	);
 	if (rows.length !== 1) return null;
 	return getCmsSiteBySlug(db, input.slug);
 }
 
 /**
- * Re-home an active site and its domain claims in one D1 batch. A deprovision
+ * Re-home an active site and its domain claims in one batch. A deprovision
  * receipt or a closed restore fence refuses the move.
  */
 export async function moveCmsSiteToOrganization(
@@ -399,8 +457,15 @@ export async function moveCmsSiteToOrganization(
 		toOrganizationId: string;
 	},
 ): Promise<boolean> {
+	const cmsDeprovisionOperations = coreTable(
+		db,
+		schemaCmsDeprovisionOperations,
+	);
+	const cmsDomainClaims = coreTable(db, schemaCmsDomainClaims);
+	const cmsRestoreFences = coreTable(db, schemaCmsRestoreFences);
+	const cmsSites = coreTable(db, schemaCmsSites);
 	const now = new Date().toISOString();
-	const [moved] = await db.batch([
+	const [moved] = await runCmsWriteBatch(db, [
 		db
 			.update(cmsSites)
 			.set({ organizationId: input.toOrganizationId, updatedAt: now })
@@ -453,19 +518,23 @@ export async function setCmsSiteAuthoringApp(
 	db: DbQueryClient,
 	input: { id: string; organizationId: string; authoringAppId: string },
 ): Promise<boolean> {
-	const rows = await db
-		.update(cmsSites)
-		.set({
-			authoringAppId: input.authoringAppId,
-			updatedAt: new Date().toISOString(),
-		})
-		.where(
-			and(
-				eq(cmsSites.id, input.id),
-				eq(cmsSites.organizationId, input.organizationId),
-			),
-		)
-		.returning({ id: cmsSites.id });
+	const cmsSites = coreTable(db, schemaCmsSites);
+	const rows = await runCmsWrite(
+		db,
+		db
+			.update(cmsSites)
+			.set({
+				authoringAppId: input.authoringAppId,
+				updatedAt: new Date().toISOString(),
+			})
+			.where(
+				and(
+					eq(cmsSites.id, input.id),
+					eq(cmsSites.organizationId, input.organizationId),
+				),
+			)
+			.returning({ id: cmsSites.id }),
+	);
 	return rows.length === 1;
 }
 
@@ -473,14 +542,19 @@ export async function deleteCmsSite(
 	db: DbQueryClient,
 	id: string,
 ): Promise<void> {
-	await db.delete(cmsSites).where(eq(cmsSites.id, id));
+	const cmsSites = coreTable(db, schemaCmsSites);
+	await runCmsWrite(db, db.delete(cmsSites).where(eq(cmsSites.id, id)));
 }
 
 export async function registerCmsSite(
 	db: DbQueryClient,
 	input: NewCmsSite,
 ): Promise<CmsSite> {
-	const [row] = await db.insert(cmsSites).values(input).returning();
+	const cmsSites = coreTable(db, schemaCmsSites);
+	const [row] = await runCmsWrite(
+		db,
+		db.insert(cmsSites).values(input).returning(),
+	);
 	if (!row) throw new Error("CMS site insert returned no row");
 	return row;
 }
@@ -490,20 +564,25 @@ export async function registerCmsSiteIfAbsent(
 	db: DbQueryClient,
 	input: NewCmsSite,
 ): Promise<CmsSite | null> {
-	const [row] = await db
-		.insert(cmsSites)
-		.values(input)
-		.onConflictDoNothing({ target: cmsSites.slug })
-		.returning();
+	const cmsSites = coreTable(db, schemaCmsSites);
+	const [row] = await runCmsWrite(
+		db,
+		db
+			.insert(cmsSites)
+			.values(input)
+			.onConflictDoNothing({ target: cmsSites.slug })
+			.returning(),
+	);
 	return row ?? null;
 }
 
-/** Admit a new site against the organization's quota in one D1 statement. */
+/** Admit a new site against the organization's quota in one serialized batch. */
 export async function registerCmsSiteWithinQuota(
 	db: DbQueryClient,
 	input: NewCmsSite,
 	maxCmsSites: number,
 ): Promise<CmsSite | null> {
+	const cmsSites = coreTable(db, schemaCmsSites);
 	if (!Number.isSafeInteger(maxCmsSites) || maxCmsSites < 0)
 		throw new Error("CMS site quota must be a non-negative integer");
 	// COUNT(*) without GROUP BY yields exactly one row, so the insert reads one
@@ -513,37 +592,45 @@ export async function registerCmsSiteWithinQuota(
 		.from(cmsSites)
 		.where(eq(cmsSites.organizationId, input.organizationId))
 		.as("quota");
-	const inserted = await db
-		.insert(cmsSites)
-		.select(
-			db
-				.select({
-					id: sql<string>`${input.id}`.as("id"),
-					organizationId: sql<string>`${input.organizationId}`.as(
-						"organization_id",
-					),
-					slug: sql<string>`${input.slug}`.as("slug"),
-					name: sql<string>`${input.name}`.as("name"),
-					canonicalUrl: sql<string>`${input.canonicalUrl}`.as("canonical_url"),
-					customDomain: sql<string | null>`${input.customDomain ?? null}`.as(
-						"custom_domain",
-					),
-					templateSlug: sql<string>`${input.templateSlug ?? "tedix"}`.as(
-						"template_slug",
-					),
-					config: sql<string | null>`${
-						input.config ? JSON.stringify(input.config) : null
-					}`.as("config"),
-					authoringAppId: sql<
-						string | null
-					>`${input.authoringAppId ?? null}`.as("authoring_app_id"),
-					status: sql<string>`${input.status ?? "active"}`.as("status"),
-				})
-				.from(quota)
-				.where(sql`${quota.siteCount} < ${maxCmsSites}`),
-		)
-		.onConflictDoNothing({ target: cmsSites.slug })
-		.returning({ id: cmsSites.id });
+	const inserted = await runCmsWrite(
+		db,
+		db
+			.insert(cmsSites)
+			.select(
+				db
+					.select({
+						id: sql<string>`${input.id}`.as("id"),
+						organizationId: sql<string>`${input.organizationId}`.as(
+							"organization_id",
+						),
+						slug: sql<string>`${input.slug}`.as("slug"),
+						name: sql<string>`${input.name}`.as("name"),
+						canonicalUrl: sql<string>`${input.canonicalUrl}`.as(
+							"canonical_url",
+						),
+						customDomain: sql<string | null>`${input.customDomain ?? null}`.as(
+							"custom_domain",
+						),
+						templateSlug: sql<string>`${input.templateSlug ?? "tedix"}`.as(
+							"template_slug",
+						),
+						config: (input.config
+							? coreStore(db) === "postgres"
+								? sql`${JSON.stringify(input.config)}::text::jsonb`
+								: sql`${JSON.stringify(input.config)}`
+							: sql`NULL`
+						).as("config"),
+						authoringAppId: sql<
+							string | null
+						>`${input.authoringAppId ?? null}`.as("authoring_app_id"),
+						status: sql<string>`${input.status ?? "active"}`.as("status"),
+					})
+					.from(quota)
+					.where(sql`${quota.siteCount} < ${maxCmsSites}`),
+			)
+			.onConflictDoNothing({ target: cmsSites.slug })
+			.returning({ id: cmsSites.id }),
+	);
 	return inserted.length ? getCmsSiteBySlug(db, input.slug) : null;
 }
 
@@ -556,19 +643,23 @@ export async function updateCmsSiteDomain(
 		canonicalUrl: string;
 	},
 ): Promise<CmsSite | null> {
-	const [row] = await db
-		.update(cmsSites)
-		.set({
-			customDomain: input.customDomain,
-			canonicalUrl: input.canonicalUrl,
-			updatedAt: new Date().toISOString(),
-		})
-		.where(
-			and(
-				eq(cmsSites.id, input.id),
-				eq(cmsSites.organizationId, input.organizationId),
-			),
-		)
-		.returning();
+	const cmsSites = coreTable(db, schemaCmsSites);
+	const [row] = await runCmsWrite(
+		db,
+		db
+			.update(cmsSites)
+			.set({
+				customDomain: input.customDomain,
+				canonicalUrl: input.canonicalUrl,
+				updatedAt: new Date().toISOString(),
+			})
+			.where(
+				and(
+					eq(cmsSites.id, input.id),
+					eq(cmsSites.organizationId, input.organizationId),
+				),
+			)
+			.returning(),
+	);
 	return row ?? null;
 }
