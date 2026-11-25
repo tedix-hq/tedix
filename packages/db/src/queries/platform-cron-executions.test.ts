@@ -114,7 +114,7 @@ describe("platform cron execution receipts", () => {
 			}),
 		]);
 		const query = prepare.mock.calls.find(([query]) =>
-			query.includes("WITH requested"),
+			/with "requested" as/i.test(query),
 		)?.[0];
 		expect(query).toBeDefined();
 		const plan = sqlite
@@ -128,7 +128,7 @@ describe("platform cron execution receipts", () => {
 			/SEARCH r USING INDEX idx_platform_cron_executions_fire \(schedule_id=\? AND scheduled_at>\? AND scheduled_at<\?\)/,
 		);
 		expect(plan.map((row) => row.detail).join("\n")).toMatch(
-			/SEARCH platform_cron_executions USING INDEX idx_platform_cron_executions_fire \(schedule_id=\?\)/,
+			/SEARCH latest_receipt USING INDEX idx_platform_cron_executions_fire \(schedule_id=\?\)/,
 		);
 		prepare.mockRestore();
 		sqlite.close();

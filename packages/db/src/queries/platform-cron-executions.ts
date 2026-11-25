@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
@@ -222,69 +223,98 @@ export async function listPlatformCronExecutionSummaries(
 	now = new Date(),
 ): Promise<PlatformCronExecutionSummary[]> {
 	const since = new Date(now.getTime() - 86_400_000).toISOString();
-	// Drive both lookups from the catalog, never discover schedules by scanning receipts.
-	// The unique (schedule_id, scheduled_at) index serves the range and reverse seek.
-	const rows = await db.all<Record<string, unknown>>(sql`
-		WITH requested AS (
-			SELECT DISTINCT value AS schedule_id FROM json_each(${JSON.stringify(scheduleIds)})
-		), recent AS (
-			SELECT r.schedule_id AS recent_schedule_id,
-				SUM(r.status = 'running') AS running_count,
-				SUM(r.status = 'success') AS success_count,
-				SUM(r.status = 'failure') AS failure_count,
-				MAX(CASE WHEN r.status = 'success' THEN r.finished_at END) AS last_success_at,
-				MAX(CASE WHEN r.status = 'failure' THEN r.finished_at END) AS last_failure_at
-			FROM requested s CROSS JOIN platform_cron_executions r
-			WHERE r.schedule_id = s.schedule_id
-				AND r.scheduled_at >= ${since} AND r.scheduled_at <= ${now.toISOString()}
-			GROUP BY r.schedule_id
+	const requested = db
+		.$with("requested")
+		.as(
+			db
+				.selectDistinct({ scheduleId: sql<string>`value`.as("schedule_id") })
+				.from(sql`json_each(${JSON.stringify(scheduleIds)})`),
+		);
+	const r = alias(platformCronExecutions, "r");
+	// Drive the time range from the catalog so retained history is never scanned.
+	const recent = db.$with("recent").as(
+		db
+			.select({
+				scheduleId: sql<string>`${r.scheduleId}`.as("recent_schedule_id"),
+				runningCount: sql<number>`sum(${r.status} = 'running')`.as(
+					"running_count",
+				),
+				successCount: sql<number>`sum(${r.status} = 'success')`.as(
+					"success_count",
+				),
+				failureCount: sql<number>`sum(${r.status} = 'failure')`.as(
+					"failure_count",
+				),
+				lastSuccessAt: sql<
+					string | null
+				>`max(case when ${r.status} = 'success' then ${r.finishedAt} end)`.as(
+					"last_success_at",
+				),
+				lastFailureAt: sql<
+					string | null
+				>`max(case when ${r.status} = 'failure' then ${r.finishedAt} end)`.as(
+					"last_failure_at",
+				),
+			})
+			.from(requested)
+			.crossJoin(r)
+			.where(
+				and(
+					eq(r.scheduleId, requested.scheduleId),
+					gte(r.scheduledAt, since),
+					lte(r.scheduledAt, now.toISOString()),
+				),
+			)
+			.groupBy(r.scheduleId),
+	);
+	const p = alias(platformCronExecutions, "p");
+	const latestReceipt = alias(platformCronExecutions, "latest_receipt");
+	const rows = await db
+		.with(requested, recent)
+		.select({
+			scheduleId: p.scheduleId,
+			latestId: p.id,
+			latestStatus: p.status,
+			latestScheduledAt: p.scheduledAt,
+			latestStartedAt: p.startedAt,
+			latestFinishedAt: p.finishedAt,
+			latestDurationMs: p.durationMs,
+			latestAffectedRowCounts: p.affectedRowCounts,
+			latestError: p.error,
+			lastSuccessAt: recent.lastSuccessAt,
+			lastFailureAt: recent.lastFailureAt,
+			runningCount: sql<number>`coalesce(${recent.runningCount}, 0)`.mapWith(
+				Number,
+			),
+			successCount: sql<number>`coalesce(${recent.successCount}, 0)`.mapWith(
+				Number,
+			),
+			failureCount: sql<number>`coalesce(${recent.failureCount}, 0)`.mapWith(
+				Number,
+			),
+		})
+		.from(requested)
+		.innerJoin(
+			p,
+			eq(
+				p.id,
+				db
+					.select({ id: latestReceipt.id })
+					.from(latestReceipt)
+					.where(eq(latestReceipt.scheduleId, requested.scheduleId))
+					.orderBy(desc(latestReceipt.scheduledAt))
+					.limit(1),
+			),
 		)
-		SELECT p.schedule_id AS scheduleId, p.id AS latestId,
-			p.status AS latestStatus, p.scheduled_at AS latestScheduledAt,
-			p.started_at AS latestStartedAt, p.finished_at AS latestFinishedAt,
-			p.duration_ms AS latestDurationMs, p.affected_row_counts AS latestAffectedRowCounts,
-			p.error AS latestError, recent.last_success_at AS lastSuccessAt,
-			recent.last_failure_at AS lastFailureAt,
-			COALESCE(recent.running_count, 0) AS runningCount,
-			COALESCE(recent.success_count, 0) AS successCount,
-			COALESCE(recent.failure_count, 0) AS failureCount
-		FROM requested s
-		JOIN platform_cron_executions p ON p.id = (
-			SELECT id FROM platform_cron_executions
-			WHERE schedule_id = s.schedule_id ORDER BY scheduled_at DESC LIMIT 1
-		)
-		LEFT JOIN recent ON recent.recent_schedule_id = s.schedule_id
-		ORDER BY s.schedule_id
-	`);
+		.leftJoin(recent, eq(recent.scheduleId, requested.scheduleId))
+		.orderBy(requested.scheduleId);
 
-	return rows.map((row) => ({
-		scheduleId: String(row.scheduleId),
-		latestId: String(row.latestId),
-		latestStatus: String(
-			row.latestStatus,
-		) as PlatformCronExecutionSummary["latestStatus"],
-		latestScheduledAt: String(row.latestScheduledAt),
-		latestStartedAt: String(row.latestStartedAt),
-		latestFinishedAt:
-			typeof row.latestFinishedAt === "string" ? row.latestFinishedAt : null,
-		latestDurationMs:
-			row.latestDurationMs === null || row.latestDurationMs === undefined
-				? null
-				: Number(row.latestDurationMs),
-		latestAffectedRowCounts: JSON.parse(
-			typeof row.latestAffectedRowCounts === "string"
-				? row.latestAffectedRowCounts
-				: "{}",
-		) as Record<string, number>,
-		latestError: typeof row.latestError === "string" ? row.latestError : null,
-		lastSuccessAt:
-			typeof row.lastSuccessAt === "string" ? row.lastSuccessAt : null,
-		lastFailureAt:
-			typeof row.lastFailureAt === "string" ? row.lastFailureAt : null,
+	return rows.map(({ runningCount, successCount, failureCount, ...row }) => ({
+		...row,
 		countsLast24h: {
-			running: Number(row.runningCount),
-			success: Number(row.successCount),
-			failure: Number(row.failureCount),
+			running: runningCount,
+			success: successCount,
+			failure: failureCount,
 		},
 	}));
 }
