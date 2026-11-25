@@ -225,11 +225,36 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 	const [hideEmpty, setHideEmpty] = useState(true);
 	const [manage, setManage] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
+	const [projectOffset, setProjectOffset] = useState(0);
+	const projectResults = useQuery({
+		...projectListQueryOptions(100, {
+			...(projectSearch.trim() ? { search: projectSearch.trim() } : {}),
+			...(projectOffset ? { offset: projectOffset } : {}),
+		}),
+		enabled: manage,
+	});
 	const [removing, setRemoving] = useState<{ id: string; name: string } | null>(
 		null,
 	);
 	const [scheduledItem, setScheduledItem] = useState<WorkItem | null>(null);
 	const linked = links.data?.items ?? [];
+	const linkedProjectQueries = useQueries({
+		queries: linked
+			.filter(
+				(link) =>
+					!projects.data?.data.some((project) => project.id === link.projectId),
+			)
+			.map((link) =>
+				osQuery.projects.get.queryOptions({ input: { id: link.projectId } }),
+			),
+	});
+	const knownProjects = [
+		...(projects.data?.data ?? []),
+		...(projectResults.data?.data ?? []),
+		...linkedProjectQueries.flatMap((query) =>
+			query.data ? [query.data] : [],
+		),
+	];
 	const effectiveProjectId = linked.some((link) => link.projectId === projectId)
 		? projectId
 		: "all";
@@ -268,39 +293,57 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 				.includes(search.trim().toLocaleLowerCase()),
 	);
 	const projectName = (id: string | null) =>
-		projects.data?.data.find((project) => project.id === id)?.name ??
+		knownProjects.find((project) => project.id === id)?.name ??
 		"Linked project";
 	const managerProjects = [
-		...(projects.data?.data ?? []),
-		...linked
+		...(projectResults.data?.data ?? []),
+		...(projectSearch.trim() || projectOffset ? [] : linked)
 			.filter(
 				(link) =>
-					!projects.data?.data.some((project) => project.id === link.projectId),
+					!projectResults.data?.data.some(
+						(project) => project.id === link.projectId,
+					),
 			)
-			.map((link) => ({
-				id: link.projectId,
-				name: "Linked project",
-				key: link.projectId,
-			})),
-	]
-		.filter((project) =>
-			`${project.name} ${project.key}`
-				.toLocaleLowerCase()
-				.includes(projectSearch.toLocaleLowerCase()),
-		)
-		.sort(
-			(a, b) =>
-				Number(linked.some((link) => link.projectId === b.id)) -
-				Number(linked.some((link) => link.projectId === a.id)),
-		);
+			.map(
+				(link) =>
+					knownProjects.find((project) => project.id === link.projectId) ?? {
+						id: link.projectId,
+						name: "Linked project",
+						key: link.projectId,
+					},
+			),
+	].sort(
+		(a, b) =>
+			Number(linked.some((link) => link.projectId === b.id)) -
+			Number(linked.some((link) => link.projectId === a.id)),
+	);
 	const refreshLinks = () =>
 		queryClient.invalidateQueries({
-			queryKey: workspaceWorkProjectsQueryOptions(workspaceId).queryKey,
+			queryKey: osQuery.osWorkspaces.work.listProjects.key(),
 		});
+	const reconcileLink = async ({
+		link,
+	}: Awaited<ReturnType<typeof osApi.osWorkspaces.work.attachProject>>) => {
+		const queryKey = workspaceWorkProjectsQueryOptions(workspaceId).queryKey;
+		await queryClient.cancelQueries({ queryKey, exact: true });
+		queryClient.setQueryData(queryKey, (current: typeof links.data) => ({
+			truncated: current?.truncated ?? false,
+			items: [
+				...(current?.items ?? []).filter(
+					(entry) => entry.projectId !== link.projectId,
+				),
+				...(link.status === "active" ? [link] : []),
+			],
+		}));
+		await refreshLinks();
+	};
 	const attach = useMutation({
 		mutationFn: (id: string) =>
 			osApi.osWorkspaces.work.attachProject({ workspaceId, projectId: id }),
-		onSuccess: refreshLinks,
+		onSuccess: reconcileLink,
+		onError: () => {
+			void refreshLinks();
+		},
 	});
 	const remove = useMutation({
 		mutationFn: (id: string) => {
@@ -312,9 +355,12 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 				expectedUpdatedAt: link.updatedAt,
 			});
 		},
-		onSuccess: async () => {
+		onSuccess: async (result) => {
 			setRemoving(null);
-			await refreshLinks();
+			await reconcileLink(result);
+		},
+		onError: () => {
+			void refreshLinks();
 		},
 	});
 	const removingTotal = removing
@@ -698,28 +744,31 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 						aria-label="Search projects"
 						placeholder="Search projects…"
 						value={projectSearch}
-						onChange={(event) => setProjectSearch(event.target.value)}
+						maxLength={200}
+						onChange={(event) => {
+							setProjectSearch(event.target.value);
+							setProjectOffset(0);
+						}}
 					/>
-					{projects.isError ? (
-						<Text tone="error">Projects could not be loaded.</Text>
+					{projectResults.isError ? (
+						<LoadError
+							error={projectResults.error}
+							onRetry={() => void projectResults.refetch()}
+							retrying={projectResults.isFetching}
+							title="Projects could not be loaded"
+						/>
 					) : null}
 					{attach.isError ? (
 						<Text tone="error">{attach.error?.message}</Text>
 					) : null}
-					{projects.isPending ? (
+					{projectResults.isPending ? (
 						<LoadingArea
 							className="h-16"
 							size="base"
 							label="Loading projects"
 						/>
-					) : !managerProjects.length ? (
+					) : !projectResults.isError && !managerProjects.length ? (
 						<Text tone="secondary">No projects match your search.</Text>
-					) : null}
-					{(projects.data?.pagination?.total ?? 0) >
-					(projects.data?.data.length ?? 0) ? (
-						<Text role="caption" tone="secondary">
-							Showing the first 100 projects.
-						</Text>
 					) : null}
 					<Collection appearance="inline" className="max-h-80 overflow-y-auto">
 						{managerProjects.map((project) => {
@@ -751,6 +800,29 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 							);
 						})}
 					</Collection>
+					{projectOffset || projectResults.data?.pagination.hasMore ? (
+						<DialogFooter>
+							<Button
+								variant="secondary"
+								disabled={!projectOffset || projectResults.isFetching}
+								onClick={() =>
+									setProjectOffset((offset) => Math.max(0, offset - 100))
+								}
+							>
+								Previous projects
+							</Button>
+							<Button
+								variant="secondary"
+								disabled={
+									!projectResults.data?.pagination.hasMore ||
+									projectResults.isFetching
+								}
+								onClick={() => setProjectOffset((offset) => offset + 100)}
+							>
+								Next projects
+							</Button>
+						</DialogFooter>
+					) : null}
 				</DialogContent>
 			</Dialog>
 			<ConfirmDialog

@@ -175,6 +175,44 @@ for (const lane of lanes) {
 			await settled(page);
 			await confirm.getByRole("button", { name: "Keep linked" }).click();
 			await confirm.waitFor({ state: "hidden" });
+			const removeButton = page
+				.getByRole("button", { name: /^Remove / })
+				.first();
+			const projectName = (await removeButton.getAttribute(
+				"aria-label",
+			))!.slice(7);
+			const workCount = await panel.locator("a").count();
+			await settled(page);
+			await removeButton.click();
+			await settled(page);
+			await confirm
+				.getByRole("button", { name: "Remove from workspace" })
+				.click();
+			await confirm.waitFor({ state: "hidden" });
+			const linkButton = page.getByRole("button", {
+				name: `Link ${projectName}`,
+				exact: true,
+			});
+			await linkButton.waitFor();
+			await page.waitForFunction(
+				(count) =>
+					document.querySelectorAll('[aria-label="Workspace Work"] a').length <
+					count,
+				workCount,
+				{ polling: 100 },
+			);
+			await settled(page);
+			await linkButton.click();
+			await page
+				.getByRole("button", { name: `Remove ${projectName}`, exact: true })
+				.waitFor();
+			await page.waitForFunction(
+				(count) =>
+					document.querySelectorAll('[aria-label="Workspace Work"] a')
+						.length === count,
+				workCount,
+				{ polling: 100 },
+			);
 			await page.close();
 			console.log(`PASS workspace work pane ${lane.name} ${width}/${theme}`);
 		}

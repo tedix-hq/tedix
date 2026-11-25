@@ -3,7 +3,7 @@ import type { Project } from "@tedix/api-contract/contracts/projects";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { WorkspaceWorkPanel } from "./workspace-work-panel";
 import {
 	projectListQueryOptions,
@@ -12,6 +12,31 @@ import {
 	workGraphItemsQueryOptions,
 	workspaceWorkProjectsQueryOptions,
 } from "@/lib/os-query-options";
+
+const mocks = vi.hoisted(() => ({
+	listProjects: vi.fn(),
+	getProject: vi.fn(),
+	listLinks: vi.fn(),
+	attachProject: vi.fn(),
+	removeProject: vi.fn(),
+}));
+vi.mock("@/lib/api", () => ({
+	osApi: {
+		projects: { list: mocks.listProjects, get: mocks.getProject },
+		workItems: {
+			list: vi.fn(),
+			listCases: vi.fn(),
+			listAttemptProjection: vi.fn(),
+		},
+		osWorkspaces: {
+			work: {
+				listProjects: mocks.listLinks,
+				attachProject: mocks.attachProject,
+				removeProject: mocks.removeProject,
+			},
+		},
+	},
+}));
 
 const baseItem: WorkItem = {
 	id: "item",
@@ -93,8 +118,13 @@ const linkFields = {
 const cleanups: (() => void)[] = [];
 afterEach(() => {
 	for (const cleanup of cleanups.splice(0)) cleanup();
+	vi.resetAllMocks();
 });
-async function renderPanel(terminal = false, scheduled = false) {
+async function renderPanel(
+	terminal = false,
+	scheduled = false,
+	setup?: (queryClient: QueryClient) => void,
+) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 	});
@@ -163,6 +193,7 @@ async function renderPanel(terminal = false, scheduled = false) {
 			hasMore: false,
 		});
 	}
+	setup?.(queryClient);
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
@@ -185,7 +216,213 @@ const button = (text: string) =>
 		(element) => element.textContent === text,
 	)!;
 
+async function searchProjects(value: string) {
+	await act(async () => {
+		const input = document.querySelector<HTMLInputElement>(
+			'[aria-label="Search projects"]',
+		)!;
+		Object.getOwnPropertyDescriptor(
+			HTMLInputElement.prototype,
+			"value",
+		)!.set!.call(input, value);
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+}
+
 describe("Workspace work", () => {
+	it("searches the whole organization and pages matches beyond the first 100", async () => {
+		const data = Array.from({ length: 101 }, (_, index) => ({
+			...baseProject,
+			id: `project-${index}`,
+			name: index === 100 ? "Work and runners" : `Project ${index}`,
+			key: `PROJECT-${index}`,
+		}));
+		mocks.listProjects.mockImplementation(
+			({ search = "", offset = 0, limit }) => {
+				const matches = data.filter((project) =>
+					`${project.name} ${project.key}`
+						.toLowerCase()
+						.includes(search.toLowerCase()),
+				);
+				return Promise.resolve({
+					data: matches.slice(offset, offset + limit),
+					pagination: {
+						total: matches.length,
+						limit,
+						offset,
+						hasMore: offset + limit < matches.length,
+					},
+				});
+			},
+		);
+		await renderPanel(false, false, (client) => {
+			client.setQueryData(projectListQueryOptions(100).queryKey, {
+				data: data.slice(0, 100),
+				pagination: { total: 101, limit: 100, offset: 0, hasMore: true },
+			});
+			mocks.getProject.mockImplementation(({ id }) => ({
+				...baseProject,
+				id,
+				name: id === "finance" ? "Finance" : "Operations",
+			}));
+		});
+		await act(async () => button("Manage projects").click());
+		expect(
+			document.querySelector('[aria-label="Link Work and runners"]'),
+		).toBeNull();
+		await act(async () => button("Next projects").click());
+		await act(async () => {
+			await vi.waitFor(() =>
+				expect(
+					document.querySelector('[aria-label="Link Work and runners"]'),
+				).not.toBeNull(),
+			);
+		});
+		expect(mocks.listProjects).toHaveBeenCalledWith(
+			{ limit: 100, offset: 100 },
+			expect.anything(),
+		);
+		await searchProjects("  Work and runners  ");
+		await act(async () => {
+			await vi.waitFor(() => {
+				expect(mocks.listProjects).toHaveBeenCalledWith(
+					{ limit: 100, search: "Work and runners" },
+					expect.anything(),
+				);
+				expect(
+					document.querySelector('[aria-label="Link Work and runners"]'),
+				).not.toBeNull();
+			});
+		});
+		expect(document.querySelector('[aria-label="Remove Finance"]')).toBeNull();
+		await searchProjects("PROJECT-100");
+		await act(async () => {
+			await vi.waitFor(() => {
+				expect(mocks.listProjects).toHaveBeenCalledWith(
+					{ limit: 100, search: "PROJECT-100" },
+					expect.anything(),
+				);
+				expect(
+					document.querySelector('[aria-label="Link Work and runners"]'),
+				).not.toBeNull();
+			});
+		});
+	});
+
+	it("updates the row and Work pane from successful mutations before refetch finishes", async () => {
+		let resolveLinks!: (result: unknown) => void;
+		mocks.listLinks.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolveLinks = resolve;
+				}),
+		);
+		const financeLink = { ...linkFields, id: "link-a", projectId: "finance" };
+		const operationsLink = {
+			...linkFields,
+			id: "link-b",
+			projectId: "operations",
+		};
+		mocks.removeProject.mockResolvedValue({
+			link: {
+				...financeLink,
+				status: "removed",
+				removedAt: "2026-09-22T00:00:00Z",
+			},
+		});
+		const attachedLink = { ...financeLink, updatedAt: "2026-09-23T00:00:00Z" };
+		mocks.attachProject.mockResolvedValue({ link: attachedLink });
+		const host = await renderPanel();
+		await act(async () => button("Manage projects").click());
+		await act(async () =>
+			document
+				.querySelector<HTMLButtonElement>('[aria-label="Remove Finance"]')!
+				.click(),
+		);
+		await act(async () => button("Remove from workspace").click());
+		await act(async () => {
+			await vi.waitFor(() => {
+				expect(
+					document.querySelector('[aria-label="Link Finance"]'),
+				).not.toBeNull();
+				expect(host.textContent).not.toContain("finance task");
+			});
+		});
+		expect(host.textContent).toContain("operations task");
+		await act(async () => {
+			resolveLinks({ items: [operationsLink], truncated: false });
+		});
+		await act(async () => {
+			await vi.waitFor(() =>
+				expect(
+					document.querySelector<HTMLButtonElement>(
+						'[aria-label="Link Finance"]',
+					)!.disabled,
+				).toBe(false),
+			);
+		});
+		await act(async () =>
+			document
+				.querySelector<HTMLButtonElement>('[aria-label="Link Finance"]')!
+				.click(),
+		);
+		await act(async () => {
+			await vi.waitFor(() => {
+				expect(
+					document.querySelector('[aria-label="Remove Finance"]'),
+				).not.toBeNull();
+				expect(host.textContent).toContain("finance task");
+			});
+		});
+		await act(async () => {
+			resolveLinks({ items: [operationsLink, attachedLink], truncated: false });
+		});
+		await act(async () => {
+			await vi.waitFor(() =>
+				expect(
+					document.querySelector<HTMLButtonElement>(
+						'[aria-label="Remove Finance"]',
+					)!.disabled,
+				).toBe(false),
+			);
+		});
+		await act(async () =>
+			document
+				.querySelector<HTMLButtonElement>('[aria-label="Remove Finance"]')!
+				.click(),
+		);
+		await act(async () => button("Remove from workspace").click());
+		expect(mocks.removeProject).toHaveBeenLastCalledWith({
+			workspaceId: "workspace",
+			projectId: "finance",
+			expectedUpdatedAt: attachedLink.updatedAt,
+		});
+	});
+
+	it("keeps the row and Work pane unchanged when removing a project fails", async () => {
+		mocks.removeProject.mockRejectedValue(new Error("Link changed; try again"));
+		mocks.listLinks.mockImplementation(() => new Promise(() => {}));
+		const host = await renderPanel();
+		await act(async () => button("Manage projects").click());
+		await act(async () =>
+			document
+				.querySelector<HTMLButtonElement>('[aria-label="Remove Finance"]')!
+				.click(),
+		);
+		await act(async () => button("Remove from workspace").click());
+		await act(async () => {
+			await vi.waitFor(() =>
+				expect(
+					document.querySelector('[role="alertdialog"]')?.textContent,
+				).toContain("Link changed; try again"),
+			);
+		});
+		expect(
+			document.querySelector('[aria-label="Remove Finance"]'),
+		).not.toBeNull();
+		expect(host.textContent).toContain("finance task");
+	});
+
 	it("combines linked projects and keeps project setup out of the default work surface", async () => {
 		const host = await renderPanel();
 		expect(host.textContent).toContain("finance task");
