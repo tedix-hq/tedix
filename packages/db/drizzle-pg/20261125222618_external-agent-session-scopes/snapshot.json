@@ -1,47 +1,42 @@
 {
-  "type": "diff",
-  "version": "9",
-  "dialect": "postgres",
-  "id": "7794df9f-cd6c-49a8-987b-f02faf6a9d9a",
-  "prevIds": [
-    "7c9fe971-7c3c-45cc-bd5a-7aeeb8fe6084"
-  ],
-  "footprints": [
-    {
-      "statementType": "add_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "external_agent_mcp_credentials",
-        "scopes"
-      ],
-      "writes": [
-        "s|col|public.external_agent_mcp_credentials.scopes",
-        "n|col|public.external_agent_mcp_credentials.scopes",
-        "e|col|public.external_agent_mcp_credentials.scopes"
-      ],
-      "reads": [
-        "n|tbl|public.external_agent_mcp_credentials",
-        "n|sch|public"
-      ]
-    }
-  ],
-  "deltas": [
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "external_agent_mcp_credentials",
-        "name": "scopes",
-        "type": "jsonb",
-        "typeSchema": null,
-        "notNull": false,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    }
-  ]
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "7794df9f-cd6c-49a8-987b-f02faf6a9d9a",
+	"prevIds": ["7c9fe971-7c3c-45cc-bd5a-7aeeb8fe6084"],
+	"footprints": [
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"external_agent_mcp_credentials",
+				"scopes"
+			],
+			"writes": [
+				"s|col|public.external_agent_mcp_credentials.scopes",
+				"n|col|public.external_agent_mcp_credentials.scopes",
+				"e|col|public.external_agent_mcp_credentials.scopes"
+			],
+			"reads": ["n|tbl|public.external_agent_mcp_credentials", "n|sch|public"]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "external_agent_mcp_credentials",
+				"name": "scopes",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		}
+	]
 }
