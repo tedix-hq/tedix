@@ -106,6 +106,35 @@ describe("ApprovalTray", () => {
 		expect(links).toEqual(["#approval-a1", "#approval-a2"]);
 	});
 
+	it("names machine commands in single and grouped rows", async () => {
+		const machineRequest = (id: string, command: string) =>
+			proposal(id, "Using a machine", undefined, {
+				machine: "Test MacBook",
+				tool: "run_command",
+				input: { command },
+			});
+		const first = machineRequest("a1", "bun run type-check");
+		const second = machineRequest("a2", "bun run build");
+		const { show } = await render([first]);
+		expect(host.querySelector(".workspace-chat-tray-title")?.textContent).toBe(
+			"Run on Test MacBook: bun run type-check",
+		);
+		await show({ approvals: [first, second] });
+		await act(async () =>
+			host.querySelector<HTMLButtonElement>("button[aria-expanded]")?.click(),
+		);
+		expect(
+			[
+				...host.querySelectorAll(
+					".workspace-chat-tray-requests .workspace-chat-tray-title",
+				),
+			].map((row) => row.textContent),
+		).toEqual([
+			"Run on Test MacBook: bun run type-check",
+			"Run on Test MacBook: bun run build",
+		]);
+	});
+
 	it("approves or denies one item and disables only that item", async () => {
 		const { onDecide } = await render([
 			proposal("a1", "Creating a new output", "Budget"),

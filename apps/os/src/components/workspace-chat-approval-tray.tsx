@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/kumo/button";
+import { CodeInline } from "@/components/kumo/code";
 import { Text } from "@/components/kumo/text";
 import {
 	Tooltip,
@@ -9,6 +10,7 @@ import {
 import { appEditRequestFrom } from "@/lib/app-edit-approval";
 import {
 	type ApprovalGroup,
+	approvalAction,
 	approvalGroups,
 	approvalLine,
 	approvalNoticeText,
@@ -174,6 +176,7 @@ export function ApprovalTray({
 
 	const row = (request: WaitingApproval, alone: boolean) => {
 		const subject = approvalSubject(request);
+		const action = approvalAction(request);
 		const page = webPageRequest(request);
 		const decision = decisionOf(request.approvalId);
 		// An app draft is accepted or rejected as a whole, as on its card.
@@ -184,8 +187,22 @@ export function ApprovalTray({
 		const text = (
 			<>
 				<Text as="span" role="body" className="workspace-chat-tray-title">
-					{/* Inside a group its name already says which item. */}
-					{alone ? approvalLine(request) : approvalTitle(request)}
+					{action ? (
+						<>
+							{action.text}
+							{action.code ? (
+								<>
+									{" "}
+									<CodeInline>{action.code}</CodeInline>
+								</>
+							) : null}
+						</>
+					) : // Inside a group its name already says which item.
+					alone ? (
+						approvalLine(request)
+					) : (
+						approvalTitle(request)
+					)}
 				</Text>
 				{page ? (
 					<Text

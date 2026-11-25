@@ -1616,6 +1616,13 @@ describe("WorkspaceChat", () => {
 			/^Run on Aaron's MacBook: rm -rf \/tmp\/x+…$/,
 		);
 		expect(action?.querySelector("code")?.textContent?.length).toBe(120);
+		const trayAction = host.querySelector(
+			'[data-testid="workspace-chat-tray"] .workspace-chat-tray-title',
+		);
+		expect(trayAction?.textContent).toBe(action?.textContent);
+		expect(trayAction?.querySelector("code")?.textContent).toBe(
+			action?.querySelector("code")?.textContent,
+		);
 		const card = host.querySelector('[data-testid="workspace-chat-approval"]');
 		expect(card?.textContent).not.toContain(command);
 	});
