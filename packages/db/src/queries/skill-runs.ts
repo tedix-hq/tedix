@@ -15,7 +15,6 @@ import {
 	getColumns,
 	inArray,
 	isNull,
-	like,
 	lt,
 	ne,
 	notExists,
@@ -24,7 +23,17 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreTable } from "../core-store/client";
+import {
+	anyIds,
+	booleanValue,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	likeText,
+} from "../core-store/dialect";
 import * as z from "zod";
 import type { DbClient } from "../client";
 import {
@@ -32,13 +41,12 @@ import {
 	SKILL_RUN_STATUSES,
 	type SkillRun,
 	type SkillRunStatus,
-	skillEntries,
+	skillEntries as d1SkillEntries,
 	skillRunAwaitingReconcile,
 	skillRunReconcileOrder,
-	skillRuns,
-	skillWorkflowSources,
+	skillRuns as d1SkillRuns,
+	skillWorkflowSources as d1SkillWorkflowSources,
 } from "../schema/cognitive";
-import { chunkForBoundParams } from "../utils/batch";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { toJsonValue } from "../utils/json";
 
@@ -52,8 +60,10 @@ export type SkillRunRuntimeEnvironment =
 	| "production";
 
 function skillRunEnvironmentCondition(
+	db: DbClient,
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 ) {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	return eq(skillRuns.runtimeEnvironment, runtimeEnvironment);
 }
 
@@ -74,6 +84,7 @@ export async function getPinnedSkillWorkflowSource(
 	db: DbClient,
 	runId: string,
 ): Promise<string | null> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const [row] = await db
 		.select({ source: pinnedWorkflowSource })
 		.from(skillRuns)
@@ -107,6 +118,8 @@ export async function createPinnedSkillRun(
 	db: DbClient,
 	input: CreatePinnedSkillRunParams,
 ): Promise<void> {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const skillWorkflowSources = coreTable(db, d1SkillWorkflowSources);
 	const hash = input.workflowSource
 		? await sha256Hex(input.workflowSource)
 		: null;
@@ -156,16 +169,20 @@ export async function createPinnedSkillRun(
  * ambiguous engine admission. `since` bounds the scan so a row stuck in
  * admission cannot hold a slot forever.
  */
-function openSkillRunCondition(input: {
-	organizationId: string;
-	skillId: string;
-	runtimeEnvironment: SkillRunRuntimeEnvironment;
-	since: string;
-}): SQL {
+function openSkillRunCondition(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		skillId: string;
+		runtimeEnvironment: SkillRunRuntimeEnvironment;
+		since: string;
+	},
+): SQL {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	return and(
 		eq(skillRuns.organizationId, input.organizationId),
 		eq(skillRuns.skillId, input.skillId),
-		skillRunEnvironmentCondition(input.runtimeEnvironment),
+		skillRunEnvironmentCondition(db, input.runtimeEnvironment),
 		gt(skillRuns.startedAt, input.since),
 		isNull(skillRuns.workflowRetiredAt),
 		or(
@@ -173,8 +190,8 @@ function openSkillRunCondition(input: {
 			and(
 				eq(skillRuns.status, "failed"),
 				or(
-					like(skillRuns.error, "WORKFLOW_ADMISSION_PENDING:%"),
-					like(skillRuns.error, "WORKFLOW_ADMISSION_CREATE_FAILED:%"),
+					likeText(db, skillRuns.error, "WORKFLOW_ADMISSION_PENDING:%"),
+					likeText(db, skillRuns.error, "WORKFLOW_ADMISSION_CREATE_FAILED:%"),
 				),
 			),
 		),
@@ -183,8 +200,9 @@ function openSkillRunCondition(input: {
 
 /**
  * Insert a pinned run only while fewer than `cap.max` runs of the same skill
- * are open in the organization. The count and the insert are one SQL
- * statement, so concurrent admissions cannot both take the last slot.
+ * are open in the organization. D1 serializes the conditional insert.
+ * Postgres locks the skill/environment before counting in the same batch,
+ * so concurrent capped admissions cannot both take the last slot.
  * Returns false when the cap refused the run.
  */
 export async function createPinnedSkillRunWithinCap(
@@ -192,91 +210,118 @@ export async function createPinnedSkillRunWithinCap(
 	input: CreatePinnedSkillRunParams,
 	cap: { max: number; since: string },
 ): Promise<boolean> {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillWorkflowSources = coreTable(db, d1SkillWorkflowSources);
 	const hash = input.workflowSource
 		? await sha256Hex(input.workflowSource)
 		: null;
-	if (hash && input.workflowSource)
-		await db
-			.insert(skillWorkflowSources)
-			.values({
-				skillId: input.skillId,
-				sha256: hash,
-				workflowSource: input.workflowSource,
-			})
-			.onConflictDoNothing();
+	const source =
+		hash && input.workflowSource
+			? db
+					.insert(skillWorkflowSources)
+					.values({
+						skillId: input.skillId,
+						sha256: hash,
+						workflowSource: input.workflowSource,
+					})
+					.onConflictDoNothing()
+			: undefined;
 	const json = (value: unknown) =>
-		value == null ? null : JSON.stringify(toJsonValue(value));
+		value == null ? sql`NULL` : jsonParameter(db, toJsonValue(value));
 	const bound = (value: unknown, column: string) => sql`${value}`.as(column);
 	// insert ... select from the run's own skill row: the open-run count and
 	// the insert are one statement.
-	await db.insert(skillRuns).select(
-		db
+	const run = db
+		.insert(skillRuns)
+		.select(
+			db
+				.select({
+					id: bound(input.runId, "id"),
+					skillId: bound(input.skillId, "skill_id"),
+					tediId: bound(input.tediId, "tedi_id"),
+					organizationId: bound(input.orgId, "organization_id"),
+					workflowInstanceId: bound(
+						input.workflowInstanceId,
+						"workflow_instance_id",
+					),
+					params: bound(json(input.params ?? {}), "params"),
+					status: bound("failed", "status"),
+					error: bound(
+						"WORKFLOW_ADMISSION_PENDING: workflow create not yet observed",
+						"error",
+					),
+					startedAt: bound(new Date().toISOString(), "started_at"),
+					workflowSourceHash: bound(hash, "workflow_source_hash"),
+					skillDoc: bound(input.skillDoc ?? null, "skill_doc"),
+					skillRevision: bound(input.skillRevision ?? null, "skill_revision"),
+					skillSlug: bound(input.skillSlug ?? null, "skill_slug"),
+					capabilityManifest: bound(
+						json(input.capabilityManifest),
+						"capability_manifest",
+					),
+					runtimeEnvironment: bound(
+						input.runtimeEnvironment,
+						"runtime_environment",
+					),
+					certification: bound(
+						booleanValue(db, input.certification ?? false),
+						"certification",
+					),
+					createdBy: bound(input.createdBy ?? null, "created_by"),
+					workItemId: bound(input.workItemId ?? null, "work_item_id"),
+					originTediRunId: bound(
+						input.originTediRunId ?? null,
+						"origin_tedi_run_id",
+					),
+					resourceAccessEnvelope: bound(
+						json(input.resourceAccessEnvelope),
+						"resource_access_envelope",
+					),
+				})
+				.from(skillEntries)
+				.where(
+					and(
+						eq(skillEntries.id, input.skillId),
+						eq(skillEntries.organizationId, input.orgId),
+						lt(
+							db.$count(
+								skillRuns,
+								openSkillRunCondition(db, {
+									organizationId: input.orgId,
+									skillId: input.skillId,
+									runtimeEnvironment: input.runtimeEnvironment,
+									since: cap.since,
+								}),
+							),
+							cap.max,
+						),
+					),
+				),
+		)
+		.returning({ id: skillRuns.id });
+	let rows: { id: string }[];
+	if (coreStore(db) === "postgres") {
+		// Serialize cap admissions before the INSERT's READ COMMITTED snapshot.
+		// A lock inside that INSERT would still count a pre-wait snapshot.
+		const lock = db
 			.select({
-				id: bound(input.runId, "id"),
-				skillId: bound(input.skillId, "skill_id"),
-				tediId: bound(input.tediId, "tedi_id"),
-				organizationId: bound(input.orgId, "organization_id"),
-				workflowInstanceId: bound(
-					input.workflowInstanceId,
-					"workflow_instance_id",
-				),
-				params: bound(json(input.params ?? {}), "params"),
-				status: bound("failed", "status"),
-				error: bound(
-					"WORKFLOW_ADMISSION_PENDING: workflow create not yet observed",
-					"error",
-				),
-				startedAt: bound(new Date().toISOString(), "started_at"),
-				workflowSourceHash: bound(hash, "workflow_source_hash"),
-				skillDoc: bound(input.skillDoc ?? null, "skill_doc"),
-				skillRevision: bound(input.skillRevision ?? null, "skill_revision"),
-				skillSlug: bound(input.skillSlug ?? null, "skill_slug"),
-				capabilityManifest: bound(
-					json(input.capabilityManifest),
-					"capability_manifest",
-				),
-				runtimeEnvironment: bound(
-					input.runtimeEnvironment,
-					"runtime_environment",
-				),
-				certification: bound(input.certification ? 1 : 0, "certification"),
-				createdBy: bound(input.createdBy ?? null, "created_by"),
-				workItemId: bound(input.workItemId ?? null, "work_item_id"),
-				originTediRunId: bound(
-					input.originTediRunId ?? null,
-					"origin_tedi_run_id",
-				),
-				resourceAccessEnvelope: bound(
-					json(input.resourceAccessEnvelope),
-					"resource_access_envelope",
-				),
+				lock: sql`pg_advisory_xact_lock(hashtextextended(${JSON.stringify([input.orgId, input.skillId, input.runtimeEnvironment])}, 0))`,
 			})
 			.from(skillEntries)
 			.where(
 				and(
 					eq(skillEntries.id, input.skillId),
 					eq(skillEntries.organizationId, input.orgId),
-					lt(
-						db.$count(
-							skillRuns,
-							openSkillRunCondition({
-								organizationId: input.orgId,
-								skillId: input.skillId,
-								runtimeEnvironment: input.runtimeEnvironment,
-								since: cap.since,
-							}),
-						),
-						cap.max,
-					),
 				),
-			),
-	);
-	const [row] = await db
-		.select({ id: skillRuns.id })
-		.from(skillRuns)
-		.where(eq(skillRuns.id, input.runId))
-		.limit(1);
-	return row !== undefined;
+			)
+			.limit(1);
+		const results = await db.batch(source ? [lock, source, run] : [lock, run]);
+		rows = results[results.length - 1] as { id: string }[];
+	} else {
+		rows = source ? (await db.batch([source, run]))[1] : await run;
+	}
+	return rows.length > 0;
 }
 
 /** Open runs of one skill, newest first, for a cap refusal. */
@@ -296,6 +341,7 @@ export async function listOpenSkillRunsForSkill(
 		openRunStartedAt: string | null;
 	}>
 > {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	return db
 		.select({
 			openRunId: skillRuns.id,
@@ -303,7 +349,7 @@ export async function listOpenSkillRunsForSkill(
 			openRunStartedAt: skillRuns.startedAt,
 		})
 		.from(skillRuns)
-		.where(openSkillRunCondition(input))
+		.where(openSkillRunCondition(db, input))
 		.orderBy(desc(skillRuns.startedAt))
 		.limit(boundedRunLimit(input.limit, 20));
 }
@@ -328,6 +374,7 @@ export async function createSkillRun(
 	db: DbClient,
 	args: CreateSkillRunArgs,
 ): Promise<SkillRun> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const id = args.id ?? crypto.randomUUID();
 	const [created] = await db
 		.insert(skillRuns)
@@ -357,6 +404,7 @@ export async function getSkillRun(
 	orgId: string,
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 ): Promise<SkillRun | undefined> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const rows = await db
 		.select({ ...getColumns(skillRuns), workflowSource: pinnedWorkflowSource })
 		.from(skillRuns)
@@ -364,7 +412,7 @@ export async function getSkillRun(
 			and(
 				eq(skillRuns.id, runId),
 				eq(skillRuns.organizationId, orgId),
-				skillRunEnvironmentCondition(runtimeEnvironment),
+				skillRunEnvironmentCondition(db, runtimeEnvironment),
 			),
 		)
 		.limit(1);
@@ -402,6 +450,7 @@ export async function listSkillRunsAwaitingReconcile(
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 	limit: number,
 ): Promise<SkillRunAwaitingReconcileResult[]> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	return db
 		.select({
 			id: skillRuns.id,
@@ -420,10 +469,35 @@ export async function listSkillRunsAwaitingReconcile(
 		.from(skillRuns)
 		.where(
 			and(
-				skillRunEnvironmentCondition(runtimeEnvironment),
-				skillRunAwaitingReconcile,
+				skillRunEnvironmentCondition(db, runtimeEnvironment),
+				coreStore(db) === "d1"
+					? skillRunAwaitingReconcile
+					: and(
+							isNull(skillRuns.workflowRetiredAt),
+							or(
+								inArray(skillRuns.status, ["queued", "running", "paused"]),
+								sql`${skillRuns.restartRequestedAt} IS NOT NULL`,
+								and(
+									eq(skillRuns.status, "failed"),
+									or(
+										likeText(
+											db,
+											skillRuns.error,
+											"WORKFLOW_ADMISSION_CREATE_FAILED:%",
+										),
+										likeText(
+											db,
+											skillRuns.error,
+											"WORKFLOW_ADMISSION_PENDING:%",
+										),
+									),
+								),
+							),
+						),
 				sql`coalesce(${skillRuns.error}, '') <> 'REVOKED'`,
-				sql`coalesce(${skillRuns.error}, '') NOT GLOB 'REVOKED:*'`,
+				coreStore(db) === "postgres"
+					? sql`left(coalesce(${skillRuns.error}, ''), 8) <> 'REVOKED:'`
+					: sql`coalesce(${skillRuns.error}, '') NOT GLOB 'REVOKED:*'`,
 			),
 		)
 		.orderBy(asc(skillRunReconcileOrder), asc(skillRuns.startedAt))
@@ -444,6 +518,7 @@ export async function updateSkillRunStatus(
 	status: SkillRunStatus,
 	fields?: UpdateSkillRunFields,
 ): Promise<void> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const patch: Partial<NewSkillRun> = { status };
 
 	if (fields?.result !== undefined) patch.result = toJsonValue(fields.result);
@@ -490,6 +565,7 @@ export async function retireSkillRunForRevocation(
 		reason?: string | null;
 	},
 ): Promise<boolean> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const now = new Date().toISOString();
 	const reason = args.reason?.trim() ?? "";
 	const error = reason ? `REVOKED: ${reason}` : "REVOKED";
@@ -505,7 +581,7 @@ export async function retireSkillRunForRevocation(
 			and(
 				eq(skillRuns.id, args.runId),
 				eq(skillRuns.organizationId, args.organizationId),
-				skillRunEnvironmentCondition(args.runtimeEnvironment),
+				skillRunEnvironmentCondition(db, args.runtimeEnvironment),
 				eq(skillRuns.executionEpoch, args.expectedExecutionEpoch),
 				inArray(skillRuns.status, ["completed", "failed", "canceled"]),
 				isNull(skillRuns.restartRequestedAt),
@@ -513,9 +589,11 @@ export async function retireSkillRunForRevocation(
 					isNull(skillRuns.error),
 					and(
 						sql`${skillRuns.error} <> 'REVOKED'`,
-						sql`${skillRuns.error} NOT GLOB 'REVOKED:*'`,
-						sql`${skillRuns.error} NOT LIKE 'WORKFLOW_ADMISSION_PENDING:%'`,
-						sql`${skillRuns.error} NOT LIKE 'WORKFLOW_ADMISSION_CREATE_FAILED:%'`,
+						coreStore(db) === "postgres"
+							? sql`left(${skillRuns.error}, 8) <> 'REVOKED:'`
+							: sql`${skillRuns.error} NOT GLOB 'REVOKED:*'`,
+						sql`NOT (${likeText(db, skillRuns.error, "WORKFLOW_ADMISSION_PENDING:%")})`,
+						sql`NOT (${likeText(db, skillRuns.error, "WORKFLOW_ADMISSION_CREATE_FAILED:%")})`,
 					),
 				),
 			),
@@ -538,6 +616,7 @@ export async function setSkillRunCostSummary(
 	expectedExecutionEpoch: number,
 	costSummary: SkillRunCostSummary,
 ): Promise<boolean> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const updated = await db
 		.update(skillRuns)
 		.set({ costSummary })
@@ -545,7 +624,7 @@ export async function setSkillRunCostSummary(
 			and(
 				eq(skillRuns.id, runId),
 				eq(skillRuns.organizationId, orgId),
-				skillRunEnvironmentCondition(runtimeEnvironment),
+				skillRunEnvironmentCondition(db, runtimeEnvironment),
 				eq(skillRuns.executionEpoch, expectedExecutionEpoch),
 				inArray(skillRuns.status, ["completed", "failed"]),
 				isNull(skillRuns.restartRequestedAt),
@@ -554,7 +633,9 @@ export async function setSkillRunCostSummary(
 					isNull(skillRuns.error),
 					and(
 						sql`${skillRuns.error} <> 'REVOKED'`,
-						sql`${skillRuns.error} NOT GLOB 'REVOKED:*'`,
+						coreStore(db) === "postgres"
+							? sql`left(${skillRuns.error}, 8) <> 'REVOKED:'`
+							: sql`${skillRuns.error} NOT GLOB 'REVOKED:*'`,
 					),
 				),
 				isNull(skillRuns.costSummary),
@@ -611,54 +692,81 @@ export type SkillRunTrigger = "scheduled" | "manual" | "agent" | "test";
  * the scheduler writes `schedule`; a person's run carries `user:<id>`; any
  * other recorded starter is an agent or an app.
  */
-const skillRunTriggerSql = sql<SkillRunTrigger | null>`case
-	when ${skillRuns.certification} = 1 then 'test'
+function skillRunTriggerSql(db: DbClient) {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	return sql<SkillRunTrigger | null>`case
+	when ${skillRuns.certification} = ${booleanValue(db, true)} then 'test'
 	when ${skillRuns.createdBy} = 'schedule' then 'scheduled'
-	when ${skillRuns.createdBy} like 'user:%' then 'manual'
+	when ${likeText(db, skillRuns.createdBy, "user:%")} then 'manual'
 	when ${skillRuns.createdBy} is null or ${skillRuns.createdBy} = 'unknown' then null
 	else 'agent'
 end`;
+}
 
-const skillRunSummarySelect = {
-	id: skillRuns.id,
-	organizationId: skillRuns.organizationId,
-	skillId: skillRuns.skillId,
-	tediId: skillRuns.tediId,
-	workflowInstanceId: skillRuns.workflowInstanceId,
-	runtimeEnvironment: skillRuns.runtimeEnvironment,
-	lastReconciledAt: skillRuns.lastReconciledAt,
-	executionEpoch: skillRuns.executionEpoch,
-	restartRequestedAt: skillRuns.restartRequestedAt,
-	workflowRetiredAt: skillRuns.workflowRetiredAt,
-	status: skillRuns.status,
-	params: skillRuns.params,
-	capabilityManifest: skillRuns.capabilityManifest,
-	skillSlug: skillRuns.skillSlug,
-	skillRevision: skillRuns.skillRevision,
-	startedAt: skillRuns.startedAt,
-	completedAt: skillRuns.completedAt,
-	pausedAt: skillRuns.pausedAt,
-	createdBy: skillRuns.createdBy,
-	hasResult: sql<number>`case when ${skillRuns.result} is not null then 1 else 0 end`,
-	hasError: sql<number>`case when ${skillRuns.error} is not null then 1 else 0 end`,
-	outcome: sql<SkillRunSummaryRow["outcome"]>`case
+function skillRunSummarySelect(db: DbClient) {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const text = (path: string[]) =>
+		sql<
+			string | null
+		>`CASE WHEN jsonb_typeof(${jsonRead(db, skillRuns.result, path, "json")}) = 'string' THEN ${jsonRead(db, skillRuns.result, path)} END`;
+	return {
+		id: skillRuns.id,
+		organizationId: skillRuns.organizationId,
+		skillId: skillRuns.skillId,
+		tediId: skillRuns.tediId,
+		workflowInstanceId: skillRuns.workflowInstanceId,
+		runtimeEnvironment: skillRuns.runtimeEnvironment,
+		lastReconciledAt: skillRuns.lastReconciledAt,
+		executionEpoch: skillRuns.executionEpoch,
+		restartRequestedAt: skillRuns.restartRequestedAt,
+		workflowRetiredAt: skillRuns.workflowRetiredAt,
+		status: skillRuns.status,
+		params: skillRuns.params,
+		capabilityManifest: skillRuns.capabilityManifest,
+		skillSlug: skillRuns.skillSlug,
+		skillRevision: skillRuns.skillRevision,
+		startedAt: skillRuns.startedAt,
+		completedAt: skillRuns.completedAt,
+		pausedAt: skillRuns.pausedAt,
+		createdBy: skillRuns.createdBy,
+		hasResult:
+			sql<number>`case when ${skillRuns.result} is not null then 1 else 0 end`.as(
+				"has_result",
+			),
+		hasError:
+			sql<number>`case when ${skillRuns.error} is not null then 1 else 0 end`.as(
+				"has_error",
+			),
+		outcome: (coreStore(db) === "postgres"
+			? sql<
+					SkillRunSummaryRow["outcome"]
+				>`CASE WHEN ${text(["status"])} IN ('delivered', 'progressed', 'blocked', 'no_action') THEN ${text(["status"])} END`
+			: sql<SkillRunSummaryRow["outcome"]>`case
 		when json_type(${skillRuns.result}, '$.status') = 'text'
 			and json_extract(${skillRuns.result}, '$.status') in (
 				'delivered', 'progressed', 'blocked', 'no_action'
 			)
 		then json_extract(${skillRuns.result}, '$.status')
 		else null
-	end`.as("outcome"),
-	workItemId: sql<string | null>`case
+	end`
+		).as("outcome"),
+		workItemId: (coreStore(db) === "postgres"
+			? text(["workItemId"])
+			: sql<string | null>`case
 		when json_type(${skillRuns.result}, '$.workItemId') = 'text'
 		then json_extract(${skillRuns.result}, '$.workItemId')
 		else null
-	end`.as("work_item_id"),
-	trigger: skillRunTriggerSql.as("run_trigger"),
-	errorPreview: sql<string | null>`substr(${skillRuns.error}, 1, 400)`.as(
-		"error_preview",
-	),
-	resultSummary: sql<string | null>`substr(case
+	end`
+		).as("work_item_id"),
+		trigger: skillRunTriggerSql(db).as("run_trigger"),
+		errorPreview: sql<string | null>`substr(${skillRuns.error}, 1, 400)`.as(
+			"error_preview",
+		),
+		resultSummary: (coreStore(db) === "postgres"
+			? sql<
+					string | null
+				>`substr(coalesce(${text(["summary"])}, ${text(["message"])}, ${text(["backgroundOutcome", "summary"])}), 1, 300)`
+			: sql<string | null>`substr(case
 		when json_type(${skillRuns.result}, '$.summary') = 'text'
 		then json_extract(${skillRuns.result}, '$.summary')
 		when json_type(${skillRuns.result}, '$.message') = 'text'
@@ -666,19 +774,22 @@ const skillRunSummarySelect = {
 		when json_type(${skillRuns.result}, '$.backgroundOutcome.summary') = 'text'
 		then json_extract(${skillRuns.result}, '$.backgroundOutcome.summary')
 		else null
-	end, 1, 300)`.as("result_summary"),
-};
+	end, 1, 300)`
+		).as("result_summary"),
+	};
+}
 
-function skillRunSummaryProjection(metadataOnly?: boolean) {
+function skillRunSummaryProjection(db: DbClient, metadataOnly?: boolean) {
+	const select = skillRunSummarySelect(db);
 	return metadataOnly
 		? {
-				...skillRunSummarySelect,
+				...select,
 				params: sql<SkillRunSummaryRow["params"]>`null`.as("params"),
 				capabilityManifest: sql<
 					SkillRunSummaryRow["capabilityManifest"]
 				>`null`.as("capability_manifest"),
 			}
-		: skillRunSummarySelect;
+		: select;
 }
 
 /** Filters every run list shares: status, tag, starter, revision, age. */
@@ -692,27 +803,44 @@ interface SkillRunListFilters {
 	startedAfter?: string;
 }
 
-function skillRunFilterConditions(options?: SkillRunListFilters): SQL[] {
+function skillRunTimestamp(db: DbClient, value: SQL) {
+	return coreStore(db) === "postgres"
+		? sql`CASE WHEN pg_input_is_valid(${value}, 'timestamp with time zone') THEN date_trunc('second', CASE WHEN ${value} ~ '(Z|z|[+-][0-9]{2}:?[0-9]{2})$' THEN ${value}::timestamptz ELSE ${value}::timestamp AT TIME ZONE 'UTC' END) END`
+		: sql`datetime(${value})`;
+}
+
+function skillRunFilterConditions(
+	db: DbClient,
+	options?: SkillRunListFilters,
+): SQL[] {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const conditions: SQL[] = [];
 	if (options?.status) conditions.push(eq(skillRuns.status, options.status));
-	if (options?.skillTag) conditions.push(skillTagCondition(options.skillTag));
+	if (options?.skillTag)
+		conditions.push(skillTagCondition(db, options.skillTag));
 	if (options?.trigger)
-		conditions.push(sql`${skillRunTriggerSql} = ${options.trigger}`);
+		conditions.push(sql`${skillRunTriggerSql(db)} = ${options.trigger}`);
 	if (options?.skillRevision != null)
 		conditions.push(eq(skillRuns.skillRevision, options.skillRevision));
 	// started_at holds both `YYYY-MM-DD HH:MM:SS` and ISO text; datetime()
 	// reads both as UTC.
 	if (options?.startedAfter)
 		conditions.push(
-			sql`datetime(${skillRuns.startedAt}) >= datetime(${options.startedAfter})`,
+			sql`${skillRunTimestamp(db, sql`${skillRuns.startedAt}`)} >= ${skillRunTimestamp(db, sql`${options.startedAfter}`)}`,
 		);
 	return conditions;
 }
 
-function skillTagCondition(skillTag: string) {
+function skillTagCondition(db: DbClient, skillTag: string) {
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const tags =
+		coreStore(db) === "postgres"
+			? sql`jsonb_array_elements_text(coalesce(${skillEntries.tags}, '[]'::jsonb))`
+			: sql`json_each(coalesce(${skillEntries.tags}, '[]'))`;
 	return sql`exists (
 		select 1
-		from ${skillEntries}, json_each(coalesce(${skillEntries.tags}, '[]'))
+		from ${skillEntries}, ${tags}
 		where ${skillEntries.id} = ${skillRuns.skillId}
 			and ${skillEntries.organizationId} = ${skillRuns.organizationId}
 			and value = ${skillTag}
@@ -726,16 +854,17 @@ export async function listSkillRunsForTedi(
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 	options?: ListSkillRunsForTediOptions,
 ): Promise<SkillRunSummaryRow[]> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const conditions = [
 		eq(skillRuns.organizationId, organizationId),
 		eq(skillRuns.tediId, tediId),
-		skillRunEnvironmentCondition(runtimeEnvironment),
+		skillRunEnvironmentCondition(db, runtimeEnvironment),
 	];
 	if (options?.skillId) conditions.push(eq(skillRuns.skillId, options.skillId));
-	conditions.push(...skillRunFilterConditions(options));
+	conditions.push(...skillRunFilterConditions(db, options));
 
 	return db
-		.select(skillRunSummaryProjection(options?.metadataOnly))
+		.select(skillRunSummaryProjection(db, options?.metadataOnly))
 		.from(skillRuns)
 		.where(and(...conditions))
 		.orderBy(desc(skillRuns.startedAt), desc(skillRuns.id))
@@ -756,15 +885,16 @@ export async function listSkillRunsForSkill(
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 	options?: ListSkillRunsForSkillOptions,
 ): Promise<SkillRunSummaryRow[]> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const conditions = [
 		eq(skillRuns.organizationId, organizationId),
 		eq(skillRuns.skillId, skillId),
-		skillRunEnvironmentCondition(runtimeEnvironment),
+		skillRunEnvironmentCondition(db, runtimeEnvironment),
 	];
-	conditions.push(...skillRunFilterConditions(options));
+	conditions.push(...skillRunFilterConditions(db, options));
 
 	return db
-		.select(skillRunSummaryProjection(options?.metadataOnly))
+		.select(skillRunSummaryProjection(db, options?.metadataOnly))
 		.from(skillRuns)
 		.where(and(...conditions))
 		.orderBy(desc(skillRuns.startedAt), desc(skillRuns.id))
@@ -789,14 +919,15 @@ export async function listSkillRunsForOrg(
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 	options?: ListSkillRunsForOrgOptions,
 ): Promise<SkillRunSummaryRow[]> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const conditions = [
 		eq(skillRuns.organizationId, organizationId),
-		skillRunEnvironmentCondition(runtimeEnvironment),
+		skillRunEnvironmentCondition(db, runtimeEnvironment),
 	];
-	conditions.push(...skillRunFilterConditions(options));
+	conditions.push(...skillRunFilterConditions(db, options));
 
 	return db
-		.select(skillRunSummaryProjection(options?.metadataOnly))
+		.select(skillRunSummaryProjection(db, options?.metadataOnly))
 		.from(skillRuns)
 		.where(and(...conditions))
 		.orderBy(desc(skillRuns.startedAt), desc(skillRuns.id))
@@ -818,10 +949,18 @@ export async function listSkillWorkflowRetryCandidateRuns(
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 	limit?: number,
 ): Promise<SkillRunSummaryRow[]> {
-	const successfulRun = alias(skillRuns, "successful_skill_run");
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const successfulRun =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)(
+					skillRuns,
+					"successful_skill_run",
+				)
+			: sqliteAlias(skillRuns, "successful_skill_run");
 
 	return db
-		.select(skillRunSummarySelect)
+		.select(skillRunSummarySelect(db))
 		.from(skillRuns)
 		.innerJoin(
 			skillEntries,
@@ -833,7 +972,7 @@ export async function listSkillWorkflowRetryCandidateRuns(
 		.where(
 			and(
 				eq(skillRuns.organizationId, organizationId),
-				skillRunEnvironmentCondition(runtimeEnvironment),
+				skillRunEnvironmentCondition(db, runtimeEnvironment),
 				eq(skillRuns.status, "failed"),
 				isNull(skillRuns.workflowRetiredAt),
 				isNull(skillRuns.restartRequestedAt),
@@ -879,68 +1018,35 @@ export async function listLatestSkillRunsForSkills(
 	skillIds: string[],
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 ): Promise<SkillRunSummaryRow[]> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const ids = [...new Set(skillIds)];
 	if (ids.length === 0) return [];
-
-	// D1 caps bound parameters at 100 per statement. The follow-up query binds
-	// each chunked skill id once in the IN() list plus a (skillId, startedAt)
-	// pair per observed skill, so 30 ids per chunk (≤ 30 + 60 + scope params)
-	// stays under the cap.
-	const merged: SkillRunSummaryRow[] = [];
-	for (const idChunk of chunkForBoundParams(ids, 30)) {
-		const baseConditions = [
-			eq(skillRuns.organizationId, organizationId),
-			inArray(skillRuns.skillId, idChunk),
-			skillRunEnvironmentCondition(runtimeEnvironment),
-		];
-		const maxima = await db
+	const ranked = db.$with("latest_skill_runs").as(
+		db
 			.select({
-				skillId: skillRuns.skillId,
-				startedAt: sql<string | null>`max(${skillRuns.startedAt})`,
+				...skillRunSummarySelect(db),
+				position:
+					sql<number>`row_number() OVER (PARTITION BY ${skillRuns.skillId} ORDER BY ${skillRuns.startedAt} DESC, ${skillRuns.id} DESC)`.as(
+						"position",
+					),
 			})
 			.from(skillRuns)
-			.where(and(...baseConditions))
-			.groupBy(skillRuns.skillId);
-		const observed = maxima.filter(
-			(row): row is { skillId: string; startedAt: string } =>
-				row.startedAt != null,
-		);
-		if (observed.length === 0) continue;
-
-		merged.push(
-			...(await db
-				.select(skillRunSummarySelect)
-				.from(skillRuns)
-				.where(
-					and(
-						...baseConditions,
-						or(
-							...observed.map((row) =>
-								and(
-									eq(skillRuns.skillId, row.skillId),
-									eq(skillRuns.startedAt, row.startedAt),
-								),
-							),
-						),
-					),
-				)
-				.orderBy(desc(skillRuns.startedAt), desc(skillRuns.id))),
-		);
-	}
-
-	// Re-establish the single-statement ordering across chunks before the
-	// first-row-per-skill dedupe.
-	merged.sort(
-		(a, b) =>
-			(b.startedAt ?? "").localeCompare(a.startedAt ?? "") ||
-			b.id.localeCompare(a.id),
+			.where(
+				and(
+					eq(skillRuns.organizationId, organizationId),
+					anyIds(db, skillRuns.skillId, ids),
+					skillRunEnvironmentCondition(db, runtimeEnvironment),
+					sql`${skillRuns.startedAt} IS NOT NULL`,
+				),
+			),
 	);
-	const seen = new Set<string>();
-	return merged.filter((row) => {
-		if (seen.has(row.skillId)) return false;
-		seen.add(row.skillId);
-		return true;
-	});
+	const rows = await db
+		.with(ranked)
+		.select()
+		.from(ranked)
+		.where(eq(ranked.position, 1))
+		.orderBy(desc(ranked.startedAt), desc(ranked.id));
+	return rows.map(({ position: _, ...row }) => row);
 }
 
 export interface ReportedSkillRunRow {
@@ -970,7 +1076,8 @@ export async function getLatestReportedSkillRun(
 		skippedResultStatuses: readonly string[];
 	},
 ): Promise<ReportedSkillRunRow | undefined> {
-	const resultStatus = sql`coalesce(json_extract(${skillRuns.result}, '$.status'), '')`;
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const resultStatus = sql`coalesce(${jsonRead(db, skillRuns.result, ["status"])}, '')`;
 	const [row] = await db
 		.select({
 			id: skillRuns.id,
@@ -978,16 +1085,28 @@ export async function getLatestReportedSkillRun(
 			status: skillRuns.status,
 			startedAt: skillRuns.startedAt,
 			completedAt: skillRuns.completedAt,
-			cards: sql<number | null>`case
+			cards: (coreStore(db) === "postgres"
+				? sql<
+						number | null
+					>`CASE WHEN ${jsonRead(db, skillRuns.result, ["cards"], "number")} = trunc(${jsonRead(db, skillRuns.result, ["cards"], "number")}) THEN ${jsonRead(db, skillRuns.result, ["cards"], "number")} END`.mapWith(
+						Number,
+					)
+				: sql<number | null>`case
 				when json_type(${skillRuns.result}, '$.cards') = 'integer'
 				then json_extract(${skillRuns.result}, '$.cards')
 				else null
-			end`.as("reported_cards"),
-			summary: sql<string | null>`case
+			end`
+			).as("reported_cards"),
+			summary: (coreStore(db) === "postgres"
+				? sql<
+						string | null
+					>`CASE WHEN jsonb_typeof(${jsonRead(db, skillRuns.result, ["summary"], "json")}) = 'string' THEN substr(${jsonRead(db, skillRuns.result, ["summary"])}, 1, 600) END`
+				: sql<string | null>`case
 				when json_type(${skillRuns.result}, '$.summary') = 'text'
 				then substr(json_extract(${skillRuns.result}, '$.summary'), 1, 600)
 				else null
-			end`.as("reported_summary"),
+			end`
+			).as("reported_summary"),
 			error: sql<string | null>`substr(${skillRuns.error}, 1, 600)`.as(
 				"reported_error",
 			),
@@ -997,14 +1116,11 @@ export async function getLatestReportedSkillRun(
 			and(
 				eq(skillRuns.organizationId, params.organizationId),
 				eq(skillRuns.skillId, params.skillId),
-				skillRunEnvironmentCondition(params.runtimeEnvironment),
+				skillRunEnvironmentCondition(db, params.runtimeEnvironment),
 				inArray(skillRuns.status, ["completed", "failed"]),
 				...(params.skippedResultStatuses.length > 0
 					? [
-							sql`${resultStatus} not in (${sql.join(
-								params.skippedResultStatuses.map((status) => sql`${status}`),
-								sql`, `,
-							)})`,
+							sql`NOT (${anyIds(db, resultStatus, params.skippedResultStatuses)})`,
 						]
 					: []),
 			),
@@ -1027,6 +1143,7 @@ export async function cancelSkillRun(
 	orgId: string,
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 ): Promise<boolean> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const canceled = await db
 		.update(skillRuns)
 		.set({
@@ -1037,7 +1154,7 @@ export async function cancelSkillRun(
 			and(
 				eq(skillRuns.id, runId),
 				eq(skillRuns.organizationId, orgId),
-				skillRunEnvironmentCondition(runtimeEnvironment),
+				skillRunEnvironmentCondition(db, runtimeEnvironment),
 				notInArray(skillRuns.status, ["completed", "failed", "canceled"]),
 			),
 		)
@@ -1065,10 +1182,11 @@ export async function listSkillRunSnapshotsForSkill(
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 	options?: ListSkillRunSnapshotsOptions,
 ): Promise<SkillRun[]> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const conditions = [
 		eq(skillRuns.organizationId, organizationId),
 		eq(skillRuns.skillId, skillId),
-		skillRunEnvironmentCondition(runtimeEnvironment),
+		skillRunEnvironmentCondition(db, runtimeEnvironment),
 	];
 	if (options?.tediId) conditions.push(eq(skillRuns.tediId, options.tediId));
 	if (options?.status) conditions.push(eq(skillRuns.status, options.status));
@@ -1104,6 +1222,7 @@ export async function listFailedSkillRunEvents(
 		limit: number;
 	},
 ): Promise<FailedSkillRunEventRow[]> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const rows = await db
 		.select({
 			id: skillRuns.id,
@@ -1114,7 +1233,7 @@ export async function listFailedSkillRunEvents(
 			completedAt: skillRuns.completedAt,
 			errorClass: sql<
 				"admission" | "execution"
-			>`CASE WHEN instr(coalesce(${skillRuns.error}, ''), 'WORKFLOW_ADMISSION_') = 1 THEN 'admission' ELSE 'execution' END`.as(
+			>`CASE WHEN substr(coalesce(${skillRuns.error}, ''), 1, 19) = 'WORKFLOW_ADMISSION_' THEN 'admission' ELSE 'execution' END`.as(
 				"error_class",
 			),
 		})
@@ -1141,6 +1260,7 @@ export async function getLatestFailedSkillRunPosition(
 	db: DbClient,
 	organizationId: string,
 ): Promise<{ at: string; id: string } | null> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const [row] = await db
 		.select({ at: skillRuns.completedAt, id: skillRuns.id })
 		.from(skillRuns)

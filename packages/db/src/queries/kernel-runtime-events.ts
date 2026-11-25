@@ -67,8 +67,7 @@ export async function listHomeRunFinishedEvents(
 	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const tediRuntimeEvents = coreTable(db, d1TediRuntimeEvents);
-	const read = (column: string, path: string[]) =>
-		jsonRead(db, sql.raw(column), path);
+	const read = (column: SQL, path: string[]) => jsonRead(db, column, path);
 	const directJoin = coreStore(db) === "postgres" ? sql`JOIN` : sql`CROSS JOIN`;
 	const assignments =
 		coreStore(db) === "postgres"
@@ -97,7 +96,7 @@ export async function listHomeRunFinishedEvents(
 			? sql`AND p.child_run_id = ${runId} AND e.run_id = ${runId}`
 			: none,
 		planned: runId
-			? sql`AND ${read("a.value", ["childRunId"])} = ${runId} AND e.run_id = ${runId}`
+			? sql`AND ${read(sql`a.value`, ["childRunId"])} = ${runId} AND e.run_id = ${runId}`
 			: none,
 		conversation: conversationId
 			? sql`AND p.conversation_id = ${conversationId}`
@@ -110,22 +109,22 @@ export async function listHomeRunFinishedEvents(
 			SELECT e.id AS event_id, e.created_at, e.conversation_id, e.run_id,
 			       NULL AS parent_run_id,
 			       CASE
-			         WHEN e.kind = 'run.failed' OR ${read("e.payload", ["status"])} = 'failed' THEN 'failed'
-			         WHEN e.kind = 'approval.requested' OR ${read("e.payload", ["status"])} IN ('requires_approval', 'needs_delegation') THEN 'needs_input'
+			         WHEN e.kind = 'run.failed' OR ${read(sql`e.payload`, ["status"])} = 'failed' THEN 'failed'
+			         WHEN e.kind = 'approval.requested' OR ${read(sql`e.payload`, ["status"])} IN ('requires_approval', 'needs_delegation') THEN 'needs_input'
 			         ELSE 'completed' END AS status,
-			       ${read("r.metadata", ["ownerHostSessionId"])} AS owner_host_session_id
+			       ${read(sql`r.metadata`, ["ownerHostSessionId"])} AS owner_host_session_id
 			FROM ${kernelRuntimeEvents} e
 			LEFT JOIN ${kernelRuntimeRuns} r
 			  ON r.organization_id = e.organization_id AND r.id = e.run_id
 			WHERE e.organization_id = ${input.organizationId} AND e.run_id IS NOT NULL
 			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
-			  AND (e.kind != 'run.completed' OR coalesce(${read("e.payload", ["status"])}, 'completed') IN ('completed', 'failed', 'requires_approval', 'needs_delegation'))
+			  AND (e.kind != 'run.completed' OR coalesce(${read(sql`e.payload`, ["status"])}, 'completed') IN ('completed', 'failed', 'requires_approval', 'needs_delegation'))
 			  ${own.run} ${own.conversation}
 			UNION ALL
 			SELECT e.id, e.created_at, p.conversation_id, e.run_id, p.id,
 			       CASE e.kind WHEN 'run.completed' THEN 'completed'
 			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END,
-			       ${read("p.metadata", ["ownerHostSessionId"])}
+			       ${read(sql`p.metadata`, ["ownerHostSessionId"])}
 			FROM ${kernelRuntimeRuns} p ${directJoin} ${tediRuntimeEvents} e
 			  ON e.organization_id = p.organization_id
 			    AND e.run_id = p.child_run_id AND e.tedi_id = p.delegated_tedi_id
@@ -136,14 +135,14 @@ export async function listHomeRunFinishedEvents(
 			SELECT e.id, e.created_at, p.conversation_id, e.run_id, p.id,
 			       CASE e.kind WHEN 'run.completed' THEN 'completed'
 			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END,
-			       ${read("p.metadata", ["ownerHostSessionId"])}
+			       ${read(sql`p.metadata`, ["ownerHostSessionId"])}
 			FROM ${kernelRuntimeRuns} p
 			CROSS JOIN ${assignments} a
 			CROSS JOIN ${tediRuntimeEvents} e
 			WHERE p.organization_id = ${input.organizationId}
 			  AND e.organization_id = p.organization_id
-			  AND e.run_id = ${read("a.value", ["childRunId"])}
-			  AND e.tedi_id = ${read("a.value", ["ownerTediId"])}
+			  AND e.run_id = ${read(sql`a.value`, ["childRunId"])}
+			  AND e.tedi_id = ${read(sql`a.value`, ["ownerTediId"])}
 			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
 			  ${child.planned} ${child.conversation}
 		) GROUP BY conversation_id, run_id, parent_run_id, status, owner_host_session_id
