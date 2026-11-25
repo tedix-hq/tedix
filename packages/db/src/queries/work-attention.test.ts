@@ -498,6 +498,9 @@ it("keeps Postgres Attention counts, waiting asks and private runs scoped on fai
 			granteeDescopeUserId: "owner",
 			access: "owner",
 		});
+		await engine.exec(
+			"INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status) VALUES ('member','org-example','person','provider-person','person@example.test','active')",
+		);
 		await db.insert(coreTable(db, workInteractions)).values({
 			id: "ask",
 			orgId: "org-example",
@@ -506,7 +509,7 @@ it("keeps Postgres Attention counts, waiting asks and private runs scoped on fai
 			subject: "Decision",
 			prompt: "Choose next step",
 			creatorType: "system",
-			creatorId: "system",
+			creatorId: "tedix",
 			targetType: "user",
 			targetId: "person",
 			createdAt: at,

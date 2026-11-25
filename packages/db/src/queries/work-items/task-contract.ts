@@ -1,10 +1,11 @@
+import { coreTable } from "../../core-store/client";
 import { and, eq } from "drizzle-orm";
 import { assertChildTaskContract } from "@tedix/api-contract/utils/task-contract-terms";
 import { TaskContractTermsSchema } from "@tedix/api-contract/schemas/task-contract-terms";
 import type { DbQueryClient } from "../../query-client";
 import {
-	workEvents,
-	workAttempts,
+	workEvents as d1WorkEvents,
+	workAttempts as d1WorkAttempts,
 	type WorkItem,
 	type WorkAttempt,
 } from "../../schema/work-items";
@@ -14,6 +15,7 @@ export async function getAdmittedTaskContract(
 	db: DbQueryClient,
 	attempt: Pick<WorkAttempt, "orgId" | "workItemId" | "admissionId">,
 ) {
+	const workEvents = coreTable(db, d1WorkEvents);
 	if (!attempt.admissionId) return null;
 	const [event] = await db
 		.select({ payload: workEvents.payload })
@@ -37,6 +39,8 @@ export async function taskContractRefusal(
 	item: WorkItem,
 	now: string,
 ): Promise<string | undefined> {
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	if (!item.metadata?.childDelegation && !item.acceptanceContract?.taskContract)
 		return;
 	const terms = TaskContractTermsSchema.safeParse(

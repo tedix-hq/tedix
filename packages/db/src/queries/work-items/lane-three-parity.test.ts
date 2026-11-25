@@ -1,3 +1,10 @@
+import {
+	createChildWorkItem,
+	inheritedChildAuthority,
+	workDelegationAncestors,
+} from "./child-delegation";
+import { taskContractRefusal } from "./task-contract";
+import { CreateWorkItemInputSchema } from "@tedix/api-contract/schemas/work-items";
 import { listWorkActivity } from "./activity";
 import { workAgentSessions } from "../../schema/work-agent-sessions";
 import {
@@ -19,7 +26,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import { createDbQueryClient } from "../../query-client";
@@ -34,9 +41,13 @@ import {
 	workAttempts,
 	workItemOrgCounts,
 	workItemComments,
+	workEvents,
+	workItemRelations,
 } from "../../schema/work-items";
 import {
 	workAdmissions,
+	workResourcePools,
+	workResourceRequirements,
 	workCases,
 	workCaseItems,
 	workCaseDependencies,
@@ -649,5 +660,191 @@ for (const store of ["d1", "postgres"] as const)
 				],
 				["work.completed", { workItemVersion: 4 }],
 			]);
+		});
+		it("creates admitted children with inherited resources and cases, and atomically refuses budget overflow", async () => {
+			const terms = {
+				version: 2 as const,
+				goal: "Pick fruit",
+				successCriterion: [{ path: ["ok"], equals: true }],
+				budget: { maxTokens: 10, maxCostUsd: 1 },
+				remainingDepth: 1,
+				errorAllowance: 0,
+				returnFormat: {
+					type: "object" as const,
+					properties: { ok: { type: "boolean" as const } },
+					required: ["ok"],
+					additionalProperties: false as const,
+				},
+				deadline: expires,
+			};
+			const items = coreTable(db, workItems),
+				events = coreTable(db, workEvents),
+				requirements = coreTable(db, workResourceRequirements),
+				links = coreTable(db, workCaseItems);
+			await db
+				.update(coreTable(db, organizations))
+				.set({ metadata: { workDelegation: { approvalMode: "auto" } } })
+				.where(eq(coreTable(db, organizations).id, "orchard"));
+			await db.insert(items).values({
+				id: "parent",
+				orgId: "orchard",
+				title: "Parent",
+				disposition: "accepted",
+				admissionSpecRevision: "parent-spec",
+				acceptanceContract: {
+					version: 1,
+					doneLooksLike: terms.goal,
+					taskContract: terms,
+				},
+				createdAt: at,
+			});
+			await db.insert(coreTable(db, workAdmissions)).values({
+				id: "parent-admission",
+				orgId: "orchard",
+				workItemId: "parent",
+				workItemVersion: 1,
+				admissionSpecRevision: "parent-spec",
+				executorType: "tedi",
+				executorId: "gardener",
+				decision: "admitted",
+				decidedAt: at,
+				expiresAt: expires,
+				createdAt: at,
+			});
+			await db.insert(events).values({
+				id: "parent-admission",
+				orgId: "orchard",
+				workItemId: "parent",
+				eventType: "admission.task_contract",
+				actorType: "tedi",
+				actorId: "gardener",
+				payload: { taskContract: terms },
+				occurredAt: at,
+			});
+			await db.insert(coreTable(db, workAttempts)).values({
+				id: "parent-attempt",
+				orgId: "orchard",
+				workItemId: "parent",
+				admissionId: "parent-admission",
+				executorType: "tedi",
+				executorId: "gardener",
+				attemptNumber: 1,
+				runtimeState: "running",
+				startedAt: at,
+				heartbeatAt: at,
+				expiresAt: expires,
+			});
+			await db.insert(coreTable(db, workResourcePools)).values({
+				id: "basket",
+				orgId: "orchard",
+				resourceKey: "basket",
+				allocationMode: "capacity",
+				capacity: 10,
+				createdAt: at,
+			});
+			await db.insert(requirements).values({
+				orgId: "orchard",
+				workItemId: "parent",
+				resourceKey: "basket",
+				quantity: 2,
+				createdAt: at,
+				updatedAt: at,
+			});
+			for (const caseId of ["child-case-a", "child-case-b"]) {
+				await createWorkCase(db, {
+					id: caseId,
+					orgId: "orchard",
+					title: caseId,
+					kind: "delivery",
+					accountableOwnerType: "system",
+					accountableOwnerId: "tedix",
+					openedAt: at,
+					now: at,
+				});
+				await linkWorkItemToCase(db, {
+					id: caseId,
+					orgId: "orchard",
+					caseId,
+					workItemId: "parent",
+					discoveredAt: at,
+				});
+			}
+			const parent = (await getWorkItemById(db, "parent", "orchard"))!;
+			const input = CreateWorkItemInputSchema.parse({
+				title: "Child",
+				taskContract: {
+					...terms,
+					remainingDepth: 0,
+					budget: { maxTokens: 6, maxCostUsd: 0.6 },
+				},
+				blockedByWorkItemIds: [],
+			});
+			input.blockedByWorkItemIds = ["task", "held", "task"];
+			const batches = vi.spyOn(db, "batch");
+			const child = (await createChildWorkItem(db, {
+				input,
+				parent,
+				actor: { type: "tedi", id: "gardener" },
+				now: at,
+			}))!;
+			expect(batches).toHaveBeenCalledTimes(1);
+			batches.mockRestore();
+			expect(
+				await inheritedChildAuthority(db, child, {
+					type: "tedi",
+					id: "gardener",
+				}),
+			).toBe(true);
+			await expect(
+				workDelegationAncestors(db, { ...child, parentWorkItemId: child.id }),
+			).rejects.toThrow("Invalid Work delegation ancestry");
+			await expect(
+				workDelegationAncestors(db, { ...child, orgId: "river" }),
+			).rejects.toThrow("Invalid Work delegation ancestry");
+			expect(child).toMatchObject({
+				disposition: "accepted",
+				parentWorkItemId: parent.id,
+				acceptanceContract: { taskContract: input.taskContract },
+			});
+			expect(child.admissionSpecRevision).toBeTruthy();
+			expect(await taskContractRefusal(db, child, at)).toBeUndefined();
+			expect(
+				await db
+					.select()
+					.from(requirements)
+					.where(eq(requirements.workItemId, child.id)),
+			).toMatchObject([{ resourceKey: "basket", quantity: 2 }]);
+			const inherited = await db
+				.select()
+				.from(links)
+				.where(eq(links.workItemId, child.id));
+			expect(inherited.map((row) => row.caseId).sort()).toEqual([
+				"child-case-a",
+				"child-case-b",
+			]);
+			expect(new Set(inherited.map((row) => row.id)).size).toBe(2);
+			expect(
+				await db
+					.select()
+					.from(coreTable(db, workItemRelations))
+					.where(eq(coreTable(db, workItemRelations).toWorkItemId, child.id)),
+			).toHaveLength(2);
+			await expect(
+				createChildWorkItem(db, {
+					input,
+					parent,
+					actor: { type: "tedi", id: "gardener" },
+					now: at,
+				}),
+			).rejects.toThrow();
+			expect(
+				await db
+					.select()
+					.from(items)
+					.where(eq(items.parentWorkItemId, parent.id)),
+			).toHaveLength(1);
+			expect(
+				await db.select().from(events).where(eq(events.workItemId, child.id)),
+			).toHaveLength(1);
 		});
 	});

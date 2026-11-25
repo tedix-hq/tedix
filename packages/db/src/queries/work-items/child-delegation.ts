@@ -4,8 +4,10 @@ import {
 	jsonType,
 	jsonParameter,
 	booleanValue,
+	coreStore,
+	anyIds,
 } from "../../core-store/dialect";
-import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, getColumns, sql, type SQL } from "drizzle-orm";
 import { TaskContractTermsSchema } from "@tedix/api-contract/schemas/task-contract-terms";
 import { assertChildTaskContract } from "@tedix/api-contract/utils/task-contract-terms";
 import { getAdmittedTaskContract } from "./task-contract";
@@ -36,7 +38,7 @@ import {
 	workResourceRequirements,
 } from "../../schema/work-factory";
 import { organizations } from "../../schema/organizations";
-import { getWorkItemById } from "./crud";
+import { getWorkItemsByIds } from "./crud";
 import type { WorkActor } from "./factory-state";
 import { WorkControlError } from "./factory-validation";
 import { normalizeWorkItemRow } from "./normalization";
@@ -52,16 +54,40 @@ export async function workDelegationAncestors(
 	db: DbQueryClient,
 	item: WorkItem,
 ) {
+	const items = coreTable(db, workItems);
+	const rows =
+		item.parentWorkItemId && item.metadata?.childDelegation
+			? await db
+					.select(
+						Object.fromEntries(
+							Object.keys(workItemStoredColumns).map((key) => [
+								key,
+								getColumns(items)[key as keyof typeof workItemStoredColumns],
+							]),
+						) as typeof workItemStoredColumns,
+					)
+					.from(items)
+					.where(
+						and(
+							eq(items.orgId, item.orgId),
+							sql`${items.id} IN (
+				WITH RECURSIVE ancestry(id, depth) AS (
+					SELECT ${item.parentWorkItemId}, 1
+					UNION ALL SELECT parent.parent_work_item_id, ancestry.depth + 1
+					FROM work_items parent JOIN ancestry ON parent.id=ancestry.id
+					WHERE parent.org_id=${item.orgId} AND ancestry.depth<=10 AND parent.parent_work_item_id IS NOT NULL
+				) SELECT id FROM ancestry
+			)`,
+						),
+					)
+			: [];
+	const byId = new Map(rows.map((row) => [row.id, normalizeWorkItemRow(row)]));
 	const ancestors = [item];
 	while (
 		ancestors.at(-1)!.parentWorkItemId &&
 		ancestors.at(-1)!.metadata?.childDelegation
 	) {
-		const parent = await getWorkItemById(
-			db,
-			ancestors.at(-1)!.parentWorkItemId!,
-			item.orgId,
-		);
+		const parent = byId.get(ancestors.at(-1)!.parentWorkItemId!);
 		if (
 			!parent ||
 			ancestors.some((node) => node.id === parent.id) ||
@@ -86,30 +112,39 @@ export async function createChildWorkItem(
 		now: string;
 	},
 ): Promise<WorkItem | null> {
+	const storeWorkAttempts = coreTable(db, workAttempts);
+	const storeWorkAdmissions = coreTable(db, workAdmissions);
+	const storeOrganizations = coreTable(db, organizations);
+	const storeWorkItems = coreTable(db, workItems);
+	const storeWorkResourceRequirements = coreTable(db, workResourceRequirements);
+	const storeWorkCaseItems = coreTable(db, workCaseItems);
+	const storeWorkItemRelations = coreTable(db, workItemRelations);
+	const storeWorkEvents = coreTable(db, workEvents);
+
 	if (p.actor.type !== "external_agent" && p.actor.type !== "tedi") return null;
 	const parent = p.parent;
 	const attempt = (
 		await db
 			.select()
-			.from(workAttempts)
+			.from(storeWorkAttempts)
 			.where(
 				and(
-					eq(workAttempts.orgId, parent.orgId),
-					eq(workAttempts.workItemId, parent.id),
-					eq(workAttempts.executorType, p.actor.type),
-					eq(workAttempts.executorId, p.actor.id),
+					eq(storeWorkAttempts.orgId, parent.orgId),
+					eq(storeWorkAttempts.workItemId, parent.id),
+					eq(storeWorkAttempts.executorType, p.actor.type),
+					eq(storeWorkAttempts.executorId, p.actor.id),
 					p.actor.sessionId
-						? eq(workAttempts.executorSessionId, p.actor.sessionId)
+						? eq(storeWorkAttempts.executorSessionId, p.actor.sessionId)
 						: undefined,
 					p.externalSessionKey
-						? eq(workAttempts.externalSessionKey, p.externalSessionKey)
+						? eq(storeWorkAttempts.externalSessionKey, p.externalSessionKey)
 						: undefined,
-					inArray(workAttempts.runtimeState, [
+					inArray(storeWorkAttempts.runtimeState, [
 						"running",
 						"waiting",
 						"retrying",
 					]),
-					sql`${workAttempts.expiresAt}>${p.now}`,
+					sql`${storeWorkAttempts.expiresAt}>${p.now}`,
 				),
 			)
 			.limit(1)
@@ -127,17 +162,17 @@ export async function createChildWorkItem(
 	const admission = (
 		await db
 			.select()
-			.from(workAdmissions)
+			.from(storeWorkAdmissions)
 			.where(
 				and(
-					eq(workAdmissions.id, attempt.admissionId),
-					eq(workAdmissions.orgId, parent.orgId),
-					eq(workAdmissions.workItemId, parent.id),
+					eq(storeWorkAdmissions.id, attempt.admissionId),
+					eq(storeWorkAdmissions.orgId, parent.orgId),
+					eq(storeWorkAdmissions.workItemId, parent.id),
 					eq(
-						workAdmissions.admissionSpecRevision,
+						storeWorkAdmissions.admissionSpecRevision,
 						parent.admissionSpecRevision,
 					),
-					eq(workAdmissions.decision, "admitted"),
+					eq(storeWorkAdmissions.decision, "admitted"),
 				),
 			)
 			.limit(1)
@@ -147,12 +182,16 @@ export async function createChildWorkItem(
 			"NOT_ELIGIBLE",
 			"The parent's admitted specification changed",
 		);
-	for (const predecessor of p.input.blockedByWorkItemIds ?? [])
-		if (!(await getWorkItemById(db, predecessor, parent.orgId)))
-			throw new WorkControlError(
-				"NOT_FOUND",
-				"Child predecessor is outside this organization",
-			);
+	const predecessors = [...new Set(p.input.blockedByWorkItemIds ?? [])];
+	if (
+		predecessors.length &&
+		(await getWorkItemsByIds(db, { orgId: parent.orgId, ids: predecessors }))
+			.length !== predecessors.length
+	)
+		throw new WorkControlError(
+			"NOT_FOUND",
+			"Child predecessor is outside this organization",
+		);
 	const ancestors = await workDelegationAncestors(db, parent);
 	const parentContract = await getAdmittedTaskContract(db, attempt);
 	if (!parentContract)
@@ -228,9 +267,9 @@ export async function createChildWorkItem(
 		);
 	const org = (
 		await db
-			.select({ metadata: organizations.metadata })
-			.from(organizations)
-			.where(eq(organizations.id, parent.orgId))
+			.select({ metadata: storeOrganizations.metadata })
+			.from(storeOrganizations)
+			.where(eq(storeOrganizations.id, parent.orgId))
 			.limit(1)
 	)[0];
 	const inheritedMode =
@@ -282,9 +321,13 @@ export async function createChildWorkItem(
 	};
 	delete metadata.executor;
 	delete metadata.laneDispatch;
-	const rows = await db.batch([
+	const [, rows] = await db.batch([
+		// PostgreSQL must serialize descendant allocations before the next statement reads their totals.
+		db.run(
+			sql`SELECT id FROM work_items WHERE org_id=${parent.orgId} AND id=${root.id} ${coreStore(db) === "postgres" ? sql`FOR UPDATE` : sql``}`,
+		),
 		db
-			.insert(workItems)
+			.insert(storeWorkItems)
 			.values({
 				id,
 				orgId: parent.orgId,
@@ -292,8 +335,8 @@ export async function createChildWorkItem(
 				title: sql`CASE WHEN EXISTS (SELECT 1 FROM work_attempts a JOIN work_items p ON p.id=a.work_item_id AND p.org_id=a.org_id JOIN work_admissions grant_receipt ON grant_receipt.id=a.admission_id AND grant_receipt.admission_spec_revision=p.admission_spec_revision
 				WHERE a.id=${attempt.id} AND a.expires_at>${p.now} AND a.runtime_state IN ('running','waiting','retrying') AND p.version=${parent.version} AND p.disposition='accepted')
 				AND (SELECT count(*) FROM work_items WHERE ${workTreeContains(parent.orgId, root.id, sql`id`)}) <= ${maxDescendants}
-				AND (SELECT coalesce(sum(json_extract(allocation.payload,'$.taskContract.budget.maxTokens')),0) FROM work_events allocation JOIN work_items child ON child.id=allocation.id AND child.org_id=allocation.org_id WHERE child.org_id=${parent.orgId} AND child.parent_work_item_id=${parent.id}) + ${childContract.budget.maxTokens} <= ${parentContract.budget.maxTokens}
-				AND (SELECT coalesce(sum(json_extract(allocation.payload,'$.taskContract.budget.maxCostUsd')),0) FROM work_events allocation JOIN work_items child ON child.id=allocation.id AND child.org_id=allocation.org_id WHERE child.org_id=${parent.orgId} AND child.parent_work_item_id=${parent.id}) + ${childContract.budget.maxCostUsd} <= ${parentContract.budget.maxCostUsd}
+				AND (SELECT coalesce(sum(${jsonRead(db, sql`allocation.payload`, ["taskContract", "budget", "maxTokens"], "number")}),0) FROM work_events allocation JOIN work_items child ON child.id=allocation.id AND child.org_id=allocation.org_id WHERE child.org_id=${parent.orgId} AND child.parent_work_item_id=${parent.id}) + ${childContract.budget.maxTokens} <= ${parentContract.budget.maxTokens}
+				AND (SELECT coalesce(sum(${jsonRead(db, sql`allocation.payload`, ["taskContract", "budget", "maxCostUsd"], "number")}),0) FROM work_events allocation JOIN work_items child ON child.id=allocation.id AND child.org_id=allocation.org_id WHERE child.org_id=${parent.orgId} AND child.parent_work_item_id=${parent.id}) + ${childContract.budget.maxCostUsd} <= ${parentContract.budget.maxCostUsd}
 				THEN ${input.title} ELSE NULL END`,
 				description: input.description,
 				workKind: input.workKind,
@@ -324,50 +367,62 @@ export async function createChildWorkItem(
 				},
 				acceptedAt: accepted ? p.now : null,
 				metadata,
-				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+				admissionSpecRevision: crypto.randomUUID(),
 				createdAt: p.now,
 				sourceIntentId: input.sourceIntentId,
 				startAt: input.startAt,
 			})
-			.returning(workItemStoredColumns),
-		db.insert(workResourceRequirements).select(
+			.returning(
+				Object.fromEntries(
+					Object.keys(workItemStoredColumns).map((key) => [
+						key,
+						getColumns(storeWorkItems)[
+							key as keyof typeof workItemStoredColumns
+						],
+					]),
+				) as typeof workItemStoredColumns,
+			),
+		db.insert(storeWorkResourceRequirements).select(
 			db
 				.select({
-					orgId: workResourceRequirements.orgId,
+					orgId: storeWorkResourceRequirements.orgId,
 					workItemId: sql<string>`${id}`.as("work_item_id"),
-					resourceKey: workResourceRequirements.resourceKey,
-					quantity: workResourceRequirements.quantity,
+					resourceKey: storeWorkResourceRequirements.resourceKey,
+					quantity: storeWorkResourceRequirements.quantity,
 					createdAt: sql<string>`${p.now}`.as("created_at"),
 					updatedAt: sql<string>`${p.now}`.as("updated_at"),
 				})
-				.from(workResourceRequirements)
+				.from(storeWorkResourceRequirements)
 				.where(
 					and(
-						eq(workResourceRequirements.orgId, parent.orgId),
-						eq(workResourceRequirements.workItemId, parent.id),
+						eq(storeWorkResourceRequirements.orgId, parent.orgId),
+						eq(storeWorkResourceRequirements.workItemId, parent.id),
 					),
 				),
 		),
-		db.insert(workCaseItems).select(
+		db.insert(storeWorkCaseItems).select(
 			db
 				.select({
-					id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
-					orgId: workCaseItems.orgId,
-					caseId: workCaseItems.caseId,
+					id: (coreStore(db) === "postgres"
+						? sql<string>`gen_random_uuid()::text`
+						: sql<string>`lower(hex(randomblob(16)))`
+					).as("id"),
+					orgId: storeWorkCaseItems.orgId,
+					caseId: storeWorkCaseItems.caseId,
 					workItemId: sql<string>`${id}`.as("work_item_id"),
 					discoveredAt: sql<string>`${p.now}`.as("discovered_at"),
 				})
-				.from(workCaseItems)
+				.from(storeWorkCaseItems)
 				.where(
 					and(
-						eq(workCaseItems.orgId, parent.orgId),
-						eq(workCaseItems.workItemId, parent.id),
+						eq(storeWorkCaseItems.orgId, parent.orgId),
+						eq(storeWorkCaseItems.workItemId, parent.id),
 					),
 				),
 		),
 		...(input.blockedByWorkItemIds?.length
 			? [
-					db.insert(workItemRelations).values(
+					db.insert(storeWorkItemRelations).values(
 						[...new Set(input.blockedByWorkItemIds)].map((predecessor) => ({
 							id: crypto.randomUUID(),
 							orgId: parent.orgId,
@@ -379,7 +434,7 @@ export async function createChildWorkItem(
 					),
 				]
 			: []),
-		db.insert(workEvents).values({
+		db.insert(storeWorkEvents).values({
 			id,
 			orgId: parent.orgId,
 			workItemId: id,
@@ -395,7 +450,7 @@ export async function createChildWorkItem(
 			occurredAt: p.now,
 		}),
 	]);
-	return normalizeWorkItemRow(rows[0][0]!);
+	return normalizeWorkItemRow(rows[0]!);
 }
 
 /** Admission still checks the child's own executor, resources and money. Only acceptance authority descends. */
@@ -404,8 +459,33 @@ export async function inheritedChildAuthority(
 	item: WorkItem,
 	executor?: { type: string; id: string },
 ) {
+	const storeWorkAttempts = coreTable(db, workAttempts);
+	const storeOrganizations = coreTable(db, organizations);
+
 	if (!item.metadata?.childDelegation) return false;
 	const ancestors = await workDelegationAncestors(db, item);
+	const attempts = await db
+		.select()
+		.from(storeWorkAttempts)
+		.where(
+			and(
+				eq(storeWorkAttempts.orgId, item.orgId),
+				anyIds(
+					db,
+					storeWorkAttempts.id,
+					ancestors
+						.slice(0, -1)
+						.map(
+							(child) =>
+								(
+									child.metadata?.childDelegation as
+										| { parentAttemptId?: string }
+										| undefined
+								)?.parentAttemptId ?? "",
+						),
+				),
+			),
+		);
 	for (let i = 0; i < ancestors.length - 1; i++) {
 		const child = ancestors[i]!;
 		const parent = ancestors[i + 1]!;
@@ -425,19 +505,9 @@ export async function inheritedChildAuthority(
 				"NOT_ELIGIBLE",
 				"The parent's delegation grant changed",
 			);
-		const attempt = (
-			await db
-				.select()
-				.from(workAttempts)
-				.where(
-					and(
-						eq(workAttempts.orgId, item.orgId),
-						eq(workAttempts.workItemId, parent.id),
-						eq(workAttempts.id, grant.parentAttemptId ?? ""),
-					),
-				)
-				.limit(1)
-		)[0];
+		const attempt = attempts.find(
+			(row) => row.id === grant.parentAttemptId && row.workItemId === parent.id,
+		);
 		if (
 			!attempt?.admissionId ||
 			(executor &&
@@ -472,9 +542,9 @@ export async function inheritedChildAuthority(
 	}
 	const org = (
 		await db
-			.select({ metadata: organizations.metadata })
-			.from(organizations)
-			.where(eq(organizations.id, item.orgId))
+			.select({ metadata: storeOrganizations.metadata })
+			.from(storeOrganizations)
+			.where(eq(storeOrganizations.id, item.orgId))
 			.limit(1)
 	)[0];
 	const root = ancestors.at(-1)!;
