@@ -10,11 +10,92 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { revokeAgentHostGrants } from "./agent-host-grant";
+import {
+	readAgentHostProfile,
+	revokeAgentHostGrants,
+} from "./agent-host-grant";
 import { TEDIX_CONNECT_MCP_URL } from "./oauth-provider";
 
 const token = (revision: string, aud = TEDIX_CONNECT_MCP_URL) =>
 	`e30.${Buffer.from(JSON.stringify({ aud, token_type: "access_token", dci: "shared-consent", tedixConsentRevision: revision })).toString("base64url")}.signature`;
+
+describe("checking an agent's Tedix account", () => {
+	it.each(["devin", "opencode"] as const)(
+		"reads the profile with %s's credential without changing it or answering consent",
+		async (host) => {
+			const stored = {
+				tokens: { accessToken: token(host), refreshToken: "private-refresh" },
+			};
+			let writes = 0;
+			const methods: string[] = [];
+			const profile = { id: "user_other", email: "other@example.com" };
+			const result = await readAgentHostProfile(host, {
+				stores: [{ read: () => stored, write: () => writes++ }],
+				fetcher: async (url, init) => {
+					expect(String(url)).toBe(TEDIX_CONNECT_MCP_URL);
+					expect(new Headers(init?.headers).get("Authorization")).toBe(
+						`Bearer ${stored.tokens.accessToken}`,
+					);
+					expect(String(init?.body)).not.toContain("private-refresh");
+					const request = JSON.parse(String(init?.body));
+					methods.push(request.method);
+					if (request.method === "tools/call")
+						expect(request.params).toMatchObject({
+							name: "get_profile",
+							arguments: {},
+						});
+					return Response.json({
+						jsonrpc: "2.0",
+						id: request.id,
+						result:
+							request.method === "server/discover"
+								? { supportedVersions: ["2026-07-28"] }
+								: { content: [], structuredContent: profile },
+					});
+				},
+			});
+			expect(result).toMatchObject({ structuredContent: profile });
+			expect(methods).toEqual(["server/discover", "tools/call"]);
+			expect(writes).toBe(0);
+		},
+	);
+
+	it("refuses ambiguous or changed credentials rather than reporting the wrong account", async () => {
+		const credential = (name: string) => ({
+			accessToken: token(name),
+			refreshToken: "private-refresh",
+		});
+		let stored = credential("before");
+		const store = { read: () => stored, write: () => {} };
+		await expect(
+			readAgentHostProfile("devin", {
+				stores: [store, { read: () => credential("other"), write: () => {} }],
+				fetcher: async () => {
+					throw new Error("Must not call with an ambiguous sign-in");
+				},
+			}),
+		).rejects.toThrow("Could not identify one Tedix sign-in");
+		await expect(
+			readAgentHostProfile("opencode", {
+				stores: [store],
+				fetcher: async (_url, init) => {
+					const request = JSON.parse(String(init?.body));
+					if (request.method === "tools/call") stored = credential("after");
+					return Response.json({
+						jsonrpc: "2.0",
+						id: request.id,
+						result:
+							request.method === "server/discover"
+								? { supportedVersions: ["2026-07-28"] }
+								: {
+										structuredContent: { id: "old", email: "old@example.com" },
+									},
+					});
+				},
+			}),
+		).rejects.toThrow("sign-in in opencode changed");
+	});
+});
 
 describe("removing one agent's stored Tedix sign-in", () => {
 	it("selects OpenCode's named connection and active credential while preserving other sign-ins to the same server", async () => {
@@ -61,6 +142,40 @@ describe("removing one agent's stored Tedix sign-in", () => {
 				JSON.stringify(credential("another")),
 				1,
 			);
+			const readProfile = (switchAccount = false) =>
+				readAgentHostProfile("opencode", {
+					env: { XDG_DATA_HOME: root },
+					fetcher: async (_url, init) => {
+						expect(new Headers(init?.headers).get("Authorization")).toBe(
+							`Bearer ${token("target-db")}`,
+						);
+						const request = JSON.parse(String(init?.body));
+						if (switchAccount && request.method === "tools/call")
+							db.query(
+								"UPDATE credential SET active = 0 WHERE id = 'target'",
+							).run();
+						return Response.json({
+							jsonrpc: "2.0",
+							id: request.id,
+							result:
+								request.method === "server/discover"
+									? { supportedVersions: ["2026-07-28"] }
+									: {
+											structuredContent: {
+												id: "current",
+												email: "current@example.com",
+											},
+										},
+						});
+					},
+				});
+			expect(await readProfile()).toMatchObject({
+				structuredContent: { email: "current@example.com" },
+			});
+			await expect(readProfile(true)).rejects.toThrow(
+				"sign-in in opencode changed",
+			);
+			db.query("UPDATE credential SET active = 1 WHERE id = 'target'").run();
 			expect(
 				await revokeAgentHostGrants("opencode", {
 					env: { XDG_DATA_HOME: root },

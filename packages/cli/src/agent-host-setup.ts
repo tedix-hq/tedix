@@ -11,7 +11,10 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { REMOVABLE_HOSTS, removeTedix } from "./agent-host-remove";
-import { revokeAgentHostGrants } from "./agent-host-grant";
+import {
+	readAgentHostProfile,
+	revokeAgentHostGrants,
+} from "./agent-host-grant";
 import { credentialDirectory } from "./credential-store";
 import { devinConfigDirectory, setupDevin } from "./devin-config";
 import {
@@ -69,6 +72,8 @@ Usage:
   tedix setup agents --status --json Print the same facts as JSON, Devin and OpenCode included
   tedix setup agents --codex --verify Verify a read inside Codex (no model call)
   tedix setup agents --claude --verify Verify a read inside Claude (uses its model)
+  tedix setup agents --devin --verify Read the profile with Devin's Tedix sign-in
+  tedix setup agents --opencode --verify Read the profile with OpenCode's Tedix sign-in
   tedix setup agents --update        Preview and refresh installed host plugins
   tedix setup agents --dry-run       Show planned host commands without installing
   tedix setup agents --remove --codex Remove Tedix from one agent (also --claude,
@@ -818,14 +823,24 @@ export async function runAgentHostSetup(
 		return 0;
 	}
 	if (args.includes("--verify")) {
-		const host = args.includes("--codex")
-			? "codex"
-			: args.includes("--claude")
-				? "claude"
-				: undefined;
-		if (!host || args.length !== 2 || new Set(args).size !== 2)
-			throw new Error("Use --verify with exactly one of --codex or --claude.");
-		const account = await verifyHost(host, run);
+		const hosts = REMOVABLE_HOSTS.filter((host) => args.includes(`--${host}`));
+		if (hosts.length !== 1 || args.length !== 2 || new Set(args).size !== 2)
+			throw new Error(
+				"Use --verify with exactly one of --codex, --claude, --devin or --opencode.",
+			);
+		const host = hosts[0]!;
+		let account: string | undefined;
+		if (host === "devin" || host === "opencode") {
+			const result = asRecord(await readAgentHostProfile(host));
+			if (result?.isError !== true)
+				account =
+					profileAccount(result?.structuredContent) ??
+					profileAccount(result?.content);
+			if (!account)
+				throw new Error(
+					`Could not read the Tedix profile for ${host}. Check its Tedix sign-in inside the agent.`,
+				);
+		} else account = await verifyHost(host, run);
 		console.log(
 			`${host}: a Tedix profile read succeeded inside the tool${account ? `, as ${account}` : ""}.`,
 		);

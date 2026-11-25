@@ -39,6 +39,7 @@ import {
 } from "./shell";
 import {
 	agentGrant,
+	checkedTedixAccount,
 	duplicateClaudeConnection,
 	type AgentGrant,
 	type Connection,
@@ -480,6 +481,7 @@ let toolFacts: Record<
 		version: string;
 		hasTedix: boolean;
 		connection: Connection;
+		tedixAccount?: string;
 		providerAccount?: Connection;
 		duplicateConnection?: boolean;
 		signInWorks: boolean;
@@ -526,6 +528,7 @@ function verificationTarget(
 }
 function setVerified(id: Harness, target?: VerificationTarget): void {
 	delete checkedAccounts[id];
+	if (!target && toolFacts[id]) delete toolFacts[id]!.tedixAccount;
 	const next = { ...readVerified() };
 	if (target) next[id] = { ...target, at: Date.now() };
 	else if (!next[id]) return;
@@ -1002,6 +1005,20 @@ async function readToolFacts(): Promise<void> {
 						}
 					: undefined,
 			};
+			if (
+				(tool.id === "devin" || tool.id === "opencode") &&
+				connection === "signed-in"
+			) {
+				const profile = await tedix(
+					["-w", "connect", "setup", "agents", `--${tool.id}`, "--verify"],
+					{
+						env: { PATH: [dirname(command), harnessPath()].join(delimiter) },
+						timeoutMs: 45_000,
+					},
+				);
+				if (profile.ok)
+					facts[tool.id]!.tedixAccount = checkedTedixAccount(profile.output);
+			}
 		}),
 	);
 	toolFacts = facts;
@@ -1121,7 +1138,14 @@ function toolRows(): ToolRow[] {
 		)
 			row.note = `The ${tool.binary} command is signed in to Tedix, but ${desktop} keeps its own sign-in. Choose Connect to sign in ${desktop} too.`;
 		const checked = checkedAccounts[tool.id];
+		if (tool.id === "devin" || tool.id === "opencode")
+			row.tedixAccount =
+				row.enabled && row.connection === "signed-in"
+					? facts.tedixAccount
+					: undefined;
 		if (
+			tool.id !== "devin" &&
+			tool.id !== "opencode" &&
 			row.enabled &&
 			row.connection === "signed-in" &&
 			recentConnectionCheck(
@@ -1678,32 +1702,6 @@ export async function setupAction(
 			setVerified(tool.id);
 			if (!command) throw new Error(`Open ${toolName} once, then check again.`);
 			const target = verificationTarget(tool.id, command);
-			if (tool.id === "devin" || tool.id === "opencode") {
-				say(`Checking Tedix in ${toolName}…`);
-				const onStart = (stop: () => void) => {
-					const key = `verify:${tool.id}`;
-					stops[key] = stop;
-					if (cancelled.has(key)) stop();
-				};
-				let status: Connection;
-				if (tool.id === "devin") {
-					if (!(await hasDevinConnection(command)))
-						throw new Error("Choose Connect to add Tedix to Devin first.");
-					status = await checkDevinConnection(command, CONNECT_URL, onStart);
-				} else {
-					status = await checkOpenCode(command, `verify:${tool.id}`);
-				}
-				if (status === "signed-out")
-					throw new Error(
-						`Sign in to Tedix from ${toolName}, then check again.`,
-					);
-				if (status !== "signed-in")
-					throw new Error(
-						`${toolName} could not confirm the connection. Try again in a moment.`,
-					);
-				setVerified(tool.id, target);
-				return `${toolName} confirmed the Tedix connection.`;
-			}
 			say(`Checking a read inside ${tool.name}…`);
 			const output = await must(
 				tedix(
@@ -1719,9 +1717,13 @@ export async function setupAction(
 			);
 			setVerified(tool.id, target);
 			// Only the host's profile result is evidence; never substitute the app login.
-			const account = /, as ([^\s,]+)\.\s*$/m.exec(output)?.[1];
+			const account = checkedTedixAccount(output);
 			if (account && target)
 				checkedAccounts[tool.id] = { ...target, account, at: Date.now() };
+			if (tool.id === "devin" || tool.id === "opencode") {
+				const facts = toolFacts[tool.id];
+				if (facts?.command === command) facts.tedixAccount = account;
+			}
 			return `A Tedix read succeeded inside ${toolName}${account ? `, as ${account}` : ""}.`;
 		});
 	if (action === "verify") {

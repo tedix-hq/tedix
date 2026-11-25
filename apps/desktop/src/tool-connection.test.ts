@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
 	agentConnectionProblem,
 	agentGrant,
+	checkedTedixAccount,
 	duplicateClaudeConnection,
 	devinConnection,
 	opencodeConnection,
@@ -12,6 +13,20 @@ import {
 } from "./tool-connection";
 
 test("a checked Tedix email is compared to the app without guessing opaque identities", () => {
+	for (const host of ["devin", "opencode"]) {
+		const account = checkedTedixAccount(
+			`${host}: a Tedix profile read succeeded inside the tool, as other@example.com.\n`,
+		);
+		assert.equal(account, "other@example.com");
+		assert.equal(
+			tedixAccountSummary(account, "app@example.com").text,
+			"Tedix account last checked: other@example.com (different from this app)",
+		);
+	}
+	assert.equal(
+		checkedTedixAccount("OpenCode confirmed the Tedix connection."),
+		undefined,
+	);
 	assert.equal(
 		tedixAccountSummary(undefined, "app@example.com").text,
 		"Tedix account: not checked",

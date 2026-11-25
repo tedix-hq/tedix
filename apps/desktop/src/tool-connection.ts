@@ -1,6 +1,10 @@
 import type { McpAuthorization } from "@tedix/api-contract/schemas/mcp-grant";
 export type Connection = "signed-in" | "signed-out" | "unknown";
 
+export function checkedTedixAccount(output: string): string | undefined {
+	return /, as ([^\s,]+)\.\s*$/m.exec(output)?.[1];
+}
+
 /** Only compare emails; an opaque ID cannot be compared to the app's email. */
 export function tedixAccountSummary(
 	account: string | undefined,

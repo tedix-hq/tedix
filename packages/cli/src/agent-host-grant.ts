@@ -13,6 +13,7 @@ import { join, resolve } from "node:path";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { RemovableHost } from "./agent-host-remove";
 import { TEDIX_CONNECT_MCP_URL } from "./oauth-provider";
+import { TedixHomeClient } from "./home-client";
 
 type Grant = {
 	accessToken: string;
@@ -197,6 +198,7 @@ function keychainStore(service: string, account?: string): Store | undefined {
 async function hostStores(
 	host: RemovableHost,
 	env: NodeJS.ProcessEnv,
+	activeOnly = false,
 ): Promise<Store[]> {
 	const root = homedir();
 	const data = env.XDG_DATA_HOME || join(root, ".local", "share");
@@ -266,6 +268,8 @@ async function hostStores(
 							"SELECT id, value FROM credential WHERE integration_id = ? AND active = 1",
 						)
 						.all(integration);
+					// OpenCode 2 uses its active database credential, not a legacy file.
+					if (activeOnly && rows.length) stores.length = 0;
 					for (const row of rows) {
 						stores.push({
 							read: () => {
@@ -273,7 +277,9 @@ async function hostStores(
 								try {
 									const value = current
 										.query<{ value: string }, [string]>(
-											"SELECT value FROM credential WHERE id = ?",
+											activeOnly
+												? "SELECT value FROM credential WHERE id = ? AND active = 1"
+												: "SELECT value FROM credential WHERE id = ?",
 										)
 										.get(row.id);
 									return value ? JSON.parse(value.value) : {};
@@ -307,6 +313,48 @@ async function hostStores(
 		}
 	}
 	return stores;
+}
+
+/** Read with the agent's existing credential, without renewing it or requesting consent. */
+export async function readAgentHostProfile(
+	host: "devin" | "opencode",
+	options: {
+		env?: NodeJS.ProcessEnv;
+		fetcher?: GrantFetch;
+		stores?: Store[];
+	} = {},
+): Promise<unknown> {
+	const stores =
+		options.stores ??
+		(await hostStores(host, options.env ?? process.env, true));
+	const tokens = () => {
+		const found: Grant[] = [];
+		for (const store of stores) visit(store.read(), found);
+		return [...new Set(found.map((item) => item.accessToken))];
+	};
+	const before = tokens();
+	if (before.length !== 1)
+		throw new Error(
+			`Could not identify one Tedix sign-in for ${host}. Check its connection inside the agent.`,
+		);
+	const client = new TedixHomeClient({
+		url: TEDIX_CONNECT_MCP_URL,
+		headers: { Authorization: `Bearer ${before[0]}` },
+		timeoutMs: 30_000,
+		fetch: options.fetcher,
+	});
+	try {
+		const result = await client.rawRequest(
+			"tools/call",
+			{ name: "get_profile", arguments: {} },
+			{ signal: AbortSignal.timeout(30_000) },
+		);
+		if (JSON.stringify(tokens()) !== JSON.stringify(before))
+			throw new Error(`The Tedix sign-in in ${host} changed. Check again.`);
+		return result;
+	} finally {
+		await client.close();
+	}
 }
 
 /** Server confirmation precedes local cleanup, so a failed revoke remains retryable. */

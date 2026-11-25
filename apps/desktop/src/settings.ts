@@ -452,8 +452,7 @@ function tools(now: PanelState): Group[] {
 						: view.tone,
 			control: [
 				view.cancel && button("Cancel", "quiet", view.cancel),
-				(tool.id === "claude" || tool.id === "codex") &&
-					tool.found === "found" &&
+				tool.found === "found" &&
 					tool.tedix === "added" &&
 					tool.connection === "signed-in" &&
 					tool.readVerified &&
