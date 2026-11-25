@@ -231,7 +231,7 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 		...key,
 		appId: "app",
 		selectedTenantIds: ["tenant"],
-		approvedScopes: ["mcp:apps.read"],
+		approvedScopes: ["mcp:apps.read", "mcp:work.read"],
 	};
 	const pending = {
 		...authority,
@@ -245,6 +245,59 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 		status: "active" as const,
 		approvedScopes: ["mcp:apps.read", "mcp:work.read"],
 	};
+	it("adds a step-up permission while keeping the earlier installation signed in", async () => {
+		const { db } = fixture();
+		await replaceMcpConsentSelection(db, active);
+		const secondInstall = await stageMcpConsentPending(db, {
+			...pending,
+			revision: "second-install",
+			selectedTenantIds: ["other-tenant"],
+			approvedScopes: ["mcp:apps.write"],
+		});
+		expect(await promoteMcpConsentPending(db, secondInstall)).toBe(true);
+		const staged = await stageMcpConsentPending(db, {
+			...pending,
+			expectedActiveRevision: secondInstall.revision,
+			approvedScopes: ["mcp:work.write"],
+		});
+		const union = ["mcp:apps.read", "mcp:work.read", "mcp:work.write"];
+		expect(staged.approvedScopes).toEqual(union);
+		expect(await promoteMcpConsentPending(db, staged)).toBe(true);
+		expect(await getMcpConsentSelection(db, key)).toMatchObject({
+			revision: staged.revision,
+			approvedScopes: union,
+		});
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: staged.revision }),
+		).toMatchObject({ approvedScopes: union });
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: active.revision }),
+		).toMatchObject({ approvedScopes: active.approvedScopes });
+	});
+
+	it("does not carry permissions to another organization or through revocation", async () => {
+		const { db } = fixture();
+		await replaceMcpConsentSelection(db, active);
+		const other = await stageMcpConsentPending(db, {
+			...pending,
+			selectedTenantIds: ["other-tenant"],
+			approvedScopes: ["mcp:work.write"],
+		});
+		expect(other.approvedScopes).toEqual(["mcp:work.write"]);
+		await disableMcpConsentSelection(db, {
+			...key,
+			expectedRevision: active.revision,
+			revision: "revoked",
+		});
+		const afterRevoke = await stageMcpConsentPending(db, {
+			...pending,
+			revision: "after-revoke",
+			approvedScopes: ["mcp:work.write"],
+		});
+		expect(afterRevoke.approvedScopes).toEqual(["mcp:work.write"]);
+		expect(await promoteMcpConsentPending(db, afterRevoke)).toBe(false);
+	});
+
 	it("keeps the active grant while pending and lets concurrent installs each activate", async () => {
 		const { db } = fixture();
 		await replaceMcpConsentSelection(db, active);

@@ -320,7 +320,30 @@ export async function stageMcpConsentPending(
 	db: DbQueryClient,
 	input: NewMcpConsentPendingRow,
 ) {
-	const [row] = await db.insert(mcpConsentPending).values(input).returning();
+	const [grants, selection] = await Promise.all([
+		listMcpConsentGrants(db, input),
+		getMcpConsentSelection(db, input),
+	]);
+	const previous =
+		selection?.status === "active" ? [...grants, selection] : grants;
+	// A step-up adds permissions without moving authority between organizations
+	// or changing the ceiling of an already-issued installation revision.
+	const approvedScopes = [
+		...new Set([
+			...input.approvedScopes,
+			...previous.flatMap((grant) =>
+				grant.appId === input.appId &&
+				JSON.stringify([...grant.selectedTenantIds].sort()) ===
+					JSON.stringify([...input.selectedTenantIds].sort())
+					? grant.approvedScopes
+					: [],
+			),
+		]),
+	].sort();
+	const [row] = await db
+		.insert(mcpConsentPending)
+		.values({ ...input, approvedScopes })
+		.returning();
 	if (!row) throw new Error("Failed to stage MCP consent candidate");
 	return row;
 }

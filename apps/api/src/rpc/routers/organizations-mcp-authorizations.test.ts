@@ -197,6 +197,56 @@ function fixture() {
 }
 
 describe("grant verification across D1 replica lag", () => {
+	it("accepts both the step-up union and the earlier revision of a shared client", async () => {
+		const { client, primary } = fixture();
+		await replaceMcpConsentSelection(primary, selection);
+		const scopes = ["mcp:apps.read", "mcp:work.read"];
+		mocks.loadServer.mockResolvedValue({
+			id: input.mcpServerId,
+			type: "mcp",
+			audienceWhitelist: ["https://example.test/mcp"],
+			approvedScopes: {
+				connectionsScopes: scopes.map((name) => ({ name })),
+			},
+		});
+		mocks.searchConsents.mockResolvedValue({
+			ok: true,
+			data: [
+				{
+					id: input.consentId,
+					appId: selection.appId,
+					userId: input.descopeUserId,
+					scopes,
+				},
+			],
+		});
+		const staged = await stageMcpConsentPending(primary, {
+			...selection,
+			revision: "00000000-0000-4000-8000-000000000003",
+			expectedActiveRevision: selection.revision,
+			approvedScopes: ["mcp:work.read"],
+			expiresAt: "2099-01-01T00:00:00.000Z",
+		});
+		await expect(
+			client.verify({
+				...input,
+				consentRevision: staged.revision,
+				tokenScopes: scopes,
+				supportsConsentScopeCeiling: true,
+			}),
+		).resolves.toMatchObject({ allowed: true, effectiveScopes: scopes });
+		await expect(
+			client.verify({
+				...input,
+				tokenScopes: scopes,
+				supportsConsentScopeCeiling: true,
+			}),
+		).resolves.toMatchObject({
+			allowed: true,
+			effectiveScopes: input.tokenScopes,
+		});
+	});
+
 	it("revokes one install and its refresh token while another install sharing the same consent keeps working", async () => {
 		const { client, primary, replica } = fixture();
 		await replaceMcpConsentSelection(primary, selection);
