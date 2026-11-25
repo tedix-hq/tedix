@@ -337,9 +337,22 @@ function git(args: string[], inherit = false, cwd = process.cwd()) {
 	};
 }
 
+/**
+ * False when the checkout and `origin/main` have no commit in common: main's
+ * history was replaced after this checkout was made. Rebasing it would replay
+ * the old history onto the new one and publish the replaced commits again.
+ */
+export function sharesHistoryWithMain(cwd = process.cwd()): boolean {
+	return git(["merge-base", "HEAD", "origin/main"], false, cwd).ok;
+}
+
 function fetchAndRebase(expectedMain?: string): boolean {
 	if (!git(["fetch", "--quiet", "origin", "main"], true).ok) {
 		console.error(refusalSentence({ reason: "fetch" }));
+		return false;
+	}
+	if (!sharesHistoryWithMain()) {
+		console.error(refusalSentence({ reason: "replaced-history" }));
 		return false;
 	}
 	if (expectedMain && git(["rev-parse", "origin/main"]).out !== expectedMain) {

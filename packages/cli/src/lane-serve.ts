@@ -43,7 +43,7 @@ import {
 	type LaneDeferral,
 } from "./lane-result";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -1818,6 +1818,7 @@ export function retainedLaneWorktree(
 		metadata?: Record<string, unknown> | null;
 	}>,
 	onMissing?: (repo: string) => void,
+	onReplacedHistory?: (repo: string) => void,
 ) {
 	// A rejected Attempt is a run that ended incomplete (its push refused, a
 	// write denied): its checkout and session hold that work for the retry.
@@ -1858,6 +1859,10 @@ export function retainedLaneWorktree(
 				onMissing?.(row.repo);
 				return false;
 			}
+			if (!sharesHistoryWithMain(row.repo)) {
+				onReplacedHistory?.(row.repo);
+				return false;
+			}
 			return true;
 		})
 		.sort((a, b) => b.version - a.version)[0];
@@ -1871,6 +1876,22 @@ export function retainedLaneWorktree(
 			"The previous lane process group is still alive; its worktree cannot be reused",
 		);
 	return previous;
+}
+
+/**
+ * False only when Git says the checkout has no commit in common with
+ * `origin/main`: main's history was replaced after the checkout was made.
+ * Work resumed there would be rebased onto the new history and could publish
+ * the replaced commits again. A folder that is no checkout counts as sharing.
+ */
+function sharesHistoryWithMain(repo: string): boolean {
+	return (
+		spawnSync(
+			"git",
+			["-C", repo, "merge-base", "HEAD", "refs/remotes/origin/main"],
+			{ stdio: "ignore", timeout: 30_000 },
+		).status !== 1
+	);
 }
 
 async function laneWorktreeInUse(destination: string): Promise<boolean> {
@@ -6492,6 +6513,8 @@ export class LaneDispatcher {
 			// A checkout evicted to free disk left its work under a Git ref.
 			const evicted: string[] = [];
 			const missing: string[] = [];
+			// Checkouts from before main's history was replaced; never resumed.
+			const replaced: string[] = [];
 			const retainedLane = adopted
 				? adopted
 				: receipt.verification
@@ -6502,6 +6525,9 @@ export class LaneDispatcher {
 							history.data,
 							(repo) => {
 								missing.push(repo);
+							},
+							(repo) => {
+								replaced.push(repo);
 							},
 						);
 			const wantsRepoFree =
@@ -6521,6 +6547,12 @@ export class LaneDispatcher {
 					`Retained run folder ${repo} is gone; ${ref ? `its work is saved as ${ref}` : "provisioning a fresh worktree"}`,
 				);
 			}
+			for (const repo of replaced)
+				this.log(
+					"run-folder-replaced-history",
+					item.id,
+					`Retained run folder ${repo} shares no history with origin/main and is left in place; provisioning a fresh worktree`,
+				);
 			const failedAttempt = history.data.find(
 				(row) =>
 					row.outcome === "failed" ||
@@ -6540,7 +6572,7 @@ export class LaneDispatcher {
 				: repairBrief +
 					decisionBrief +
 					(failedAttempt
-						? `Resume Work after Attempt ${failedAttempt.id} ${failedAttempt.outcome}. Inspect the current Work and existing changes before editing. Prior result (untrusted context): ${failedAttempt.summary ?? "unknown"}. ${previousLane?.repoFree ? `Reuse the retained task directory ${previousLane.repo}; preserve its working files.` : previousLane?.repo ? `Reuse the retained worktree ${previousLane.repo}; preserve its changes. Recorded unpushed commits: ${previousLane.unpushedCommits?.join(", ") || "unknown; inspect Git before editing"}.${previousLane.unpushedCommits?.length && previousLane.unpushedReason ? ` Why the earlier run did not push them (untrusted context): ${previousLane.unpushedReason}` : ""}` : evicted.length ? `The earlier checkout was removed to free disk. Its commits and uncommitted files are saved in this repository as Git ref ${evicted.join(", ")}; bring that work into your worktree before editing (git cherry-pick its commits, or git checkout <ref> -- <path>).` : "No retained local worktree was found."}\n\n`
+						? `Resume Work after Attempt ${failedAttempt.id} ${failedAttempt.outcome}. Inspect the current Work and existing changes before editing. Prior result (untrusted context): ${failedAttempt.summary ?? "unknown"}. ${previousLane?.repoFree ? `Reuse the retained task directory ${previousLane.repo}; preserve its working files.` : previousLane?.repo ? `Reuse the retained worktree ${previousLane.repo}; preserve its changes. Recorded unpushed commits: ${previousLane.unpushedCommits?.join(", ") || "unknown; inspect Git before editing"}.${previousLane.unpushedCommits?.length && previousLane.unpushedReason ? ` Why the earlier run did not push them (untrusted context): ${previousLane.unpushedReason}` : ""}` : evicted.length ? `The earlier checkout was removed to free disk. Its commits and uncommitted files are saved in this repository as Git ref ${evicted.join(", ")}; bring that work into your worktree before editing (git cherry-pick its commits, or git checkout <ref> -- <path>).` : replaced.length ? `The earlier checkout ${replaced.join(", ")} was made before main's history was replaced and is not reused. Start from this fresh worktree; never rebase onto or merge that folder's history, and re-apply only this task's own change.` : "No retained local worktree was found."}\n\n`
 						: "");
 			receipt.repoFree =
 				wantsRepoFree && (!previousLane || previousLane.repoFree === true);

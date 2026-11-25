@@ -129,6 +129,7 @@ export type PushRefusal =
 	| { reason: "dependencies" }
 	| { reason: "fetch" }
 	| { reason: "conflict" }
+	| { reason: "replaced-history" }
 	| { reason: "expected-main" }
 	| { reason: "main-moving" }
 	| { reason: "secret-scan" };
@@ -155,6 +156,8 @@ export function refusalSentence(refusal: PushRefusal): string {
 			return "Push refused: origin/main could not be fetched or checked out; check the network, then run bun run push again.";
 		case "conflict":
 			return "Push refused: this change conflicts with origin/main or with a change published just before it; rebase onto origin/main, resolve the conflict, then run bun run push again.";
+		case "replaced-history":
+			return "Push refused: this checkout shares no history with origin/main, whose history was replaced; never rebase or merge it, make a fresh checkout of origin/main and re-apply only your own change there.";
 		case "expected-main":
 			return "Push refused: main is no longer at the commit this conditional push expected; nothing was checked or pushed.";
 		case "main-moving":

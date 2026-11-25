@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -14,6 +15,7 @@ import {
 	recordRetry,
 	chargeRejection,
 	selectTrain,
+	sharesHistoryWithMain,
 	ticketKey,
 	tryAcquire,
 	waitNote,
@@ -371,6 +373,7 @@ AssertionError: expected 1 to be 2 // Object.is equality
 			{ reason: "dependencies" },
 			{ reason: "fetch" },
 			{ reason: "conflict" },
+			{ reason: "replaced-history" },
 			{ reason: "expected-main" },
 			{ reason: "main-moving" },
 			{ reason: "secret-scan" },
@@ -414,5 +417,27 @@ describe("push ticket key", () => {
 			if (previous === undefined) delete process.env.TEDIX_WORK_ID;
 			else process.env.TEDIX_WORK_ID = previous;
 		}
+	});
+});
+
+describe("a checkout from before main's history was replaced", () => {
+	test("shares no history with main, so the push stops before any rebase", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "push-replaced-"));
+		const git = (...args: string[]) =>
+			execFileSync(
+				"git",
+				["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args],
+				{ cwd, encoding: "utf8" },
+			).trim();
+		git("init", "--quiet");
+		writeFileSync(join(cwd, "file.txt"), "old\n");
+		git("add", "file.txt");
+		git("commit", "--quiet", "-m", "old history");
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
+		expect(sharesHistoryWithMain(cwd)).toBe(true);
+		// The same tree as a new root commit: what a history rewrite leaves.
+		const rewritten = git("commit-tree", "HEAD^{tree}", "-m", "new history");
+		git("update-ref", "refs/remotes/origin/main", rewritten);
+		expect(sharesHistoryWithMain(cwd)).toBe(false);
 	});
 });
