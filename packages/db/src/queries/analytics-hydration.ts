@@ -1,14 +1,12 @@
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { anyIds } from "../core-store/dialect";
 import { apps } from "../schema/apps";
 import { organizationMembers } from "../schema/organization-members";
 import { tedis } from "../schema/tedis";
 import { appTools } from "../schema/tools";
 import { users } from "../schema/users";
-import { chunkForBoundParams } from "../utils/batch";
-
-const D1_IN_LIST_CHUNK = 50;
-const D1_COMBINED_IN_LIST_THRESHOLD = 50;
 
 export interface AnalyticsAppRow {
 	id: string;
@@ -54,142 +52,102 @@ export async function listAnalyticsAppsByIds(
 	db: DbClient,
 	ids: string[],
 ): Promise<AnalyticsAppRow[]> {
-	const rows: AnalyticsAppRow[] = [];
-	for (const chunk of chunkForBoundParams(
-		[...new Set(ids)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		rows.push(
-			...(await db
-				.select({ id: apps.id, name: apps.name, slug: apps.slug })
-				.from(apps)
-				.where(inArray(apps.id, chunk))),
-		);
-	}
-	return rows;
+	if (!ids.length) return [];
+	const table = coreTable(db, apps);
+	return db
+		.select({ id: table.id, name: table.name, slug: table.slug })
+		.from(table)
+		.where(anyIds(db, table.id, ids));
 }
 
 export async function listAnalyticsAppsBySlugs(
 	db: DbClient,
 	slugs: string[],
 ): Promise<AnalyticsNamespaceAppRow[]> {
-	const rows: AnalyticsNamespaceAppRow[] = [];
-	for (const chunk of chunkForBoundParams(
-		[...new Set(slugs)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		rows.push(
-			...(await db
-				.select({
-					id: apps.id,
-					name: apps.name,
-					slug: apps.slug,
-					sourceAppId: apps.sourceAppId,
-				})
-				.from(apps)
-				.where(inArray(apps.slug, chunk))),
-		);
-	}
-	return rows;
+	if (!slugs.length) return [];
+	const table = coreTable(db, apps);
+	return db
+		.select({
+			id: table.id,
+			name: table.name,
+			slug: table.slug,
+			sourceAppId: table.sourceAppId,
+		})
+		.from(table)
+		.where(anyIds(db, table.slug, slugs));
 }
 
 export async function listAnalyticsTools(
 	db: DbClient,
 	input: { appIds: string[]; toolIds: string[] },
 ): Promise<AnalyticsToolRow[]> {
-	const rows: AnalyticsToolRow[] = [];
-	const appIdChunks = chunkForBoundParams([...new Set(input.appIds)], 25);
-	const toolIdChunks = chunkForBoundParams(
-		[...new Set(input.toolIds)],
-		D1_IN_LIST_CHUNK,
-	);
-	for (const appIds of appIdChunks) {
-		for (const toolIds of toolIdChunks) {
-			rows.push(
-				...(await db
-					.select({
-						appId: appTools.appId,
-						toolId: appTools.toolId,
-						title: appTools.title,
-					})
-					.from(appTools)
-					.where(
-						and(
-							inArray(appTools.appId, appIds),
-							inArray(appTools.toolId, toolIds),
-						),
-					)),
-			);
-		}
-	}
-	return rows;
+	if (!input.appIds.length || !input.toolIds.length) return [];
+	const table = coreTable(db, appTools);
+	return db
+		.select({
+			appId: table.appId,
+			toolId: table.toolId,
+			title: table.title,
+		})
+		.from(table)
+		.where(
+			and(
+				anyIds(db, table.appId, input.appIds),
+				anyIds(db, table.toolId, input.toolIds),
+			),
+		);
 }
 
 export async function listAnalyticsOrganizationMembers(
 	db: DbClient,
 	input: { userIds: string[]; organizationId?: string },
 ): Promise<AnalyticsMemberRow[]> {
-	const rows: AnalyticsMemberRow[] = [];
-	for (const userIds of chunkForBoundParams(
-		[...new Set(input.userIds)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		const userCondition = inArray(organizationMembers.descopeUserId, userIds);
-		rows.push(
-			...(await db
-				.select({
-					descopeUserId: organizationMembers.descopeUserId,
-					email: organizationMembers.email,
-					name: organizationMembers.name,
-					avatarUrl: organizationMembers.avatarUrl,
-					role: organizationMembers.role,
-				})
-				.from(organizationMembers)
-				.where(
-					input.organizationId
-						? and(
-								userCondition,
-								eq(organizationMembers.organizationId, input.organizationId),
-							)
-						: userCondition,
-				)),
+	if (!input.userIds.length) return [];
+	const table = coreTable(db, organizationMembers);
+	return db
+		.select({
+			descopeUserId: table.descopeUserId,
+			email: table.email,
+			name: table.name,
+			avatarUrl: table.avatarUrl,
+			role: table.role,
+		})
+		.from(table)
+		.where(
+			and(
+				anyIds(db, table.descopeUserId, input.userIds),
+				input.organizationId
+					? eq(table.organizationId, input.organizationId)
+					: undefined,
+			),
 		);
-	}
-	return rows;
 }
 
 export async function listAnalyticsUsers(
 	db: DbClient,
 	ids: string[],
 ): Promise<AnalyticsUserRow[]> {
-	const rows: AnalyticsUserRow[] = [];
-	for (const chunk of chunkForBoundParams(
-		[...new Set(ids)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		rows.push(
-			...(await db
-				.select({
-					id: users.id,
-					email: users.email,
-					name: users.name,
-					avatarUrl: users.avatarUrl,
-				})
-				.from(users)
-				.where(inArray(users.id, chunk))),
-		);
-	}
-	return rows;
+	if (!ids.length) return [];
+	const table = coreTable(db, users);
+	return db
+		.select({
+			id: table.id,
+			email: table.email,
+			name: table.name,
+			avatarUrl: table.avatarUrl,
+		})
+		.from(table)
+		.where(anyIds(db, table.id, ids));
 }
 
-function analyticsTediProjection() {
+function analyticsTediProjection(table: typeof tedis) {
 	return {
-		id: tedis.id,
-		descopeUserId: tedis.descopeUserId,
-		name: tedis.name,
-		displayName: tedis.displayName,
-		slug: tedis.slug,
-		avatar: tedis.avatar,
+		id: table.id,
+		descopeUserId: table.descopeUserId,
+		name: table.name,
+		displayName: table.displayName,
+		slug: table.slug,
+		avatar: table.avatar,
 	};
 }
 
@@ -202,54 +160,26 @@ export async function listAnalyticsTedis(
 		organizationId?: string;
 	},
 ): Promise<AnalyticsTediRow[]> {
-	const principalIds = [...new Set(input.principalIds)];
-	const tediIds = [...new Set(input.tediIds)];
-	const slugs = [...new Set(input.slugs)];
-	const totalParams = principalIds.length + tediIds.length + slugs.length;
-	if (totalParams === 0) return [];
-
-	const applyOrg = (condition: ReturnType<typeof inArray>) =>
-		input.organizationId
-			? and(condition, eq(tedis.organizationId, input.organizationId))
-			: condition;
-
-	if (totalParams <= D1_COMBINED_IN_LIST_THRESHOLD) {
-		const conditions = [];
-		if (principalIds.length > 0)
-			conditions.push(inArray(tedis.descopeUserId, principalIds));
-		if (tediIds.length > 0) conditions.push(inArray(tedis.id, tediIds));
-		if (slugs.length > 0) conditions.push(inArray(tedis.slug, slugs));
-		const condition = or(...conditions);
-		if (!condition) return [];
-		return db
-			.select(analyticsTediProjection())
-			.from(tedis)
-			.where(
+	if (
+		!input.principalIds.length &&
+		!input.tediIds.length &&
+		!input.slugs.length
+	)
+		return [];
+	const table = coreTable(db, tedis);
+	return db
+		.select(analyticsTediProjection(table))
+		.from(table)
+		.where(
+			and(
+				or(
+					anyIds(db, table.descopeUserId, input.principalIds),
+					anyIds(db, table.id, input.tediIds),
+					anyIds(db, table.slug, input.slugs),
+				),
 				input.organizationId
-					? and(condition, eq(tedis.organizationId, input.organizationId))
-					: condition,
-			);
-	}
-
-	const rows = new Map<string, AnalyticsTediRow>();
-	const queries = [
-		...chunkForBoundParams(principalIds, D1_IN_LIST_CHUNK).map((ids) =>
-			applyOrg(inArray(tedis.descopeUserId, ids)),
-		),
-		...chunkForBoundParams(tediIds, D1_IN_LIST_CHUNK).map((ids) =>
-			applyOrg(inArray(tedis.id, ids)),
-		),
-		...chunkForBoundParams(slugs, D1_IN_LIST_CHUNK).map((ids) =>
-			applyOrg(inArray(tedis.slug, ids)),
-		),
-	];
-	for (const condition of queries) {
-		for (const row of await db
-			.select(analyticsTediProjection())
-			.from(tedis)
-			.where(condition)) {
-			rows.set(row.id, row);
-		}
-	}
-	return [...rows.values()];
+					? eq(table.organizationId, input.organizationId)
+					: undefined,
+			),
+		);
 }

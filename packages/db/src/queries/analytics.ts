@@ -11,11 +11,16 @@
  * - Org ID resolution helpers (getOrganizationIdForApp, getOrganizationIdsForApps)
  */
 
-import { and, desc, eq, getColumns, inArray, max, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, max, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { type NewWidgetEvent, widgetEvents } from "../schema/analytics";
-import { apps } from "../schema/apps";
-import { providerInstallations } from "../schema/provider-installations";
+import { coreTable } from "../core-store/client";
+import { anyIds, jsonRead, unixTime } from "../core-store/dialect";
+import {
+	type NewWidgetEvent,
+	widgetEvents as d1WidgetEvents,
+} from "../schema/analytics";
+import { apps as d1Apps } from "../schema/apps";
+import { providerInstallations as d1ProviderInstallations } from "../schema/provider-installations";
 import { chunkForBoundParams } from "../utils/batch";
 
 // Re-export types for consumers
@@ -48,6 +53,7 @@ export async function getOrganizationIdForApp(
 	db: DbClient,
 	appId: string,
 ): Promise<string | null> {
+	const apps = coreTable(db, d1Apps);
 	const rows = await db
 		.select({ organizationId: apps.organizationId })
 		.from(apps)
@@ -65,20 +71,12 @@ export async function getOrganizationIdsForApps(
 	appIds: string[],
 ): Promise<Map<string, string>> {
 	if (appIds.length === 0) return new Map();
-
-	const map = new Map<string, string>();
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	for (const chunk of chunkForBoundParams([...new Set(appIds)], 50)) {
-		const results = await db
-			.select({ id: apps.id, organizationId: apps.organizationId })
-			.from(apps)
-			.where(inArray(apps.id, chunk));
-		for (const row of results) {
-			map.set(row.id, row.organizationId);
-		}
-	}
-
-	return map;
+	const apps = coreTable(db, d1Apps);
+	const results = await db
+		.select({ id: apps.id, organizationId: apps.organizationId })
+		.from(apps)
+		.where(anyIds(db, apps.id, appIds));
+	return new Map(results.map((row) => [row.id, row.organizationId]));
 }
 
 // =============================================================================
@@ -93,6 +91,7 @@ export async function trackWidgetEvent(
 	db: DbClient,
 	event: NewWidgetEvent,
 ): Promise<void> {
+	const widgetEvents = coreTable(db, d1WidgetEvents);
 	await db.insert(widgetEvents).values(event);
 }
 
@@ -102,7 +101,7 @@ export async function trackWidgetEvent(
  * bound-parameter ceiling.
  */
 const WIDGET_EVENT_INSERT_CHUNK_SIZE = Math.floor(
-	100 / Object.keys(getColumns(widgetEvents)).length,
+	100 / Object.keys(getColumns(d1WidgetEvents)).length,
 );
 
 /**
@@ -114,6 +113,7 @@ export async function trackWidgetEvents(
 	db: DbClient,
 	events: NewWidgetEvent[],
 ): Promise<void> {
+	const widgetEvents = coreTable(db, d1WidgetEvents);
 	const [first, ...rest] = chunkForBoundParams(
 		events,
 		WIDGET_EVENT_INSERT_CHUNK_SIZE,
@@ -126,6 +126,7 @@ export async function trackEmbeddedAttentionOutcome(
 	db: DbClient,
 	event: NewWidgetEvent,
 ): Promise<void> {
+	const widgetEvents = coreTable(db, d1WidgetEvents);
 	await db.insert(widgetEvents).values(event).onConflictDoNothing({
 		target: widgetEvents.id,
 	});
@@ -135,6 +136,7 @@ export async function trackEmbeddedAttentionOutcomes(
 	db: DbClient,
 	events: NewWidgetEvent[],
 ): Promise<void> {
+	const widgetEvents = coreTable(db, d1WidgetEvents);
 	const [first, ...rest] = chunkForBoundParams(
 		events,
 		WIDGET_EVENT_INSERT_CHUNK_SIZE,
@@ -174,14 +176,16 @@ export async function listEmbeddedProviderActivity(
 		hostUserId?: string;
 	},
 ): Promise<EmbeddedProviderActivityRow[]> {
-	const installationId = sql<string>`json_extract(${widgetEvents.metadata}, '$.installationId')`;
-	const hostUserId = sql<string>`json_extract(${widgetEvents.metadata}, '$.hostUserId')`;
+	const widgetEvents = coreTable(db, d1WidgetEvents);
+	const providerInstallations = coreTable(db, d1ProviderInstallations);
+	const installationId = sql<string>`${jsonRead(db, widgetEvents.metadata, ["installationId"])}`;
+	const hostUserId = sql<string>`${jsonRead(db, widgetEvents.metadata, ["hostUserId"])}`;
 	const hostUserLabel = sql<
 		string | null
-	>`json_extract(${widgetEvents.metadata}, '$.hostUserLabel')`;
+	>`${jsonRead(db, widgetEvents.metadata, ["hostUserLabel"])}`;
 	const hostRole = sql<
 		string | null
-	>`json_extract(${widgetEvents.metadata}, '$.hostRole')`;
+	>`${jsonRead(db, widgetEvents.metadata, ["hostRole"])}`;
 	return db
 		.select({
 			id: widgetEvents.id,
@@ -207,8 +211,8 @@ export async function listEmbeddedProviderActivity(
 		)
 		.where(
 			and(
-				sql`datetime(${widgetEvents.createdAt}) >= datetime(${input.from})`,
-				sql`datetime(${widgetEvents.createdAt}) <= datetime(${input.to})`,
+				sql`${unixTime(db, widgetEvents.createdAt)} >= ${unixTime(db, sql`${input.from}`)}`,
+				sql`${unixTime(db, widgetEvents.createdAt)} <= ${unixTime(db, sql`${input.to}`)}`,
 				sql`${hostUserId} IS NOT NULL`,
 				input.installationId
 					? eq(providerInstallations.id, input.installationId)
@@ -244,6 +248,7 @@ export async function listEmbeddedAttentionReviews(
 	},
 ): Promise<EmbeddedAttentionReview[]> {
 	if (input.attentionRefs.length === 0) return [];
+	const widgetEvents = coreTable(db, d1WidgetEvents);
 	const attentionRefs = [...new Set(input.attentionRefs)].slice(0, 2);
 	// One row per reference: a global row cap before deduplication let one
 	// often-reviewed reference crowd out the other's latest review.
@@ -258,13 +263,12 @@ export async function listEmbeddedAttentionReviews(
 				eq(widgetEvents.organizationId, input.organizationId),
 				eq(widgetEvents.appId, input.appId),
 				eq(widgetEvents.eventType, "attention_review"),
-				// bound-params: the embedded attention contract and this query cap current refs at two.
-				inArray(widgetEvents.widgetKey, attentionRefs),
-				sql`json_extract(${widgetEvents.metadata}, '$.installationId') = ${input.installationId}`,
-				sql`json_extract(${widgetEvents.metadata}, '$.tediId') = ${input.tediId}`,
-				sql`json_extract(${widgetEvents.metadata}, '$.hostOrganizationId') = ${input.hostOrganizationId}`,
-				sql`json_extract(${widgetEvents.metadata}, '$.hostUserId') = ${input.hostUserId}`,
-				sql`json_extract(${widgetEvents.metadata}, '$.origin') = ${input.origin}`,
+				anyIds(db, widgetEvents.widgetKey, attentionRefs),
+				sql`${jsonRead(db, widgetEvents.metadata, ["installationId"])} = ${input.installationId}`,
+				sql`${jsonRead(db, widgetEvents.metadata, ["tediId"])} = ${input.tediId}`,
+				sql`${jsonRead(db, widgetEvents.metadata, ["hostOrganizationId"])} = ${input.hostOrganizationId}`,
+				sql`${jsonRead(db, widgetEvents.metadata, ["hostUserId"])} = ${input.hostUserId}`,
+				sql`${jsonRead(db, widgetEvents.metadata, ["origin"])} = ${input.origin}`,
 			),
 		)
 		.groupBy(widgetEvents.widgetKey);
