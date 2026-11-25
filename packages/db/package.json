@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/commit-alias-counts": "./src/queries/commit-alias-counts.ts",
 		"./schema/git-commit-aliases": "./src/schema/git-commit-aliases.ts",
 		"./queries/git-commit-aliases": "./src/queries/git-commit-aliases.ts",
 		"./queries/memory-graph/rules": "./src/queries/memory-graph/rules.ts",

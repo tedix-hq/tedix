@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/commit-alias-counts": "./src/schemas/commit-alias-counts.ts",
 		"./schemas/hook-context": "./src/schemas/hook-context.ts",
 		"./contracts/rules": "./src/contracts/rules.ts",
 		"./schemas/rules": "./src/schemas/rules.ts",

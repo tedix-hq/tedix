@@ -3,6 +3,10 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
+	CommitAliasCountInputSchema,
+	CommitAliasCountOutputSchema,
+} from "../schemas/commit-alias-counts";
+import {
 	RepositoryEventSchema,
 	RepositoryObserverConfigSchema,
 	RepositoryReviewSchema,
@@ -13,6 +17,14 @@ const receipt = z.strictObject({
 	status: z.string(),
 });
 export const repositoryObserverContract = oc.errors(baseErrors).router({
+	countCommitAliases: oc
+		.route({
+			method: "POST",
+			summary:
+				"Count stored old commit ids, one read-only paced page at quiet hours (platform admin)",
+		})
+		.input(CommitAliasCountInputSchema)
+		.output(CommitAliasCountOutputSchema),
 	configure: oc
 		.route({
 			method: "POST",

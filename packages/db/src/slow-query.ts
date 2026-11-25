@@ -48,7 +48,7 @@ const ledgers = new AsyncLocalStorage<Ledger>();
 export async function withD1Ledger<T>(
 	label: string,
 	run: () => Promise<T>,
-	options: { maxInFlight?: number } = {},
+	options: { maxInFlight?: number; alwaysLog?: boolean } = {},
 ): Promise<T> {
 	if (
 		options.maxInFlight !== undefined &&
@@ -79,6 +79,7 @@ export async function withD1Ledger<T>(
 		ledger.reads?.clear();
 		ledger.reads = undefined;
 		if (
+			options.alwaysLog ||
 			ledger.statements >= 25 ||
 			ledger.d1WallMs >= 500 ||
 			ledger.rowsRead >= 5_000 ||
