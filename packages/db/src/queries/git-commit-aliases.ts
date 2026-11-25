@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lt, or } from "drizzle-orm";
+import { and, gte, lt, or, sql } from "drizzle-orm";
 import { WorkAttemptSettlementSchema } from "@tedix/api-contract/schemas/work-items";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../query-client";
@@ -6,13 +6,18 @@ import { gitCommitAliases } from "../schema/git-commit-aliases";
 
 /** Keep this resolver within one read invocation, never across requests. */
 export function createCommitResolver(db: DbQueryClient) {
-	const cache = new Map<string, Promise<string[]>>();
-	function aliasesFor(sha: string): Promise<string[]> {
-		const key = sha.toLowerCase();
-		if (!/^[a-f0-9]{7,40}$/.test(key)) return Promise.resolve([sha]);
-		let result = cache.get(key);
-		if (!result) {
-			result = (async () => {
+	const forward = new Map<string, string>();
+	const backward = new Map<string, string>();
+	const loaded = new Set<string>();
+	const prefixes = new Map<string, string>();
+	async function loadChains(keys: string[]) {
+		let frontier = [...new Set(keys)];
+		const expanded = new Set<string>();
+		for (let hop = 0; hop < 4 && frontier.length; hop++) {
+			const missing = frontier.filter((key) => !loaded.has(key));
+			if (missing.length) {
+				// JSON arrays keep a page within D1's bind limit at every hop.
+				const ids = JSON.stringify(missing);
 				const matches = await db
 					.select({
 						oldSha: gitCommitAliases.oldSha,
@@ -21,73 +26,103 @@ export function createCommitResolver(db: DbQueryClient) {
 					.from(gitCommitAliases)
 					.where(
 						or(
-							key.length === 40
-								? eq(gitCommitAliases.oldSha, key)
-								: and(
-										gte(gitCommitAliases.oldSha, key),
-										lt(gitCommitAliases.oldSha, `${key}g`),
-									),
-							key.length === 40
-								? eq(gitCommitAliases.newSha, key)
-								: and(
-										gte(gitCommitAliases.newSha, key),
-										lt(gitCommitAliases.newSha, `${key}g`),
-									),
+							sql`${gitCommitAliases.oldSha} IN (SELECT value FROM json_each(${ids}))`,
+							sql`${gitCommitAliases.newSha} IN (SELECT value FROM json_each(${ids}))`,
+						),
+					);
+				for (const row of matches) {
+					forward.set(row.oldSha, row.newSha);
+					backward.set(row.newSha, row.oldSha);
+				}
+				for (const key of missing) loaded.add(key);
+			}
+			for (const key of frontier) expanded.add(key);
+			frontier = [
+				...new Set(
+					frontier.flatMap((key) => [
+						...(forward.has(key) ? [forward.get(key)!] : []),
+						...(backward.has(key) ? [backward.get(key)!] : []),
+					]),
+				),
+			].filter((key) => !expanded.has(key));
+		}
+	}
+	function chainFor(key: string) {
+		const aliases = [key];
+		const seen = new Set(aliases);
+		for (const direction of [forward, backward]) {
+			let current = key;
+			for (let hop = 0; hop < 4; hop++) {
+				const next = direction.get(current);
+				if (!next) break;
+				if (seen.has(next)) throw new Error("Cyclic commit alias chain");
+				seen.add(next);
+				if (direction === forward) aliases.unshift(next);
+				else aliases.push(next);
+				current = next;
+			}
+		}
+		return aliases;
+	}
+	async function aliasesFor(sha: string): Promise<string[]> {
+		let key = sha.toLowerCase();
+		if (!/^[a-f0-9]{7,40}$/.test(key)) return [sha];
+		if (key.length < 40) {
+			const cached = prefixes.get(key);
+			if (cached) key = cached;
+			else {
+				const matches = await db
+					.select({
+						oldSha: gitCommitAliases.oldSha,
+						newSha: gitCommitAliases.newSha,
+					})
+					.from(gitCommitAliases)
+					.where(
+						or(
+							and(
+								gte(gitCommitAliases.oldSha, key),
+								lt(gitCommitAliases.oldSha, `${key}g`),
+							),
+							and(
+								gte(gitCommitAliases.newSha, key),
+								lt(gitCommitAliases.newSha, `${key}g`),
+							),
 						),
 					)
-					.limit(2);
-				if (matches.length > 1)
-					throw new Error("Ambiguous commit alias prefix");
-				const row = matches[0];
-				if (!row) return [key];
-				const aliases = [...new Set([row.newSha, row.oldSha])];
-				for (const alias of aliases) cache.set(alias, Promise.resolve(aliases));
-				return aliases;
-			})();
-			cache.set(key, result);
+					.limit(3);
+				// An intermediate id occurs in two rows, but is still one full id.
+				const ids = [
+					...new Set(
+						matches
+							.flatMap((row) => [row.oldSha, row.newSha])
+							.filter((id) => id.startsWith(key)),
+					),
+				];
+				if (ids.length > 1) throw new Error("Ambiguous commit alias prefix");
+				if (!ids.length) return [key];
+				prefixes.set(key, ids[0]!);
+				key = ids[0]!;
+			}
 		}
-		return result;
+		await loadChains([key]);
+		return chainFor(key);
 	}
 	async function canonicalCommit(sha: string): Promise<string> {
 		return (await aliasesFor(sha))[0]!;
 	}
 	async function resolveMany(shas: string[]): Promise<string[]> {
-		const keys = [...new Set(shas.map((sha) => sha.toLowerCase()))].filter(
-			(key) => /^[a-f0-9]{40}$/.test(key) && !cache.has(key),
-		);
-		// Each id binds twice; keep each statement within D1's 100 parameters.
-		for (let offset = 0; offset < keys.length; offset += 50) {
-			const chunk = keys.slice(offset, offset + 50);
-			const matches = await db
-				.select({
-					oldSha: gitCommitAliases.oldSha,
-					newSha: gitCommitAliases.newSha,
-				})
-				.from(gitCommitAliases)
-				.where(
-					or(
-						inArray(gitCommitAliases.oldSha, chunk), // bound-params: at most 50 ids, used twice.
-						inArray(gitCommitAliases.newSha, chunk), // bound-params: at most 50 ids, used twice.
-					),
-				);
-			for (const key of chunk) {
-				const rows = matches.filter(
-					(row) => row.oldSha === key || row.newSha === key,
-				);
-				if (rows.length > 1) throw new Error("Ambiguous commit alias prefix");
-				const row = rows[0];
-				// No alias also includes commits dropped from history. Without a
-				// repository history check we cannot distinguish them from unchanged ids;
-				// preserve the id so ancestry, push and live-surface checks still apply.
-				cache.set(
-					key,
-					Promise.resolve(row ? [...new Set([row.newSha, row.oldSha])] : [key]),
-				);
-			}
-		}
+		const keys = shas
+			.map((sha) => sha.toLowerCase())
+			.filter((key) => /^[a-f0-9]{40}$/.test(key));
+		await loadChains(keys);
 		const result: string[] = [];
-		// Prefix lookups retain ambiguity checks and never fan out over a page.
-		for (const sha of shas) result.push(await canonicalCommit(sha));
+		for (const sha of shas) {
+			result.push(
+				/^[a-f0-9]{40}$/i.test(sha)
+					? chainFor(sha.toLowerCase())[0]!
+					: await canonicalCommit(sha),
+			);
+		}
 		return result;
 	}
 	return { canonicalCommit, aliasesFor, resolveMany };

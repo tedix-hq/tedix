@@ -9,7 +9,7 @@ import {
 } from "./repository-observer";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
@@ -639,18 +639,22 @@ it("does not revive manually cancelled pushes or review expired advisory records
 	).toBe("cancelled");
 });
 
-it("matches settlement aliases in both push readers without rewriting stored proof", async () => {
+it("matches two-hop settlement aliases in both push readers without rewriting stored proof", async () => {
 	const { db, sqlite } = fixture();
 	const oldSha = "a".repeat(40),
+		midSha = "e".repeat(40),
 		newSha = "b".repeat(40);
-	await db
-		.insert(gitCommitAliases)
-		.values({ oldSha, newSha, repository: "example/product" });
+	await db.insert(gitCommitAliases).values([
+		{ oldSha, newSha: midSha, repository: "example/product" },
+		{ oldSha: midSha, newSha, repository: "example/product" },
+	]);
 	const metadata = { settlement: { mode: "commit", commitShas: [oldSha] } };
 	const resolver = createCommitResolver(db);
 	expect(await resolver.canonicalCommit(oldSha.slice(0, 7))).toBe(newSha);
+	expect(await resolver.canonicalCommit(midSha.slice(0, 7))).toBe(newSha);
 	expect(await resolver.aliasesFor(newSha.slice(0, 12))).toEqual([
 		newSha,
+		midSha,
 		oldSha,
 	]);
 	expect(await canonicalSettlementMetadata(resolver, metadata)).toEqual({
@@ -710,4 +714,67 @@ it("matches settlement aliases in both push readers without rewriting stored pro
 		createCommitResolver(db).resolveMany([newSha, oldSha.slice(0, 7)]),
 	).rejects.toThrow("Ambiguous");
 	sqlite.close();
+});
+
+it("resolves a page of two-hop aliases with one read per hop and preserves missing ids", async () => {
+	const { db, sqlite } = fixture();
+	try {
+		const ids = Array.from({ length: 200 }, (_, i) =>
+			["a", "b", "c"].map(
+				(stage) => stage.repeat(36) + i.toString(16).padStart(4, "0"),
+			),
+		);
+		const insert = sqlite.prepare(
+			"INSERT INTO git_commit_aliases(old_sha,new_sha,repository,created_at) VALUES (?,?,?,'2026-01-01')",
+		);
+		for (const [old, mid, final] of ids) {
+			insert.run(old!, mid!, "example/project");
+			insert.run(mid!, final!, "example/project");
+		}
+		const missing = "d".repeat(40);
+		const reads = vi.spyOn(db, "select");
+		const resolver = createCommitResolver(db);
+		expect(
+			await resolver.resolveMany([...ids.map(([old]) => old!), missing]),
+		).toEqual([...ids.map(([, , final]) => final!), missing]);
+		expect(reads).toHaveBeenCalledTimes(3);
+		expect(await resolver.resolveMany(ids.map(([, mid]) => mid!))).toEqual(
+			ids.map(([, , final]) => final!),
+		);
+		expect(reads).toHaveBeenCalledTimes(3);
+	} finally {
+		vi.restoreAllMocks();
+		sqlite.close();
+	}
+});
+
+it("bounds alias traversal to four hops, rejects cycles and resolves a dropped chain", async () => {
+	const { db, sqlite } = fixture();
+	try {
+		const ids = ["1", "2", "3", "4", "5", "6"].map((id) => id.repeat(40));
+		const insert = sqlite.prepare(
+			"INSERT INTO git_commit_aliases(old_sha,new_sha,repository,created_at) VALUES (?,?,?,'2026-01-01')",
+		);
+		for (let i = 0; i < ids.length - 1; i++)
+			insert.run(ids[i]!, ids[i + 1]!, "example/project");
+		const reads = vi.spyOn(db, "select");
+		expect(await createCommitResolver(db).resolveMany([ids[0]!])).toEqual([
+			ids[4],
+		]);
+		expect(reads).toHaveBeenCalledTimes(4);
+		insert.run("a".repeat(40), "b".repeat(40), "example/project");
+		insert.run("b".repeat(40), "0".repeat(40), "example/project");
+		expect(await createCommitResolver(db).canonicalCommit("a".repeat(40))).toBe(
+			"0".repeat(40),
+		);
+		sqlite
+			.prepare("UPDATE git_commit_aliases SET new_sha=? WHERE old_sha=?")
+			.run("a".repeat(40), "b".repeat(40));
+		await expect(
+			createCommitResolver(db).resolveMany(["a".repeat(40)]),
+		).rejects.toThrow("Cyclic");
+	} finally {
+		vi.restoreAllMocks();
+		sqlite.close();
+	}
 });

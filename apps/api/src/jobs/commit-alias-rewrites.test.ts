@@ -13,6 +13,7 @@ import type {
 } from "@tedix/api-contract/schemas/commit-alias-counts";
 import { countCommitAliasPage } from "./commit-alias-counts";
 import { rewriteCommitAliasPage } from "./commit-alias-rewrites";
+import { readCommitAliasReplacements } from "@tedix/db/queries/commit-alias-rewrites";
 
 const old = "a".repeat(40),
 	canonical = "b".repeat(40),
@@ -54,8 +55,10 @@ function fixture() {
 	const insert = sqlite.prepare(
 		"INSERT INTO git_commit_aliases VALUES (?, ?, ?)",
 	);
-	insert.run(old, canonical, repository);
-	insert.run(dropped, "0".repeat(40), repository);
+	insert.run(old, "d".repeat(40), repository);
+	insert.run("d".repeat(40), canonical, repository);
+	insert.run(dropped, "e".repeat(40), repository);
+	insert.run("e".repeat(40), "0".repeat(40), repository);
 	const batches: number[] = [];
 	const facade = createD1Facade(sqlite);
 	const batch = facade.batch.bind(facade);
@@ -318,4 +321,29 @@ it("stops on a concurrent metadata change without overwriting or auditing it", a
 		note: "concurrent edit",
 	});
 	expect(row.version).toBe(3);
+});
+
+it("bounds replacement reads, keeps repository scope at each hop and rejects cycles", async () => {
+	const f = fixture();
+	const insert = f.sqlite.prepare(
+		"INSERT INTO git_commit_aliases VALUES (?,?,?)",
+	);
+	const ids = ["1", "2", "3", "4", "5", "6"].map((id) => id.repeat(40));
+	for (let i = 0; i < ids.length - 1; i++)
+		insert.run(ids[i]!, ids[i + 1]!, repository);
+	const reads = vi.spyOn(f.db, "select");
+	expect(
+		await readCommitAliasReplacements(f.db, repository, [ids[0]!]),
+	).toEqual([{ oldSha: ids[0], newSha: ids[4] }]);
+	expect(reads).toHaveBeenCalledTimes(4);
+	insert.run(canonical, "f".repeat(40), "example/other");
+	expect(await readCommitAliasReplacements(f.db, repository, [old])).toEqual([
+		{ oldSha: old, newSha: canonical },
+	]);
+	f.sqlite
+		.prepare("UPDATE git_commit_aliases SET new_sha=? WHERE old_sha=?")
+		.run(old, "d".repeat(40));
+	await expect(
+		readCommitAliasReplacements(f.db, repository, [old]),
+	).rejects.toThrow("Cyclic");
 });

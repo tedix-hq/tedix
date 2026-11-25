@@ -10,21 +10,42 @@ export async function readCommitAliasReplacements(
 	repository: string,
 	candidates: string[],
 ) {
-	if (!candidates.length) return [];
-	const query = db
-		.select({
-			oldSha: gitCommitAliases.oldSha,
-			newSha: gitCommitAliases.newSha,
-		})
-		.from(gitCommitAliases)
-		.where(
-			and(
-				eq(gitCommitAliases.repository, repository),
-				sql`${gitCommitAliases.oldSha} IN (SELECT value FROM json_each(${JSON.stringify(candidates)}))`,
-			),
+	const edges = new Map<string, string>();
+	let frontier = [...new Set(candidates)];
+	for (let hop = 0; hop < 4 && frontier.length; hop++) {
+		const query = db
+			.select({
+				oldSha: gitCommitAliases.oldSha,
+				newSha: gitCommitAliases.newSha,
+			})
+			.from(gitCommitAliases)
+			.where(
+				and(
+					eq(gitCommitAliases.repository, repository),
+					sql`${gitCommitAliases.oldSha} IN (SELECT value FROM json_each(${JSON.stringify(frontier)}))`,
+				),
+			);
+		await db.all(sql`EXPLAIN QUERY PLAN ${query.getSQL()}`);
+		const rows = await query;
+		for (const row of rows) edges.set(row.oldSha, row.newSha);
+		frontier = [...new Set(rows.map((row) => row.newSha))].filter(
+			(sha) => !edges.has(sha) && !/^0{40}$/.test(sha),
 		);
-	await db.all(sql`EXPLAIN QUERY PLAN ${query.getSQL()}`);
-	return query;
+	}
+	return [...new Set(candidates)]
+		.filter((sha) => edges.has(sha))
+		.map((oldSha) => {
+			let newSha = oldSha;
+			const seen = new Set([oldSha]);
+			for (let hop = 0; hop < 4; hop++) {
+				const next = edges.get(newSha);
+				if (!next) break;
+				if (seen.has(next)) throw new Error("Cyclic commit alias chain");
+				seen.add(next);
+				newSha = next;
+			}
+			return { oldSha, newSha };
+		});
 }
 
 export type RewriteLocation =
