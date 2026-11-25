@@ -1411,8 +1411,9 @@ function verificationPlan(item: DispatchItem): LandedVerification | undefined {
 
 function landedForVerification(row: Receipt) {
 	return (
+		!row.verification &&
 		row.phase === "settled" &&
-		row.outcome === "succeeded" &&
+		(row.outcome === "succeeded" || row.outcome === "landed_unverified") &&
 		row.laneResult?.outcome === "landed_unverified" &&
 		!!row.commits?.length
 	);
@@ -6443,7 +6444,8 @@ export class LaneDispatcher {
 				// Recover a landed result if another dispatcher settled it.
 				if (
 					!receipt.verification &&
-					result.outcome === "succeeded" &&
+					(result.outcome === "succeeded" ||
+						result.outcome === "landed_unverified") &&
 					prior.success &&
 					prior.data.outcome === "landed_unverified" &&
 					prior.data.workItemId === item.id &&
@@ -6453,7 +6455,10 @@ export class LaneDispatcher {
 					commits.length
 				) {
 					receipt.phase = "settled";
-					receipt.outcome = "succeeded";
+					receipt.outcome =
+						result.outcome === "landed_unverified"
+							? "landed_unverified"
+							: "succeeded";
 					receipt.laneResult = prior.data;
 					receipt.commits = commits;
 					receipt.completionPending = false;
@@ -9030,6 +9035,16 @@ ${firstBrief}`;
 			}
 			delete receipt.pendingCommitProof;
 		}
+
+		// The lane's own verdict decides the Attempt outcome: a result that
+		// reports the accepted outcome unconfirmed settles landed_unverified,
+		// never succeeded, so Attempt state cannot read as a pass.
+		if (
+			!receipt.verification &&
+			receipt.outcome === "succeeded" &&
+			receipt.laneResult?.outcome === "landed_unverified"
+		)
+			receipt.outcome = "landed_unverified";
 
 		const unlanded = recordUnlandedCommits(receipt);
 		const settlement: z.infer<typeof WorkAttemptSettlementSchema> | undefined =

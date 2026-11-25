@@ -4914,6 +4914,9 @@ describe("dispatcher admission", () => {
 			f.releases[0]!();
 			await f.dispatcher.drain();
 			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+				"landed_unverified",
+			);
 			expect(settle.input).toMatchObject({
 				settlement: { mode: "commit", commitShas: [sha] },
 			});
@@ -5084,7 +5087,7 @@ describe("dispatcher admission", () => {
 		});
 		expect(f.events.some(requestsCompletion)).toBe(true);
 	});
-	it("settles a result that changed nothing as succeeded when the commits it cites are already on main", async () => {
+	it("settles a result that changed nothing as landed_unverified when the commits it cites are already on main", async () => {
 		const f = fixture();
 		f.items.splice(1);
 		f.items[0]!.workKind = "coding";
@@ -5096,7 +5099,9 @@ describe("dispatcher admission", () => {
 		await f.dispatcher.drain();
 		expect(f.control.existingChecks).toEqual([cited]);
 		const settle = f.events.find((event) => event.verb === "settle")!;
-		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+			"landed_unverified",
+		);
 		// Not `--commit`: that would record them as commits this run shipped.
 		expect(settle.args).not.toContain("--commit");
 		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
