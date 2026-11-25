@@ -1009,9 +1009,16 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	}): Promise<number> {
 		const { reconcileDueHomeKernelRequests } =
 			await import("./request-home-source");
-		return reconcileDueHomeKernelRequests(
-			await this.turnContext(),
-			payload.organizationId,
+		const { withD1Ledger } = await import("@tedix/db/slow-query");
+		// The caller's ledger does not cross the Durable Object RPC boundary.
+		return withD1Ledger(
+			"kernel-request-reconcile",
+			async () =>
+				reconcileDueHomeKernelRequests(
+					await this.turnContext(),
+					payload.organizationId,
+				),
+			{ alwaysLog: true },
 		);
 	}
 

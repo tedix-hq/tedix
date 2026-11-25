@@ -417,6 +417,36 @@ describe("Home request source adapter", () => {
 			warning.mockRestore();
 		}
 	});
+	it("recovers overdue requests while leaving future and closed requests untouched", async () => {
+		const { context, db } = await fixture();
+		await db.update(kernelRequests).set({ nextDueAt: now });
+		const row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		for (const [sourceId, nextDueAt] of [
+			["future", new Date(Date.now() + 86_400_000).toISOString()],
+			["closed", null],
+		] as const) {
+			await db.insert(kernelRequests).values({
+				...row,
+				id: `home:${sourceId}`,
+				sourceId,
+				nextDueAt,
+				snapshot: nextDueAt
+					? row.snapshot
+					: { ...row.snapshot, state: "learned" },
+			});
+		}
+		expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+			1,
+		);
+		expect(
+			(await getHomeKernelRequest(db, "org-example", "run-one"))?.snapshot
+				.state,
+		).toBe("learned");
+		for (const sourceId of ["future", "closed"])
+			expect(
+				(await getHomeKernelRequest(db, "org-example", sourceId))?.version,
+			).toBe(row.version);
+	});
 	it("does not count an unchanged request as recovered", async () => {
 		const { context, db } = await fixture();
 		await db.delete(kernelRuntimeRuns);

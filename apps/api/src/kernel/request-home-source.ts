@@ -19,6 +19,7 @@ import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import { addWorkItemCommentIfAbsent } from "@tedix/db/queries/work-items/comments";
 import { toJsonRecord } from "@tedix/db/utils/json";
+import { withD1Ledger } from "@tedix/db/slow-query";
 import type { BaseContext } from "../rpc/orpc";
 import { applyKernelRequestEvent, driveKernelRequest } from "./request-driver";
 import {
@@ -299,20 +300,52 @@ export async function reconcileHomeKernelRequest(
 	return row;
 }
 
+async function measureReconcileStage<T>(
+	stage: "policy" | "capture" | "due" | KernelRequestRow["sourceKind"],
+	run: () => Promise<T>,
+): Promise<T> {
+	const startedAt = Date.now();
+	let status = "failure";
+	try {
+		const result = await withD1Ledger(
+			`kernel-request-reconcile.${stage}`,
+			run,
+			{
+				alwaysLog: true,
+			},
+		);
+		status = "success";
+		return result;
+	} finally {
+		console.log({
+			event: "kernel.request_reconcile.stage",
+			stage,
+			status,
+			durationMs: Date.now() - startedAt,
+		});
+	}
+}
+
 export async function reconcileDueHomeKernelRequests(
 	context: BaseContext,
 	organizationId: string,
 ) {
-	const policy = await readKernelRequestPolicy(context, organizationId);
+	const policy = await measureReconcileStage("policy", () =>
+		readKernelRequestPolicy(context, organizationId),
+	);
 	if (policy?.workAttemptDelivery)
-		await (
-			await import("./request-work-attempt-source")
-		).captureDispatcherWorkAttempts(context, organizationId, policy);
-	const rows = await listDueKernelRequests(context.db, {
-		organizationId,
-		now: new Date().toISOString(),
-		limit: 20,
-	});
+		await measureReconcileStage("capture", async () =>
+			(
+				await import("./request-work-attempt-source")
+			).captureDispatcherWorkAttempts(context, organizationId, policy),
+		);
+	const rows = await measureReconcileStage("due", () =>
+		listDueKernelRequests(context.db, {
+			organizationId,
+			now: new Date().toISOString(),
+			limit: 20,
+		}),
+	);
 	if (!policy) {
 		// Preserve the configured interval already recorded on each request.
 		// Paused tenants must yield the bounded cross-tenant recovery scan.
@@ -337,7 +370,7 @@ export async function reconcileDueHomeKernelRequests(
 	for (const row of rows) {
 		if (Date.now() >= deadline) break;
 		try {
-			const updated =
+			const updated = await measureReconcileStage(row.sourceKind, async () =>
 				row.sourceKind === "home"
 					? await reconcileHomeKernelRequest(context, row, policy)
 					: row.sourceKind === "work_attempt"
@@ -346,7 +379,8 @@ export async function reconcileDueHomeKernelRequests(
 							).reconcileWorkAttemptKernelRequest(context, row, policy)
 						: await (
 								await import("./request-local-source")
-							).reconcileLocalKernelRequest(context, row, policy);
+							).reconcileLocalKernelRequest(context, row, policy),
+			);
 			if (updated.version !== row.version) recovered++;
 			if (updated.nextDueAt && updated.nextDueAt <= new Date().toISOString())
 				await transitionKernelRequest(context.db, {
