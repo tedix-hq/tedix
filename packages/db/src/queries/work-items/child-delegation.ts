@@ -321,11 +321,26 @@ export async function createChildWorkItem(
 	};
 	delete metadata.executor;
 	delete metadata.laneDispatch;
+	const rootQuery = db
+		.select({ id: storeWorkItems.id })
+		.from(storeWorkItems)
+		.where(
+			and(
+				eq(storeWorkItems.orgId, parent.orgId),
+				eq(storeWorkItems.id, root.id),
+			),
+		);
+	// PostgreSQL must serialize descendant allocations before the next statement reads their totals.
+	const rootLock =
+		coreStore(db) === "postgres"
+			? (
+					rootQuery as typeof rootQuery & {
+						for(strength: "update"): typeof rootQuery;
+					}
+				).for("update")
+			: rootQuery;
 	const [, rows] = await db.batch([
-		// PostgreSQL must serialize descendant allocations before the next statement reads their totals.
-		db.run(
-			sql`SELECT id FROM work_items WHERE org_id=${parent.orgId} AND id=${root.id} ${coreStore(db) === "postgres" ? sql`FOR UPDATE` : sql``}`,
-		),
+		rootLock,
 		db
 			.insert(storeWorkItems)
 			.values({
