@@ -394,13 +394,11 @@ for (const store of ["d1", "postgres"] as const)
 			).toHaveLength(2);
 			await expect(
 				db.batch([
-					db
-						.insert(runs)
-						.values({
-							...values,
-							id: "rollback",
-							workflowInstanceId: "rollback",
-						}),
+					db.insert(runs).values({
+						...values,
+						id: "rollback",
+						workflowInstanceId: "rollback",
+					}),
 					db.insert(runs).values(values),
 				]),
 			).rejects.toThrow();
