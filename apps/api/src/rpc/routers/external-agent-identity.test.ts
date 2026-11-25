@@ -20,7 +20,6 @@ import {
 import {
 	externalAgentIdentityContractRouter,
 	resolveExternalAgentMcpClientScopes,
-	selectReusableExternalAgentMcpCredential,
 } from "./external-agent-identity";
 
 vi.mock("@tedix/auth/aih-client", async (importOriginal) => ({
@@ -65,7 +64,7 @@ CREATE TABLE external_agent_sessions (
 );
 CREATE TABLE external_agent_mcp_credentials (
  id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, principal_id TEXT NOT NULL,
- session_id TEXT NOT NULL, client_record_id TEXT NOT NULL, client_id TEXT, provider_cleanup_attempted_at TEXT,
+ session_id TEXT NOT NULL, client_record_id TEXT NOT NULL, client_id TEXT, scopes TEXT, provider_cleanup_attempted_at TEXT,
  mcp_server_id TEXT NOT NULL, mcp_server_url TEXT NOT NULL,
  status TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL,
  revoked_at TEXT, provider_cleanup_at TEXT
@@ -763,63 +762,6 @@ describe("external-agent MCP client scopes", () => {
 				)
 				.get(),
 		).toEqual({ count: 0 });
-	});
-
-	it("reuses only the newest active client with the exact scope envelope", () => {
-		const tags = [
-			"external-agent",
-			`external-agent-org:${ORG}`,
-			`external-agent-principal:${SUBJECT}`,
-			`external-agent-session:${SUBJECT_SESSION}`,
-		];
-		const credentials = [
-			{ clientRecordId: "newest" },
-			{ clientRecordId: "older" },
-		];
-		expect(
-			selectReusableExternalAgentMcpCredential(
-				credentials,
-				[
-					{
-						id: "newest",
-						status: "verified",
-						scopes: ["mcp:skills"],
-						tags,
-					},
-					{
-						id: "older",
-						status: "verified",
-						scopes: ["mcp:skills", "mcp:observe"],
-						tags,
-					},
-				],
-				["mcp:skills"],
-				tags,
-			),
-		).toBe(credentials[0]);
-		expect(
-			selectReusableExternalAgentMcpCredential(
-				credentials,
-				[{ id: "newest", status: "disabled", scopes: ["mcp:skills"], tags }],
-				["mcp:skills"],
-				tags,
-			),
-		).toBeNull();
-		expect(
-			selectReusableExternalAgentMcpCredential(
-				credentials,
-				[
-					{
-						id: "newest",
-						status: "verified",
-						scopes: ["mcp:skills"],
-						tags: [...tags.slice(0, -1), "tedi:conflict"],
-					},
-				],
-				["mcp:skills"],
-				tags,
-			),
-		).toBeNull();
 	});
 
 	it("rejects authority absent from the target MCP resource", () => {

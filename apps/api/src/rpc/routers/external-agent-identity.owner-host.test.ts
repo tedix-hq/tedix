@@ -294,6 +294,8 @@ describe("owner-host Work identity", () => {
 			},
 			externalSessionKey: opened.session.externalSessionKey,
 			harness: "claude-desktop",
+			modelId: TUPLE.modelId,
+			modelVersion: TUPLE.modelVersion,
 			clientRecordId: ownerHostClientRecordId(opened.session.id),
 			creditEligible: false,
 			ownerBound: true,

@@ -1299,7 +1299,11 @@ const worker = {
 								externalAgent = await resolveExternalAgentSessionAuth(
 									{
 										...env,
-										API_SERVICE: gatewayReadBinding(env.API_SERVICE) as Fetcher,
+										API_SERVICE: aihM2mClient.clientRecordId.startsWith(
+											"session:",
+										)
+											? env.API_SERVICE
+											: (gatewayReadBinding(env.API_SERVICE) as Fetcher),
 									},
 									aihM2mClient.externalAgent,
 									aihM2mClient.clientRecordId,

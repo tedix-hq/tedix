@@ -311,12 +311,14 @@ for (const store of ["d1", "postgres"] as const)
 				principalId: "principal",
 				sessionId: "session",
 				clientRecordId: "client",
+				scopes: ["mcp:work.read"],
 				mcpServerId: "server",
 				mcpServerUrl: "https://example.test/mcp",
 				issuedAt: at,
 				expiresAt: later,
 			});
 			expect(credential.sessionId).toBe("session");
+			expect(credential.scopes).toEqual(["mcp:work.read"]);
 			expect(
 				(
 					await recordVerifiedExternalAgentMcpExecution(db, {

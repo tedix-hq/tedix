@@ -1,3 +1,4 @@
+import { verifyExchangedToken } from "@tedix/auth/token-exchange";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import {
@@ -21,7 +22,6 @@ import type { BaseContext } from "../orpc";
 const mocks = vi.hoisted(() => ({
 	create: vi.fn(),
 	remove: vi.fn(),
-	removeMany: vi.fn(),
 	load: vi.fn(),
 	search: vi.fn(),
 	secret: vi.fn(),
@@ -30,7 +30,6 @@ vi.mock("@tedix/auth/aih-client", async (load) => ({
 	...(await load<typeof import("@tedix/auth/aih-client")>()),
 	createDescopeMcpServerClient: mocks.create,
 	deleteDescopeMcpServerClient: mocks.remove,
-	deleteDescopeMcpServerClients: mocks.removeMany,
 	loadDescopeMcpServer: mocks.load,
 	searchDescopeMcpServerClients: mocks.search,
 	getDescopeMcpServerClientSecret: mocks.secret,
@@ -56,9 +55,7 @@ let sqlite: DatabaseSync;
 let db: ReturnType<typeof createDbClient>;
 let rawKey: string;
 let keyId: string;
-let expiresIn: number | undefined;
 let pending: Promise<unknown>[];
-let providerTurn: (() => void) | undefined;
 beforeEach(async () => {
 	vi.useFakeTimers({ toFake: ["Date"] });
 	vi.setSystemTime(new Date(NOW));
@@ -74,8 +71,6 @@ beforeEach(async () => {
 	);
 	db = createDbClient(createD1Facade(sqlite));
 	pending = [];
-	expiresIn = 600;
-	providerTurn = undefined;
 	const key = await createApiKey(db, {
 		organizationId: ORG,
 		name: "Fixture bootstrap",
@@ -116,42 +111,6 @@ beforeEach(async () => {
 		id: "fixture-resource",
 		approvedScopes: { connectionsScopes: [{ name: "mcp:work.read" }] },
 	});
-	mocks.create.mockResolvedValue({
-		id: "fixture-client-record",
-		clientId: "fixture-client",
-		clientSecret: "fixture-secret",
-	});
-	mocks.remove.mockResolvedValue(undefined);
-	mocks.removeMany.mockResolvedValue(undefined);
-	mocks.secret.mockResolvedValue("fixture-secret");
-	mocks.search.mockResolvedValue([
-		{
-			id: "fixture-client-record",
-			clientId: "fixture-client",
-			mcpServerId: "fixture-resource",
-			status: "verified",
-			scopes: ["mcp:work.read"],
-			tags: [
-				"external-agent",
-				`external-agent-org:${ORG}`,
-				`external-agent-principal:${PRINCIPAL}`,
-				`external-agent-session:${SESSION}`,
-			],
-		},
-	]);
-	vi.stubGlobal(
-		"fetch",
-		vi.fn(async () => {
-			providerTurn?.();
-			return new Response(
-				JSON.stringify({
-					access_token: "fixture-bearer",
-					expires_in: expiresIn,
-				}),
-				{ status: 200 },
-			);
-		}),
-	);
 });
 afterEach(async () => {
 	await Promise.all(pending);
@@ -164,6 +123,7 @@ function client(extraHeaders: Record<string, string> = {}) {
 	const ctx = {
 		db,
 		env: {
+			PLATFORM_SERVICE_TOKEN: "fixture-signing",
 			ENVIRONMENT: "test",
 			DESCOPE_PROJECT_ID: "Pfixture",
 			DESCOPE_MANAGEMENT_KEY: "fixture-management",
@@ -188,412 +148,88 @@ function client(extraHeaders: Record<string, string> = {}) {
 		context: ctx,
 	});
 }
-describe("enrollment-bounded MCP credential issuance", () => {
-	it("names a pending provider call without logging credentials and preserves failure cleanup", async () => {
-		const logs = vi.spyOn(console, "info").mockImplementation(() => {});
-		let rejectProvider!: (error: Error) => void;
-		let providerStarted!: () => void;
-		const started = new Promise<void>((resolve) => {
-			providerStarted = resolve;
-		});
-		mocks.create.mockImplementationOnce(() => {
-			providerStarted();
-			return new Promise((_resolve, reject) => {
-				rejectProvider = reject;
-			});
-		});
-		const issuing = client().issueMcpCredential(INPUT);
-		await started;
-		expect(logs.mock.calls.at(-1)?.[0]).toEqual({
-			event: "external_agent_mcp_issuance_phase",
-			phase: "createDescopeMcpServerClient",
-			status: "started",
-			elapsedMs: 0,
-		});
-		vi.setSystemTime(new Date(Date.parse(NOW) + 7_000));
-		const rejected = expect(issuing).rejects.toMatchObject({
-			code: "INTERNAL_SERVER_ERROR",
-			message: expect.stringContaining("private-provider-error"),
-		});
-		rejectProvider(new Error("private-provider-error"));
-		await rejected;
-		expect(logs).toHaveBeenCalledWith({
-			event: "external_agent_mcp_issuance_phase",
-			phase: "createDescopeMcpServerClient",
-			status: "failed",
-			elapsedMs: 7_000,
-		});
-		// A failed provider call must still release the lease for the next issuance.
-		expect((await client().issueMcpCredential(INPUT)).accessToken).toBe(
-			"fixture-bearer",
-		);
-		expect(JSON.stringify(logs.mock.calls)).not.toMatch(
-			/private-provider-error|fixture-secret|fixture-management|fixture-bearer/,
-		);
-	});
-	it("caps both initial issuance and renewal to the two-minute enrollment deadline", async () => {
-		const first = await client().issueMcpCredential(INPUT);
-		expect(first.expiresIn).toBe(120);
-		expect(
-			sqlite
-				.prepare("SELECT expires_at FROM external_agent_mcp_credentials")
-				.get(),
-		).toEqual({ expires_at: DEADLINE });
-		vi.setSystemTime(new Date("2030-01-01T00:01:00.000Z"));
-		const second = await client().issueMcpCredential(INPUT);
-		expect(second.expiresIn).toBe(60);
-		expect(mocks.create).toHaveBeenCalledTimes(1);
-		expect(
-			sqlite
-				.prepare("SELECT expires_at FROM external_agent_mcp_credentials")
-				.get(),
-		).toEqual({ expires_at: DEADLINE });
-	});
-	it.each([undefined])(
-		"fails issuance for provider expires_in %s and removes its unrecorded client",
-		async (lifetime) => {
-			expiresIn = lifetime;
-			await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
-				code: "INTERNAL_SERVER_ERROR",
-				message: expect.stringContaining("expires_in"),
-			});
-			expect(
-				sqlite
-					.prepare(
-						"SELECT count(*) AS total FROM external_agent_mcp_credentials",
-					)
-					.get(),
-			).toEqual({ total: 0 });
-			expect(mocks.remove).toHaveBeenCalledTimes(1);
-		},
-	);
-	it("accepts a legacy general key and a one-hour provider token with a ten-minute live credential", async () => {
-		sqlite
-			.prepare("UPDATE api_keys SET purpose = 'general', expires_at = NULL")
-			.run();
-		expiresIn = 3600;
-		const first = await client().issueMcpCredential(INPUT);
-		expect(first.expiresIn).toBe(600);
-		expect(
-			sqlite
-				.prepare("SELECT expires_at FROM external_agent_mcp_credentials")
-				.get(),
-		).toEqual({ expires_at: "2030-01-01T00:10:00.000Z" });
-		vi.setSystemTime(new Date("2030-01-01T00:01:00.000Z"));
-		expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(600);
-		expect(mocks.create).toHaveBeenCalledTimes(1);
-		expect(
-			sqlite
-				.prepare("SELECT expires_at FROM external_agent_mcp_credentials")
-				.get(),
-		).toEqual({ expires_at: "2030-01-01T00:11:00.000Z" });
-		const authorization = {
+describe("session token exchange", () => {
+	const resolve = (sessionId: string, clientRecordId: string) =>
+		resolveAuthorizedExternalAgentMcpSession(db, {
 			organizationId: ORG,
 			principalId: PRINCIPAL,
-			sessionId: SESSION,
-			clientRecordId: first.clientRecordId,
-		};
-		expect(
-			await resolveAuthorizedExternalAgentMcpSession(db, {
-				...authorization,
-				now: "2030-01-01T00:10:59.999Z",
-			}),
-		).not.toBeNull();
-		// The provider token still has 49 minutes left, but Tedix refuses it.
-		expect(
-			await resolveAuthorizedExternalAgentMcpSession(db, {
-				...authorization,
-				now: "2030-01-01T00:11:00.000Z",
-			}),
-		).toBeNull();
-	});
-	it("caps a one-hour provider token at the earlier enrollment expiry", async () => {
-		expiresIn = 3600;
-		expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(120);
-		expect(
-			sqlite
-				.prepare("SELECT expires_at FROM external_agent_mcp_credentials")
-				.get(),
-		).toEqual({ expires_at: DEADLINE });
-	});
-	it("rejects renewal at the enrollment deadline without contacting the provider", async () => {
-		vi.setSystemTime(new Date(DEADLINE));
-		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
-			code: "UNAUTHORIZED",
-			message: expect.stringContaining("enrollment_expired"),
+			sessionId,
+			clientRecordId,
+			now: new Date().toISOString(),
 		});
-		expect(mocks.create).not.toHaveBeenCalled();
-	});
-	it("rechecks expiry when enrollment expires during the provider exchange", async () => {
-		providerTurn = () => vi.setSystemTime(new Date(DEADLINE));
-		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
-			code: "UNAUTHORIZED",
-			message: expect.stringContaining("enrollment_expired"),
-		});
-		expect(
-			sqlite
-				.prepare("SELECT count(*) AS total FROM external_agent_mcp_credentials")
-				.get(),
-		).toEqual({ total: 0 });
-		expect(mocks.remove).toHaveBeenCalledTimes(1);
-	});
-	it("limits the thirty-first authenticated exchange across sessions before provider work", async () => {
-		for (let i = 0; i < 30; i++)
-			expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(120);
-		const anotherSession = crypto.randomUUID();
-		await db.insert(agentTables.externalAgentSessions).values({
-			id: anotherSession,
-			organizationId: ORG,
-			principalId: PRINCIPAL,
-			externalSessionKey: "codex:other-session",
-			harness: "codex",
-			harnessVersion: "1",
-			modelProvider: "fixture",
-			modelId: "fixture",
-			modelVersion: "1",
-			identitySource: "explicit",
-			startedAt: NOW,
-			lastSeenAt: NOW,
-		});
-		const providerCalls = vi.mocked(fetch).mock.calls.length;
-		await expect(
-			client().issueMcpCredential({ ...INPUT, sessionId: anotherSession }),
-		).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
-		expect(vi.mocked(fetch).mock.calls).toHaveLength(providerCalls);
-		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
-			code: "TOO_MANY_REQUESTS",
-		});
-		vi.setSystemTime(new Date("2030-01-01T00:01:00.000Z"));
-		expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(60);
-	});
-});
-
-describe("provider answers kept between renewals", () => {
-	it("keeps the existing credential when the bounded search fails", async () => {
-		await client().issueMcpCredential(INPUT);
-		mocks.search.mockRejectedValueOnce(new Error("search deadline"));
-		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
-			code: "INTERNAL_SERVER_ERROR",
-		});
-		expect(mocks.create).toHaveBeenCalledTimes(1);
-		expect(mocks.remove).not.toHaveBeenCalled();
-		expect(
-			sqlite
-				.prepare("SELECT count(*) AS total FROM external_agent_mcp_credentials")
-				.get(),
-		).toEqual({ total: 1 });
-		// The failed issuance releases the lease, so the next exchange can recover.
-		expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(120);
-	});
-	it("asks the provider for the registration and client once per few seconds", async () => {
-		await client().issueMcpCredential(INPUT);
-		await client().issueMcpCredential(INPUT);
-		await client().issueMcpCredential(INPUT);
-		expect(mocks.create).toHaveBeenCalledTimes(1);
-		expect(mocks.load).toHaveBeenCalledTimes(1);
-		expect(mocks.search).toHaveBeenCalledTimes(1);
-		// The secret and the token are fetched for every issuance.
-		expect(mocks.secret).toHaveBeenCalledTimes(2);
-		vi.setSystemTime(new Date("2030-01-01T00:00:31.000Z"));
-		await client().issueMcpCredential(INPUT);
-		expect(mocks.load).toHaveBeenCalledTimes(2);
-		expect(mocks.search).toHaveBeenCalledTimes(2);
-	});
-	it("forgets a remembered client when reusing it fails", async () => {
-		await client().issueMcpCredential(INPUT);
-		await client().issueMcpCredential(INPUT);
-		expect(mocks.search).toHaveBeenCalledTimes(1);
-		mocks.secret.mockRejectedValueOnce(new Error("client was removed"));
-		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
-			code: "INTERNAL_SERVER_ERROR",
-		});
-		expect(mocks.search).toHaveBeenCalledTimes(1);
-		await client().issueMcpCredential(INPUT);
-		expect(mocks.search).toHaveBeenCalledTimes(2);
-	});
-	it("never remembers a client the provider does not report as verified", async () => {
-		mocks.search.mockResolvedValue([
-			{
-				id: "fixture-client-record",
-				clientId: "fixture-client",
-				mcpServerId: "fixture-resource",
-				status: "pending",
-			},
-		]);
-		mocks.create.mockResolvedValueOnce({
-			id: "fixture-client-record",
-			clientId: "fixture-client",
-			clientSecret: "fixture-secret",
-		});
-		await client().issueMcpCredential(INPUT);
-		await client()
-			.issueMcpCredential(INPUT)
-			.catch(() => undefined);
-		await client()
-			.issueMcpCredential(INPUT)
-			.catch(() => undefined);
-		expect(mocks.search).toHaveBeenCalledTimes(2);
-		expect(mocks.secret).not.toHaveBeenCalled();
-	});
-});
-
-describe("client lookups without the server-wide list", () => {
-	const registered = (scopes: string[]) => ({
-		id: "fixture-client-record",
-		clientId: "fixture-client",
-		mcpServerId: "fixture-resource",
-		status: "verified",
-		scopes,
-		tags: [
-			"external-agent",
-			`external-agent-org:${ORG}`,
-			`external-agent-principal:${PRINCIPAL}`,
-			`external-agent-session:${SESSION}`,
-		],
-	});
-	const rows = () =>
+	it("issues concurrent sessions without provider clients and revokes only the selected bearer", async () => {
+		const secondSession = "00000000-0000-4000-8000-000000000004";
 		sqlite
 			.prepare(
-				"SELECT client_record_id, client_id, status FROM external_agent_mcp_credentials ORDER BY issued_at, id",
+				"INSERT INTO external_agent_sessions SELECT ?, organization_id, principal_id, 'codex:second', harness, harness_version, model_provider, model_id, model_version, identity_source, status, credit_eligible, started_at, last_seen_at, ended_at, metadata FROM external_agent_sessions WHERE id = ?",
 			)
-			.all();
-
-	it("records the OAuth client id and renews by searching that one client", async () => {
-		await client().issueMcpCredential(INPUT);
-		expect(rows()).toEqual([
-			{
-				client_record_id: "fixture-client-record",
-				client_id: "fixture-client",
-				status: "active",
-			},
+			.run(secondSession, SESSION);
+		const [first, second] = await Promise.all([
+			client().issueMcpCredential(INPUT),
+			client().issueMcpCredential({ ...INPUT, sessionId: secondSession }),
 		]);
-		await client().issueMcpCredential(INPUT);
-		expect(mocks.search).toHaveBeenCalledTimes(1);
-		expect(mocks.search.mock.calls[0]?.[1]).toEqual({
-			mcpServerId: "fixture-resource",
-			clientId: "fixture-client",
+		expect(first.clientRecordId).toMatch(/^session:/);
+		expect(first.clientRecordId).not.toBe(second.clientRecordId);
+		expect(first.accessToken).not.toBe(second.accessToken);
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(mocks.secret).not.toHaveBeenCalled();
+		expect(mocks.search).not.toHaveBeenCalled();
+		const claims = await verifyExchangedToken(first.accessToken, {
+			secret: "fixture-signing",
+			audience: INPUT.mcpServerUrl,
 		});
-		expect(mocks.create).toHaveBeenCalledTimes(1);
-	});
-
-	it("falls back to the server-wide list for a row without a client id and fills it in", async () => {
-		await client().issueMcpCredential(INPUT);
-		sqlite
-			.prepare("UPDATE external_agent_mcp_credentials SET client_id = NULL")
-			.run();
-		await client().issueMcpCredential(INPUT);
-		expect(mocks.search.mock.calls[0]?.[1]).toEqual({
-			mcpServerId: "fixture-resource",
+		expect(claims).toMatchObject({
+			sub: `external-agent-session:${SESSION}`,
+			act: { sub: `external-agent:${PRINCIPAL}` },
+			scopes: INPUT.scopes,
 		});
-		expect(mocks.create).toHaveBeenCalledTimes(1);
-		expect(rows()).toEqual([
-			{
-				client_record_id: "fixture-client-record",
-				client_id: "fixture-client",
-				status: "active",
-			},
-		]);
-	});
-
-	it("never mints when a client lookup fails", async () => {
-		await client().issueMcpCredential(INPUT);
-		mocks.search.mockRejectedValueOnce(new Error("search deadline"));
-		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
-			code: "INTERNAL_SERVER_ERROR",
-		});
-		expect(mocks.create).toHaveBeenCalledTimes(1);
-	});
-
-	it("replaces a client whose scopes drifted and revokes the old one", async () => {
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		await client().issueMcpCredential(INPUT);
-		mocks.search.mockResolvedValue([registered(["mcp:work.write"])]);
-		mocks.create.mockResolvedValueOnce({
-			id: "replacement-client-record",
-			clientId: "replacement-client",
-			clientSecret: "fixture-secret",
-		});
-		vi.setSystemTime(new Date("2030-01-01T00:00:01.000Z"));
-		const second = await client().issueMcpCredential(INPUT);
-		await Promise.all(pending);
-		expect(second.clientRecordId).toBe("replacement-client-record");
-		expect(mocks.removeMany).toHaveBeenCalledWith(expect.anything(), {
-			ids: ["fixture-client-record"],
-			mcpServerId: "fixture-resource",
-		});
-		expect(rows()).toEqual([
-			{
-				client_record_id: "fixture-client-record",
-				client_id: "fixture-client",
-				status: "revoked",
-			},
-			{
-				client_record_id: "replacement-client-record",
-				client_id: "replacement-client",
-				status: "active",
-			},
-		]);
+		expect(first.expiresIn).toBe(120);
 		expect(
-			warn.mock.calls.some((call) =>
-				String(call[0]).includes("external-agent-mcp-client-superseded"),
-			),
-		).toBe(true);
-	});
-
-	it("keeps the old client active for the reaper when deleting it fails", async () => {
-		vi.spyOn(console, "warn").mockImplementation(() => {});
-		vi.spyOn(console, "error").mockImplementation(() => {});
-		await client().issueMcpCredential(INPUT);
-		mocks.search.mockResolvedValue([registered(["mcp:work.write"])]);
-		mocks.removeMany.mockRejectedValueOnce(new Error("provider down"));
-		mocks.create.mockResolvedValueOnce({
-			id: "replacement-client-record",
-			clientId: "replacement-client",
-			clientSecret: "fixture-secret",
-		});
-		vi.setSystemTime(new Date("2030-01-01T00:00:01.000Z"));
-		await client().issueMcpCredential(INPUT);
-		await Promise.all(pending);
-		expect(rows().map((row) => (row as { status: string }).status)).toEqual([
-			"active",
-			"active",
-		]);
-	});
-});
-
-describe("revoked client cleanup", () => {
-	const revoke = (clientRecordId: string) =>
-		client({
+			(await resolve(SESSION, first.clientRecordId))?.credential.scopes,
+		).toEqual(INPUT.scopes);
+		await client({
 			"X-Tedix-Caller-Type": "mcp-edge-external-agent",
 			"X-Tedix-External-Agent-Principal-Id": PRINCIPAL,
 			"X-Tedix-External-Agent-Session-Id": SESSION,
-			"X-Tedix-External-Agent-Client-Record-Id": clientRecordId,
+			"X-Tedix-External-Agent-Client-Record-Id": first.clientRecordId,
 			"X-Tedix-Org-Id": ORG,
 		}).revokeMcpCredential({
 			organizationId: ORG,
 			principalId: PRINCIPAL,
 			sessionId: SESSION,
-			clientRecordId,
+			clientRecordId: first.clientRecordId,
 		});
-	const cleanup = () =>
-		sqlite
-			.prepare(
-				"SELECT status, provider_cleanup_at FROM external_agent_mcp_credentials",
-			)
-			.get() as { status: string; provider_cleanup_at: string | null };
-
-	it("records finished cleanup only after Descope deletes the client", async () => {
-		const issued = await client().issueMcpCredential(INPUT);
-		await revoke(issued.clientRecordId);
-		expect(mocks.remove).toHaveBeenCalledTimes(1);
-		expect(cleanup()).toEqual({ status: "revoked", provider_cleanup_at: NOW });
+		expect(await resolve(SESSION, first.clientRecordId)).toBeNull();
+		expect(await resolve(secondSession, second.clientRecordId)).not.toBeNull();
+		expect(await resolve(SESSION, second.clientRecordId)).toBeNull();
+		expect(mocks.remove).not.toHaveBeenCalled();
 	});
-
-	it("leaves a failed delete unfinished for the reaper", async () => {
-		vi.spyOn(console, "error").mockImplementation(() => {});
-		const issued = await client().issueMcpCredential(INPUT);
-		mocks.remove.mockRejectedValueOnce(new Error("provider down"));
-		await revoke(issued.clientRecordId);
-		expect(cleanup()).toEqual({ status: "revoked", provider_cleanup_at: null });
+	it("bounds renewal to enrollment and denies expired or disabled enrollment", async () => {
+		await client().issueMcpCredential(INPUT);
+		vi.setSystemTime(new Date("2030-01-01T00:01:00.000Z"));
+		const renewed = await client().issueMcpCredential(INPUT);
+		expect(renewed.expiresIn).toBe(60);
+		expect(
+			(await resolve(SESSION, renewed.clientRecordId))?.credential.expiresAt,
+		).toBe(DEADLINE);
+		sqlite.prepare("UPDATE api_keys SET status = 'revoked'").run();
+		expect(await resolve(SESSION, renewed.clientRecordId)).toBeNull();
+		sqlite.prepare("UPDATE api_keys SET status = 'active'").run();
+		vi.setSystemTime(new Date(DEADLINE));
+		expect(await resolve(SESSION, renewed.clientRecordId)).toBeNull();
+		await expect(client().issueMcpCredential(INPUT)).rejects.toThrow();
+	});
+	it("does not register a fallback client on resource lookup failure or an empty scope request", async () => {
+		await expect(
+			client().issueMcpCredential({ ...INPUT, scopes: [] }),
+		).rejects.toThrow();
+		mocks.load.mockRejectedValueOnce(new Error("provider unavailable"));
+		await expect(client().issueMcpCredential(INPUT)).rejects.toThrow();
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(
+			sqlite
+				.prepare("SELECT count(*) AS n FROM external_agent_mcp_credentials")
+				.get(),
+		).toEqual({ n: 0 });
 	});
 });

@@ -3883,6 +3883,7 @@ export const externalAgentMcpCredentials = pgTable(
 		revokedAt: text("revoked_at"),
 		providerCleanupAt: text("provider_cleanup_at"),
 		clientId: text("client_id"),
+		scopes: jsonb("scopes"),
 		providerCleanupAttemptedAt: text("provider_cleanup_attempted_at"),
 	},
 	(t) => [

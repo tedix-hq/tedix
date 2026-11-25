@@ -1,5 +1,5 @@
 /**
- * Internal RFC 8693 token exchange (pilot; nothing issues these yet).
+ * Internal RFC 8693 token exchange, used for external-agent session bearers.
  *
  * A broker that has already verified a subject token and an actor token asks
  * for a short-lived token for one internal Tedix audience. The issued token

@@ -141,6 +141,7 @@ export async function recordExternalAgentMcpCredential(
 		clientRecordId: string;
 		/** OAuth client id of the Descope client; null for federated credentials. */
 		clientId?: string | null;
+		scopes?: string[];
 		mcpServerId: string;
 		mcpServerUrl: string;
 		issuedAt: string;
@@ -171,6 +172,11 @@ export async function recordExternalAgentMcpCredential(
 					),
 					clientId: sql<string | null>`${input.clientId ?? null}`.as(
 						"client_id",
+					),
+					scopes: sql<
+						string[] | null
+					>`${input.scopes ? jsonParameter(db, input.scopes) : null}`.as(
+						"scopes",
 					),
 					mcpServerId: sql<string>`${input.mcpServerId}`.as("mcp_server_id"),
 					mcpServerUrl: sql<string>`${input.mcpServerUrl}`.as("mcp_server_url"),

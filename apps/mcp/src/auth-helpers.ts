@@ -18,6 +18,7 @@ import {
 	verifyDelegatedMcpToken,
 	type DelegatedMcpClaims,
 } from "@tedix/auth/delegated-mcp-token";
+import { verifyExchangedToken } from "@tedix/auth/token-exchange";
 import { resolveLocalDemoUser } from "@tedix/auth/local-demo";
 import {
 	decodeTokenUnsafe,
@@ -664,6 +665,7 @@ export function intersectScopes(
 }
 
 export interface ResolvedExternalAgentSessionAuth {
+	credentialScopes?: string[] | null;
 	principal: {
 		id: string;
 		organizationId: string;
@@ -836,14 +838,15 @@ export async function resolveExternalAgentSessionAuth(
 	env: CloudflareEnv,
 	identity: NonNullable<AihM2mClientScopeContext["externalAgent"]>,
 	clientRecordId: string,
-	registeredScopes: string[] = [],
+	registeredScopes?: string[],
+	fresh = false,
 ): Promise<ResolvedExternalAgentSessionAuth & { scopes: string[] }> {
 	if (!env.API_SERVICE) {
 		throw new Error("API service binding is required for external-agent auth");
 	}
 	const resolved = await callRpc<ResolvedExternalAgentSessionAuth>(
 		"externalAgentIdentity/resolveSessionAuth",
-		{ ...identity, clientRecordId },
+		{ ...identity, clientRecordId, ...(fresh ? { fresh: true } : {}) },
 		{
 			apiUrl: "https://api",
 			fetch: serviceBindingFetch(env.API_SERVICE),
@@ -863,12 +866,18 @@ export async function resolveExternalAgentSessionAuth(
 		);
 	}
 	const ceiling = externalAgentScopeCeiling(resolved.principal.metadata);
+	const envelope = clientRecordId.startsWith("session:")
+		? (resolved.credentialScopes ?? [])
+		: (registeredScopes ?? []);
+	const scopes = registeredScopes
+		? envelope.filter((scope) => registeredScopes.includes(scope))
+		: envelope;
 	return {
 		...resolved,
 		scopes:
 			ceiling === undefined
-				? registeredScopes
-				: registeredScopes.filter((scope) => ceiling.includes(scope)),
+				? scopes
+				: scopes.filter((scope) => ceiling.includes(scope)),
 	};
 }
 
@@ -922,6 +931,18 @@ export async function resolveFreshExternalAgentAihAuthority(
 	)
 		return null;
 	try {
+		if (identity.clientRecordId.startsWith("session:")) {
+			if (identity.clientId !== `external-agent:${identity.principalId}`)
+				return null;
+			const session = await resolveExternalAgentSessionAuth(
+				env,
+				identity,
+				identity.clientRecordId,
+				undefined,
+				true,
+			);
+			return { scopes: session.scopes };
+		}
 		const clients = await searchAihMcpServerClientsViaApi(
 			env,
 			identity.mcpServerId,
@@ -1014,6 +1035,34 @@ export async function resolveAihM2mClientScopeContext(
 ): Promise<AihM2mClientScopeContext | null> {
 	if (!env.DESCOPE_PROJECT_ID || !env.API_SERVICE || !mcpServerId) {
 		return null;
+	}
+
+	if (payload.iss === "tedix:token-exchange") {
+		if (!options?.bearerToken) throw new Error("Missing session bearer");
+		const claims = await verifyExchangedToken(options.bearerToken, {
+			secret: env.PLATFORM_SERVICE_TOKEN,
+			audience: String(payload.aud),
+		});
+		const sessionId = claims.sub.replace(/^external-agent-session:/, "");
+		const principalId = claims.act.sub.replace(/^external-agent:/, "");
+		if (
+			!claims.sub.startsWith("external-agent-session:") ||
+			!claims.act.sub.startsWith("external-agent:") ||
+			claims.act.act
+		) {
+			throw new Error("Invalid external-agent exchange subject");
+		}
+		return {
+			clientId: claims.act.sub,
+			clientRecordId: `session:${claims.jti}`,
+			tags: [],
+			scopes: claims.scopes,
+			externalAgent: {
+				organizationId: claims.organizationId,
+				principalId,
+				sessionId,
+			},
+		};
 	}
 
 	if (payload.tedixWorkloadFederation === true) {
@@ -1357,6 +1406,41 @@ export async function validateAuth(
 	}
 
 	const token = match[1];
+	if (decodeTokenUnsafe(token)?.iss === "tedix:token-exchange") {
+		try {
+			if (!options?.expectedAudience) throw new Error("Missing MCP audience");
+			const claims = await verifyExchangedToken(token, {
+				secret: env.PLATFORM_SERVICE_TOKEN,
+				audience: options.expectedAudience,
+			});
+			if (
+				!claims.sub.startsWith("external-agent-session:") ||
+				!claims.act.sub.startsWith("external-agent:") ||
+				claims.act.act
+			) {
+				throw new Error("Invalid external-agent exchange subject");
+			}
+			return {
+				type: "oauth",
+				organizationId: claims.organizationId,
+				scopes: claims.scopes,
+				payload: {
+					iss: "tedix:token-exchange",
+					sub: claims.sub,
+					aud: claims.audience,
+					exp: claims.expiresAt,
+				},
+			};
+		} catch {
+			return new Response(
+				JSON.stringify({ error: "invalid_external_agent_token" }),
+				{
+					status: 401,
+					headers: { "Content-Type": "application/json" },
+				},
+			);
+		}
+	}
 	if (isDelegatedMcpToken(token)) {
 		try {
 			if (!options?.expectedAudience) throw new Error("Missing MCP audience");

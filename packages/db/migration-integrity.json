@@ -2064,6 +2064,10 @@
 		{
 			"name": "20261125213240_remaining_work_timers/migration.sql",
 			"sha256": "d685a02fa39f9a9afb0bd9328a50859ef2326a9a94e9b84cf0d8227e4e9360b5"
+		},
+		{
+			"name": "20261125222213_external-agent-session-scopes/migration.sql",
+			"sha256": "d5c33fd2b3b915f3135847b676fc395fd45ba92396737338d70150f59f082dd8"
 		}
 	]
 }

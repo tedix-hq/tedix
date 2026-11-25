@@ -1,3 +1,4 @@
+import { exchangeToken } from "@tedix/auth/token-exchange";
 import { TokenValidationError } from "@tedix/auth/jwt";
 import { issueDelegatedMcpToken } from "@tedix/auth/delegated-mcp-token";
 import {
@@ -2848,5 +2849,111 @@ describe("federated workload session auth", () => {
 				mcpServerId: "resource",
 			}),
 		).toBe("https://example.mcp.tedix.dev/mcp");
+	});
+});
+
+describe("internal external-agent session bearer", () => {
+	it("authenticates the exact audience and signature, then rechecks scopes and revocation without provider clients", async () => {
+		const audience = "https://example.mcp.tedix.dev/mcp";
+		const identity = {
+			organizationId: "org",
+			principalId: "principal",
+			sessionId: "session",
+		};
+		const scopes = ["mcp:work.read", "connections.execute"];
+		const secret = "fixture-signing";
+		const minted = await exchangeToken({
+			subject: {
+				sub: "external-agent-session:session",
+				organizationId: identity.organizationId,
+				scopes,
+				expiresAt: Math.floor(Date.now() / 1000) + 300,
+			},
+			actor: "external-agent:principal",
+			audience,
+			allowedAudiences: [audience],
+			requestedScopes: scopes,
+			consentedScopes: scopes,
+			actorEntitlement: scopes,
+			secret,
+		});
+		const fetch = vi.fn(async (_request: Request) =>
+			Response.json({
+				json: {
+					principal: {
+						id: identity.principalId,
+						organizationId: identity.organizationId,
+						metadata: { allowedScopes: ["mcp:work.read"] },
+					},
+					session: { id: identity.sessionId },
+					credentialScopes: scopes,
+				},
+			}),
+		);
+		const env = {
+			PLATFORM_SERVICE_TOKEN: secret,
+			DESCOPE_PROJECT_ID: "Ptest",
+			API_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		const request = new Request(audience, {
+			headers: { Authorization: `Bearer ${minted.token}` },
+		});
+		const auth = await validateAuth(request, env, {
+			expectedAudience: audience,
+		});
+		expect(auth).toMatchObject({ type: "oauth", scopes: [...scopes].sort() });
+		if (!auth || auth instanceof Response || auth.type !== "oauth")
+			throw new Error("Expected oauth context");
+		const client = await resolveAihM2mClientScopeContext(
+			env,
+			auth.payload,
+			"resource",
+			{ bearerToken: minted.token },
+		);
+		expect(client?.externalAgent).toEqual(identity);
+		expect(client?.clientRecordId).toBe(`session:${minted.claims.jti}`);
+		expect(fetch).not.toHaveBeenCalled();
+		const resolved = await resolveExternalAgentSessionAuth(
+			env,
+			identity,
+			client!.clientRecordId,
+			scopes,
+		);
+		expect(resolved.scopes).toEqual(["mcp:work.read"]);
+		expect(
+			await resolveFreshExternalAgentAihAuthority(env, {
+				...identity,
+				clientRecordId: client!.clientRecordId,
+				clientId: client!.clientId!,
+				mcpServerId: "resource",
+			}),
+		).toEqual({ scopes: ["mcp:work.read"] });
+		expect(
+			fetch.mock.calls.every(([req]) =>
+				(req as Request).url.includes("resolveSessionAuth"),
+			),
+		).toBe(true);
+		fetch.mockResolvedValue(
+			Response.json({ message: "revoked" }, { status: 401 }),
+		);
+		await expect(
+			resolveExternalAgentSessionAuth(
+				env,
+				identity,
+				client!.clientRecordId,
+				scopes,
+			),
+		).rejects.toThrow();
+		const wrongAudience = await validateAuth(request, env, {
+			expectedAudience: "https://other.example/mcp",
+		});
+		expect(wrongAudience).toBeInstanceOf(Response);
+		expect((wrongAudience as Response).status).toBe(401);
+		const wrongKey = await validateAuth(
+			request,
+			{ ...env, PLATFORM_SERVICE_TOKEN: "other-key" },
+			{ expectedAudience: audience },
+		);
+		expect((wrongKey as Response).status).toBe(401);
 	});
 });

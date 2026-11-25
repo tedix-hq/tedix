@@ -54,6 +54,7 @@ const ENV = {
 	DESCOPE_PROJECT_ID: "Ptest",
 	DESCOPE_MANAGEMENT_KEY: "fictional-management",
 	SECRETS_MASTER_KEY: "fixture-only-secret",
+	PLATFORM_SERVICE_TOKEN: "fixture-signing",
 } as unknown as CloudflareEnv;
 
 let sqlite: DatabaseSync;
@@ -343,7 +344,7 @@ describe("external-agent M2M binding", () => {
 		).toEqual({ n: 0 });
 	});
 
-	it("issues the session credential under the grant with a per-session client", async () => {
+	it("exchanges the session credential under the grant without a per-session client", async () => {
 		const created = await bootstrapM2m();
 		const edge = client(
 			context({ type: "service-binding", path: "authorizeWorkloadSession" }),
@@ -354,15 +355,6 @@ describe("external-agent M2M binding", () => {
 			subjectToken: m2mToken(),
 			...tuple,
 			scopes: ["mcp:work.read"],
-		});
-		vi.mocked(createDescopeMcpServerClient).mockResolvedValueOnce({
-			id: "session-record",
-			clientId: "session-client",
-			clientSecret: "session-secret",
-		});
-		vi.mocked(exchangeAihClientCredentials).mockResolvedValueOnce({
-			accessToken: "session-bearer",
-			expiresIn: 300,
 		});
 		const ctx = context({
 			type: "service-binding",
@@ -379,23 +371,18 @@ describe("external-agent M2M binding", () => {
 			scopes: ["mcp:work.read"],
 			mcpServerUrl: RESOURCE,
 		});
-		expect(issued.accessToken).toBe("session-bearer");
-		expect(issued.clientRecordId).toBe("session-record");
+		expect(issued.accessToken).toMatch(/^eyJ/);
+		expect(issued.clientRecordId).toMatch(/^session:/);
 		expect(issued.expiresIn).toBeLessThanOrEqual(300);
-		// The binding client is never what the gateway sees.
-		expect(exchangeAihClientCredentials).toHaveBeenCalledWith(
-			expect.anything(),
-			RESOURCE,
-			"session-client",
-			"session-secret",
-		);
+		expect(createDescopeMcpServerClient).toHaveBeenCalledTimes(1); // Principal enrollment only.
+		expect(exchangeAihClientCredentials).not.toHaveBeenCalled();
 		expect(
 			sqlite
 				.prepare(
 					"SELECT client_record_id FROM external_agent_mcp_credentials WHERE session_id = ?",
 				)
 				.all(authorized.session.id),
-		).toEqual([{ client_record_id: "session-record" }]);
+		).toEqual([{ client_record_id: issued.clientRecordId }]);
 	});
 
 	it("deletes the binding client when the principal is disabled", async () => {

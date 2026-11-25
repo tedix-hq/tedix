@@ -1,14 +1,11 @@
 /// <reference path="../../worker-configuration.d.ts" />
+import { isLocalExternalAgentCredential } from "@tedix/auth/external-agent-credential";
 /**
  * External-agent MCP client reaper.
  *
- * Every `tedix agent start` / credential refresh registers a pre-registered
- * Descope MCP server client (a TPA) and records an `external_agent_mcp_credentials`
- * row. Credential *reuse* is meant to keep one client per (org, principal,
- * session, server), but when reuse does not engage a fresh client is minted on
- * every refresh — production has seen ~1 client per 60s per active session,
- * thousands of live TPAs on a single server, and ~1,800 creates/day against ~14
- * deletes/day.
+ * Older external-agent sessions registered a Descope MCP client per session.
+ * New sessions use internal tokens; this job drains the legacy client rows
+ * and expires local token rows without deleting a provider client.
  *
  * This job deletes the Descope client of every credential row that expired or
  * was revoked without its deletion finishing. It only deletes clients a
@@ -109,7 +106,7 @@ export async function runExternalAgentMcpClientReaperTick(
 	const expiredFederatedIds: string[] = [];
 	for (const row of reapable) {
 		// Federated credentials own no remote client; only expire the local ledger.
-		if (row.clientRecordId.startsWith("wif:")) {
+		if (isLocalExternalAgentCredential(row.clientRecordId)) {
 			expiredFederatedIds.push(row.clientRecordId);
 			continue;
 		}

@@ -304,16 +304,19 @@ describe("external-agent MCP client reaper", () => {
 	});
 });
 
-it("expires federated ledger entries without deleting the shared Descope client", async () => {
-	const id = `wif:${"a".repeat(64)}`;
-	listReapable.mockResolvedValue(rows("resource", id));
-	markReaped.mockResolvedValue(1);
-	const result = await tick();
-	expect(searchClients).not.toHaveBeenCalled();
-	expect(deleteClients).not.toHaveBeenCalled();
-	expect(markReaped).toHaveBeenCalledWith(expect.anything(), {
-		clientRecordIds: [id],
-		revokedAt: expect.any(String),
-	});
-	expect(result).toMatchObject({ candidates: 1, deleted: 0, revoked: 1 });
-});
+it.each(["wif", "session"])(
+	"expires %s ledger entries without deleting a Descope client",
+	async (prefix) => {
+		const id = `${prefix}:${"a".repeat(64)}`;
+		listReapable.mockResolvedValue(rows("resource", id));
+		markReaped.mockResolvedValue(1);
+		const result = await tick();
+		expect(searchClients).not.toHaveBeenCalled();
+		expect(deleteClients).not.toHaveBeenCalled();
+		expect(markReaped).toHaveBeenCalledWith(expect.anything(), {
+			clientRecordIds: [id],
+			revokedAt: expect.any(String),
+		});
+		expect(result).toMatchObject({ candidates: 1, deleted: 0, revoked: 1 });
+	},
+);

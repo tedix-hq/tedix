@@ -459,12 +459,14 @@ export const externalAgentIdentityContract = oc
 					principalId: z.uuid(),
 					sessionId: z.uuid(),
 					clientRecordId: z.string().min(1).max(300),
+					fresh: z.boolean().optional(),
 				}),
 			)
 			.output(
 				z.object({
 					principal: ExternalAgentPrincipalSchema,
 					session: ExternalAgentSessionSchema,
+					credentialScopes: z.array(z.string()).nullable().optional(),
 				}),
 			),
 

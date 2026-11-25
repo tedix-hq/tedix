@@ -135,10 +135,20 @@ Coding agents open an immutable Agent-Session at the MCP gateway's no-store
 - Identity reads use a shared D1 read-retry with a five-second deadline; a
   timed-out read is never replayed. Transient failures surface as 503
   (`session_backend_unavailable`), not invalid credentials.
-- Issuance is idempotent per session, resource, and scope set, serialized by a
-  D1 lease. A busy lease returns 409 `credential_issuance_in_progress`; the CLI
-  retries that response up to three times. It reuses the existing Descope client
-  and rotates only the access token.
+- Issuance exchanges the verified enrollment or workload identity for an
+  internal token with an exact MCP audience and a lifetime of at most five
+  minutes, capped by enrollment expiry. It creates no Descope client. The
+  signed subject names the session and the actor names its principal. A
+  conditional D1 insert rechecks active enrollment, principal and session
+  before returning each bearer; concurrent requests create independent tokens
+  without a shared provider registration or registration lock.
+- Every bearer has a `session:<jti>` revocation row and a persisted scope
+  envelope. Gateway checks require that live row and intersect its scopes with
+  the signed request, current principal ceiling and resource-approved scopes.
+  Fresh approval checks bypass resource caches. Empty scope requests fail.
+  Existing Descope session clients remain valid until expiry or revocation;
+  the reaper drains them. Local session and federated credentials are expired
+  locally, never passed to Descope's client deletion API.
 - The CLI caches the session token until near expiry, bound to workspace,
   principal, session, gateway, key, and scopes. A timeout keeps the session;
   retry with it rather than creating a new identity.
@@ -152,7 +162,7 @@ Coding agents open an immutable Agent-Session at the MCP gateway's no-store
   body. Suspending the principal is the stop switch.
 - An owner/admin may end an abandoned session with
   `retire_abandoned_external_agent_session`. It refuses active Attempts, ends the
-  session, deletes its Descope MCP clients, revokes the D1 credential rows, and
+  session, deletes any legacy Descope MCP clients, revokes the D1 credential rows, and
   emits `external_agent.session.retired_abandoned`.
 
 ### Worker ingress
