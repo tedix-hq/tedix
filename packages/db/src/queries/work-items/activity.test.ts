@@ -165,7 +165,7 @@ describe("listWorkActivity", () => {
 	});
 });
 
-it("resolves 50 distinct activity commits in one alias statement without changing payloads", async () => {
+it("resolves 50 distinct activity commits with one batched read per hop without changing payloads", async () => {
 	const statements: string[] = [];
 	const db = seed(false, statements);
 	const expected = new Map<string, string>();
@@ -201,7 +201,8 @@ it("resolves 50 distinct activity commits in one alias statement without changin
 		expect(event.settlement?.commitSha).toBe(expected.get(event.id));
 	expect(
 		statements.filter((query) => query.includes('from "git_commit_aliases"')),
-	).toHaveLength(1);
+		// One read loads the aliases; the next checks their opposite endpoints.
+	).toHaveLength(2);
 	for (const row of await db
 		.select({ id: workEvents.id, payload: workEvents.payload })
 		.from(workEvents)) {

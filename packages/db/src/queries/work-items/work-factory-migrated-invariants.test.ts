@@ -3060,19 +3060,21 @@ it("human release migration preserves reservations, Attempt links and guards", (
 	const before = tables.map((table) =>
 		sqlite.prepare(`SELECT * FROM ${table} ORDER BY id`).all(),
 	);
-	// Later migrations keep every guard; the title search adds its own three.
-	const triggers = [
-		...sqlite
+	const triggers = sqlite
+		.prepare(
+			"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
+		)
+		.all();
+	sqlite.exec("BEGIN");
+	sqlite.exec(migrations[boundary]!.sql);
+	expect(
+		sqlite
 			.prepare(
 				"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
 			)
 			.all(),
-		{ name: "work_item_title_search_delete" },
-		{ name: "work_item_title_search_insert" },
-		{ name: "work_item_title_search_update" },
-	].sort((a, b) => (String(a.name) < String(b.name) ? -1 : 1));
-	sqlite.exec("BEGIN");
-	for (const migration of migrations.slice(boundary))
+	).toEqual(triggers);
+	for (const migration of migrations.slice(boundary + 1))
 		sqlite.exec(migration.sql);
 	sqlite.exec("COMMIT");
 	expect(
@@ -3085,7 +3087,9 @@ it("human release migration preserves reservations, Attempt links and guards", (
 			.prepare(
 				"SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
 			)
-			.all(),
+			.all()
+			// Later migrations may add triggers, but must retain every old guard.
+			.filter((row) => triggers.some((trigger) => trigger.name === row.name)),
 	).toEqual(triggers);
 	expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 	expect(() =>

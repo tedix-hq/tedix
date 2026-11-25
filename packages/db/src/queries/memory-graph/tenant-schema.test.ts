@@ -274,7 +274,7 @@ describe("workspace memory migration contract", () => {
 		}
 	});
 
-	it("matches canonical columns, indexes, local foreign keys and all memory triggers/views", () => {
+	it("matches canonical columns, indexes, local foreign keys and memory-local triggers/views", () => {
 		const platform = createMigratedSqlite();
 		const local = tenant();
 		for (const table of memoryTables) {
@@ -300,9 +300,10 @@ describe("workspace memory migration contract", () => {
 					.all(table);
 			expect(indexes(local), table).toEqual(indexes(platform));
 		}
+		// Central wake scheduling writes to an outbox outside the memory store.
 		const canonical = platform
 			.prepare(
-				"SELECT name, sql FROM sqlite_schema WHERE (type='trigger' AND tbl_name LIKE 'memory_%') OR (type='view' AND name LIKE 'memory_fact_%') OR (type='table' AND name IN ('memory_fact_fts','memory_fact_fts_recall')) ORDER BY name",
+				"SELECT name, sql FROM sqlite_schema WHERE (type='trigger' AND tbl_name LIKE 'memory_%' AND name NOT IN ('commitment_wake_outbox_memory_insert','commitment_wake_outbox_memory_update')) OR (type='view' AND name LIKE 'memory_fact_%') OR (type='table' AND name IN ('memory_fact_fts','memory_fact_fts_recall')) ORDER BY name",
 			)
 			.all();
 		for (const row of canonical)
