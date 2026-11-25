@@ -275,7 +275,7 @@ describe("runRetention expiry", () => {
 			"-c",
 			"user.name=Test",
 			"-c",
-			"user.email=t@t.dev",
+			"user.email=test@example.invalid",
 			"commit",
 			"-m",
 			"unpushed work",
