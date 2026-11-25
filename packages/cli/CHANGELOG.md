@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.20 (2026-11-25)
+
+### Patch Changes
+
+- 97b7dc6: When ChatGPT has a Tedix plugin without hooks, `tedix setup agents --status` now says its hooks are `none` instead of `unknown`, so the Mac app can offer to add them.
+
 ## 0.37.19 (2026-11-25)
 
 ### Patch Changes
