@@ -9,6 +9,7 @@
 		"./queries/automation-inventory": "./src/queries/automation-inventory.ts",
 		"./core-store/client": "./src/core-store/client.ts",
 		"./core-store/dialect": "./src/core-store/dialect.ts",
+		"./core-store/scope": "./src/core-store/scope.ts",
 		"./schema-pg/core": "./src/schema-pg/core.ts",
 		"./test/pglite-facade": "./src/test/pglite-facade.ts",
 		"./queries/commit-alias-rewrites": "./src/queries/commit-alias-rewrites.ts",
