@@ -21,14 +21,7 @@ import {
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 
 /** apps/api crons whose every branch is fleet-commercial authority. */
-const FLEET_COMMERCIAL_CRONS = [
-	"0 * * * *", // installation health paging plus provider cost anomalies
-	"0 */6 * * *", // global provider scan, catalog drift, cross-tenant health
-	"0 2 * * *", // trial expiration and global catalog synchronization
-	"0 3 * * *", // retention that also repairs the global catalog
-	"0 4 * * *", // memory reflection dispatched only on fleet installations
-	"0 6 * * *", // global catalog tool certification
-];
+const FLEET_COMMERCIAL_CRONS: string[] = [];
 
 const catchup = vi.hoisted(() => ({
 	sessionEvents: vi.fn().mockResolvedValue({ queued: 0 }),
