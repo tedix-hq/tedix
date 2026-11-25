@@ -1507,15 +1507,12 @@ export async function forfeitRefundedTopUp(
 	const rows = await db
 		.update(billingCreditTopUps)
 		.set({
-			consumedCredits: sql`${sqlMin(
-				db,
-				billingCreditTopUps.credits,
-				sqlMax(
-					db,
-					billingCreditTopUps.consumedCredits,
-					sql`CAST((${billingCreditTopUps.credits} * ${refunded} + ${input.amount} - 1) / ${input.amount} AS ${sql.raw(coreStore(db) ? "BIGINT" : "INTEGER")})`,
-				),
-			)}`,
+			consumedCredits:
+				coreStore(db) === "postgres"
+					? sql`LEAST(${billingCreditTopUps.credits}, GREATEST(${billingCreditTopUps.consumedCredits},
+						CAST((${billingCreditTopUps.credits} * ${refunded} + ${input.amount} - 1) / ${input.amount} AS BIGINT)))`
+					: sql`MIN(${billingCreditTopUps.credits}, MAX(${billingCreditTopUps.consumedCredits},
+						CAST((${billingCreditTopUps.credits} * ${refunded} + ${input.amount} - 1) / ${input.amount} AS INTEGER)))`,
 			updatedAt: input.now,
 		})
 		.where(
