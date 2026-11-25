@@ -1,7 +1,12 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
-import { type DocsSite, docsSites } from "../../schema/docs-sites";
-import { organizations } from "../../schema/organizations";
+import {
+	type DocsSite,
+	docsSites as d1DocsSites,
+} from "../../schema/docs-sites";
+import { organizations as d1Organizations } from "../../schema/organizations";
+import { docsNow } from "./clock";
 
 export interface UpsertDocsSiteParams {
 	id?: string;
@@ -34,6 +39,7 @@ export async function getDocsSiteById(
 	db: DbQueryClient,
 	id: string,
 ): Promise<DocsSite | null> {
+	const docsSites = coreTable(db, d1DocsSites);
 	const [site] = await db
 		.select()
 		.from(docsSites)
@@ -46,6 +52,7 @@ export async function getDocsSiteBySlug(
 	db: DbQueryClient,
 	slug: string,
 ): Promise<DocsSite | null> {
+	const docsSites = coreTable(db, d1DocsSites);
 	const [site] = await db
 		.select()
 		.from(docsSites)
@@ -58,6 +65,8 @@ export async function getRuntimeDocsSiteBySlug(
 	db: DbQueryClient,
 	slug: string,
 ): Promise<RuntimeDocsSiteRow | null> {
+	const docsSites = coreTable(db, d1DocsSites);
+	const organizations = coreTable(db, d1Organizations);
 	const [site] = await db
 		.select({
 			id: docsSites.id,
@@ -79,6 +88,7 @@ export function listDocsSites(
 	db: DbQueryClient,
 	orgSlug: string,
 ): Promise<DocsSite[]> {
+	const docsSites = coreTable(db, d1DocsSites);
 	return db
 		.select()
 		.from(docsSites)
@@ -91,9 +101,10 @@ export async function setDocsSiteStatus(
 	db: DbQueryClient,
 	params: { id: string; orgSlug: string; status: DocsSite["status"] },
 ): Promise<DocsSite | null> {
+	const docsSites = coreTable(db, d1DocsSites);
 	const [site] = await db
 		.update(docsSites)
-		.set({ status: params.status, updatedAt: sql`(datetime('now'))` })
+		.set({ status: params.status, updatedAt: docsNow(db) })
 		.where(
 			and(eq(docsSites.id, params.id), eq(docsSites.orgSlug, params.orgSlug)),
 		)
@@ -105,6 +116,7 @@ export async function upsertDocsSite(
 	db: DbQueryClient,
 	params: UpsertDocsSiteParams,
 ): Promise<DocsSite> {
+	const docsSites = coreTable(db, d1DocsSites);
 	const id = params.id ?? crypto.randomUUID();
 	const [site] = await db
 		.insert(docsSites)
@@ -124,8 +136,8 @@ export async function upsertDocsSite(
 			contentRoot: params.contentRoot,
 			accessMode: params.accessMode,
 			status: "active",
-			createdAt: sql`(datetime('now'))`,
-			updatedAt: sql`(datetime('now'))`,
+			createdAt: docsNow(db),
+			updatedAt: docsNow(db),
 		})
 		.onConflictDoUpdate({
 			target: docsSites.id,
@@ -142,7 +154,7 @@ export async function upsertDocsSite(
 				branch: params.branch,
 				contentRoot: params.contentRoot,
 				accessMode: params.accessMode,
-				updatedAt: sql`(datetime('now'))`,
+				updatedAt: docsNow(db),
 			},
 			setWhere: eq(docsSites.orgSlug, params.orgSlug),
 		})

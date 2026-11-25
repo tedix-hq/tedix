@@ -1,13 +1,35 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type DocsRelease,
 	type DocsSite,
-	docsReleases,
-	docsSites,
+	docsReleases as d1DocsReleases,
+	docsSites as d1DocsSites,
 } from "../../schema/docs-sites";
 import { getDocsBuild } from "./builds";
 import { getDocsSiteById } from "./sites";
+import { docsNow } from "./clock";
+
+function releaseOrder(db: DbQueryClient) {
+	return coreStore(db) === "postgres"
+		? sql`${coreTable(db, d1DocsReleases)}.${sql.identifier("release_order")}`
+		: sql`rowid`;
+}
+
+function pgRow(
+	alias: string,
+	table: typeof d1DocsSites | typeof d1DocsReleases,
+) {
+	return sql`jsonb_build_object(${sql.join(
+		Object.entries(getColumns(table)).flatMap(([key, column]) => [
+			sql`${key}::text`,
+			sql`${sql.identifier(alias)}.${sql.identifier(column.name)}`,
+		]),
+		sql`, `,
+	)})`;
+}
 
 interface DocsActorParams {
 	type: string;
@@ -41,11 +63,12 @@ export function listDocsReleases(
 	db: DbQueryClient,
 	siteId: string,
 ): Promise<DocsRelease[]> {
+	const docsReleases = coreTable(db, d1DocsReleases);
 	return db
 		.select()
 		.from(docsReleases)
 		.where(eq(docsReleases.siteId, siteId))
-		.orderBy(desc(docsReleases.createdAt), desc(sql`rowid`))
+		.orderBy(desc(docsReleases.createdAt), desc(releaseOrder(db)))
 		.limit(50);
 }
 
@@ -53,6 +76,8 @@ export async function activateDocsBuild(
 	db: DbQueryClient,
 	params: ActivateDocsBuildParams,
 ): Promise<ActivateDocsBuildResult> {
+	const docsSites = coreTable(db, d1DocsSites);
+	const docsReleases = coreTable(db, d1DocsReleases);
 	const site = await getDocsSiteById(db, params.siteId);
 	if (!site || site.orgSlug !== params.orgSlug) {
 		throw new Error("Documentation site not found");
@@ -82,38 +107,41 @@ export async function activateDocsBuild(
 	}
 
 	const releaseId = crypto.randomUUID();
+	const activationScope = and(
+		eq(docsSites.id, params.siteId),
+		eq(docsSites.orgSlug, params.orgSlug),
+		coreStore(db) === "postgres"
+			? sql`${docsSites.activeBuildId} IS NOT DISTINCT FROM ${site.activeBuildId}`
+			: sql`${docsSites.activeBuildId} is ${site.activeBuildId}`,
+		guard &&
+			and(
+				// A source-row CAS is rechecked after a Pg row-lock wait;
+				// a latest-receipt subquery alone can retain its old snapshot.
+				coreStore(db) === "postgres"
+					? sql`${docsSites}.${sql.identifier("active_release_id")} = ${guard.previousReleaseId}`
+					: undefined,
+				eq(docsSites.canonicalUrl, guard.canonicalUrl),
+				eq(docsSites.status, "active"),
+				eq(docsSites.accessMode, "public"),
+				eq(docsSites.sourceProvider, "github"),
+				eq(docsSites.sourceAuthMode, "public"),
+				eq(docsSites.repositoryUrl, guard.repositoryUrl),
+				eq(docsSites.branch, "main"),
+				eq(docsSites.contentRoot, "docs/public"),
+				sql`(${db
+					.select({
+						id: sql`case when ${docsReleases.action} = 'publish' then ${docsReleases.id} end`,
+					})
+					.from(docsReleases)
+					.where(eq(docsReleases.siteId, params.siteId))
+					.orderBy(desc(docsReleases.createdAt), desc(releaseOrder(db)))
+					.limit(1)}) = ${guard.previousReleaseId}`,
+			),
+	);
 	const activateSite = db
 		.update(docsSites)
-		.set({
-			activeBuildId: params.buildId,
-			updatedAt: sql`(datetime('now'))`,
-		})
-		.where(
-			and(
-				eq(docsSites.id, params.siteId),
-				eq(docsSites.orgSlug, params.orgSlug),
-				sql`${docsSites.activeBuildId} is ${site.activeBuildId}`,
-				guard &&
-					and(
-						eq(docsSites.canonicalUrl, guard.canonicalUrl),
-						eq(docsSites.status, "active"),
-						eq(docsSites.accessMode, "public"),
-						eq(docsSites.sourceProvider, "github"),
-						eq(docsSites.sourceAuthMode, "public"),
-						eq(docsSites.repositoryUrl, guard.repositoryUrl),
-						eq(docsSites.branch, "main"),
-						eq(docsSites.contentRoot, "docs/public"),
-						sql`(${db
-							.select({
-								id: sql`case when ${docsReleases.action} = 'publish' then ${docsReleases.id} end`,
-							})
-							.from(docsReleases)
-							.where(eq(docsReleases.siteId, params.siteId))
-							.orderBy(desc(docsReleases.createdAt), desc(sql`rowid`))
-							.limit(1)}) = ${guard.previousReleaseId}`,
-					),
-			),
-		);
+		.set({ activeBuildId: params.buildId, updatedAt: docsNow(db) })
+		.where(activationScope);
 	const recordRelease = db
 		.insert(docsReleases)
 		.select(
@@ -131,12 +159,40 @@ export async function activateDocsBuild(
 					actorSessionId: sql<string | null>`${params.actor.sessionId}`.as(
 						"actor_session_id",
 					),
-					createdAt: sql<string>`datetime('now')`.as("created_at"),
+					createdAt: sql<string>`${docsNow(db)}`.as("created_at"),
 				})
-				.from(docsSites)
-				.where(and(eq(docsSites.id, params.siteId), sql`changes() = 1`)),
+				.from(coreStore(db) === "postgres" ? sql`activated` : docsSites)
+				.where(
+					coreStore(db) === "postgres"
+						? undefined
+						: and(eq(docsSites.id, params.siteId), sql`changes() = 1`),
+				),
 		)
 		.returning();
+
+	if (coreStore(db) === "postgres") {
+		// Consume exactly the CAS-returned row; no connection-local changes() or
+		// later snapshot can create a receipt for another activation.
+		const result = await db.get<ActivateDocsBuildResult>(sql`
+			WITH activated AS (
+				UPDATE ${docsSites}
+				SET "active_build_id" = ${params.buildId},
+					"active_release_id" = ${releaseId},
+					"updated_at" = ${docsNow(db)}
+				WHERE ${activationScope}
+				RETURNING *
+			),
+			recorded AS (${recordRelease.getSQL()})
+			SELECT ${pgRow("activated", d1DocsSites)} AS site,
+				${pgRow("recorded", d1DocsReleases)} AS release
+			FROM activated CROSS JOIN recorded
+		`);
+		if (!result)
+			throw new Error(
+				"Documentation release lost a concurrent activation race",
+			);
+		return result;
+	}
 
 	const [, releaseRows] = await db.batch([activateSite, recordRelease]);
 	const release = releaseRows[0];

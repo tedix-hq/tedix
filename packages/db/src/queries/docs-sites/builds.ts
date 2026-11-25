@@ -1,6 +1,12 @@
 import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
-import { type DocsBuild, docsBuilds, docsSites } from "../../schema/docs-sites";
+import {
+	type DocsBuild,
+	docsBuilds as d1DocsBuilds,
+	docsSites as d1DocsSites,
+} from "../../schema/docs-sites";
+import { docsNow } from "./clock";
 
 interface DocsActorParams {
 	type: string;
@@ -35,6 +41,7 @@ export async function getDocsBuild(
 	db: DbQueryClient,
 	id: string,
 ): Promise<DocsBuild | null> {
+	const docsBuilds = coreTable(db, d1DocsBuilds);
 	const [build] = await db
 		.select()
 		.from(docsBuilds)
@@ -47,6 +54,7 @@ export function listDocsBuilds(
 	db: DbQueryClient,
 	siteId: string,
 ): Promise<DocsBuild[]> {
+	const docsBuilds = coreTable(db, d1DocsBuilds);
 	return db
 		.select()
 		.from(docsBuilds)
@@ -59,6 +67,8 @@ export async function createDocsBuild(
 	db: DbQueryClient,
 	params: CreateDocsBuildParams,
 ): Promise<DocsBuild> {
+	const docsBuilds = coreTable(db, d1DocsBuilds);
+	const docsSites = coreTable(db, d1DocsSites);
 	const id = params.id ?? crypto.randomUUID();
 	const insertBuild = db
 		.insert(docsBuilds)
@@ -72,14 +82,14 @@ export async function createDocsBuild(
 			requestedByType: params.requestedBy.type,
 			requestedById: params.requestedBy.id,
 			requestedBySessionId: params.requestedBy.sessionId,
-			createdAt: sql`(datetime('now'))`,
+			createdAt: docsNow(db),
 		})
 		.returning();
 	const updateSite = db
 		.update(docsSites)
 		.set({
 			latestBuildId: id,
-			updatedAt: sql`(datetime('now'))`,
+			updatedAt: docsNow(db),
 		})
 		.where(eq(docsSites.id, params.siteId));
 
@@ -95,12 +105,11 @@ export async function createDocsBuild(
  * a duplicate completion can never reopen or rewrite it; a failed build stays
  * open for workflow retries.
  */
-const notComplete = ne(docsBuilds.status, "complete");
-
 export async function updateDocsBuildProgress(
 	db: DbQueryClient,
 	params: UpdateDocsBuildProgressParams,
 ): Promise<void> {
+	const docsBuilds = coreTable(db, d1DocsBuilds);
 	await db
 		.update(docsBuilds)
 		.set({
@@ -108,19 +117,20 @@ export async function updateDocsBuildProgress(
 			phase: params.phase,
 			error: params.error ?? null,
 			sourceRevision: sql`coalesce(${params.sourceRevision ?? null}, ${docsBuilds.sourceRevision})`,
-			startedAt: sql`coalesce(${docsBuilds.startedAt}, datetime('now'))`,
+			startedAt: sql`coalesce(${docsBuilds.startedAt}, ${docsNow(db)})`,
 			finishedAt:
-				params.status === "failed"
-					? sql`(datetime('now'))`
-					: docsBuilds.finishedAt,
+				params.status === "failed" ? docsNow(db) : docsBuilds.finishedAt,
 		})
-		.where(and(eq(docsBuilds.id, params.buildId), notComplete));
+		.where(
+			and(eq(docsBuilds.id, params.buildId), ne(docsBuilds.status, "complete")),
+		);
 }
 
 export async function completeDocsBuild(
 	db: DbQueryClient,
 	params: CompleteDocsBuildParams,
 ): Promise<void> {
+	const docsBuilds = coreTable(db, d1DocsBuilds);
 	await db
 		.update(docsBuilds)
 		.set({
@@ -129,13 +139,13 @@ export async function completeDocsBuild(
 			sourceRevision: params.sourceRevision,
 			manifestKey: params.manifestKey,
 			error: null,
-			finishedAt: sql`(datetime('now'))`,
+			finishedAt: docsNow(db),
 		})
 		.where(
 			and(
 				eq(docsBuilds.id, params.buildId),
 				eq(docsBuilds.siteId, params.siteId),
-				notComplete,
+				ne(docsBuilds.status, "complete"),
 			),
 		);
 }

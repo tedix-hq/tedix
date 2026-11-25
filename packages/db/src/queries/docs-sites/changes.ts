@@ -1,10 +1,12 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type DocsChange,
-	docsBuilds,
-	docsChanges,
+	docsBuilds as d1DocsBuilds,
+	docsChanges as d1DocsChanges,
 } from "../../schema/docs-sites";
+import { docsNow } from "./clock";
 
 interface DocsActorParams {
 	type: string;
@@ -39,6 +41,7 @@ export async function getDocsChange(
 	db: DbQueryClient,
 	id: string,
 ): Promise<DocsChange | null> {
+	const docsChanges = coreTable(db, d1DocsChanges);
 	const [change] = await db
 		.select()
 		.from(docsChanges)
@@ -51,6 +54,7 @@ export function listDocsChanges(
 	db: DbQueryClient,
 	siteId: string,
 ): Promise<DocsChange[]> {
+	const docsChanges = coreTable(db, d1DocsChanges);
 	return db
 		.select()
 		.from(docsChanges)
@@ -63,6 +67,7 @@ export async function createDocsChange(
 	db: DbQueryClient,
 	params: CreateDocsChangeParams,
 ): Promise<DocsChange> {
+	const docsChanges = coreTable(db, d1DocsChanges);
 	const [change] = await db
 		.insert(docsChanges)
 		.values({
@@ -78,8 +83,8 @@ export async function createDocsChange(
 			proposedByType: params.proposedBy.type,
 			proposedById: params.proposedBy.id,
 			proposedBySessionId: params.proposedBy.sessionId,
-			createdAt: sql`(datetime('now'))`,
-			updatedAt: sql`(datetime('now'))`,
+			createdAt: docsNow(db),
+			updatedAt: docsNow(db),
 		})
 		.returning();
 	if (!change) throw new Error("Failed to record documentation change");
@@ -90,12 +95,13 @@ export async function setDocsChangePreview(
 	db: DbQueryClient,
 	params: SetDocsChangePreviewParams,
 ): Promise<DocsChange> {
+	const docsChanges = coreTable(db, d1DocsChanges);
 	const [change] = await db
 		.update(docsChanges)
 		.set({
 			status: "validating",
 			previewBuildId: params.buildId,
-			updatedAt: sql`(datetime('now'))`,
+			updatedAt: docsNow(db),
 		})
 		.where(
 			and(
@@ -114,6 +120,7 @@ export async function markDocsChangeCommitted(
 	db: DbQueryClient,
 	params: MarkDocsChangeCommittedParams,
 ): Promise<DocsChange> {
+	const docsChanges = coreTable(db, d1DocsChanges);
 	const [change] = await db
 		.update(docsChanges)
 		.set({
@@ -122,8 +129,8 @@ export async function markDocsChangeCommitted(
 			committedByType: params.actor.type,
 			committedById: params.actor.id,
 			committedBySessionId: params.actor.sessionId,
-			committedAt: sql`(datetime('now'))`,
-			updatedAt: sql`(datetime('now'))`,
+			committedAt: docsNow(db),
+			updatedAt: docsNow(db),
 		})
 		.where(
 			and(
@@ -140,6 +147,8 @@ export async function syncDocsChangeValidation(
 	db: DbQueryClient,
 	change: Pick<DocsChange, "id" | "previewBuildId" | "status">,
 ): Promise<DocsChange> {
+	const docsChanges = coreTable(db, d1DocsChanges);
+	const docsBuilds = coreTable(db, d1DocsBuilds);
 	const current = await getDocsChange(db, change.id);
 	if (!current) throw new Error("Documentation change not found");
 	if (!current.previewBuildId || current.status !== "validating")
@@ -161,7 +170,7 @@ export async function syncDocsChangeValidation(
 		.update(docsChanges)
 		.set({
 			status: build.status === "complete" ? "validated" : "rejected",
-			updatedAt: sql`(datetime('now'))`,
+			updatedAt: docsNow(db),
 		})
 		.where(
 			and(
