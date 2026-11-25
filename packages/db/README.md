@@ -119,7 +119,10 @@ writes together and construct their conditions in SQL. PGlite uses the same
 result mapper with an in-memory transaction; it does not measure network trips.
 
 Run `bun packages/db/scripts/generate-pg-schema.ts` from the repository root
-to regenerate `src/schema-pg/core.ts`. JSON text becomes `jsonb`, booleans become
+to regenerate `src/schema-pg/core.ts` from every canonical Drizzle schema input,
+including tables omitted from the runtime index. The generator parses the input
+list without executing config or loading local env files.
+JSON text becomes `jsonb`, booleans become
 native booleans, Date-valued integer timestamps become `timestamptz`, and other
 integers remain number-valued `bigint`. Text timestamps retain their stored
 format. The generated schema is a scaffold, not a live migration:

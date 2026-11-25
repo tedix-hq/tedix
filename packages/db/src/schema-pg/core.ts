@@ -14195,6 +14195,1481 @@ export const workstations = pgTable(
 			.onUpdate("no action"),
 	],
 );
+export const gitCommitAliases = pgTable(
+	"git_commit_aliases",
+	{
+		oldSha: text("old_sha").primaryKey(),
+		newSha: text("new_sha").notNull().unique(),
+		repository: text("repository").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [],
+);
+export const workDue = pgTable(
+	"work_due",
+	{
+		orgId: text("org_id").notNull(),
+		kind: text("kind").notNull(),
+		objectId: text("object_id").notNull(),
+		dueAt: text("due_at").notNull(),
+		status: text("status").notNull().default("pending"),
+		leaseUntil: text("lease_until").notNull().default(""),
+	},
+	(t) => [
+		primaryKey({ columns: [t["orgId"], t["kind"], t["objectId"]] }),
+		index("idx_work_due_status_due").on(t["status"], t["dueAt"]),
+	],
+);
+export const authContextCacheState = pgTable(
+	"auth_context_cache_state",
+	{
+		id: bigint("id", { mode: "number" }).primaryKey(),
+		version: text("version").notNull(),
+	},
+	(t) => [],
+);
+export const organizationResidencyPolicies = pgTable(
+	"organization_residency_policies",
+	{
+		organizationId: text("organization_id").primaryKey(),
+		mode: text("mode").notNull(),
+		revision: bigint("revision", { mode: "number" }).notNull(),
+		updatedAt: text("updated_at").notNull(),
+		updatedBy: text("updated_by").notNull(),
+	},
+	(t) => [
+		foreignKey({
+			name: "organization_residency_policies_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const residencyExecutionReceipts = pgTable(
+	"residency_execution_receipts",
+	{
+		executionId: text("execution_id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		policyRevision: bigint("policy_revision", { mode: "number" }).notNull(),
+		memberKey: text("member_key").notNull(),
+		poolRevision: bigint("pool_revision", { mode: "number" }).notNull(),
+		providerOrigin: text("provider_origin").notNull(),
+		evidenceRef: text("evidence_ref").notNull(),
+		credentialRef: text("credential_ref").notNull(),
+		createdAt: text("created_at").notNull(),
+	},
+	(t) => [],
+);
+export const residencyProviderVersions = pgTable(
+	"residency_provider_versions",
+	{
+		id: text("id").primaryKey(),
+		memberKey: text("member_key").notNull(),
+		revision: bigint("revision", { mode: "number" }).notNull(),
+		config: jsonb("config").notNull(),
+		publishedAt: text("published_at").notNull(),
+		publishedBy: text("published_by").notNull(),
+	},
+	(t) => [
+		uniqueIndex("residency_provider_version").on(t["memberKey"], t["revision"]),
+	],
+);
+export const kernelRequestEvents = pgTable(
+	"kernel_request_events",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		ownerUserId: text("owner_user_id").notNull(),
+		requestId: text("request_id").notNull(),
+		version: bigint("version", { mode: "number" }).notNull(),
+		snapshot: jsonb("snapshot").notNull(),
+		createdAt: text("created_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("kernel_request_events_version_unique").on(
+			t["requestId"],
+			t["version"],
+		),
+		index("kernel_request_events_created_idx").on(t["createdAt"]),
+		foreignKey({
+			name: "kernel_request_events_request_id_kernel_requests_id_fk",
+			columns: [t["requestId"]],
+			foreignColumns: [referencedColumn("kernel_requests", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const kernelRequests = pgTable(
+	"kernel_requests",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		ownerUserId: text("owner_user_id").notNull(),
+		sourceKind: text("source_kind").notNull(),
+		sourceId: text("source_id").notNull(),
+		conversationId: text("conversation_id"),
+		version: bigint("version", { mode: "number" }).notNull().default(1),
+		snapshot: jsonb("snapshot").notNull(),
+		nextOwner: text("next_owner").notNull(),
+		nextAction: text("next_action").notNull(),
+		nextDueAt: text("next_due_at"),
+		lastEventId: text("last_event_id").notNull(),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("kernel_requests_source_unique").on(
+			t["organizationId"],
+			t["ownerUserId"],
+			t["sourceKind"],
+			t["sourceId"],
+		),
+		index("kernel_requests_due_idx").on(t["organizationId"], t["nextDueAt"]),
+		index("kernel_requests_updated_idx").on(
+			t["organizationId"],
+			t["updatedAt"],
+		),
+		foreignKey({
+			name: "kernel_requests_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const graphRetrievalBenchmarkCases = pgTable(
+	"graph_retrieval_benchmark_cases",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		suiteId: text("suite_id").notNull(),
+		suiteRevision: bigint("suite_revision", { mode: "number" }).notNull(),
+		caseKey: text("case_key").notNull(),
+		query: text("query").notNull(),
+		anchorFactIds: jsonb("anchor_fact_ids").notNull().default([]),
+		expectedFactIds: jsonb("expected_fact_ids").notNull(),
+		expectedEdges: jsonb("expected_edges").notNull().default([]),
+		expectedPaths: jsonb("expected_paths").notNull().default([]),
+		forbiddenFactIds: jsonb("forbidden_fact_ids").notNull().default([]),
+		validAt: text("valid_at").notNull(),
+		answerRubric: jsonb("answer_rubric").notNull().default({}),
+		artifactUri: text("artifact_uri"),
+		tags: jsonb("tags").notNull().default([]),
+		difficulty: text("difficulty").notNull().default("intermediate"),
+		checksum: text("checksum").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		uniqueIndex("uniq_graph_benchmark_case_key").on(t["suiteId"], t["caseKey"]),
+		uniqueIndex("uniq_graph_benchmark_case_checksum").on(
+			t["suiteId"],
+			t["checksum"],
+		),
+		index("idx_graph_benchmark_case_suite").on(
+			t["organizationId"],
+			t["suiteId"],
+			t["caseKey"],
+		),
+		foreignKey({
+			name: "graph_retrieval_benchmark_cases_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "graph_retrieval_benchmark_cases_suite_id_graph_retrieval_benchmark_suites_id_fk",
+			columns: [t["suiteId"]],
+			foreignColumns: [
+				referencedColumn("graph_retrieval_benchmark_suites", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const graphRetrievalBenchmarkResults = pgTable(
+	"graph_retrieval_benchmark_results",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		runId: text("run_id").notNull(),
+		caseId: text("case_id").notNull(),
+		origin: text("origin").notNull().default("manual"),
+		retrievedFactIds: jsonb("retrieved_fact_ids").notNull(),
+		returnedEdges: jsonb("returned_edges").notNull().default([]),
+		returnedPaths: jsonb("returned_paths").notNull().default([]),
+		answer: text("answer"),
+		citedFactIds: jsonb("cited_fact_ids").notNull().default([]),
+		claimSupport: jsonb("claim_support").notNull().default([]),
+		metrics: jsonb("metrics").notNull(),
+		inputTokens: bigint("input_tokens", { mode: "number" }).notNull(),
+		outputTokens: bigint("output_tokens", { mode: "number" }).notNull(),
+		latencyMs: bigint("latency_ms", { mode: "number" }).notNull(),
+		costUsd: doublePrecision("cost_usd").notNull(),
+		passed: boolean("passed").notNull(),
+		failureReasons: jsonb("failure_reasons").notNull().default([]),
+		traceArtifactUri: text("trace_artifact_uri"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		uniqueIndex("uniq_graph_benchmark_result_case").on(t["runId"], t["caseId"]),
+		index("idx_graph_benchmark_result_run").on(t["organizationId"], t["runId"]),
+		foreignKey({
+			name: "graph_retrieval_benchmark_results_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "graph_retrieval_benchmark_results_run_id_graph_retrieval_benchmark_runs_id_fk",
+			columns: [t["runId"]],
+			foreignColumns: [
+				referencedColumn("graph_retrieval_benchmark_runs", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "graph_retrieval_benchmark_results_case_id_graph_retrieval_benchmark_cases_id_fk",
+			columns: [t["caseId"]],
+			foreignColumns: [
+				referencedColumn("graph_retrieval_benchmark_cases", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const graphRetrievalBenchmarkRuns = pgTable(
+	"graph_retrieval_benchmark_runs",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		suiteId: text("suite_id").notNull(),
+		suiteChecksum: text("suite_checksum").notNull(),
+		pairedRunKey: text("paired_run_key").notNull(),
+		variant: text("variant").notNull(),
+		retrievalPolicyVersion: text("retrieval_policy_version").notNull(),
+		harnessVersionId: text("harness_version_id"),
+		modelProvider: text("model_provider").notNull(),
+		modelId: text("model_id").notNull(),
+		modelVersion: text("model_version").notNull(),
+		projectionSnapshot: jsonb("projection_snapshot").notNull(),
+		seed: bigint("seed", { mode: "number" }).notNull(),
+		status: text("status").notNull().default("running"),
+		caseCount: bigint("case_count", { mode: "number" }).notNull().default(0),
+		aggregateMetrics: jsonb("aggregate_metrics"),
+		totalInputTokens: bigint("total_input_tokens", { mode: "number" })
+			.notNull()
+			.default(0),
+		totalOutputTokens: bigint("total_output_tokens", { mode: "number" })
+			.notNull()
+			.default(0),
+		totalLatencyMs: bigint("total_latency_ms", { mode: "number" })
+			.notNull()
+			.default(0),
+		totalCostUsd: doublePrecision("total_cost_usd").notNull().default(0),
+		eligible: boolean("eligible").notNull().default(false),
+		traceArtifactUri: text("trace_artifact_uri"),
+		failureReason: text("failure_reason"),
+		startedAt: text("started_at").notNull(),
+		completedAt: text("completed_at"),
+	},
+	(t) => [
+		uniqueIndex("uniq_graph_benchmark_run_pair_variant").on(
+			t["organizationId"],
+			t["pairedRunKey"],
+			t["variant"],
+		),
+		uniqueIndex("uniq_graph_benchmark_run_org_id").on(
+			t["organizationId"],
+			t["id"],
+		),
+		index("idx_graph_benchmark_run_suite").on(
+			t["organizationId"],
+			t["suiteId"],
+			t["status"],
+			t["startedAt"],
+		),
+		foreignKey({
+			name: "graph_retrieval_benchmark_runs_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "graph_retrieval_benchmark_runs_suite_id_graph_retrieval_benchmark_suites_id_fk",
+			columns: [t["suiteId"]],
+			foreignColumns: [
+				referencedColumn("graph_retrieval_benchmark_suites", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const graphRetrievalBenchmarkSuites = pgTable(
+	"graph_retrieval_benchmark_suites",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		name: text("name").notNull(),
+		version: bigint("version", { mode: "number" }).notNull(),
+		status: text("status").notNull().default("draft"),
+		split: text("split").notNull(),
+		revision: bigint("revision", { mode: "number" }).notNull().default(0),
+		caseCount: bigint("case_count", { mode: "number" }).notNull().default(0),
+		definitionChecksum: text("definition_checksum"),
+		sourceCommit: text("source_commit"),
+		artifactUri: text("artifact_uri"),
+		createdByType: text("created_by_type").notNull(),
+		createdById: text("created_by_id").notNull(),
+		lockedAt: text("locked_at"),
+		retiredAt: text("retired_at"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		uniqueIndex("uniq_graph_benchmark_suite_version").on(
+			t["organizationId"],
+			t["name"],
+			t["version"],
+		),
+		uniqueIndex("uniq_graph_benchmark_suite_org_id").on(
+			t["organizationId"],
+			t["id"],
+		),
+		index("idx_graph_benchmark_suite_status").on(
+			t["organizationId"],
+			t["status"],
+			t["split"],
+		),
+		foreignKey({
+			name: "graph_retrieval_benchmark_suites_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const graphRetrievalGraduationEvaluations = pgTable(
+	"graph_retrieval_graduation_evaluations",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		suiteId: text("suite_id").notNull(),
+		baselineRunId: text("baseline_run_id").notNull(),
+		graphRunId: text("graph_run_id").notNull(),
+		evaluatorVersion: text("evaluator_version").notNull(),
+		passed: boolean("passed").notNull(),
+		gates: jsonb("gates").notNull(),
+		pairedMetrics: jsonb("paired_metrics").notNull(),
+		projectionSnapshot: jsonb("projection_snapshot").notNull(),
+		reasons: jsonb("reasons").notNull(),
+		evaluatedAt: text("evaluated_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("uniq_graph_benchmark_graduation_pair").on(
+			t["baselineRunId"],
+			t["graphRunId"],
+			t["evaluatorVersion"],
+		),
+		index("idx_graph_benchmark_graduation_suite").on(
+			t["organizationId"],
+			t["suiteId"],
+			t["evaluatedAt"],
+		),
+		foreignKey({
+			name: "graph_retrieval_graduation_evaluations_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "graph_retrieval_graduation_evaluations_suite_id_graph_retrieval_benchmark_suites_id_fk",
+			columns: [t["suiteId"]],
+			foreignColumns: [
+				referencedColumn("graph_retrieval_benchmark_suites", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "graph_retrieval_graduation_evaluations_baseline_run_id_graph_retrieval_benchmark_runs_id_fk",
+			columns: [t["baselineRunId"]],
+			foreignColumns: [
+				referencedColumn("graph_retrieval_benchmark_runs", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "graph_retrieval_graduation_evaluations_graph_run_id_graph_retrieval_benchmark_runs_id_fk",
+			columns: [t["graphRunId"]],
+			foreignColumns: [
+				referencedColumn("graph_retrieval_benchmark_runs", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const memoryEntities = pgTable(
+	"memory_entities",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		entityType: text("entity_type").notNull(),
+		displayName: text("display_name").notNull(),
+		normalizedName: text("normalized_name").notNull(),
+		status: text("status").notNull().default("active"),
+		mergedIntoEntityId: text("merged_into_entity_id"),
+		version: bigint("version", { mode: "number" }).notNull().default(0),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		uniqueIndex("uniq_memory_entity_org_id").on(t["organizationId"], t["id"]),
+		index("idx_memory_entity_candidate").on(
+			t["organizationId"],
+			t["entityType"],
+			t["normalizedName"],
+			t["status"],
+		),
+		index("idx_memory_entity_merge_target").on(
+			t["organizationId"],
+			t["mergedIntoEntityId"],
+		),
+		foreignKey({
+			name: "memory_entities_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entities_merged_into_entity_id_memory_entities_id_fk",
+			columns: [t["mergedIntoEntityId"]],
+			foreignColumns: [referencedColumn("memory_entities", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const memoryEntityAliases = pgTable(
+	"memory_entity_aliases",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		entityId: text("entity_id").notNull(),
+		surfaceForm: text("surface_form").notNull(),
+		normalizedForm: text("normalized_form").notNull(),
+		aliasKind: text("alias_kind").notNull(),
+		locale: text("locale").notNull().default("und"),
+		confidence: doublePrecision("confidence").notNull(),
+		reviewStatus: text("review_status").notNull().default("pending"),
+		sourceMentionId: text("source_mention_id"),
+		validFrom: text("valid_from")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+		validTo: text("valid_to"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		uniqueIndex("uniq_memory_entity_alias").on(
+			t["organizationId"],
+			t["entityId"],
+			t["normalizedForm"],
+			t["locale"],
+		),
+		index("idx_memory_entity_alias_lookup").on(
+			t["organizationId"],
+			t["normalizedForm"],
+			t["reviewStatus"],
+		),
+		foreignKey({
+			name: "memory_entity_aliases_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_aliases_entity_id_memory_entities_id_fk",
+			columns: [t["entityId"]],
+			foreignColumns: [referencedColumn("memory_entities", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_aliases_source_mention_id_memory_entity_mentions_id_fk",
+			columns: [t["sourceMentionId"]],
+			foreignColumns: [referencedColumn("memory_entity_mentions", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const memoryEntityMentions = pgTable(
+	"memory_entity_mentions",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		occurrenceKey: text("occurrence_key").notNull(),
+		sourceFactId: text("source_fact_id"),
+		sourceUri: text("source_uri"),
+		sourceContentHash: text("source_content_hash"),
+		sourceSessionId: text("source_session_id"),
+		sourceRunId: text("source_run_id"),
+		surfaceForm: text("surface_form").notNull(),
+		normalizedForm: text("normalized_form").notNull(),
+		proposedType: text("proposed_type").notNull(),
+		charStart: bigint("char_start", { mode: "number" }),
+		charEnd: bigint("char_end", { mode: "number" }),
+		extractor: text("extractor").notNull(),
+		extractorVersion: text("extractor_version").notNull(),
+		modelId: text("model_id"),
+		harnessVersionId: text("harness_version_id"),
+		confidence: doublePrecision("confidence").notNull(),
+		evidence: jsonb("evidence").notNull().default({}),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		uniqueIndex("uniq_memory_entity_mention_occurrence").on(
+			t["organizationId"],
+			t["occurrenceKey"],
+		),
+		index("idx_memory_entity_mention_source_fact").on(
+			t["organizationId"],
+			t["sourceFactId"],
+		),
+		index("idx_memory_entity_mention_candidate").on(
+			t["organizationId"],
+			t["proposedType"],
+			t["normalizedForm"],
+			t["createdAt"],
+		),
+		foreignKey({
+			name: "memory_entity_mentions_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_mentions_source_fact_id_memory_facts_id_fk",
+			columns: [t["sourceFactId"]],
+			foreignColumns: [referencedColumn("memory_facts", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const memoryEntityResolutionDecisions = pgTable(
+	"memory_entity_resolution_decisions",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		clientProposalKey: text("client_proposal_key").notNull(),
+		operation: text("operation").notNull(),
+		mentionId: text("mention_id"),
+		aliasId: text("alias_id"),
+		sourceEntityId: text("source_entity_id"),
+		targetEntityId: text("target_entity_id"),
+		status: text("status").notNull().default("proposed"),
+		confidence: doublePrecision("confidence").notNull(),
+		rationale: text("rationale").notNull(),
+		evidence: jsonb("evidence").notNull().default({}),
+		proposedByType: text("proposed_by_type").notNull(),
+		proposedById: text("proposed_by_id").notNull(),
+		reviewedByType: text("reviewed_by_type"),
+		reviewedById: text("reviewed_by_id"),
+		reviewRationale: text("review_rationale"),
+		sourceRunId: text("source_run_id"),
+		expectedMentionVersion: bigint("expected_mention_version", {
+			mode: "number",
+		}).notNull(),
+		expectedHeadDecisionId: text("expected_head_decision_id"),
+		expectedEntityVersion: bigint("expected_entity_version", {
+			mode: "number",
+		}),
+		version: bigint("version", { mode: "number" }).notNull().default(0),
+		supersedesDecisionId: text("supersedes_decision_id"),
+		rollbackOfDecisionId: text("rollback_of_decision_id"),
+		inverse: jsonb("inverse").notNull(),
+		proposedAt: text("proposed_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+		reviewedAt: text("reviewed_at"),
+		appliedAt: text("applied_at"),
+	},
+	(t) => [
+		uniqueIndex("uniq_memory_entity_resolution_proposal").on(
+			t["organizationId"],
+			t["clientProposalKey"],
+		),
+		uniqueIndex("uniq_memory_entity_resolution_rollback").on(
+			t["rollbackOfDecisionId"],
+		),
+		index("idx_memory_entity_resolution_mention").on(
+			t["organizationId"],
+			t["mentionId"],
+			t["proposedAt"],
+		),
+		index("idx_memory_entity_resolution_status").on(
+			t["organizationId"],
+			t["status"],
+			t["proposedAt"],
+		),
+		foreignKey({
+			name: "memory_entity_resolution_decisions_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolution_decisions_mention_id_memory_entity_mentions_id_fk",
+			columns: [t["mentionId"]],
+			foreignColumns: [referencedColumn("memory_entity_mentions", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolution_decisions_alias_id_memory_entity_aliases_id_fk",
+			columns: [t["aliasId"]],
+			foreignColumns: [referencedColumn("memory_entity_aliases", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolution_decisions_source_entity_id_memory_entities_id_fk",
+			columns: [t["sourceEntityId"]],
+			foreignColumns: [referencedColumn("memory_entities", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolution_decisions_target_entity_id_memory_entities_id_fk",
+			columns: [t["targetEntityId"]],
+			foreignColumns: [referencedColumn("memory_entities", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolution_decisions_supersedes_decision_id_memory_entity_resolution_decisions_id_fk",
+			columns: [t["supersedesDecisionId"]],
+			foreignColumns: [
+				referencedColumn("memory_entity_resolution_decisions", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolution_decisions_rollback_of_decision_id_memory_entity_resolution_decisions_id_fk",
+			columns: [t["rollbackOfDecisionId"]],
+			foreignColumns: [
+				referencedColumn("memory_entity_resolution_decisions", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const memoryEntityResolutionHeads = pgTable(
+	"memory_entity_resolution_heads",
+	{
+		mentionId: text("mention_id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		version: bigint("version", { mode: "number" }).notNull().default(0),
+		currentResolutionId: text("current_resolution_id"),
+		currentEntityId: text("current_entity_id"),
+		lastDecisionId: text("last_decision_id"),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		uniqueIndex("uniq_memory_entity_head_org_mention").on(
+			t["organizationId"],
+			t["mentionId"],
+		),
+		index("idx_memory_entity_head_current").on(
+			t["organizationId"],
+			t["currentEntityId"],
+		),
+		foreignKey({
+			name: "memory_entity_resolution_heads_mention_id_memory_entity_mentions_id_fk",
+			columns: [t["mentionId"]],
+			foreignColumns: [referencedColumn("memory_entity_mentions", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolution_heads_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolution_heads_current_entity_id_memory_entities_id_fk",
+			columns: [t["currentEntityId"]],
+			foreignColumns: [referencedColumn("memory_entities", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const memoryEntityResolutions = pgTable(
+	"memory_entity_resolutions",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		mentionId: text("mention_id").notNull(),
+		entityId: text("entity_id"),
+		decisionId: text("decision_id").notNull(),
+		resolutionKind: text("resolution_kind").notNull(),
+		status: text("status").notNull().default("active"),
+		confidence: doublePrecision("confidence").notNull(),
+		validFrom: text("valid_from").notNull(),
+		validTo: text("valid_to"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		uniqueIndex("uniq_memory_entity_resolution_decision").on(t["decisionId"]),
+		index("idx_memory_entity_resolution_entity").on(
+			t["organizationId"],
+			t["entityId"],
+			t["status"],
+		),
+		index("idx_memory_entity_resolution_temporal").on(
+			t["organizationId"],
+			t["mentionId"],
+			t["validFrom"],
+			t["validTo"],
+		),
+		foreignKey({
+			name: "memory_entity_resolutions_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolutions_mention_id_memory_entity_mentions_id_fk",
+			columns: [t["mentionId"]],
+			foreignColumns: [referencedColumn("memory_entity_mentions", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolutions_entity_id_memory_entities_id_fk",
+			columns: [t["entityId"]],
+			foreignColumns: [referencedColumn("memory_entities", "id")],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "memory_entity_resolutions_decision_id_memory_entity_resolution_decisions_id_fk",
+			columns: [t["decisionId"]],
+			foreignColumns: [
+				referencedColumn("memory_entity_resolution_decisions", "id"),
+			],
+		})
+			.onDelete("restrict")
+			.onUpdate("no action"),
+	],
+);
+export const osGadgetState = pgTable(
+	"os_gadget_state",
+	{
+		organizationId: text("organization_id").notNull(),
+		workspaceId: text("workspace_id").notNull(),
+		gadgetId: text("gadget_id").notNull(),
+		key: text("key").notNull(),
+		revision: bigint("revision", { mode: "number" }).notNull(),
+		value: text("value"),
+		deleted: boolean("deleted").notNull(),
+		accessEnvelope: text("access_envelope").notNull(),
+		executionId: text("execution_id").notNull(),
+		lastMutationId: text("last_mutation_id").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t["organizationId"], t["gadgetId"], t["key"]] }),
+		index("os_gadget_state_workspace_idx").on(
+			t["organizationId"],
+			t["workspaceId"],
+		),
+		foreignKey({
+			name: "os_gadget_state_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "os_gadget_state_gadget_id_os_gadgets_id_fk",
+			columns: [t["gadgetId"]],
+			foreignColumns: [referencedColumn("os_gadgets", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const osGadgetStateMutations = pgTable(
+	"os_gadget_state_mutations",
+	{
+		organizationId: text("organization_id").notNull(),
+		gadgetId: text("gadget_id").notNull(),
+		idempotencyKey: text("idempotency_key").notNull(),
+		digest: text("digest").notNull(),
+		status: text("status").notNull(),
+		result: text("result"),
+		createdAt: text("created_at").notNull(),
+	},
+	(t) => [
+		primaryKey({
+			columns: [t["organizationId"], t["gadgetId"], t["idempotencyKey"]],
+		}),
+		foreignKey({
+			name: "os_gadget_state_mutations_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "os_gadget_state_mutations_gadget_id_os_gadgets_id_fk",
+			columns: [t["gadgetId"]],
+			foreignColumns: [referencedColumn("os_gadgets", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const osWorkspaceAccessEdges = pgTable(
+	"os_workspace_access_edges",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		workspaceId: text("workspace_id").notNull(),
+		targetUserId: text("target_user_id").notNull(),
+		kind: text("kind").notNull(),
+		edgeKey: text("edge_key").notNull(),
+		sharerUserId: text("sharer_user_id"),
+		linkId: text("link_id"),
+		role: text("role"),
+		note: text("note"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		uniqueIndex("os_workspace_access_edges_unique").on(
+			t["workspaceId"],
+			t["targetUserId"],
+			t["edgeKey"],
+		),
+		foreignKey({
+			name: "os_workspace_access_edges_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const osWorkspaceCollaborators = pgTable(
+	"os_workspace_collaborators",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		workspaceId: text("workspace_id").notNull(),
+		userId: text("user_id").notNull(),
+		principalKind: text("principal_kind").notNull().default("user"),
+		email: text("email"),
+		name: text("name"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+		firstOpenedAt: text("first_opened_at"),
+		lastOpenedAt: text("last_opened_at"),
+		cachedTitle: text("cached_title"),
+		cachedOwnerName: text("cached_owner_name"),
+		dismissedAt: text("dismissed_at"),
+	},
+	(t) => [
+		uniqueIndex("os_workspace_collaborators_workspace_user_unique").on(
+			t["workspaceId"],
+			t["userId"],
+		),
+		index("os_workspace_collaborators_user_idx").on(t["userId"]),
+		foreignKey({
+			name: "os_workspace_collaborators_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const osWorkspaceEvents = pgTable(
+	"os_workspace_events",
+	{
+		seq: bigint("seq", { mode: "number" })
+			.generatedByDefaultAsIdentity()
+			.primaryKey(),
+		workspaceId: text("workspace_id").notNull(),
+		kind: text("kind").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		index("os_workspace_events_workspace_seq_idx").on(
+			t["workspaceId"],
+			t["seq"],
+		),
+		index("os_workspace_events_created_idx").on(t["createdAt"]),
+	],
+);
+export const osWorkspaceShareKeys = pgTable(
+	"os_workspace_share_keys",
+	{
+		keyHash: text("key_hash").primaryKey(),
+		linkId: text("link_id").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+	},
+	(t) => [
+		index("os_workspace_share_keys_link_idx").on(t["linkId"]),
+		foreignKey({
+			name: "os_workspace_share_keys_link_id_os_workspace_share_links_id_fk",
+			columns: [t["linkId"]],
+			foreignColumns: [referencedColumn("os_workspace_share_links", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const osWorkspaceShareLinks = pgTable(
+	"os_workspace_share_links",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		workspaceId: text("workspace_id").notNull(),
+		creatorUserId: text("creator_user_id").notNull(),
+		role: text("role").notNull(),
+		label: text("label"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(
+				sql.raw(
+					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+				),
+			),
+		revokedAt: text("revoked_at"),
+	},
+	(t) => [
+		index("os_workspace_share_links_workspace_idx").on(t["workspaceId"]),
+		foreignKey({
+			name: "os_workspace_share_links_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const providerEventChannels = pgTable(
+	"provider_event_channels",
+	{
+		id: text("id").primaryKey(),
+		subscriptionId: text("subscription_id").notNull(),
+		organizationId: text("organization_id").notNull(),
+		tokenHash: text("token_hash").notNull(),
+		signingSecretCiphertext: text("signing_secret_ciphertext"),
+		providerChannelId: text("provider_channel_id"),
+		resourceId: text("resource_id"),
+		status: text("status").notNull(),
+		expiresAt: text("expires_at").notNull(),
+		createdAt: text("created_at").notNull(),
+	},
+	(t) => [
+		index("provider_event_channels_subscription_idx").on(t["subscriptionId"]),
+	],
+);
+export const providerEventDeliveries = pgTable(
+	"provider_event_deliveries",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		subscriptionId: text("subscription_id").notNull(),
+		status: text("status").notNull(),
+		attempts: bigint("attempts", { mode: "number" }).notNull().default(0),
+		payload: jsonb("payload"),
+		leaseUntil: text("lease_until"),
+		createdAt: text("created_at").notNull(),
+		sentAt: text("sent_at"),
+	},
+	(t) => [
+		index("provider_event_deliveries_pending_idx").on(
+			t["status"],
+			t["createdAt"],
+		),
+	],
+);
+export const providerEventSubscriptions = pgTable(
+	"provider_event_subscriptions",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		adapter: text("adapter").notNull(),
+		providerId: text("provider_id").notNull(),
+		connectionInstanceId: text("connection_instance_id"),
+		resourceKey: text("resource_key").notNull(),
+		mcpAppId: text("mcp_app_id"),
+		eventArguments: jsonb("event_arguments"),
+		eventCursor: text("event_cursor"),
+		maxWakesPerHour: bigint("max_wakes_per_hour", { mode: "number" }),
+		wakeWindowStartedAt: text("wake_window_started_at"),
+		wakeWindowCount: bigint("wake_window_count", { mode: "number" })
+			.notNull()
+			.default(0),
+		connectionScope: text("connection_scope").notNull().default("tenant"),
+		personalOwnerUserId: text("personal_owner_user_id"),
+		workspaceId: text("workspace_id"),
+		workspaceResourceId: text("workspace_resource_id"),
+		delegationId: text("delegation_id"),
+		executionToolId: text("execution_tool_id"),
+		resourceDelegationIds: jsonb("resource_delegation_ids")
+			.notNull()
+			.default([]),
+		tediId: text("tedi_id").notNull(),
+		skillId: text("skill_id").notNull(),
+		skillRevision: bigint("skill_revision", { mode: "number" }).notNull(),
+		deliveryMode: text("delivery_mode").notNull(),
+		status: text("status").notNull(),
+		expiresAt: text("expires_at"),
+		nextReconcileAt: text("next_reconcile_at").notNull(),
+		lastNotificationAt: text("last_notification_at"),
+		lastDispatchAt: text("last_dispatch_at"),
+		lastError: text("last_error"),
+		leaseUntil: text("lease_until"),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		index("provider_event_subscriptions_org_idx").on(t["organizationId"]),
+		index("provider_event_subscriptions_due_idx").on(t["nextReconcileAt"]),
+	],
+);
+export const personalResourceDelegations = pgTable(
+	"personal_resource_delegations",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		ownerUserId: text("owner_user_id").notNull(),
+		tediId: text("tedi_id").notNull(),
+		skillId: text("skill_id").notNull(),
+		skillRevision: bigint("skill_revision", { mode: "number" }).notNull(),
+		workspaceId: text("workspace_id").notNull(),
+		resourceId: text("resource_id").notNull(),
+		connectionInstanceId: text("connection_instance_id").notNull(),
+		providerId: text("provider_id").notNull(),
+		resourceType: text("resource_type").notNull(),
+		providerResourceId: text("provider_resource_id").notNull(),
+		accountSubject: text("account_subject").notNull(),
+		grantFingerprint: text("grant_fingerprint").notNull(),
+		requiredScopes: jsonb("required_scopes").notNull(),
+		operations: jsonb("operations").notNull(),
+		toolIds: jsonb("tool_ids").notNull(),
+		createdAt: text("created_at").notNull(),
+		expiresAt: text("expires_at").notNull(),
+		revokedAt: text("revoked_at"),
+	},
+	(t) => [
+		index("personal_resource_delegations_owner_org_idx").on(
+			t["organizationId"],
+			t["ownerUserId"],
+		),
+		index("personal_resource_delegations_tedi_idx").on(
+			t["organizationId"],
+			t["tediId"],
+		),
+	],
+);
+export const calendarCoordinatorConfigurations = pgTable(
+	"calendar_coordinator_configurations",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		workspaceId: text("workspace_id").notNull(),
+		ownerUserId: text("owner_user_id").notNull(),
+		revision: bigint("revision", { mode: "number" }).notNull(),
+		mode: text("mode").notNull(),
+		configuration: text("configuration").notNull(),
+		ownershipSeed: text("ownership_seed").notNull(),
+		leaseId: text("lease_id"),
+		leaseUntil: bigint("lease_until", { mode: "number" }).notNull().default(0),
+		fence: bigint("fence", { mode: "number" }).notNull().default(0),
+		lastReceipt: text("last_receipt"),
+		lastSuccessfulReconcileAt: text("last_successful_reconcile_at"),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		index("calendar_coordinator_workspace_idx").on(
+			t["organizationId"],
+			t["workspaceId"],
+		),
+		foreignKey({
+			name: "calendar_coordinator_configurations_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "calendar_coordinator_configurations_workspace_id_os_workspaces_id_fk",
+			columns: [t["workspaceId"]],
+			foreignColumns: [referencedColumn("os_workspaces", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const calendarCoordinatorMirrors = pgTable(
+	"calendar_coordinator_mirrors",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		configurationId: text("configuration_id").notNull(),
+		sourceKey: text("source_key").notNull(),
+		destinationKey: text("destination_key").notNull(),
+		mirror: text("mirror").notNull(),
+	},
+	(t) => [
+		uniqueIndex("calendar_coordinator_mirror_unique").on(
+			t["configurationId"],
+			t["sourceKey"],
+			t["destinationKey"],
+		),
+		foreignKey({
+			name: "calendar_coordinator_mirrors_configuration_id_calendar_coordinator_configurations_id_fk",
+			columns: [t["configurationId"]],
+			foreignColumns: [
+				referencedColumn("calendar_coordinator_configurations", "id"),
+			],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const calendarCoordinatorMutations = pgTable(
+	"calendar_coordinator_mutations",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		configurationId: text("configuration_id").notNull(),
+		planId: text("plan_id").notNull(),
+		actionId: text("action_id").notNull(),
+		state: text("state").notNull(),
+		mutation: text("mutation").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("calendar_coordinator_action_unique").on(
+			t["configurationId"],
+			t["actionId"],
+		),
+		foreignKey({
+			name: "calendar_coordinator_mutations_configuration_id_calendar_coordinator_configurations_id_fk",
+			columns: [t["configurationId"]],
+			foreignColumns: [
+				referencedColumn("calendar_coordinator_configurations", "id"),
+			],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const calendarCoordinatorPlans = pgTable(
+	"calendar_coordinator_plans",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		configurationId: text("configuration_id").notNull(),
+		configurationRevision: bigint("configuration_revision", {
+			mode: "number",
+		}).notNull(),
+		plan: text("plan").notNull(),
+		createdAt: text("created_at").notNull(),
+	},
+	(t) => [
+		index("calendar_coordinator_plan_config_idx").on(
+			t["organizationId"],
+			t["configurationId"],
+		),
+		foreignKey({
+			name: "calendar_coordinator_plans_configuration_id_calendar_coordinator_configurations_id_fk",
+			columns: [t["configurationId"]],
+			foreignColumns: [
+				referencedColumn("calendar_coordinator_configurations", "id"),
+			],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const tediConsoleGrants = pgTable(
+	"tedi_console_grants",
+	{
+		organizationId: text("organization_id").notNull(),
+		tediId: text("tedi_id").notNull(),
+		enabled: boolean("enabled").notNull().default(false),
+		workspaceIds: jsonb("workspace_ids").notNull(),
+		revision: text("revision").notNull(),
+		grantedBy: text("granted_by").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t["organizationId"], t["tediId"]] }),
+		foreignKey({
+			name: "tedi_console_grants_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+		foreignKey({
+			name: "tedi_console_grants_tedi_id_tedis_id_fk",
+			columns: [t["tediId"]],
+			foreignColumns: [referencedColumn("tedis", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const supportConfiguration = pgTable(
+	"support_configuration",
+	{
+		id: text("id").primaryKey(),
+		configuration: jsonb("configuration").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [],
+);
+export const supportTickets = pgTable(
+	"support_tickets",
+	{
+		id: text("id").primaryKey(),
+		orgId: text("org_id").notNull(),
+		platformOrgId: text("platform_org_id").notNull(),
+		reporterKey: text("reporter_key").notNull(),
+		idempotencyKey: text("idempotency_key").notNull(),
+		workItemId: text("work_item_id").notNull(),
+		mirrorWorkItemId: text("mirror_work_item_id").notNull(),
+		projectId: text("project_id").notNull(),
+		report: jsonb("report").notNull(),
+		consentReference: text("consent_reference").notNull(),
+		payloadDigest: text("payload_digest").notNull(),
+		status: text("status").notNull().default("received"),
+		mirrorDelivery: text("mirror_delivery").notNull().default("pending"),
+		version: bigint("version", { mode: "number" }).notNull().default(1),
+		draft: jsonb("draft"),
+		publicUpdates: jsonb("public_updates").notNull().default([]),
+		reporterVerification: text("reporter_verification")
+			.notNull()
+			.default("unconfirmed"),
+		updateKeys: jsonb("update_keys").notNull().default([]),
+		nextUpdateDue: text("next_update_due").notNull(),
+		escalationWorkItemId: text("escalation_work_item_id"),
+		interactionId: text("interaction_id"),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("support_tickets_org_key").on(t["orgId"], t["idempotencyKey"]),
+		index("support_tickets_org_reporter").on(t["orgId"], t["reporterKey"]),
+		index("support_tickets_platform_due").on(
+			t["platformOrgId"],
+			t["nextUpdateDue"],
+		),
+	],
+);
+export const oidcSessions = pgTable(
+	"oidc_sessions",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		kind: text("kind").notNull(),
+		configDigest: text("config_digest").notNull(),
+		verifier: text("verifier"),
+		nonce: text("nonce"),
+		subject: text("subject"),
+		scopes: jsonb("scopes").notNull().default([]),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+	},
+	(t) => [
+		index("idx_oidc_sessions_expiry").on(t["expiresAt"]),
+		foreignKey({
+			name: "oidc_sessions_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const personalAgentClientRates = pgTable(
+	"personal_agent_client_rates",
+	{
+		organizationId: text("organization_id").notNull(),
+		clientId: text("client_id").notNull(),
+		windowStart: bigint("window_start", { mode: "number" }).notNull(),
+		requests: bigint("requests", { mode: "number" }).notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t["organizationId"], t["clientId"]] }),
+		foreignKey({
+			name: "personal_agent_client_rates_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
+export const personalAgentSessions = pgTable(
+	"personal_agent_sessions",
+	{
+		organizationId: text("organization_id").notNull(),
+		clientId: text("client_id").notNull(),
+		sessionId: text("session_id").notNull(),
+		userId: text("user_id").notNull(),
+		agentId: text("agent_id"),
+		version: text("version").notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		endedAt: bigint("ended_at", { mode: "number" }),
+	},
+	(t) => [
+		primaryKey({
+			columns: [
+				t["organizationId"],
+				t["clientId"],
+				t["sessionId"],
+				t["userId"],
+			],
+		}),
+		foreignKey({
+			name: "personal_agent_sessions_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
 const tablesByName = new Map<string, PgTable>([
 	[getTableName(agentSessionEvents), agentSessionEvents],
 	[getTableName(agentSessionRequests), agentSessionRequests],
@@ -14576,6 +16051,58 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(workstationParticipants), workstationParticipants],
 	[getTableName(workstationSessions), workstationSessions],
 	[getTableName(workstations), workstations],
+	[getTableName(gitCommitAliases), gitCommitAliases],
+	[getTableName(workDue), workDue],
+	[getTableName(authContextCacheState), authContextCacheState],
+	[getTableName(organizationResidencyPolicies), organizationResidencyPolicies],
+	[getTableName(residencyExecutionReceipts), residencyExecutionReceipts],
+	[getTableName(residencyProviderVersions), residencyProviderVersions],
+	[getTableName(kernelRequestEvents), kernelRequestEvents],
+	[getTableName(kernelRequests), kernelRequests],
+	[getTableName(graphRetrievalBenchmarkCases), graphRetrievalBenchmarkCases],
+	[
+		getTableName(graphRetrievalBenchmarkResults),
+		graphRetrievalBenchmarkResults,
+	],
+	[getTableName(graphRetrievalBenchmarkRuns), graphRetrievalBenchmarkRuns],
+	[getTableName(graphRetrievalBenchmarkSuites), graphRetrievalBenchmarkSuites],
+	[
+		getTableName(graphRetrievalGraduationEvaluations),
+		graphRetrievalGraduationEvaluations,
+	],
+	[getTableName(memoryEntities), memoryEntities],
+	[getTableName(memoryEntityAliases), memoryEntityAliases],
+	[getTableName(memoryEntityMentions), memoryEntityMentions],
+	[
+		getTableName(memoryEntityResolutionDecisions),
+		memoryEntityResolutionDecisions,
+	],
+	[getTableName(memoryEntityResolutionHeads), memoryEntityResolutionHeads],
+	[getTableName(memoryEntityResolutions), memoryEntityResolutions],
+	[getTableName(osGadgetState), osGadgetState],
+	[getTableName(osGadgetStateMutations), osGadgetStateMutations],
+	[getTableName(osWorkspaceAccessEdges), osWorkspaceAccessEdges],
+	[getTableName(osWorkspaceCollaborators), osWorkspaceCollaborators],
+	[getTableName(osWorkspaceEvents), osWorkspaceEvents],
+	[getTableName(osWorkspaceShareKeys), osWorkspaceShareKeys],
+	[getTableName(osWorkspaceShareLinks), osWorkspaceShareLinks],
+	[getTableName(providerEventChannels), providerEventChannels],
+	[getTableName(providerEventDeliveries), providerEventDeliveries],
+	[getTableName(providerEventSubscriptions), providerEventSubscriptions],
+	[getTableName(personalResourceDelegations), personalResourceDelegations],
+	[
+		getTableName(calendarCoordinatorConfigurations),
+		calendarCoordinatorConfigurations,
+	],
+	[getTableName(calendarCoordinatorMirrors), calendarCoordinatorMirrors],
+	[getTableName(calendarCoordinatorMutations), calendarCoordinatorMutations],
+	[getTableName(calendarCoordinatorPlans), calendarCoordinatorPlans],
+	[getTableName(tediConsoleGrants), tediConsoleGrants],
+	[getTableName(supportConfiguration), supportConfiguration],
+	[getTableName(supportTickets), supportTickets],
+	[getTableName(oidcSessions), oidcSessions],
+	[getTableName(personalAgentClientRates), personalAgentClientRates],
+	[getTableName(personalAgentSessions), personalAgentSessions],
 ]);
 function referencedColumn(tableName: string, columnName: string): AnyPgColumn {
 	const table = tablesByName.get(tableName);

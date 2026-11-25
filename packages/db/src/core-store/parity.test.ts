@@ -17,6 +17,7 @@ import {
 	coreStore,
 } from "./dialect";
 import { workItems, workItemComments, workEvents } from "../schema/work-items";
+import { workDue } from "../schema/work-due";
 import { memoryFacts } from "../schema/memory-graph";
 import { organizationMembers } from "../schema/organization-members";
 import { learningImprovementProposals } from "../schema/learning-feedback";
@@ -48,6 +49,7 @@ for (const store of ["d1", "postgres"] as const)
 				memoryFacts,
 				organizationMembers,
 				learningImprovementProposals,
+				workDue,
 			];
 			if (store === "d1") {
 				const sqlite = new DatabaseSync(":memory:");
@@ -102,6 +104,40 @@ for (const store of ["d1", "postgres"] as const)
 			await close?.();
 		});
 
+		it("supports canonical tables outside the runtime index and scopes composite-target upserts", async () => {
+			const due = coreTable(db, workDue);
+			await db.insert(due).values([
+				{
+					orgId: "org",
+					kind: "approval-expiry",
+					objectId: "request",
+					dueAt: at,
+				},
+				{
+					orgId: "other",
+					kind: "approval-expiry",
+					objectId: "request",
+					dueAt: at,
+				},
+			]);
+			const later = "2026-10-21T12:00:00.000Z";
+			const [updated] = await db
+				.insert(due)
+				.values({
+					orgId: "org",
+					kind: "approval-expiry",
+					objectId: "request",
+					dueAt: later,
+				})
+				.onConflictDoUpdate({
+					target: [due.orgId, due.kind, due.objectId],
+					set: { dueAt: later },
+				})
+				.returning();
+			expect(updated).toMatchObject({ orgId: "org", dueAt: later });
+			const [other] = await db.select().from(due).where(eq(due.orgId, "other"));
+			expect(other?.dueAt).toBe(at);
+		});
 		it("binds a large candidate set once and preserves organization/project scope", async () => {
 			const ids = Array.from({ length: 300 }, (_, index) => `absent-${index}`);
 			expect(
