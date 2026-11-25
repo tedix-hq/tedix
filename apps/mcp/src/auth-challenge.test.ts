@@ -68,3 +68,93 @@ describe("unauthenticated MCP challenge", () => {
 		);
 	});
 });
+
+function scopedCall(headers: Record<string, string>) {
+	return enforceMcpAccess({
+		request: new Request("https://gateway.example.test/mcp", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-tedix-auth-type": "tedi",
+				"x-tedix-auth-scopes": "mcp:work.read",
+				...headers,
+			},
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				id: 7,
+				method: "tools/call",
+				params: { name: "admin_only", arguments: {} },
+			}),
+		}),
+		hostname: "gateway.example.test",
+		resolvedApp: {
+			app: {
+				id: "gateway",
+				name: "Example",
+				slug: "example",
+				domain: null,
+				organizationId: "org_example",
+			},
+			metadata: {
+				mcpConfig: {
+					authMode: "authenticated" as const,
+					capabilities: [],
+					enforcePolicies: false,
+					toolScopes: { admin_only: ["mcp:work.write"] },
+				},
+			},
+			tools: [],
+		} as Parameters<typeof enforceMcpAccess>[0]["resolvedApp"],
+		env: {} as CloudflareEnv,
+		oauthJwtPayload: null,
+		isDev: false,
+	});
+}
+
+describe("authenticated insufficient_scope challenge", () => {
+	it("names held plus missing scopes and the permission in plain words", async () => {
+		const denial = await scopedCall({});
+		expect(denial?.reason).toBe("insufficient_scope");
+		expect(denial?.response.status).toBe(403);
+		// Clients replace their grant on re-authorization, so the challenge
+		// carries the held scope alongside the missing one.
+		expect(denial?.response.headers.get("WWW-Authenticate")).toContain(
+			'scope="mcp:work.read mcp:work.write"',
+		);
+		const body = (await denial?.response.json()) as {
+			error?: string;
+			message?: string;
+		};
+		expect(body.error).toBe("insufficient_scope");
+		expect(body.message).toContain(
+			'Allow the "mcp:work.write" permission when reconnecting.',
+		);
+	});
+
+	it("answers Codex/ChatGPT clients with a 200 tool result carrying _meta", async () => {
+		const denial = await scopedCall({
+			"x-tedix-auth-client-id": "https://chatgpt.com/oauth/codex/client.json",
+		});
+		expect(denial?.reason).toBe("insufficient_scope");
+		expect(denial?.response.status).toBe(200);
+		const body = (await denial?.response.json()) as {
+			id?: number;
+			result?: {
+				isError?: boolean;
+				content?: { text?: string }[];
+				_meta?: Record<string, string[]>;
+			};
+		};
+		expect(body.id).toBe(7);
+		expect(body.result?.isError).toBe(true);
+		expect(body.result?.content?.[0]?.text).toContain(
+			'Allow the "mcp:work.write" permission when reconnecting.',
+		);
+		expect(body.result?._meta?.["mcp/www_authenticate"]?.[0]).toContain(
+			'scope="mcp:work.read mcp:work.write"',
+		);
+		expect(denial?.response.headers.get("WWW-Authenticate")).toContain(
+			'error="insufficient_scope"',
+		);
+	});
+});

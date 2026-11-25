@@ -15,6 +15,12 @@ import {
 	isNativeCatalogTool,
 	NATIVE_CATALOG_REQUIRED_SCOPES,
 } from "./native-catalog-tools";
+import {
+	insufficientScopeChallenge,
+	isGrantablePermissionScope,
+	MCP_WWW_AUTHENTICATE_META_KEY,
+	missingPermissionPlainText,
+} from "./scope-challenge";
 
 export class CodeModeAuthorizationError extends Error {
 	readonly requiredScopes: string[];
@@ -212,13 +218,20 @@ export function enforceMcpToolScopeAuthorization(
 	);
 	if (decision.authorized) return null;
 
+	const grantableMissing = decision.missingScopes.filter(
+		isGrantablePermissionScope,
+	);
+	const plainText = missingPermissionPlainText(decision.missingScopes);
+
 	return {
 		content: [
 			{
 				type: "text",
 				text: `insufficient_scope: "${tool.toolId}" requires ${decision.requiredScopes.join(
 					", ",
-				)}; caller is missing ${decision.missingScopes.join(", ")}.`,
+				)}; caller is missing ${decision.missingScopes.join(", ")}.${
+					plainText ? ` ${plainText}` : ""
+				}`,
 			},
 		],
 		isError: true,
@@ -238,14 +251,26 @@ export function enforceMcpToolScopeAuthorization(
 			// machine-unreadable — only the vendor `com.tedix/error` marker and prose
 			// text. Emit the standard challenge so a client can parse the RFC 6750
 			// `scope` parameter and drive scope-union step-up, exactly as it can from
-			// the HTTP 401/403 paths in `index.ts`.
+			// the HTTP 401/403 paths in `index.ts`. The `scope` list names the scopes
+			// already held plus the missing ones because clients that re-authorize
+			// replace their grant (Cloudflare `src/scope-challenge.ts`).
 			//
 			// `resource_metadata` is deliberately omitted: it needs the request
 			// hostname, which this pure authorization helper does not receive, and a
 			// client that needs it discovers it from the transport-level 401.
-			"mcp/www_authenticate": [
-				`Bearer error="insufficient_scope", scope="${decision.requiredScopes.join(" ")}"`,
-			],
+			// Internal gate labels (`configured-endpoint`) are not grantable
+			// permissions, so a denial naming only those gets no challenge.
+			...(grantableMissing.length > 0
+				? {
+						[MCP_WWW_AUTHENTICATE_META_KEY]: [
+							insufficientScopeChallenge({
+								heldScopes: serverCtx.callerIdentity?.scopes ?? [],
+								missingScopes: grantableMissing,
+								errorDescription: "Additional Tedix access is required.",
+							}),
+						],
+					}
+				: {}),
 		},
 	};
 }

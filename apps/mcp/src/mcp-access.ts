@@ -18,6 +18,12 @@ import type { ResolvedApp } from "./resolution";
 import { readJsonRpcBody } from "./json-rpc-envelope";
 import { withNativeCatalogTools } from "./mcp/native-catalog-tools";
 import { mcpPlatformHosts } from "./platform-hosts";
+import {
+	clientReadsToolScopeChallenge,
+	insufficientScopeChallenge,
+	MCP_WWW_AUTHENTICATE_META_KEY,
+	missingPermissionPlainText,
+} from "./mcp/scope-challenge";
 
 /**
  * Request-level MCP access gate (`enforceMcpAccess`): origin, authentication,
@@ -388,23 +394,83 @@ export async function enforceMcpAccess(params: {
 					(scope) => !hasScope(tokenScopes, scope),
 				);
 				if (missingScopes.length > 0) {
+					// Clients that replace their grant on re-authorization need the
+					// held scopes named alongside the missing ones, and agents that
+					// cannot step up need the permission in plain words.
+					const challenge = insufficientScopeChallenge({
+						hostname,
+						heldScopes: tokenScopes,
+						missingScopes,
+						errorDescription: `Missing scopes: ${missingScopes.join(" ")}`,
+					});
+					const plainText = missingPermissionPlainText(missingScopes);
+					// Codex and ChatGPT cannot use the HTTP 403 step-up — it fails
+					// their tool call — so they read the same challenge from the
+					// tool result's `_meta` instead (Cloudflare src/clients.ts).
+					if (
+						clientReadsToolScopeChallenge(
+							request.headers.get("x-tedix-auth-client-id"),
+						)
+					) {
+						let rpcId: string | number | null = null;
+						try {
+							const body = (await request.clone().json()) as {
+								id?: string | number;
+							};
+							rpcId = body?.id ?? null;
+						} catch {
+							/* not JSON-RPC */
+						}
+						return {
+							response: new Response(
+								JSON.stringify({
+									jsonrpc: "2.0",
+									id: rpcId,
+									result: {
+										content: [
+											{
+												type: "text",
+												text: `Insufficient permission: ${plainText} Required scopes: ${requiredScopes.join(", ")}. Missing scopes: ${missingScopes.join(", ")}.`,
+											},
+										],
+										structuredContent: {
+											error: "insufficient_scope",
+											required_scopes: requiredScopes,
+											missing_scopes: missingScopes,
+										},
+										_meta: {
+											[MCP_WWW_AUTHENTICATE_META_KEY]: [challenge],
+										},
+										isError: true,
+									},
+								}),
+								{
+									status: 200,
+									headers: {
+										"Content-Type": "application/json",
+										"WWW-Authenticate": challenge,
+									},
+								},
+							),
+							reason: "insufficient_scope",
+						};
+					}
 					return {
 						response: new Response(
 							JSON.stringify({
 								error: "insufficient_scope",
 								required_scopes: requiredScopes,
 								missing_scopes: missingScopes,
+								...(plainText ? { message: plainText } : {}),
 							}),
 							{
 								status: 403,
 								headers: {
 									"Content-Type": "application/json",
-									"WWW-Authenticate": buildWwwAuthenticate(
-										hostname,
-										"insufficient_scope",
-										`Missing scopes: ${missingScopes.join(" ")}`,
-										missingScopes,
-									),
+									// SEP-2350: the `scope` parameter names the scopes
+									// already held plus the missing ones so a client that
+									// replaces its grant does not drop the held ones.
+									"WWW-Authenticate": challenge,
 								},
 							},
 						),

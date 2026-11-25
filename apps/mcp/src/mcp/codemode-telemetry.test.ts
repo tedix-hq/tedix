@@ -1140,7 +1140,7 @@ describe("Code Mode tail telemetry", () => {
 		},
 	);
 
-	it("does not challenge after a potentially mutating builtin", async () => {
+	it("still names the missing permission after a potentially mutating builtin", async () => {
 		const registered = new Map<string, (args: unknown) => Promise<any>>();
 		const server = {
 			registerTool: (name: string, _config: unknown, handler: any) =>
@@ -1153,7 +1153,12 @@ describe("Code Mode tail telemetry", () => {
 			code: "async () => scope_denial_caught_prior_builtin",
 		});
 		expect(result.isError).toBe(true);
-		expect(result._meta?.["mcp/www_authenticate"]).toBeUndefined();
+		expect(result._meta?.["mcp/www_authenticate"]?.[0]).toContain(
+			'scope="mcp:apps.write"',
+		);
+		expect(result.content[0].text).toContain(
+			'Allow the "mcp:apps.write" permission when reconnecting.',
+		);
 		expect(result.structuredContent.replayUnsafeBuiltinCalls).toBe(1);
 	});
 
@@ -1184,7 +1189,9 @@ describe("Code Mode tail telemetry", () => {
 			code: "async () => scope_denial_caught_prior_dispatch",
 		});
 		expect(partial.isError).toBe(true);
-		expect(partial._meta?.["mcp/www_authenticate"]).toBeUndefined();
+		expect(partial._meta?.["mcp/www_authenticate"]?.[0]).toContain(
+			'scope="mcp:apps.write"',
+		);
 		expect(partial.structuredContent.dispatchedCalls).toBe(1);
 		expect(executeToolMock).toHaveBeenCalledTimes(1);
 		const spoof = await registered.get("code")!({

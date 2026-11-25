@@ -71,6 +71,12 @@ import { resolveLazyCatalogProvider } from "./codemode-catalog";
 import { extractCodeModeExecutionNamespacesFromCode } from "./code-mode-namespaces";
 import { configuredAggregateNamespaces } from "./aggregate-namespaces";
 import { evaluateMcpToolScopeAuthorization } from "./codemode-auth";
+import {
+	insufficientScopeChallenge,
+	isGrantablePermissionScope,
+	MCP_WWW_AUTHENTICATE_META_KEY,
+	missingPermissionPlainText,
+} from "./scope-challenge";
 import { buildCompactTypes } from "@tedix/mcp-shared/compact-types";
 import { CREDENTIAL_MISSING_META_KEY } from "@tedix/mcp-shared/tool-result";
 import {
@@ -590,13 +596,19 @@ export async function registerCodeModeTools(
 			const authorizationFailure = () => {
 				const denial = executionRefs.authorizationDenial;
 				if (!denial) return undefined;
-				const canChallenge =
+				// Every refusal names the missing permission in `_meta` so Codex and
+				// ChatGPT can read the step-up challenge even though Code Mode
+				// answers HTTP 200 — including after calls already ran and for
+				// non-`mcp:` permissions like `connections.*` and `platform:admin`.
+				// Internal gate labels (`configured-endpoint`) are not grantable
+				// permissions and never produce a challenge.
+				const grantableMissing = denial.missingScopes.filter(
+					isGrantablePermissionScope,
+				);
+				const plainText = missingPermissionPlainText(denial.missingScopes);
+				const replaySafe =
 					executionRefs.rpcCallCount === 0 &&
-					executionRefs.replayUnsafeBuiltinCalls === 0 &&
-					denial.missingScopes.length > 0 &&
-					denial.requiredScopes.every((scope) =>
-						/^mcp:[a-z][a-z0-9_.:-]*$/.test(scope),
-					);
+					executionRefs.replayUnsafeBuiltinCalls === 0;
 				return attachCodeModeReadObservations(
 					{
 						isError: true,
@@ -605,7 +617,8 @@ export async function registerCodeModeTools(
 								type: "text" as const,
 								text:
 									denial.message +
-									(canChallenge
+									(plainText ? ` ${plainText}` : "") +
+									(replaySafe
 										? " Authorize the required access before retrying."
 										: " Review the execution receipts before retrying; this program may have dispatched earlier calls."),
 							},
@@ -619,11 +632,16 @@ export async function registerCodeModeTools(
 							dispatchedCalls: executionRefs.rpcCallCount,
 							replayUnsafeBuiltinCalls: executionRefs.replayUnsafeBuiltinCalls,
 						},
-						...(canChallenge
+						...(grantableMissing.length > 0
 							? {
 									_meta: {
-										"mcp/www_authenticate": [
-											`Bearer error="insufficient_scope", error_description="Additional Tedix access is required.", scope="${denial.requiredScopes.join(" ")}"`,
+										[MCP_WWW_AUTHENTICATE_META_KEY]: [
+											insufficientScopeChallenge({
+												heldScopes: serverCtx.callerIdentity?.scopes ?? [],
+												missingScopes: grantableMissing,
+												errorDescription:
+													"Additional Tedix access is required.",
+											}),
 										],
 									},
 								}
