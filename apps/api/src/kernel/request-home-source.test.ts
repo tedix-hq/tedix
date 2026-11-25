@@ -477,7 +477,7 @@ describe("Home request source adapter", () => {
 				(await getHomeKernelRequest(db, "org-example", sourceId))?.version,
 			).toBe(row.version);
 	});
-	it("overlaps Home reads, keeps other adapters serial and batches retry timers", async () => {
+	it("loads canonical Home state once and keeps other adapters serial", async () => {
 		const { context, db } = await fixture();
 		await db.update(kernelRequests).set({ nextDueAt: now });
 		const row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
@@ -501,12 +501,7 @@ describe("Home request source adapter", () => {
 		const blocked = new Promise<void>((resolve) => {
 			release = resolve;
 		});
-		const read = vi
-			.spyOn(workQueries, "getWorkItemById")
-			.mockImplementation(async () => {
-				await blocked;
-				return null;
-			});
+		const read = vi.spyOn(workQueries, "getWorkItemById");
 		const runRead = vi.spyOn(runQueries, "getKernelRuntimeRun");
 		localRecovery.reconcile
 			.mockClear()
@@ -514,19 +509,27 @@ describe("Home request source adapter", () => {
 				await blocked;
 				return row;
 			});
-		const batch = vi.spyOn(db, "batch");
 		const recovery = reconcileDueHomeKernelRequests(context, "org-example");
 		try {
-			await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
-			expect(localRecovery.reconcile).toHaveBeenCalledTimes(1);
+			await vi.waitFor(() =>
+				expect(localRecovery.reconcile).toHaveBeenCalledTimes(1),
+			);
 			release();
-			expect(await recovery).toBe(0);
+			expect(await recovery).toBe(2);
 			expect(localRecovery.reconcile).toHaveBeenCalledTimes(2);
+			expect(read).not.toHaveBeenCalled();
 			expect(runRead).not.toHaveBeenCalled();
-			expect(batch).toHaveBeenCalledTimes(1);
+			const rows = await db.select().from(kernelRequests);
 			expect(
-				(await db.select().from(kernelRequests)).map((r) => r.version),
-			).toEqual([2, 2, 2, 2]);
+				rows
+					.filter((r) => r.sourceKind === "home")
+					.every((r) => r.snapshot.state === "learned"),
+			).toBe(true);
+			expect(
+				rows
+					.filter((r) => r.sourceKind === "agent_session_request")
+					.map((r) => r.version),
+			).toEqual([2, 2]);
 			expect(
 				await listDueKernelRequestOrganizations(db, new Date().toISOString()),
 			).toEqual([]);
@@ -535,7 +538,6 @@ describe("Home request source adapter", () => {
 			await recovery;
 			read.mockRestore();
 			runRead.mockRestore();
-			batch.mockRestore();
 			localRecovery.reconcile.mockReset();
 		}
 	});

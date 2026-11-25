@@ -1,5 +1,5 @@
 import type { KernelRequestSnapshot } from "@tedix/api-contract/schemas/kernel-request";
-import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { agentSessionRequests } from "../schema/agent-session-requests";
 import type { WorkAgentSessionHarness } from "../schema/work-agent-sessions";
@@ -10,7 +10,7 @@ import {
 import type { DbQueryClient } from "../query-client";
 import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import { prefixedColumns } from "../utils/select";
-import { workAttempts } from "../schema/work-items";
+import { workAttempts, workItems } from "../schema/work-items";
 import {
 	kernelRequests,
 	kernelRequestEvents,
@@ -208,10 +208,22 @@ export async function listDueKernelRequestsWithHomeRuns(
 	db: DbQueryClient,
 	p: { organizationId: string; now: string; limit: number },
 ) {
+	const work = prefixedColumns(workItems, "home_work");
+	const attempt = prefixedColumns(workAttempts, "home_attempt");
 	const rows = await db
 		.select({
 			request: prefixedColumns(kernelRequests, "request"),
 			homeRun: prefixedColumns(kernelRuntimeRuns, "home_run"),
+			work: {
+				id: work.id,
+				version: work.version,
+				title: work.title,
+				description: work.description,
+				acceptanceContract: work.acceptanceContract,
+				requiredCapabilities: work.requiredCapabilities,
+				requiredAuthorities: work.requiredAuthorities,
+			},
+			attempt: { id: attempt.id, outcome: attempt.outcome },
 		})
 		.from(kernelRequests)
 		.leftJoin(
@@ -222,6 +234,33 @@ export async function listDueKernelRequestsWithHomeRuns(
 				eq(kernelRuntimeRuns.id, kernelRequests.sourceId),
 			),
 		)
+		.leftJoin(
+			workItems,
+			and(
+				eq(workItems.orgId, kernelRequests.organizationId),
+				eq(
+					workItems.id,
+					sql`coalesce(json_extract(${kernelRuntimeRuns.metadata}, '$.workItemId'), json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId'))`,
+				),
+			),
+		)
+		.leftJoin(
+			workAttempts,
+			eq(
+				workAttempts.id,
+				db
+					.select({ id: workAttempts.id })
+					.from(workAttempts)
+					.where(
+						and(
+							eq(workAttempts.orgId, kernelRequests.organizationId),
+							eq(workAttempts.workItemId, workItems.id),
+						),
+					)
+					.orderBy(desc(workAttempts.startedAt), desc(workAttempts.id))
+					.limit(1),
+			),
+		)
 		.where(
 			and(
 				eq(kernelRequests.organizationId, p.organizationId),
@@ -230,9 +269,11 @@ export async function listDueKernelRequestsWithHomeRuns(
 		)
 		.orderBy(asc(kernelRequests.nextDueAt), asc(kernelRequests.id))
 		.limit(Math.min(50, Math.max(1, p.limit)));
-	return rows.map(({ request, homeRun }) => ({
+	return rows.map(({ request, homeRun, work, attempt }) => ({
 		request,
 		homeRun: homeRun?.id ? homeRun : null,
+		work: work?.id ? work : null,
+		attempt: attempt?.id ? attempt : null,
 	}));
 }
 

@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { kernelRequests, kernelRequestEvents } from "../schema/kernel-requests";
+import { workItems, workAttempts } from "../schema/work-items";
 import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
@@ -21,7 +22,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(schemaDdl(kernelRequests));
 	sqlite.exec(schemaDdl(kernelRequestEvents));
-	sqlite.exec(schemaDdl(kernelRuntimeRuns));
+	sqlite.exec(schemaDdl(kernelRuntimeRuns, workItems, workAttempts));
 	return {
 		sqlite,
 		db: createDbQueryClient(createD1Facade(sqlite, { maxBoundParams: 100 })),
@@ -186,12 +187,42 @@ describe("kernel request persistence", () => {
 			createdAt: now,
 			updatedAt: now,
 		});
+		await db.insert(workItems).values({
+			id: "work-one",
+			orgId: scope.organizationId,
+			title: "Example work",
+			createdAt: now,
+		});
+		for (const [id, orgId, startedAt] of [
+			["attempt-a", scope.organizationId, now],
+			["attempt-z", scope.organizationId, now],
+			["attempt-other", "org-other", "2026-10-18T10:00:00.000Z"],
+		] as const)
+			await db.insert(workAttempts).values({
+				id,
+				orgId,
+				workItemId: "work-one",
+				executorType: "tedi",
+				executorId: "example",
+				attemptNumber: id === "attempt-a" ? 1 : 2,
+				startedAt,
+				heartbeatAt: startedAt,
+				runtimeState: "finished",
+				outcome: "succeeded",
+			});
 		const params = { organizationId: scope.organizationId, now, limit: 2 };
 		const sources = await listDueKernelRequestsWithHomeRuns(db, params);
 		expect(sources.map((s) => s.request)).toEqual(
 			await listDueKernelRequests(db, params),
 		);
 		expect(sources[0]?.homeRun).toBeNull();
+		expect(sources[0]?.work).toBeNull();
+		expect(sources[0]?.attempt).toBeNull();
+		expect(sources[1]?.work?.id).toBe("work-one");
+		expect(sources[1]?.attempt).toEqual({
+			id: "attempt-z",
+			outcome: "succeeded",
+		});
 		expect(sources[1]?.homeRun).toMatchObject({
 			id: "matching-run",
 			organizationId: scope.organizationId,

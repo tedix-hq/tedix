@@ -33,20 +33,19 @@ export async function reconcileDueKernelRequests(
 	if (!env.KERNEL) return counts;
 	const db = coreQueryDb(env);
 	// Dispatcher settlements enter the tracker inside the same reconcile call.
-	const organizations = new Set(
-		[
-			...(await listDueKernelRequestOrganizations(
-				db,
-				new Date(scheduledTime).toISOString(),
-			)),
-			...(await listDispatcherAttemptCaptureOrganizations(
-				db,
-				new Date(
-					scheduledTime - DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS,
-				).toISOString(),
-			)),
-		].map((row) => row.organizationId),
-	);
+	const pages = await Promise.all([
+		listDueKernelRequestOrganizations(
+			db,
+			new Date(scheduledTime).toISOString(),
+		),
+		listDispatcherAttemptCaptureOrganizations(
+			db,
+			new Date(
+				scheduledTime - DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS,
+			).toISOString(),
+		),
+	]);
+	const organizations = new Set(pages.flat().map((row) => row.organizationId));
 	counts.kernelReconcileOrganizations = organizations.size;
 	const failures: unknown[] = [];
 	for (const result of await Promise.allSettled(

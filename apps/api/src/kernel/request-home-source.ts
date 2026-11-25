@@ -106,6 +106,10 @@ export async function reconcileHomeKernelRequest(
 	initial: KernelRequestRow,
 	policy: KernelRequestPolicy,
 	sourceRun?: KernelRuntimeRun | null,
+	canonical?: Pick<
+		Awaited<ReturnType<typeof listDueKernelRequestsWithHomeRuns>>[number],
+		"work" | "attempt"
+	>,
 ) {
 	let row = initial;
 	if (
@@ -146,16 +150,20 @@ export async function reconcileHomeKernelRequest(
 			run,
 		);
 	}
-	const [work, attempts] = await Promise.all([
-		getWorkItemById(context.db, workItemId, row.organizationId),
-		listWorkItemAttempts(context.db, {
-			orgId: row.organizationId,
-			workItemId,
-			limit: 1,
-		}),
-	]);
+	const { work, attempt } =
+		canonical ??
+		(await (async () => {
+			const [work, attempts] = await Promise.all([
+				getWorkItemById(context.db, workItemId, row.organizationId),
+				listWorkItemAttempts(context.db, {
+					orgId: row.organizationId,
+					workItemId,
+					limit: 1,
+				}),
+			]);
+			return { work, attempt: attempts.data[0] };
+		})());
 	if (!work) return row;
-	const attempt = attempts.data[0];
 	const now = () => new Date().toISOString();
 	if (row.snapshot.state === "received")
 		row = await applyKernelRequestEvent(
@@ -364,8 +372,8 @@ export async function reconcileDueHomeKernelRequests(
 		}),
 	);
 	const rows = sources.map(({ request }) => request);
-	const homeRuns = new Map(
-		sources.map(({ request, homeRun }) => [request.id, homeRun]),
+	const sourcesByRequest = new Map(
+		sources.map((source) => [source.request.id, source]),
 	);
 	if (!policy) {
 		// Preserve the configured interval already recorded on each request.
@@ -399,7 +407,8 @@ export async function reconcileDueHomeKernelRequests(
 							context,
 							row,
 							policy,
-							homeRuns.get(row.id),
+							sourcesByRequest.get(row.id)?.homeRun,
+							sourcesByRequest.get(row.id),
 						)
 					: row.sourceKind === "work_attempt"
 						? await (
