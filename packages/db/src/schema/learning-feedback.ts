@@ -37,7 +37,7 @@ import { tedis } from "./tedis";
  * partial index only to a query that states the index's condition. Changing
  * the surfaces needs a migration that rebuilds both indexes.
  */
-const decisionHistoryEvent = sql`surface IN ('decision_capture', 'agent_session_import', 'activity_feed', 'focus_feed', 'decision_deck', 'decision_deck_action', 'work_outcome', 'outbound_outcome', 'work_fix', 'decision_learning', 'decision_edit_preference', 'card_context') AND (surface <> 'focus_feed' OR event_kind <> 'delivered')`;
+export const decisionHistoryEvent = sql`surface IN ('decision_capture', 'agent_session_import', 'activity_feed', 'focus_feed', 'decision_deck', 'decision_deck_action', 'work_outcome', 'outbound_outcome', 'work_fix', 'decision_learning', 'decision_edit_preference', 'card_context') AND (surface <> 'focus_feed' OR event_kind <> 'delivered')`;
 /**
  * The unary plus keeps the scope kind away from the general scope index, which
  * would otherwise walk every event of the person, impressions included.

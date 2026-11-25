@@ -1,3 +1,10 @@
+import { coreTable } from "../core-store/client";
+import {
+	anyIds,
+	booleanValue,
+	coreStore,
+	jsonRead,
+} from "../core-store/dialect";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	and,
@@ -24,11 +31,12 @@ import {
 	type LearningFeedbackMeasurementRow,
 	type LearningImprovementProposalRow,
 	type LearningInteractionEventRow,
-	learningFeedbackAttributions,
-	learningFeedbackMeasurements,
-	learningImprovementProposals,
-	learningInteractionEvents,
+	learningFeedbackAttributions as d1LearningFeedbackAttributions,
+	learningFeedbackMeasurements as d1LearningFeedbackMeasurements,
+	learningImprovementProposals as d1LearningImprovementProposals,
+	learningInteractionEvents as d1LearningInteractionEvents,
 	personalDecisionHistory,
+	decisionHistoryEvent,
 	sharedDecisionHistory,
 } from "../schema/learning-feedback";
 
@@ -141,6 +149,7 @@ export async function recordLearningInteraction(
 		occurredAt: string;
 	},
 ): Promise<{ event: LearningInteractionEventRow; duplicate: boolean }> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	const inserted = await db
 		.insert(learningInteractionEvents)
 		.values({ ...input, signalClass: input.signalClass ?? "quality" })
@@ -210,6 +219,7 @@ export async function listLearningInteractions(
 		limit: number;
 	},
 ): Promise<LearningInteractionEventRow[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	const conditions = [
 		eq(learningInteractionEvents.organizationId, input.organizationId),
 	];
@@ -273,7 +283,9 @@ export async function listLearningInteractions(
 		// statistics from choosing a tenant-wide index for either branch.
 		const shared = newest(
 			sql`scope_kind <> 'personal'`,
-			sql`${learningInteractionEvents} INDEXED BY idx_learning_event_shared_occurred`,
+			coreStore(db) === "d1"
+				? sql`${learningInteractionEvents} INDEXED BY idx_learning_event_shared_occurred`
+				: sql`${learningInteractionEvents}`,
 		);
 		if (!input.personalScopeId) return shared;
 		const sharedHistory = shared.as("shared_history");
@@ -282,13 +294,15 @@ export async function listLearningInteractions(
 				eq(learningInteractionEvents.scopeKind, "personal"),
 				eq(learningInteractionEvents.scopeId, input.personalScopeId),
 			)!,
-			sql`${learningInteractionEvents} INDEXED BY idx_learning_event_scope_occurred`,
+			coreStore(db) === "d1"
+				? sql`${learningInteractionEvents} INDEXED BY idx_learning_event_scope_occurred`
+				: sql`${learningInteractionEvents}`,
 		).as("personal_history");
 		return db
 			.select()
 			.from(sharedHistory)
 			.unionAll(db.select().from(personalHistory))
-			.orderBy(desc(sharedHistory.occurredAt))
+			.orderBy(desc(sql.identifier("history_occurredAt")))
 			.limit(input.limit);
 	}
 	conditions.push(
@@ -328,6 +342,7 @@ export async function listDecisionLearningHistory(
 		limit: number;
 	},
 ): Promise<LearningInteractionEventRow[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	// Production statistics make the planner prefer idx_learning_event_org_occurred
 	// for the shared read, walking ~17k of a tenant's newest events per call
 	// (48 s of main D1 time in 13 min on 21 Nov 2026). The hint keeps it on the
@@ -336,7 +351,7 @@ export async function listDecisionLearningHistory(
 		db
 			.select(prefixedColumns(learningInteractionEvents, "history"))
 			.from(
-				hinted
+				hinted && coreStore(db) === "d1"
 					? sql`${learningInteractionEvents} INDEXED BY idx_learning_event_decision_history_shared`
 					: learningInteractionEvents,
 			)
@@ -354,14 +369,16 @@ export async function listDecisionLearningHistory(
 	const personalHistory = newest(
 		and(
 			eq(learningInteractionEvents.scopeId, input.personalScopeId),
-			personalDecisionHistory,
+			coreStore(db) === "d1"
+				? personalDecisionHistory
+				: sql`scope_kind = 'personal' AND ${decisionHistoryEvent}`,
 		),
 	).as("personal_history");
 	return db
 		.select()
 		.from(sharedHistory)
 		.unionAll(db.select().from(personalHistory))
-		.orderBy(desc(sharedHistory.occurredAt))
+		.orderBy(desc(sql.identifier("history_occurredAt")))
 		.limit(input.limit);
 }
 
@@ -372,8 +389,9 @@ export async function listDecisionLearningHistory(
  * review-pending memory) may call this — never a user-facing handler, which
  * must use {@link listLearningInteractions} and its personal-scope fence.
  */
-function notCorrectedLearningEvent() {
-	return sql`NOT EXISTS (SELECT 1 FROM learning_interaction_events AS correction WHERE correction.organization_id = ${learningInteractionEvents.organizationId} AND correction.actor_id = ${learningInteractionEvents.actorId} AND correction.scope_kind = ${learningInteractionEvents.scopeKind} AND correction.scope_id = ${learningInteractionEvents.scopeId} AND correction.event_kind = 'undone' AND json_extract(correction.metadata, '$.learningCorrection') = 1 AND json_extract(correction.metadata, '$.correctsEventId') = ${learningInteractionEvents.id})`;
+function notCorrectedLearningEvent(db: DbQueryClient) {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
+	return sql`NOT EXISTS (SELECT 1 FROM learning_interaction_events AS correction WHERE correction.organization_id = ${learningInteractionEvents.organizationId} AND correction.actor_id = ${learningInteractionEvents.actorId} AND correction.scope_kind = ${learningInteractionEvents.scopeKind} AND correction.scope_id = ${learningInteractionEvents.scopeId} AND correction.event_kind = 'undone' AND ${jsonRead(db, sql`correction.metadata`, ["learningCorrection"], "boolean")} = ${booleanValue(db, true)} AND ${jsonRead(db, sql`correction.metadata`, ["correctsEventId"])} = ${learningInteractionEvents.id})`;
 }
 
 export async function listLearningInteractionsForReflection(
@@ -385,6 +403,7 @@ export async function listLearningInteractionsForReflection(
 		limit: number;
 	},
 ): Promise<LearningInteractionEventRow[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	if (input.surfaces.length === 0) return [];
 	return db
 		.select()
@@ -392,7 +411,7 @@ export async function listLearningInteractionsForReflection(
 		.where(
 			and(
 				eq(learningInteractionEvents.organizationId, input.organizationId),
-				notCorrectedLearningEvent(),
+				notCorrectedLearningEvent(db),
 				// bound-params: callers pass a fixed list of producer surfaces
 				inArray(learningInteractionEvents.surface, input.surfaces),
 				gte(learningInteractionEvents.occurredAt, input.since),
@@ -418,6 +437,7 @@ export async function listFactoryVerdictEvents(
 		limit: number;
 	},
 ): Promise<LearningInteractionEventRow[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	return db
 		.select()
 		.from(learningInteractionEvents)
@@ -426,15 +446,16 @@ export async function listFactoryVerdictEvents(
 				eq(learningInteractionEvents.organizationId, input.organizationId),
 				eq(learningInteractionEvents.surface, "decision_deck"),
 				gte(learningInteractionEvents.occurredAt, input.since),
-				sql`substr(json_extract(${learningInteractionEvents.metadata}, '$.decisionClass'), 1, ${input.classPrefix.length}) = ${input.classPrefix}`,
-				notCorrectedLearningEvent(),
+				sql`substr(${jsonRead(db, learningInteractionEvents.metadata, ["decisionClass"])}, 1, ${input.classPrefix.length}) = ${input.classPrefix}`,
+				notCorrectedLearningEvent(db),
 			),
 		)
 		.orderBy(desc(learningInteractionEvents.occurredAt))
 		.limit(input.limit);
 }
 
-function ownedBy(userId: string | undefined) {
+function ownedBy(db: DbQueryClient, userId: string | undefined) {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	return userId
 		? and(
 				eq(learningInteractionEvents.scopeKind, "personal"),
@@ -459,6 +480,7 @@ export async function listLearningIssueKeysForReflection(
 		limit: number;
 	},
 ): Promise<string[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	const lastAt = max(learningInteractionEvents.occurredAt);
 	const rows = await db
 		.select({ issueKey: learningInteractionEvents.issueKey, lastAt })
@@ -468,7 +490,7 @@ export async function listLearningIssueKeysForReflection(
 				eq(learningInteractionEvents.organizationId, input.organizationId),
 				eq(learningInteractionEvents.surface, input.surface),
 				isNotNull(learningInteractionEvents.issueKey),
-				ownedBy(input.ownerUserId),
+				ownedBy(db, input.ownerUserId),
 			),
 		)
 		.groupBy(learningInteractionEvents.issueKey)
@@ -489,6 +511,7 @@ export async function listLearningInteractionsForIssueKey(
 		limit: number;
 	},
 ): Promise<LearningInteractionEventRow[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	if (input.surfaces.length === 0) return [];
 	return db
 		.select()
@@ -499,7 +522,7 @@ export async function listLearningInteractionsForIssueKey(
 				eq(learningInteractionEvents.issueKey, input.issueKey),
 				// bound-params: callers pass a fixed list of producer surfaces
 				inArray(learningInteractionEvents.surface, input.surfaces),
-				ownedBy(input.ownerUserId),
+				ownedBy(db, input.ownerUserId),
 			),
 		)
 		.orderBy(desc(learningInteractionEvents.occurredAt))
@@ -519,6 +542,7 @@ export async function listLearningInteractionsForIssuePrefix(
 		limit: number;
 	},
 ): Promise<LearningInteractionEventRow[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	if (input.surfaces.length === 0 || !input.issuePrefix) return [];
 	const last = input.issuePrefix.charCodeAt(input.issuePrefix.length - 1);
 	const end = input.issuePrefix.slice(0, -1) + String.fromCharCode(last + 1);
@@ -560,6 +584,7 @@ export async function listLearningOwnersForReflection(
 		ownerUserId?: string;
 	},
 ): Promise<LearningOwnerSummary[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	if (input.surfaces.length === 0) return [];
 	const newestAt = max(learningInteractionEvents.occurredAt);
 	const events = count();
@@ -611,6 +636,7 @@ export async function listOwnerLearningInteractionsPage(
 		limit: number;
 	},
 ): Promise<LearningInteractionEventRow[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	if (input.surfaces.length === 0) return [];
 	return db
 		.select()
@@ -618,7 +644,7 @@ export async function listOwnerLearningInteractionsPage(
 		.where(
 			and(
 				eq(learningInteractionEvents.organizationId, input.organizationId),
-				notCorrectedLearningEvent(),
+				notCorrectedLearningEvent(db),
 				eq(learningInteractionEvents.scopeKind, "personal"),
 				eq(learningInteractionEvents.scopeId, input.ownerUserId),
 				// bound-params: callers pass a fixed list of producer surfaces
@@ -656,30 +682,33 @@ export async function recordLearningInteractionsBatch(
 	db: DbClient,
 	rows: Array<
 		Omit<
-			typeof learningInteractionEvents.$inferInsert,
+			typeof d1LearningInteractionEvents.$inferInsert,
 			"id" | "createdAt" | "signalClass"
 		> & { signalClass?: LearningSignalClass }
 	>,
 ): Promise<{ recorded: number }> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	if (rows.length === 0) return { recorded: 0 };
-	const statements = chunkForBoundParams(rows, INTERACTION_INSERT_CHUNK).map(
-		(chunk) =>
-			db
-				.insert(learningInteractionEvents)
-				.values(
-					chunk.map((row) => ({
-						...row,
-						id: crypto.randomUUID(),
-						signalClass: row.signalClass ?? "quality",
-					})),
-				)
-				.onConflictDoNothing({
-					target: [
-						learningInteractionEvents.organizationId,
-						learningInteractionEvents.clientEventId,
-					],
-				})
-				.returning({ id: learningInteractionEvents.id }),
+	const statements = chunkForBoundParams(
+		rows,
+		coreStore(db) === "postgres" ? rows.length : INTERACTION_INSERT_CHUNK,
+	).map((chunk) =>
+		db
+			.insert(learningInteractionEvents)
+			.values(
+				chunk.map((row) => ({
+					...row,
+					id: crypto.randomUUID(),
+					signalClass: row.signalClass ?? "quality",
+				})),
+			)
+			.onConflictDoNothing({
+				target: [
+					learningInteractionEvents.organizationId,
+					learningInteractionEvents.clientEventId,
+				],
+			})
+			.returning({ id: learningInteractionEvents.id }),
 	);
 	const results = await db.batch(batchNonEmpty(statements));
 	return {
@@ -705,6 +734,7 @@ export async function listLearningEventTimesInThreads(
 		to: string;
 	},
 ): Promise<Array<{ threadId: string | null; occurredAt: string }>> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	if (input.threadIds.length === 0) return [];
 	return db
 		.select({
@@ -731,22 +761,18 @@ export async function getLearningInteractionsByIds(
 	organizationId: string,
 	ids: string[],
 ): Promise<LearningInteractionEventRow[]> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	if (ids.length === 0) return [];
-	const rows: LearningInteractionEventRow[] = [];
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	for (const chunk of chunkForBoundParams([...new Set(ids)], 50)) {
-		rows.push(
-			...(await db
-				.select()
-				.from(learningInteractionEvents)
-				.where(
-					and(
-						eq(learningInteractionEvents.organizationId, organizationId),
-						inArray(learningInteractionEvents.id, chunk),
-					),
-				)),
+	const rows: LearningInteractionEventRow[] = await db
+		.select()
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, organizationId),
+				anyIds(db, learningInteractionEvents.id, [...new Set(ids)]),
+			),
 		);
-	}
+
 	return rows;
 }
 
@@ -769,51 +795,53 @@ export async function attributeLearningFeedback(
 	created: number;
 	duplicates: number;
 }> {
-	const inserted = await db
-		.insert(learningFeedbackAttributions)
-		.values(
-			input.feedbackEventIds.map((feedbackEventId) => ({
-				organizationId: input.organizationId,
-				clientAttributionId: input.clientAttributionId,
-				feedbackEventId,
-				subjectKind: input.subjectKind,
-				subjectId: input.subjectId,
-				changeKind: input.changeKind,
-				rationale: input.rationale,
-				evidenceRefs: input.evidenceRefs,
-				metadata: input.metadata,
-				occurredAt: input.occurredAt,
-			})),
-		)
-		.onConflictDoNothing()
-		.returning();
+	const learningFeedbackAttributions = coreTable(
+		db,
+		d1LearningFeedbackAttributions,
+	);
+	if (input.feedbackEventIds.length === 0)
+		return { attributions: [], created: 0, duplicates: 0 };
+	const values = input.feedbackEventIds.map((feedbackEventId) => ({
+		organizationId: input.organizationId,
+		clientAttributionId: input.clientAttributionId,
+		feedbackEventId,
+		subjectKind: input.subjectKind,
+		subjectId: input.subjectId,
+		changeKind: input.changeKind,
+		rationale: input.rationale,
+		evidenceRefs: input.evidenceRefs,
+		metadata: input.metadata,
+		occurredAt: input.occurredAt,
+	}));
+	const writes = chunkForBoundParams(
+		values,
+		coreStore(db) === "postgres" ? values.length : 5,
+	).map((chunk) =>
+		db
+			.insert(learningFeedbackAttributions)
+			.values(chunk)
+			.onConflictDoNothing()
+			.returning(),
+	);
+	const inserted = (await db.batch(batchNonEmpty(writes))).flat();
 
-	const rows: LearningFeedbackAttributionRow[] = [];
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	for (const chunk of chunkForBoundParams(
-		[...new Set(input.feedbackEventIds)],
-		50,
-	)) {
-		rows.push(
-			...(await db
-				.select()
-				.from(learningFeedbackAttributions)
-				.where(
-					and(
-						eq(
-							learningFeedbackAttributions.organizationId,
-							input.organizationId,
-						),
-						eq(
-							learningFeedbackAttributions.clientAttributionId,
-							input.clientAttributionId,
-						),
-						inArray(learningFeedbackAttributions.feedbackEventId, chunk),
-					),
-				)),
+	const rows: LearningFeedbackAttributionRow[] = await db
+		.select()
+		.from(learningFeedbackAttributions)
+		.where(
+			and(
+				eq(learningFeedbackAttributions.organizationId, input.organizationId),
+				eq(
+					learningFeedbackAttributions.clientAttributionId,
+					input.clientAttributionId,
+				),
+				anyIds(db, learningFeedbackAttributions.feedbackEventId, [
+					...new Set(input.feedbackEventIds),
+				]),
+			),
 		);
-	}
-	// Re-establish the single-statement ordering across chunks.
+
+	// Preserve attribution ordering independently of the store planner.
 	rows.sort((a, b) => a.feedbackEventId.localeCompare(b.feedbackEventId));
 	if (
 		rows.some(
@@ -838,6 +866,10 @@ export async function getLearningAttributionById(
 	organizationId: string,
 	id: string,
 ): Promise<LearningFeedbackAttributionRow | null> {
+	const learningFeedbackAttributions = coreTable(
+		db,
+		d1LearningFeedbackAttributions,
+	);
 	const rows = await db
 		.select()
 		.from(learningFeedbackAttributions)
@@ -860,30 +892,25 @@ export async function getLearningAttributionsForEvents(
 		subjectId: string;
 	},
 ): Promise<LearningFeedbackAttributionRow[]> {
+	const learningFeedbackAttributions = coreTable(
+		db,
+		d1LearningFeedbackAttributions,
+	);
 	if (input.feedbackEventIds.length === 0) return [];
-	const rows: LearningFeedbackAttributionRow[] = [];
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	for (const chunk of chunkForBoundParams(
-		[...new Set(input.feedbackEventIds)],
-		50,
-	)) {
-		rows.push(
-			...(await db
-				.select()
-				.from(learningFeedbackAttributions)
-				.where(
-					and(
-						eq(
-							learningFeedbackAttributions.organizationId,
-							input.organizationId,
-						),
-						inArray(learningFeedbackAttributions.feedbackEventId, chunk),
-						eq(learningFeedbackAttributions.subjectKind, input.subjectKind),
-						eq(learningFeedbackAttributions.subjectId, input.subjectId),
-					),
-				)),
+	const rows: LearningFeedbackAttributionRow[] = await db
+		.select()
+		.from(learningFeedbackAttributions)
+		.where(
+			and(
+				eq(learningFeedbackAttributions.organizationId, input.organizationId),
+				anyIds(db, learningFeedbackAttributions.feedbackEventId, [
+					...new Set(input.feedbackEventIds),
+				]),
+				eq(learningFeedbackAttributions.subjectKind, input.subjectKind),
+				eq(learningFeedbackAttributions.subjectId, input.subjectId),
+			),
 		);
-	}
+
 	return rows;
 }
 
@@ -892,22 +919,21 @@ export async function getLearningMeasurementsByIds(
 	organizationId: string,
 	ids: string[],
 ): Promise<LearningFeedbackMeasurementRow[]> {
+	const learningFeedbackMeasurements = coreTable(
+		db,
+		d1LearningFeedbackMeasurements,
+	);
 	if (ids.length === 0) return [];
-	const rows: LearningFeedbackMeasurementRow[] = [];
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	for (const chunk of chunkForBoundParams([...new Set(ids)], 50)) {
-		rows.push(
-			...(await db
-				.select()
-				.from(learningFeedbackMeasurements)
-				.where(
-					and(
-						eq(learningFeedbackMeasurements.organizationId, organizationId),
-						inArray(learningFeedbackMeasurements.id, chunk),
-					),
-				)),
+	const rows: LearningFeedbackMeasurementRow[] = await db
+		.select()
+		.from(learningFeedbackMeasurements)
+		.where(
+			and(
+				eq(learningFeedbackMeasurements.organizationId, organizationId),
+				anyIds(db, learningFeedbackMeasurements.id, [...new Set(ids)]),
+			),
 		);
-	}
+
 	return rows;
 }
 
@@ -929,6 +955,10 @@ export async function recordLearningMeasurement(
 	measurement: LearningFeedbackMeasurementRow;
 	duplicate: boolean;
 }> {
+	const learningFeedbackMeasurements = coreTable(
+		db,
+		d1LearningFeedbackMeasurements,
+	);
 	const inserted = await db
 		.insert(learningFeedbackMeasurements)
 		.values(input)
@@ -1101,6 +1131,15 @@ export async function getLearningFeedbackSummary(
 		issueKey?: string;
 	},
 ): Promise<LearningFeedbackSummaryResult> {
+	const learningFeedbackAttributions = coreTable(
+		db,
+		d1LearningFeedbackAttributions,
+	);
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
+	const learningFeedbackMeasurements = coreTable(
+		db,
+		d1LearningFeedbackMeasurements,
+	);
 	const conditions = [
 		eq(learningFeedbackAttributions.organizationId, input.organizationId),
 		eq(learningFeedbackAttributions.subjectKind, input.subjectKind),
@@ -1146,24 +1185,15 @@ export async function getLearningFeedbackSummary(
 		issueKey: row.issueKey,
 	}));
 	const attributionIds = attributions.map((attribution) => attribution.id);
-	const measurementRows: LearningFeedbackMeasurementRow[] = [];
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	for (const chunk of chunkForBoundParams(attributionIds, 50)) {
-		measurementRows.push(
-			...(await db
-				.select()
-				.from(learningFeedbackMeasurements)
-				.where(
-					and(
-						eq(
-							learningFeedbackMeasurements.organizationId,
-							input.organizationId,
-						),
-						inArray(learningFeedbackMeasurements.attributionId, chunk),
-					),
-				)),
+	const measurementRows: LearningFeedbackMeasurementRow[] = await db
+		.select()
+		.from(learningFeedbackMeasurements)
+		.where(
+			and(
+				eq(learningFeedbackMeasurements.organizationId, input.organizationId),
+				anyIds(db, learningFeedbackMeasurements.attributionId, attributionIds),
+			),
 		);
-	}
 
 	return summarizeLearningFeedback({
 		subjectKind: input.subjectKind,
@@ -1311,6 +1341,10 @@ export async function proposeLearningImprovement(
 		proposedById: string | null;
 	},
 ): Promise<{ proposal: LearningImprovementProposalRow; duplicate: boolean }> {
+	const learningImprovementProposals = coreTable(
+		db,
+		d1LearningImprovementProposals,
+	);
 	const values = {
 		...input,
 		promotionRoute: promotionRouteForSubject(input.subjectKind),
@@ -1367,6 +1401,10 @@ export async function getLearningImprovementProposal(
 	organizationId: string,
 	id: string,
 ): Promise<LearningImprovementProposalRow | null> {
+	const learningImprovementProposals = coreTable(
+		db,
+		d1LearningImprovementProposals,
+	);
 	const rows = await db
 		.select()
 		.from(learningImprovementProposals)
@@ -1397,6 +1435,10 @@ export async function updateLearningImprovementProposal(
 		reviewedAt?: string | null;
 	},
 ): Promise<LearningImprovementProposalRow | null> {
+	const learningImprovementProposals = coreTable(
+		db,
+		d1LearningImprovementProposals,
+	);
 	const { organizationId, id, fromStatuses, expectedUpdatedAt, ...patch } =
 		input;
 	const rows = await db
@@ -1426,6 +1468,10 @@ export async function listLearningImprovementProposals(
 		limit: number;
 	},
 ): Promise<LearningImprovementProposalRow[]> {
+	const learningImprovementProposals = coreTable(
+		db,
+		d1LearningImprovementProposals,
+	);
 	const conditions = [
 		eq(learningImprovementProposals.organizationId, input.organizationId),
 	];
