@@ -61,13 +61,11 @@ it("resolves 50 attempt rows with 100 distinct commit fields in two alias statem
 			(n) => `b${n.toString(16).padStart(39, "0")}`,
 		);
 		for (let j = 0; j < 2; j++)
-			await db
-				.insert(gitCommitAliases)
-				.values({
-					oldSha: old[j]!,
-					newSha: canonical[j]!,
-					repository: "example/product",
-				});
+			await db.insert(gitCommitAliases).values({
+				oldSha: old[j]!,
+				newSha: canonical[j]!,
+				repository: "example/product",
+			});
 		const id = `attempt-${i}`;
 		seedAttempt(sqlite, {
 			id,

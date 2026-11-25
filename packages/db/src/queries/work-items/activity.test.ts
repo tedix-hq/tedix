@@ -183,18 +183,16 @@ it("resolves 50 distinct activity commits in one alias statement without changin
 		const payload = { settlement: { mode: "commit", commitShas: [stored] } };
 		payloads.set(id, payload);
 		expected.set(id, i === 49 ? oldSha : newSha);
-		await db
-			.insert(workEvents)
-			.values({
-				id,
-				orgId: "org",
-				workItemId: "sweep",
-				eventType: "attempt.settled",
-				actorType: "system",
-				actorId: "system",
-				payload,
-				occurredAt: "2026-08-29T00:00:00Z",
-			});
+		await db.insert(workEvents).values({
+			id,
+			orgId: "org",
+			workItemId: "sweep",
+			eventType: "attempt.settled",
+			actorType: "system",
+			actorId: "system",
+			payload,
+			occurredAt: "2026-08-29T00:00:00Z",
+		});
 	}
 	statements.length = 0;
 	const { events } = await listWorkActivity(db, { orgId: "org", limit: 50 });
