@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.14 (2026-11-25)
+
+### Patch Changes
+
+- 753f636: A runner now settles an Attempt as landed_unverified when the lane reports that its outcome was not confirmed, instead of recording it as succeeded. Before, a lane that said the done-when was not met could still leave the Attempt looking like a pass.
+
 ## 0.37.13 (2026-11-24)
 
 ### Patch Changes
