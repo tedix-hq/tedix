@@ -7,7 +7,6 @@ import { organizations } from "../schema/organizations";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import { getAgentTurnDefaults } from "./agent-turn-defaults";
-import { invalidateSystemPolicySnapshot } from "./control-plane/system-policy";
 import { getWorkOnboarding } from "./work-onboarding";
 
 const cases = [
@@ -47,7 +46,6 @@ for (const c of cases)
 					publishedBy: "example-admin",
 					definition: { [c.section]: value } as never,
 				});
-				invalidateSystemPolicySnapshot(db);
 			};
 			return { sqlite, db, publish };
 		}
@@ -79,12 +77,10 @@ for (const c of cases)
 				.insert(organizations)
 				.values({ id: "fictional-org", name: "Fictional", slug: "fictional" });
 			f.sqlite.exec("UPDATE policy_packs SET organization_id='fictional-org'");
-			invalidateSystemPolicySnapshot(f.db);
 			await expect(c.read(f.db)).rejects.toThrow();
 			f.sqlite.exec(
 				"UPDATE policy_packs SET organization_id=NULL,published_by=NULL",
 			);
-			invalidateSystemPolicySnapshot(f.db);
 			await expect(c.read(f.db)).rejects.toThrow();
 		});
 	});

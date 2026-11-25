@@ -1,4 +1,4 @@
-import { getD1BindingKey } from "../../slow-query";
+import { memoizeD1InvocationRead } from "../../slow-query";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { policyPacks } from "../../schema/control-plane";
@@ -11,34 +11,13 @@ export async function getActiveSystemPolicyDefinition(
 	return (await getActiveSystemPolicy(db, slug))?.definition ?? null;
 }
 
-type PolicyRow = Pick<
-	typeof policyPacks.$inferSelect,
-	| "slug"
-	| "version"
-	| "target"
-	| "status"
-	| "publishedAt"
-	| "publishedBy"
-	| "definition"
->;
-const snapshots = new WeakMap<
-	object,
-	{ expiresAt: number; rows: Promise<PolicyRow[]> }
->();
-
-/** Call after policy writes so every client sharing this binding sees the new head. */
-export function invalidateSystemPolicySnapshot(db: DbQueryClient) {
-	snapshots.delete(getD1BindingKey(db.$client));
-}
-
-/** Ownerless system heads share a 60-second snapshot, including revocations and drafts. */
+/** Ownerless system heads share a snapshot only within the current invocation. */
 export async function getActiveSystemPolicy(db: DbQueryClient, slug: string) {
-	const key = getD1BindingKey(db.$client);
-	let snapshot = snapshots.get(key);
-	if (!snapshot || snapshot.expiresAt <= Date.now()) {
-		snapshot = {
-			expiresAt: Date.now() + 60_000,
-			rows: db
+	const allRows = await memoizeD1InvocationRead(
+		"system-policy",
+		db.$client,
+		() =>
+			db
 				.select({
 					slug: policyPacks.slug,
 					version: policyPacks.version,
@@ -57,16 +36,7 @@ export async function getActiveSystemPolicy(db: DbQueryClient, slug: string) {
 				)
 				.orderBy(desc(policyPacks.version))
 				.then((rows) => rows),
-		};
-		snapshots.set(key, snapshot);
-	}
-	let allRows;
-	try {
-		allRows = await snapshot.rows;
-	} catch (error) {
-		if (snapshots.get(key) === snapshot) snapshots.delete(key);
-		throw error;
-	}
+	);
 	const rows = allRows.filter((row) => row.slug === slug).slice(0, 2);
 	const head = rows[0];
 	if (

@@ -14,6 +14,7 @@ import { organizations } from "../../schema/organizations";
 import { tedis } from "../../schema/tedis";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
+import { withD1Ledger } from "../../slow-query";
 import {
 	createPolicyPack,
 	deletePolicyPack,
@@ -25,10 +26,11 @@ import {
 	publishPolicyPackRevision,
 	publishRuntimeProfileRevision,
 	rollbackRuntimeProfileRevision,
+	rollbackPolicyPackRevision,
 } from "./revisions";
 import { getActiveSystemPolicy } from "./system-policy";
 
-function setup(): DbClient {
+function setup(onPrepare?: (query: string) => void): DbClient {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = ON;");
 	sqlite.exec(
@@ -50,13 +52,18 @@ function setup(): DbClient {
 			(id, organization_id, name, slug, runtime_profile_id)
 		VALUES ('tedi-1', 'org-1', 'Tedi', 'tedi', 'rp-1');
 	`);
-	return createDbClient(createD1Facade(sqlite));
+	return createDbClient(createD1Facade(sqlite, { onPrepare }));
 }
 
 describe("immutable control-plane revisions", () => {
-	it("refreshes ownerless system snapshots across clients on creation, publication and revocation", async () => {
+	it("sees every policy writer in the next invocation, including direct row writes", async () => {
 		const db = setup();
 		const reader = createDbQueryClient(db.$client);
+		const read = () =>
+			withD1Ledger("request", () =>
+				getActiveSystemPolicy(reader, "installation-trust"),
+			);
+		expect(await read()).toBeNull();
 		const input = {
 			name: "Trust",
 			slug: "installation-trust",
@@ -68,9 +75,9 @@ describe("immutable control-plane revisions", () => {
 			definition: { marker: "first" },
 		};
 		await createPolicyPack(db, { ...input, organizationId: "org-1" });
-		expect(await getActiveSystemPolicy(reader, input.slug)).toBeNull();
+		expect(await read()).toBeNull();
 		const policy = await createPolicyPack(db, { ...input, version: 2 });
-		expect(await getActiveSystemPolicy(reader, input.slug)).toEqual({
+		expect(await read()).toEqual({
 			version: 2,
 			definition: input.definition,
 		});
@@ -80,12 +87,80 @@ describe("immutable control-plane revisions", () => {
 			definition: { marker: "second" },
 		});
 		if (!published.ok) throw new Error("expected policy publication");
-		expect(await getActiveSystemPolicy(reader, input.slug)).toEqual({
+		expect(await read()).toEqual({
 			version: 3,
 			definition: { marker: "second" },
 		});
-		expect(await deletePolicyPack(db, published.revision.id)).toBe(true);
-		expect(await getActiveSystemPolicy(reader, input.slug)).toBeNull();
+		await db
+			.update(tedis)
+			.set({ policyPackId: published.revision.id })
+			.where(eq(tedis.id, "tedi-1"));
+		const rollback = await rollbackPolicyPackRevision(db, {
+			organizationId: "org-1",
+			tediId: "tedi-1",
+			currentRevisionId: published.revision.id,
+			targetRevisionId: policy.id,
+			publishedBy: "operator",
+		});
+		if (!rollback.ok) throw new Error("expected policy rollback");
+		expect(await read()).toEqual({ version: 4, definition: input.definition });
+		await withD1Ledger("request", async () => {
+			expect(await getActiveSystemPolicy(reader, input.slug)).not.toBeNull();
+			await db.$client
+				.prepare("UPDATE policy_packs SET status = 'archived' WHERE id = ?")
+				.bind(rollback.revision.id)
+				.run();
+		});
+		expect(await read()).toBeNull();
+		await db.$client
+			.prepare("UPDATE policy_packs SET status = 'active' WHERE id = ?")
+			.bind(rollback.revision.id)
+			.run();
+		expect(await read()).toEqual({ version: 4, definition: input.definition });
+		expect(await deletePolicyPack(db, rollback.revision.id)).toBe(true);
+		expect(await read()).toBeNull();
+	});
+
+	it("reads policy_packs once per invocation across concurrent readers and clients", async () => {
+		let reads = 0;
+		const db = setup((query) => {
+			if (/^select\b/i.test(query) && query.includes('from "policy_packs"'))
+				reads++;
+		});
+		const reader = createDbQueryClient(db.$client);
+		const ask = () => getActiveSystemPolicy(reader, "installation-trust");
+		for (const label of ["request", "cron */2 * * * *", "queue example"]) {
+			const before = reads;
+			await withD1Ledger(label, async () => {
+				await Promise.all(
+					Array.from({ length: 16 }, (_, i) =>
+						getActiveSystemPolicy(i % 2 ? db : reader, `policy-${i}`),
+					),
+				);
+				await ask();
+				expect(reads - before).toBe(1);
+			});
+		}
+		expect(reads).toBe(3);
+		await ask();
+		await ask();
+		expect(reads).toBe(5);
+		let resume!: () => void;
+		const resumed = new Promise<void>((resolve) => {
+			resume = resolve;
+		});
+		let detached!: Promise<void>;
+		await withD1Ledger("request with detached work", async () => {
+			await ask();
+			detached = resumed.then(async () => {
+				await ask();
+				await ask();
+			});
+		});
+		expect(reads).toBe(6);
+		resume();
+		await detached;
+		expect(reads).toBe(8);
 	});
 
 	it("migrates all stored Auto slots with recovery values and keeps a later Auto choice", async () => {

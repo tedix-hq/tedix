@@ -16,7 +16,6 @@ import type {
 	WorkspaceTemplateSetDefinition,
 } from "../../schema/control-plane";
 import { tedis } from "../../schema/tedis";
-import { invalidateSystemPolicySnapshot } from "./system-policy";
 
 export type ControlPlaneRevisionFailureReason =
 	| "not_found"
@@ -252,7 +251,6 @@ export async function publishPolicyPackRevision(
 		)
 		.returning();
 	const revision = inserted[0];
-	if (revision) invalidateSystemPolicySnapshot(db);
 	return revision
 		? { ok: true, revision }
 		: { ok: false, reason: "revision_conflict" };

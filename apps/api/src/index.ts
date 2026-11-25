@@ -109,8 +109,14 @@ async function serveFetch(
 			timestamp: new Date().toISOString(),
 		});
 	}
-	const { default: handlers } = await loadApp();
-	return handlers.fetch(request, env, ctx);
+	const [{ default: handlers }, { withD1Ledger }] = await Promise.all([
+		loadApp(),
+		import("@tedix/db/slow-query"),
+	]);
+	return withD1Ledger(
+		`${request.method} ${new URL(request.url).pathname}`,
+		async () => handlers.fetch(request, env, ctx),
+	);
 }
 
 /**

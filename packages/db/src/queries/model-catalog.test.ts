@@ -9,7 +9,6 @@ import { policyPacks } from "../schema/control-plane";
 import { organizations } from "../schema/organizations";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { invalidateSystemPolicySnapshot } from "./control-plane/system-policy";
 import { getModelCatalogConfig } from "./model-catalog";
 
 function fixture() {
@@ -36,7 +35,6 @@ function fixture() {
 			publishedBy: "example-admin",
 			definition: definition as never,
 		});
-		invalidateSystemPolicySnapshot(db);
 	};
 	return { sqlite, db, config, publish };
 }
@@ -69,12 +67,10 @@ describe("published model registry", () => {
 			.insert(organizations)
 			.values({ id: "example-org", name: "Example", slug: "example" });
 		f.sqlite.exec("UPDATE policy_packs SET organization_id='example-org'");
-		invalidateSystemPolicySnapshot(f.db);
 		await expect(getModelCatalogConfig(f.db)).rejects.toThrow();
 		f.sqlite.exec(
 			"UPDATE policy_packs SET organization_id=NULL,published_by=NULL",
 		);
-		invalidateSystemPolicySnapshot(f.db);
 		await expect(getModelCatalogConfig(f.db)).rejects.toThrow();
 	});
 });

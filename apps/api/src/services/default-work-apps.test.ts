@@ -6,7 +6,6 @@ import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
 import { createOsOutput } from "./workspace-output-storage";
 import blueprint from "../../../os/dev/demo-pack/work-blueprint.json";
 import { policyPacks } from "@tedix/db/schema/control-plane";
-import { invalidateSystemPolicySnapshot } from "@tedix/db/queries/control-plane/system-policy";
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
@@ -186,7 +185,6 @@ describe("default Work blueprint installation", () => {
 				sqlite
 					.prepare("UPDATE policy_packs SET definition=?")
 					.run(JSON.stringify({ workOnboarding: { version: 1, definition } }));
-				invalidateSystemPolicySnapshot(db);
 			};
 			configure({ ...blueprint, gadgets: [deck] });
 			const { workspaceId } = await installDefaultWorkApps(
@@ -461,7 +459,6 @@ it("requires published configuration for a new install but preserves an existing
 		.prepare("SELECT manifest FROM os_gadget_revisions ORDER BY id")
 		.all();
 	sqlite.exec("UPDATE policy_packs SET status='archived'");
-	invalidateSystemPolicySnapshot(db);
 	expect(await installDefaultWorkApps(db, "pine-studio", owner)).toEqual(first);
 	expect(
 		sqlite

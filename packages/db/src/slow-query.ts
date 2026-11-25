@@ -21,6 +21,7 @@ const requestLogger = createLogger<{
 }>({ component: "db.request" });
 
 type Ledger = {
+	reads?: Map<string, Map<object, Promise<unknown>>>;
 	label: string;
 	statements: number;
 	d1WallMs: number;
@@ -58,10 +59,14 @@ export async function withD1Ledger<T>(
 		maxInFlight: 0,
 		overloaded: 0,
 		shapes: new Map(),
+		reads: new Map(),
 	};
 	try {
 		return await ledgers.run(ledger, run);
 	} finally {
+		// Detached work must not retain or refill an invocation's memo.
+		ledger.reads?.clear();
+		ledger.reads = undefined;
 		if (
 			ledger.statements >= 25 ||
 			ledger.d1WallMs >= 500 ||
@@ -97,6 +102,27 @@ export async function withD1Ledger<T>(
 					.join(" | "),
 			});
 	}
+}
+
+/** Share a read only until the enclosing request, scheduled run or queue batch ends. */
+export function memoizeD1InvocationRead<T>(
+	name: string,
+	client: object,
+	read: () => Promise<T>,
+): Promise<T> {
+	const reads = ledgers.getStore()?.reads;
+	if (!reads) return read();
+	let bindings = reads.get(name);
+	if (!bindings) {
+		bindings = new Map();
+		reads.set(name, bindings);
+	}
+	const key = getD1BindingKey(client);
+	const existing = bindings.get(key);
+	if (existing) return existing as Promise<T>;
+	const result = read();
+	bindings.set(key, result);
+	return result;
 }
 
 function begin(): Ledger | undefined {
