@@ -57,8 +57,6 @@ type GatewayId = string;
 const PER_PAGE = 50;
 /** Cap per gateway per tick (2000 rows) so one cron invocation stays bounded. */
 const MAX_PAGES_PER_RUN = 40;
-/** The extra two-minute catch-up path is capped at 500 rows per gateway. */
-export const CATCHUP_PAGES_PER_RUN = 10;
 /** Bounded first-run backfill window — NOT a full historical backfill. */
 const INITIAL_BACKFILL_MS = 24 * 60 * 60 * 1000;
 

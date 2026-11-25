@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
+	tedis: vi.fn(),
 	orgs: vi.fn(),
 	search: vi.fn(),
 	citations: vi.fn(),
@@ -14,7 +15,10 @@ vi.mock("@tedix/db/queries/memory-graph/hybrid-recall", () => ({
 vi.mock("@tedix/db/queries/memory-graph/fact-citations", () => ({
 	backfillFactCitations: mocks.citations,
 }));
-import { runMemoryReflection } from "./memory-reflection";
+vi.mock("@tedix/db/queries/tedi-memory", () => ({
+	listRecentlyActiveTedis: mocks.tedis,
+}));
+import { dispatchTediMemoryReflection } from "./tedi-memory-reflection";
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.orgs.mockResolvedValue([
@@ -29,6 +33,7 @@ function environment() {
 	const create = vi.fn().mockResolvedValue({ id: "fictional-workflow" });
 	return {
 		env: {
+			TEDIX_FLEET_AUTHORITY_MODE: "co-located",
 			DB: {},
 			MEMORY_REFLECTION_WORKFLOW: { create },
 		} as unknown as CloudflareEnv,
@@ -44,7 +49,13 @@ describe("memory maintenance citation backfill", () => {
 			.mockImplementation(async (_db, _org, limit: number) =>
 				Math.min(100, limit),
 			);
-		expect(await runMemoryReflection(env, "tick")).toMatchObject({
+		expect(
+			await dispatchTediMemoryReflection(
+				env,
+				Date.UTC(2026, 10, 25, 4, 10),
+				"tick",
+			),
+		).toMatchObject({
 			citationFactsBackfilled: 2000,
 			organizationsDispatched: 3,
 		});
@@ -63,11 +74,43 @@ describe("memory maintenance citation backfill", () => {
 		mocks.citations.mockRejectedValueOnce(
 			new Error("fixture backfill unavailable"),
 		);
-		expect(await runMemoryReflection(env, "tick")).toMatchObject({
+		expect(
+			await dispatchTediMemoryReflection(
+				env,
+				Date.UTC(2026, 10, 25, 4, 10),
+				"tick",
+			),
+		).toMatchObject({
 			citationFactsBackfilled: 0,
 			workflowsDispatched: 3,
 		});
 		expect(mocks.citations).toHaveBeenCalledTimes(3);
 		expect(create).toHaveBeenCalledTimes(3);
 	});
+});
+
+it("runs daily enrichment once within memory dispatch even when the conversation read fails", async () => {
+	const { env, create } = environment();
+	Object.assign(env, {
+		TEDI_SERVICE: {},
+		TEDIX_FLEET_AUTHORITY_MODE: "co-located",
+	});
+	mocks.tedis.mockRejectedValue(new Error("fixture conversation read failed"));
+	await expect(
+		dispatchTediMemoryReflection(
+			env,
+			Date.UTC(2026, 10, 25, 4, 10, 11),
+			"daily",
+		),
+	).rejects.toMatchObject({
+		counts: { conversationReflectionFailed: 1, organizationsDispatched: 3 },
+	});
+	expect(create).toHaveBeenCalledTimes(3);
+	mocks.tedis.mockResolvedValue([]);
+	await dispatchTediMemoryReflection(
+		env,
+		Date.UTC(2026, 10, 25, 4, 20),
+		"later",
+	);
+	expect(create).toHaveBeenCalledTimes(3);
 });

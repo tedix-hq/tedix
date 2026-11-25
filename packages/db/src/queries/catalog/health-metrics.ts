@@ -252,6 +252,7 @@ export async function getCatalogAppsNeedingScan(
 		catalogAppIds?: string[];
 		/** Targeted rescan by slug, for callers that know an app only by name. */
 		catalogAppSlugs?: string[];
+		frequentProviderSlugs?: string[];
 	} = {},
 ): Promise<CatalogApp[]> {
 	const {
@@ -283,6 +284,23 @@ export async function getCatalogAppsNeedingScan(
 			}
 		}
 		return [...targeted.values()];
+	}
+
+	if (options.frequentProviderSlugs?.length) {
+		const providers = await listActiveProviderCatalogApps(
+			db,
+			options.frequentProviderSlugs,
+		);
+		const active = providers.length
+			? await getCatalogAppsNeedingScan(db, {
+					catalogAppIds: providers.map((app) => app.id),
+				})
+			: [];
+		const general = await getCatalogAppsNeedingScan(db, { limit, maxAgeHours });
+		// Preserve both bounded cohorts, scanning overlapping endpoints only once.
+		return [
+			...new Map([...active, ...general].map((app) => [app.id, app])).values(),
+		];
 	}
 
 	const standardCutoff = new Date(

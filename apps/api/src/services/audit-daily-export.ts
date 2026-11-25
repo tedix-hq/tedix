@@ -1,8 +1,8 @@
 /**
  * Daily audit export to each organization's storage (decision 5c5512a5).
  *
- * Audit events stay 90 days in D1. Before they age out, the nightly
- * retention-cleanup tick writes every organization's events of each finished
+ * Audit events stay 90 days in D1. Before they age out, daily D1 retention
+ * writes every organization's events of each finished
  * UTC day to R2 as gzip JSON Lines, one object per hour so no day has to fit
  * in Worker memory:
  *

@@ -1,6 +1,7 @@
 /**
  * Gives a tedi a reflection turn for each of its chats with a person that
- * has gone quiet. Runs every ten minutes; see `services/tedi-memory-reflection`.
+ * has gone quiet. Runs every ten minutes, including organization enrichment
+ * at 04:10 UTC; see `services/tedi-memory-reflection`.
  */
 
 import { createDbClient, type DbClient } from "@tedix/db/client";
@@ -72,14 +73,116 @@ export async function reflectOnQuietConversations(input: {
 	return counts;
 }
 
-export function dispatchTediMemoryReflection(
+export async function dispatchTediMemoryReflection(
 	env: CloudflareEnv,
 	scheduledTime: number,
+	runId: string,
 ): Promise<Record<string, number>> {
-	return reflectOnQuietConversations({
-		db: createDbClient(env.DB),
-		env,
-		send: (request) => env.TEDI_SERVICE.fetch(request),
-		now: Math.max(scheduledTime, Date.now()),
-	});
+	const { fleetAuthorityIsEnabled } = await import("../lib/fleet-authority");
+	const { PlatformCronPathError } = await import("./platform-cron-receipts");
+	const counts: Record<string, number> = {};
+	const errors: unknown[] = [];
+	if (env.TEDI_SERVICE) {
+		try {
+			Object.assign(
+				counts,
+				await reflectOnQuietConversations({
+					db: createDbClient(env.DB),
+					env,
+					send: (request) => env.TEDI_SERVICE.fetch(request),
+					now: Math.max(scheduledTime, Date.now()),
+				}),
+			);
+		} catch (error) {
+			counts.conversationReflectionFailed = 1;
+			errors.push(error);
+		}
+	}
+	const at = new Date(scheduledTime);
+	if (
+		fleetAuthorityIsEnabled(env) &&
+		at.getUTCHours() === 4 &&
+		at.getUTCMinutes() === 10
+	) {
+		try {
+			Object.assign(counts, await enrichMemory(env, runId));
+		} catch (error) {
+			counts.memoryEnrichmentFailed = 1;
+			errors.push(error);
+		}
+	}
+	if (errors.length)
+		throw new PlatformCronPathError(
+			errors,
+			"Memory maintenance failed",
+			counts,
+		);
+	return counts;
+}
+
+const CITATION_BACKFILL_BUDGET = 2000;
+
+async function enrichMemory(
+	env: CloudflareEnv,
+	runId: string,
+): Promise<Record<string, number>> {
+	console.log(`[Scheduled] Starting MemoryReflectionWorkflow (${runId})`);
+	const { createDbClient } = await import("@tedix/db/client");
+	const { listOrganizations } = await import("@tedix/db/queries/organizations");
+	const { backfillFactSearch } =
+		await import("@tedix/db/queries/memory-graph/hybrid-recall");
+	const { backfillFactCitations } =
+		await import("@tedix/db/queries/memory-graph/fact-citations");
+	const db = createDbClient(env.DB);
+
+	const orgs = await listOrganizations(db);
+	let searchRowsBackfilled = 0;
+	let citationFactsBackfilled = 0;
+	for (const org of orgs) {
+		try {
+			searchRowsBackfilled += await backfillFactSearch(db, {
+				organizationId: org.id,
+			});
+		} catch (error) {
+			console.warn("[Scheduled] Memory search backfill unavailable", {
+				orgId: org.id,
+				error: error instanceof Error ? error.name : "unknown",
+			});
+		}
+		try {
+			// Drain each org in resumable 100-fact pages; recall skips the legacy
+			// fallback once an org's marker is done, so finish within days, not years.
+			while (citationFactsBackfilled < CITATION_BACKFILL_BUDGET) {
+				const page = await backfillFactCitations(
+					db,
+					{ organizationId: org.id },
+					CITATION_BACKFILL_BUDGET - citationFactsBackfilled,
+				);
+				citationFactsBackfilled += page;
+				if (page < 100) break;
+			}
+		} catch (error) {
+			console.warn("[Scheduled] Memory citation backfill unavailable", {
+				orgId: org.id,
+				error: error instanceof Error ? error.name : "unknown",
+			});
+		}
+		const instance = await env.MEMORY_REFLECTION_WORKFLOW.create({
+			id: `reflection-${org.id}-${runId}`,
+			params: {
+				organizationId: org.id,
+				scope: "full" as const,
+			},
+		});
+		console.log(
+			`[Scheduled] MemoryReflectionWorkflow started for org ${org.id}: ${instance.id}`,
+		);
+	}
+
+	return {
+		searchRowsBackfilled,
+		citationFactsBackfilled,
+		organizationsDispatched: orgs.length,
+		workflowsDispatched: orgs.length,
+	};
 }

@@ -7,7 +7,7 @@
  * every gate now treats as write-capable. That is the safe default, but a
  * default is not a backlog: without this report the undeclared set is invisible
  * and never shrinks. It rides the existing catalog-integrity workflow
- * (cron-fired from retention-cleanup, recorded to `workflow_runs`), so the count
+ * (cron-fired from d1-retention, recorded to `workflow_runs`), so the count
  * lands in the ledger on every run and the per-tool detail comes back on the
  * operator-facing `POST /catalog/integrity/check` response.
  *

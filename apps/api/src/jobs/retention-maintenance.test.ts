@@ -10,9 +10,9 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	formatWorkGraphStewardSummary,
-	runRetentionCleanupCron,
+	runRetentionMaintenance,
 	runRetentionSteps,
-} from "./retention-cleanup";
+} from "./retention-maintenance";
 
 describe("retention cleanup work-graph logging", () => {
 	it("logs canonical idle-spec and expired-attempt observations", () => {
@@ -180,7 +180,7 @@ describe("scheduled usage evidence retention", () => {
 					create: vi.fn().mockResolvedValue({ id: "integrity" }),
 				},
 			} as unknown as CloudflareEnv;
-			const result = await runRetentionCleanupCron(
+			const result = await runRetentionMaintenance(
 				env,
 				{
 					scheduledTime: Date.parse("2026-09-21T03:00:00Z"),
@@ -262,7 +262,7 @@ it("logs 3am maintenance failures without returned or thrown text", async () => 
 			},
 		} as unknown as CloudflareEnv;
 
-		await runRetentionCleanupCron(
+		await runRetentionMaintenance(
 			env,
 			{
 				scheduledTime: Date.parse("2026-09-21T03:00:00Z"),

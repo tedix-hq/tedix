@@ -106,10 +106,12 @@ import { ensurePendingToolReviewApprovals } from "../services/tool-review-approv
 // ============================================================================
 
 export interface McpScanWorkflowParams {
-	/** Max apps to scan in this run (default: 50) */
+	/** Max backlog apps (default: 25); the published provider cohort is additional. */
 	limit?: number;
 	/** Max age in hours before re-scanning (default: 24) */
 	maxAgeHours?: number;
+	/** Published provider cohort merged into the same scan selection. */
+	frequentProviderSlugs?: string[];
 	/** Timeout per scan in ms (default: 30000) */
 	timeout?: number;
 	/** Force rescan specific apps regardless of age */
@@ -438,6 +440,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 						maxAgeHours,
 						catalogAppIds,
 						catalogAppSlugs,
+						frequentProviderSlugs: payload.frequentProviderSlugs,
 					});
 
 					// Extract only the fields needed for scanning (avoids 1MiB step output limit)

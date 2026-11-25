@@ -1,6 +1,7 @@
 /// <reference path="../../worker-configuration.d.ts" />
 /**
- * D1 retention tick, every 15 minutes. Policy rows in `d1_retention_policies` decide
+ * D1 retention tick, four times an hour, with daily maintenance at 03:27 UTC.
+ * Policy rows in `d1_retention_policies` decide
  * the table archives; session bodies are backfilled and reflections archived after 14 days.
  * Archives go to the private tedi bucket under `d1-archive/v1/`; the
  * `move_to_logs_db` mode also needs the optional `LOGS_DB` binding.
@@ -33,6 +34,43 @@ export function logsDatabase(env: object): D1Database | undefined {
 }
 
 export async function runD1RetentionTick(
+	env: CloudflareEnv,
+	event: ScheduledController,
+): Promise<Record<string, number>> {
+	const { PlatformCronPathError } = await import("./platform-cron-receipts");
+	const counts: Record<string, number> = {};
+	const errors: unknown[] = [];
+	try {
+		Object.assign(counts, await runD1RetentionArchives(env, event));
+	} catch (error) {
+		counts.d1RetentionFailed = 1;
+		errors.push(error);
+	}
+	// Keep daily sweeps on one retention fire, clear of the quarter-hour billing tick.
+	const at = new Date(event.scheduledTime);
+	if (at.getUTCHours() === 3 && at.getUTCMinutes() === 27) {
+		try {
+			const { runRetentionMaintenance } =
+				await import("./retention-maintenance");
+			Object.assign(
+				counts,
+				await runRetentionMaintenance(
+					env,
+					event,
+					`cron-${event.scheduledTime}`,
+				),
+			);
+		} catch (error) {
+			counts.dailyRetentionFailed = 1;
+			errors.push(error);
+		}
+	}
+	if (errors.length)
+		throw new PlatformCronPathError(errors, "D1 retention failed", counts);
+	return counts;
+}
+
+async function runD1RetentionArchives(
 	env: CloudflareEnv,
 	event: ScheduledController,
 ): Promise<Record<string, number>> {

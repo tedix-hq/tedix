@@ -41,22 +41,18 @@ export const PLATFORM_CRON_IDS = [
 	"interaction-review-dispatch",
 	"always-on-keepalive",
 	"billing-and-gateway-cost",
-	"gateway-cost-catchup",
 	"workstation-lease-reaper",
 	"workstation-compute-metering",
 	"tedi-mcp-access-health",
 	"daily-billing-and-catalog-maintenance",
 	"cloudflare-billable-usage",
 	"gateway-cost-reconciliation",
-	"retention-cleanup",
 	"output-asset-gc",
-	"memory-reflection-and-enrichment",
 	"mcp-scan",
 	"tool-test-and-quality",
 	"content-sync",
 	"platform-health-digest",
 	"cost-anomaly-check",
-	"active-provider-scan-and-drift",
 	"external-agent-mcp-client-reaper",
 	"recurring-work",
 	"conversation-title-backfill",
@@ -127,12 +123,6 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		requiresBinding: "TEDI_SERVICE",
 	},
 	{
-		id: "gateway-cost-catchup",
-		cron: "*/2 * * * *",
-		intervalMinutes: 2,
-		requiresFleet: true,
-	},
-	{
 		id: "always-on-keepalive",
 		cron: "*/2 * * * *",
 		intervalMinutes: 2,
@@ -160,7 +150,6 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		id: "tedi-memory-reflection",
 		cron: "*/2 * * * *",
 		intervalMinutes: 10,
-		requiresBinding: "TEDI_SERVICE",
 	},
 	{
 		id: "stall-recovery",
@@ -231,12 +220,6 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		requiresFleet: true,
 	},
 	{
-		id: "retention-cleanup",
-		cron: MAINTENANCE_CRONS["retention-cleanup"],
-		intervalMinutes: 1_440,
-		requiresFleet: true,
-	},
-	{
 		id: "output-asset-gc",
 		cron: MAINTENANCE_CRONS["output-asset-gc"],
 		intervalMinutes: 1_440,
@@ -245,12 +228,6 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	{
 		id: "tedi-access-key-rotation",
 		cron: MAINTENANCE_CRONS["tedi-access-key-rotation"],
-		intervalMinutes: 1_440,
-		requiresFleet: true,
-	},
-	{
-		id: "memory-reflection-and-enrichment",
-		cron: MAINTENANCE_CRONS["memory-reflection-and-enrichment"],
 		intervalMinutes: 1_440,
 		requiresFleet: true,
 	},
@@ -292,12 +269,6 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		id: "cost-anomaly-check",
 		cron: MAINTENANCE_CRONS["cost-anomaly-check"],
 		intervalMinutes: 1_440,
-		requiresFleet: true,
-	},
-	{
-		id: "active-provider-scan-and-drift",
-		cron: MAINTENANCE_CRONS["active-provider-scan-and-drift"],
-		intervalMinutes: 360,
 		requiresFleet: true,
 	},
 	{
@@ -367,11 +338,15 @@ export function buildPlatformCronHealth(input: {
 	const schedules = PLATFORM_CRON_DEFINITIONS.map((definition) => {
 		const summary = byId.get(definition.id) ?? null;
 		const optOutReason =
-			!fleetEnabled && definition.requiresFleet
-				? "Fleet authority is intentionally disabled"
-				: definition.requiresBinding && !input.env[definition.requiresBinding]
-					? `${definition.requiresBinding} is not configured`
-					: null;
+			definition.id === "tedi-memory-reflection" &&
+			!input.env.TEDI_SERVICE &&
+			!fleetEnabled
+				? "Memory reflection needs the tedi runtime or fleet authority"
+				: !fleetEnabled && definition.requiresFleet
+					? "Fleet authority is intentionally disabled"
+					: definition.requiresBinding && !input.env[definition.requiresBinding]
+						? `${definition.requiresBinding} is not configured`
+						: null;
 		const enabled = optOutReason === null;
 		const graceMinutes = Math.max(
 			5,

@@ -16,8 +16,6 @@ export const MAINTENANCE_CRONS = {
 	"gateway-cost-reconciliation": "23 2 * * *",
 	"output-asset-gc": "13 3 * * *",
 	"tedi-access-key-rotation": "19 3 * * *",
-	"retention-cleanup": "23 3 * * *",
-	"memory-reflection-and-enrichment": "13 4 * * *",
 	"tool-test-and-quality": "13 6 * * *",
 	"content-sync": "13 7 * * *",
 	"factory-weight-update": "17 7 * * *",
@@ -25,7 +23,6 @@ export const MAINTENANCE_CRONS = {
 	"platform-health-digest": "13 8 * * *",
 	"cost-anomaly-check": "13 9 * * *",
 	"tedi-mcp-access-health": "25 */6 * * *",
-	"active-provider-scan-and-drift": "29 */6 * * *",
 	"d1-retention": "11,27,41,57 * * * *",
 } as const;
 

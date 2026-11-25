@@ -1,6 +1,6 @@
 /// <reference path="../../worker-configuration.d.ts" />
 /**
- * 3am UTC retention cleanup + catalog integrity + Claude registry sync +
+ * Daily retention maintenance + catalog integrity + Claude registry sync +
  * flywheel/steward sweeps + weekly growth snapshots.
  *
  * The work is a list of named steps run one after another under one time
@@ -46,7 +46,7 @@ export function formatWorkGraphStewardSummary(
 
 /**
  * A Cloudflare scheduled invocation may run 15 minutes of wall time, and the
- * 3am trigger runs three short paths before this one. Nine minutes of steps,
+ * D1 retention tick runs its archive steps first. Nine minutes of daily steps,
  * never past 13 minutes after the scheduled time, leaves room for the
  * receipt.
  */
@@ -195,7 +195,7 @@ export async function runRetentionSteps(
 	};
 }
 
-export async function runRetentionCleanupCron(
+export async function runRetentionMaintenance(
 	env: CloudflareEnv,
 	event: ScheduledController,
 	runId: string,

@@ -1,30 +1,56 @@
 /// <reference path="../../worker-configuration.d.ts" />
 /**
- * Catalog / MCP scan cron dispatches (hourly MCP scan, 6am UTC tool testing + quality
- * scores, 7am UTC content sync, every-6h active-provider scan + drift + OpenAPI
- * sync).
+ * Catalog / MCP scan cron dispatches. The daily MCP scan includes configured
+ * providers, drift checks and OpenAPI sync; tool tests and content sync keep
+ * their own schedules.
  */
 
 import { loadCatalogMaintenancePolicy } from "../lib/catalog-sync-source";
 
 // Bounded-concurrent batches sustain roughly 33 scans/minute in production.
-// Admit the contract maximum of 200 rows per hourly workflow so a cold fleet
-// recovers faster without launching overlapping workflows against the same
-// unreserved rows. The workflow still processes sequential five-row steps,
+// Admit up to 200 backlog rows alongside the published provider cohort,
+// deduplicated within one workflow. Sequential five-row steps remain,
 // which bounds outbound concurrency at five.
-export const MCP_SCAN_HOURLY_LIMIT = 200;
+const MCP_SCAN_LIMIT = 200;
 
 export async function runMcpScan(
 	env: CloudflareEnv,
 	runId: string,
 ): Promise<Record<string, number>> {
-	console.log(`[Scheduled] Starting McpScanWorkflow (${runId})`);
-	const instance = await env.MCP_SCAN_WORKFLOW.create({
-		id: `scan-${runId}`,
-		params: { limit: MCP_SCAN_HOURLY_LIMIT, maxAgeHours: 24 },
-	});
-	console.log(`[Scheduled] McpScanWorkflow started: ${instance.id}`);
-	return { workflowsDispatched: 1 };
+	const { PlatformCronPathError } = await import("./platform-cron-receipts");
+	const errors: unknown[] = [];
+	const counts = { workflowsDispatched: 0 };
+	let frequentProviderSlugs: string[] = [];
+	try {
+		const { createDbClient } = await import("@tedix/db/client");
+		const policy = await loadCatalogMaintenancePolicy(createDbClient(env.DB));
+		frequentProviderSlugs = policy.frequentProviderSlugs;
+	} catch (error) {
+		errors.push(error);
+	}
+	try {
+		console.log(`[Scheduled] Starting McpScanWorkflow (${runId})`);
+		const instance = await env.MCP_SCAN_WORKFLOW.create({
+			id: `scan-${runId}`,
+			params: {
+				limit: MCP_SCAN_LIMIT,
+				maxAgeHours: 24,
+				frequentProviderSlugs,
+			},
+		});
+		counts.workflowsDispatched++;
+		console.log(`[Scheduled] McpScanWorkflow started: ${instance.id}`);
+	} catch (error) {
+		errors.push(error);
+	}
+	await runCatalogDriftAndSync(env, runId);
+	if (errors.length)
+		throw new PlatformCronPathError(
+			errors,
+			"Catalog scan dispatch failed",
+			counts,
+		);
+	return counts;
 }
 
 export async function runToolTestAndQualityScores(
@@ -66,41 +92,13 @@ export async function runContentSync(
 	return { workflowsDispatched: 1 };
 }
 
-export async function runActiveProviderScanAndDrift(
+async function runCatalogDriftAndSync(
 	env: CloudflareEnv,
 	runId: string,
 ): Promise<void> {
 	const { createDbClient } = await import("@tedix/db/client");
 	const { listApiSyncApps } = await import("@tedix/db/queries/apps");
-	const { listActiveProviderCatalogApps } =
-		await import("@tedix/db/queries/catalog/health-metrics");
 	const db = createDbClient(env.DB);
-	try {
-		const policy = await loadCatalogMaintenancePolicy(db);
-		const activeProviders = await listActiveProviderCatalogApps(
-			db,
-			policy.frequentProviderSlugs,
-		);
-
-		if (activeProviders.length > 0) {
-			const activeScan = await env.MCP_SCAN_WORKFLOW.create({
-				id: `active-provider-scan-${runId}`,
-				params: {
-					catalogAppIds: activeProviders.map((app) => app.id),
-					limit: activeProviders.length,
-					maxAgeHours: 1,
-				},
-			});
-			console.log(
-				`[Scheduled] Active provider MCP scan started: ${activeScan.id} for ${activeProviders.map((app) => app.slug).join(",")}`,
-			);
-		}
-	} catch (activeScanError) {
-		console.error(
-			`[Scheduled] Active provider MCP scan queueing failed:`,
-			activeScanError,
-		);
-	}
 
 	console.log(`[Scheduled] Starting CatalogDriftWorkflow (${runId})`);
 	try {

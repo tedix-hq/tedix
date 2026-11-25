@@ -28,7 +28,6 @@ const catchup = vi.hoisted(() => ({
 	summaries: vi.fn().mockResolvedValue({ summaryBackfillSaved: 0 }),
 	providerEvents: vi.fn().mockResolvedValue({ dispatched: 0 }),
 	commitment: vi.fn().mockResolvedValue({ observed: 0, dispatched: 0 }),
-	ingest: vi.fn(),
 	billing: vi.fn(),
 	stall: vi.fn().mockResolvedValue(0),
 	thinning: vi.fn().mockResolvedValue({ status: "off" }),
@@ -48,9 +47,14 @@ vi.mock("./agent-session-event-drain", () => ({
 vi.mock("./provider-events", () => ({
 	maintainProviderEvents: catchup.providerEvents,
 }));
-vi.mock("./gateway-cost-ingestion", () => ({
-	CATCHUP_PAGES_PER_RUN: 10,
-	ingestGatewayLogCosts: catchup.ingest,
+vi.mock("./tedi-memory-reflection", () => ({
+	dispatchTediMemoryReflection: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("./workstation-lease-reaper", () => ({
+	runWorkstationLeaseReaperTick: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("./workstation-compute-metering", () => ({
+	runWorkstationComputeMeteringTick: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("./billing-cron", () => ({
 	runBillingAndGatewayCostTick: catchup.billing,
@@ -96,9 +100,6 @@ vi.mock("../rpc/routers/kernel/owner-tool-approval-settlement", () => ({
 vi.mock("../rpc/context", () => ({ createContext: vi.fn() }));
 vi.mock("./orphan-workflow-cleanup", () => ({
 	cleanupOrphanWorkflows: vi.fn().mockResolvedValue({}),
-}));
-vi.mock("./retention-cleanup", () => ({
-	runRetentionCleanupCron: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("./d1-retention", () => ({
 	runD1RetentionTick: vi.fn().mockResolvedValue({}),
@@ -227,7 +228,7 @@ it("dispatches the former 03:00 jobs and D1 retention only in their new slots", 
 			[11, "d1-retention"],
 			[13, "output-asset-gc"],
 			[21, "card-summary-backfill"],
-			[23, "retention-cleanup"],
+			[23, null],
 		] as const) {
 			catchup.paths.length = 0;
 			catchup.receipts.length = 0;
@@ -265,102 +266,30 @@ it("dispatches the former 03:00 jobs and D1 retention only in their new slots", 
 	expect(catchup.paths).toEqual([]);
 });
 
-it("runs bounded gateway-only catch-up on the existing two-minute trigger", async () => {
-	catchup.paths.length = 0;
-	catchup.outcomes.length = 0;
-	catchup.summaries.mockClear();
-	catchup.ingest.mockReset().mockResolvedValue([
-		{
-			gatewayId: "test-llm-gateway",
-			ingested: 3,
-			skipped: 0,
-			failure: null,
-		},
-		{ gatewayId: "default", ingested: 2, skipped: 0, failure: null },
-	]);
-	catchup.billing.mockReset();
-	await scheduled(
-		{
-			cron: "*/2 * * * *",
-			scheduledTime: Date.UTC(2026, 8, 24, 0, 0),
-			noRetry: () => {},
-		},
-		{
-			TEDIX_FLEET_AUTHORITY_MODE: "co-located",
-			DB: {},
-		} as unknown as CloudflareEnv,
-		{
-			waitUntil: () => {},
-			passThroughOnException: () => {},
-			props: {},
-		} as unknown as ExecutionContext,
-	);
-	expect(catchup.paths).toContain("gateway-cost-catchup");
-	expect(catchup.summaries).not.toHaveBeenCalled();
-	expect(catchup.ingest).toHaveBeenCalledWith(
-		expect.anything(),
-		expect.anything(),
-		{ maxPagesPerGateway: 10 },
-	);
-	expect(catchup.billing).not.toHaveBeenCalled();
-	expect(catchup.outcomes).toContainEqual({
-		id: "gateway-cost-catchup",
-		status: "success",
-	});
-	expect(catchup.thinning).toHaveBeenCalledWith(
-		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),
-	);
-});
-
-it("fails the catch-up receipt on a gateway error but continues sibling cron paths", async () => {
-	catchup.paths.length = 0;
-	catchup.outcomes.length = 0;
-	catchup.ingest.mockReset().mockResolvedValue([
-		{
-			gatewayId: "test-llm-gateway",
-			ingested: 0,
-			skipped: 0,
-			failure: "fetch failed",
-		},
-		{ gatewayId: "default", ingested: 2, skipped: 0, failure: null },
-	]);
-	const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
-	try {
+it("ingests gateway costs once on billing and never on the two-minute tick", async () => {
+	catchup.billing.mockReset().mockResolvedValue({ gatewayRowsIngested: 5 });
+	for (const cron of ["*/2 * * * *", "*/15 * * * *"]) {
+		catchup.paths.length = 0;
 		await scheduled(
 			{
-				cron: "*/2 * * * *",
-				scheduledTime: Date.UTC(2026, 8, 24, 0, 2),
-				noRetry: () => {},
-			},
-			{
-				TEDIX_FLEET_AUTHORITY_MODE: "co-located",
-				DB: {},
-				TEDI_SERVICE: {},
-			} as unknown as CloudflareEnv,
-			{
-				waitUntil: () => {},
-				passThroughOnException: () => {},
-				props: {},
-			} as unknown as ExecutionContext,
+				cron,
+				scheduledTime: Date.UTC(2026, 10, 25, 1, 2),
+			} as ScheduledController,
+			{ DB: {}, TEDIX_FLEET_AUTHORITY_MODE: "co-located" } as CloudflareEnv,
+			{ waitUntil: () => {} } as unknown as ExecutionContext,
 		);
-	} finally {
-		errorLog.mockRestore();
+		expect(catchup.paths).not.toContain("gateway-cost-catchup");
+		expect(catchup.billing).toHaveBeenCalledTimes(
+			cron.startsWith("*/15") ? 1 : 0,
+		);
 	}
-	expect(catchup.outcomes).toContainEqual({
-		id: "gateway-cost-catchup",
-		status: "failure",
-	});
-	expect(catchup.outcomes).toContainEqual({
-		id: "work-approval-redrive",
-		status: "success",
-	});
 });
 
 it("logs a content-free exception when a cron path throws and continues siblings", async () => {
 	const secret = "Bearer secret-from-provider";
 	catchup.paths.length = 0;
 	catchup.outcomes.length = 0;
-	catchup.ingest.mockReset().mockRejectedValueOnce(
+	catchup.billing.mockReset().mockRejectedValueOnce(
 		new Error(secret, {
 			cause: new TypeError(`invalid ${secret}`),
 		}),
@@ -369,7 +298,7 @@ it("logs a content-free exception when a cron path throws and continues siblings
 	try {
 		await scheduled(
 			{
-				cron: "*/2 * * * *",
+				cron: "*/15 * * * *",
 				scheduledTime: Date.UTC(2026, 8, 24, 0, 6),
 				noRetry: () => {},
 			},
@@ -385,11 +314,11 @@ it("logs a content-free exception when a cron path throws and continues siblings
 			} as unknown as ExecutionContext,
 		);
 		expect(catchup.outcomes).toContainEqual({
-			id: "gateway-cost-catchup",
+			id: "billing-and-gateway-cost",
 			status: "failure",
 		});
 		expect(catchup.outcomes).toContainEqual({
-			id: "work-approval-redrive",
+			id: "workstation-lease-reaper",
 			status: "success",
 		});
 		const record = errorLog.mock.calls
@@ -397,7 +326,7 @@ it("logs a content-free exception when a cron path throws and continues siblings
 			.find((entry) => entry.event === "platform.cron.path_failed");
 		expect(record).toEqual({
 			event: "platform.cron.path_failed",
-			scheduleId: "gateway-cost-catchup",
+			scheduleId: "billing-and-gateway-cost",
 			exception: { type: "Error", cause: { type: "TypeError" } },
 			causeChain: [{}],
 		});
@@ -405,40 +334,6 @@ it("logs a content-free exception when a cron path throws and continues siblings
 	} finally {
 		errorLog.mockRestore();
 	}
-});
-
-it("treats CAS contention as a successful catch-up receipt", async () => {
-	catchup.outcomes.length = 0;
-	catchup.ingest.mockReset().mockResolvedValue([
-		{
-			gatewayId: "test-llm-gateway",
-			ingested: 0,
-			skipped: 1,
-			failure: null,
-			contended: true,
-		},
-		{ gatewayId: "default", ingested: 0, skipped: 0, failure: null },
-	]);
-	await scheduled(
-		{
-			cron: "*/2 * * * *",
-			scheduledTime: Date.UTC(2026, 8, 24, 0, 4),
-			noRetry: () => {},
-		},
-		{
-			TEDIX_FLEET_AUTHORITY_MODE: "co-located",
-			DB: {},
-		} as unknown as CloudflareEnv,
-		{
-			waitUntil: () => {},
-			passThroughOnException: () => {},
-			props: {},
-		} as unknown as ExecutionContext,
-	);
-	expect(catchup.outcomes).toContainEqual({
-		id: "gateway-cost-catchup",
-		status: "success",
-	});
 });
 
 it("maintains provider notifications without fleet authority and isolates failures", async () => {
@@ -511,7 +406,6 @@ it("dispatches stall recovery once every six minutes across the hour boundary", 
 it("keeps commitment replay and later paths live while stall recovery is pending or fails", async () => {
 	catchup.paths.length = 0;
 	catchup.outcomes.length = 0;
-	catchup.ingest.mockResolvedValue([]);
 	let rejectRecovery!: (error: Error) => void;
 	catchup.stall.mockImplementationOnce(
 		() =>

@@ -90,17 +90,6 @@ describe("platform cron health", () => {
 		expect(new Set(defined).size).toBe(defined.length);
 		expect(new Set(defined)).toEqual(new Set(PLATFORM_CRON_IDS));
 	});
-	it("tracks the bounded gateway catch-up on the existing fleet-gated trigger", () => {
-		expect(
-			PLATFORM_CRON_DEFINITIONS.find(
-				(definition) => definition.id === "gateway-cost-catchup",
-			),
-		).toMatchObject({
-			cron: "*/2 * * * *",
-			intervalMinutes: 2,
-			requiresFleet: true,
-		});
-	});
 	it("keeps a historical failure visible without making a fresh success current attention", () => {
 		const health = buildPlatformCronHealth({
 			env,

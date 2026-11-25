@@ -56,7 +56,7 @@ holds shared platform tables.
   and calls a live runtime only on explicit user action.
 - **Signup waitlist state is not in D1.** It lives only in the identity
   provider's `waitlistStatus` attribute; a D1 copy would be a second truth.
-- **Billing ledgers are never expired.** `apps/api/src/jobs/retention-cleanup.ts`
+- **Billing ledgers are never expired.** `apps/api/src/jobs/retention-maintenance.ts`
   prunes append-only ledgers nightly but skips `tedi_call_costs` and
   `mcp_payment_events`.
 - **Secrets** (`tedi_secrets`, `app_secrets`, `organization_secrets`) are

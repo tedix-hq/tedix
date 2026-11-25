@@ -188,44 +188,6 @@ const dispatchScheduled = async (
 			);
 		}
 
-		if (fleetEnabled && cron === "*/2 * * * *") {
-			// Separate from the 15-minute billing tick: catch up observations more
-			// quickly without repeating settlement, credits, or Stripe side effects.
-			const { createDbClient } = await import("@tedix/db/client");
-			const { CATCHUP_PAGES_PER_RUN, ingestGatewayLogCosts } =
-				await import("./gateway-cost-ingestion");
-			await trackPlatformCronPath(
-				env,
-				event,
-				"gateway-cost-catchup",
-				async () => {
-					const results = await ingestGatewayLogCosts(
-						createDbClient(env.DB),
-						env,
-						{
-							maxPagesPerGateway: CATCHUP_PAGES_PER_RUN,
-						},
-					);
-					const failedGateways = results
-						.filter((result) => result.failure)
-						.map((result) => result.gatewayId);
-					if (failedGateways.length > 0) {
-						// Ingestion reports per-gateway failures instead of throwing so the
-						// other gateway still runs. The cron receipt must nevertheless be
-						// failed; otherwise an auth/write outage looks like healthy catch-up.
-						throw new Error(
-							`Gateway cost catch-up failed: ${failedGateways.join(", ")}`,
-						);
-					}
-					return {
-						ingested: results.reduce((sum, result) => sum + result.ingested, 0),
-						skipped: results.reduce((sum, result) => sum + result.skipped, 0),
-						contended: results.filter((result) => result.contended).length,
-					};
-				},
-			);
-		}
-
 		if (cron === "*/2 * * * *" && env.TEDI_SERVICE) {
 			// Each tick reads one bounded slice; the checkpoint carries unfinished
 			// scope counts to later ticks instead of draining the whole inventory.
@@ -254,13 +216,6 @@ const dispatchScheduled = async (
 				await trackPlatformCronPath(env, event, "work-routing", () =>
 					dispatchWorkRouting(env, event.scheduledTime),
 				);
-				// A tedi looks back on each chat that has gone quiet and updates
-				// its memory.
-				const { dispatchTediMemoryReflection } =
-					await import("./tedi-memory-reflection");
-				await trackPlatformCronPath(env, event, "tedi-memory-reflection", () =>
-					dispatchTediMemoryReflection(env, event.scheduledTime),
-				);
 			}
 			const { dispatchCommitmentWakes } = await import("./commitment-wakes");
 			await trackPlatformCronPath(env, event, "commitment-wakes", () =>
@@ -282,6 +237,18 @@ const dispatchScheduled = async (
 			const { maintainSupport } = await import("./support-maintenance");
 			await trackPlatformCronPath(env, event, "support-maintenance", () =>
 				maintainSupport(env),
+			);
+		}
+
+		if (
+			cron === "*/2 * * * *" &&
+			minute % 10 < 2 &&
+			(env.TEDI_SERVICE || fleetEnabled)
+		) {
+			const { dispatchTediMemoryReflection } =
+				await import("./tedi-memory-reflection");
+			await trackPlatformCronPath(env, event, "tedi-memory-reflection", () =>
+				dispatchTediMemoryReflection(env, event.scheduledTime, runId),
 			);
 		}
 
@@ -471,26 +438,6 @@ const dispatchScheduled = async (
 			);
 		}
 
-		if (fleetEnabled && maintenanceIsDue("retention-cleanup", event)) {
-			const { runRetentionCleanupCron } = await import("./retention-cleanup");
-			await trackPlatformCronPath(env, event, "retention-cleanup", () =>
-				runRetentionCleanupCron(env, event, runId),
-			);
-		}
-
-		if (
-			fleetEnabled &&
-			maintenanceIsDue("memory-reflection-and-enrichment", event)
-		) {
-			const { runMemoryReflection } = await import("./memory-reflection");
-			await trackPlatformCronPath(
-				env,
-				event,
-				"memory-reflection-and-enrichment",
-				() => runMemoryReflection(env, runId),
-			);
-		}
-
 		if (fleetEnabled && maintenanceIsDue("mcp-scan", event)) {
 			const { runMcpScan } = await import("./catalog-scan-cron");
 			await trackPlatformCronPath(env, event, "mcp-scan", () =>
@@ -611,20 +558,6 @@ const dispatchScheduled = async (
 							env,
 						),
 					),
-			);
-		}
-
-		if (
-			fleetEnabled &&
-			maintenanceIsDue("active-provider-scan-and-drift", event)
-		) {
-			const { runActiveProviderScanAndDrift } =
-				await import("./catalog-scan-cron");
-			await trackPlatformCronPath(
-				env,
-				event,
-				"active-provider-scan-and-drift",
-				() => runActiveProviderScanAndDrift(env, runId),
 			);
 		}
 	} catch (error) {

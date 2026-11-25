@@ -117,13 +117,13 @@ step shows up in `last_report`.
 A policy row whose `keep_days` sits below the table's floor (the shipped
 `audit_events` seed says 14 days against a 90-day floor) runs at the floor
 and reports both values (`keepDays`, `keepDaysRow`) instead of being
-refused. The nightly `retention-cleanup` cron no longer deletes
+refused. The daily steps of `d1-retention` do not delete
 `audit_events`, `tedi_runtime_events` or `kernel_runtime_events`: these
 rows leave the main database only through this engine, after a verified
 copy exists.
 
 Separately, each organization keeps its own copy of its audit trail: the
-nightly `retention-cleanup` tick writes every finished UTC day to
+daily steps of the `d1-retention` tick write every finished UTC day to
 `R2_BUCKET` as gzip JSON Lines, one object per hour
 (`audit-exports/v1/<org>/<YYYY-MM-DD>/<HH>.jsonl.gz`, the `audit.export`
 event shape), retries the last seven days, and keeps existing objects

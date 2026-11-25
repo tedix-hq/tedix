@@ -205,6 +205,11 @@ export async function runBillingAndGatewayCostTick(
 		}
 		return {
 			...affected,
+			gatewayRowsSkipped: results.reduce(
+				(sum, result) => sum + result.skipped,
+				0,
+			),
+			gatewayContentions: results.filter((result) => result.contended).length,
 			gatewayRowsIngested: results.reduce(
 				(sum, result) => sum + result.ingested,
 				0,

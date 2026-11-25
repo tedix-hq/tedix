@@ -102,6 +102,39 @@ describe("getCatalogAppsNeedingScan", () => {
 		expect(next?.id).toBe("first-party");
 	});
 
+	it("combines configured providers with the bounded backlog without duplicates or disabled endpoints", async () => {
+		const db = setup();
+		const fresh = new Date().toISOString();
+		for (const [id, status, checked] of [
+			["provider", "ENABLED", fresh],
+			["disabled", "DISABLED", STAMP],
+			["backlog", "ENABLED", STAMP],
+		] as const) {
+			await db.insert(appCatalog).values({
+				id,
+				name: id,
+				slug: id,
+				status,
+				mcpEndpointNormalized: `https://${id}.example.com/mcp`,
+				toolSource: "upstream_mcp",
+				connectorType: "MCP",
+				healthStatus: "healthy",
+				healthData: { lastCheckedAt: checked },
+				lastSyncedAt: STAMP,
+				createdAt: STAMP,
+				updatedAt: STAMP,
+			});
+		}
+		const selected = await getCatalogAppsNeedingScan(db, {
+			limit: 1,
+			frequentProviderSlugs: ["provider", "backlog", "disabled"],
+		});
+		expect(selected.map((app) => app.id).sort()).toEqual([
+			"backlog",
+			"provider",
+		]);
+	});
+
 	it("rescans apps named by slug or id once each, whatever their age", async () => {
 		const db = setup();
 		const fresh = new Date().toISOString();
