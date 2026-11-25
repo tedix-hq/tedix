@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 	pauseSkillSchedule: vi.fn(),
 	getSkillSchedule: vi.fn(),
 	upsertSkillSchedule: vi.fn(),
+	listFactoryHealth: vi.fn(),
 }));
 
 vi.mock("@tedix/db/queries/cognitive/skill-crud", async (importOriginal) => ({
@@ -52,6 +53,12 @@ vi.mock("@tedix/db/queries/skill-schedules", async (importOriginal) => ({
 }));
 
 import { skillsContractRouter } from "./cognitive";
+import { archiveFactoryProcedure } from "./project-factories";
+
+vi.mock("@tedix/db/queries/factories", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/db/queries/factories")>()),
+	listFactoryHealth: mocks.listFactoryHealth,
+}));
 
 const ORG_ID = "org-1";
 const OWNER = "tedi-owner";
@@ -518,8 +525,12 @@ describe("archive persistence through skill actions", () => {
 		{ action: "rejectWorkshop", legacy: true },
 		{ action: "archive", legacy: false },
 		{ action: "archiveMany", legacy: false },
+		{ action: "archiveFactoryPaused", legacy: false },
+		{ action: "archiveFactoryActive", legacy: false },
+		{ action: "archiveFactoryShared", legacy: false },
+		{ action: "archiveFactoryRunner", legacy: false },
 	])(
-		"$action pauses the archive and restores its schedule policy (legacy manifest: $legacy)",
+		"$action preserves archive safety and schedule policy (legacy manifest: $legacy)",
 		async ({ action, legacy }) => {
 			vi.clearAllMocks();
 			const h = humanContext("owner");
@@ -551,9 +562,52 @@ describe("archive persistence through skill actions", () => {
 						},
 					}),
 				);
-				await h.context.db
-					.insert(skillSchedules)
-					.values({ ...STORED_SCHEDULE, organizationId: ORG_ID });
+				await h.context.db.insert(skillSchedules).values({
+					...STORED_SCHEDULE,
+					organizationId: ORG_ID,
+					enabled:
+						!action.startsWith("archiveFactory") ||
+						action === "archiveFactoryActive",
+				});
+				if (action.startsWith("archiveFactory")) {
+					const project = {
+						id: "factory-project",
+						orgId: ORG_ID,
+						key: "FACTORY",
+						name: "Nightly ingest",
+						createdAt: new Date().toISOString(),
+						metadata: {
+							factory: { slug: "nightly-ingest", skillId: "skill-1" },
+						},
+					};
+					await h.context.db.insert(projects).values(project);
+					mocks.listFactoryHealth.mockResolvedValue([
+						{
+							slug: "nightly-ingest",
+							skillId: "skill-1",
+							projectId: project.id,
+						},
+					]);
+					if (action === "archiveFactoryShared")
+						await h.context.db.insert(projects).values({
+							...project,
+							id: "other-factory",
+							key: "OTHER",
+							name: "Other factory",
+						});
+					if (action === "archiveFactoryRunner")
+						await h.context.db.insert(dispatcherHealthReports).values({
+							orgId: ORG_ID,
+							reporterId: "test-machine",
+							machineName: "test-machine",
+							executor: "test",
+							lane: "test",
+							running: true,
+							observedAt: new Date().toISOString(),
+							reportedAt: new Date().toISOString(),
+							rulesSkillId: "skill-1",
+						});
+				}
 				const crud = await vi.importActual<
 					typeof import("@tedix/db/queries/cognitive/skill-crud")
 				>("@tedix/db/queries/cognitive/skill-crud");
@@ -572,7 +626,38 @@ describe("archive persistence through skill actions", () => {
 				const client = createRouterClient(skillsContractRouter, {
 					context: h.context,
 				});
-				if (action === "improve")
+				if (action.startsWith("archiveFactory")) {
+					const factories = createRouterClient(
+						{ archive: archiveFactoryProcedure },
+						{ context: h.context },
+					);
+					const call = factories.archive({ factory: "nightly-ingest" });
+					if (
+						action === "archiveFactoryShared" ||
+						action === "archiveFactoryRunner"
+					) {
+						await expect(call).rejects.toMatchObject({
+							code: "CONFLICT",
+							message: expect.stringContaining(
+								action === "archiveFactoryShared"
+									? '["factory:other-factory"]'
+									: '["runner:test-machine"]',
+							),
+						});
+						expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+						expect(mocks.pauseSkillSchedule).not.toHaveBeenCalled();
+						expect(
+							(await crud.getSkillEntry(h.context.db, "skill-1", ORG_ID))
+								?.lifecycleState,
+						).toBe("active");
+						return;
+					}
+					expect(await call).toMatchObject({
+						action: "archived",
+						scheduleEnabled: false,
+						nextFireAt: null,
+					});
+				} else if (action === "improve")
 					await client.improve({
 						id: "skill-1",
 						lifecycleState: "archived",

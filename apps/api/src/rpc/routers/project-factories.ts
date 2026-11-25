@@ -382,7 +382,11 @@ async function controlFactory(
 					acknowledgeUsedBy: (
 						await listSkillUsers(context.db, { orgId, skillId: skill.id })
 					)
-						.filter((user) => ["factory", "schedule"].includes(user.kind))
+						.filter(
+							(user) =>
+								user.kind === "schedule" ||
+								user.key === `factory:${lane.projectId}`,
+						)
 						.map((user) => user.key),
 				}
 			: {
