@@ -30,6 +30,8 @@ const listing = {
 	reviewStatus: "RELEASED",
 } as const;
 
+const feed = { feedKey: "feedx" };
+
 describe("catalog removal-request suppression", () => {
 	let db: DbClient;
 	beforeEach(() => {
@@ -41,18 +43,19 @@ describe("catalog removal-request suppression", () => {
 			...listing,
 			status: "ENABLED",
 			isDiscoverable: true,
-			rawData: { snapshotFeed: "catalogFeed" },
+			rawData: { snapshotFeed: "feedx" },
 		} as const;
-		const first = await syncCatalogAppFromStore(db, snapshot);
+		const first = await syncCatalogAppFromStore(db, snapshot, feed);
 		await updateCatalogApp(db, first.app.id, {
 			status: "DISABLED",
 			isDiscoverable: false,
 			healthStatus: "blocked",
 		});
-		const refreshed = await syncCatalogAppFromStore(db, {
-			...snapshot,
-			description: "New store description",
-		});
+		const refreshed = await syncCatalogAppFromStore(
+			db,
+			{ ...snapshot, description: "New store description" },
+			feed,
+		);
 		expect(refreshed.app).toMatchObject({
 			status: "DISABLED",
 			isDiscoverable: false,
@@ -62,7 +65,7 @@ describe("catalog removal-request suppression", () => {
 		);
 	});
 
-	it("preserves direct Claude metadata and a suppressed legacy key on catalog feed rekey", async () => {
+	it("preserves direct Claude metadata and a suppressed legacy key on a catalog feed rekey", async () => {
 		const native = {
 			...listing,
 			source: "claude" as const,
@@ -73,11 +76,11 @@ describe("catalog removal-request suppression", () => {
 			...native,
 			description: "Imported description",
 			rawData: {
-				snapshotFeed: "catalogFeed",
-				feed: { id: "old-key", directoryId: native.sourceAppId },
+				snapshotFeed: "feedx",
+				feedx: { id: "old-key", directoryId: native.sourceAppId },
 			},
 		};
-		const replay = await syncCatalogAppFromStore(db, imported);
+		const replay = await syncCatalogAppFromStore(db, imported, feed);
 		expect(replay?.storeListing).toEqual(saved?.storeListing);
 		const legacy = await syncCatalogAppFromStore(db, {
 			...native,
@@ -85,7 +88,7 @@ describe("catalog removal-request suppression", () => {
 			baseUrl: "https://legacy.test/mcp",
 		});
 		await updateCatalogApp(db, legacy.app.id, { status: "SUPPRESSED" });
-		expect(await syncCatalogAppFromStore(db, imported)).toBeNull();
+		expect(await syncCatalogAppFromStore(db, imported, feed)).toBeNull();
 	});
 
 	it("scrubs personal fields from the app and its store listings", async () => {

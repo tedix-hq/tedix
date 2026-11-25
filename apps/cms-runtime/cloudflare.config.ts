@@ -200,6 +200,10 @@ export default defineConfig(({ mode }) => {
 					: {}),
 				MARKETING_SITE_SLUG: liveVar("MARKETING_SITE_SLUG"),
 				MARKETING_DOMAINS: liveVar("MARKETING_DOMAINS"),
+				// The catalog feed's rawData key; production reads it from deploy values.
+				CATALOG_FEED_NAME: bindings.text(
+					live.vars("cms-runtime", "CATALOG_FEED_NAME", "catalogFeed"),
+				),
 				CLI_DOWNLOAD_HOST: bindings.text(live.host("downloads", PLACEHOLDER)),
 				API_URL: bindings.text(local ? localLane.apiUrl : liveUrl("api")),
 				TEDIX_MARKETING_ORG_ID: liveVar("TEDIX_MARKETING_ORG_ID"),

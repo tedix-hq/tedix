@@ -155,7 +155,7 @@ export default defineConfig(({ mode }) => {
 				),
 				...(production ? {} : {}),
 				// Warm window for workstation coding sessions; exec calls renew it.
-				// Opts out of the widget runtime's telemetry counter.
+				// Opts out of runtime telemetry counters.
 				DO_NOT_TRACK: bindings.text(vars("DO_NOT_TRACK")),
 				...(local
 					? {

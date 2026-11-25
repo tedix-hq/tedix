@@ -469,7 +469,7 @@ const INVENTORY_PROVIDERS = {
 		],
 	),
 	sentry: inventoryProvider("sentry", "Sentry", "oauth", "cimd"),
-	example-mcp: inventoryProvider("example-mcp", "Example MCP", "oauth"),
+	"example-mcp": inventoryProvider("example-mcp", "Example MCP", "oauth"),
 	notion: inventoryProvider("notion", "Notion", "oauth"),
 };
 
@@ -520,7 +520,7 @@ export const PERSONAL_INVENTORY: ConnectionInventoryRow[] = [
 	inventoryRow(INVENTORY_PROVIDERS.stripe, "user", "restricted", [
 		["stripe", "Stripe payments"],
 	]),
-	inventoryRow(INVENTORY_PROVIDERS.example-mcp, "user", "missing", [
+	inventoryRow(INVENTORY_PROVIDERS["example-mcp"], "user", "missing", [
 		["example-mcp", "Example MCP"],
 	]),
 	inventoryRow(INVENTORY_PROVIDERS.gmail, "user", "missing", [

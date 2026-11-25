@@ -33,6 +33,7 @@ import {
 	getCatalogStoreListingBySourceId,
 	upsertCatalogStoreListing,
 } from "./store-listings";
+import { catalogFeedKey, SNAPSHOT_FEED_MARKER } from "./sync-logs";
 import {
 	type CatalogAppStatus,
 	type Database,
@@ -173,6 +174,13 @@ export interface SyncCatalogAppInput {
 	rawData?: Record<string, JsonValue> | null;
 }
 
+export interface SyncCatalogAppOptions {
+	allowCreate?: boolean;
+	/** The catalog feed's `rawData` key and `snapshotFeed` value
+	 * (`CATALOG_FEED_NAME`); without it, feed-specific merging is skipped. */
+	feedKey?: string;
+}
+
 /**
  * Sync a catalog app from a store source
  *
@@ -186,7 +194,7 @@ export interface SyncCatalogAppInput {
 export async function syncCatalogAppFromStore(
 	db: Database,
 	input: SyncCatalogAppInput,
-	options: { allowCreate?: boolean } = {},
+	options: SyncCatalogAppOptions = {},
 ): Promise<{
 	app: CatalogApp;
 	created: boolean;
@@ -194,13 +202,17 @@ export async function syncCatalogAppFromStore(
 } | null> {
 	const now = new Date().toISOString();
 	const allowCreate = options.allowCreate ?? true;
+	const feedKey =
+		options.feedKey === undefined ? null : catalogFeedKey(options.feedKey);
+	const fromFeed = (rawData: Record<string, JsonValue> | null | undefined) =>
+		feedKey !== null && rawData?.[SNAPSHOT_FEED_MARKER] === feedKey;
 
-	// The catalog feed coalesces listings from multiple platforms into one row. Older
-	// imports used its merged row ID for Claude as well as ChatGPT.
-	const feed = input.rawData?.catalogFeed;
+	// The catalog feed coalesces listings from multiple platforms into one
+	// row. Older imports used its merged row ID for Claude as well as ChatGPT.
+	const feed = feedKey === null ? undefined : input.rawData?.[feedKey];
 	if (
 		input.source === "claude" &&
-		input.rawData?.snapshotFeed === "catalogFeed" &&
+		fromFeed(input.rawData) &&
 		feed &&
 		typeof feed === "object" &&
 		!Array.isArray(feed) &&
@@ -228,9 +240,9 @@ export async function syncCatalogAppFromStore(
 			const app = await getCatalogAppById(db, native.catalogAppId);
 			if (!app || app.status === "SUPPRESSED") return null;
 			// A direct registry listing keeps its original metadata and owner.
-			if (native.rawData?.snapshotFeed !== "catalogFeed")
+			if (!fromFeed(native.rawData))
 				return { app, storeListing: native, created: false };
-		} else if (legacy?.rawData?.snapshotFeed === "catalogFeed") {
+		} else if (legacy && fromFeed(legacy.rawData)) {
 			// Keep the original listing row and app association. A concurrent
 			// native insert can retry through the native branch above.
 			await db
@@ -438,7 +450,7 @@ export async function syncCatalogAppFromStore(
 
 		// A public marketplace refresh carries no new Tedix connector health check.
 		const keepHealthVisibility =
-			input.rawData?.snapshotFeed === "catalogFeed" &&
+			fromFeed(input.rawData) &&
 			input.status === "ENABLED" &&
 			input.reviewStatus === "RELEASED" &&
 			existingApp.reviewStatus === "RELEASED" &&
@@ -743,7 +755,7 @@ export async function syncCatalogAppFromStore(
 export async function bulkSyncCatalogAppsFromStore(
 	db: Database,
 	apps: SyncCatalogAppInput[],
-	options: { allowCreate?: boolean } = {},
+	options: SyncCatalogAppOptions = {},
 ): Promise<{ inserted: number; updated: number; errors: string[] }> {
 	let inserted = 0;
 	let updated = 0;

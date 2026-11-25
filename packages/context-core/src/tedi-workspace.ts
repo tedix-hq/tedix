@@ -618,7 +618,7 @@ export interface ResolvedWorkspaceFiles {
  * @param tedi            — The tedi DB record
  * @param templateOverrides — Optional WorkspaceTemplateSetDefinition from D1
  * @param policyPackDef   — Optional PolicyPackDefinition for cron-driven content
- * @param compiledPatterns — Optional compiled-memory compiled pattern directives to append to AGENTS.md
+ * @param compiledPatterns — Optional compiled pattern directives to append to AGENTS.md
  * @param expertise       — Optional tedi expertise for HEARTBEAT.md focus areas
  */
 export function resolveWorkspaceFiles(
@@ -668,7 +668,7 @@ export function resolveWorkspaceFiles(
 		getOverride(files, "agents") ?? DEFAULT_AGENTS_TEMPLATE,
 	);
 
-	// compiled-memory compiled memory: inject learned patterns from rationale record analysis
+	// Compiled memory: inject learned patterns from rationale record analysis
 	if (compiledPatterns && compiledPatterns.length > 0) {
 		const unique = [...new Set(compiledPatterns)];
 		const patternSection = [

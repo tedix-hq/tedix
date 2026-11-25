@@ -106,7 +106,7 @@ export const CatalogSearchObservationSchema = z.object({
 });
 
 export const CatalogStoreListingSchema = z.object({
-	catalogSearchObservation: CatalogSearchObservationSchema.optional(),
+	searchObservation: CatalogSearchObservationSchema.optional(),
 	id: z.string(),
 	source: SourceSchema,
 	sourceAppId: z.string(),

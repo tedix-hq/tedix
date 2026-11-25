@@ -25,7 +25,7 @@ Import from the per-file entry points (`@tedix/context-core/types`, `/observer`,
 - **Observer** (`/observer`) — pure parse/validate helpers (`parseObserverResult`) for turning raw Observer-LLM JSON into validated `Observation`/`TaskIntent` arrays, including the self-owner guard that strips spurious first-person `ownerHint: "self"` labels from procedural self-talk
 - **Prompts** (`/prompts`) — `OBSERVER_SYSTEM_PROMPT` and related system prompt text used to drive the Observer LLM call
 - **Reflector** (`/reflector`) — token-budget-aware merge helpers (`finalizeReflection`, `noopReflection`) that condense observations, keeping the original set if the condensed version doesn't actually save tokens
-- **Compiler** (`/compiler`) — compiled-memory compiled memory: clusters `RationaleRecordInput`s into `CompiledDirective`s (`ALWAYS`/`NEVER`/`PREFER`) with the promotion gates defined in `src/compiler.ts`
+- **Compiler** (`/compiler`) — compiled memory: clusters `RationaleRecordInput`s into `CompiledDirective`s (`ALWAYS`/`NEVER`/`PREFER`) with the promotion gates defined in `src/compiler.ts`
 - **Crystallizer** (`/crystallizer`) — detects recurring procedural-observation patterns (`CRYSTALLIZATION_THRESHOLD = 3`) that a runtime may promote into muscle memory / a draft skill
 - **Trace safety** (`/trace-safety`) — redact-at-write enforcement for raw
   prompts, tool payloads, and model output: sensitive-key allowlisting,

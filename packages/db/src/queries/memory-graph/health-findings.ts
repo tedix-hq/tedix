@@ -5,8 +5,7 @@
  * organization cannot turn this read into a table scan (a past outage came
  * from one unbounded memory query).
  *
- * The finding shapes (orphans, stale-but-load-bearing, duplicates) follow the
- * idea of a reference app `lib/knowledge-metrics.ts` (MIT); the queries are our own.
+ * The findings cover orphans, stale-but-load-bearing entries and duplicates.
  */
 
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";

@@ -913,12 +913,12 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 				preview: null,
 				status: "failed",
 				finalMessage:
-					'This turn ended without a reply. Reason: Delegation preflight failed: the tedi\'s tool connection could not be read (MCP tool error: Execution error: Callable "tedix.work_item_get" is not exposed in the current gateway catalog. Nearest namespaces: example-mcp_tedix); return to Home and retry',
+					'This turn ended without a reply. Reason: Delegation preflight failed: the tedi\'s tool connection could not be read (MCP tool error: Execution error: Callable "tedix.work_item_get" is not exposed in the current gateway catalog. Nearest namespaces: example_mcp_tedix); return to Home and retry',
 			}),
 		).toBe(plain);
 		expect(
 			plainDelegationFailureContent(
-				"I couldn't finish this request. The hand-off could not start: the tedi's tool connection could not be read (MCP tool error: Execution error: Callable \"tedix.work_item_get\" is not exposed in the current gateway catalog. Nearest namespaces: example-mcp_tedix, cloudflare_tedix, descope_tedix, docs_tedix, find_it_ted). Ask Home to retry with a worker that has access to the required source or tool.",
+				"I couldn't finish this request. The hand-off could not start: the tedi's tool connection could not be read (MCP tool error: Execution error: Callable \"tedix.work_item_get\" is not exposed in the current gateway catalog. Nearest namespaces: example_mcp_tedix, cloudflare_tedix, descope_tedix, docs_tedix, find_it_ted). Ask Home to retry with a worker that has access to the required source or tool.",
 			),
 		).toBe(plain);
 		expect(

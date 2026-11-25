@@ -2,7 +2,7 @@
  * Brain digest — stable top-K memory summary, runtime-neutral compilation.
  *
  * Periodically distills the tedi's top brain facts into a stable, cache-friendly
- * knowledge digest. In "stable retrieval mode" (an agent framework OM pattern) this digest
+ * knowledge digest. In "stable retrieval mode" this digest
  * replaces per-turn brain retrieval — the tedi gets one cached knowledge prefix
  * injected every turn instead of hitting the memory API on each request.
  *

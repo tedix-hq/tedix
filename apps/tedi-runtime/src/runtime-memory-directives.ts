@@ -69,7 +69,7 @@ export async function ensureDirectivesLoaded(
 }
 
 /**
- * Compiled directives (compiled-memory ALWAYS/NEVER/PREFER rules) injected into the
+ * Compiled directives (ALWAYS/NEVER/PREFER rules) injected into the
  * system prompt per-turn in {@link beforeTurn}. Loaded lazily from DO storage on
  * first use; refreshed by {@link onCompileDirectives}.
  *
@@ -349,7 +349,7 @@ export async function compileDailyLogDirectives(
 
 /**
  * Directive-compile alarm. Compiles the tedi's completed rationale corpus
- * into compiled-memory ALWAYS/NEVER/PREFER directives (`compileDirectives` from
+ * into ALWAYS/NEVER/PREFER directives (`compileDirectives` from
  * `src/brain/`; runtime parity — `refreshDirectives` in
  * tedix-context), persists them to DO SQLite, and refreshes the in-memory
  * cache that {@link directivesPromptAddendum} injects into the system prompt.

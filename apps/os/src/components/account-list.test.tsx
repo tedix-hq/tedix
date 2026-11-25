@@ -691,8 +691,10 @@ describe("account list rows", () => {
 				.find((item) => item.textContent?.includes("Available to connect"))!
 				.click(),
 		);
-		const example-mcp = host.querySelector('[data-account-group="example-mcp"]')!;
-		await act(async () => button("Connect", example-mcp)!.click());
+		const exampleGroup = host.querySelector(
+			'[data-account-group="example-mcp"]',
+		)!;
+		await act(async () => button("Connect", exampleGroup)!.click());
 		expect(props.onConnect).toHaveBeenCalledOnce();
 	});
 });

@@ -93,7 +93,7 @@ export const memoryFacts = sqliteTable(
 		// Decays over time, boosted by verification/usage
 		confidence: real("confidence").notNull().default(0.8),
 
-		// Bi-temporal validity (a graph-memory project pattern)
+		// Bi-temporal validity
 		// validFrom: when the fact became true in the real world
 		// validTo: when it stopped being true (null = still valid)
 		validFrom: text("valid_from").default(sql`(CURRENT_TIMESTAMP)`),

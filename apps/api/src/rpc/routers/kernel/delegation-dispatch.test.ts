@@ -1744,7 +1744,7 @@ describe("decideDelegationDispatch", () => {
 	});
 });
 
-// --- Delegation contract (a research paper) ----------------------------------
+// --- Delegation contract -----------------------------------------------------
 
 describe("delegation contract", () => {
 	it("scales safety backstops with task complexity", () => {

@@ -166,7 +166,7 @@ export function renderHomeInventory(ctx: KernelContext): string {
 						: null,
 					// Capability-flywheel signal: the nightly-distilled, evidence-learned
 					// description of what this tedi's graded delegations show it can
-					// actually do (a routing study pattern — kernel.md § Research Grounding).
+					// actually do (kernel.md § Research Grounding).
 					// Truncated so the roster line stays bounded.
 					cap?.learnedCapability
 						? `evidence: ${truncate(cap.learnedCapability.description)} (n=${cap.learnedCapability.evidenceCount})`

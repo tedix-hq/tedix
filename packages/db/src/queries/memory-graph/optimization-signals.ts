@@ -117,7 +117,7 @@ export async function updateSignalStatus(
 }
 
 /**
- * Get compiled pattern directives for a tedi — compiled-memory compiled memory.
+ * Get compiled pattern directives for a tedi — compiled memory.
  * Returns suggestedAction from open/acknowledged compiled_pattern signals.
  */
 export async function getCompiledPatterns(

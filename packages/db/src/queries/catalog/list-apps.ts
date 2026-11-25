@@ -31,6 +31,7 @@ import {
 	type Source,
 } from "../../schema/catalog";
 import { prefixedColumns } from "../../utils/select";
+import { catalogFeedKey } from "./sync-logs";
 import type { Database } from "./tool-source-policy";
 import {
 	buildHideShadowedVariantsCondition,
@@ -447,11 +448,15 @@ export async function listCatalogApps(
  * individual sweeps and cannot be summed into a shared query population. */
 export async function listPublicChatgptObservations(
 	db: Database,
+	feedKey: string,
 	offset: number,
 	limit: number,
 ) {
 	const listings = appCatalogStoreListings;
-	const observation = sql`json_extract(${listings.rawData}, '$.catalogFeed.searchObservation')`;
+	// Bound as a parameter; catalogFeedKey also admits only a plain identifier.
+	const key = catalogFeedKey(feedKey);
+	const feedPath = (field: string) => `$.${key}.${field}`;
+	const observation = sql`json_extract(${listings.rawData}, ${feedPath("searchObservation")})`;
 	const listingName = sql<
 		string | null
 	>`nullif(json_extract(${observation}, '$.name'), '')`;
@@ -491,7 +496,7 @@ export async function listPublicChatgptObservations(
 					"THIRD_PARTY",
 				]),
 				inArray(appCatalog.status, ["ENABLED", "DISABLED"]),
-				sql`coalesce(json_extract(${listings.rawData}, '$.catalogFeed.visibility'), 'public') <> 'private'`,
+				sql`coalesce(json_extract(${listings.rawData}, ${feedPath("visibility")}), 'public') <> 'private'`,
 				// Health maintenance can hide or disable a connector while its native
 				// store listing still has a public, dated search observation.
 				or(

@@ -7,7 +7,6 @@
  * `demo-pack/` is the only source; nothing reads a tenant or sends anything.
  * Dates are shifted onto "now" each time the pack is built, so the data always
  * reads as today, and a pack older than a week is rebuilt on the next read.
- * The date-shifting idea comes from a reference app (MIT), lib/demo/store.ts.
  */
 
 import cardsData from "./demo-pack/cards.json";

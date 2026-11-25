@@ -28,5 +28,3 @@ Attempt, and lease.
 Report the first confirmed failure, the evidence for it, and the result of
 the rerun. Record any unavailable evidence and who owns a genuine dependency
 or approval.
-
-Adapted from an open-source skill.

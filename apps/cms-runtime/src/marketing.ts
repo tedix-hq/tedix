@@ -242,6 +242,7 @@ export interface MarketingEnv {
 	MARKETING_SITE_SLUG: string;
 	CATALOG_SEARCH_RATE_LIMITER?: RateLimit;
 	MARKETING_DOMAINS: string;
+	CATALOG_FEED_NAME: string;
 	GIT_SHA?: string;
 	TEDIX_MARKETING_ORG_ID: string;
 	TEDIX_CMO_TEDI_ID: string;
@@ -536,7 +537,12 @@ async function catalogApiResponse(
 			const offset = Number(q.get("offset") ?? 0);
 			if (!Number.isSafeInteger(offset) || offset < 0)
 				return json({ error: "Invalid offset" }, 400);
-			const rows = await listPublicChatgptObservations(db, offset, 201);
+			const rows = await listPublicChatgptObservations(
+				db,
+				env.CATALOG_FEED_NAME,
+				offset,
+				201,
+			);
 			return Response.json(
 				{
 					listings: rows.slice(0, 200),

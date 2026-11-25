@@ -152,9 +152,9 @@ and runs unchanged in a plain Node Vitest environment.
 
 ## Provenance
 
-The logger's reserved-field type machinery is adapted from Cloudflare OS under
-Apache-2.0; the exact source revision and license are recorded in
-`THIRD_PARTY_NOTICES.md`. Two ambient-context pieces are deliberately omitted:
+The logger's reserved-field type machinery is adapted third-party code; its
+source and license are recorded in `THIRD_PARTY_NOTICES.md`. Two ambient-context
+pieces of the original are deliberately omitted:
 
 - The `AsyncLocalStorage`-backed `createObservabilityContext`. It requires
   `node:async_hooks`, which breaks the runtime-neutrality rule above, and its

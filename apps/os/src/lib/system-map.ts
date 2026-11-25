@@ -3,8 +3,7 @@
  *
  * The graph is compiled from queries the OS already makes (tedis, skills,
  * connections, workspaces), and `validateSystemMap` proves every edge lands on
- * a real node, so the map cannot drift from the registries. The approach is
- * borrowed from a reference app's blueprint validation (MIT).
+ * a real node, so the map cannot drift from the registries.
  */
 
 export type SystemMapNodeKind = "tedi" | "skill" | "connection" | "workspace";

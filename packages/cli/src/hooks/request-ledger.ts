@@ -14,8 +14,7 @@
  * the next session start. An event the server keeps rejecting is moved to
  * the outbox's `rejected/` folder; `outbox.log` there records every event
  * set aside or trimmed.
- * The event shape follows a reference tool's async capture hooks (Apache-2.0,
- * github.com/a reference author/a reference tool); no code is copied.
+ * Events are captured asynchronously so a hook never blocks the session.
  *
  * Both run beside decision capture under its opt-in (`tedix setup agents
  * context enable-decision-capture`) and binding, and skip unattended runs.

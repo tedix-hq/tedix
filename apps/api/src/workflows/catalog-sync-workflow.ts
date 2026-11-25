@@ -587,6 +587,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 								sync: (items) =>
 									bulkSyncCatalogAppsFromStore(db, items, {
 										allowCreate: true,
+										feedKey: this.env.CATALOG_FEED_NAME,
 									}),
 							});
 							if (outcome.failed)

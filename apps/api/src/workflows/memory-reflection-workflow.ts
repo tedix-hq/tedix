@@ -206,7 +206,7 @@ export async function runOptionalGraphLinking(
 // ============================================================================
 // Capability flywheel (Step 10b) — bounds
 //
-// a routing study-style loop (a research paper): the graded delegation outcomes that
+// Capability-routing loop: the graded delegation outcomes that
 // Step 10 persists (`tsel:` rows in harness_subject_eval_results) are distilled
 // per tedi into a short evidence-learned capability description, stored via
 // `upsertTediLearnedCapability` (a `knowledge_entries` row `tcap:{tediId}`)

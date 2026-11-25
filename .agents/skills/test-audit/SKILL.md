@@ -24,5 +24,3 @@ Run the focused check that still owns the behavior. If speed is the reason
 for the change, compare the same suite or shard with comparable setup and
 report what was measured. Report removed coverage, the remaining proof, and
 any material gaps.
-
-Adapted from an open-source skill.

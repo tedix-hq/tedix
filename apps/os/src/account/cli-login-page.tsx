@@ -38,9 +38,9 @@ import { IDENTITY_JOURNEY_COPY } from "@/shared/identity-journey-copy";
 /**
  * `os.tedix.dev/cli/login` — the standalone "authorize the CLI" page that
  * finishes a `tedix login`. It renders OUTSIDE the OS shell (no nav/chrome): a
- * `tedix login` is a focused, one-purpose auth handshake, the way GitHub,
- * Vercel, and other services render CLI/device authorization on a dedicated page
- * rather than inside the product app.
+ * `tedix login` is a focused, one-purpose auth handshake, the way GitHub
+ * and Vercel render CLI/device authorization on a dedicated page rather than
+ * inside the product app.
  *
  * The CLI opens this behind Descope auth (the SPA's session boundary handles
  * sign-in) with `?port=<loopback>&state=<uuid>`, the operator picks one of their

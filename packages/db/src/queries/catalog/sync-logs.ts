@@ -146,6 +146,20 @@ export async function failStaleAppCatalogSyncLogs(
  */
 export const SNAPSHOT_FEED_MARKER = "snapshotFeed";
 
+const FEED_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+/**
+ * Checks the deployment's catalog feed key: the `rawData` key under which
+ * the catalog feed stores its provenance, and the feed's
+ * `SNAPSHOT_FEED_MARKER` value. Queries put it in JSON paths, so only a
+ * plain identifier is accepted.
+ */
+export function catalogFeedKey(value: string): string {
+	if (!FEED_KEY_PATTERN.test(value))
+		throw new Error("CATALOG_FEED_NAME must be a plain identifier");
+	return value;
+}
+
 export async function markStoreListingsAsRemoved(
 	db: Database,
 	source: Source,

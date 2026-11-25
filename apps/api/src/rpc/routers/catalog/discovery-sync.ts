@@ -1,7 +1,10 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { catalogSeoDescription } from "../../../lib/catalog-description";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
-import { failRunningAppCatalogSyncLog } from "@tedix/db/queries/catalog/sync-logs";
+import {
+	catalogFeedKey,
+	failRunningAppCatalogSyncLog,
+} from "@tedix/db/queries/catalog/sync-logs";
 import { catalogSyncTerminalFailure } from "../../../lib/catalog-sync-recovery";
 import { catalogListCache } from "../../../lib/catalog-list-cache";
 import { AUTHZ } from "../../orpc";
@@ -26,8 +29,8 @@ import {
 	listCatalogVendorVariants,
 } from "@tedix/db/queries/catalog/vendor-variants";
 import {
-	CatalogSearchObservationSchema,
 	type CatalogAppVariant,
+	CatalogSearchObservationSchema,
 	SourceSchema,
 } from "@tedix/api-contract/schemas/catalog";
 import { semanticSearchCatalogApps } from "@tedix/db/queries/catalog/semantic-search";
@@ -279,6 +282,7 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { slug } = input;
+		const feedKey = catalogFeedKey(context.env.CATALOG_FEED_NAME);
 		const result = await getCatalogAppBySlugWithRelations(db, slug);
 		if (!result || result.status === "SUPPRESSED") {
 			return null;
@@ -397,7 +401,7 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 			// Relations
 			storeListings: result.storeListings.map(
 				(listing: (typeof result.storeListings)[number]) => {
-					const feed = listing.rawData?.catalogFeed;
+					const feed = listing.rawData?.[feedKey];
 					const observation =
 						listing.source === "chatgpt" &&
 						feed &&
@@ -407,7 +411,7 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 									.data
 							: undefined;
 					return {
-						...(observation && { catalogSearchObservation: observation }),
+						...(observation && { searchObservation: observation }),
 						id: listing.id,
 						source: listing.source,
 						sourceAppId: listing.sourceAppId,

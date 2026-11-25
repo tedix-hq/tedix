@@ -14,7 +14,7 @@ import type { StewardCloseoutTargets } from "@tedix/api-contract/schemas/work-it
  *     an output contract, tool/scope guidance, and boundaries. Managers must
  *     not be overly prescriptive — we emit boundaries + a contract, never
  *     step-by-step instructions. The contract block (success criteria, budget,
- *     soft deadline, fail-closed failure policy — a research paper) is derived
+ *     soft deadline, fail-closed failure policy) is derived
  *     deterministically from routeKind/effortClass, never planner-emitted.
  *
  *  2. decideDelegationDispatch — the authorization gate, fail closed. Mirrors
@@ -370,7 +370,7 @@ function recordField(
 }
 
 // ---------------------------------------------------------------------------
-// Delegation contract (a research paper) — explicit success criteria, budget,
+// Delegation contract — explicit success criteria, budget,
 // deadline, and failure policy on every hand-off. Derived DETERMINISTICALLY
 // here in dispatch code from routeKind/effortClass: the planner LLM never
 // emits contract fields, so the contract cannot drift with planner phrasing.
@@ -938,7 +938,7 @@ export function buildDelegationWorkOrder(input: {
 
 /**
  * Hard ceiling on delegation chain depth (bounded depth).
- * a framework's supervisor-vs-swarm result shows cross-agent error compounds past
+ * Published supervisor-vs-swarm results show cross-agent error compounds past
  * ~8–10 handoffs, so a chain deeper than this is a runaway, not decomposition.
  * The kernel bounds the chain; breadth (a wider plan) is the correct answer to
  * "more work", not a deeper chain.
@@ -1436,7 +1436,7 @@ export function decideDelegationDispatch(input: {
 	 * Depth of this delegation in the parent→child→grandchild chain (a top-level
 	 * Home turn is 0; the first delegated child dispatching further is 1; etc.).
 	 * When absent it is treated as 0 (backward-compatible no-op). See
-	 * MAX_DELEGATION_DEPTH — a framework's finding that error compounds past
+	 * MAX_DELEGATION_DEPTH — the published finding that error compounds past
 	 * ~8–10 hops (decisions/agentic-kernel-architecture.md).
 	 */
 	delegationDepth?: number;
@@ -1840,7 +1840,7 @@ function computeDispatchVerdict(input: {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Typed failure taxonomy (a research paper)
+// 3. Typed failure taxonomy
 // ---------------------------------------------------------------------------
 
 /**

@@ -1,8 +1,8 @@
 /**
- * compiled-memory Compiled Memory — pure promotion logic.
+ * Compiled Memory — pure promotion logic.
  *
  * Compiles rationale records into directives that guide future decisions.
- * Based on published compiled-memory research: memory as distillation, not storage.
+ * Memory as distillation, not storage.
  *
  * 3-step promotion gate:
  * - 3+ successful outcomes of same action pattern → "ALWAYS: ..."

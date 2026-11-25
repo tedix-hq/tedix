@@ -119,7 +119,7 @@ Internal-only Hono API (`src/index.ts`), authenticated via service binding or
 - `POST /benchmark/drive-turn` — drives one conversational turn against an
   Agent-runtime tedi directly through `TEDI_RUNTIME_SERVICE` (the same
   `/hooks/chat-stream` SSE path the Tedix OS uses), bypassing the Code Mode
-  executor's 30s budget. Foundation for a an agent benchmark-style retail benchmark
+  executor's 30s budget. Foundation for a simulated-customer retail benchmark
   workflow.
 - `scheduled()` cron (production, `*/5 * * * *`) runs `reconcileSkillRuns()`
   to sweep stale run rows against the Workflow engine.

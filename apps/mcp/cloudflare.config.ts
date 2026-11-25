@@ -214,7 +214,7 @@ export default defineConfig(({ mode }) => {
 						? "disabled"
 						: live.vars("mcp", "TEDIX_BILLING_SETTLEMENT_MODE", PLACEHOLDER),
 				),
-				// Opts out of the widget runtime's telemetry counter.
+				// Opts out of runtime telemetry counters.
 				DO_NOT_TRACK: bindings.text(
 					live.vars("mcp", "DO_NOT_TRACK", PLACEHOLDER),
 				),

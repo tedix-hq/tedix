@@ -811,7 +811,7 @@ const completeProcedure = authOs.complete
 			// Non-critical — fatigue detection is advisory
 		}
 
-		// Fire-and-forget: compiled-memory compiled memory — extract patterns from
+		// Fire-and-forget: compiled memory — extract patterns from
 		// repeated successes. Keyed on the RESOLVED status: `unverified` claims
 		// never compile patterns.
 		if (completed.outcomeStatus === "success") {

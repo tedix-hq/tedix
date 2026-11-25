@@ -93,7 +93,7 @@ app.get("/health", (c) => c.json(skillRuntimeHealth(c.env)));
  * TEDI_RUNTIME_SERVICE binding. First-party (not tenant-sandboxed), so it
  * runs the real `do.ts` turn and ESCAPES the 30s Code Mode executor budget the
  * external `code`-tool path hits. Buffers the SSE stream and returns the final
- * assistant reply. Foundation for the an agent benchmark retail benchmark workflow.
+ * assistant reply. Foundation for a retail benchmark workflow.
  */
 app.post("/benchmark/drive-turn", async (c) => {
 	const body = await c.req.json().catch(() => ({}));

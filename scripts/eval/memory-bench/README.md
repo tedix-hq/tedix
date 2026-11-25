@@ -54,12 +54,10 @@ queries with local retrieval and with live semantic retrieval/reranking, record
 top-5 IDs, recall/MRR, provenance, fallback status and latency, and verify that
 the remote arms actually ran. Do not equate this offline result with that test.
 
-a memory benchmark's current checkout moved LongMemEval into
-[AMB](https://github.com/vectorize-io/agent-memory-benchmark); see its
-`membench-system-evals/README.md`, “Benchmarks (AMB)”. The slice reuses the
-record shape and question categories; it copies no personal conversations.
+The slice reuses the LongMemEval record shape and question categories; it
+copies no personal conversations.
 Docker is available on the proof host, but the optional offline comparator was
-skipped: no running local Ollama service was available. a memory benchmark retention needs a
+skipped: no running local Ollama service was available. Its retention step needs a
 model; no hosted credentials or inference were used.
 
 Additional lifecycle fixture (outside the aggregate recall score):

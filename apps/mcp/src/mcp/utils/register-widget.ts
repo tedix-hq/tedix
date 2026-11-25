@@ -2,7 +2,7 @@
  * Centralized Widget Registration Helper
  *
  * Provides a unified API for registering MCP tools with associated widget resources,
- * following the widget pattern for Apps SDK and MCP-App host profiles.
+ * for Apps SDK and MCP-App host profiles.
  *
  * This module centralizes the tool + widget resource registration logic that was
  * previously scattered in McpAgent, ensuring consistent resource URI derivation,

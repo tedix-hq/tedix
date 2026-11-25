@@ -27,7 +27,7 @@ it("publishes native listing evidence for a disabled connector while respecting 
 			id,
 			"https://chatgpt.com/apps/" + id,
 			JSON.stringify({
-				feed: {
+				feedx: {
 					visibility,
 					searchObservation: {
 						name: id,
@@ -39,7 +39,7 @@ it("publishes native listing evidence for a disabled connector while respecting 
 			}),
 		);
 	}
-	const rows = await listPublicChatgptObservations(db, 0, 10);
+	const rows = await listPublicChatgptObservations(db, "feedx", 0, 10);
 	expect(
 		rows.map((row) => [row.sourceAppId, row.name, row.slug, row.storeUrl]),
 	).toEqual([

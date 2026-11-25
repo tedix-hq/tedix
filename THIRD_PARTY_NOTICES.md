@@ -75,3 +75,9 @@ License: MIT (`apps/cms/templates/starter/LICENSE`)
 Includes a modified input rendering implementation from ink-text-input 6.0.0, Copyright (c) Vadim Demedes, under the MIT License.
 
 License: MIT (`LICENSES/third-party/ink-text-input-MIT.txt`)
+
+## openclaw-agent-skills
+
+Includes modified debugging and test-audit agent skill instructions from OpenClaw at revision c8931b32d3d, Copyright (c) 2026 OpenClaw Foundation, under the MIT License. They live in .agents/skills/debug-tedix-run/SKILL.md and .agents/skills/test-audit/SKILL.md.
+
+License: MIT (`LICENSES/third-party/openclaw-MIT.txt`)
