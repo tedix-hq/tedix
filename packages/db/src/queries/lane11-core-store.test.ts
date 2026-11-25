@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { coreTable, createCoreStore } from "../core-store/client";
@@ -16,6 +16,17 @@ import {
 	getAppsBySlugsWithTools,
 	setAppGatewayMembership,
 } from "./app-records";
+import {
+	countAutoSyncBaseApps,
+	getAppBySlugForOrg,
+	getInheritedAppLogos,
+	listApiSyncApps,
+	listBaseAppsForCatalogApps,
+	listAppReferenceMetadataByIds,
+	listAppReferenceMetadataBySlugs,
+	listPreviewSourceAppsByIds,
+	listPreviewSourceAppsBySlugs,
+} from "./apps";
 import { getAggregateAppLinkTargets } from "./aggregate-app-links";
 import { getAppsWithGatingByIds } from "./app-gating";
 import { inferCatalogToolOutputSchemas } from "./tools";
@@ -484,6 +495,132 @@ for (const store of stores) {
 			).toMatchObject({
 				properties: { count: { type: "number" }, next: { type: "boolean" } },
 			});
+		});
+
+		it("resolves app references and inherited logos with one lookup per candidate set", async () => {
+			await db.insert(coreTable(db, appCatalog)).values({
+				id: "lookup-catalog",
+				name: "Lookup",
+				connectorType: "MCP",
+				lastSyncedAt: "now",
+				logoUrl: "https://example.test/logo.png",
+			});
+			await db.insert(coreTable(db, apps)).values([
+				{
+					id: "lookup-base",
+					organizationId: "org",
+					slug: "lookup",
+					name: "Lookup",
+					catalogAppId: "lookup-catalog",
+					metadata: {
+						mcpConfig: { autoSync: true, openApiSync: { enabled: true } },
+					},
+				},
+				{
+					id: "lookup-foreign",
+					organizationId: "other",
+					slug: "lookup",
+					name: "Foreign",
+				},
+				{
+					id: "lookup-proxy",
+					organizationId: "org",
+					slug: "lookup-proxy",
+					name: "Proxy",
+					sourceAppId: "lookup-base",
+					catalogAppId: "lookup-catalog",
+				},
+			]);
+			expect((await getAppBySlugForOrg(db, "LOOKUP", "other"))?.id).toBe(
+				"lookup-foreign",
+			);
+			expect(await listApiSyncApps(db, { source: "openapi" })).toEqual([
+				{ id: "lookup-base", slug: "lookup" },
+			]);
+			expect(await listApiSyncApps(db, { source: "google-discovery" })).toEqual(
+				[],
+			);
+			expect(Number(await countAutoSyncBaseApps(db))).toBe(1);
+			const table = coreTable(db, apps);
+			for (const [flag, enabled] of [
+				[1, true],
+				["1", false],
+				[false, false],
+			] as const) {
+				const metadata = JSON.stringify({
+					mcpConfig: { openApiSync: { enabled: flag } },
+				});
+				await db
+					.update(table)
+					.set({
+						metadata:
+							store === "d1" ? sql`${metadata}` : sql`${metadata}::text::jsonb`,
+					})
+					.where(eq(table.id, "lookup-base"));
+				expect((await listApiSyncApps(db, { source: "openapi" })).length).toBe(
+					enabled ? 1 : 0,
+				);
+			}
+
+			const missing = Array.from(
+				{ length: 300 },
+				(_, index) => `lookup-missing-${index}`,
+			);
+			const select = vi.spyOn(db, "select");
+			try {
+				for (const lookup of [
+					listAppReferenceMetadataByIds,
+					listPreviewSourceAppsByIds,
+				]) {
+					select.mockClear();
+					expect(
+						(await lookup(db, [...missing, "lookup-base"])).map(
+							(row) => row.id,
+						),
+					).toEqual(["lookup-base"]);
+					expect(select).toHaveBeenCalledTimes(1);
+				}
+				for (const lookup of [
+					listAppReferenceMetadataBySlugs,
+					listPreviewSourceAppsBySlugs,
+				]) {
+					select.mockClear();
+					expect(
+						(await lookup(db, [...missing, " LOOKUP "]))
+							.map((row) => row.id)
+							.sort(),
+					).toEqual(["lookup-base", "lookup-foreign"]);
+					expect(select).toHaveBeenCalledTimes(1);
+				}
+				select.mockClear();
+				expect(
+					(
+						await listBaseAppsForCatalogApps(db, [...missing, "lookup-catalog"])
+					).map((row) => row.id),
+				).toEqual(["lookup-base"]);
+				expect(select).toHaveBeenCalledTimes(1);
+				select.mockClear();
+				const logos = await getInheritedAppLogos(db, [
+					...missing.map((id) => ({
+						id,
+						logoUrl: null,
+						sourceAppId: id,
+						catalogAppId: id,
+					})),
+					{
+						id: "lookup-proxy",
+						logoUrl: null,
+						sourceAppId: "lookup-base",
+						catalogAppId: null,
+					},
+				]);
+				expect(Object.fromEntries(logos)).toEqual({
+					"lookup-proxy": "https://example.test/logo.png",
+				});
+				expect(select).toHaveBeenCalledTimes(2);
+			} finally {
+				select.mockRestore();
+			}
 		});
 
 		it("advances app and tool generations on authority changes and deletion", async () => {
