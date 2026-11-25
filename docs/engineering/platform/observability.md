@@ -116,3 +116,81 @@ failure or missing telemetry must be visible independently of the overloaded D1
 path. Persist window/cooldown state, avoid per-tick duplicate cards, and configure
 the destination through existing schedule/skill and Activity mechanisms rather than
 hardcoding a tenant into product TypeScript.
+
+## D1 invocation analytics
+
+The API, MCP and tedi-runtime Workers support an optional `D1_REQUESTS` binding.
+When bound, every completed `withD1Ledger` invocation attempts one Analytics Engine
+write, including empty ledgers and handled D1 overloads. Missing bindings are a no-op;
+a failed analytics write never fails the request. An invocation terminated by
+the platform before its `finally` runs cannot write a point.
+
+`index1` is the route label with UUID, long hex and numeric path segments
+replaced by `:id`, limited to 96 UTF-8 bytes. `blob1` is the normalized label,
+`blob2` the Worker, `blob3` the outcome (`refused` for any observed D1 overload,
+then `error` for an uncaught invocation error, otherwise `ok`), and `blob4` the
+organization if already known. `double1` through `double5` are statements,
+D1 wall milliseconds, known rows read, known rows written and maximum concurrent
+D1 calls. SQL, bind values and query shapes are never sent. Row counts have
+the same missing-metadata limitations described above.
+
+Nested job ledgers inherit their ingress sink and emit their own labels. They
+measure their own statements; do not interpret their data points as additional
+HTTP requests. Durable Object reconciliation supplies its own sink because the
+caller context does not cross that boundary.
+
+Run this saved query through the Cloudflare Analytics Engine SQL API to rank
+labels by total D1 wall time in each hour. Replace `public_installation_dataset`
+with the private installation dataset outside this repository:
+
+```sql
+SELECT
+  toStartOfHour(timestamp) AS hour,
+  blob2 AS worker,
+  blob1 AS label,
+  SUM(_sample_interval * double2) AS d1WallMs,
+  SUM(_sample_interval * double1) AS statements,
+  SUM(_sample_interval) AS invocations
+FROM public_installation_dataset
+WHERE timestamp >= NOW() - INTERVAL '24' HOUR
+GROUP BY hour, worker, label
+ORDER BY hour DESC, d1WallMs DESC
+LIMIT 1000
+```
+
+For the refusal acceptance check, use a fixed, completed UTC hour and matching
+Worker/ingress labels, with the same explicit start and end in Workers Logs:
+
+```sql
+SELECT
+  toStartOfMinute(timestamp) AS minute,
+  blob2 AS worker,
+  blob1 AS label,
+  SUM(_sample_interval) AS refused
+FROM public_installation_dataset
+WHERE timestamp >= toDateTime('2026-01-01 12:00:00')
+  AND timestamp < toDateTime('2026-01-01 13:00:00')
+  AND blob3 = 'refused'
+GROUP BY minute, worker, label
+ORDER BY minute, worker, label
+```
+
+The dates above are examples. The D1 owner or LEAD records all 60 minute
+comparisons against distinct Workers Logs requests containing
+`temporarily unavailable`, including zero-count minutes. Use bounded log
+windows to avoid the 2,000-event query cap; record sampling and truncation.
+Require a difference of at most 1% in every minute (both zero counts match;
+a nonzero Analytics Engine count against zero log requests does not).
+Keep nested jobs and separate service-binding hops distinct from HTTP ingress
+requests when selecting the comparison population.
+
+[Analytics Engine samples writes and queries](https://developers.cloudflare.com/analytics/analytics-engine/sampling/),
+so weighted sums are estimates when `_sample_interval` exceeds one. One write
+attempt per ledger does not guarantee exact stored counts or the 1% live result.
+Report an inconclusive comparison when sampling or log limits prevent proof.
+
+After the first complete day, query `SUM(_sample_interval)` over that fixed
+24-hour window. Report the observed volume, its sampling limits, and a 30-day
+projection (`daily points * 30`) against the 10,000,000-points/month allowance.
+Keep actual installation usage and the live acceptance receipts on the Work
+Item; source checks alone do not establish them.

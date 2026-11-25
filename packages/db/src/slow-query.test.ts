@@ -192,6 +192,90 @@ describe("slow D1 observation", () => {
 });
 
 describe("per-request D1 ledger", () => {
+	it("writes every outcome without leaking query data or letting the sink break a request", async () => {
+		const { db, native, result } = fixture(30);
+		Object.assign(result.meta, { rows_written: 3 });
+		vi.spyOn(console, "info").mockImplementation(() => {});
+		const writeDataPoint = vi.fn();
+		const analytics = {
+			sink: { writeDataPoint },
+			worker: "fixture-worker",
+			organizationId: "org-fictional",
+		};
+		const label =
+			"GET /items/123/abcdef0123456789/12345678-1234-1234-1234-123456789abc";
+		await withD1Ledger(
+			label,
+			() => db.prepare("SELECT 'private-value'").all(),
+			{ analytics },
+		);
+		expect(writeDataPoint).toHaveBeenLastCalledWith({
+			indexes: ["GET /items/:id/:id/:id"],
+			blobs: [
+				"GET /items/:id/:id/:id",
+				"fixture-worker",
+				"ok",
+				"org-fictional",
+			],
+			doubles: [1, 30, 500, 3, 1],
+		});
+		const failure = new Error("private-failure");
+		await expect(
+			withD1Ledger(
+				"error",
+				async () => {
+					throw failure;
+				},
+				{ analytics },
+			),
+		).rejects.toBe(failure);
+		expect(writeDataPoint.mock.calls.at(-1)![0].blobs[2]).toBe("error");
+		const refused = new Error("D1 DB is overloaded");
+		for (const caught of [false, true]) {
+			native.all.mockRejectedValueOnce(refused);
+			const result = withD1Ledger(
+				"refused",
+				async () => {
+					const query = db.prepare("SELECT 'private-value'").all();
+					return caught ? query.catch(() => "handled") : query;
+				},
+				{ analytics },
+			);
+			if (caught) expect(await result).toBe("handled");
+			else await expect(result).rejects.toBe(refused);
+			expect(writeDataPoint.mock.calls.at(-1)![0].blobs[2]).toBe("refused");
+		}
+		await withD1Ledger("GET /" + "é".repeat(100), async () => {}, {
+			analytics,
+		});
+		expect(
+			new TextEncoder().encode(writeDataPoint.mock.calls.at(-1)![0].indexes[0])
+				.length,
+		).toBe(95);
+		expect(writeDataPoint.mock.calls.at(-1)![0].doubles).toEqual([
+			0, 0, 0, 0, 0,
+		]);
+		await withD1Ledger("outer", () => withD1Ledger("job", async () => {}), {
+			analytics,
+		});
+		expect(writeDataPoint).toHaveBeenCalledTimes(7);
+		expect(JSON.stringify(writeDataPoint.mock.calls)).not.toContain("private");
+		writeDataPoint.mockImplementation(() => {
+			throw new Error("sink unavailable");
+		});
+		expect(await withD1Ledger("ok", async () => 7, { analytics })).toBe(7);
+		await expect(
+			withD1Ledger(
+				"error",
+				async () => {
+					throw failure;
+				},
+				{ analytics },
+			),
+		).rejects.toBe(failure);
+		expect(await withD1Ledger("local", async () => 9)).toBe(9);
+	});
+
 	it("caps a 244-call fan-out across clients and releases permits after errors", async () => {
 		const { db, native, database, result } = fixture(0);
 		const info = vi.spyOn(console, "info").mockImplementation(() => {});

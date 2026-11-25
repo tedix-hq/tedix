@@ -20,7 +20,20 @@ const requestLogger = createLogger<{
 	topReadShapes: string;
 }>({ component: "db.request" });
 
+type D1Analytics = {
+	sink?: {
+		writeDataPoint(point: {
+			indexes: string[];
+			blobs: string[];
+			doubles: number[];
+		}): void;
+	};
+	worker: string;
+	organizationId?: string;
+};
+
 type Ledger = {
+	analytics?: D1Analytics;
 	limiter?: { active: number; limit: number; waiting: Array<() => void> };
 	reads?: Map<string, Map<object, Promise<unknown>>>;
 	label: string;
@@ -48,7 +61,11 @@ const ledgers = new AsyncLocalStorage<Ledger>();
 export async function withD1Ledger<T>(
 	label: string,
 	run: () => Promise<T>,
-	options: { maxInFlight?: number; alwaysLog?: boolean } = {},
+	options: {
+		maxInFlight?: number;
+		alwaysLog?: boolean;
+		analytics?: D1Analytics;
+	} = {},
 ): Promise<T> {
 	if (
 		options.maxInFlight !== undefined &&
@@ -56,6 +73,8 @@ export async function withD1Ledger<T>(
 	)
 		throw new Error("D1 concurrency must be a positive integer");
 	const ledger: Ledger = {
+		// Nested job ledgers keep the ingress sink without importing Worker env.
+		analytics: options.analytics ?? ledgers.getStore()?.analytics,
 		label,
 		limiter:
 			options.maxInFlight === undefined
@@ -72,12 +91,52 @@ export async function withD1Ledger<T>(
 		shapes: new Map(),
 		reads: new Map(),
 	};
+	let failed = false;
 	try {
 		return await ledgers.run(ledger, run);
+	} catch (error) {
+		failed = true;
+		throw error;
 	} finally {
 		// Detached work must not retain or refill an invocation's memo.
 		ledger.reads?.clear();
 		ledger.reads = undefined;
+		if (ledger.analytics?.sink) {
+			try {
+				const normalized = label.replace(
+					/\/(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{16,}|\d+)(?=\/|$)/gi,
+					"/:id",
+				);
+				// Slice by code point so a UTF-8 index never ends in a partial character.
+				let index = "";
+				let bytes = 0;
+				const encoder = new TextEncoder();
+				for (const character of normalized) {
+					const size = encoder.encode(character).length;
+					if (bytes + size > 96) break;
+					index += character;
+					bytes += size;
+				}
+				ledger.analytics.sink.writeDataPoint({
+					indexes: [index],
+					blobs: [
+						normalized,
+						ledger.analytics.worker,
+						ledger.overloaded > 0 ? "refused" : failed ? "error" : "ok",
+						ledger.analytics.organizationId ?? "",
+					],
+					doubles: [
+						ledger.statements,
+						ledger.d1WallMs,
+						ledger.rowsRead,
+						ledger.rowsWritten,
+						ledger.maxInFlight,
+					],
+				});
+			} catch {
+				// Telemetry failure must not replace a response or the original error.
+			}
+		}
 		if (
 			options.alwaysLog ||
 			ledger.statements >= 25 ||
@@ -114,6 +173,12 @@ export async function withD1Ledger<T>(
 					.join(" | "),
 			});
 	}
+}
+
+/** Use only an organization already resolved by the ingress; never look one up. */
+export function setD1LedgerOrganization(organizationId: string): void {
+	const analytics = ledgers.getStore()?.analytics;
+	if (analytics) analytics.organizationId = organizationId;
 }
 
 /** Share a read only until the enclosing request, scheduled run or queue batch ends. */

@@ -1,3 +1,4 @@
+import { setD1LedgerOrganization, withD1Ledger } from "@tedix/db/slow-query";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
@@ -1606,13 +1607,15 @@ function createEmbeddedCapabilityAdapter(
 // Main fetch
 // ---------------------------------------------------------------------------
 
-export default {
+const worker = {
 	async email(
 		message: ForwardableEmailMessage,
 		env: CloudflareEnv,
 		ctx: ExecutionContext,
 	): Promise<void> {
-		await handleInboundEmail(message, env, ctx);
+		await withD1Ledger("email", () => handleInboundEmail(message, env, ctx), {
+			analytics: { sink: env.D1_REQUESTS, worker: "tedix-tedi-runtime" },
+		});
 	},
 
 	async fetch(inbound: Request, env: Cloudflare.Env): Promise<Response> {
@@ -1716,6 +1719,7 @@ export default {
 				{ status: 404, headers: { "Content-Type": "application/json" } },
 			);
 		}
+		if (tedi.orgId) setD1LedgerOrganization(tedi.orgId);
 		const generationAuth = await markIsolateGenerationReady(env, tedi, request);
 		if (generationAuth === "rejected") {
 			// Generation credentials prove that a newly armed runtime body became
@@ -2533,5 +2537,16 @@ export default {
 		// `tedis.isolate_agent_id` without losing the slug.
 		const forwardRequest = new Request(request, { headers: headersForDo });
 		return fetchIsolateDo(env, tedi, forwardRequest);
+	},
+};
+
+export default {
+	email: worker.email,
+	fetch(inbound: Request, env: Cloudflare.Env): Promise<Response> {
+		return withD1Ledger(
+			`${inbound.method} ${new URL(inbound.url).pathname}`,
+			() => worker.fetch(inbound, env),
+			{ analytics: { sink: env.D1_REQUESTS, worker: "tedix-tedi-runtime" } },
+		);
 	},
 };

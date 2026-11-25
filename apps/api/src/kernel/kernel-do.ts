@@ -1018,7 +1018,14 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 					await this.turnContext(),
 					payload.organizationId,
 				),
-			{ alwaysLog: true },
+			{
+				alwaysLog: true,
+				analytics: {
+					sink: this.env.D1_REQUESTS,
+					worker: "tedix-api",
+					organizationId: payload.organizationId,
+				},
+			},
 		);
 	}
 

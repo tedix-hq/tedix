@@ -1,3 +1,4 @@
+import { setD1LedgerOrganization, withD1Ledger } from "@tedix/db/slow-query";
 import { invalidateToolDefinitionsByScope } from "./aggregate-internal-tools";
 import { invalidateOrgSkillDiscovery } from "./mcp/skill-discovery-cache";
 import { gatewayReadBinding } from "./lib/gateway-read-cache";
@@ -1494,6 +1495,7 @@ const worker = {
 			}
 
 			const { app } = resolvedApp;
+			if (app.organizationId) setD1LedgerOrganization(app.organizationId);
 
 			if (app.visibility === "disabled") {
 				await recordMcpAccessDenial({
@@ -2178,7 +2180,11 @@ async function fetchWithCorrelation(
 	const traceId = requestTraceId(request.headers);
 	// The MCP handler owns SEP-414 body metadata; don't override it with a generated header.
 	const response = await correlatedErrorResponse(
-		await worker.fetch(request, env, ctx).catch((error: unknown) => {
+		await withD1Ledger(
+			`${request.method} ${new URL(request.url).pathname}`,
+			() => worker.fetch(request, env, ctx),
+			{ analytics: { sink: env.D1_REQUESTS, worker: "tedix-mcp" } },
+		).catch((error: unknown) => {
 			// An exception leaving the Worker is Cloudflare error 1101: an HTML
 			// page with no cause. Log the cause and answer as retryable instead.
 			log.error("MCP request threw an unhandled exception", {

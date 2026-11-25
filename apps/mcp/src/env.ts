@@ -23,6 +23,7 @@ type McpEnv = {
 	// KV Instant is private beta. The binding is absent until an account-enabled
 	// namespace id is supplied while evaluating cloudflare.config.ts.
 	AGGREGATE_EPOCH_KV?: KVNamespace;
+	D1_REQUESTS?: AnalyticsEngineDataset;
 } & McpPlatformHostEnv;
 
 declare global {

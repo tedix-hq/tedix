@@ -116,7 +116,10 @@ async function serveFetch(
 	return withD1Ledger(
 		`${request.method} ${new URL(request.url).pathname}`,
 		async () => handlers.fetch(request, env, ctx),
-		{ maxInFlight: 6 },
+		{
+			maxInFlight: 6,
+			analytics: { sink: env.D1_REQUESTS, worker: "tedix-api" },
+		},
 	);
 }
 
@@ -344,7 +347,10 @@ async function runScheduled(
 	await withD1Ledger(
 		`cron ${controller.cron}`,
 		async () => handlers.scheduled(controller, env, ctx),
-		{ maxInFlight: 6 },
+		{
+			maxInFlight: 6,
+			analytics: { sink: env.D1_REQUESTS, worker: "tedix-api" },
+		},
 	);
 }
 
@@ -361,7 +367,10 @@ async function runQueue(
 	await withD1Ledger(
 		`queue ${batch.queue}`,
 		async () => handlers.queue(batch, env, ctx),
-		{ maxInFlight: 6 },
+		{
+			maxInFlight: 6,
+			analytics: { sink: env.D1_REQUESTS, worker: "tedix-api" },
+		},
 	);
 }
 
