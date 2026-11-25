@@ -18,6 +18,7 @@ export function parseAtifUsage(
 	return result.success ? result.data : null;
 }
 export interface ParsedLane {
+	modelTurns: number;
 	sessionKey: string;
 	cwd: string;
 	source: string;
@@ -73,6 +74,7 @@ export async function parseLaneTranscript(
 	>();
 	const samples: NonNullable<LaneObservation["usageSamples"]> = [];
 	const calls = new Set<string>();
+	let modelTurns = 0;
 	for await (const line of createInterface({
 		input: createReadStream(path),
 		crlfDelay: Infinity,
@@ -108,6 +110,8 @@ export async function parseLaneTranscript(
 		) {
 			const u = p.info.total_token_usage;
 			const prior = telemetry.usage;
+			if (u.input_tokens !== prior?.input || u.output_tokens !== prior?.output)
+				modelTurns++;
 			telemetry.usage = {
 				input: u.input_tokens,
 				cached: u.cached_input_tokens ?? 0,
@@ -270,5 +274,11 @@ export async function parseLaneTranscript(
 	telemetry.finishedAt = completedAt;
 	// A recorded turn completion is an executor outcome, not independent verification.
 	if (completedAt && !telemetry.outcome) telemetry.outcome = "succeeded";
-	return { sessionKey, cwd, source, telemetry };
+	return {
+		sessionKey,
+		cwd,
+		source,
+		telemetry,
+		modelTurns: executor === "claude-code" ? messages.size : modelTurns,
+	};
 }

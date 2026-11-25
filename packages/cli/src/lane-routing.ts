@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { laneLimitsSchema } from "./lane-limits";
 import { DecisionModelSchema } from "@tedix/api-contract/schemas/jev";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -33,6 +34,7 @@ export const routingPolicySchema = z.strictObject({
 					z.strictObject({
 						executor: executorSchema,
 						model: z.string().min(1).optional(),
+						limits: laneLimitsSchema.optional(),
 					}),
 				),
 			}),

@@ -22,6 +22,12 @@ import type { CodexLaneServer } from "./codex-lane-thread";
 import type { DevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import { recordExecutorUsageSignal } from "./lane-budget";
+import {
+	laneLimitsSchema,
+	laneLimitReason,
+	type LaneLimits,
+	type LaneLimitState,
+} from "./lane-limits";
 import { parseAtifUsage, type LaneObservation } from "./lane-telemetry";
 import { laneTurnOutput } from "./lane-output";
 import { laneAgentSteps, type LaneStep } from "./lane-steps";
@@ -186,6 +192,9 @@ async function runLaneProcessWithReporter(
 	deps: {
 		report?: typeof reportLaneObservation;
 		heartbeatMs?: number;
+		limits?: LaneLimits;
+		limitState?: LaneLimitState;
+		onLimitState?: (state: LaneLimitState) => void;
 		sessionKey?: string;
 		label?: string;
 		cwd?: string;
@@ -315,6 +324,19 @@ async function runLaneProcessWithReporter(
 	const devin = executor === "devin";
 	const opencode = executor === "opencode";
 	const tedi = executor === "tedi";
+	const limits = laneLimitsSchema.parse(deps.limits ?? {});
+	if (
+		(limits.maxTurns || limits.maxCostUsd) &&
+		!["codex", "claude-code", "opencode"].includes(executor!)
+	)
+		throw new Error(
+			`Turn and cost limits require native Codex, Claude Code or OpenCode usage; ${executor} supports timeoutSec`,
+		);
+	const limitState = deps.limitState ?? {
+		startedAt: Date.now(),
+		turns: 0,
+		tokens: 0,
+	};
 	if (devin) {
 		const { assertDevinProjectHooks } = await import("./devin-lane-security");
 		await assertDevinProjectHooks(deps.cwd ?? process.cwd());
@@ -623,9 +645,56 @@ async function runLaneProcessWithReporter(
 		}
 	};
 	let heartbeat: Promise<unknown> | undefined;
+	const usageLimits = !!(limits.maxTurns || limits.maxCostUsd);
+	const readLimitUsage = async () => {
+		if (!usageLimits || !["codex", "claude-code"].includes(executor!)) return;
+		let path = options.get("--transcript");
+		if (!path && (nativeId || deps.sessionKey)) {
+			const key = nativeId ?? deps.sessionKey!;
+			if (executor === "codex") path = codexTranscript(key);
+			else {
+				const { claudeTranscript, claudeConfigDirectory } =
+					await import("./claude-lane-thread");
+				path = claudeTranscript(key, claudeConfigDirectory(env, deps.cwd));
+			}
+		}
+		if (!path || !existsSync(path)) return;
+		const { parseLaneTranscript } = await import("./lane-telemetry");
+		const parsed = await parseLaneTranscript(
+			path,
+			executor as "codex" | "claude-code",
+		);
+		if (deps.sessionKey && parsed.sessionKey !== deps.sessionKey) return;
+		return {
+			turns: parsed.modelTurns,
+			tokens:
+				(parsed.telemetry.usage?.input ?? 0) +
+				(parsed.telemetry.usage?.output ?? 0),
+		};
+	};
+	if (usageLimits && !limitState.transcriptBaseline) {
+		limitState.transcriptBaseline = (await readLimitUsage()) ?? {
+			turns: 0,
+			tokens: 0,
+		};
+	}
+	const updateLimitUsage = async () => {
+		const usage = await readLimitUsage();
+		if (!usage) return;
+		const baseline = limitState.transcriptBaseline!;
+		limitState.turns = Math.max(limitState.turns, usage.turns - baseline.turns);
+		limitState.tokens = Math.max(
+			limitState.tokens,
+			usage.tokens - baseline.tokens,
+		);
+		deps.onLimitState?.(limitState);
+	};
+	deps.onLimitState?.(limitState);
 	let exitCode = 1,
 		signal: NodeJS.Signals | null = null;
 	for (let turn = 0; turn < (bridge ? 2 : 1); turn++) {
+		limitState.reason = laneLimitReason(limits, limitState);
+		if (limitState.reason) break;
 		if (bridge) telemetry.finalMessage = "";
 		await renewLaneAgent();
 		const credentialTimer = laneAgent
@@ -647,6 +716,10 @@ async function runLaneProcessWithReporter(
 		let turnClosed = false;
 		let turnChecksFailed = false;
 		let stallKillTimer: ReturnType<typeof setTimeout> | undefined;
+		let limitKillTimer: ReturnType<typeof setTimeout> | undefined;
+		let limitRead: Promise<void> | undefined;
+		const initialTurns = limitState.turns;
+		const initialTokens = limitState.tokens;
 		function receiveStderr(chunk: Buffer) {
 			process.stderr.write(chunk);
 			devinStderr = (devinStderr + chunk.toString()).slice(-24000);
@@ -667,7 +740,7 @@ async function runLaneProcessWithReporter(
 				const worker = (child = spawn(command[0]!, command.slice(1), {
 					env,
 					cwd: deps.cwd,
-					detached: deps.detachedChild,
+					detached: deps.detachedChild || Object.keys(limits).length > 0,
 					stdio: [
 						"pipe",
 						stdout?.fd ??
@@ -789,6 +862,12 @@ async function runLaneProcessWithReporter(
 									cached: (prior?.cached ?? 0) + usage.data.cached,
 									reasoning: (prior?.reasoning ?? 0) + usage.data.reasoning,
 								};
+								limitState.turns = initialTurns + usageEventIds.size;
+								limitState.tokens =
+									initialTokens +
+									telemetry.usage.input +
+									telemetry.usage.output;
+								checkLimit();
 								if (telemetry.model)
 									(telemetry.usageSamples ??= []).push({
 										model: telemetry.model,
@@ -854,7 +933,11 @@ async function runLaneProcessWithReporter(
 		}, deps.heartbeatMs ?? LANE_HEARTBEAT_MS);
 		const forward = (signal: NodeJS.Signals) => {
 			try {
-				if (deps.detachedChild && child?.pid) process.kill(-child.pid, signal);
+				if (
+					(deps.detachedChild || Object.keys(limits).length > 0) &&
+					child?.pid
+				)
+					process.kill(-child.pid, signal);
 				else child?.kill(signal);
 			} catch {
 				/* The child may have just exited. */
@@ -862,6 +945,39 @@ async function runLaneProcessWithReporter(
 		};
 		const interrupt = () => forward("SIGINT"),
 			terminate = () => forward("SIGTERM");
+		const checkLimit = () => {
+			if (turnClosed || limitState.reason) return;
+			limitState.reason = laneLimitReason(limits, limitState);
+			deps.onLimitState?.(limitState);
+			if (!limitState.reason) return;
+			process.stderr.write(`${limitState.reason}\n`);
+			if (appServer) void appServer.interrupt()?.catch(() => {});
+			else terminate();
+			limitKillTimer = setTimeout(() => {
+				if (appServer) appServer.close();
+				else forward("SIGKILL");
+			}, 5000);
+		};
+		const limitsTimer = Object.keys(limits).length
+			? setInterval(
+					() => {
+						checkLimit();
+						if (!usageLimits || limitRead || turnClosed || limitState.reason)
+							return;
+						limitRead = updateLimitUsage()
+							.then(() => {
+								checkLimit();
+							})
+							.catch(() => {
+								// A transcript can be between writes; keep the wall clock running.
+							})
+							.finally(() => {
+								limitRead = undefined;
+							});
+					},
+					Math.min(1000, Math.max(10, (limits.timeoutSec ?? 2) * 500)),
+				)
+			: undefined;
 		const providerStallMs = deps.providerStallMs ?? OPENCODE_PROVIDER_STALL_MS;
 		const stallTimer = opencode
 			? setInterval(
@@ -973,6 +1089,13 @@ async function runLaneProcessWithReporter(
 			if (credentialTimer) clearInterval(credentialTimer);
 			if (stallTimer) clearInterval(stallTimer);
 			if (stallKillTimer) clearTimeout(stallKillTimer);
+			if (limitsTimer) clearInterval(limitsTimer);
+			if (limitKillTimer) clearTimeout(limitKillTimer);
+			await limitRead;
+			if (limitState.reason) {
+				appServer?.close();
+				forward("SIGKILL");
+			}
 			stdout?.close();
 			stderr?.close();
 			process.off("SIGINT", interrupt);
@@ -1079,6 +1202,15 @@ async function runLaneProcessWithReporter(
 			process.stderr.write(`Lane transcript: ${String(error)}\n`);
 		}
 		await heartbeat;
+		await updateLimitUsage().catch((error) => {
+			if (usageLimits) {
+				exitCode = 1;
+				telemetry.finalMessage = `Attempt usage could not be checked: ${String(error)}`;
+			}
+		});
+		limitState.reason = laneLimitReason(limits, limitState);
+		deps.onLimitState?.(limitState);
+		if (limitState.reason) break;
 		// Devin can exit non-zero after printing its result envelopes; a
 		// reported result is still delivered. The transcript and session checks
 		// above stay fatal: they prove the turns ran in the admitted session.
@@ -1166,6 +1298,12 @@ async function runLaneProcessWithReporter(
 		telemetry.finalMessage = `${telemetry.finalMessage}\n${devinStderr}`.slice(
 			-24000,
 		);
+	if (limitState.reason) {
+		exitCode = 1;
+		signal = null;
+		telemetry.finalMessage = limitState.reason;
+		deps.onLimitState?.(limitState);
+	}
 	telemetry = {
 		...telemetry,
 		finishedAt: new Date().toISOString(),

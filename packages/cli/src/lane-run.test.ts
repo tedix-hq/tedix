@@ -47,6 +47,138 @@ function fixture() {
 	return { args, out };
 }
 describe("lane launcher", () => {
+	it.each(["codex", "claude-code"] as const)(
+		"enforces %s transcript usage without charging earlier Attempts or duplicate records",
+		async (executor) => {
+			const { args, out } = fixture();
+			args[2] = executor;
+			const path = join(out, "..", "transcript.jsonl");
+			const row = (n: number) => ({
+				timestamp: "2026-11-25T00:00:00Z",
+				...(executor === "codex"
+					? {
+							type: "event_msg",
+							payload: {
+								type: "token_count",
+								info: {
+									total_token_usage: {
+										input_tokens: n * 100,
+										output_tokens: n * 10,
+									},
+								},
+							},
+						}
+					: {
+							type: "assistant",
+							sessionId: "test-session",
+							message: {
+								id: `message-${n}`,
+								role: "assistant",
+								content: [],
+								usage: { input_tokens: 100, output_tokens: 10 },
+							},
+						}),
+			});
+			writeFileSync(
+				path,
+				[
+					{
+						timestamp: "2026-11-25T00:00:00Z",
+						type: "session_meta",
+						payload: { id: "test-session" },
+					},
+					row(1),
+				]
+					.map((value) => JSON.stringify(value))
+					.join("\n") + "\n",
+			);
+			writeFileSync(
+				args.at(-1)!,
+				`process.stdin.resume(); process.stdin.on('end', () => {
+			require('node:fs').appendFileSync(${codeModeLiteral(path)}, ${codeModeLiteral(JSON.stringify(row(2)) + "\n" + JSON.stringify(row(2)) + "\n")});
+			setInterval(() => {}, 1000);
+		});`,
+			);
+			args.splice(args.indexOf("--"), 0, "--transcript", path);
+			const state = {
+				startedAt: Date.now(),
+				turns: 0,
+				tokens: 0,
+				reason: undefined as string | undefined,
+			};
+			expect(
+				await runLaneProcess(args, {
+					sessionKey: "test-session",
+					limits: { maxTurns: 1 },
+					limitState: state,
+					report: async () => ({}),
+				}),
+			).toBe(1);
+			expect(state.turns).toBe(1);
+			expect(state.tokens).toBe(110);
+			expect(state.reason).toContain("Attempt turn limit reached");
+		},
+	);
+	it.each([
+		{ limits: { timeoutSec: 0.05 }, reason: "wall time", executor: "skill" },
+		{ limits: { maxTurns: 1 }, reason: "turn", executor: "opencode" },
+		{
+			limits: { maxCostUsd: 0.001, usdPerMillionTokens: 10 },
+			reason: "estimated cost",
+			executor: "opencode",
+		},
+	])(
+		"stops a live child at the $reason limit and retains the reason",
+		async ({ limits, reason, executor }) => {
+			const { args } = fixture();
+			args[2] = executor;
+			const script = args.at(-1)!;
+			writeFileSync(
+				script,
+				`process.stdin.resume(); process.stdin.on('end', () => {
+			console.log(JSON.stringify({type:'step_finish',sessionID:'test-session',part:{id:'step-1',tokens:{input:100,output:10}}}));
+			setInterval(() => {}, 1000);
+		});`,
+			);
+			const reports: Record<string, unknown>[] = [];
+			const state = {
+				startedAt: Date.now(),
+				turns: 0,
+				tokens: 0,
+				reason: undefined as string | undefined,
+			};
+			expect(
+				await runLaneProcess(args, {
+					limits,
+					limitState: state,
+					sessionKey: executor === "opencode" ? "test-session" : undefined,
+					report: async (input) => {
+						reports.push(input);
+						return {};
+					},
+				}),
+			).toBe(1);
+			expect(state.reason).toContain(`Attempt ${reason} limit reached`);
+			expect(reports.at(-1)!.telemetry).toMatchObject({
+				outcome: "failed",
+				finalMessage: state.reason,
+			});
+			// The same Attempt must not gain a fresh allowance on a resumed launch.
+			let spawned = false;
+			expect(
+				await runLaneProcess(args, {
+					limits,
+					limitState: JSON.parse(JSON.stringify(state)),
+					sessionKey: executor === "opencode" ? "test-session" : undefined,
+					onSpawn: () => {
+						spawned = true;
+					},
+					report: async () => ({}),
+				}),
+			).toBe(1);
+			expect(spawned).toBe(false);
+		},
+	);
 	// Codex may announce a turn before or after it answers the start request.
 	it.each(["reply", "notice"])(
 		"steers the active Codex turn and keeps its server for the next turn (%s first)",

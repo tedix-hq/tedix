@@ -802,6 +802,33 @@ function fixture({
 		briefs,
 	};
 }
+it("settles an Attempt limit with its reason and leaves Work open", async () => {
+	const f = fixture();
+	f.items.splice(1);
+	f.items[0]!.metadata = {
+		...f.items[0]!.metadata,
+		runnerLimits: { maxTurns: 2 },
+	};
+	f.deps.launch = async (_args, deps) => {
+		expect(deps!.limits).toEqual({ maxTurns: 2 });
+		deps!.onLimitState!({
+			...deps!.limitState!,
+			turns: 2,
+			reason: "Attempt turn limit reached (2 model responses)",
+		});
+		return 1;
+	};
+	const dispatcher = f.restart();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	const settle = f.events.find((event) => event.verb === "settle")!;
+	expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+	expect(settle.args[settle.args.indexOf("--note") + 1]).toBe(
+		"Result:\nAttempt turn limit reached (2 model responses)",
+	);
+	expect(f.events.filter(requestsCompletion)).toHaveLength(0);
+});
+
 it("admits and settles a repo-free task without Git, retaining its output in the archive", async () => {
 	const f = fixture();
 	f.items.splice(1);

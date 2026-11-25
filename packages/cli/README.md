@@ -17,6 +17,25 @@ handles the rest. The `tedix` command gives you that from a terminal:
 Using it with Tedix Cloud needs an invitation; see
 [Release status](../../docs/public/release-status.md).
 
+## Runner limits
+
+Runner routing files can set `limits` on each route, for example
+`{"executor":"codex","limits":{"maxTurns":100,"timeoutSec":3600,"maxCostUsd":5,"usdPerMillionTokens":10}}`.
+Work metadata `runnerLimits` replaces the route's limits for that task.
+Limits are optional and positive; counters belong to one Attempt and persist
+across follow-ups and runner restarts. A limit stops the child and records its
+name in the Attempt settlement, leaving Work open.
+
+`timeoutSec` applies to every executor. `maxTurns` counts model responses,
+including tool rounds, for Codex, Claude Code and OpenCode; these executors also
+support `maxCostUsd`. Cost uses the configured blended `usdPerMillionTokens`
+estimate on input plus output tokens, including cached input. It is checked
+when usage arrives, so an in-flight model response can exceed the estimate.
+Codex and Claude transcripts are checked once per second; OpenCode checks each
+completed step. Other executors reject turn or cost limits before launch.
+The child receives an interrupt or SIGTERM, then is killed after five seconds
+if it has not exited. No limits are enabled by default.
+
 ## Quick start
 
 ```sh

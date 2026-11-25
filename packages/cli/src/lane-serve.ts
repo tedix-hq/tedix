@@ -140,6 +140,11 @@ import { newerInstalledVersion } from "./update";
 import { inDarkWake } from "./oauth-provider";
 import { lastLaneOutputTurn } from "./lane-output";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
+import {
+	laneLimitsSchema,
+	type LaneLimits,
+	type LaneLimitState,
+} from "./lane-limits";
 import { createLaneHeartbeat, createLaneStepSender } from "./lane-heartbeat";
 import {
 	childLeaseWatch,
@@ -1291,6 +1296,8 @@ interface Receipt {
 	outcome?: string;
 	note?: string;
 	telemetry?: LaneObservation;
+	limits?: LaneLimits;
+	limitState?: LaneLimitState;
 	/** Next reconciliation of an uncertain admission, settlement, or declared wait. */
 	recheckAt?: number;
 	settlementRetries?: number;
@@ -6853,7 +6860,12 @@ export class LaneDispatcher {
 				);
 			let started:
 				| {
-						attempt: { id: string; expiresAt: string; executorId: string };
+						attempt: {
+							id: string;
+							expiresAt: string;
+							executorId: string;
+							startedAt?: string;
+						};
 						workItem: WorkItem;
 				  }
 				| undefined;
@@ -6902,7 +6914,12 @@ export class LaneDispatcher {
 				this.save(path, receipt);
 				admissionSent = true;
 				started = await this.call<{
-					attempt: { id: string; expiresAt: string; executorId: string };
+					attempt: {
+						id: string;
+						expiresAt: string;
+						executorId: string;
+						startedAt?: string;
+					};
 					workItem: WorkItem;
 				}>(
 					[
@@ -6935,6 +6952,14 @@ export class LaneDispatcher {
 				admitted = true;
 				receipt.admissionState = "admitted";
 				receipt.attemptId = started.attempt.id;
+				delete receipt.limits;
+				receipt.limitState = {
+					startedAt: started.attempt.startedAt
+						? Date.parse(started.attempt.startedAt)
+						: Date.now(),
+					turns: 0,
+					tokens: 0,
+				};
 				delete receipt.retainedAttemptId;
 				receipt.phase = "admitted";
 				this.save(path, receipt);
@@ -7325,6 +7350,26 @@ ${firstBrief}`;
 				}
 				deliverFollowUps();
 			};
+			const metadata = item.metadata ?? {};
+			receipt.limits ??= laneLimitsSchema.parse(
+				metadata.runnerLimits ??
+					ruleFor(
+						{
+							tags: Array.isArray(metadata.tags)
+								? metadata.tags.filter(
+										(tag): tag is string => typeof tag === "string",
+									)
+								: [],
+							size:
+								typeof metadata.size === "string" ? metadata.size : undefined,
+							risk: item.riskLevel,
+						},
+						this.policy,
+					).routes.find((route) => route.executor === executor)?.limits ??
+					{},
+			);
+			receipt.limitState ??= { startedAt: Date.now(), turns: 0, tokens: 0 };
+			this.save(path, receipt);
 			const launchTurn = (turnBrief: string, command: string[]) =>
 				this.deps.launch(
 					[
@@ -7357,6 +7402,12 @@ ${firstBrief}`;
 						detachedOutputDirectory: outputDirectory,
 						forwardSignals: false,
 						admitted: true,
+						limits: receipt.limits,
+						limitState: receipt.limitState,
+						onLimitState: (state) => {
+							receipt.limitState = state;
+							this.save(path, receipt);
+						},
 						canStart: () =>
 							!run.stop &&
 							!receipt.approvalWait &&
@@ -9167,6 +9218,12 @@ ${firstBrief}`;
 		)
 			receipt.outcome = "landed_unverified";
 
+		if (receipt.limitState?.reason) {
+			receipt.outcome = receipt.commits?.length
+				? "landed_unverified"
+				: "failed";
+			receipt.note = receipt.limitState.reason;
+		}
 		const unlanded = recordUnlandedCommits(receipt);
 		const settlement: z.infer<typeof WorkAttemptSettlementSchema> | undefined =
 			receipt.localBranchProof
