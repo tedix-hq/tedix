@@ -99,6 +99,7 @@ import {
 	supervisorLog,
 } from "./supervise-drivers";
 import { acquireLock, install, uninstall } from "./supervise-launch-agent";
+import { migrateStorage } from "./storage-migrate";
 import { alertStrandedLogins } from "./supervise-login";
 import {
 	answerAction,
@@ -1232,6 +1233,12 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		console.error("Another tedix supervise is already running.");
 		return once ? 0 : 1;
 	}
+	// Before any runner starts: nothing may use the folders being moved.
+	if (!once)
+		migrateStorage({
+			env,
+			say: (line) => console.log(`tedix supervise: storage: ${line}`),
+		});
 	const runners = once ? undefined : new RunnerDuties({ env });
 	const machineTools = once ? undefined : new MachineToolsDuty({ env });
 	const supervisor = new Supervisor({

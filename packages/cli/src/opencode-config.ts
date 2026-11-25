@@ -25,8 +25,7 @@ export function opencodeConfigDirectory(env = process.env) {
 /** A full copy of the plugin repository: the adapter reads its manifest, MCP file and skills. */
 export function opencodePluginHome(env = process.env) {
 	return join(
-		env.XDG_DATA_HOME || join(homedir(), ".local", "share"),
-		"tedix",
+		env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
 		"plugins",
 		"opencode",
 	);

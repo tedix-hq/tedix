@@ -9,7 +9,7 @@ import time
 # A persistent inode avoids stale-owner recovery races. The kernel releases
 # flock on exit; descendants inherit the descriptor so a killed parent cannot
 # admit a second suite while its first suite is still running.
-lock_path = Path.home() / ".cache" / "tedix" / "db-check.lock"
+lock_path = Path(os.environ.get("TEDIX_CONFIG_DIR") or Path.home() / ".tedix") / "locks" / "db-check.lock"
 lock_path.parent.mkdir(parents=True, exist_ok=True)
 started = time.monotonic()
 with lock_path.open("a+") as token:

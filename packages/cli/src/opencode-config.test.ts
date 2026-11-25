@@ -29,7 +29,7 @@ function sandbox() {
 	roots.push(root);
 	return {
 		XDG_CONFIG_HOME: join(root, "config"),
-		XDG_DATA_HOME: join(root, "data"),
+		TEDIX_CONFIG_DIR: join(root, "tedix"),
 		PATH: "",
 	} as NodeJS.ProcessEnv;
 }

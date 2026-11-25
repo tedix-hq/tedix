@@ -3,7 +3,7 @@
 OpenCode loads the Tedix adapter directory named in its configuration.
 The Tedix desktop app adds it with **Add** under **Coding tools**, and
 `tedix setup agents --opencode --yes` does the same from a terminal: it keeps
-a copy of the published plugin in `~/.local/share/tedix/plugins/opencode` and
+a copy of the published plugin in `~/.tedix/plugins/opencode` and
 names its `.opencode-plugin` directory in your OpenCode settings.
 
 To install Tedix from a checkout of this repository instead, add the

@@ -794,7 +794,7 @@ opencode mcp auth tedix
 ```
 
 Setup downloads the published Tedix plugin to
-`~/.local/share/tedix/plugins/opencode` and adds it to the `plugin` list in
+`~/.tedix/plugins/opencode` and adds it to the `plugin` list in
 `~/.config/opencode/opencode.jsonc` (or `opencode.json`). It replaces any
 earlier Tedix plugin entry, keeps its options and your comments, and saves the
 previous file next to it as `.bak-tedix-<time>`. Running it again refreshes the

@@ -170,7 +170,7 @@ and authorization prerequisites in the migration runbook are proven.
 ## Development
 
 `test:run` and `db:migrate:check` require Python 3 on a POSIX host. They
-hold an OS file lock at `~/.cache/tedix/db-check.lock` so separate checkouts
+hold an OS file lock at `~/.tedix/locks/db-check.lock` so separate checkouts
 using the same home directory queue before starting expensive DB checks.
 Do not delete the lock file to release it: the kernel releases the lock when
 its holders exit. Admission logs include queue time, load, wall time and child
