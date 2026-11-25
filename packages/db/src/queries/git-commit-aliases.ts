@@ -1,5 +1,8 @@
 import { and, eq, gte, lt, or, sql, type SQLWrapper } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
 import { WorkAttemptSettlementSchema } from "@tedix/api-contract/schemas/work-items";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../query-client";
@@ -7,25 +10,71 @@ import { gitCommitAliases } from "../schema/git-commit-aliases";
 
 /** Keep this resolver within one read invocation, never across requests. */
 export function createCommitResolver(db: DbQueryClient) {
+	const table = coreTable(db, gitCommitAliases);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	const forward = new Map<string, string>();
 	const backward = new Map<string, string>();
 	const loaded = new Set<string>();
 	const prefixes = new Map<string, string>();
-	async function loadChains(keys: string[]) {
-		const missing = [...new Set(keys)].filter((key) => !loaded.has(key));
-		if (!missing.length) return;
-		// Four joins bound traversal, including cycles, without a recursive SQL statement.
-		const requested = db
+	function requestedKeys(keys: string[]) {
+		return db
 			.$with("alias_keys")
 			.as(
 				db
 					.select({ key: sql<string>`value`.as("alias_key") })
-					.from(sql`json_each(${JSON.stringify(missing)})`),
+					.from(
+						coreStore(db) === "postgres"
+							? sql`jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb) AS candidate(value)`
+							: sql`json_each(${JSON.stringify(keys)})`,
+					),
 			);
-		const first = alias(gitCommitAliases, "alias_first");
-		const second = alias(gitCommitAliases, "alias_second");
-		const third = alias(gitCommitAliases, "alias_third");
-		const fourth = alias(gitCommitAliases, "alias_fourth");
+	}
+	async function loadPrefixes(keys: string[]) {
+		const missing = [...new Set(keys)].filter((key) => !prefixes.has(key));
+		if (!missing.length) return;
+		const requested = requestedKeys(missing);
+		const matches = await db
+			.with(requested)
+			.select({
+				key: requested.key,
+				oldSha: table.oldSha,
+				newSha: table.newSha,
+			})
+			.from(requested)
+			.innerJoin(
+				table,
+				or(
+					and(
+						gte(table.oldSha, requested.key),
+						lt(table.oldSha, sql`${requested.key} || 'g'`),
+					),
+					and(
+						gte(table.newSha, requested.key),
+						lt(table.newSha, sql`${requested.key} || 'g'`),
+					),
+				),
+			);
+		const ids = new Map(missing.map((key) => [key, new Set<string>()]));
+		for (const row of matches)
+			for (const id of [row.oldSha, row.newSha])
+				if (id.startsWith(row.key)) ids.get(row.key)!.add(id);
+		for (const [key, candidates] of ids) {
+			if (candidates.size > 1) throw new Error("Ambiguous commit alias prefix");
+			prefixes.set(key, candidates.values().next().value ?? key);
+		}
+	}
+	async function loadChains(keys: string[]) {
+		const missing = [...new Set(keys)].filter((key) => !loaded.has(key));
+		if (!missing.length) return;
+		// Four joins bound traversal, including cycles, without a recursive SQL statement.
+		const requested = requestedKeys(missing);
+		const first = alias(table, "alias_first");
+		const second = alias(table, "alias_second");
+		const third = alias(table, "alias_third");
+		const fourth = alias(table, "alias_fourth");
 		const neighbor = (
 			oldSha: SQLWrapper,
 			newSha: SQLWrapper,
@@ -105,65 +154,28 @@ export function createCommitResolver(db: DbQueryClient) {
 		return aliases;
 	}
 	async function aliasesFor(sha: string): Promise<string[]> {
-		let key = sha.toLowerCase();
+		await resolveMany([sha]);
+		const key = sha.toLowerCase();
 		if (!/^[a-f0-9]{7,40}$/.test(key)) return [sha];
-		if (key.length < 40) {
-			const cached = prefixes.get(key);
-			if (cached) key = cached;
-			else {
-				const matches = await db
-					.select({
-						oldSha: gitCommitAliases.oldSha,
-						newSha: gitCommitAliases.newSha,
-					})
-					.from(gitCommitAliases)
-					.where(
-						or(
-							and(
-								gte(gitCommitAliases.oldSha, key),
-								lt(gitCommitAliases.oldSha, `${key}g`),
-							),
-							and(
-								gte(gitCommitAliases.newSha, key),
-								lt(gitCommitAliases.newSha, `${key}g`),
-							),
-						),
-					)
-					.limit(3);
-				// An intermediate id occurs in two rows, but is still one full id.
-				const ids = [
-					...new Set(
-						matches
-							.flatMap((row) => [row.oldSha, row.newSha])
-							.filter((id) => id.startsWith(key)),
-					),
-				];
-				if (ids.length > 1) throw new Error("Ambiguous commit alias prefix");
-				if (!ids.length) return [key];
-				prefixes.set(key, ids[0]!);
-				key = ids[0]!;
-			}
-		}
-		await loadChains([key]);
-		return chainFor(key);
+		return chainFor(prefixes.get(key) ?? key);
 	}
 	async function canonicalCommit(sha: string): Promise<string> {
-		return (await aliasesFor(sha))[0]!;
+		return (await resolveMany([sha]))[0]!;
 	}
 	async function resolveMany(shas: string[]): Promise<string[]> {
-		const keys = shas
-			.map((sha) => sha.toLowerCase())
-			.filter((key) => /^[a-f0-9]{40}$/.test(key));
-		await loadChains(keys);
-		const result: string[] = [];
-		for (const sha of shas) {
-			result.push(
-				/^[a-f0-9]{40}$/i.test(sha)
-					? chainFor(sha.toLowerCase())[0]!
-					: await canonicalCommit(sha),
-			);
-		}
-		return result;
+		const keys = shas.map((sha) => sha.toLowerCase());
+		await loadPrefixes(keys.filter((key) => /^[a-f0-9]{7,39}$/.test(key)));
+		await loadChains(
+			keys
+				.filter((key) => /^[a-f0-9]{7,40}$/.test(key))
+				.map((key) => prefixes.get(key) ?? key),
+		);
+		return shas.map((sha, index) => {
+			const key = keys[index]!;
+			return /^[a-f0-9]{7,40}$/.test(key)
+				? chainFor(prefixes.get(key) ?? key)[0]!
+				: sha;
+		});
 	}
 	return { canonicalCommit, aliasesFor, resolveMany };
 }
