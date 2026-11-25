@@ -1,17 +1,15 @@
 import { type ApiClient, getApiClient } from "./lib/api-client";
 import type { InternalResolveResult } from "./aggregate-types";
 import { UPSTREAM_ATTEMPT_TIMEOUT_MS } from "./upstream";
-import {
-	pruneExpiredCacheEntries,
-	setBoundedExpiringCacheEntry,
-} from "./lib/bounded-cache";
+import { setBoundedCacheEntry } from "./lib/bounded-cache";
 import {
 	JOINED_LOAD_BUDGET_MS,
-	joinInFlightLoad,
+	StepBudgetExceededError,
 	trackInFlightLoad,
 	withStepBudget,
 } from "./lib/step-budget";
 import {
+	logToolDefinitionsMiss,
 	readToolDefinitionsL2,
 	writeToolDefinitionsL2,
 } from "./aggregate-tool-definitions-cache";
@@ -20,10 +18,14 @@ const log = createMcpLogger("mcp.router");
 
 export const internalToolCache = new Map<
 	string,
-	{ result: InternalResolveResult; expiresAt: number }
+	{ result: InternalResolveResult; expiresAt: number; invalidated?: boolean }
 >();
 export const internalToolInFlight = new Map<
 	string,
+	Promise<InternalResolveResult>
+>();
+const toolDefinitionsReady = new WeakMap<
+	Promise<InternalResolveResult>,
 	Promise<InternalResolveResult>
 >();
 export const MAX_INTERNAL_TOOL_CACHE_ENTRIES = 64;
@@ -134,7 +136,7 @@ export function rememberInternalTools(
 		internalToolCache.delete(key);
 		rows -= cached.result.tools.length;
 	}
-	setBoundedExpiringCacheEntry(
+	setBoundedCacheEntry(
 		internalToolCache,
 		cacheKey,
 		{ result, expiresAt: Date.now() + INTERNAL_TOOL_CACHE_TTL_MS },
@@ -142,44 +144,95 @@ export function rememberInternalTools(
 	);
 }
 
-// Keys with a background definition refresh running in this isolate.
-const toolDefinitionsRefreshInFlight = new Set<string>();
+/** Scope changes refresh definitions without discarding the fallback. */
+export function invalidateToolDefinitionsByScope(): void {
+	for (const entry of internalToolCache.values()) {
+		entry.expiresAt = 0;
+		entry.invalidated = true;
+	}
+}
 
-/**
- * Refresh a stale durable entry once per isolate while callers keep using the
- * stale copy. A failed refresh leaves the stale entry in place until its hard
- * TTL; the next stale read tries again.
- */
-function refreshToolDefinitionsInBackground(
+/** Shared by prefetch and direct resolution, including the entire refresh. */
+export async function loadInternalTools(
 	cacheKey: string,
 	upstreamSlug: string,
 	fetchUpstream: () => Promise<UpstreamAppWithTools>,
-	ctx: Pick<ExecutionContext, "waitUntil"> | undefined,
-): void {
-	if (toolDefinitionsRefreshInFlight.has(cacheKey)) return;
-	toolDefinitionsRefreshInFlight.add(cacheKey);
-	const job = (async () => {
-		try {
-			const result = await fetchUpstream();
-			if (!result.app) return;
-			rememberInternalTools(
-				cacheKey,
-				toInternalResolveResult(upstreamSlug, result),
-			);
-			await writeToolDefinitionsL2(cacheKey, result, ctx, upstreamSlug);
-		} catch (error) {
-			log.warn("Tool definitions refresh failed", {
-				event: "aggregate.tool_definitions_refresh_failed",
-				appSlug: upstreamSlug,
-				outcome: "unavailable",
-				error: contentFreeMcpException(error),
-			});
-		} finally {
-			toolDefinitionsRefreshInFlight.delete(cacheKey);
-		}
-	})();
-	if (ctx) ctx.waitUntil(job);
-	else void job;
+	ctx?: Pick<ExecutionContext, "waitUntil">,
+): Promise<InternalResolveResult> {
+	const cached = internalToolCache.get(cacheKey);
+	if (cached && cached.expiresAt > Date.now()) return cached.result;
+	let serveStale: ((result: InternalResolveResult) => void) | undefined;
+	const staleReady = new Promise<InternalResolveResult>((resolve) => {
+		serveStale = resolve;
+	});
+	let pending = internalToolInFlight.get(cacheKey);
+	const ownsLoad = !pending;
+	if (!pending) {
+		pending = (async () => {
+			let stale = cached?.result;
+			let expired = !!cached;
+			try {
+				const durable = cached?.invalidated
+					? null
+					: await readToolDefinitionsL2<UpstreamAppWithTools>(
+							cacheKey,
+							upstreamSlug,
+							() => {
+								expired = true;
+							},
+						);
+				if (durable?.payload.app) {
+					stale = toInternalResolveResult(upstreamSlug, durable.payload);
+					rememberInternalTools(cacheKey, stale);
+					if (!durable.stale) return stale;
+					serveStale?.(stale);
+				}
+				logToolDefinitionsMiss(
+					cacheKey,
+					cached?.invalidated
+						? "invalidated_by_scope"
+						: expired || durable
+							? "expired"
+							: "never_set",
+				);
+				const result = await fetchUpstream();
+				const resolved = toInternalResolveResult(upstreamSlug, result);
+				rememberInternalTools(cacheKey, resolved);
+				if (result.app)
+					await writeToolDefinitionsL2(cacheKey, result, ctx, upstreamSlug);
+				return resolved;
+			} catch (error) {
+				logToolDefinitionsMiss(cacheKey, "fetch_failed");
+				if (!stale) throw error;
+				// Keep the fallback through refusals; the ordinary L1 TTL spaces retries.
+				rememberInternalTools(cacheKey, stale);
+				return stale;
+			}
+		})();
+		toolDefinitionsReady.set(pending, Promise.race([pending, staleReady]));
+		trackInFlightLoad(internalToolInFlight, cacheKey, pending, {
+			step: "internal_tool_in_flight",
+			wedgeEvictMs: INTERNAL_TOOL_WEDGE_EVICT_MS,
+			resource: upstreamSlug,
+		});
+		ctx?.waitUntil(pending.catch(() => {}));
+	}
+	if (cached) return cached.result;
+	try {
+		return await withStepBudget(
+			"internal_tool_join",
+			ownsLoad ? INTERNAL_TOOL_WEDGE_EVICT_MS : JOINED_LOAD_BUDGET_MS,
+			toolDefinitionsReady.get(pending) ?? pending,
+			upstreamSlug,
+		);
+	} catch (error) {
+		if (
+			error instanceof StepBudgetExceededError &&
+			internalToolInFlight.get(cacheKey) === pending
+		)
+			internalToolInFlight.delete(cacheKey);
+		throw error;
+	}
 }
 
 /**
@@ -296,16 +349,8 @@ export async function resolveUpstreamToolsInternally(
 ): Promise<InternalResolveResult> {
 	const upstreamSlug = source.slug;
 	const cacheKey = internalToolCacheKey(source, selection, activationEpoch);
-	if (cacheable) pruneExpiredCacheEntries(internalToolCache);
 	const cached = cacheable ? internalToolCache.get(cacheKey) : undefined;
 	if (cached && cached.expiresAt > Date.now()) return cached.result;
-	const inFlight = cacheable ? internalToolInFlight.get(cacheKey) : undefined;
-	if (inFlight)
-		return joinInFlightLoad(internalToolInFlight, cacheKey, inFlight, {
-			step: "internal_tool_join",
-			budgetMs: JOINED_LOAD_BUDGET_MS,
-			resource: upstreamSlug,
-		});
 
 	const loadPromise = (async (): Promise<InternalResolveResult> => {
 		try {
@@ -354,37 +399,14 @@ export async function resolveUpstreamToolsInternally(
 							}),
 					upstreamSlug,
 				);
-			if (cacheable) {
-				// Durable, cross-isolate tier before the upstream call, which reads
-				// every enabled tool row with its schemas from D1.
-				const durable = await readToolDefinitionsL2<UpstreamAppWithTools>(
+			if (cacheable)
+				return await loadInternalTools(
 					cacheKey,
 					upstreamSlug,
+					fetchUpstream,
+					ctx,
 				);
-				if (durable?.payload.app) {
-					const resolved = toInternalResolveResult(
-						upstreamSlug,
-						durable.payload,
-					);
-					rememberInternalTools(cacheKey, resolved);
-					if (durable.stale)
-						refreshToolDefinitionsInBackground(
-							cacheKey,
-							upstreamSlug,
-							fetchUpstream,
-							ctx,
-						);
-					return resolved;
-				}
-			}
-			const result = await fetchUpstream();
-			const resolved = toInternalResolveResult(upstreamSlug, result);
-			if (!result.app) return resolved;
-			if (cacheable) {
-				rememberInternalTools(cacheKey, resolved);
-				await writeToolDefinitionsL2(cacheKey, result, ctx, upstreamSlug);
-			}
-			return resolved;
+			return toInternalResolveResult(upstreamSlug, await fetchUpstream());
 		} catch (err) {
 			log.warn("Aggregate source app resolution failed", {
 				event: "aggregate.source_resolution_failed",
@@ -410,15 +432,5 @@ export async function resolveUpstreamToolsInternally(
 		}
 	})();
 
-	if (!cacheable) return loadPromise;
-	trackInFlightLoad(internalToolInFlight, cacheKey, loadPromise, {
-		step: "internal_tool_in_flight",
-		wedgeEvictMs: INTERNAL_TOOL_WEDGE_EVICT_MS,
-		resource: upstreamSlug,
-	});
-	return joinInFlightLoad(internalToolInFlight, cacheKey, loadPromise, {
-		step: "internal_tool_join",
-		budgetMs: INTERNAL_TOOL_WEDGE_EVICT_MS,
-		resource: upstreamSlug,
-	});
+	return loadPromise;
 }

@@ -17,10 +17,13 @@ vi.mock("./lib/api-client", () => ({
 }));
 
 import {
+	invalidateToolDefinitionsByScope,
 	internalToolCache,
 	internalToolInFlight,
+	loadInternalTools,
 	resolveUpstreamToolsInternally,
 } from "./aggregate-internal-tools";
+import { aggregateAndPrefixTools } from "./aggregate-surface";
 import { prefetchAggregateEntries } from "./aggregate-prefetch";
 import { TOOL_DEFINITIONS_SOFT_TTL_MS } from "./aggregate-tool-definitions-cache";
 
@@ -181,4 +184,97 @@ describe("durable tool definitions cache", () => {
 		expect([...internalToolCache.keys()]).toHaveLength(2);
 		expect(cache.put).toHaveBeenCalledTimes(2);
 	});
+	it("bounds a joiner without cutting short the owning upstream read", async () => {
+		vi.useFakeTimers();
+		getBySlugWithTools.mockImplementation(
+			() =>
+				new Promise<ReturnType<typeof payload>>((resolve) =>
+					setTimeout(() => resolve(payload("slow", "list")), 9_000),
+				),
+		);
+		const fetchUpstream = () => getBySlugWithTools();
+		const owner = loadInternalTools("slow-key", "slow", fetchUpstream, ctx);
+		await vi.advanceTimersByTimeAsync(0);
+		const joined = expect(
+			loadInternalTools("slow-key", "slow", fetchUpstream, ctx),
+		).rejects.toMatchObject({ code: "STEP_BUDGET_EXCEEDED" });
+		await vi.advanceTimersByTimeAsync(8_000);
+		await joined;
+		expect(internalToolInFlight.has("slow-key")).toBe(false);
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(toolIds(await owner)).toEqual(["list"]);
+		expect(getBySlugWithTools).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([false, true])(
+		"coalesces 100 invalidated builds and retains stale on refusal=%s",
+		async (refused) => {
+			const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+			const entries = [{ slug: "one" }, { slug: "two" }];
+			getBySlugsWithTools.mockImplementation(
+				async ({ apps }: { apps: Array<{ slug: string }> }) => ({
+					results: apps.map(({ slug }) => payload(slug, "old")),
+				}),
+			);
+			let buildId = 0;
+			const build = () =>
+				aggregateAndPrefixTools(
+					entries,
+					env,
+					new Set([`build-${buildId++}`]),
+					ctx as ExecutionContext,
+					undefined,
+					{ value: "burst", cacheable: true },
+					false,
+				);
+			await build();
+			getBySlugsWithTools.mockClear();
+			let finish!: () => void;
+			const held = new Promise<void>((resolve) => {
+				finish = resolve;
+			});
+			getBySlugsWithTools.mockImplementation(
+				async ({ apps }: { apps: Array<{ slug: string }> }) => {
+					await held;
+					if (refused) throw new Error("503 Database temporarily unavailable");
+					return { results: apps.map(({ slug }) => payload(slug, "new")) };
+				},
+			);
+			for (let i = 0; i < 10; i++) invalidateToolDefinitionsByScope();
+			const first = await Promise.all(Array.from({ length: 50 }, build));
+			await vi.waitFor(() =>
+				expect(getBySlugsWithTools).toHaveBeenCalledTimes(1),
+			);
+			// Arrive after the batch window closes, while its D1 read is still pending.
+			const later = await Promise.all(Array.from({ length: 50 }, build));
+			expect(
+				[...first, ...later].every(
+					(results) => toolIds(results).join(",") === "one__old,two__old",
+				),
+			).toBe(true);
+			expect(getBySlugsWithTools).toHaveBeenCalledTimes(1);
+			expect(getBySlugsWithTools.mock.calls[0]?.[0].apps).toEqual(entries);
+			expect(getBySlugWithTools).not.toHaveBeenCalled();
+			finish();
+			await Promise.all(background);
+			expect(toolIds(await build())).toEqual(
+				refused ? ["one__old", "two__old"] : ["one__new", "two__new"],
+			);
+			expect(getBySlugsWithTools).toHaveBeenCalledTimes(1);
+			expect(logs.mock.calls.map(([entry]) => entry)).toContainEqual(
+				expect.objectContaining({
+					event: "aggregate.tool_definitions_miss",
+					reason: "invalidated_by_scope",
+				}),
+			);
+			if (refused)
+				expect(logs.mock.calls.map(([entry]) => entry)).toContainEqual(
+					expect.objectContaining({
+						event: "aggregate.tool_definitions_miss",
+						reason: "fetch_failed",
+					}),
+				);
+			logs.mockRestore();
+		},
+	);
 });

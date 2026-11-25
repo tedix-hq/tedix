@@ -1,3 +1,4 @@
+import { invalidateToolDefinitionsByScope } from "./aggregate-internal-tools";
 import { invalidateOrgSkillDiscovery } from "./mcp/skill-discovery-cache";
 import { gatewayReadBinding } from "./lib/gateway-read-cache";
 import { requestPhaseTimings } from "./mcp/phase-timings";
@@ -528,6 +529,7 @@ const worker = {
 			}
 			try {
 				const body = (await request.json()) as { mcpServerId?: string };
+				invalidateToolDefinitionsByScope();
 				const cleared = invalidateAihM2mClientScopeCache(
 					body.mcpServerId ? { mcpServerId: body.mcpServerId } : undefined,
 				);

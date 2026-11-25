@@ -47,6 +47,7 @@ function cancelBody(response: Response): void {
 export async function readToolDefinitionsL2<T>(
 	cacheKey: string,
 	resource?: string,
+	onExpired?: () => void,
 ): Promise<ToolDefinitionsRead<T> | null> {
 	try {
 		if (typeof caches === "undefined" || !caches.default) return null;
@@ -65,6 +66,7 @@ export async function readToolDefinitionsL2<T>(
 				);
 				const age = Date.now() - cachedAt;
 				if (!Number.isFinite(cachedAt) || age >= TOOL_DEFINITIONS_HARD_TTL_MS) {
+					onExpired?.();
 					cancelBody(hit);
 					return null;
 				}
@@ -124,4 +126,15 @@ export async function writeToolDefinitionsL2(
 			});
 		}
 	}
+}
+
+export function logToolDefinitionsMiss(
+	cacheKey: string,
+	reason: "expired" | "invalidated_by_scope" | "never_set" | "fetch_failed",
+): void {
+	log.info("Tool definitions cache miss", {
+		event: "aggregate.tool_definitions_miss",
+		resourceKey: hashAggregateCacheKey(cacheKey),
+		reason,
+	});
 }
