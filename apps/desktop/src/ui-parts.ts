@@ -157,7 +157,9 @@ export function openAgentApp(state: PanelState, tool: ToolRow) {
 	if (!state.setup.desktopApps[app]) return;
 	if (tool.found === "found" && !tool.desktop) return;
 	return button(
-		app === "chatgpt" && tool.readVerified && tool.hookTrust !== "trusted"
+		app === "chatgpt" &&
+			tool.readVerified &&
+			(tool.hookTrust === "untrusted" || tool.hookTrust === "unknown")
 			? "Allow Tedix in ChatGPT"
 			: `Open ${tool.name}`,
 		"quiet",
@@ -213,7 +215,9 @@ export function toolView(
 	const steps = state.setup.steps;
 	const runner = view === "tasks" ? runnerFor(state, tool) : undefined;
 	const reviewInChatGPT =
-		tool.id === "codex" && tool.desktop && tool.hookTrust !== "trusted";
+		tool.id === "codex" &&
+		tool.desktop &&
+		(tool.hookTrust === "untrusted" || tool.hookTrust === "unknown");
 	const keys = ["account", "connect", "verify"].map(
 		(kind) => [kind, steps[`${kind}:${tool.id}`]] as const,
 	);
@@ -348,6 +352,20 @@ export function toolView(
 					? plain("Check connection", "verify", "Checking…")
 					: undefined,
 		};
+	// A plugin without hooks has nothing to allow: offer the app's own copy.
+	if (
+		tool.id === "codex" &&
+		tool.desktop &&
+		tool.hookTrust === "none" &&
+		tool.publishedPlugin
+	)
+		return {
+			...base,
+			ready: view === "connection",
+			tone: view === "tasks" && runner?.enabled ? "warn" : undefined,
+			sub: "Tedix in ChatGPT has no hooks, so it cannot add your team's instructions or task context to your chats. Choose Add hooks to use the Tedix plugin from this app instead; you stay signed in.",
+			action: plain("Add hooks", "replace-plugin", "Adding hooks…"),
+		};
 	if (view === "connection")
 		return {
 			ready: true,
@@ -355,7 +373,11 @@ export function toolView(
 				? "In ChatGPT, open Settings → Hooks and allow Tedix. This lets Tedix add your team's instructions when a chat starts and add related task context to your messages, and, if Show my sessions in Tedix is on, save a summary of each session."
 				: "",
 		};
-	if (runner?.enabled && tool.id === "codex" && tool.hookTrust !== "trusted")
+	if (
+		runner?.enabled &&
+		tool.id === "codex" &&
+		(tool.hookTrust === "untrusted" || tool.hookTrust === "unknown")
+	)
 		return {
 			...base,
 			ready: false,

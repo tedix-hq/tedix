@@ -308,7 +308,10 @@ export interface ToolRow {
 	/** Both versions can be installed, but setup uses the desktop app's executable. */
 	bothInstalled: boolean;
 	readVerified: boolean;
-	hookTrust: "trusted" | "untrusted" | "unknown";
+	/** "none": the installed Tedix plugin has no hooks (the published one). */
+	hookTrust: "trusted" | "untrusted" | "unknown" | "none";
+	/** Tedix's plugin came from the published marketplace, which ships no hooks. */
+	publishedPlugin?: boolean;
 	/** Tedix can be added to this tool from here. */
 	canAdd: boolean;
 	/** The tool has a command that signs it in to Tedix through the browser. */
@@ -982,9 +985,16 @@ function toolRows(): ToolRow[] {
 			);
 		row.canSignInAccount = Boolean(tool.accountSignIn);
 		row.hookTrust =
-			host?.hookTrust === "trusted" || host?.hookTrust === "untrusted"
+			host?.hookTrust === "trusted" ||
+			host?.hookTrust === "untrusted" ||
+			host?.hookTrust === "none"
 				? host.hookTrust
 				: "unknown";
+		const source = host?.source;
+		row.publishedPlugin =
+			typeof source === "object" &&
+			source !== null &&
+			(source as { marketplace?: unknown }).marketplace === "tedix-plugins";
 		if (host?.problem && !facts.hasTedix) {
 			row.note = `${tool.name} did not answer when Tedix checked it. Open ${tool.name}, then choose Look again.`;
 			row.detail = String(host.problem).split("\n")[0]!.slice(0, 200);
@@ -1212,6 +1222,7 @@ const ACTIONS = [
 	"choose-folder",
 	"clear-folder",
 	"remove",
+	"replace-plugin",
 	"sessions-on",
 	"sessions-off",
 	"account-sign-in",
@@ -1473,6 +1484,24 @@ export async function setupAction(
 	const probeEnv = command
 		? { PATH: [dirname(command), harnessPath()].join(delimiter) }
 		: undefined;
+	if (action === "replace-plugin" && tool.id === "codex" && command) {
+		// The published plugin ships no hooks; the one inside this app has
+		// them. Swapping plugins keeps the Tedix sign-in, which belongs to the
+		// connection, not the plugin.
+		await step(`connect:${tool.id}`, async (say) => {
+			say(`Replacing the Tedix plugin in ${toolName}…`);
+			const options = { env: probeEnv, timeoutMs: 120_000 };
+			await run(command, ["plugin", "remove", "tedix@tedix-plugins"], options);
+			await run(
+				command,
+				["plugin", "marketplace", "remove", "tedix-plugins"],
+				options,
+			);
+			await installDesktopPlugin("codex", command, options);
+			return `${toolName} now has the Tedix plugin with hooks. Allow them in ${toolName} under Settings → Hooks.`;
+		});
+		return refreshSetup(true);
+	}
 	if (action === "remove") {
 		if (!(await confirmRemove(toolName))) return;
 		await step(`remove:${tool.id}`, async (say) => {

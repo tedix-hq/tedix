@@ -274,7 +274,8 @@ export interface AgentHostStatus {
 	signedIn?: boolean;
 	/** The coding tool's own account, separate from its Tedix MCP sign-in. */
 	account?: "signed-in" | "signed-out" | "unknown";
-	hookTrust?: "trusted" | "untrusted" | "unknown";
+	/** "none": Codex has no Tedix hooks at all (the published plugin ships none). */
+	hookTrust?: "trusted" | "untrusted" | "unknown" | "none";
 	readVerifiedAt?: string;
 	/** Codex only: whether the MCP protocol Tedix Connect needs is on. */
 	protocolEnabled?: boolean;
@@ -416,7 +417,7 @@ function proofFingerprint(host: AgentHost, status: AgentHostStatus): string {
 /** Read-only app-server requests. Never answer consent, trust or approval requests. */
 async function codexSetup(
 	verify: boolean,
-): Promise<"trusted" | "untrusted" | "unknown"> {
+): Promise<"trusted" | "untrusted" | "unknown" | "none"> {
 	const child = spawn(
 		"codex",
 		[
@@ -501,21 +502,24 @@ async function codexSetup(
 						(typeof hook.command === "string" &&
 							/(?:^|[\s/])tedix['"]?\s+hooks\s/.test(hook.command)),
 				);
-			return !hooks.length ||
+			if (
 				entries.some(
 					(entry) =>
 						(Array.isArray(entry.errors) && entry.errors.length) ||
 						(Array.isArray(entry.warnings) && entry.warnings.length),
 				)
-				? "unknown"
-				: hooks.every(
-							(hook) =>
-								hook.enabled === true &&
-								(hook.trustStatus === "trusted" ||
-									hook.trustStatus === "managed"),
-					  )
-					? "trusted"
-					: "untrusted";
+			)
+				return "unknown";
+			// The published plugin ships no hooks: nothing to trust, which is
+			// not the same as trusted.
+			if (!hooks.length) return "none";
+			return hooks.every(
+				(hook) =>
+					hook.enabled === true &&
+					(hook.trustStatus === "trusted" || hook.trustStatus === "managed"),
+			)
+				? "trusted"
+				: "untrusted";
 		}
 		const started = asRecord(
 			await request("thread/start", {
