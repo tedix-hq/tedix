@@ -1,4 +1,8 @@
 import {
+	GetAgentScorecardInputSchema,
+	GetAgentScorecardResultSchema,
+} from "../schemas/work-items";
+import {
 	PersonalCliReleaseAuthorizationInputSchema,
 	PersonalCliReleaseAuthorizationSchema,
 } from "../schemas/work-items";
@@ -779,6 +783,15 @@ export const workItemsContract = oc
 			})
 			.input(ListWorkActivityInputSchema)
 			.output(ListWorkActivityResultSchema),
+
+		getAgentScorecard: oc
+			.route({
+				method: "GET",
+				path: "/factory/agent-scorecard",
+				summary: "Compare tedi and runner activity over 24 hours",
+			})
+			.input(GetAgentScorecardInputSchema)
+			.output(GetAgentScorecardResultSchema),
 
 		listAttemptProjection: oc
 			.route({

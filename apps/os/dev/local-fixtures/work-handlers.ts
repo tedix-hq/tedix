@@ -1117,6 +1117,21 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 	}),
 	"workItems/listEvidence": () => ({ data: [], nextCursor: null }),
 	"workItems/listEvents": () => ({ events: [], nextSequence: null }),
+	"workItems/getAgentScorecard": () => ({
+		tedis: [
+			{
+				id: "fixture-tedi",
+				runner: "Juniper",
+				started: 3,
+				done: 2,
+				failed: 1,
+				durationMs: 125000,
+				costUsd: 0.12,
+				tokens: 4200,
+			},
+		],
+		localMetrics: [],
+	}),
 	"workItems/listAttemptProjection": (
 		input:
 			| {

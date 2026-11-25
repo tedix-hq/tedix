@@ -79,6 +79,7 @@ import {
 import { workItemsOs } from "./work-items/policy-helpers";
 import { fileAgentReviewProcedure } from "./work-items/agent-review";
 import {
+	getAgentScorecardProcedure,
 	listAttemptProjectionProcedure,
 	listReadinessProjectionProcedure,
 	listRecoveryProjectionProcedure,
@@ -139,6 +140,7 @@ export const workItemsContractRouter = workItemsOs.router({
 	getOrgGraphHealth: getOrgGraphHealthRoute,
 	listRelations: listRelationsRoute,
 	listActivity: listActivityRoute,
+	getAgentScorecard: getAgentScorecardProcedure,
 	listAttemptProjection: listAttemptProjectionProcedure,
 	listRecoveryProjection: listRecoveryProjectionProcedure,
 	attachWorkItemSource: attachWorkItemSourceRoute,

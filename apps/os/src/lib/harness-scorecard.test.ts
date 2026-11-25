@@ -74,7 +74,16 @@ it("uses a bounded start-time cohort and deduplicates Attempts across scopes", (
 	// Done counts succeeded and landed; failed counts failed and expired.
 	// Running and cancelled Attempts are started but neither.
 	expect(rows).toEqual([
-		{ runner: "codex", started: 7, done: 2, failed: 2, commits: 0 },
+		{
+			runner: "codex",
+			started: 7,
+			done: 2,
+			failed: 2,
+			commits: 0,
+			durationMs: 86400000,
+			costUsd: null,
+			tokens: null,
+		},
 	]);
 	expect(
 		aggregateHarnessScorecard([success], now + SCORECARD_WINDOW_MS + 1),
@@ -97,7 +106,11 @@ it("attributes harnesses by stamped session key and retains unattributed and ted
 		],
 		now,
 	);
-	expect(rows.map((row) => row.runner)).toEqual(["other", "claude", "tedi"]);
+	expect(rows.map((row) => row.runner)).toEqual([
+		"other",
+		"claude-code",
+		"tedi",
+	]);
 });
 
 it("counts unique dispatcher commit receipts, excluding declared or recovered existing fixes", () => {

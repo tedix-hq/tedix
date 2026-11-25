@@ -7,10 +7,17 @@ import { WorkAttemptProjectionSchema } from "@tedix/api-contract/schemas/work-it
 import { retryWorkRead, workRetryDelay } from "@/lib/work-refresh";
 import { ActivityRunningNow } from "./activity-running-now";
 
-const api = vi.hoisted(() => ({ attempts: vi.fn(), health: vi.fn() }));
+const api = vi.hoisted(() => ({
+	attempts: vi.fn(),
+	health: vi.fn(),
+	metrics: vi.fn(),
+}));
 vi.mock("@/lib/api", () => ({
 	osApi: {
-		workItems: { listAttemptProjection: api.attempts },
+		workItems: {
+			listAttemptProjection: api.attempts,
+			getAgentScorecard: api.metrics,
+		},
 		dispatcherHealth: { list: api.health },
 	},
 }));
@@ -80,6 +87,7 @@ let client: QueryClient;
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
+	api.metrics.mockResolvedValue({ tedis: [], localMetrics: [] });
 	vi.useFakeTimers();
 	vi.setSystemTime(new Date(at));
 	api.attempts
@@ -122,7 +130,7 @@ async function mount(selected?: string) {
 /** The scorecard reads nothing until someone opens it. */
 async function openScorecard() {
 	const trigger = [...host.querySelectorAll("button")].find((button) =>
-		button.textContent?.includes("Runner scorecard"),
+		button.textContent?.includes("Agent scorecard"),
 	)!;
 	await act(async () => trigger.click());
 	await flush();
@@ -250,6 +258,36 @@ it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation
 	second.attempt.startedAt = "2026-11-06T13:00:00.000Z";
 	second.attempt.outcome = "failed";
 	second.attempt.runtimeState = "failed";
+	api.metrics.mockResolvedValue({
+		tedis: [
+			{
+				id: "juniper",
+				runner: "Juniper",
+				started: 3,
+				done: 2,
+				failed: 1,
+				durationMs: 120000,
+				costUsd: 0.12,
+				tokens: 4200,
+			},
+		],
+		localMetrics: [
+			{
+				attemptId: first.attempt.id,
+				telemetryStartedAt: first.attempt.startedAt,
+				inputTokens: 100,
+				outputTokens: 25,
+				costUsd: 0.25,
+			},
+			{
+				attemptId: second.attempt.id,
+				telemetryStartedAt: second.attempt.startedAt,
+				inputTokens: 200,
+				outputTokens: 50,
+				costUsd: 0.1,
+			},
+		],
+	});
 	const old = row();
 	old.attempt.id = "66666666-6666-4666-8666-666666666666";
 	old.attempt.startedAt = "2026-11-06T11:59:59.999Z";
@@ -274,13 +312,23 @@ it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation
 	await openScorecard();
 	await flush(20);
 	const scorecard = host.querySelector(
-		'section[aria-label="Runner scorecard"]',
+		'section[aria-label="Agent scorecard"]',
 	)!;
+	const codexCells = () =>
+		[...scorecard.querySelectorAll("tbody tr")]
+			.find((tr) => tr.firstElementChild?.textContent === "Codex")
+			?.querySelectorAll("td") ?? [];
 	const cells = () =>
+		[...codexCells()].map((td) => td.lastChild?.textContent).join("");
+	expect(cells()).toMatch(/^Codex2010/);
+	expect(cells()).toMatch(/0.35375$/);
+	expect(
 		[...scorecard.querySelectorAll("tbody tr")].find(
-			(tr) => tr.firstElementChild?.textContent === "codex",
-		)?.textContent;
-	expect(cells()).toBe("codex2010");
+			(tr) => tr.firstElementChild?.textContent === "Juniper (tedi)",
+		)?.textContent,
+	).toBe("Juniper (tedi)Runs3Done2Failed1Commits—Time2mUSD0.12Tokens4.2K");
+	for (const name of ["Codex", "Claude Code", "OpenCode", "Devin"])
+		expect(scorecard.textContent).toContain(name);
 	expect(
 		api.attempts.mock.calls.filter(([input]) => !input.runtimeStates),
 	).toHaveLength(2);
@@ -294,7 +342,7 @@ it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation
 		},
 	};
 	await flush(30_020);
-	expect(cells()).toBe("codex2111");
+	expect(cells()).toMatch(/^Codex2111/);
 });
 
 it("keeps forbidden history unknown and recovers through manual retry", async () => {
@@ -307,11 +355,11 @@ it("keeps forbidden history unknown and recovers through manual retry", async ()
 	});
 	await mount();
 	await openScorecard();
-	expect(host.textContent).toContain("Runner scorecard unavailable");
+	expect(host.textContent).toContain("Agent scorecard unavailable");
 	// No partial counts while history is unreadable.
-	expect(host.textContent).toContain("Counting runner attempts");
+	expect(host.textContent).toContain("Counting agents");
 	expect(
-		host.querySelector('section[aria-label="Runner scorecard"] table'),
+		host.querySelector('section[aria-label="Agent scorecard"] table'),
 	).toBeNull();
 	const recovered = row();
 	recovered.attempt.externalSessionKey = "codex:recovered-session";
@@ -322,15 +370,15 @@ it("keeps forbidden history unknown and recovers through manual retry", async ()
 	});
 	const retry = [
 		...host.querySelectorAll<HTMLButtonElement>(
-			'section[aria-label="Runner scorecard"] button',
+			'section[aria-label="Agent scorecard"] button',
 		),
 	].find((button) => button.textContent === "Retry")!;
 	expect(retry.disabled).toBe(false);
 	await act(async () => retry.click());
 	await flush();
-	expect(host.textContent).not.toContain("Runner scorecard unavailable");
+	expect(host.textContent).not.toContain("Agent scorecard unavailable");
 	expect(
-		host.querySelector('section[aria-label="Runner scorecard"] tbody tr')
+		host.querySelector('section[aria-label="Agent scorecard"] tbody tr')
 			?.textContent,
-	).toBe("codex1000");
+	).toBe("CodexRuns1Done0Failed0Commits0Time10mUSD—Tokens—");
 });

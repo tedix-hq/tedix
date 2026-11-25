@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/work-items/agent-scorecard": "./src/queries/work-items/agent-scorecard.ts",
 		"./queries/automation-inventory": "./src/queries/automation-inventory.ts",
 		"./core-store/client": "./src/core-store/client.ts",
 		"./core-store/dialect": "./src/core-store/dialect.ts",

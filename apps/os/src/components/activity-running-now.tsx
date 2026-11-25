@@ -205,7 +205,7 @@ export function ActivityRunningNow({
 					{/* Runner statistics are for whoever operates the runners; they load on request. */}
 					<Collapsible open={scorecard} onOpenChange={setScorecard}>
 						<CollapsibleDefaultTrigger>
-							Runner scorecard · Last 24 h
+							Agent scorecard · Last 24 h
 						</CollapsibleDefaultTrigger>
 						<CollapsibleDefaultContent>
 							{!healthFailed && health.data && (

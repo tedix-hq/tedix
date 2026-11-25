@@ -19,7 +19,7 @@ try {
 				document.documentElement.classList.toggle("dark", theme === "dark");
 				document.documentElement.dataset.mode = theme;
 			}, theme);
-			const trigger = page.getByRole("button", { name: /Runner scorecard/ });
+			const trigger = page.getByRole("button", { name: /Agent scorecard/ });
 			const running = page.getByRole("button", {
 				name: "Running now",
 				exact: true,
@@ -29,24 +29,24 @@ try {
 			if (!(await trigger.isVisible())) await running.click();
 			await trigger.click();
 			const scorecard = page.getByRole("region", {
-				name: "Runner scorecard",
+				name: "Agent scorecard",
 				exact: true,
 			});
 			await scorecard.getByRole("table").waitFor();
 			await scorecard
-				.getByRole("cell", { name: "tedi", exact: true })
+				.getByRole("cell", { name: "Juniper (tedi)", exact: true })
 				.waitFor();
-			// Health-only lanes (codex here has no Attempts) get no row.
+			// Quiet local runners remain comparable with individual tedis.
 			assert.equal(
 				await scorecard
-					.getByRole("cell", { name: "codex", exact: true })
+					.getByRole("cell", { name: "Codex", exact: true })
 					.count(),
-				0,
+				1,
 			);
 			await page.evaluate(() => document.fonts.ready);
 			assert.deepEqual(
 				await scorecard.getByRole("columnheader").allTextContents(),
-				["Runner", "Started", "Done", "Failed", "Commits"],
+				["Agent", "Runs", "Done", "Failed", "Commits", "Time", "USD", "Tokens"],
 			);
 			assert.equal(await scorecard.getByText(/Unknown/).count(), 0);
 			assert(

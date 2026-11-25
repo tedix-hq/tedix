@@ -2993,3 +2993,30 @@ export const PersonalCliReleaseAuthorizationSchema = z.strictObject({
 	commitSha: z.string().regex(/^[0-9a-f]{40}$/),
 	ref: z.string().min(1),
 });
+
+/** Counts share a 24-hour start cohort; spend and tokens cover that time window. */
+export const AgentScorecardRowSchema = z.object({
+	id: z.string(),
+	runner: z.string(),
+	started: z.number().int().nonnegative(),
+	done: z.number().int().nonnegative(),
+	failed: z.number().int().nonnegative(),
+	durationMs: z.number().nonnegative().nullable(),
+	costUsd: z.number().nonnegative().nullable(),
+	tokens: z.number().int().nonnegative().nullable(),
+});
+export const GetAgentScorecardInputSchema = z
+	.object({ projectId: z.uuid().optional() })
+	.strict();
+export const GetAgentScorecardResultSchema = z.object({
+	tedis: z.array(AgentScorecardRowSchema),
+	localMetrics: z.array(
+		z.object({
+			attemptId: z.string(),
+			telemetryStartedAt: z.string().nullable(),
+			inputTokens: z.number().nullable(),
+			outputTokens: z.number().nullable(),
+			costUsd: z.number().nullable(),
+		}),
+	),
+});
