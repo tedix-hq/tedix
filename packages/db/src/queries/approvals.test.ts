@@ -18,6 +18,8 @@ import { apps } from "../schema/apps";
 import { appCatalog } from "../schema/catalog";
 import { appToolCspDomains } from "../schema/configuration";
 import { organizations } from "../schema/organizations";
+import { decisionEdges } from "../schema/decision-graph";
+import { workItems } from "../schema/work-items";
 import { appTools } from "../schema/tools";
 import { getAppByIdWithToolsForOrganization } from "./app-records";
 import {
@@ -104,7 +106,18 @@ function setup() {
 		);
 	`);
 	sqlite.exec(
-		schemaDdl(organizations, appCatalog, apps, appTools, appToolCspDomains),
+		schemaDdl(
+			organizations,
+			appCatalog,
+			apps,
+			appTools,
+			appToolCspDomains,
+			decisionEdges,
+			workItems,
+		),
+	);
+	sqlite.exec(
+		"INSERT INTO organizations(id, name, slug) VALUES ('org-1', 'First Org', 'first-org'), ('org-2', 'Second Org', 'second-org')",
 	);
 	return { db: createDbClient(createD1Facade(sqlite)) };
 }

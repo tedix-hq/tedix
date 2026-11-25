@@ -32,6 +32,36 @@ import { CARD_NAME_SCAN_LIMIT } from "./decision-graph-writers";
 
 const NOW = "2026-10-21T12:00:00.000Z";
 
+it("derives resolution edges from the approved payload and redacts secret labels", async () => {
+	const f = fixture();
+	await createApprovalRequest(f.db, {
+		id: "edited",
+		orgId: "org",
+		tediId: "worker",
+		actionType: "custom",
+		description: "Review",
+		payload: { workItemId: "foreign-work" },
+		createdAt: NOW,
+		expiresAt: "2099-01-01T00:00:00.000Z",
+	});
+	const batch = vi.spyOn(f.db, "batch");
+	await resolveApprovalRequest(f.db, "edited", {
+		status: "approved",
+		resolvedBy: "owner",
+		payload: { workItemId: "work" },
+		resolution: "Authorization: Bearer fictional-secret-token",
+	});
+	expect(batch).toHaveBeenCalledTimes(1);
+	const edges = f.edges().filter((e) => e.to_id === "edited");
+	expect(edges).toHaveLength(3);
+	expect(edges.map((e) => e.from_id).sort()).toEqual([
+		"approval:edited",
+		"approval:edited",
+		"work",
+	]);
+	expect(edges.every((e) => e.note === "Recorded decision")).toBe(true);
+});
+
 it("links a captured chat instruction only to explicit same-organization Work and card references", async () => {
 	const f = fixture();
 	await f.card();
@@ -61,6 +91,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
 	for (const cleanup of cleanups.splice(0)) cleanup();
 	vi.restoreAllMocks();
+	vi.useRealTimers();
 });
 
 it("links only confirmed lessons from a user's same-organization Work comment", async () => {
@@ -514,18 +545,39 @@ describe.each([false, true])(
 						}),
 					]),
 				);
-			expect(
-				await resolveApprovalRequest(f.db, "approval", {
-					status: "approved",
-					resolvedBy: "owner",
-				}),
-			).toBeDefined();
-			expect(
-				await resolveApprovalRequest(f.db, "approval", {
-					status: "rejected",
-					resolvedBy: "owner",
-				}),
-			).toBeUndefined();
+			if (broken) {
+				await expect(
+					resolveApprovalRequest(f.db, "approval", {
+						status: "approved",
+						resolvedBy: "owner",
+					}),
+				).rejects.toThrow("graph unavailable");
+				expect(
+					f.sqlite
+						.prepare(
+							"SELECT status, resolved_at FROM tedi_approval_requests WHERE id='approval'",
+						)
+						.get(),
+				).toMatchObject({ status: "pending", resolved_at: null });
+			} else {
+				vi.useFakeTimers();
+				vi.setSystemTime(new Date(NOW));
+				expect(
+					await resolveApprovalRequest(f.db, "approval", {
+						status: "approved",
+						resolvedBy: "owner",
+					}),
+				).toBeDefined();
+				const edges = f.edges();
+				expect(
+					await resolveApprovalRequest(f.db, "approval", {
+						status: "approved",
+						resolvedBy: "owner",
+					}),
+				).toBeUndefined();
+				expect(f.edges()).toEqual(edges);
+				vi.useRealTimers();
+			}
 			const payment = await ensurePaymentBudgetOverrideRequest(f.db, {
 				id: "payment-approval",
 				orgId: "org",
@@ -568,10 +620,6 @@ describe.each([false, true])(
 					]),
 				);
 			if (broken) {
-				expect(f.warn).toHaveBeenCalledWith(
-					"[decision-graph] edge write skipped",
-					{ source: "approval_resolution" },
-				);
 				return;
 			}
 			expect(f.edges()).toEqual(
@@ -588,6 +636,86 @@ describe.each([false, true])(
 					}),
 				]),
 			);
+		});
+
+		it("batches delegated resolution, tenant-scoped edges and audit, or rolls everything back", async () => {
+			const f = fixture(broken);
+			await createApprovalRequest(f.db, {
+				id: "delegated",
+				orgId: "org",
+				tediId: "worker",
+				actionType: "custom",
+				description: "Review",
+				payload: { workItemId: "foreign-work" },
+				createdAt: NOW,
+				expiresAt: "2099-01-01T00:00:00.000Z",
+			});
+			const delegatedApproval = {
+				ownerId: "owner",
+				actorType: "external_agent" as const,
+				actorId: "delegate",
+				actorName: "Delegate",
+				reason: "Review",
+			};
+			const params = {
+				status: "rejected" as const,
+				resolvedBy: "delegate",
+				delegatedApproval,
+			};
+			if (broken) {
+				f.sqlite.exec(`
+					DROP TRIGGER broken_graph;
+					CREATE TRIGGER broken_audit BEFORE INSERT ON audit_events
+					BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;
+				`);
+				await expect(
+					resolveApprovalRequest(f.db, "delegated", params),
+				).rejects.toThrow("audit unavailable");
+				expect(
+					f.sqlite
+						.prepare(
+							"SELECT status, payload FROM tedi_approval_requests WHERE id='delegated'",
+						)
+						.get(),
+				).toMatchObject({
+					status: "pending",
+					payload: JSON.stringify({ workItemId: "foreign-work" }),
+				});
+				expect(
+					f.sqlite
+						.prepare(
+							"SELECT count(*) AS count FROM audit_events WHERE resource_id='delegated'",
+						)
+						.get(),
+				).toMatchObject({ count: 0 });
+				expect(f.edges().filter((e) => e.to_id === "delegated")).toEqual([]);
+				return;
+			}
+			const batch = vi.spyOn(f.db, "batch");
+			const resolved = await resolveApprovalRequest(f.db, "delegated", params);
+			expect(batch).toHaveBeenCalledTimes(1);
+			expect(resolved?.payload.delegatedApproval).toEqual(delegatedApproval);
+			const edges = f.edges().filter((e) => e.to_id === "delegated");
+			expect(edges).toHaveLength(2);
+			expect(edges.every((e) => e.from_id === "approval:delegated")).toBe(true);
+			expect(
+				f.sqlite
+					.prepare(
+						"SELECT count(*) AS count FROM audit_events WHERE resource_id='delegated'",
+					)
+					.get(),
+			).toMatchObject({ count: 1 });
+			await expect(
+				resolveApprovalRequest(f.db, "delegated", params),
+			).resolves.toBeUndefined();
+			expect(f.edges().filter((e) => e.to_id === "delegated")).toEqual(edges);
+			expect(
+				f.sqlite
+					.prepare(
+						"SELECT count(*) AS count FROM audit_events WHERE resource_id='delegated'",
+					)
+					.get(),
+			).toMatchObject({ count: 1 });
 		});
 
 		it("links the successful Work approval decision", async () => {

@@ -10,6 +10,7 @@ import type { DelegatedApprovalReceiptSchema } from "@tedix/api-contract/schemas
  */
 
 import { STALE_OWNER_TOOL_RUN_MS } from "@tedix/api-contract/utils/owner-tool-execution";
+import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	recordCardCreationEdges,
@@ -46,6 +47,7 @@ import {
 	tediProvisionalOutcomes,
 } from "../schema/approvals";
 import { auditEvents } from "../schema/audit-events";
+import { decisionEdges } from "../schema/decision-graph";
 import { tedis } from "../schema/tedis";
 import { tediApprovalDependencyEvents } from "../schema/approval-simulations";
 import { getAffectedRows } from "../utils/d1-result";
@@ -546,6 +548,24 @@ export async function resolveApprovalRequest(
 		)`);
 	}
 	const decisionId = crypto.randomUUID();
+	// Read only to redact the fallback label; the batch still decides whether
+	// this request can resolve and reads edge ownership from the updated row.
+	const approval =
+		params.status !== "cancelled" && params.resolution == null
+			? await getApprovalRequestById(db, id)
+			: undefined;
+	const edges =
+		params.status === "cancelled"
+			? []
+			: [
+					buildApprovalResolutionEdgesStatement(db, {
+						id,
+						resolvedAt,
+						note:
+							params.resolution ??
+							`${params.status}: ${approval?.description ?? ""}`,
+					}),
+				];
 	const update = db
 		.update(tediApprovalRequests)
 		.set({
@@ -568,6 +588,7 @@ export async function resolveApprovalRequest(
 		? (
 				await db.batch([
 					update,
+					...edges,
 					db.insert(auditEvents).select(
 						db
 							.select({
@@ -607,27 +628,86 @@ export async function resolveApprovalRequest(
 					),
 				])
 			)[0]
-		: await update;
-	const resolved = results[0];
-	if (
-		resolved &&
-		(resolved.status === "approved" || resolved.status === "rejected")
-	)
-		await recordDecisionResolutionEdges(db, {
-			orgId: resolved.orgId,
-			cardId: `approval:${resolved.id}`,
-			decisionId: resolved.id,
-			workItemId:
-				typeof resolved.payload.workItemId === "string"
-					? resolved.payload.workItemId
-					: null,
-			occurredAt: resolvedAt,
-			source: "approval_resolution",
-			evidenceRef: `approval:${resolved.id}`,
-			note:
-				resolved.resolution ?? `${resolved.status}: ${resolved.description}`,
-		});
+		: (await db.batch([update, ...edges]))[0];
 	return results[0];
+}
+
+/** Must immediately follow the approval CAS: changes() fences even same-time retries. */
+function buildApprovalResolutionEdgesStatement(
+	db: DbClient,
+	p: { id: string; resolvedAt: string; note: string },
+) {
+	const note = containsCardSecret([p.note])
+		? "Recorded decision"
+		: p.note.replace(/\s+/g, " ").trim().slice(0, 280);
+	const workId = sql<string>`json_extract(${tediApprovalRequests.payload}, '$.workItemId')`;
+	return db
+		.insert(decisionEdges)
+		.select(
+			db
+				.select({
+					id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
+					orgId: tediApprovalRequests.orgId,
+					fromKind: sql<"deck_card" | "work_item">`edge.from_kind`.as(
+						"from_kind",
+					),
+					fromId:
+						sql<string>`case when edge.from_kind = 'work_item' then ${workId} else 'approval:' || ${tediApprovalRequests.id} end`.as(
+							"from_id",
+						),
+					kind: sql<"card_answers" | "decided_by">`edge.kind`.as("kind"),
+					toKind: sql<"decision">`'decision'`.as("to_kind"),
+					toId: sql<string>`${tediApprovalRequests.id}`.as("to_id"),
+					source: sql<string>`'approval_resolution'`.as("source"),
+					confidence: sql<number>`1`.as("confidence"),
+					evidenceRef:
+						sql<string>`'approval:' || ${tediApprovalRequests.id}`.as(
+							"evidence_ref",
+						),
+					note: sql<string>`${note}`.as("note"),
+					occurredAt: sql<string>`${p.resolvedAt}`.as("occurred_at"),
+					createdAt: sql<string>`${p.resolvedAt}`.as("created_at"),
+					updatedAt: sql<string>`${p.resolvedAt}`.as("updated_at"),
+				})
+				.from(tediApprovalRequests)
+				.innerJoin(
+					sql`(select 'deck_card' as from_kind, 'card_answers' as kind
+					union all select 'deck_card', 'decided_by'
+					union all select 'work_item', 'decided_by') edge`,
+					sql`edge.from_kind = 'deck_card' or (
+					json_type(${tediApprovalRequests.payload}, '$.workItemId') = 'text'
+					and exists (select 1 from ${workItems}
+						where ${workItems.orgId} = ${tediApprovalRequests.orgId}
+							and ${workItems.id} = ${workId})
+				)`,
+				)
+				.where(
+					and(
+						eq(tediApprovalRequests.id, p.id),
+						inArray(tediApprovalRequests.status, ["approved", "rejected"]),
+						eq(tediApprovalRequests.resolvedAt, p.resolvedAt),
+						sql`changes() = 1`,
+					),
+				),
+		)
+		.onConflictDoUpdate({
+			target: [
+				decisionEdges.orgId,
+				decisionEdges.fromId,
+				decisionEdges.fromKind,
+				decisionEdges.kind,
+				decisionEdges.toId,
+				decisionEdges.toKind,
+			],
+			set: {
+				source: sql`excluded.source`,
+				confidence: sql`excluded.confidence`,
+				evidenceRef: sql`excluded.evidence_ref`,
+				note: sql`excluded.note`,
+				occurredAt: sql`min(${decisionEdges.occurredAt}, excluded.occurred_at)`,
+				updatedAt: sql`excluded.updated_at`,
+			},
+		});
 }
 
 export async function supersedeToolReviewApprovals(
