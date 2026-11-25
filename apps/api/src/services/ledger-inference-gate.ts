@@ -1,6 +1,8 @@
 import type { LedgerRowRef } from "@tedix/context-core/request-ledger";
+import { DecisionModelSchema } from "@tedix/api-contract/schemas/jev";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import { type ClefQuestion, runClef } from "../lib/clef";
+import configuration from "./ledger-inference-gate.v1.json";
 
 export interface LedgerInferenceGateInput {
 	surface: "status" | "lesson";
@@ -9,6 +11,9 @@ export interface LedgerInferenceGateInput {
 }
 
 const writeDiagnostic = createTelemetryWriter("ledger-inference-gate");
+const modelId = DecisionModelSchema.exclude(["typesafe/jev"]).parse(
+	configuration.modelId,
+);
 const MIN_CONFIDENCE = 0.8;
 
 /** Only a confident, unanimous unchanged decision may suppress generation. */
@@ -79,7 +84,7 @@ export async function skipLedgerInference(
 			.byteLength <= 20_000;
 	const result = fits
 		? await runClef(env, {
-				modelId: "@cf/cloudflare/clef-flash",
+				modelId,
 				state: input.state,
 				questions,
 				surface: `agent-session-${input.surface}-gate`,
