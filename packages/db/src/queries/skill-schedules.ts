@@ -330,6 +330,49 @@ export async function listSkillSchedulesPage(
 	return { schedules, total };
 }
 
+/** Move a legacy timer to its local slot without inventing a run or erasing its history. */
+export async function advanceSkillScheduleToSlot(
+	db: DbClient,
+	schedule: SkillSchedule,
+	nextFireAt: string,
+): Promise<void> {
+	await db
+		.update(skillSchedules)
+		.set({ nextFireAt, updatedAt: new Date().toISOString() })
+		.where(
+			and(
+				eq(skillSchedules.id, schedule.id),
+				eq(skillSchedules.organizationId, schedule.organizationId),
+				eq(skillSchedules.nextFireAt, schedule.nextFireAt),
+			),
+		);
+}
+
+/** Only migrate the exact generated guard, fenced against concurrent skill edits. */
+export async function migrateFactorySlotGuard(
+	db: DbClient,
+	skill: Pick<SkillEntry, "id" | "organizationId" | "revision" | "files">,
+	files: NonNullable<SkillEntry["files"]>,
+): Promise<boolean> {
+	const applied = await db
+		.update(skillEntries)
+		.set({
+			files,
+			revision: skill.revision + 1,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(skillEntries.id, skill.id),
+				eq(skillEntries.organizationId, skill.organizationId),
+				eq(skillEntries.revision, skill.revision),
+				eq(skillEntries.files, skill.files!),
+			),
+		)
+		.returning({ id: skillEntries.id });
+	return applied.length === 1;
+}
+
 export async function recordSkillScheduleDispatch(
 	db: DbClient,
 	input: {

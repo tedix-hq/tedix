@@ -17,6 +17,21 @@ capabilities:
 # Weekly report`;
 
 describe("skill-native schedule", () => {
+	it.each([
+		["2026-03-28T08:00:00Z", "2026-03-29T07:00:00.000Z"],
+		["2026-10-24T07:00:00Z", "2026-10-25T08:00:00.000Z"],
+	])(
+		"schedules the next daily local slot across DST from %s",
+		(after, expected) => {
+			expect(
+				nextSkillScheduleFireAt("*/5 * * * *", after, {
+					timeZone: "Europe/Berlin",
+					times: ["09:00"],
+				}),
+			).toBe(expected);
+		},
+	);
+
 	it("parses and computes the next UTC fire", () => {
 		expect(readSkillSchedulePolicy(SKILL)).toEqual({
 			cron: "0 8 * * 1",

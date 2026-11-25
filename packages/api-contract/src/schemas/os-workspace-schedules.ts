@@ -58,10 +58,9 @@ export function isWorkspaceLinkResource(resource: {
 }
 
 /**
- * Optional `runsAt` metadata on a skill resource: the local times the skill's
- * workflow keeps. A UTC cron that must follow daylight saving fires at both
- * the summer and the winter hour, and the workflow skips the fire whose local
- * time is not one of these.
+ * Optional `runsAt` metadata on a skill resource mirrors the daily local slots
+ * in the skill frontmatter. The scheduler follows these slots across daylight
+ * saving changes instead of dispatching extra UTC cron fires.
  */
 export const WorkspaceSkillRunsAtSchema = z
 	.object({

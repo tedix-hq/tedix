@@ -612,22 +612,11 @@ describe("local factory schedules", () => {
 			"return {",
 		);
 		const rendered = new Function(source)() as Lane;
-		const fixedStep = {
-			do: async (name: string, fn: () => unknown) =>
-				name === "started-at" ? "2026-07-01T07:30:00Z" : fn(),
-		};
-		expect(await rendered.run({}, fixedStep, env)).toEqual({
-			status: "skipped",
-			reason: "off_slot",
-			summary: "Outside the local slot window; no reads or writes.",
-		});
-		expect(calls).toEqual([]);
 		await buildFactory(store, input({ workspaceId: WORKSPACE }));
 		expect(linked).toMatchObject({ runsAt });
 		const probe = await rendered.run(
 			{ payload: { probe: true } },
 			{
-				...fixedStep,
 				do: async (
 					name: string,
 					optionsOrFn: unknown,
@@ -678,31 +667,6 @@ describe("local factory schedules", () => {
 			);
 			expect(result).toMatchObject({ cycleKey, summary: "Reviewed the queue" });
 			expect(calls.map(([name]) => name)).toContain("work_item_comment");
-		},
-	);
-	it.each([
-		"2026-11-20T07:01:06Z",
-		"2026-11-20T08:30:00Z",
-		"2026-07-01T08:01:06Z",
-	])(
-		"skips an outside-slot start at %s without calling tools",
-		async (startedAt) => {
-			const { store, skills } = memoryStore(true);
-			await buildFactory(
-				store,
-				input({ runsAt: { timeZone: "Europe/Berlin", times: ["09:00"] } }),
-			);
-			const { env, calls, step } = laneHarness(null);
-			const result = await loadLane([...skills.values()][0]!).run(
-				{},
-				{
-					...step,
-					do: async () => startedAt,
-				},
-				env,
-			);
-			expect(result).toMatchObject({ status: "skipped", reason: "off_slot" });
-			expect(calls).toEqual([]);
 		},
 	);
 	it("rejects unknown time zones", () => {

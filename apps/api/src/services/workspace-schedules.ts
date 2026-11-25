@@ -50,27 +50,24 @@ export function readRunsAt(
 
 /**
  * When a schedule runs: its next run and, for a cron that fires every day, the
- * next instant of each daily run time. With `runsAt`, a fire whose local time
- * is not one of its times is skipped, as the workflow skips it.
+ * next instant of each daily run time. `runsAt` declares the daily local slots used by the scheduler.
  */
 export function scheduleRunTimes(
 	cron: string,
 	runsAt: WorkspaceSkillRunsAt | null,
 	now: Date,
 ): { dailyTimes: string[]; nextRunAt: string | null } {
-	const keeps = (at: Date) =>
-		!runsAt || runsAt.times.includes(localClock(at, runsAt.timeZone));
-	const daily = cron.trim().split(/\s+/).slice(2).join(" ") === "* * *";
+	const daily =
+		!!runsAt || cron.trim().split(/\s+/).slice(2).join(" ") === "* * *";
 	const horizon = now.getTime() + 8 * DAY_MS;
 	const dailyTimes: string[] = [];
 	let nextRunAt: string | null = null;
 	let cursor: Date = now;
 	try {
 		for (let index = 0; index < MAX_FIRES; index++) {
-			const fire = new Date(nextSkillScheduleFireAt(cron, cursor));
+			const fire = new Date(nextSkillScheduleFireAt(cron, cursor, runsAt));
 			if (fire.getTime() > horizon) break;
 			cursor = fire;
-			if (!keeps(fire)) continue;
 			nextRunAt ??= fire.toISOString();
 			if (!daily) break;
 			if (fire.getTime() - now.getTime() >= DAY_MS) break;

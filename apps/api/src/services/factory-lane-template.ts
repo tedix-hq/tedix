@@ -321,8 +321,6 @@ export default {
 			const clock = new Intl.DateTimeFormat("en-GB", { timeZone: boundFactory.runsAt.timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(startedAt));
 			const minutes = (time) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
 			const age = Math.min(...boundFactory.runsAt.times.map((time) => (minutes(clock) - minutes(time) + 1440) % 1440));
-			// Allow dispatch delays, but stop before the extra daylight-saving cron fire.
-			if (age >= 30) return { status: "skipped", reason: "off_slot", summary: "Outside the local slot window; no reads or writes." };
 			slotStartedAt = new Date(Math.floor(Date.parse(startedAt) / 60000) * 60000 - age * 60000).toISOString();
 		}
 		const cycleKey = await step.do("cycle-key", async () =>

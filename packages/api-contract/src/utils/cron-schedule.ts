@@ -1,3 +1,5 @@
+import type { WorkspaceSkillRunsAt } from "../schemas/os-workspace-schedules";
+
 type CronField = Set<number>;
 type ParsedCron = {
 	minute: CronField;
@@ -96,7 +98,28 @@ export function skillScheduleFiresDaily(
 export function nextSkillScheduleFireAt(
 	cron: string,
 	after: Date | string | number,
+	runsAt?: WorkspaceSkillRunsAt | null,
 ): string {
+	if (runsAt) {
+		const formatter = new Intl.DateTimeFormat("en-GB", {
+			timeZone: runsAt.timeZone,
+			hour: "2-digit",
+			minute: "2-digit",
+			hourCycle: "h23",
+		});
+		const start = new Date(after).getTime();
+		if (!Number.isFinite(start)) throw new Error("invalid start time");
+		// Daily local slots replace the UTC cron envelope, including across DST.
+		for (
+			let at = Math.floor(start / 60000) * 60000 + 60000;
+			at <= start + 3 * 86400000;
+			at += 60000
+		) {
+			if (runsAt.times.includes(formatter.format(new Date(at))))
+				return new Date(at).toISOString();
+		}
+		throw new Error("local schedule has no fire within three days");
+	}
 	const parsed = parseCron(cron);
 	const start = new Date(after);
 	if (!Number.isFinite(start.getTime())) throw new Error("invalid start time");

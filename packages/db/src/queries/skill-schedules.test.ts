@@ -5,6 +5,8 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { getGovernedLearningScheduleStates } from "./flywheel/cron-executions";
 import {
+	advanceSkillScheduleToSlot,
+	migrateFactorySlotGuard,
 	listSkillSchedules,
 	listSkillSchedulesPage,
 	listDueSkillSchedules,
@@ -75,6 +77,55 @@ describe("skill schedule budget state", () => {
 			);
 		`);
 		db = createDbClient(createD1Facade(sqlite));
+	});
+
+	it("migrates local slots without overwriting run history or concurrent skill edits", async () => {
+		sqlite.exec(
+			"ALTER TABLE skill_entries ADD COLUMN revision INTEGER DEFAULT 1; ALTER TABLE skill_entries ADD COLUMN files TEXT; ALTER TABLE skill_entries ADD COLUMN updated_at TEXT;",
+		);
+		const files = { "scripts/workflow.ts": "old" };
+		sqlite
+			.prepare("UPDATE skill_entries SET files = ? WHERE id = 'skill-1'")
+			.run(JSON.stringify(files));
+		const skill = {
+			id: "skill-1",
+			organizationId: "org-1",
+			revision: 1,
+			files,
+		};
+		expect(
+			await migrateFactorySlotGuard(
+				db,
+				{ ...skill, organizationId: "other" },
+				{ "scripts/workflow.ts": "new" },
+			),
+		).toBe(false);
+		expect(
+			await migrateFactorySlotGuard(db, skill, {
+				"scripts/workflow.ts": "new",
+			}),
+		).toBe(true);
+		expect(
+			await migrateFactorySlotGuard(db, skill, {
+				"scripts/workflow.ts": "stale",
+			}),
+		).toBe(false);
+		const migrated = sqlite
+			.prepare("SELECT files, revision FROM skill_entries WHERE id = 'skill-1'")
+			.get();
+		expect(migrated).toMatchObject({
+			files: JSON.stringify({ "scripts/workflow.ts": "new" }),
+			revision: 2,
+		});
+		sqlite.exec("UPDATE skill_schedules SET last_run_id = 'previous-run'");
+		const schedule = (await getSkillSchedule(db, "skill-1", "org-1"))!;
+		await advanceSkillScheduleToSlot(db, schedule, "2026-07-25T06:00:00.000Z");
+		await advanceSkillScheduleToSlot(db, schedule, "2026-07-26T06:00:00.000Z");
+		expect(await getSkillSchedule(db, "skill-1", "org-1")).toMatchObject({
+			nextFireAt: "2026-07-25T06:00:00.000Z",
+			lastRunId: "previous-run",
+			lastFireAt: null,
+		});
 	});
 
 	it("finds a recently fired schedule whose scheduled run failed and repoints it once", async () => {

@@ -55,14 +55,21 @@ describe("scheduleRunTimes", () => {
 		expect(winter.dailyTimes).toHaveLength(3);
 	});
 
-	it("reports no run when the cron never reaches a kept local time", () => {
+	it("uses declared local slots even when the legacy cron has only a summer offset", () => {
 		expect(
 			scheduleRunTimes(
 				"17 5,6,10,11,15,16 * * *",
 				BERLIN_THREE_A_DAY,
 				new Date("2026-12-01T09:00:00Z"),
 			),
-		).toEqual({ dailyTimes: [], nextRunAt: null });
+		).toEqual({
+			dailyTimes: [
+				"2026-12-01T12:17:00.000Z",
+				"2026-12-01T17:17:00.000Z",
+				"2026-12-02T07:17:00.000Z",
+			],
+			nextRunAt: "2026-12-01T12:17:00.000Z",
+		});
 	});
 
 	it("lists every fire of a plain daily cron and only the next run otherwise", () => {
