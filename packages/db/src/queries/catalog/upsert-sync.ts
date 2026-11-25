@@ -436,6 +436,17 @@ export async function syncCatalogAppFromStore(
 					: normalizedInput
 				: (normalizedExisting ?? normalizedInput);
 
+		// A public marketplace refresh carries no new Tedix connector health check.
+		const keepHealthVisibility =
+			input.rawData?.snapshotFeed === "catalogFeed" &&
+			input.status === "ENABLED" &&
+			input.reviewStatus === "RELEASED" &&
+			existingApp.reviewStatus === "RELEASED" &&
+			(existingApp.status === "ENABLED" || existingApp.status === "DISABLED") &&
+			existingApp.isDiscoverable === false &&
+			(existingApp.healthStatus === "blocked" ||
+				existingApp.healthStatus === "unhealthy");
+
 		// Update existing app with merged data
 		// Also update endpoint fields if input provides a better/changed URL
 		await db
@@ -565,6 +576,9 @@ export async function syncCatalogAppFromStore(
 				),
 				rawData: mergeCatalogRawData(existingApp.rawData, input.rawData),
 				lastSyncedAt: now,
+				...(keepHealthVisibility
+					? { status: existingApp.status, isDiscoverable: false }
+					: {}),
 				// Re-enable delisted apps that reappear in a sync
 				...(existingApp.status === "DELISTED"
 					? { status: "ENABLED" as const, isDiscoverable: true }

@@ -36,6 +36,32 @@ describe("catalog removal-request suppression", () => {
 		db = migratedDb();
 	});
 
+	it("refreshes the marketplace listing without re-enabling a health-disabled connector", async () => {
+		const snapshot = {
+			...listing,
+			status: "ENABLED",
+			isDiscoverable: true,
+			rawData: { snapshotFeed: "catalogFeed" },
+		} as const;
+		const first = await syncCatalogAppFromStore(db, snapshot);
+		await updateCatalogApp(db, first.app.id, {
+			status: "DISABLED",
+			isDiscoverable: false,
+			healthStatus: "blocked",
+		});
+		const refreshed = await syncCatalogAppFromStore(db, {
+			...snapshot,
+			description: "New store description",
+		});
+		expect(refreshed.app).toMatchObject({
+			status: "DISABLED",
+			isDiscoverable: false,
+		});
+		expect(refreshed.storeListing.storeDescription).toBe(
+			"New store description",
+		);
+	});
+
 	it("preserves direct Claude metadata and a suppressed legacy key on catalog feed rekey", async () => {
 		const native = {
 			...listing,
