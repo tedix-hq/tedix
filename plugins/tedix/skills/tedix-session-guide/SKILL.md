@@ -27,6 +27,12 @@ and completion, when it supports the required executor identity and scopes.
 Being in a source checkout or having a CLI profile does not require the CLI.
 Honor an explicit user surface and any explicit operation-specific policy.
 
+Resolve base tool names such as `get_profile` and `code` against the Tedix
+connection actually loaded by the host. Headless Claude Code can load the
+claude.ai Tedix connector instead of the plugin's connection at the same
+address; plugin skills and hooks do not imply plugin-prefixed tools exist.
+Use the available names and verify their account and organization before acting.
+
 Use the CLI for local installation, hooks, directory bindings,
 supervisor/dispatcher operations and workflows that depend on CLI-managed
 credentials or Attempt state. File edits, tests and Git use the host's local

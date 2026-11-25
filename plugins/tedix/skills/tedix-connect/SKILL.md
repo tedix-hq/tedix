@@ -9,7 +9,13 @@ Use this when the user wants to connect Tedix or a Tedix operation fails before
 the task can start. Do not treat an installed plugin, saved login, or visible
 tool name as proof that the task's call is authorized.
 
-1. Prefer the authenticated Tedix plugin connection. A shell or installed CLI
+Tool names in this skill are base names. Resolve them against the Tedix tools
+actually loaded by the host, not a fixed plugin prefix. In headless Claude Code,
+a claude.ai Tedix connector can replace the plugin's connection at the same
+address while the plugin's skills remain available. Use that connector's tools
+and verify its account and organization; do not disable it to force plugin names.
+
+1. Prefer the authenticated Tedix MCP connection. A shell or installed CLI
    is not a prerequisite. Honor an explicit user surface or repository policy
    requiring the CLI; in that path run `tedix -w <workspace> auth status`.
    Keep the requested organization. Multi-organization Connect exposes selected

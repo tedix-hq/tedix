@@ -100,6 +100,13 @@ not prove that a particular Tedix operation is authorized.
 
 ## Check first use
 
+Claude Code loads one MCP connection per address. If you also added Tedix in
+claude.ai, a headless `claude -p` run can use that connector's tools instead of
+the plugin's. Skills and hooks use base tool names and discover the available
+connection; they do not require plugin-prefixed names. The CLI's Claude check
+accepts either connection and reports the Tedix account it actually read.
+Check that account and organization before relying on the result.
+
 Start a new Claude Code session and invoke `/tedix:tedix-connect`. Ask it to
 verify the selected workspace, credential kind, scopes, and one bounded,
 read-only call for your task. The other packaged skills are

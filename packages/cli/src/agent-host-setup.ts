@@ -618,14 +618,15 @@ function profileRead(value: unknown): boolean {
 }
 
 /**
- * The check reads through the Tedix plugin's own connection. Claude Code
- * loads one Tedix connection per address, and in a background run a Tedix
- * connector added on claude.ai (often another account, often still
- * connecting) takes the plugin's place, so the check turns claude.ai
- * connectors off.
+ * Claude Code loads one connection per address. A claude.ai Tedix connector
+ * can replace the plugin's connection in a headless run; check the active
+ * connection and report the account it actually returns.
  */
-const CLAUDE_PROFILE_TOOL = "mcp__plugin_tedix_tedix__get_profile";
-const CLAUDE_CHECK_ENV = { ENABLE_CLAUDEAI_MCP_SERVERS: "false" };
+const CLAUDE_TEDIX_SERVERS = ["plugin:tedix:tedix", "claude.ai tedix"];
+const CLAUDE_PROFILE_TOOLS = [
+	"mcp__plugin_tedix_tedix__get_profile",
+	"mcp__claude_ai_tedix__get_profile",
+];
 
 /** What a background Claude Code run showed. Host tool results only, never the model's claim. */
 export function claudeSetupRead(output: string): {
@@ -647,14 +648,14 @@ export function claudeSetupRead(output: string): {
 			if (event?.type === "system" && event.subtype === "init")
 				read.loaded = records(event.mcp_servers).some(
 					(server) =>
-						server.name === "plugin:tedix:tedix" &&
+						CLAUDE_TEDIX_SERVERS.includes(String(server.name).toLowerCase()) &&
 						server.status === "connected",
 				);
 			for (const block of records(asRecord(event?.message)?.content)) {
 				if (
 					event?.type === "assistant" &&
 					block.type === "tool_use" &&
-					block.name === CLAUDE_PROFILE_TOOL &&
+					CLAUDE_PROFILE_TOOLS.includes(String(block.name)) &&
 					typeof block.id === "string"
 				) {
 					calls.add(block.id);
@@ -717,28 +718,23 @@ async function verifyHost(
 			account = found;
 		});
 	else {
-		const result = run(
-			host,
-			[
-				"-p",
-				`Call ${CLAUDE_PROFILE_TOOL} with {} once to check the Tedix sign-in. Do not use other tools, change anything, or request consent. Stop after that read.`,
-				"--output-format",
-				"stream-json",
-				"--verbose",
-				"--max-turns",
-				"2",
-				"--tools",
-				"",
-				"--allowedTools",
-				CLAUDE_PROFILE_TOOL,
-			],
-			false,
-			CLAUDE_CHECK_ENV,
-		);
+		const result = run(host, [
+			"-p",
+			"Call the available Tedix get_profile tool with {} once to check the Tedix sign-in. It may be provided by the plugin or the claude.ai connector; use the tool name actually loaded in this run. Do not use other tools, change anything, or request consent. Stop after that read.",
+			"--output-format",
+			"stream-json",
+			"--verbose",
+			"--max-turns",
+			"2",
+			"--tools",
+			"",
+			"--allowedTools",
+			CLAUDE_PROFILE_TOOLS.join(","),
+		]);
 		const read = claudeSetupRead(result.stdout);
 		if (!read.loaded)
 			throw new Error(
-				"Claude Code did not load the Tedix plugin's connection. Open the Code tab in Claude once, then check again; if it stays, choose Connect.",
+				"Claude Code did not load a connected Tedix plugin or claude.ai connector. Check the active Tedix connection in Claude, then check again.",
 			);
 		if (!read.account)
 			throw new Error(

@@ -330,23 +330,23 @@ describe("agent host setup", () => {
 describe("Claude Code connection check", () => {
 	const lines = (...events: unknown[]) =>
 		events.map((event) => JSON.stringify(event)).join("\n");
-	const init = (status: string) => ({
+	const init = (status: string, name = "plugin:tedix:tedix") => ({
 		type: "system",
 		subtype: "init",
-		mcp_servers: [{ name: "plugin:tedix:tedix", status }],
+		mcp_servers: [{ name, status }],
 	});
-	const call = {
+	const call = (name = "mcp__plugin_tedix_tedix__get_profile") => ({
 		type: "assistant",
 		message: {
 			content: [
 				{
 					type: "tool_use",
 					id: "t1",
-					name: "mcp__plugin_tedix_tedix__get_profile",
+					name,
 				},
 			],
 		},
-	};
+	});
 	const result = (content: string, is_error = false) => ({
 		type: "user",
 		message: {
@@ -354,12 +354,16 @@ describe("Claude Code connection check", () => {
 		},
 	});
 
-	it("names the Tedix account the plugin connection read", () => {
+	it.each([
+		["plugin:tedix:tedix", "mcp__plugin_tedix_tedix__get_profile"],
+		["claude.ai tedix", "mcp__claude_ai_tedix__get_profile"],
+		["claude.ai Tedix", "mcp__claude_ai_tedix__get_profile"],
+	])("names the Tedix account read through %s", (server, tool) => {
 		expect(
 			claudeSetupRead(
 				lines(
-					init("connected"),
-					call,
+					init("connected", server),
+					call(tool),
 					result(JSON.stringify({ id: "U1", email: "person@example.com" })),
 				),
 			),
@@ -374,9 +378,21 @@ describe("Claude Code connection check", () => {
 	it("tells a missing plugin connection apart from a failed sign-in", () => {
 		expect(claudeSetupRead(lines(init("pending"))).loaded).toBe(false);
 		const failed = claudeSetupRead(
-			lines(init("connected"), call, result("Unauthorized", true)),
+			lines(init("connected"), call(), result("Unauthorized", true)),
 		);
 		expect(failed).toMatchObject({ loaded: true, failed: true });
 		expect(failed.account).toBeUndefined();
+	});
+
+	it("does not accept another connector's profile or the model's success claim", () => {
+		const read = claudeSetupRead(
+			lines(
+				init("connected", "claude.ai other"),
+				call("mcp__claude_ai_other__get_profile"),
+				result(JSON.stringify({ id: "U1" })),
+				{ type: "result", result: "Tedix profile read succeeded." },
+			),
+		);
+		expect(read).toEqual({ loaded: false, called: false, failed: false });
 	});
 });
