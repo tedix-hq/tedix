@@ -29,7 +29,7 @@ import {
 } from "../schema/work-items";
 import { addWorkItemRelation } from "./work-items/relations";
 import { chunkForBoundParams } from "../utils/batch";
-import { deriveWorkItemReadiness } from "./work-items/readiness";
+import { deriveWorkItemsReadiness } from "./work-items/readiness";
 import { errorMessage } from "@tedix/worker-kit/error-message";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -338,29 +338,28 @@ export async function findIdleAcceptedWorkItems(
 		.limit(limit + 1);
 
 	const truncated = rows.length > limit;
-	const findings = await Promise.all(
-		rows.slice(0, limit).map(async (row) => {
-			const lastActivityAt = row.updatedAt ?? row.createdAt;
-			const idleDays = Math.max(
-				0,
-				Math.floor((nowMs - Date.parse(lastActivityAt)) / DAY_MS),
-			);
-			const readiness = await deriveWorkItemReadiness(db, {
-				orgId: params.orgId,
-				workItemId: row.id,
-				derivedAt: params.now,
-			});
-			return {
-				workItemId: row.id,
-				title: row.title,
-				disposition: row.disposition,
-				readiness: readiness.state,
-				lastActivityAt,
-				idleDays,
-				suggestedAction: "review_idle" as const,
-			};
-		}),
-	);
+	const readinessRows = await deriveWorkItemsReadiness(db, {
+		orgId: params.orgId,
+		workItemIds: rows.slice(0, limit).map((row) => row.id),
+		derivedAt: params.now,
+	});
+	const findings = rows.slice(0, limit).map((row, index) => {
+		const lastActivityAt = row.updatedAt ?? row.createdAt;
+		const idleDays = Math.max(
+			0,
+			Math.floor((nowMs - Date.parse(lastActivityAt)) / DAY_MS),
+		);
+		const readiness = readinessRows[index]!;
+		return {
+			workItemId: row.id,
+			title: row.title,
+			disposition: row.disposition,
+			readiness: readiness.state,
+			lastActivityAt,
+			idleDays,
+			suggestedAction: "review_idle" as const,
+		};
+	});
 	return { findings, truncated };
 }
 

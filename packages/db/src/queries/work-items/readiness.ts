@@ -1,3 +1,4 @@
+import { chunkForBoundParams } from "../../utils/batch";
 import { workDeferralWait } from "./deferral";
 import { taskContractRefusal } from "./task-contract";
 import {
@@ -384,7 +385,84 @@ async function readinessInheritedAuthority(db: DbQueryClient, item: WorkItem) {
 	}
 }
 
+type ReadinessParams = Parameters<typeof deriveReadiness>[1];
+interface ReadinessCapacity {
+	activeAttemptId: string | null;
+	hasResourceRequirement: boolean;
+	hasBudgetEnvelope: boolean;
+	hasSpentCreditBudget: boolean;
+}
+
 export async function deriveWorkItemReadiness(
+	db: DbQueryClient,
+	params: ReadinessParams,
+): Promise<WorkItemReadinessResult> {
+	return deriveReadiness(db, params);
+}
+
+/** Batch the fleet's repeated capacity reads; admission still rechecks live facts. */
+export async function deriveWorkItemsReadiness(
+	db: DbQueryClient,
+	params: Omit<ReadinessParams, "workItemId"> & { workItemIds: string[] },
+): Promise<WorkItemReadinessResult[]> {
+	const derivedAt = params.derivedAt ?? new Date().toISOString();
+	const results: WorkItemReadinessResult[] = [];
+	for (const ids of chunkForBoundParams(params.workItemIds, 40)) {
+		const rows = await db
+			.select({
+				id: workItems.id,
+				// Nested SQL preserves outer-column qualification in SELECT projections.
+				activeAttemptId: sql<string | null>`${sql`(
+					SELECT a.id FROM ${workAttempts} a
+					WHERE a.org_id=${params.orgId} AND a.work_item_id=${workItems.id}
+						AND a.runtime_state IN ('queued','running','waiting','retrying')
+						AND a.expires_at>${derivedAt} LIMIT 1
+				)`}`.as("active_attempt_id"),
+				hasResourceRequirement: sql<boolean>`${sql`EXISTS (
+					SELECT 1 FROM ${workResourceRequirements} r
+					WHERE r.org_id=${params.orgId} AND r.work_item_id=${workItems.id}
+				)`}`.as("has_resource_requirement"),
+				hasBudgetEnvelope: sql<boolean>`${sql`EXISTS (
+					SELECT 1 FROM ${workBudgetEnvelopes} e
+					WHERE e.org_id=${params.orgId} AND e.enabled=1 AND e.currency<>${CREDIT_BUDGET_CURRENCY}
+						AND (
+							(e.scope_type='organization' AND e.scope_id=${params.orgId})
+							OR (e.scope_type='work_item' AND e.scope_id=${workItems.id})
+							OR (e.scope_type='project' AND e.scope_id=${workItems.projectId})
+							OR (e.scope_type='case' AND EXISTS (
+								SELECT 1 FROM ${workCaseItems} ci
+								WHERE ci.org_id=${params.orgId} AND ci.work_item_id=${workItems.id} AND ci.case_id=e.scope_id
+							))
+						)
+				)`}`.as("has_budget_envelope"),
+				hasSpentCreditBudget: sql<boolean>`${sql`EXISTS (
+					SELECT 1 FROM ${workBudgetEnvelopes} e
+					WHERE e.org_id=${params.orgId} AND e.enabled=1 AND e.currency=${CREDIT_BUDGET_CURRENCY}
+						AND e.mode='stop' AND e.alerted_percent>=100
+				)`}`.as("has_spent_credit_budget"),
+			})
+			.from(workItems)
+			// bound-params: 40 Work IDs plus fixed org, currency and time predicates.
+			.where(
+				and(eq(workItems.orgId, params.orgId), inArray(workItems.id, ids)),
+			);
+		const facts = new Map(rows.map((row) => [row.id, row]));
+		results.push(
+			...(await Promise.all(
+				ids.map((workItemId) =>
+					deriveReadiness(
+						db,
+						{ ...params, workItemId, derivedAt },
+						facts.get(workItemId),
+					),
+				),
+			)),
+		);
+	}
+	return results;
+}
+
+async function deriveReadiness(
 	db: DbQueryClient,
 	params: {
 		orgId: string;
@@ -394,6 +472,7 @@ export async function deriveWorkItemReadiness(
 		resourcesAvailable?: boolean;
 		derivedAt?: string;
 	},
+	capacity?: ReadinessCapacity,
 ): Promise<WorkItemReadinessResult> {
 	const derivedAt = params.derivedAt ?? new Date().toISOString();
 	const item = await getScopedWorkItem(db, params.orgId, params.workItemId);
@@ -407,25 +486,28 @@ export async function deriveWorkItemReadiness(
 		.limit(1);
 	await ensureWorkRiskApproval(db, item, derivedAt);
 	const [
-		activeAttempt,
+		activeAttemptId,
 		dependency,
-		resourceRequirement,
-		budgetEnvelope,
+		hasResourceRequirement,
+		hasBudgetEnvelope,
 		approvalReceipts,
 		spentCreditBudget,
 	] = await Promise.all([
-		db
-			.select({ id: workAttempts.id })
-			.from(workAttempts)
-			.where(
-				and(
-					eq(workAttempts.orgId, params.orgId),
-					eq(workAttempts.workItemId, params.workItemId),
-					inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
-					sql`${workAttempts.expiresAt}>${derivedAt}`,
-				),
-			)
-			.limit(1),
+		capacity
+			? Promise.resolve(capacity.activeAttemptId)
+			: db
+					.select({ id: workAttempts.id })
+					.from(workAttempts)
+					.where(
+						and(
+							eq(workAttempts.orgId, params.orgId),
+							eq(workAttempts.workItemId, params.workItemId),
+							inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
+							sql`${workAttempts.expiresAt}>${derivedAt}`,
+						),
+					)
+					.limit(1)
+					.then((rows) => rows[0]?.id ?? null),
 		db
 			.select({ id: workItems.id })
 			.from(workItemRelations)
@@ -446,48 +528,54 @@ export async function deriveWorkItemReadiness(
 				),
 			)
 			.limit(1),
-		db
-			.select({ resourceKey: workResourceRequirements.resourceKey })
-			.from(workResourceRequirements)
-			.where(
-				and(
-					eq(workResourceRequirements.orgId, params.orgId),
-					eq(workResourceRequirements.workItemId, params.workItemId),
-				),
-			)
-			.limit(1),
-		db
-			.select({ id: workBudgetEnvelopes.id })
-			.from(workBudgetEnvelopes)
-			.where(
-				and(
-					eq(workBudgetEnvelopes.orgId, params.orgId),
-					eq(workBudgetEnvelopes.enabled, true),
-					// Credit budgets are enforced by the organization wallet as credits are spent.
-					ne(workBudgetEnvelopes.currency, CREDIT_BUDGET_CURRENCY),
-					or(
+		capacity
+			? Promise.resolve(capacity.hasResourceRequirement)
+			: db
+					.select({ resourceKey: workResourceRequirements.resourceKey })
+					.from(workResourceRequirements)
+					.where(
 						and(
-							eq(workBudgetEnvelopes.scopeType, "organization"),
-							eq(workBudgetEnvelopes.scopeId, params.orgId),
+							eq(workResourceRequirements.orgId, params.orgId),
+							eq(workResourceRequirements.workItemId, params.workItemId),
 						),
+					)
+					.limit(1)
+					.then((rows) => Boolean(rows[0])),
+		capacity
+			? Promise.resolve(capacity.hasBudgetEnvelope)
+			: db
+					.select({ id: workBudgetEnvelopes.id })
+					.from(workBudgetEnvelopes)
+					.where(
 						and(
-							eq(workBudgetEnvelopes.scopeType, "work_item"),
-							eq(workBudgetEnvelopes.scopeId, params.workItemId),
+							eq(workBudgetEnvelopes.orgId, params.orgId),
+							eq(workBudgetEnvelopes.enabled, true),
+							// Credit budgets are enforced by the organization wallet as credits are spent.
+							ne(workBudgetEnvelopes.currency, CREDIT_BUDGET_CURRENCY),
+							or(
+								and(
+									eq(workBudgetEnvelopes.scopeType, "organization"),
+									eq(workBudgetEnvelopes.scopeId, params.orgId),
+								),
+								and(
+									eq(workBudgetEnvelopes.scopeType, "work_item"),
+									eq(workBudgetEnvelopes.scopeId, params.workItemId),
+								),
+								item.projectId
+									? and(
+											eq(workBudgetEnvelopes.scopeType, "project"),
+											eq(workBudgetEnvelopes.scopeId, item.projectId),
+										)
+									: undefined,
+								and(
+									eq(workBudgetEnvelopes.scopeType, "case"),
+									sql`EXISTS (SELECT 1 FROM ${workCaseItems} ci WHERE ci.org_id=${params.orgId} AND ci.work_item_id=${params.workItemId} AND ci.case_id=${workBudgetEnvelopes.scopeId})`,
+								),
+							),
 						),
-						item.projectId
-							? and(
-									eq(workBudgetEnvelopes.scopeType, "project"),
-									eq(workBudgetEnvelopes.scopeId, item.projectId),
-								)
-							: undefined,
-						and(
-							eq(workBudgetEnvelopes.scopeType, "case"),
-							sql`EXISTS (SELECT 1 FROM ${workCaseItems} ci WHERE ci.org_id=${params.orgId} AND ci.work_item_id=${params.workItemId} AND ci.case_id=${workBudgetEnvelopes.scopeId})`,
-						),
-					),
-				),
-			)
-			.limit(1),
+					)
+					.limit(1)
+					.then((rows) => Boolean(rows[0])),
 		db
 			.select({
 				workItemId: workApprovalProposals.workItemId,
@@ -526,10 +614,12 @@ export async function deriveWorkItemReadiness(
 				),
 			)
 			.limit(1000),
-		findSpentCreditBudget(db, {
-			orgId: params.orgId,
-			workItemId: params.workItemId,
-		}),
+		capacity && !capacity.hasSpentCreditBudget
+			? Promise.resolve(null)
+			: findSpentCreditBudget(db, {
+					orgId: params.orgId,
+					workItemId: params.workItemId,
+				}),
 	]);
 	return evaluateWorkItemReadiness({
 		deferralWait: await workDeferralWait(db, item, derivedAt),
@@ -539,10 +629,10 @@ export async function deriveWorkItemReadiness(
 		inheritedAuthority: await readinessInheritedAuthority(db, item),
 		contractRefusal: await taskContractRefusal(db, item, derivedAt),
 		derivedAt,
-		activeAttemptId: activeAttempt[0]?.id,
+		activeAttemptId: activeAttemptId ?? undefined,
 		blockingDependencyId: dependency[0]?.id,
-		hasResourceRequirement: Boolean(resourceRequirement[0]),
-		hasBudgetEnvelope: Boolean(budgetEnvelope[0]),
+		hasResourceRequirement,
+		hasBudgetEnvelope,
 		availableCapabilities: params.availableCapabilities,
 		approvalReceipts,
 		budgetAdmissible: params.budgetAdmissible,

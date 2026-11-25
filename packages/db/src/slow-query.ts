@@ -21,6 +21,7 @@ const requestLogger = createLogger<{
 }>({ component: "db.request" });
 
 type Ledger = {
+	limiter?: { active: number; limit: number; waiting: Array<() => void> };
 	reads?: Map<string, Map<object, Promise<unknown>>>;
 	label: string;
 	statements: number;
@@ -47,9 +48,19 @@ const ledgers = new AsyncLocalStorage<Ledger>();
 export async function withD1Ledger<T>(
 	label: string,
 	run: () => Promise<T>,
+	options: { maxInFlight?: number } = {},
 ): Promise<T> {
+	if (
+		options.maxInFlight !== undefined &&
+		(!Number.isInteger(options.maxInFlight) || options.maxInFlight < 1)
+	)
+		throw new Error("D1 concurrency must be a positive integer");
 	const ledger: Ledger = {
 		label,
+		limiter:
+			options.maxInFlight === undefined
+				? undefined
+				: { active: 0, limit: options.maxInFlight, waiting: [] },
 		statements: 0,
 		d1WallMs: 0,
 		rowsRead: 0,
@@ -127,6 +138,20 @@ export function memoizeD1InvocationRead<T>(
 
 export function invalidateD1InvocationRead(name: string, client: object): void {
 	ledgers.getStore()?.reads?.get(name)?.delete(getD1BindingKey(client));
+}
+
+/** One permit covers a native call, including a sequential D1 batch. */
+async function acquireD1(): Promise<(() => void) | undefined> {
+	const limiter = ledgers.getStore()?.limiter;
+	if (!limiter) return;
+	if (limiter.active >= limiter.limit)
+		await new Promise<void>((resolve) => limiter.waiting.push(resolve));
+	else limiter.active += 1;
+	return () => {
+		const next = limiter.waiting.shift();
+		if (next) next();
+		else limiter.active -= 1;
+	};
 }
 
 function begin(): Ledger | undefined {
@@ -271,6 +296,7 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 				if (["all", "run", "raw", "first"].includes(String(key)))
 					return async (...args: unknown[]) => {
 						const origin = caller();
+						const release = await acquireD1();
 						const ledger = begin();
 						const start = performance.now();
 						let result: D1Result | undefined;
@@ -286,6 +312,7 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 							failure = error;
 							throw error;
 						} finally {
+							release?.();
 							tally(
 								ledger,
 								sql,
@@ -327,7 +354,8 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 			if (key === "batch")
 				return async (batch: D1PreparedStatement[]) => {
 					const origin = caller();
-					const ledger = begin();
+					const release = await acquireD1();
+					const ledger = batch.length > 0 ? begin() : undefined;
 					const start = performance.now();
 					let results: D1Result[] | undefined;
 					let failure: unknown;
@@ -340,6 +368,7 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 						failure = error;
 						throw error;
 					} finally {
+						release?.();
 						const elapsed = performance.now() - start;
 						const sqlOf = (statement: D1PreparedStatement) =>
 							statements.get(statement)?.sql ?? "<unobserved statement>";

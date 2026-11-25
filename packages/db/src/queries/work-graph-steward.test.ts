@@ -2,7 +2,15 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { workEvents } from "../schema/work-items";
-import { workAdmissions } from "../schema/work-factory";
+import {
+	workAdmissions,
+	workResourceRequirements,
+	workBudgetEnvelopes,
+} from "../schema/work-factory";
+import {
+	deriveWorkItemReadiness,
+	deriveWorkItemsReadiness,
+} from "./work-items/readiness";
 import { createD1Facade } from "../test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../test/schema-ddl";
 import {
@@ -123,6 +131,93 @@ describe("work graph steward canonical detectors", () => {
 				readiness: "dependencies_blocked",
 			},
 		]);
+	});
+
+	it("batches readiness capacity facts across pages without changing gates or tenant scope", async () => {
+		const { sqlite, seed } = fixture();
+		const ids = Array.from({ length: 43 }, (_, index) => `idle-${index}`);
+		for (const id of ids) seed(id, { createdAt: OLD });
+		seed("foreign", { org: "other", createdAt: OLD });
+		const statements: string[] = [];
+		const db = createDbClient(
+			createD1Facade(sqlite, {
+				onPrepare: (query) => {
+					statements.push(query);
+				},
+			}),
+		);
+		await db.insert(workResourceRequirements).values({
+			orgId: "org",
+			workItemId: ids[0]!,
+			resourceKey: "runner",
+			quantity: 1,
+			createdAt: NOW,
+			updatedAt: NOW,
+		});
+		await db.insert(workBudgetEnvelopes).values([
+			{
+				id: "budget",
+				orgId: "org",
+				scopeType: "work_item",
+				scopeId: ids[1]!,
+				limitMicros: 100,
+				reservationMicros: 1,
+				createdAt: NOW,
+			},
+			{
+				id: "foreign-budget",
+				orgId: "other",
+				scopeType: "organization",
+				scopeId: "other",
+				limitMicros: 100,
+				reservationMicros: 1,
+				createdAt: NOW,
+			},
+		]);
+		sqlite
+			.prepare(
+				"INSERT INTO work_attempts(id,work_item_id,org_id,executor_type,executor_id,runtime_state,attempt_number,started_at,heartbeat_at,expires_at) VALUES('active',?,'org','tedi','worker','running',1,?,?,?)",
+			)
+			.run(ids[42]!, OLD, NOW, "2026-08-21T00:00:00.000Z");
+		statements.length = 0;
+		const batched = await deriveWorkItemsReadiness(db, {
+			orgId: "org",
+			workItemIds: ids,
+			derivedAt: NOW,
+		});
+		expect(
+			statements.filter((query) =>
+				query.includes('as "has_resource_requirement"'),
+			),
+		).toHaveLength(2);
+		expect(
+			statements.filter((query) =>
+				/^select "(?:id|resource_key)" from "work_(attempts|resource_requirements|budget_envelopes)"/.test(
+					query,
+				),
+			),
+		).toEqual([]);
+		const singles = await Promise.all(
+			ids.map((workItemId) =>
+				deriveWorkItemReadiness(db, {
+					orgId: "org",
+					workItemId,
+					derivedAt: NOW,
+				}),
+			),
+		);
+		expect(batched).toEqual(singles);
+		expect(batched[0]!.state).toBe("evaluation_required");
+		expect(batched[1]!.state).toBe("evaluation_required");
+		expect(batched[2]!.state).toBe("ready");
+		expect(batched[42]!.state).toBe("already_running");
+		await expect(
+			deriveWorkItemsReadiness(db, {
+				orgId: "org",
+				workItemIds: ["foreign"],
+				derivedAt: NOW,
+			}),
+		).rejects.toThrow();
 	});
 
 	it("finds expired authoritative attempts from the canonical attempt ledger", async () => {

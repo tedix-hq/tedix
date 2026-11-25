@@ -322,8 +322,11 @@ async function runScheduled(
 		loadApp(),
 		import("@tedix/db/slow-query"),
 	]);
-	await withD1Ledger(`cron ${controller.cron}`, async () =>
-		handlers.scheduled(controller, env, ctx),
+	// D1 allows six simultaneous connections; all job clients share this budget.
+	await withD1Ledger(
+		`cron ${controller.cron}`,
+		async () => handlers.scheduled(controller, env, ctx),
+		{ maxInFlight: 6 },
 	);
 }
 
@@ -337,8 +340,10 @@ async function runQueue(
 		loadApp(),
 		import("@tedix/db/slow-query"),
 	]);
-	await withD1Ledger(`queue ${batch.queue}`, async () =>
-		handlers.queue(batch, env, ctx),
+	await withD1Ledger(
+		`queue ${batch.queue}`,
+		async () => handlers.queue(batch, env, ctx),
+		{ maxInFlight: 6 },
 	);
 }
 

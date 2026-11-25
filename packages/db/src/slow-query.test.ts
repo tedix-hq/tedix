@@ -192,6 +192,59 @@ describe("slow D1 observation", () => {
 });
 
 describe("per-request D1 ledger", () => {
+	it("caps a 244-call fan-out across clients and releases permits after errors", async () => {
+		const { db, native, database, result } = fixture(0);
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		let active = 0;
+		let peak = 0;
+		let calls = 0;
+		const failure = new Error("D1 failed");
+		const execute = async () => {
+			active += 1;
+			peak = Math.max(peak, active);
+			const call = calls++;
+			try {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				if (call === 0) throw failure;
+				return result;
+			} finally {
+				active -= 1;
+			}
+		};
+		for (const method of ["all", "run", "raw", "first"] as const)
+			native[method].mockImplementation(execute);
+		database.batch.mockImplementation(async () => [await execute()]);
+		const otherClient = observeD1({ ...database } as unknown as D1Database);
+		const outcomes = await withD1Ledger(
+			"cron maintenance",
+			() =>
+				Promise.allSettled(
+					Array.from({ length: 244 }, (_, index) => {
+						const client = index % 2 ? db : otherClient;
+						const statement = client.prepare("SELECT 1");
+						if (index % 5 === 0) return client.batch([statement]);
+						const method = (["all", "run", "raw", "first"] as const)[
+							index % 4
+						]!;
+						if (method === "first") return statement.first();
+						if (method === "raw") return statement.raw();
+						if (method === "run") return statement.run();
+						return statement.all();
+					}),
+				),
+			{ maxInFlight: 6 },
+		);
+		expect(peak).toBe(6);
+		expect(active).toBe(0);
+		expect(outcomes.filter((outcome) => outcome.status === "rejected")).toEqual(
+			[{ status: "rejected", reason: failure }],
+		);
+		expect(info.mock.calls[0]![0]).toMatchObject({
+			statements: 244,
+			maxInFlight: 6,
+		});
+	});
+
 	it("finds a large read after many shapes even when it is not the slowest shape", async () => {
 		const { db, result } = fixture(30);
 		const info = vi.spyOn(console, "info").mockImplementation(() => {});
