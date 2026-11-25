@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.24 (2026-11-25)
+
+### Patch Changes
+
+- a86fa12: `tedix setup agents --verify` now also says which Tedix account Devin and OpenCode are signed in as, without model calls or a new sign-in.
+- ae4b78d: Removing Tedix from an agent now also ends that agent's Tedix sign-in on the server, before clearing it on this Mac. Other agents and CLI sign-ins stay signed in. If the server cannot confirm, the local connection stays so you can try again.
+- 9dc6236: Each runner attempt now records how many tokens it used and what it changed, and `tedix work context` shows these figures.
+
 ## 0.37.23 (2026-11-25)
 
 ### Patch Changes
