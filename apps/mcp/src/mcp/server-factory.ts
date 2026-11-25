@@ -677,6 +677,7 @@ export function buildServerContext(
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
 	connectionAppSlug?: string,
 	loadDiscoveryTool?: ServerContext["loadDiscoveryTool"],
+	codeModeCatalogComplete = false,
 ): ServerContext {
 	const apiClient = getApiClient({
 		serviceFetch: env.API_SERVICE,
@@ -687,6 +688,7 @@ export function buildServerContext(
 
 	const context: ServerContext = {
 		loadDiscoveryTool,
+		codeModeCatalogComplete,
 		catalogTransport: async (config, input) => {
 			const { executeCatalogOperation } = await import("./codemode-catalog");
 			return executeCatalogOperation(context, config, input);
@@ -908,6 +910,7 @@ export async function buildMcpServer(
 	connectionAppSlug?: string,
 	clientAppsSupported = false,
 	loadDiscoveryTool?: ServerContext["loadDiscoveryTool"],
+	codeModeCatalogComplete = false,
 ): Promise<McpServer> {
 	const startTime = Date.now();
 	// Full schemas from earlier gateway calls can exhaust the isolate while
@@ -971,6 +974,7 @@ export async function buildMcpServer(
 		requestedCodeModeNamespaces,
 		connectionAppSlug,
 		loadDiscoveryTool,
+		codeModeCatalogComplete,
 	);
 
 	// Pre-populate loadedTools from cached data.

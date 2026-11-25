@@ -1849,7 +1849,7 @@ function toAppDto(
 	};
 }
 
-function toAppToolDto(tool: AppToolRecord) {
+function toAppToolDto(tool: AppToolRecord & { inputSchemaChars?: number }) {
 	return {
 		id: tool.id,
 		toolId: tool.toolId,
@@ -1857,6 +1857,7 @@ function toAppToolDto(tool: AppToolRecord) {
 		title: tool.title,
 		description: tool.description,
 		inputSchema: tool.inputSchema,
+		inputSchemaChars: tool.inputSchemaChars,
 		outputSchema: tool.outputSchema,
 		adapterScope: tool.adapterScope,
 		resultStrategy: tool.resultStrategy,

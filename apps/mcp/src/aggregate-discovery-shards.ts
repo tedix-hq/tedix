@@ -149,7 +149,10 @@ export async function loadDiscoveryToolDefinition(
 	} as InternalAppTool;
 }
 
-function compactTool(tool: InternalAppTool): InternalAppTool {
+function compactTool(
+	tool: InternalAppTool,
+	schemaFree: boolean,
+): InternalAppTool {
 	const config = Object.fromEntries(
 		Object.entries(tool.config ?? {}).filter(
 			([key]) =>
@@ -177,6 +180,11 @@ function compactTool(tool: InternalAppTool): InternalAppTool {
 	return {
 		...tool,
 		inputSchema: EMPTY_INPUT_SCHEMA as InternalAppTool["inputSchema"],
+		inputSchemaChars:
+			tool.inputSchemaChars ??
+			(!schemaFree && !isDiscoveryShardTool(tool.config)
+				? JSON.stringify(tool.inputSchema).length
+				: undefined),
 		outputSchema: null,
 		outputTemplate: null,
 		icons: null,
@@ -224,7 +232,9 @@ export function compileDiscoveryShard(
 		if (Date.now() - writtenAt < DISCOVERY_SHARD_REFRESH_MS) return;
 		const builtAt = Date.now();
 		const body = JSON.stringify({
-			tools: shard.tools.map(compactTool),
+			tools: shard.tools.map((tool) =>
+				compactTool(tool, entry.projection === "contract"),
+			),
 			toolScopes: shard.toolScopes,
 		});
 		await bucket.put(key, body, {
@@ -349,7 +359,9 @@ export async function loadDiscoveryShards(
 			if (shards[index]) continue;
 			const surface = await hydrateShard(sharded[index]!);
 			shards[index] = {
-				tools: surface.tools.map(compactTool),
+				tools: surface.tools.map((tool) =>
+					compactTool(tool, sharded[index]!.projection === "contract"),
+				),
 				toolScopes: surface.toolScopes ?? {},
 				builtAt: Date.now(),
 			};

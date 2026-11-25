@@ -282,6 +282,7 @@ vi.mock("./tool-execution", () => ({
 
 import { executeCatalogOperation } from "./codemode-catalog";
 import { registerCodeModeTools } from "./codemode";
+import { codeModeCatalogSize } from "./codemode-execution";
 import { ToolHandler, type ToolExecutionContext } from "./handler";
 import { registerCodeModeTools as registerStateless } from "@tedix/tedi-codemode-core/register-codemode-tools";
 
@@ -1847,6 +1848,7 @@ describe("Code Mode tail telemetry", () => {
 
 		const ctx = makeServerCtx(undefined, writeDataPoint);
 		ctx.callerIdentity!.externalAgentSessionId = "session-1";
+		Object.assign(ctx, { codeModeCatalogComplete: true });
 		await registerCodeModeTools(server as never, ctx);
 		await registered.get("code")?.({ code: "async () => test.soft_fail({})" });
 
@@ -1878,6 +1880,56 @@ describe("Code Mode tail telemetry", () => {
 		expect(exec.doubles[2]).toBe("async () => test.soft_fail({})".length);
 		expect(exec.doubles[3]).toBe(1);
 		expect(exec.doubles[4]).toBe(1);
+		const source = ctx.loadedTools.get("test__soft_fail")!;
+		expect(exec.doubles[13]).toBe(
+			source.toolId.length +
+				(source.description?.length ?? 0) +
+				JSON.stringify(source.inputSchema).length,
+		);
+		expect(exec.doubles[14]).toBe(1);
+		expect(exec.doubles[16]).toBe(1);
+	});
+
+	it("counts compact source schemas, excludes denied tools, and refuses unknown or partial baselines", () => {
+		const compact = tool({
+			inputSchema: { type: "object", properties: {} },
+			inputSchemaChars: 1_600_000,
+			config: {
+				transport: "rpc",
+				endpoint: "test/softFail",
+				_discoveryShard: true,
+			},
+		});
+		const denied = tool({ toolId: "test__denied" });
+		const ctx = makeServerCtx(
+			new Map([
+				[compact.toolId, compact],
+				[denied.toolId, denied],
+			]),
+		);
+		Object.assign(ctx, { codeModeCatalogComplete: true });
+		ctx.appMetadata!.mcpConfig!.toolScopes = {
+			soft_fail: [],
+			denied: ["mcp:apps.write"],
+		};
+		const measured = codeModeCatalogSize(ctx, undefined, new Set());
+		expect(measured).toEqual({
+			catalogChars:
+				compact.toolId.length + (compact.description?.length ?? 0) + 1_600_000,
+			catalogToolCount: 1,
+			catalogComplete: true,
+		});
+		Object.assign(ctx, { codeModeCatalogComplete: false });
+		expect(codeModeCatalogSize(ctx, undefined, new Set()).catalogComplete).toBe(
+			false,
+		);
+		Object.assign(ctx, { codeModeCatalogComplete: true });
+		delete compact.inputSchemaChars;
+		expect(codeModeCatalogSize(ctx, undefined, new Set())).toEqual({
+			catalogChars: 0,
+			catalogToolCount: 0,
+			catalogComplete: false,
+		});
 	});
 
 	it("bounds oversized successful code results before returning them to the model", async () => {

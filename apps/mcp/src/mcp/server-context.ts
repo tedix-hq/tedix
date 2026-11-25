@@ -50,6 +50,7 @@ export interface AppTool {
 	description: string | null;
 	toolTypeId: string;
 	inputSchema: ToolInputJsonSchema;
+	inputSchemaChars?: number;
 	outputSchema: ToolJsonSchema | null;
 	config: Record<string, JsonValue> | null;
 	icons: ToolIcon[] | null;
@@ -243,6 +244,8 @@ export interface ServerContext {
 	 * namespace" apart from "it asked and hydration failed".
 	 */
 	readonly requestedCodeModeNamespaces: ReadonlySet<string> | null;
+	/** Request routing loaded the whole configured surface without degradation. */
+	readonly codeModeCatalogComplete?: boolean;
 
 	/** Legacy per-project connection label forwarded via X-Tedix-Connection-Label. */
 	readonly connectionLabel: string | undefined;

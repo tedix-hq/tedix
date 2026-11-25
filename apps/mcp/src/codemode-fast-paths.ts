@@ -75,11 +75,11 @@ import {
 const writeListTelemetry = createTelemetryWriter("mcp.codemode.list");
 
 type CatalogSize = { chars: number; toolCount: number };
-// Keyed by the cached tool array: the full-catalog size is computed once per
+// Keyed by the cached tool array: the stored-app size is computed once per
 // app resolution, not on every tools/list.
 const catalogSizes = new WeakMap<ResolvedApp["tools"], CatalogSize>();
 
-/** Chars of every tool's name, description and input schema: the catalog a client without Code Mode would load. */
+/** Stored wrapper tools only; exec telemetry counts the hydrated underlying catalog. */
 function catalogSize(tools: ResolvedApp["tools"]): CatalogSize {
 	let size = catalogSizes.get(tools);
 	if (!size) {

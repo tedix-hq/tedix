@@ -698,9 +698,16 @@ export async function isAggregateSourceAllowed(
 }
 
 /** Result element of {@link getAppsBySlugsWithTools}; `null` = slug not found. */
-export type AppSurfaceResult = Awaited<
-	ReturnType<typeof loadAppBySlugWithTools>
+type LoadedAppSurface = NonNullable<
+	Awaited<ReturnType<typeof loadAppBySlugWithTools>>
 >;
+export type AppSurfaceResult =
+	| (Omit<LoadedAppSurface, "tools"> & {
+			tools: Array<
+				LoadedAppSurface["tools"][number] & { inputSchemaChars?: number }
+			>;
+	  })
+	| null;
 
 /**
  * D1 caps bound parameters at 100 per statement. Every chunked `inArray` below
@@ -890,7 +897,10 @@ export async function getAppsBySlugsWithTools(
 			const loadTools = async () => {
 				const bySelection = new Map<
 					string,
-					Map<string, Array<typeof appTools.$inferSelect>>
+					Map<
+						string,
+						Array<typeof appTools.$inferSelect & { inputSchemaChars?: number }>
+					>
 				>();
 				const seenBySelection = new Map<string, Set<string>>();
 				const reads = [...selectionGroups].flatMap(([signature, group]) => {
@@ -919,6 +929,10 @@ export async function getAppsBySlugsWithTools(
 									group.options.projection === "contract"
 										? {
 												...getColumns(appTools),
+												inputSchemaChars:
+													sql<number>`length(${appTools.inputSchema})`
+														.mapWith(Number)
+														.as("input_schema_chars"),
 												inputSchema: sql`'{"type":"object"}'`
 													.mapWith(appTools.inputSchema)
 													.as("input_schema"),

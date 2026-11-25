@@ -74,11 +74,12 @@ export const MCP_CODEMODE_ANALYTICS_DOUBLE = {
 	resultTruncated: "double8",
 	discoverCalls: "double9",
 	discoverParameterRequests: "double10",
-	// Token-savings tail. Each event type fills only its own slots; the rest
-	// stay 0. rpc: chars of the inner tool result the sandbox received (kept out
+	// Token-savings tail. Unused slots stay 0. rpc: chars of the inner tool
+	// result the sandbox received (kept out
 	// of the model's context). exec: chars of discover.* results this execution
 	// received. list: chars of the tools/list or server/discover payload, plus
-	// the size and tool count of the full catalog a direct client would load.
+	// the stored wrapper catalog. exec also fills catalog size/count from the
+	// underlying surface; only catalogComplete events supply a full baseline.
 	innerResultChars: "double11",
 	discoverResultChars: "double12",
 	listChars: "double13",
@@ -86,6 +87,8 @@ export const MCP_CODEMODE_ANALYTICS_DOUBLE = {
 	catalogToolCount: "double15",
 	// exec: Dynamic Worker loads this execution started; 0 = worker-free path.
 	workerLoads: "double16",
+	// exec: double14/15 measure the caller's underlying catalog, not the wrapper.
+	catalogComplete: "double17",
 } as const;
 
 export const MCP_CODEMODE_ANALYTICS_DOUBLE_ORDER = [
@@ -105,6 +108,7 @@ export const MCP_CODEMODE_ANALYTICS_DOUBLE_ORDER = [
 	"catalogChars",
 	"catalogToolCount",
 	"workerLoads",
+	"catalogComplete",
 ] as const;
 
 export interface McpAnalyticsDataPointEvent {
@@ -155,9 +159,11 @@ export interface McpCodeModeAnalyticsDataPointEvent extends McpAnalyticsDataPoin
 	discoverResultChars?: number;
 	/** list: serialized chars of the tools/list or server/discover result. */
 	listChars?: number;
-	/** list: chars of every catalog tool's name, description and input schema. */
+	/** list: wrapper catalog; exec: scope-authorized underlying tool names, descriptions and input schemas. */
 	catalogChars?: number;
 	catalogToolCount?: number;
+	/** exec: whole configured catalog was loaded and every schema length is known. */
+	catalogComplete?: boolean;
 	/** exec: Dynamic Worker loads started; 0 means the worker-free path ran. */
 	workerLoads?: number;
 }
@@ -225,6 +231,7 @@ export function buildMcpCodeModeAnalyticsDataPoint(
 		event.catalogChars || 0,
 		event.catalogToolCount || 0,
 		event.workerLoads || 0,
+		event.catalogComplete ? 1 : 0,
 	];
 	return dataPoint;
 }

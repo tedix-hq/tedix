@@ -192,7 +192,7 @@ function db(
 }
 
 describe("getAppsBySlugsWithTools", () => {
-	it("snapshots contract metadata without reading schema, template, review or CSP payloads", async () => {
+	it("retains schema lengths without returning schema, template, review or CSP payloads", async () => {
 		const { client, sqlite, statements } = db();
 		try {
 			const large = JSON.stringify({
@@ -218,9 +218,9 @@ describe("getAppsBySlugsWithTools", () => {
 				),
 			).toBe(true);
 			expect(statements().join("\n")).not.toContain("app_tool_csp_domains");
-			expect(statements().join("\n")).not.toContain(
-				'"app_tools"."input_schema"',
-			);
+			expect(
+				surface?.tools.every((tool) => tool.inputSchemaChars === large.length),
+			).toBe(true);
 		} finally {
 			sqlite.close();
 		}

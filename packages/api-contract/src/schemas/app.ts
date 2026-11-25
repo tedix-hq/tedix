@@ -1244,6 +1244,8 @@ export const AppToolSchema = z.object({
 	title: z.string(),
 	description: z.string().nullable(),
 	inputSchema: ToolInputJsonSchemaSchema,
+	/** Read-only stored schema length retained by schema-free contract projections. */
+	inputSchemaChars: z.number().int().nonnegative().optional(),
 	outputSchema: ToolJsonSchemaSchema.nullable(),
 	adapterScope: z.string().nullable(),
 	resultStrategy: z.string().nullable(),

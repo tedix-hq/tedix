@@ -737,6 +737,9 @@ describe("aggregate snapshot memory", () => {
 				(tool) => tool.toolId === "acme_unified_source__read_item_0",
 			)!;
 			expect(row.inputSchema).toEqual({ type: "object" });
+			expect(row.inputSchemaChars).toBe(
+				JSON.stringify(sourceApp([manyTools[0]!]).tools[0]!.inputSchema).length,
+			);
 			expect(row.config?._discoveryShard).toBe(true);
 			expect(row.config?._multiOrgOrganizationId).toBe("org-acme-unified");
 			// Only shard objects were read: no snapshot tier, no live fan-out.

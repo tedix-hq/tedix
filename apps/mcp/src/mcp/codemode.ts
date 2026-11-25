@@ -40,6 +40,7 @@ import {
 	namespaceGlobalsPrelude,
 	codeModeTailContext,
 	writeCodeModeAnalytics,
+	codeModeCatalogSize,
 	callerOrganizationMetadata,
 } from "./codemode-execution";
 import { TEDI_DURABLE_CODE_GATEWAY_TIMEOUT_MS } from "@tedix/api-contract/schemas/tedi-durable-code";
@@ -250,6 +251,9 @@ export async function registerCodeModeTools(
 		);
 	}
 	const collisionKeys = new Set(collisionOwners.keys());
+	const catalogSize = env.CODEMODE_ANALYTICS
+		? codeModeCatalogSize(serverCtx, namespaceOverrides, collisionKeys)
+		: undefined;
 
 	// Build namespace groups from D1 tools. Every owner of an ambiguous
 	// projected key is quarantined; choosing one by insertion order would route
@@ -556,6 +560,7 @@ export async function registerCodeModeTools(
 					discoverParameterRequests,
 					discoverResultChars,
 					workerLoads: executionRefs.workerLoads,
+					...catalogSize,
 					resultChars: resultMetrics?.resultChars,
 					resultTokensApprox: resultMetrics?.resultTokensApprox,
 					resultTruncated: resultMetrics?.resultTruncated,

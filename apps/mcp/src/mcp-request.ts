@@ -507,6 +507,8 @@ export async function handleMcpRequest(
 			? { ...entry, projection: "contract" as const }
 			: entry,
 	);
+	let codeModeCatalogComplete =
+		aggregateNamespaces === null && !directHomeKernelCall;
 	// Connect always reads the compact index. Program syntax can select SDK
 	// bindings, but must never select a full cross-organization schema graph.
 	const useDiscoveryIndex =
@@ -634,6 +636,7 @@ export async function handleMcpRequest(
 			);
 			aggregatedSurface = await loadAggregate();
 		}
+		codeModeCatalogComplete &&= !aggregatedSurface.degraded;
 		if (
 			aggregatedSurface.tools.length > 0 ||
 			aggregatedSurface.resources.length > 0 ||
@@ -725,6 +728,9 @@ export async function handleMcpRequest(
 			...defaultCallableTedis,
 		];
 		hydratedAggregateTedis = hydratedTedis;
+		codeModeCatalogComplete &&=
+			hydratedTedis.length ===
+			(aggregateTedis?.length ?? 0) + defaultCallableTedis.length;
 		const { buildAggregateTediTools } = await import("./mcp/aggregate-tedis");
 		const tediTools = buildAggregateTediTools(hydratedTedis, env);
 		if (tediTools.length > 0) {
@@ -852,6 +858,7 @@ export async function handleMcpRequest(
 						getApiClient({ serviceFetch: env.API_SERVICE }),
 					)
 			: undefined,
+		codeModeCatalogComplete,
 	);
 	const directoryReadHandler = (
 		server as unknown as {

@@ -1,4 +1,5 @@
 import { resolveToolTrustLabel } from "@tedix/mcp-shared/content-sanitize";
+import { catalogProjectionSource } from "./catalog-projection";
 import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
 import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import { gateDecisionMetadata } from "./gate-decision";
@@ -22,6 +23,7 @@ import {
 import {
 	CodeModeAuthorizationError,
 	assertCodeModeInnerToolAuthorized,
+	evaluateMcpToolScopeAuthorization,
 } from "./codemode-auth";
 import { type CallToolResult } from "@modelcontextprotocol/server";
 import {
@@ -274,6 +276,55 @@ function callToolResultChars(result: {
 }
 
 export const writeCodeModeLog = createTelemetryWriter("mcp.codemode.log");
+
+const schemaSizes = new WeakMap<AppTool, number>();
+
+/** Count source contracts without projecting discovery entries or loading schemas. */
+export function codeModeCatalogSize(
+	serverCtx: ServerContext,
+	namespaceOverrides: Record<string, string> | undefined,
+	collisionKeys: ReadonlySet<string>,
+): {
+	catalogChars: number;
+	catalogToolCount: number;
+	catalogComplete: boolean;
+} {
+	let catalogChars = 0;
+	let catalogToolCount = 0;
+	let catalogComplete = serverCtx.codeModeCatalogComplete === true;
+	for (const [toolId, tool] of serverCtx.loadedTools) {
+		const { namespace, ownerKey } = projectedToolIdentity(
+			toolId,
+			tool,
+			namespaceOverrides,
+		);
+		if (collisionKeys.has(ownerKey)) continue;
+		try {
+			if (
+				!evaluateMcpToolScopeAuthorization(serverCtx, tool, namespace)
+					.authorized
+			)
+				continue;
+		} catch {
+			// A missing scope mapping must not make telemetry block registration.
+			catalogComplete = false;
+			continue;
+		}
+		const source = catalogProjectionSource(tool) ?? tool;
+		let chars = tool.inputSchemaChars ?? schemaSizes.get(source);
+		if (chars === undefined) {
+			if (isDiscoveryShardTool(tool.config)) {
+				catalogComplete = false;
+				continue;
+			}
+			chars = JSON.stringify(tool.inputSchema).length;
+			schemaSizes.set(source, chars);
+		}
+		catalogChars += toolId.length + (tool.description?.length ?? 0) + chars;
+		catalogToolCount++;
+	}
+	return { catalogChars, catalogToolCount, catalogComplete };
+}
 
 const writeCodeModeTelemetry = createTelemetryWriter("mcp.codemode.analytics");
 
