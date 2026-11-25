@@ -42,7 +42,7 @@ import {
 	getCreditPoolSnapshot,
 	parseCreditFx,
 } from "./credit-pool";
-import { findProviderModelRates } from "./provider-model-rates";
+import { createProviderModelRateLookup } from "./provider-model-rates";
 
 /** Admitted token estimates, for pricing a call whose provider usage was lost. */
 export async function getBillingReservationTokenEstimates(
@@ -217,7 +217,7 @@ export async function estimateProviderCostMicros(
 		now: string;
 	},
 ): Promise<number> {
-	const rates = await findProviderModelRates(db, {
+	const rates = await createProviderModelRateLookup(db)({
 		provider: input.provider,
 		modelId: input.modelId,
 		deploymentScope: input.deploymentScope,

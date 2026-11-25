@@ -11,8 +11,11 @@ import {
 } from "@tedix/db/utils/model-pricing";
 import {
 	createProviderModelRateLookup,
-	findProviderModelRates,
+	type findProviderModelRates,
 } from "@tedix/db/queries/billing/provider-model-rates";
+
+const lookupProviderModelRate: typeof findProviderModelRates = (db, input) =>
+	createProviderModelRateLookup(db)(input);
 
 /** Exact provider identity is required; no model-tail alias or mutable default. */
 export async function resolveProviderModelRate(
@@ -25,7 +28,7 @@ export async function resolveProviderModelRate(
 		/** Total prompt input tokens, including cache reads and writes. */
 		inputTokens?: number;
 	},
-	lookup = findProviderModelRates,
+	lookup = lookupProviderModelRate,
 ) {
 	if (input.deploymentScope === null || !input.deploymentScope.trim())
 		return { status: "unpriced", reason: "ambiguous_scope" } as const;
@@ -67,7 +70,7 @@ export async function priceProviderUsage(
 	env: FleetAuthorityEnv,
 	identity: Parameters<typeof resolveProviderModelRate>[1],
 	usage: ProviderTokenUsage,
-	lookup = findProviderModelRates,
+	lookup = lookupProviderModelRate,
 ) {
 	if (
 		[

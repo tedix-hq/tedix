@@ -3954,7 +3954,7 @@ describe("readDelegationDepth (read side)", () => {
 });
 
 vi.mock("@tedix/db/queries/billing/provider-model-rates", () => ({
-	findProviderModelRates: async () => [
+	createProviderModelRateLookup: () => async () => [
 		{
 			id: "rate",
 			inputMicrousdPerMillion: 1_000_000,

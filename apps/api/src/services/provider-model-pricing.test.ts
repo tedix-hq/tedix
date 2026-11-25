@@ -10,6 +10,8 @@ const env = {
 } as never;
 vi.mock("@tedix/db/queries/billing/provider-model-rates", () => ({
 	findProviderModelRates: findRates,
+	createProviderModelRateLookup: (db: unknown) => (input: unknown) =>
+		findRates(db, input),
 }));
 import {
 	priceKernelUsage,

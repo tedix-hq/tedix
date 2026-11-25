@@ -231,7 +231,7 @@ export async function resolveDirectProviderUsagePrice(
 		return { costUsd: null, rateVersionId: null, reason: "invalid_usage" };
 	}
 	const query = "prepare" in db ? createDbQueryClient(db) : db;
-	const rows = await findProviderModelRates(query, {
+	const rows = await createProviderModelRateLookup(query)({
 		...identity,
 		inputTokens: usage.inputTokens ?? 0,
 	});
