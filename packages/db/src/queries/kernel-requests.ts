@@ -9,6 +9,7 @@ import {
 } from "../schema/cognitive-runtime";
 import type { DbQueryClient } from "../query-client";
 import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
+import { prefixedColumns } from "../utils/select";
 import { workAttempts } from "../schema/work-items";
 import {
 	kernelRequests,
@@ -200,6 +201,39 @@ export async function listDueKernelRequests(
 		)
 		.orderBy(asc(kernelRequests.nextDueAt), asc(kernelRequests.id))
 		.limit(Math.min(50, Math.max(1, p.limit)));
+}
+
+/** Read the same oldest-due page and its Home sources in one round trip. */
+export async function listDueKernelRequestsWithHomeRuns(
+	db: DbQueryClient,
+	p: { organizationId: string; now: string; limit: number },
+) {
+	const rows = await db
+		.select({
+			request: prefixedColumns(kernelRequests, "request"),
+			homeRun: prefixedColumns(kernelRuntimeRuns, "home_run"),
+		})
+		.from(kernelRequests)
+		.leftJoin(
+			kernelRuntimeRuns,
+			and(
+				eq(kernelRequests.sourceKind, "home"),
+				eq(kernelRuntimeRuns.organizationId, kernelRequests.organizationId),
+				eq(kernelRuntimeRuns.id, kernelRequests.sourceId),
+			),
+		)
+		.where(
+			and(
+				eq(kernelRequests.organizationId, p.organizationId),
+				lte(kernelRequests.nextDueAt, p.now),
+			),
+		)
+		.orderBy(asc(kernelRequests.nextDueAt), asc(kernelRequests.id))
+		.limit(Math.min(50, Math.max(1, p.limit)));
+	return rows.map(({ request, homeRun }) => ({
+		request,
+		homeRun: homeRun?.id ? homeRun : null,
+	}));
 }
 
 /** A request's history, oldest first; older events may be in the logs database. */

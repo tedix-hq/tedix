@@ -5,6 +5,8 @@ import type { KernelRequestPolicy } from "@tedix/api-contract/schemas/kernel-req
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import * as runQueries from "@tedix/db/queries/kernel-runtime-runs";
+import * as workQueries from "@tedix/db/queries/work-items/crud";
+import * as requestQueries from "@tedix/db/queries/kernel-requests";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
@@ -235,6 +237,33 @@ describe("Home request source adapter", () => {
 		expect(final.nextOwner).toBe("kernel-example");
 		expect(final.nextDueAt).not.toBeNull();
 	});
+	it("skips unchanged projections but repairs missing Home acceptance metadata", async () => {
+		const { context, db } = await fixture("revision-other");
+		const policy = (await readKernelRequestPolicy(context, "org-example"))!;
+		let row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		for (let i = 0; i < policy.maxProbeAttempts; i++)
+			row = await reconcileHomeKernelRequest(context, row, policy);
+		const project = vi.spyOn(requestQueries, "projectKernelRequestOnHomeRun");
+		try {
+			expect(await reconcileHomeKernelRequest(context, row, policy)).toEqual(
+				row,
+			);
+			expect(project).not.toHaveBeenCalled();
+			await db.update(kernelRuntimeRuns).set({
+				metadata: { workItemId: "work-one", preserveConcurrentField: "kept" },
+			});
+			await reconcileHomeKernelRequest(context, row, policy);
+			expect(project).toHaveBeenCalledTimes(1);
+			expect(
+				(await db.select().from(kernelRuntimeRuns))[0]?.metadata,
+			).toMatchObject({
+				preserveConcurrentField: "kept",
+				kernelRequestAcceptance: row.snapshot,
+			});
+		} finally {
+			project.mockRestore();
+		}
+	});
 	it("recovers an old empty-check request after its probe budget was exhausted", async () => {
 		const { context, db } = await fixture("revision-one", true);
 		const policy = (await readKernelRequestPolicy(context, "org-example"))!;
@@ -457,6 +486,10 @@ describe("Home request source adapter", () => {
 			id: "home:run-two",
 			sourceId: "run-two",
 		});
+		await db.insert(kernelRuntimeRuns).values({
+			...(await db.select().from(kernelRuntimeRuns))[0]!,
+			id: "run-two",
+		});
 		for (const sourceId of ["local-one", "local-two"])
 			await db.insert(kernelRequests).values({
 				...row,
@@ -469,11 +502,12 @@ describe("Home request source adapter", () => {
 			release = resolve;
 		});
 		const read = vi
-			.spyOn(runQueries, "getKernelRuntimeRun")
+			.spyOn(workQueries, "getWorkItemById")
 			.mockImplementation(async () => {
 				await blocked;
-				return undefined;
+				return null;
 			});
+		const runRead = vi.spyOn(runQueries, "getKernelRuntimeRun");
 		localRecovery.reconcile
 			.mockClear()
 			.mockImplementation(async (_context, row) => {
@@ -488,6 +522,7 @@ describe("Home request source adapter", () => {
 			release();
 			expect(await recovery).toBe(0);
 			expect(localRecovery.reconcile).toHaveBeenCalledTimes(2);
+			expect(runRead).not.toHaveBeenCalled();
 			expect(batch).toHaveBeenCalledTimes(1);
 			expect(
 				(await db.select().from(kernelRequests)).map((r) => r.version),
@@ -499,6 +534,7 @@ describe("Home request source adapter", () => {
 			release();
 			await recovery;
 			read.mockRestore();
+			runRead.mockRestore();
 			batch.mockRestore();
 			localRecovery.reconcile.mockReset();
 		}

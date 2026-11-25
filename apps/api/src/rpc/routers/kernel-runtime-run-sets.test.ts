@@ -234,7 +234,17 @@ describe("kernel runtime router: run-sets", () => {
 				vi.spyOn(
 					kernelRequestSource,
 					"reconcileHomeKernelRequest",
-				).mockResolvedValue(request);
+				).mockImplementation(async () => {
+					expect(
+						db.events.some(
+							(event) =>
+								event.kind === "message.completed" &&
+								event.messageId ===
+									"home-run-terminal-1:async-completion:assistant",
+						),
+					).toBe(true);
+					return request;
+				});
 			}
 			db.runtimeEvents.push(
 				childRuntimeEvent({

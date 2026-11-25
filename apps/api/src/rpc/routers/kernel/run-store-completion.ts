@@ -239,6 +239,7 @@ export async function recordHomeDelegationCompletionMessage(
 	},
 ): Promise<void> {
 	if (!input.row.delegatedTediId || !input.row.childRunId) return;
+	let reconcileRequest: (() => Promise<unknown>) | undefined;
 	if (typeof input.row.metadata?.kernelRequestId === "string") {
 		const { getHomeKernelRequest } =
 			await import("@tedix/db/queries/kernel-requests");
@@ -257,7 +258,9 @@ export async function recordHomeDelegationCompletionMessage(
 			context,
 			input.row.organizationId,
 		);
-		if (policy) await reconcileHomeKernelRequest(context, request, policy);
+		if (policy)
+			reconcileRequest = () =>
+				reconcileHomeKernelRequest(context, request, policy);
 	}
 	const messageId = asyncCompletionAssistantMessageId(input.row.id);
 	// Relay-first (harness contract): the child's final assistant message IS
@@ -369,6 +372,7 @@ export async function recordHomeDelegationCompletionMessage(
 	});
 	const statusOnlyNarration =
 		!synthesized && !finalMessage && !verdictMetadata.delegationProof;
+	let completionRecorded = false;
 	try {
 		const outcomeKind = subagentOutcomeEventKind(input.run.status);
 		if (outcomeKind) {
@@ -459,6 +463,7 @@ export async function recordHomeDelegationCompletionMessage(
 			},
 			createdAt: input.createdAt,
 		});
+		completionRecorded = true;
 	} catch (error) {
 		console.warn("[kernelRuntime] async completion message insert failed", {
 			error: errorMessage(error),
@@ -466,6 +471,9 @@ export async function recordHomeDelegationCompletionMessage(
 			childRunId: input.row.childRunId,
 		});
 	}
+	// The reply is the acknowledgment. Reconcile after it is durable rather
+	// than polling for the event we are about to write on the next cron tick.
+	if (completionRecorded) await reconcileRequest?.();
 	if (verdictMetadata.delegationProof) {
 		await stampHomeRunDelegationProof(context, {
 			row: input.row,

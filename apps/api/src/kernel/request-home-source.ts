@@ -7,14 +7,17 @@ import {
 import {
 	getKernelRequest,
 	receiveKernelRequest,
-	listDueKernelRequests,
+	listDueKernelRequestsWithHomeRuns,
 	transitionKernelRequests,
 	type TransitionKernelRequestParams,
 	publishKernelRequestReport,
 	projectKernelRequestOnHomeRun,
 } from "@tedix/db/queries/kernel-requests";
 import type { KernelRequestRow } from "@tedix/db/schema/kernel-requests";
-import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
+import {
+	getKernelRuntimeRun,
+	type KernelRuntimeRun,
+} from "@tedix/db/queries/kernel-runtime-runs";
 import { getActivePolicyPackDefinition } from "@tedix/db/queries/kernel-runtime-support";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
@@ -102,6 +105,7 @@ export async function reconcileHomeKernelRequest(
 	context: BaseContext,
 	initial: KernelRequestRow,
 	policy: KernelRequestPolicy,
+	sourceRun?: KernelRuntimeRun | null,
 ) {
 	let row = initial;
 	if (
@@ -110,11 +114,24 @@ export async function reconcileHomeKernelRequest(
 		row.snapshot.state === "cancelled"
 	)
 		return row;
-	const run = await getKernelRuntimeRun(context.db, {
-		id: row.sourceId,
-		organizationId: row.organizationId,
-	});
+	const run =
+		sourceRun === undefined
+			? await getKernelRuntimeRun(context.db, {
+					id: row.sourceId,
+					organizationId: row.organizationId,
+				})
+			: sourceRun;
 	if (!run) return row;
+	if (run.id !== row.sourceId || run.organizationId !== row.organizationId)
+		throw new Error("Home source scope mismatch");
+	const project = async () => {
+		if (
+			run.metadata?.kernelRequestId !== row.id ||
+			JSON.stringify(run.metadata?.kernelRequestAcceptance) !==
+				JSON.stringify(row.snapshot)
+		)
+			await projectKernelRequestOnHomeRun(context.db, row);
+	};
 	const workItemId =
 		run.metadata?.workItemId ?? run.runtimeMetadata?.workItemId;
 	if (typeof workItemId !== "string") {
@@ -126,19 +143,18 @@ export async function reconcileHomeKernelRequest(
 			context,
 			row,
 			policy,
+			run,
 		);
 	}
-	const work = await getWorkItemById(
-		context.db,
-		workItemId,
-		row.organizationId,
-	);
+	const [work, attempts] = await Promise.all([
+		getWorkItemById(context.db, workItemId, row.organizationId),
+		listWorkItemAttempts(context.db, {
+			orgId: row.organizationId,
+			workItemId,
+			limit: 1,
+		}),
+	]);
 	if (!work) return row;
-	const attempts = await listWorkItemAttempts(context.db, {
-		orgId: row.organizationId,
-		workItemId,
-		limit: 1,
-	});
 	const attempt = attempts.data[0];
 	const now = () => new Date().toISOString();
 	if (row.snapshot.state === "received")
@@ -200,12 +216,12 @@ export async function reconcileHomeKernelRequest(
 		(row.snapshot.state === "running" || row.snapshot.state === "verifying") &&
 		!row.snapshot.delivery
 	) {
-		// Completion reconciliation runs before the ordinary child reply is written.
+		// Execution settlement can precede the ordinary child reply.
 		// Wait for that durable reply without spending the target-probe retry budget.
 		try {
 			await reader.readHomeResponse!();
 		} catch {
-			await projectKernelRequestOnHomeRun(context.db, row);
+			await project();
 			return row;
 		}
 	}
@@ -283,7 +299,7 @@ export async function reconcileHomeKernelRequest(
 			reader,
 			now,
 		)) ?? row;
-	await projectKernelRequestOnHomeRun(context.db, row);
+	await project();
 	if (
 		row.snapshot.state === "verifying" &&
 		(row.snapshot.outcome === "failed" ||
@@ -340,12 +356,16 @@ export async function reconcileDueHomeKernelRequests(
 				await import("./request-work-attempt-source")
 			).captureDispatcherWorkAttempts(context, organizationId, policy),
 		);
-	const rows = await measureReconcileStage("due", () =>
-		listDueKernelRequests(context.db, {
+	const sources = await measureReconcileStage("due", () =>
+		listDueKernelRequestsWithHomeRuns(context.db, {
 			organizationId,
 			now: new Date().toISOString(),
 			limit: 20,
 		}),
+	);
+	const rows = sources.map(({ request }) => request);
+	const homeRuns = new Map(
+		sources.map(({ request, homeRun }) => [request.id, homeRun]),
 	);
 	if (!policy) {
 		// Preserve the configured interval already recorded on each request.
@@ -375,7 +395,12 @@ export async function reconcileDueHomeKernelRequests(
 		try {
 			const updated = await measureReconcileStage(row.sourceKind, async () =>
 				row.sourceKind === "home"
-					? await reconcileHomeKernelRequest(context, row, policy)
+					? await reconcileHomeKernelRequest(
+							context,
+							row,
+							policy,
+							homeRuns.get(row.id),
+						)
 					: row.sourceKind === "work_attempt"
 						? await (
 								await import("./request-work-attempt-source")

@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { kernelRequests, kernelRequestEvents } from "../schema/kernel-requests";
+import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
@@ -11,6 +12,7 @@ import {
 	transitionKernelRequest,
 	transitionKernelRequests,
 	listDueKernelRequests,
+	listDueKernelRequestsWithHomeRuns,
 } from "./kernel-requests";
 
 const now = "2026-10-17T10:00:00.000Z";
@@ -19,6 +21,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(schemaDdl(kernelRequests));
 	sqlite.exec(schemaDdl(kernelRequestEvents));
+	sqlite.exec(schemaDdl(kernelRuntimeRuns));
 	return {
 		sqlite,
 		db: createDbQueryClient(createD1Facade(sqlite, { maxBoundParams: 100 })),
@@ -147,6 +150,59 @@ describe("kernel request persistence", () => {
 				limit: 50,
 			}),
 		).toEqual([]);
+	});
+	it("joins only scoped Home sources without dropping missing sources or changing the due page", async () => {
+		const { db } = fixture();
+		await receiveKernelRequest(db, intake);
+		await db.insert(kernelRuntimeRuns).values({
+			id: intake.sourceId,
+			organizationId: "org-other",
+			conversationId: "private-other",
+			status: "completed",
+			metadata: { privateField: "not-visible" },
+			createdAt: now,
+			updatedAt: now,
+		});
+		for (const [sourceKind, sourceId, nextDueAt] of [
+			["home", "matching-run", now],
+			["agent_session_request", "local-source", now],
+			["home", "future-run", "2026-10-18T10:00:00.000Z"],
+			["home", "closed-run", null],
+		] as const)
+			await db.insert(kernelRequests).values({
+				...intake,
+				id: sourceId,
+				sourceKind,
+				sourceId,
+				nextDueAt,
+				lastEventId: `${sourceId}:1`,
+			});
+		await db.insert(kernelRuntimeRuns).values({
+			id: "matching-run",
+			organizationId: scope.organizationId,
+			conversationId: "conversation-one",
+			status: "running",
+			metadata: { workItemId: "work-one" },
+			createdAt: now,
+			updatedAt: now,
+		});
+		const params = { organizationId: scope.organizationId, now, limit: 2 };
+		const sources = await listDueKernelRequestsWithHomeRuns(db, params);
+		expect(sources.map((s) => s.request)).toEqual(
+			await listDueKernelRequests(db, params),
+		);
+		expect(sources[0]?.homeRun).toBeNull();
+		expect(sources[1]?.homeRun).toMatchObject({
+			id: "matching-run",
+			organizationId: scope.organizationId,
+			metadata: { workItemId: "work-one" },
+		});
+		const all = await listDueKernelRequestsWithHomeRuns(db, {
+			...params,
+			limit: 50,
+		});
+		expect(all.find((s) => s.request.id === scope.id)?.homeRun).toBeNull();
+		expect(all).toHaveLength(3);
 	});
 	it("rejects ownerless and untimed nonterminal requests", async () => {
 		const { db } = fixture();

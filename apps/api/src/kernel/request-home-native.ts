@@ -1,6 +1,9 @@
 import type { KernelRequestPolicy } from "@tedix/api-contract/schemas/kernel-request";
 import type { KernelRequestRow } from "@tedix/db/schema/kernel-requests";
-import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
+import {
+	getKernelRuntimeRun,
+	type KernelRuntimeRun,
+} from "@tedix/db/queries/kernel-runtime-runs";
 import { listKernelRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import {
 	listSubmissionsByRun,
@@ -21,6 +24,7 @@ export async function reconcileNativeHomeRequest(
 	context: BaseContext,
 	initial: KernelRequestRow,
 	policy: KernelRequestPolicy,
+	sourceRun?: KernelRuntimeRun,
 ) {
 	async function readExecution() {
 		const submission = (
@@ -179,6 +183,12 @@ export async function reconcileNativeHomeRequest(
 			{ ...kernelAcceptanceReader(context, row, policy), readHomeResponse },
 			now,
 		)) ?? row;
-	await projectKernelRequestOnHomeRun(context.db, row);
+	if (
+		!sourceRun ||
+		sourceRun.metadata?.kernelRequestId !== row.id ||
+		JSON.stringify(sourceRun.metadata?.kernelRequestAcceptance) !==
+			JSON.stringify(row.snapshot)
+	)
+		await projectKernelRequestOnHomeRun(context.db, row);
 	return row;
 }
