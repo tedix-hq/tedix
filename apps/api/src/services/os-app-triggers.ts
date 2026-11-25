@@ -321,7 +321,6 @@ export async function dispatchDueAppTriggers(
 	>,
 	scheduledTime: number,
 ): Promise<AppTriggerScanResult> {
-	const { createDbClient } = await import("@tedix/db/client");
 	const db = coreDb(env);
 	const rows = await listTriggeredRuntimeApps(db, { limit: APP_LIMIT });
 	const result: AppTriggerScanResult = {

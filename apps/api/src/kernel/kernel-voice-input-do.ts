@@ -38,9 +38,9 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 	transcriber = new WorkersAIFluxSTT(
 		createVoiceGatewayAi({
 			beforeRun: async (organizationId) => {
-				const [{ createDbQueryClient }, { requireUnrestrictedModelEgress }] =
+				const [{ coreQueryDb }, { requireUnrestrictedModelEgress }] =
 					await Promise.all([
-						import("@tedix/db/query-client"),
+						import("@tedix/db/core-store/scope"),
 						import("../services/unrouted-model-egress"),
 					]);
 				await requireUnrestrictedModelEgress(
@@ -198,11 +198,10 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 			metadata: { callId: context.callId, channel: "voice-input" },
 		};
 		try {
-			const [{ createDbClient }, { recordVoiceProviderUsage }] =
-				await Promise.all([
-					import("@tedix/db/client"),
-					import("../lib/voice-provider-usage"),
-				]);
+			const [{ coreDb }, { recordVoiceProviderUsage }] = await Promise.all([
+				import("@tedix/db/core-store/scope"),
+				import("../lib/voice-provider-usage"),
+			]);
 			await recordVoiceProviderUsage(coreDb(this.env), input);
 		} catch (error) {
 			logKernelVoiceFailure("voice.input_usage_write_failed", error);

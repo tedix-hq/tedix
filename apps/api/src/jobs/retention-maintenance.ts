@@ -211,7 +211,6 @@ export async function runRetentionMaintenance(
 			? Math.min(startedMs + RETENTION_CLEANUP_BUDGET_MS, latestFinishMs)
 			: startedMs + RETENTION_CLEANUP_BUDGET_MS;
 	console.log(`[Scheduled] Running retention cleanup (${runId})`);
-	const { createDbClient } = await import("@tedix/db/client");
 	const db = coreDb(env);
 	const scheduledDate = new Date(event.scheduledTime);
 	const checkpoints =
@@ -802,8 +801,7 @@ function retentionCleanupSteps(
 		{
 			id: "audit-daily-export",
 			run: async ({ deadlineMs }) => {
-				const { createDbClient, configureLogStore } =
-					await import("@tedix/db/client");
+				const { configureLogStore } = await import("@tedix/db/client");
 				const { runAuditDailyExport } =
 					await import("../services/audit-daily-export");
 				// Tool events live in the logs store; read both like the audit API does.

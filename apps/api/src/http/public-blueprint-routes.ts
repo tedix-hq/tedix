@@ -11,11 +11,10 @@ export function registerPublicBlueprintRoutes(
 	);
 	// authz: public — catalog-visible published blueprints only; private, draft and missing ids are the same 404.
 	app.get("/public/blueprints/:blueprintId", async (c) => {
-		const [{ handlePublicBlueprintPage }, { createDbQueryClient }] =
-			await Promise.all([
-				import("../lib/blueprint-landing"),
-				import("@tedix/db/query-client"),
-			]);
+		const [{ handlePublicBlueprintPage }, { coreQueryDb }] = await Promise.all([
+			import("../lib/blueprint-landing"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		return handlePublicBlueprintPage(
 			coreQueryDb(c.env),
 			c.req.param("blueprintId"),

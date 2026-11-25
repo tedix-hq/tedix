@@ -143,9 +143,9 @@ export class KernelVoiceDO extends VoiceAgentBase {
 	private voiceAi(channel: VoiceChannel): AiRunner {
 		return createVoiceGatewayAi({
 			beforeRun: async (organizationId) => {
-				const [{ createDbQueryClient }, { requireUnrestrictedModelEgress }] =
+				const [{ coreQueryDb }, { requireUnrestrictedModelEgress }] =
 					await Promise.all([
-						import("@tedix/db/query-client"),
+						import("@tedix/db/core-store/scope"),
 						import("../services/unrouted-model-egress"),
 					]);
 				await requireUnrestrictedModelEgress(
@@ -200,11 +200,10 @@ export class KernelVoiceDO extends VoiceAgentBase {
 		try {
 			// Keep the billing/query graph off the cold voice isolate until a
 			// successful provider call actually needs to be recorded.
-			const [{ createDbClient }, { recordVoiceProviderUsage }] =
-				await Promise.all([
-					import("@tedix/db/client"),
-					import("../lib/voice-provider-usage"),
-				]);
+			const [{ coreDb }, { recordVoiceProviderUsage }] = await Promise.all([
+				import("@tedix/db/core-store/scope"),
+				import("../lib/voice-provider-usage"),
+			]);
 			await recordVoiceProviderUsage(coreDb(this.env), input);
 		} catch (error) {
 			logKernelVoiceFailure("voice.usage_write_failed", error, {

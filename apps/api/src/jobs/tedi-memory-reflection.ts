@@ -128,7 +128,6 @@ async function enrichMemory(
 	runId: string,
 ): Promise<Record<string, number>> {
 	console.log(`[Scheduled] Starting MemoryReflectionWorkflow (${runId})`);
-	const { createDbClient } = await import("@tedix/db/client");
 	const { listOrganizations } = await import("@tedix/db/queries/organizations");
 	const { backfillFactSearch } =
 		await import("@tedix/db/queries/memory-graph/hybrid-recall");

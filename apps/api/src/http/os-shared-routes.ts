@@ -45,10 +45,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// the host proxy forwards one, only identifies the recipient of an
 	// organization or invited link and grants nothing by itself.
 	app.post("/os-shared/redeem", async (c) => {
-		const [{ handleOsShareRedemption }, { createDbQueryClient }, recipient] =
+		const [{ handleOsShareRedemption }, { coreQueryDb }, recipient] =
 			await Promise.all([
 				import("../lib/os-share-redemption"),
-				import("@tedix/db/query-client"),
+				import("@tedix/db/core-store/scope"),
 				shareRecipient(c.req.raw, c.env),
 			]);
 		return handleOsShareRedemption(
@@ -62,11 +62,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 
 	// authz: public — proof of an invited email; uniform send reply and atomic rate limits.
 	app.post("/os-shared/email/request", async (c) => {
-		const [{ requestOsShareEmailCode }, { createDbQueryClient }] =
-			await Promise.all([
-				import("../lib/os-share-email-code"),
-				import("@tedix/db/query-client"),
-			]);
+		const [{ requestOsShareEmailCode }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-email-code"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		const body = await c.req.json().catch(() => null);
 		return requestOsShareEmailCode(
 			c.env,
@@ -82,11 +81,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	});
 	// authz: public — single-use email proof bound to this link; creates only a share session.
 	app.post("/os-shared/email/verify", async (c) => {
-		const [{ verifyOsShareEmailCode }, { createDbQueryClient }] =
-			await Promise.all([
-				import("../lib/os-share-email-code"),
-				import("@tedix/db/query-client"),
-			]);
+		const [{ verifyOsShareEmailCode }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-email-code"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		const body = await c.req.json().catch(() => null);
 		return verifyOsShareEmailCode(c.env, coreQueryDb(c.env), {
 			id: bodyString(body, "id"),
@@ -100,10 +98,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// The OS Worker asserts the host's tenant; a link answers only there.
 	// authz: public — resolves by unguessable public id; refusals are the same 404 as an unknown link.
 	app.post("/os-shared/open", async (c) => {
-		const [{ handleOsShareOpen }, { createDbQueryClient }, recipient] =
+		const [{ handleOsShareOpen }, { coreQueryDb }, recipient] =
 			await Promise.all([
 				import("../lib/os-share-redemption"),
-				import("@tedix/db/query-client"),
+				import("@tedix/db/core-store/scope"),
 				shareRecipient(c.req.raw, c.env),
 			]);
 		return handleOsShareOpen(
@@ -120,11 +118,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// Worker asks for it when it serves the share document on the host.
 	// authz: public — names content only for a link a signed-out stranger could open on this host; anything else gets the generic answer.
 	app.post("/os-shared/preview", async (c) => {
-		const [{ handleOsSharePreview }, { createDbQueryClient }] =
-			await Promise.all([
-				import("../lib/os-share-redemption"),
-				import("@tedix/db/query-client"),
-			]);
+		const [{ handleOsSharePreview }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-redemption"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		return handleOsSharePreview(
 			coreQueryDb(c.env),
 			bodyString(await c.req.json().catch(() => null), "id"),
@@ -133,10 +130,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	});
 
 	app.post("/os-shared/session", async (c) => {
-		const [{ handleOsShareSessionRead }, { createDbQueryClient }, recipient] =
+		const [{ handleOsShareSessionRead }, { coreQueryDb }, recipient] =
 			await Promise.all([
 				import("../lib/os-share-redemption"),
-				import("@tedix/db/query-client"),
+				import("@tedix/db/core-store/scope"),
 				shareRecipient(c.req.raw, c.env),
 			]);
 		const body = await c.req.json().catch(() => null);
@@ -155,10 +152,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// link's session; it rechecks the link and the file on every read.
 	// authz: public — the share session token is the credential; only files without connected data, same 404 for every refusal.
 	app.post("/os-shared/output", async (c) => {
-		const [{ handleOsShareSessionOutput }, { createDbQueryClient }, recipient] =
+		const [{ handleOsShareSessionOutput }, { coreQueryDb }, recipient] =
 			await Promise.all([
 				import("../lib/os-share-redemption"),
-				import("@tedix/db/query-client"),
+				import("@tedix/db/core-store/scope"),
 				shareRecipient(c.req.raw, c.env),
 			]);
 		const body = await c.req.json().catch(() => null);
@@ -175,10 +172,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// download), served through the link and never the owner's workspace.
 	// authz: public — the share session token is the credential; it names only the file of an Output the link shows, same 404 for every refusal.
 	app.post("/os-shared/file", async (c) => {
-		const [{ handleOsShareFile }, { createDbQueryClient }, recipient] =
+		const [{ handleOsShareFile }, { coreQueryDb }, recipient] =
 			await Promise.all([
 				import("../lib/os-share-files"),
-				import("@tedix/db/query-client"),
+				import("@tedix/db/core-store/scope"),
 				shareRecipient(c.req.raw, c.env),
 			]);
 		const body = await c.req.json().catch(() => null);
@@ -193,10 +190,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	});
 	// authz: public — signed per session, Output and file; every range read rechecks the session, link and file.
 	app.get("/os-shared/file/:sessionId/:outputId", async (c) => {
-		const [{ serveOsShareFile }, { createDbQueryClient }, recipient] =
+		const [{ serveOsShareFile }, { coreQueryDb }, recipient] =
 			await Promise.all([
 				import("../lib/os-share-files"),
-				import("@tedix/db/query-client"),
+				import("@tedix/db/core-store/scope"),
 				shareRecipient(c.req.raw, c.env),
 			]);
 		return serveOsShareFile(
@@ -217,9 +214,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// refusal is the same 404 as an unknown link.
 	// authz: public — the share session token is the only credential; apps/api binds it to one link, role use.
 	app.post("/os-shared/app/open", async (c) => {
-		const [{ handleGuestAppOpen }, { createDbQueryClient }] = await Promise.all(
-			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
-		);
+		const [{ handleGuestAppOpen }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-app-runtime"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		return handleGuestAppOpen(
 			c.env,
 			coreQueryDb(c.env),
@@ -228,9 +226,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	});
 	// authz: public — same share session token; the signed app session must match it and the link.
 	app.post("/os-shared/app/call", async (c) => {
-		const [{ handleGuestAppCall }, { createDbQueryClient }] = await Promise.all(
-			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
-		);
+		const [{ handleGuestAppCall }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-app-runtime"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		return handleGuestAppCall(
 			c.env,
 			coreQueryDb(c.env),
@@ -240,9 +239,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	});
 	// authz: public — same share session token; reads only granted, sourceless Outputs.
 	app.post("/os-shared/app/read", async (c) => {
-		const [{ handleGuestAppRead }, { createDbQueryClient }] = await Promise.all(
-			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
-		);
+		const [{ handleGuestAppRead }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-app-runtime"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		return handleGuestAppRead(
 			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
@@ -251,9 +251,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// authz: public — same share session token; saves only for an invited,
 	// email-verified visitor of a link that lets its people edit.
 	app.post("/os-shared/app/save", async (c) => {
-		const [{ handleGuestAppSave }, { createDbQueryClient }] = await Promise.all(
-			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
-		);
+		const [{ handleGuestAppSave }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-app-runtime"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		return handleGuestAppSave(
 			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
@@ -261,11 +262,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	});
 	// authz: public — same share session token; reads only granted, sourceless Outputs.
 	app.post("/os-shared/app/changes", async (c) => {
-		const [{ handleGuestAppChanges }, { createDbQueryClient }] =
-			await Promise.all([
-				import("../lib/os-share-app-runtime"),
-				import("@tedix/db/query-client"),
-			]);
+		const [{ handleGuestAppChanges }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-app-runtime"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		return handleGuestAppChanges(
 			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
@@ -273,11 +273,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	});
 	// authz: public — same share session token; reads only granted, sourceless Outputs.
 	app.post("/os-shared/app/revision", async (c) => {
-		const [{ handleGuestAppRevision }, { createDbQueryClient }] =
-			await Promise.all([
-				import("../lib/os-share-app-runtime"),
-				import("@tedix/db/query-client"),
-			]);
+		const [{ handleGuestAppRevision }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-app-runtime"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		return handleGuestAppRevision(
 			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
@@ -285,11 +284,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	});
 	// authz: public — same share session token; reads only images stored with a granted, sourceless Output.
 	app.post("/os-shared/app/image", async (c) => {
-		const [{ handleGuestAppImage }, { createDbQueryClient }] =
-			await Promise.all([
-				import("../lib/os-share-app-runtime"),
-				import("@tedix/db/query-client"),
-			]);
+		const [{ handleGuestAppImage }, { coreQueryDb }] = await Promise.all([
+			import("../lib/os-share-app-runtime"),
+			import("@tedix/db/core-store/scope"),
+		]);
 		return handleGuestAppImage(
 			coreQueryDb(c.env),
 			await c.req.json().catch(() => null),
@@ -298,10 +296,10 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 
 	// Unknown, revoked, and expired tokens are indistinguishable 404s.
 	app.get("/os-shared/:token", async (c) => {
-		const [{ handleOsShareRedemption }, { createDbQueryClient }, recipient] =
+		const [{ handleOsShareRedemption }, { coreQueryDb }, recipient] =
 			await Promise.all([
 				import("../lib/os-share-redemption"),
-				import("@tedix/db/query-client"),
+				import("@tedix/db/core-store/scope"),
 				shareRecipient(c.req.raw, c.env),
 			]);
 		return handleOsShareRedemption(

@@ -6,13 +6,11 @@ export async function hasActiveVoiceMembership(
 ): Promise<boolean> {
 	try {
 		// Voice DOs are eagerly exported; keep the database graph off startup.
-		const [
-			{ createDbClient },
-			{ getMemberByUserId, getMemberByCanonicalUserId },
-		] = await Promise.all([
-			import("@tedix/db/client"),
-			import("@tedix/db/queries/organization-members"),
-		]);
+		const [{ coreDb }, { getMemberByUserId, getMemberByCanonicalUserId }] =
+			await Promise.all([
+				import("@tedix/db/core-store/scope"),
+				import("@tedix/db/queries/organization-members"),
+			]);
 		const db = coreDb(env);
 		const member = await getMemberByUserId(db, organizationId, descopeUserId);
 		if (!member || member.status !== "active") return false;

@@ -709,7 +709,7 @@ export class EvidenceBridge extends WorkerEntrypoint<
 		// (a silent violation). Policy verdicts move per epoch; the summary they
 		// are computed from must move with them. Tamper-evidence is not weakened:
 		// the underlying verdicts remain sealed and content-addressed.
-		const { createDbClient } = await import("@tedix/db/client");
+		const { coreDb } = await import("@tedix/db/core-store/scope");
 		const { recordRunArtifact } =
 			await import("@tedix/db/queries/skill-run-artifacts");
 		await recordRunArtifact(

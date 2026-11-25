@@ -201,15 +201,11 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 		organizationId: string;
 		workspaceId: string;
 	}) {
-		const [
-			{ createDbClient },
-			{ createDbQueryClient },
-			{ pushWaitingWorkspaceApprovals },
-		] = await Promise.all([
-			import("@tedix/db/client"),
-			import("@tedix/db/query-client"),
-			import("./services/workspace-approval-push"),
-		]);
+		const [{ coreDb, coreQueryDb }, { pushWaitingWorkspaceApprovals }] =
+			await Promise.all([
+				import("@tedix/db/core-store/scope"),
+				import("./services/workspace-approval-push"),
+			]);
 		return pushWaitingWorkspaceApprovals(
 			{ db: coreDb(this.env), env: this.env },
 			coreQueryDb(this.env),
@@ -248,10 +244,10 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	): Promise<
 		import("@tedix/api-contract/schemas/runtime-entitlements").AuthorizeRuntimeInferenceResponse
 	> {
-		const [{ AuthorizeWorkspaceInferenceInputSchema }, { createDbClient }] =
+		const [{ AuthorizeWorkspaceInferenceInputSchema }, { coreDb }] =
 			await Promise.all([
 				import("@tedix/api-contract/schemas/runtime-entitlements"),
-				import("@tedix/db/client"),
+				import("@tedix/db/core-store/scope"),
 			]);
 		const { authorizeWorkspaceInference } =
 			await import("./services/workspace-inference-admission");
@@ -266,10 +262,10 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 	async releaseInferenceReservation(
 		input: import("@tedix/api-contract/schemas/runtime-entitlements").ReleaseInferenceReservationInput,
 	): Promise<{ released: boolean }> {
-		const [{ ReleaseInferenceReservationInputSchema }, { createDbClient }] =
+		const [{ ReleaseInferenceReservationInputSchema }, { coreDb }] =
 			await Promise.all([
 				import("@tedix/api-contract/schemas/runtime-entitlements"),
-				import("@tedix/db/client"),
+				import("@tedix/db/core-store/scope"),
 			]);
 		const { releaseInferenceReservation } =
 			await import("./services/workspace-inference-admission");
