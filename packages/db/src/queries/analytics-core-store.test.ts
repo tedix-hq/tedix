@@ -26,6 +26,19 @@ import {
 } from "../schema/control-plane";
 import { providerInstallations } from "../schema/provider-installations";
 import { widgetEvents, type NewWidgetEvent } from "../schema/analytics";
+import { auditEvents } from "../schema/audit-events";
+import { auditMetadataRefs } from "../schema/audit-metadata-refs";
+import { tediRuntimeEvents } from "../schema/cognitive-runtime";
+import { tediRationaleRecords } from "../schema/rationale-records";
+import {
+	getAnalyticsAppFreshness,
+	listAnalyticsAuditActivityWindow,
+	listAnalyticsExecutionAuditRows,
+	listAnalyticsRationaleEvidence,
+	listAnalyticsRuntimeTraceEvidence,
+	listAnalyticsTraceActivity,
+	listRecentAnalyticsAuditActivity,
+} from "./analytics-audit";
 import {
 	getOrganizationIdForApp,
 	getOrganizationIdsForApps,
@@ -76,6 +89,10 @@ for (const store of ["d1", "postgres"] as const)
 						items,
 						widgetEvents,
 						providerInstallations,
+						auditEvents,
+						auditMetadataRefs,
+						tediRuntimeEvents,
+						tediRationaleRecords,
 					),
 				);
 				db = createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
@@ -230,6 +247,227 @@ for (const store of ["d1", "postgres"] as const)
 		}, 30000);
 		afterAll(async () => {
 			await close?.();
+		});
+
+		it("resolves compact audit refs within their tenant and preserves epoch windows and numeric metadata", async () => {
+			await db.insert(coreTable(db, auditMetadataRefs)).values([
+				{ organizationId: "org", ref: "a", kind: "app", value: "app" },
+				{ organizationId: "other", ref: "a", kind: "app", value: "other-app" },
+				{ organizationId: "org", ref: "c", kind: "client", value: "client" },
+				{
+					organizationId: "other",
+					ref: "c",
+					kind: "client",
+					value: "other-client",
+				},
+			]);
+			const metadata = {
+				_r: { a: "a", c: "c" },
+				executionId: "execution",
+				traceId: "trace",
+				subjectIsActor: true,
+				durationMs: 8,
+				toolCount: 4,
+				namespaceCount: 2,
+				httpStatus: "200",
+			};
+			await db.insert(coreTable(db, auditEvents)).values([
+				{
+					id: "audit-inline",
+					organizationId: "org",
+					actorId: "user",
+					actorType: "user",
+					action: "mcp.tool.execute",
+					resourceType: "tool",
+					resourceId: "lookup",
+					metadata: { ...metadata, appId: "app", subjectUserId: "subject" },
+					timestamp: new Date(100_000),
+				},
+				{
+					id: "audit-compact",
+					organizationId: "org",
+					actorId: "user",
+					actorType: "user",
+					action: "mcp.code.execute",
+					resourceType: "code",
+					resourceId: "code",
+					metadata,
+					timestamp: new Date(110_000),
+				},
+				{
+					id: "audit-private",
+					organizationId: "other",
+					actorId: "other-user",
+					actorType: "user",
+					action: "mcp.tool.error",
+					resourceType: "tool",
+					resourceId: "private",
+					metadata,
+					timestamp: new Date(120_000),
+				},
+			]);
+			expect(
+				await getAnalyticsAppFreshness(db, {
+					organizationId: "org",
+					appId: "app",
+					windowStartSeconds: 100,
+					windowEndSeconds: 110,
+				}),
+			).toMatchObject({
+				countsRow: {
+					totalEvents: 2,
+					toolExecutions: 1,
+					codeExecutions: 1,
+					toolErrors: 0,
+				},
+				latestRow: {
+					timestamp: 110,
+					durationMs: 8,
+					toolCount: 4,
+					namespaceCount: 2,
+				},
+			});
+			const rows = await listRecentAnalyticsAuditActivity(db, {
+				organizationId: "org",
+				appId: "app",
+				limit: 10,
+			});
+			expect(rows).toHaveLength(2);
+			expect(rows[0]).toMatchObject({
+				timestamp: 110,
+				appId: "app",
+				clientId: "client",
+				oauthClientId: "client",
+				subjectUserId: "user",
+				durationMs: 8,
+				httpStatus: "200",
+			});
+			expect(rows[1]).toMatchObject({
+				timestamp: 100,
+				subjectUserId: "subject",
+			});
+			expect(
+				await listRecentAnalyticsAuditActivity(db, {
+					organizationId: "org",
+					appId: "other-app",
+					limit: 10,
+				}),
+			).toEqual([]);
+			expect(
+				await listAnalyticsAuditActivityWindow(db, {
+					organizationId: "org",
+					appId: "app",
+					startSeconds: 100,
+					endSeconds: 100,
+					limit: 10,
+				}),
+			).toMatchObject([{ timestamp: 100 }]);
+			expect(
+				await listAnalyticsExecutionAuditRows(db, {
+					organizationId: "org",
+					executionId: "execution",
+				}),
+			).toMatchObject([{ timestamp: 100 }, { timestamp: 110 }]);
+			expect(
+				await listAnalyticsTraceActivity(db, {
+					organizationId: "org",
+					traceId: "trace",
+				}),
+			).toMatchObject([{ timestamp: 100 }, { timestamp: 110 }]);
+		});
+
+		it("reads large evidence candidate sets once with global ordering and tenant fences", async () => {
+			const traceId = 'trace"\\,{}';
+			await db.insert(coreTable(db, tediRuntimeEvents)).values([
+				{
+					id: "runtime-later",
+					organizationId: "org",
+					tediId: "tedi",
+					traceId: "later",
+					kind: "run.started",
+					runtimeBackend: "custom",
+					payload: { phase: "later" },
+					createdAt: "2026-09-01T13:00:00.000Z",
+				},
+				{
+					id: "runtime-earlier",
+					organizationId: "org",
+					tediId: "tedi",
+					traceId,
+					kind: "run.started",
+					runtimeBackend: "custom",
+					payload: { phase: "earlier" },
+					createdAt: at,
+				},
+				{
+					id: "runtime-private",
+					organizationId: "other",
+					tediId: "other-tedi",
+					traceId,
+					kind: "run.started",
+					runtimeBackend: "custom",
+					payload: { phase: "private" },
+					createdAt: at,
+				},
+			]);
+			await db.insert(coreTable(db, tediRationaleRecords)).values([
+				{
+					id: "decision",
+					orgId: "org",
+					tediId: "tedi",
+					action: "test",
+					rationale: "test",
+					evidence: { facts: [] },
+					createdAt: at,
+				},
+				{
+					id: "private-decision",
+					orgId: "other",
+					tediId: "other-tedi",
+					action: "private",
+					rationale: "private",
+					createdAt: at,
+				},
+			]);
+			const select = vi.spyOn(db, "select");
+			try {
+				const rows = await listAnalyticsRuntimeTraceEvidence(db, {
+					organizationId: "org",
+					traceIds: ["later", ...candidates, traceId, traceId],
+					limit: 1,
+				});
+				expect(select).toHaveBeenCalledTimes(1);
+				expect(rows).toMatchObject([{ traceId, createdAt: at }]);
+				select.mockClear();
+				expect(
+					await listAnalyticsRationaleEvidence(db, {
+						organizationId: "org",
+						decisionIds: [
+							...candidates,
+							"decision",
+							"decision",
+							"private-decision",
+						],
+					}),
+				).toMatchObject([{ id: "decision" }]);
+				expect(select).toHaveBeenCalledTimes(1);
+				select.mockClear();
+				expect(
+					await listAnalyticsRuntimeTraceEvidence(db, {
+						organizationId: "org",
+						traceIds: [],
+					}),
+				).toEqual([]);
+				expect(
+					await listAnalyticsRationaleEvidence(db, {
+						organizationId: "org",
+						decisionIds: [],
+					}),
+				).toEqual([]);
+				expect(select).not.toHaveBeenCalled();
+			} finally {
+				select.mockRestore();
+			}
 		});
 
 		it("hydrates large intersecting identity sets without leaking scoped members or duplicating tedis", async () => {
