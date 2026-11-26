@@ -105,7 +105,35 @@ for (const store of ["d1", "postgres"] as const) {
 						},
 					);
 				}
-				await expect(apply()).rejects.toThrow();
+				const expectedEvents = originals.map(({ kind, record }) => ({
+					schema: "tedix.work-observation.v1",
+					kind,
+					record,
+				}));
+				if (pg) await expect(apply()).rejects.toThrow();
+				else {
+					// D1 copies missing history itself, then the guard reconciles the copy.
+					await exec("BEGIN");
+					await exec(migration);
+					const copied = await rows(
+						"SELECT id, actor_id, occurred_at, payload FROM work_events ORDER BY id",
+					);
+					await exec("ROLLBACK");
+					expect(copied.map((e) => JSON.parse(String(e.payload)))).toEqual(
+						expectedEvents.toSorted((a, b) =>
+							`${a.kind}:${a.record.id}`.localeCompare(
+								`${b.kind}:${b.record.id}`,
+							),
+						),
+					);
+					expect(
+						copied.every(
+							(e) =>
+								e.actor_id === "work-observation-migration" &&
+								e.occurred_at === at,
+						),
+					).toBe(true);
+				}
 				for (const { kind, record } of originals) {
 					await exec(`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at)
       VALUES (${quote(`work-observation:${kind}:${record.id}`)},${quote(record.orgId)},${quote(record.workItemId)},'work.observation_recorded','system','work-observation-migration',${quote(JSON.stringify({ schema: "tedix.work-observation.v1", kind, record }))},'${at}')`);
@@ -148,13 +176,7 @@ for (const store of ["d1", "postgres"] as const) {
 					events.map((e) =>
 						typeof e.payload === "string" ? JSON.parse(e.payload) : e.payload,
 					),
-				).toEqual(
-					originals.map(({ kind, record }) => ({
-						schema: "tedix.work-observation.v1",
-						kind,
-						record,
-					})),
-				);
+				).toEqual(expectedEvents);
 				if (sqlite) expect(await rows("PRAGMA foreign_key_check")).toEqual([]);
 			} finally {
 				sqlite?.close();

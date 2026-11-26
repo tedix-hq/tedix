@@ -1,9 +1,19 @@
 -- tedix: destructive-reviewed Work-Item: 92b87d69-6105-4aef-b302-adbc4c698d5a
--- Operator preconditions: verified deployed event cutover; all organizations copied
--- and reconciled using the cutover revision; old writers stopped; recoverable backup
--- and separate production destructive authorization recorded on Work.
--- Missing or changed history aborts removal. Never bypass this reconciliation.
+-- Preconditions: deployed event cutover with the old writers stopped, and a
+-- recoverable backup. The copy below adds any missing history event; an event that
+-- already exists is kept as it is. The guard then compares every source row with
+-- its event, and missing or changed history aborts removal. Never bypass it.
 
+--> statement-breakpoint
+INSERT OR IGNORE INTO work_events(id, org_id, work_item_id, event_type, actor_type, actor_id, payload, occurred_at)
+SELECT 'work-observation:verification:' || s.id, s.org_id, s.work_item_id, 'work.observation_recorded', 'system', 'work-observation-migration', json_object('schema', 'tedix.work-observation.v1', 'kind', 'verification', 'record', json_object('id', s.id, 'orgId', s.org_id, 'workItemId', s.work_item_id, 'evidenceId', s.evidence_id, 'source', s.source, 'verifierType', s.verifier_type, 'verifierId', s.verifier_id, 'claimed', json(s.claimed), 'observed', json(s.observed), 'matchesClaim', json(CASE WHEN s.matches_claim THEN 'true' ELSE 'false' END), 'observedAt', s.observed_at)), s.observed_at
+FROM work_evidence_verifications s ORDER BY s.observed_at, s.id;
+--> statement-breakpoint
+INSERT OR IGNORE INTO work_events(id, org_id, work_item_id, event_type, actor_type, actor_id, payload, occurred_at)
+SELECT 'work-observation:confirmation:' || s.id, s.org_id, s.work_item_id, 'work.observation_recorded', 'system', 'work-observation-migration', json_object('schema', 'tedix.work-observation.v1', 'kind', 'confirmation', 'record', json_object('id', s.id, 'orgId', s.org_id, 'workItemId', s.work_item_id, 'principalType', s.principal_type, 'principalId', s.principal_id, 'sessionId', s.session_id, 'evidenceRef', s.evidence_ref, 'stance', s.stance, 'body', s.body, 'occurredAt', s.occurred_at, 'createdAt', s.created_at)), s.occurred_at
+FROM work_item_corroborations s ORDER BY s.occurred_at, s.created_at, s.id;
+--> statement-breakpoint
+DROP TABLE IF EXISTS work_observation_removal_guard;
 --> statement-breakpoint
 CREATE TABLE work_observation_removal_guard (
  reconciled INTEGER NOT NULL CHECK (reconciled = 1)

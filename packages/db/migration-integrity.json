@@ -2135,7 +2135,7 @@
 		},
 		{
 			"name": "20261126153906_remove_work_verification_tables/migration.sql",
-			"sha256": "b83bcc7dde4728042feaf9ec9cbc7d8c7042bc8aa47f414e1149ae5633c33e2c"
+			"sha256": "050dcf4842b784fcd056a4e29afc5e5663a7ee72b2c47343f0da7f33916a91af"
 		},
 		{
 			"name": "20261126180207_app-mcp-audience-indexes/migration.sql",
