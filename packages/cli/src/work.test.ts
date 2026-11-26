@@ -748,7 +748,7 @@ describe("canonical work lifecycle", () => {
 	test("watches the original Attempt serially until the bounded horizon", async () => {
 		let now = Date.parse("2026-08-28T18:00:00Z");
 		const { ctx, sources } = makeContext({ watch: 65 }, ATTEMPT, () => ({
-			expiresAt: new Date(now + 300_000).toISOString(),
+			expiresAt: new Date(now + 90_000).toISOString(),
 		}));
 		ctx.heartbeatClock = {
 			now: () => now,
@@ -765,12 +765,12 @@ describe("canonical work lifecycle", () => {
 		}
 	});
 
-	test("watch keeps the admitted Attempt when the local cache changes", async () => {
+	test("watch stops without touching a replacement cached Attempt", async () => {
 		let now = 0;
 		const { ctx, sources, attemptStore } = makeContext(
 			{ watch: 65 },
 			ATTEMPT,
-			() => ({ expiresAt: new Date(now + 300_000).toISOString() }),
+			() => ({ expiresAt: new Date(now + 90_000).toISOString() }),
 		);
 		const key = {
 			workspace: "test",
@@ -785,9 +785,8 @@ describe("canonical work lifecycle", () => {
 				attemptStore.set(key, "replacement");
 			},
 		};
-		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(0);
-		expect(sources).toHaveLength(3);
-		for (const source of sources) expect(source).toContain(ATTEMPT);
+		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(WORK_EXIT_FAIL);
+		expect(sources).toHaveLength(1);
 		expect(attemptStore.get(key)).toBe("replacement");
 	});
 
@@ -3122,11 +3121,11 @@ describe("heartbeat watch credential revocation", () => {
 			'MCP error 403: {"error":"external_agent_inactive","message":"External-agent credential is no longer active."}',
 		);
 	};
-	function watchContext(respond: (call: number) => unknown) {
+	function watchContext(respond: (call: number, now: number) => unknown) {
 		let now = 0,
 			calls = 0;
 		const { ctx, sources } = makeContext({ watch: 100 }, ATTEMPT, () =>
-			respond(++calls),
+			respond(++calls, now),
 		);
 		ctx.heartbeatClock = {
 			now: () => now,
@@ -3138,11 +3137,15 @@ describe("heartbeat watch credential revocation", () => {
 		ctx.discardCredential = () => discarded.push(calls);
 		return { ctx, sources, discarded };
 	}
-	const renewed = () => ({ expiresAt: new Date(300_000).toISOString() });
+	// A 90 s lease renews every third of its remaining time: the 30 s cadence
+	// these tests were written against.
+	const renewed = (now: number) => ({
+		expiresAt: new Date(now + 90_000).toISOString(),
+	});
 
 	test("drops a revoked credential once and keeps renewing the same Attempt", async () => {
-		const { ctx, sources, discarded } = watchContext((call) =>
-			call === 2 || call === 4 ? inactive() : renewed(),
+		const { ctx, sources, discarded } = watchContext((call, now) =>
+			call === 2 || call === 4 ? inactive() : renewed(now),
 		);
 		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(0);
 		// Each rejection, even non-consecutive ones, renews once after a success.
@@ -3154,8 +3157,8 @@ describe("heartbeat watch credential revocation", () => {
 	});
 
 	test("stops on a second consecutive inactive rejection instead of retrying it", async () => {
-		const { ctx, sources, discarded } = watchContext((call) =>
-			call === 1 ? renewed() : inactive(),
+		const { ctx, sources, discarded } = watchContext((call, now) =>
+			call === 1 ? renewed(now) : inactive(),
 		);
 		const out = await capture(`heartbeat ${ITEM}`, ctx);
 		expect(out.code).toBe(WORK_EXIT_FAIL);
@@ -3166,9 +3169,9 @@ describe("heartbeat watch credential revocation", () => {
 	test.each(["external_agent_inactive"])(
 		"renews a one-shot heartbeat once after %s with the same Attempt",
 		async (code) => {
-			const oneShot = watchContext((call) => {
+			const oneShot = watchContext((call, now) => {
 				if (call === 1) throw new Error(`MCP tools/call error: ${code}`);
-				return renewed();
+				return renewed(now);
 			});
 			oneShot.ctx.work.watch = undefined;
 			expect((await capture(`heartbeat ${ITEM}`, oneShot.ctx)).code).toBe(0);
@@ -3187,7 +3190,7 @@ describe("heartbeat watch credential revocation", () => {
 				rejectedAt = now;
 				throw new Error('MCP tools/call error: "external_agent_inactive"');
 			}
-			return { expiresAt: new Date(now + 300_000).toISOString() };
+			return { expiresAt: new Date(now + 90_000).toISOString() };
 		});
 		ctx.heartbeatClock = {
 			now: () => now,
@@ -3221,7 +3224,9 @@ describe("heartbeat watch credential revocation", () => {
 	});
 
 	test("does not renew a login without an external-agent credential cache", async () => {
-		const login = watchContext((call) => (call === 1 ? renewed() : inactive()));
+		const login = watchContext((call, now) =>
+			call === 1 ? renewed(now) : inactive(),
+		);
 		login.ctx.discardCredential = undefined;
 		expect((await capture(`heartbeat ${ITEM}`, login.ctx)).code).toBe(
 			WORK_EXIT_FAIL,
@@ -3243,10 +3248,10 @@ describe("heartbeat watch rate-pressure recovery", () => {
 		let now = 0,
 			calls = 0;
 		const waits: number[] = [];
-		const { ctx, sources } = makeContext({ watch: 100 }, ATTEMPT, () =>
+		const { ctx, sources } = makeContext({ watch: 200 }, ATTEMPT, () =>
 			++calls === 2
 				? rate(429, 60)
-				: { expiresAt: new Date(now + 300_000).toISOString() },
+				: { expiresAt: new Date(now + 150_000).toISOString() },
 		);
 		ctx.heartbeatClock = {
 			now: () => now,
@@ -3256,8 +3261,8 @@ describe("heartbeat watch rate-pressure recovery", () => {
 			},
 		};
 		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(0);
-		expect(waits).toEqual([30_000, 60_000, 10_000]);
-		expect(sources).toHaveLength(3);
+		expect(waits).toEqual([50_000, 60_000, 50_000, 40_000]);
+		expect(sources).toHaveLength(4);
 		for (const source of sources) {
 			expect(source).toContain(ATTEMPT);
 			expect(source).not.toContain("start_work_item_attempt");
@@ -3272,7 +3277,7 @@ describe("heartbeat watch rate-pressure recovery", () => {
 				throw new Error(
 					"Tool rate limit exceeded. No side effect was executed.",
 				);
-			return { expiresAt: new Date(300_000).toISOString() };
+			return { expiresAt: new Date(now + 90_000).toISOString() };
 		});
 		ctx.heartbeatClock = {
 			now: () => now,
@@ -3298,7 +3303,7 @@ describe("heartbeat watch rate-pressure recovery", () => {
 					++calls === 1
 						? {
 								expiresAt: new Date(
-									boundary === "lease" ? 60_000 : 300_000,
+									boundary === "lease" ? 60_000 : 90_000,
 								).toISOString(),
 							}
 						: rate(429, 120),
@@ -3327,16 +3332,16 @@ describe("heartbeat watch rate-pressure recovery", () => {
 			expect(sources).toHaveLength(1);
 		}
 	});
-	test("rate-limit recovery keeps the admitted Attempt when the local cache changes", async () => {
+	test("stops if the cached fence changes during a rate cooldown", async () => {
 		let now = 0,
 			calls = 0;
 		const { ctx, sources, attemptStore } = makeContext(
-			{ watch: 40 },
+			{ watch: 90 },
 			ATTEMPT,
 			() =>
-				++calls === 2
-					? rate()
-					: { expiresAt: new Date(now + 300_000).toISOString() },
+				++calls === 1
+					? { expiresAt: new Date(now + 90_000).toISOString() }
+					: rate(),
 		);
 		const key = {
 			workspace: "test",
@@ -3351,9 +3356,8 @@ describe("heartbeat watch rate-pressure recovery", () => {
 				if (calls === 2) attemptStore.set(key, "replacement");
 			},
 		};
-		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(0);
-		expect(sources).toHaveLength(3);
-		for (const source of sources) expect(source).toContain(ATTEMPT);
+		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(WORK_EXIT_FAIL);
+		expect(sources).toHaveLength(2);
 		expect(attemptStore.get(key)).toBe("replacement");
 	});
 	test.each([
@@ -3378,7 +3382,7 @@ describe("heartbeat watch rate-pressure recovery", () => {
 		const waits: number[] = [];
 		const { ctx, sources } = makeContext({ watch: 100 }, ATTEMPT, () => {
 			if (++calls !== 2)
-				return { expiresAt: new Date(now + 300_000).toISOString() };
+				return { expiresAt: new Date(now + 90_000).toISOString() };
 			if (failure instanceof Error) throw failure;
 			return failure;
 		});
@@ -3402,7 +3406,7 @@ describe("heartbeat watch rate-pressure recovery", () => {
 				calls = 0;
 			const { ctx, sources } = makeContext({ watch: 90 }, ATTEMPT, () =>
 				++calls === 1
-					? { expiresAt: new Date(300_000).toISOString() }
+					? { expiresAt: new Date(now + 90_000).toISOString() }
 					: { code: "REJECTED", status, message: "failure" },
 			);
 			ctx.heartbeatClock = {
@@ -3509,6 +3513,7 @@ test("dispatcher renews the same Attempt in-process during a shared gateway cool
 	const renew = createLaneHeartbeat(
 		["--workspace", "test", "--organization", "org_fixture"],
 		{
+			attemptStore: fixture.attemptStore,
 			auth: async ({ workspace, organization, sessionKey, selector }) => {
 				authCalls++;
 				expect({ workspace, organization, sessionKey, selector }).toEqual({
@@ -3547,8 +3552,17 @@ test("dispatcher renews the same Attempt in-process during a shared gateway cool
 			`work.heartbeat_work_item_attempt(${JSON.stringify({ id: ITEM, attemptId: ATTEMPT })})`,
 		),
 	);
-	await expect(renew(receipt)).resolves.toEqual(expiry);
-	expect(fixture.sources).toHaveLength(3);
+	fixture.attemptStore.set(
+		{
+			workspace: "test",
+			actor: "credential",
+			agentSession: receipt.session,
+			workItemId: ITEM,
+		},
+		"replacement",
+	);
+	await expect(renew(receipt)).rejects.toMatchObject({ code: "STALE_ATTEMPT" });
+	expect(fixture.sources).toHaveLength(2);
 });
 
 describe("native Work bootstrap cache", () => {
@@ -5412,6 +5426,21 @@ test("registers a lane on its admitted Attempt and rejects the flag on other ver
 	);
 });
 
+test("settle sends the exact human next click and original request to the server", async () => {
+	const { ctx, sources } = makeContext(
+		{
+			outcome: "succeeded",
+			note: "Draft: /docs/example",
+			needsUser: "Confirm address and send",
+			requestId: ITEM,
+		},
+		ATTEMPT,
+	);
+	expect(await runWork(`settle ${ITEM}`, ctx)).toBe(0);
+	expect(sources[0]).toContain('"needsUser":"Confirm address and send"');
+	expect(sources[0]).toContain(`"requestId":"${ITEM}"`);
+});
+
 describe("comment text options", () => {
 	test.each(["--body", "--message", "--text"])(
 		"posts the trimmed %s value",
@@ -5489,6 +5518,22 @@ describe("claim discovery retry budget", () => {
 			),
 		).toHaveLength(1);
 	});
+});
+
+test("dispatcher heartbeat retries cannot touch a replacement cached Attempt", async () => {
+	const previous = process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID;
+	process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID = "original-dispatcher-attempt";
+	try {
+		const fixture = makeContext({}, ATTEMPT);
+		const result = await capture(`heartbeat ${ITEM}`, fixture.ctx);
+		expect(result.code).toBe(WORK_EXIT_FAIL);
+		expect(fixture.sources).toEqual([]);
+		expect(result.out.join("\n")).toContain("STALE_ATTEMPT");
+	} finally {
+		if (previous === undefined)
+			delete process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID;
+		else process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID = previous;
+	}
 });
 
 test("claim discovery and mutation retain the parent subprocess deadline", async () => {
@@ -5615,37 +5660,6 @@ describe("work run command lifecycle", () => {
 		expect(fixture.sources.at(-2)).toContain('"outcome":"succeeded"');
 		expect(fixture.sources.at(-2)).toContain('"summary":"Command result"');
 		expect(fixture.sources.at(-1)).toContain("complete_work_item");
-	});
-
-	test("settles the Attempt it started when the local cache changes", async () => {
-		const fixture = commandFixture("await Bun.sleep(50)");
-		const store = fixture.attemptStore;
-		const get = store.get;
-		let replaced = false;
-		fixture.ctx.attemptStore = {
-			...store,
-			get: (key) => {
-				const attemptId = get(key);
-				if (!replaced && attemptId === ATTEMPT) {
-					replaced = true;
-					store.set(key, "replacement");
-				}
-				return attemptId;
-			},
-		};
-		expect((await capture(`run ${ITEM}`, fixture.ctx)).code).toBe(0);
-		const settlement = fixture.sources.find((source) =>
-			source.includes("settle_work_item_attempt"),
-		);
-		expect(settlement).toContain(`"attemptId":"${ATTEMPT}"`);
-		expect(
-			store.get({
-				workspace: "test",
-				actor: "credential",
-				agentSession: fixture.ctx.work.session!,
-				workItemId: ITEM,
-			}),
-		).toBe("replacement");
 	});
 
 	test("settles nonzero and spawn errors as failed without completing Work", async () => {

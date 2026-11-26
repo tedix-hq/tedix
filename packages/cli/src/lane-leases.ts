@@ -4,6 +4,11 @@ import type { infer as Infer } from "zod";
 import type { createLaneHeartbeat } from "./lane-heartbeat";
 import { inDarkWake } from "./oauth-provider";
 import { LEASE_WORKER_ENV, selfCommand } from "./shared";
+import {
+	createLeaseRenewer,
+	leaseRenewalDelayMs,
+	type LeaseRenewer,
+} from "./lease-renewer";
 
 type LeaseReceipt = Parameters<ReturnType<typeof createLaneHeartbeat>>[0];
 type LeaseState = {
@@ -33,13 +38,14 @@ export function createLeaseWatch(
 		id: string,
 	) => Promise<Infer<typeof WorkAttemptSchema> | undefined>,
 	darkWake: () => boolean | Promise<boolean> = inDarkWake,
+	timing?: { now?: () => number; wait?: (ms: number) => Promise<void> },
 ): LeaseWatch {
 	return (state, notify) => {
 		const { receipt } = state;
+		const now = timing?.now ?? Date.now;
 		let { expiry, spawned } = state;
-		let lastLeaseCheck = Date.now();
+		let lastLeaseCheck = now();
 		let nextLeaseProbe = 0;
-		let renewing = false;
 		let checking = false;
 		let stopped = false;
 		const emit: Notify = (event) => {
@@ -47,30 +53,30 @@ export function createLeaseWatch(
 		};
 		const log = (event: string, detail: string) =>
 			emit({ kind: "log", event, detail });
-		const stop = () => {
-			stopped = true;
-			clearInterval(heartbeat);
-			if (check) clearInterval(check);
-		};
-		const lost = () => {
+		const leaseLost = () => {
 			if (!spawned) return;
 			emit({ kind: "lost" });
 			stop();
 		};
+		const stop = () => {
+			stopped = true;
+			renewer.stop();
+			if (check) clearInterval(check);
+		};
 		const checkLease = async () => {
-			const now = Date.now();
-			if (now - lastLeaseCheck > 5_000)
+			const at = now();
+			if (at - lastLeaseCheck > 5_000)
 				log(
 					"lease-check-delayed",
-					`Lease check delayed by ${now - lastLeaseCheck} ms`,
+					`Lease check delayed by ${at - lastLeaseCheck} ms`,
 				);
-			lastLeaseCheck = now;
+			lastLeaseCheck = at;
 			if (
 				stopped ||
 				!spawned ||
 				checking ||
 				expiry === undefined ||
-				now < Math.max(expiry, nextLeaseProbe)
+				at < Math.max(expiry, nextLeaseProbe)
 			)
 				return;
 			checking = true;
@@ -86,50 +92,80 @@ export function createLeaseWatch(
 					["queued", "running", "waiting", "retrying"].includes(
 						latest.runtimeState,
 					) &&
-					confirmed > Date.now()
+					confirmed > now()
 				) {
 					expiry = confirmed;
+					renewer.confirm(confirmed);
 					emit({ kind: "confirmed", expiry });
-				} else lost();
+				} else leaseLost();
 			} catch (error) {
 				if (await darkWake()) return;
 				log("lease-check-failed", String(error));
 				// An unavailable authority cannot confirm that this Attempt ended.
-				nextLeaseProbe = Date.now() + 10_000;
+				nextLeaseProbe = now() + 10_000;
 			} finally {
 				checking = false;
 			}
 		};
 		const check =
 			expiry === undefined ? undefined : setInterval(checkLease, 1000);
-		const heartbeat = setInterval(async () => {
-			if (stopped || renewing) return;
-			renewing = true;
-			try {
-				if (await darkWake()) return;
-				const renewed = await renew(receipt);
-				const renewedExpiry = Date.parse(renewed.expiresAt);
-				if (Number.isFinite(renewedExpiry) && expiry !== undefined)
-					expiry = renewedExpiry;
-				emit({ kind: "renewed", expiry: renewedExpiry });
-			} catch (error) {
-				if (await darkWake()) return;
-				log("heartbeat-failed", String(error));
-				if (
-					error instanceof Error &&
-					"code" in error &&
-					typeof error.code === "string" &&
-					(["STALE_ATTEMPT", "NOT_FOUND", "INVALID_LEASE"].includes(
-						error.code,
-					) ||
-						(error.code === "CONFLICT" &&
-							error.message.includes("STALE_ATTEMPT")))
-				)
-					lost();
-			} finally {
-				renewing = false;
-			}
-		}, 60_000);
+		const renewer: LeaseRenewer = createLeaseRenewer({
+			expiresAt: expiry,
+			// Without a confirmed lease, keep the old minute cadence until the
+			// first renewal answers; an expired one is probed the same way.
+			firstDelayMs: expiry === undefined ? 60_000 : 0,
+			now,
+			wait: timing?.wait,
+			onRenewed: (expiresAt) => {
+				expiry = expiresAt;
+				emit({ kind: "renewed", expiry });
+			},
+			// Before the run's child exists a lost lease kills nothing; keep
+			// probing on the old cadence like the fixed heartbeat did.
+			onLost: () => (spawned ? (leaseLost(), undefined) : 60_000),
+			// An expired lease is not proof the Attempt ended: a dark wake
+			// defers the check, and otherwise the renewal call lets the
+			// server arbitrate before the watcher reports a loss.
+			onExpired: async () => ((await darkWake()) ? 60_000 : "step"),
+			step: async () => {
+				if (await darkWake()) return { kind: "retry", delayMs: 60_000 };
+				try {
+					const renewed = await renew(receipt);
+					const renewedExpiry = Date.parse(renewed.expiresAt);
+					// A reply without an expiry still proves the lease is held;
+					// keep the last confirmed horizon rather than reporting loss.
+					return {
+						kind: "renewed",
+						expiresAt: Number.isFinite(renewedExpiry)
+							? renewedExpiry
+							: expiry !== undefined && expiry > now()
+								? expiry
+								: now() + 60_000,
+					};
+				} catch (error) {
+					if (await darkWake()) return { kind: "retry", delayMs: 60_000 };
+					log("heartbeat-failed", String(error));
+					if (
+						error instanceof Error &&
+						"code" in error &&
+						typeof error.code === "string" &&
+						(["STALE_ATTEMPT", "NOT_FOUND", "INVALID_LEASE"].includes(
+							error.code,
+						) ||
+							(error.code === "CONFLICT" &&
+								error.message.includes("STALE_ATTEMPT")))
+					)
+						return { kind: "lost", reason: String(error) };
+					const remaining = expiry !== undefined ? expiry - now() : NaN;
+					return {
+						kind: "retry",
+						delayMs: Number.isFinite(remaining)
+							? leaseRenewalDelayMs(remaining) || 60_000
+							: 60_000,
+					};
+				}
+			},
+		});
 		return {
 			update: (state) => {
 				spawned = state.spawned;

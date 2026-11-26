@@ -140,6 +140,44 @@ interface ContributorAttempt {
 	workItemId: string;
 	workItemTitle: string;
 	heartbeatAt: string;
+	/** Attempt facts; absent on fixtures that only carry heartbeats. */
+	runtimeState?: string;
+	outcome?: string | null;
+	expiresAt?: string | null;
+}
+
+const ACTIVE_ATTEMPT_RUNTIME_STATES = new Set([
+	"queued",
+	"running",
+	"waiting",
+	"retrying",
+]);
+
+/**
+ * A lane's live state is its Attempt's: a settled outcome maps to the board
+ * state, an active Attempt is `working` while its lease holds and `idle` once
+ * renewal stopped, and a terminal runtime state without an outcome is ended.
+ */
+function deriveAttemptSessionState(
+	attempt: ContributorAttempt,
+	now: string,
+): WorkAgentSessionEffectiveState | undefined {
+	if (attempt.outcome) {
+		if (
+			attempt.outcome === "succeeded" ||
+			attempt.outcome === "landed_unverified"
+		)
+			return "done";
+		if (attempt.outcome === "failed") return "error";
+		return "ended";
+	}
+	if (attempt.runtimeState === undefined) return undefined;
+	if (!ACTIVE_ATTEMPT_RUNTIME_STATES.has(attempt.runtimeState))
+		return attempt.runtimeState === "failed" ? "error" : "ended";
+	const expiry = attempt.expiresAt ? Date.parse(attempt.expiresAt) : NaN;
+	return Number.isFinite(expiry) && expiry <= Date.parse(now)
+		? "idle"
+		: "working";
 }
 
 const latest = (a: string, b: string) => (a.localeCompare(b) >= 0 ? a : b);
@@ -153,6 +191,7 @@ export function buildWorkProjectContributors(
 ): WorkProjectContributor[] {
 	const contributors = new Map<string, WorkProjectContributor>();
 	const reportedStates = new Map<string, StoredState>();
+	const attemptStates = new Map<string, WorkAgentSessionEffectiveState>();
 	for (const report of reports) {
 		const sessionKey = report.sessionKey.startsWith(`${report.harness}:`)
 			? report.sessionKey
@@ -173,9 +212,13 @@ export function buildWorkProjectContributors(
 			attempts: 0,
 		});
 	}
-	// Attempts arrive newest heartbeat first.
+	// Attempts arrive newest heartbeat first, so the first Attempt seen for a
+	// session is its latest and its own state is authoritative.
 	for (const attempt of attempts) {
 		const sessionKey = attempt.externalSessionKey;
+		const attemptState = deriveAttemptSessionState(attempt, now);
+		if (attemptState !== undefined && !attemptStates.has(sessionKey))
+			attemptStates.set(sessionKey, attemptState);
 		const current = contributors.get(sessionKey);
 		if (current) {
 			current.attempts += 1;
@@ -203,13 +246,15 @@ export function buildWorkProjectContributors(
 	}
 	for (const contributor of contributors.values()) {
 		if (contributor.state === "ended") continue;
-		contributor.state = localSessionInactive(
-			contributor.lastActivityAt,
-			new Date(now),
-			inactiveAfterMs,
-		)
-			? "idle"
-			: (reportedStates.get(contributor.sessionKey) ?? "unknown");
+		contributor.state =
+			attemptStates.get(contributor.sessionKey) ??
+			(localSessionInactive(
+				contributor.lastActivityAt,
+				new Date(now),
+				inactiveAfterMs,
+			)
+				? "idle"
+				: (reportedStates.get(contributor.sessionKey) ?? "unknown"));
 	}
 	const settled = new Set(["ended", "unknown"]);
 	return [...contributors.values()].sort((a, b) => {

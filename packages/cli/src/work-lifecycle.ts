@@ -26,6 +26,7 @@ import {
 	executorIdentityHint,
 	withSession,
 } from "./work-identity";
+import { createLeaseRenewer } from "./lease-renewer";
 import { boardCall } from "./work-native";
 import { fail, ok } from "./work-render";
 import {
@@ -213,28 +214,58 @@ export async function workHeartbeat(
 	if (!id) throw new Error("work heartbeat requires a work item id");
 	id = await resolveWorkItemId(ctx, id);
 	const attemptId = cachedAttemptId(ctx, id);
+	const expectedAttemptId = process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID;
+	if (expectedAttemptId && attemptId !== expectedAttemptId) {
+		return fail(
+			ctx,
+			{
+				code: "STALE_ATTEMPT",
+				message:
+					"The cached Attempt changed during the dispatcher read budget.",
+			},
+			"Heartbeat stopped: the cached Attempt differs from the dispatcher fence.",
+		);
+	}
 	if (!attemptId) {
 		return fail(
 			ctx,
 			missingAttemptResult(id).error!,
-			`Could not heartbeat ${id}: no attempt id is cached. Start the item in this workspace first.`,
+			`Could not heartbeat ${id}: no active attempt is cached. Start the item in this workspace first.`,
 		);
 	}
+	const key = workAttemptKey(ctx, id);
 	const clock = ctx.heartbeatClock ?? { now: Date.now, wait: sleep };
 	const deadline = clock.now() + (ctx.work.watch ?? 0) * 1_000;
 	const callable = mutationCallable(
 		ctx.work.as,
 		"work.heartbeat_work_item_attempt",
 	);
-	let confirmedLeaseExpiry: number | undefined;
 	let rateRetries = 0;
 	let credentialRenewed = false;
-	for (;;) {
-		if (
-			confirmedLeaseExpiry !== undefined &&
-			clock.now() >= confirmedLeaseExpiry
-		) {
-			return fail(
+	let rateRetryError: Parameters<typeof fail>[1] | undefined;
+	let thrown: unknown;
+	let result: number | undefined;
+	const renewer = createLeaseRenewer({
+		now: clock.now,
+		wait: clock.wait,
+		...(ctx.work.watch !== undefined ? { horizonAt: deadline } : {}),
+		onHorizon: () => {
+			if (rateRetryError) {
+				result = fail(
+					ctx,
+					rateRetryError,
+					"Heartbeat retry reached the original watch horizon; watch stopped.",
+				);
+				return;
+			}
+			const expiresAt = renewer.expiresAt();
+			console.error(
+				`Heartbeat watch reached its ${ctx.work.watch} s horizon; the Attempt lease expires at ${expiresAt ? new Date(expiresAt).toISOString() : "unknown"}. Run it again to keep renewing.`,
+			);
+			result = 0;
+		},
+		onLost: () => {
+			result = fail(
 				ctx,
 				{
 					code: "INVALID_LEASE",
@@ -243,117 +274,134 @@ export async function workHeartbeat(
 				},
 				"The last confirmed Attempt lease expired; heartbeat watch stopped.",
 			);
-		}
-		const touch = await boardCall(ctx, callable, { id, attemptId });
-		if (touch.error) {
-			const { status } = touch.error;
-			// The gateway can revoke a credential before its cached expiry. Drop it
-			// once so the next call exchanges a fresh one for the same session and
-			// Attempt; a second consecutive rejection still stops the watch.
-			if (isHeartbeatCredentialRejected(touch.error)) {
-				if (ctx.discardCredential && !credentialRenewed) {
-					credentialRenewed = true;
-					ctx.discardCredential();
-					console.error(
-						"Heartbeat credential was rejected; retrying the same Attempt with a fresh credential.",
+		},
+		step: async ({ expiresAt: leaseExpiry }) => {
+			rateRetryError = undefined;
+			try {
+				// Pin the original fence. Another process may settle or replace its cache.
+				if (ctx.attemptStore.get(key) !== attemptId) {
+					result = fail(
+						ctx,
+						{
+							code: "STALE_ATTEMPT",
+							message: "The cached Attempt changed; heartbeat watch stopped.",
+						},
+						"Heartbeat watch stopped: the cached Attempt changed.",
 					);
-					continue;
+					return { kind: "stop" };
 				}
-				const message = "Heartbeat credential could not be renewed; stopped.";
-				return fail(ctx, { ...touch.error, message }, message);
-			}
-			const rateLimited =
-				status === 429 ||
-				(status === undefined && isRateLimitError(touch.error.message));
-			// A timeout, dropped connection or 5xx says nothing about the lease.
-			// Coded socket failures (ECONNRESET, ETIMEDOUT) and deadline errors
-			// arrive with a code or message, so the bare no-code/no-status check
-			// alone would mistake them for a refusal.
-			const transient =
-				transientReadFailure(touch.error) ||
-				(touch.error.status === undefined && touch.error.code === undefined);
-			// Retry only after a confirmed renewal and inside that lease; a guessed
-			// lease never grants permission to keep trying.
-			if (
-				ctx.work.watch !== undefined &&
-				(rateLimited || transient) &&
-				confirmedLeaseExpiry !== undefined
-			) {
-				const hint =
-					touch.error.retryAfter !== undefined
-						? touch.error.retryAfter * 1000
-						: rateLimitRetryAfterMs(touch.error.message);
-				const delay = Math.max(
-					500,
-					hint ?? 0,
-					Math.min(60_000, 5_000 * 2 ** Math.min(rateRetries, 4)),
-				);
-				const retryDeadline = Math.min(deadline, confirmedLeaseExpiry);
-				const reason = rateLimited ? "rate limited" : touch.error.message;
-				if (clock.now() + delay >= retryDeadline) {
-					const message = `Heartbeat failed (${reason}) and cannot retry within the original watch horizon and confirmed lease; watch stopped.`;
-					return fail(ctx, { ...touch.error, message }, message);
-				}
-				rateRetries++;
-				console.error(
-					`Heartbeat ${reason}; retrying the same Attempt in ${delay / 1000}s.`,
-				);
-				await clock.wait(delay);
-				if (clock.now() >= deadline)
-					return fail(
+				const touch = await boardCall(ctx, callable, { id, attemptId });
+				if (touch.error) {
+					const { status } = touch.error;
+					// The gateway can revoke a credential before its cached expiry. Drop it
+					// once so the next call exchanges a fresh one for the same session and
+					// Attempt; a second consecutive rejection still stops the watch.
+					if (isHeartbeatCredentialRejected(touch.error)) {
+						if (ctx.discardCredential && !credentialRenewed) {
+							credentialRenewed = true;
+							ctx.discardCredential();
+							console.error(
+								"Heartbeat credential was rejected; retrying the same Attempt with a fresh credential.",
+							);
+							return { kind: "retry", delayMs: 0 };
+						}
+						const message =
+							"Heartbeat credential could not be renewed; stopped.";
+						result = fail(ctx, { ...touch.error, message }, message);
+						return { kind: "stop" };
+					}
+					const rateLimited =
+						status === 429 ||
+						(status === undefined && isRateLimitError(touch.error.message));
+					// A timeout, dropped connection or 5xx says nothing about the lease.
+					// Coded socket failures (ECONNRESET, ETIMEDOUT) and deadline errors
+					// arrive with a code or message, so the bare no-code/no-status check
+					// alone would mistake them for a refusal.
+					const transient =
+						transientReadFailure(touch.error) ||
+						(touch.error.status === undefined &&
+							touch.error.code === undefined);
+					// Retry only after a confirmed renewal and inside that lease; a guessed
+					// lease never grants permission to keep trying.
+					if (
+						ctx.work.watch !== undefined &&
+						(rateLimited || transient) &&
+						leaseExpiry !== undefined
+					) {
+						const hint =
+							touch.error.retryAfter !== undefined
+								? touch.error.retryAfter * 1000
+								: rateLimitRetryAfterMs(touch.error.message);
+						const delay = Math.max(
+							500,
+							hint ?? 0,
+							Math.min(60_000, 5_000 * 2 ** Math.min(rateRetries, 4)),
+						);
+						const retryDeadline = Math.min(deadline, leaseExpiry);
+						const reason = rateLimited ? "rate limited" : touch.error.message;
+						if (clock.now() + delay >= retryDeadline) {
+							const message = `Heartbeat failed (${reason}) and cannot retry within the original watch horizon and confirmed lease; watch stopped.`;
+							result = fail(ctx, { ...touch.error, message }, message);
+							return { kind: "stop" };
+						}
+						rateRetries++;
+						rateRetryError = touch.error;
+						console.error(
+							`Heartbeat ${reason}; retrying the same Attempt in ${delay / 1000}s.`,
+						);
+						return { kind: "retry", delayMs: delay };
+					}
+					// A stale response can be a concurrent-write conflict, not a dead lease.
+					// Keep the lookup pointer; every retry still revalidates server authority.
+					result = fail(
 						ctx,
 						touch.error,
-						"Heartbeat retry reached the original watch horizon; watch stopped.",
+						`Could not heartbeat ${id}: ${touch.error.message}`,
 					);
-				continue;
+					return { kind: "stop" };
+				}
+				credentialRenewed = false;
+				const expiresAt =
+					isRecord(touch.value) && typeof touch.value.expiresAt === "string"
+						? touch.value.expiresAt
+						: undefined;
+				if (expiresAt && Date.parse(expiresAt) > clock.now())
+					ctx.recordScope?.({
+						workItemId: id,
+						heldUntil: Date.parse(expiresAt),
+					});
+				ok(ctx, touch.value, () => {
+					console.log(
+						`${green("Heartbeat", ctx.color)} touched attempt ${attemptId} on ${id}${expiresAt ? ` (attempt expires ${expiresAt})` : ""}.`,
+					);
+				});
+				if (ctx.work.watch === undefined) {
+					result = 0;
+					return { kind: "stop" };
+				}
+				const renewedExpiry = expiresAt ? Date.parse(expiresAt) : NaN;
+				if (!Number.isFinite(renewedExpiry) || renewedExpiry <= clock.now()) {
+					result = fail(
+						ctx,
+						{
+							code: "INVALID_LEASE",
+							message: "Heartbeat returned no future expiry; watch stopped.",
+						},
+						"Heartbeat returned no future expiry; watch stopped.",
+					);
+					return { kind: "stop" };
+				}
+				rateRetries = 0;
+				return { kind: "renewed", expiresAt: renewedExpiry };
+			} catch (error) {
+				thrown = error;
+				return { kind: "stop" };
 			}
-			// A stale response can be a concurrent-write conflict, not a dead lease.
-			// Keep the lookup pointer; every retry still revalidates server authority.
-			return fail(
-				ctx,
-				touch.error,
-				`Could not heartbeat ${id}: ${touch.error.message}`,
-			);
-		}
-		credentialRenewed = false;
-		const expiresAt =
-			isRecord(touch.value) && typeof touch.value.expiresAt === "string"
-				? touch.value.expiresAt
-				: undefined;
-		if (expiresAt && Date.parse(expiresAt) > clock.now())
-			ctx.recordScope?.({ workItemId: id, heldUntil: Date.parse(expiresAt) });
-		ok(ctx, touch.value, () => {
-			console.log(
-				`${green("Heartbeat", ctx.color)} touched attempt ${attemptId} on ${id}${expiresAt ? ` (attempt expires ${expiresAt})` : ""}.`,
-			);
-		});
-		if (ctx.work.watch === undefined) return 0;
-		const remainingLease = expiresAt
-			? Date.parse(expiresAt) - clock.now()
-			: NaN;
-		if (!Number.isFinite(remainingLease) || remainingLease <= 0) {
-			return fail(
-				ctx,
-				{
-					code: "INVALID_LEASE",
-					message: "Heartbeat returned no future expiry; watch stopped.",
-				},
-				"Heartbeat returned no future expiry; watch stopped.",
-			);
-		}
-		confirmedLeaseExpiry = Date.parse(expiresAt!);
-		rateRetries = 0;
-		const remainingWatch = deadline - clock.now();
-		if (remainingWatch > 0)
-			// Serial calls; leave most of the server-issued lease for request latency.
-			await clock.wait(Math.min(30_000, remainingLease / 3, remainingWatch));
-		if (clock.now() >= deadline) {
-			console.error(
-				`Heartbeat watch reached its ${ctx.work.watch} s horizon; the Attempt lease expires at ${expiresAt}. Run it again to keep renewing.`,
-			);
-			return 0;
-		}
-	}
+		},
+	});
+	await renewer.done;
+	if (thrown !== undefined) throw thrown;
+	return result ?? 0;
 }
 
 /** Build the plain-language acceptance; optional task terms are supplied separately. */
@@ -430,11 +478,9 @@ export function resolveSettlementCommits(
 export async function workSettle(
 	ctx: WorkContext,
 	id: string,
-	attemptId?: string,
 ): Promise<number> {
 	if (!id) throw new Error("work settle requires a work item id");
 	id = await resolveWorkItemId(ctx, id);
-	attemptId ??= cachedAttemptId(ctx, id) ?? undefined;
 	const outcome = ctx.work.outcome?.trim();
 	if (
 		!outcome ||
@@ -451,11 +497,12 @@ export async function workSettle(
 			"work settle requires --outcome succeeded|landed_unverified|failed|rejected|cancelled|expired",
 		);
 	}
+	const attemptId = cachedAttemptId(ctx, id);
 	if (!attemptId)
 		return fail(
 			ctx,
 			missingAttemptResult(id).error!,
-			`Could not settle ${id}: no attempt id is cached.`,
+			`Could not settle ${id}: no attempt is cached.`,
 		);
 	const as = ctx.work.as?.trim();
 	// Resolve BEFORE the board call: a fabricated sha must fail locally, not
@@ -487,6 +534,8 @@ export async function workSettle(
 			attemptId,
 			outcome,
 			...(ctx.work.note?.trim() ? { summary: ctx.work.note.trim() } : {}),
+			...(ctx.work.needsUser ? { needsUser: ctx.work.needsUser } : {}),
+			...(ctx.work.requestId ? { requestId: ctx.work.requestId } : {}),
 			...(settlement ? { settlement } : {}),
 			...(input.complete !== undefined ? { complete: input.complete } : {}),
 			...(metadata ? { metadata } : {}),
@@ -568,7 +617,7 @@ export async function workSubmitEvidence(
 		return fail(
 			ctx,
 			missingAttemptResult(id).error!,
-			`Could not submit evidence for ${id}: no attempt id is cached.`,
+			`Could not submit evidence for ${id}: no attempt is cached.`,
 		);
 	const claimKey = ctx.work.claimKey?.trim();
 	const kind = ctx.work.evidenceKind?.trim();

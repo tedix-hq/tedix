@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { errorText } from "./format";
+import { createLeaseRenewer } from "./lease-renewer";
 import { cachedAttemptId, withSession, WORK_EXIT_FAIL } from "./work-identity";
 import { workComplete, workSettle, workStart } from "./work-lifecycle";
 import { boardCall, nativeCommands } from "./work-native";
@@ -24,11 +25,9 @@ export async function workRun(ctx: WorkContext, id: string): Promise<number> {
 	let interrupted = ctx.signal?.aborted ?? false;
 	let failure: string | undefined;
 	let child: ReturnType<typeof spawn> | undefined;
-	let renewalTimer: ReturnType<typeof setTimeout> | undefined;
-	let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 	let killTimer: ReturnType<typeof setTimeout> | undefined;
-	let renewing: Promise<void> | undefined;
 	let finished = false;
+	let thrown: unknown;
 	const stop = (signal: NodeJS.Signals) => {
 		if (!child?.pid) return;
 		try {
@@ -47,42 +46,53 @@ export async function workRun(ctx: WorkContext, id: string): Promise<number> {
 		nativeCommands.get(ctx)!.deadlineAt =
 			Date.now() + ctx.client.getTimeoutMs();
 	};
-	const schedule = () => {
-		const remaining = expiresAt - Date.now();
-		if (!Number.isFinite(remaining) || remaining <= 0) {
-			loseLease("Attempt has no confirmed future lease");
-			return;
-		}
-		clearTimeout(expiryTimer);
-		expiryTimer = setTimeout(
-			() => loseLease("Attempt lease expired during renewal"),
-			remaining,
-		);
-		renewalTimer = setTimeout(() => {
-			renewing = renew();
-		}, remaining / 3);
-	};
-	const renew = async () => {
-		resetDeadline();
-		const result = await boardCall(
-			ctx,
-			"work.heartbeat_work_item_attempt",
-			withSession(ctx, { id, attemptId }),
-		);
-		if (finished || interrupted || failure) return;
-		if (result.error) {
-			loseLease(`Attempt renewal refused: ${result.error.message}`);
-			return;
-		}
-		expiresAt =
-			isRecord(result.value) && typeof result.value.expiresAt === "string"
-				? Date.parse(result.value.expiresAt)
-				: NaN;
-		schedule();
-	};
+	const renewer = createLeaseRenewer({
+		expiresAt:
+			Number.isFinite(expiresAt) && expiresAt > Date.now()
+				? expiresAt
+				: undefined,
+		onLost: () => loseLease("Attempt lease expired during renewal"),
+		step: async () => {
+			if (finished || interrupted || failure) return { kind: "stop" };
+			if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+				loseLease("Attempt has no confirmed future lease");
+				return { kind: "stop" };
+			}
+			if (cachedAttemptId(ctx, id) !== attemptId) {
+				loseLease("Attempt fence changed while the command was running");
+				return { kind: "stop" };
+			}
+			resetDeadline();
+			try {
+				const result = await boardCall(
+					ctx,
+					"work.heartbeat_work_item_attempt",
+					withSession(ctx, { id, attemptId }),
+				);
+				if (finished || interrupted || failure) return { kind: "stop" };
+				if (result.error) {
+					loseLease(`Attempt renewal refused: ${result.error.message}`);
+					return { kind: "stop" };
+				}
+				const renewedExpiry =
+					isRecord(result.value) && typeof result.value.expiresAt === "string"
+						? Date.parse(result.value.expiresAt)
+						: NaN;
+				if (!Number.isFinite(renewedExpiry)) {
+					loseLease("Attempt has no confirmed future lease");
+					return { kind: "stop" };
+				}
+				expiresAt = renewedExpiry;
+				return { kind: "renewed", expiresAt: renewedExpiry };
+			} catch (error) {
+				thrown = error;
+				return { kind: "stop" };
+			}
+		},
+	});
 	const onAbort = () => {
 		interrupted = true;
-		clearTimeout(renewalTimer);
+		renewer.stop();
 		stop("SIGINT");
 		killTimer = setTimeout(() => stop("SIGKILL"), 1_000);
 	};
@@ -91,8 +101,9 @@ export async function workRun(ctx: WorkContext, id: string): Promise<number> {
 	let reason = "Command interrupted";
 	try {
 		if (!interrupted) {
-			schedule();
-			if (!failure) {
+			if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+				loseLease("Attempt has no confirmed future lease");
+			} else {
 				child = spawn(argv[0], argv.slice(1), {
 					stdio: "inherit",
 					detached: process.platform !== "win32",
@@ -118,16 +129,20 @@ export async function workRun(ctx: WorkContext, id: string): Promise<number> {
 		}
 	} finally {
 		finished = true;
-		clearTimeout(renewalTimer);
-		clearTimeout(expiryTimer);
+		renewer.stop();
 		clearTimeout(killTimer);
 		if (interrupted) stop("SIGKILL");
 		ctx.signal?.removeEventListener("abort", onAbort);
 	}
 	// Do not race settlement against a heartbeat already in flight.
-	await renewing;
+	await renewer.done;
+	if (thrown !== undefined) throw thrown;
 	if (failure) {
 		console.error(failure);
+		return WORK_EXIT_FAIL;
+	}
+	if (cachedAttemptId(ctx, id) !== attemptId) {
+		console.error("Attempt fence changed; settlement refused");
 		return WORK_EXIT_FAIL;
 	}
 	resetDeadline();
@@ -151,7 +166,7 @@ export async function workRun(ctx: WorkContext, id: string): Promise<number> {
 		},
 	};
 	nativeCommands.set(settlementContext, nativeCommands.get(ctx)!);
-	const settled = await workSettle(settlementContext, id, attemptId);
+	const settled = await workSettle(settlementContext, id);
 	if (settled) return settled;
 	if (interrupted) return 130;
 	if (exitCode !== 0) return exitCode;

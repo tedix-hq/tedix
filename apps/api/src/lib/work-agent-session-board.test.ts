@@ -193,6 +193,62 @@ describe("buildWorkProjectContributors", () => {
 		expect(row).toMatchObject({ state: "working", lastActivityAt: ago(1) });
 	});
 
+	it("derives the contributor state from the Attempt's own lease and outcome", () => {
+		const live = {
+			...attempt,
+			runtimeState: "running",
+			expiresAt: "2026-10-06T12:05:00.000Z",
+		};
+		const lapsed = {
+			...attempt,
+			runtimeState: "running",
+			expiresAt: "2026-10-06T11:59:00.000Z",
+		};
+		const settled = {
+			...attempt,
+			runtimeState: "succeeded",
+			outcome: "succeeded",
+		};
+		const rows = buildWorkProjectContributors(
+			[],
+			[
+				{
+					...live,
+					externalSessionKey: "codex:live",
+					heartbeatAt: "2026-10-06T11:58:00.000Z",
+				},
+				{
+					...lapsed,
+					externalSessionKey: "codex:lapsed",
+					heartbeatAt: "2026-10-06T11:57:00.000Z",
+				},
+				{
+					...settled,
+					externalSessionKey: "codex:settled",
+					heartbeatAt: "2026-10-06T11:56:00.000Z",
+				},
+				// Newest heartbeat first: the expired lease wins over the older live one.
+				{
+					...lapsed,
+					externalSessionKey: "codex:both",
+					heartbeatAt: "2026-10-06T11:55:00.000Z",
+				},
+				{
+					...live,
+					externalSessionKey: "codex:both",
+					heartbeatAt: "2026-10-06T11:30:00.000Z",
+				},
+			],
+			NOW,
+		);
+		expect(rows.map((row) => [row.sessionKey, row.state])).toEqual([
+			["codex:live", "working"],
+			["codex:lapsed", "idle"],
+			["codex:settled", "done"],
+			["codex:both", "idle"],
+		]);
+	});
+
 	it("lists Attempt-only and ended sessions after active ones", () => {
 		const rows = buildWorkProjectContributors(
 			[

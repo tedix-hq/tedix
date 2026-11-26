@@ -241,8 +241,10 @@ export interface WorkProjectAttemptSession {
 	workItemId: string;
 	workItemTitle: string;
 	runtimeState: string;
+	outcome: string | null;
 	startedAt: string;
 	heartbeatAt: string;
+	expiresAt: string | null;
 	finishedAt: string | null;
 }
 
@@ -285,8 +287,10 @@ export async function listWorkProjectContributorSources(
 			workItemId: workAttempts.workItemId,
 			workItemTitle: workItems.title,
 			runtimeState: workAttempts.runtimeState,
+			outcome: workAttempts.outcome,
 			startedAt: workAttempts.startedAt,
 			heartbeatAt: workAttempts.heartbeatAt,
+			expiresAt: workAttempts.expiresAt,
 			finishedAt: workAttempts.finishedAt,
 		})
 		.from(workAttempts)

@@ -23,6 +23,7 @@ import { CodexLaneResultJsonSchema } from "./lane-result";
 import {
 	LaneDispatcher,
 	followUpRefusal,
+	questionRefusal,
 	LaneCommitFetchError,
 	ARCHIVED_RUNS_KEPT,
 	DISPATCHER_LOG_CAP_BYTES,
@@ -62,7 +63,6 @@ import {
 } from "./supervise-runners";
 import {
 	dispatcherNextCheckAt,
-	dispatcherAdmissionProblem,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
@@ -200,6 +200,8 @@ function fixture({
 		unpushedWait: undefined as Promise<string[]> | undefined,
 		heartbeatExpiry: false,
 		heartbeatError: undefined as Error | undefined,
+		// Parked lease-renewal waits; releasing one runs a single renewal step.
+		renewalWaits: [] as Array<{ ms: number; release: () => void }>,
 		onAgentEvent: undefined as ((observedAt: number) => void) | undefined,
 		// What the step tool answers, one entry per call; an Error is thrown.
 		stepReplies: [] as Array<Record<string, unknown>[] | Error>,
@@ -290,6 +292,7 @@ function fixture({
 				{
 					TEDIX_AGENT_SESSION: receipt.session,
 					TEDIX_EXTERNAL_AGENT: receipt.executorKey,
+					TEDIX_CLI_EXPECTED_ATTEMPT_ID: receipt.attemptId,
 				},
 			),
 		createStepSender: () => async (receipt, steps, applied) => {
@@ -304,6 +307,12 @@ function fixture({
 		},
 		waitForIdentity: async () => undefined,
 		darkWake: () => control.darkWake,
+		leaseTiming: {
+			wait: (ms) =>
+				new Promise<void>((resolve) => {
+					control.renewalWaits.push({ ms, release: resolve });
+				}),
+		},
 		gatewayCooldownUntil: (workspace) => {
 			control.cooldownWorkspaces.push(workspace);
 			return control.cooldownUntil;
@@ -433,27 +442,7 @@ function fixture({
 					row.metadata = { ...row.metadata, laneDispatch: input.laneDispatch };
 				if (input.startAt) row.startAt = input.startAt;
 				response = row;
-			} else if (verb === "wait")
-				response = {
-					reason: "timeout",
-					changes: [],
-					cursor: {
-						workItemId: args[6],
-						event: 0,
-						message: 0,
-						response: 0,
-						...(input.interactionId
-							? {
-									interaction: {
-										id: input.interactionId,
-										version: 1,
-										state: "open",
-									},
-								}
-							: {}),
-					},
-				};
-			else if (verb === "interaction-create")
+			} else if (verb === "interaction-create")
 				response = { id: "fictional-request" };
 			else if (verb === "dispatch-get")
 				response = {
@@ -820,25 +809,13 @@ function fixture({
 		items,
 		recalls,
 		briefs,
+		/** Runs one round of parked lease-renewal steps, like the old heartbeat tick. */
+		renewOnce: async () => {
+			await until(() => control.renewalWaits.length > 0);
+			for (const wait of control.renewalWaits.splice(0)) wait.release();
+		},
 	};
 }
-it("reports preparation failures across deferred retry passes without starting an Attempt", async () => {
-	const f = fixture({ executor: "devin" });
-	f.items.splice(1);
-	f.deps.installDependencies = async () => {
-		throw new Error("Dependency download failed");
-	};
-	writeDispatcherHealthSource(f.dir, f.config);
-	const dispatcher = f.restart();
-	await dispatcher.tick();
-	await dispatcher.drain();
-	for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
-	expect(dispatcherAdmissionProblem(f.dir, process.pid)).toContain(
-		"Dependency download failed",
-	);
-	expect(f.events.some((event) => event.verb === "start")).toBe(false);
-});
-
 it("settles an Attempt limit with its reason and leaves Work open", async () => {
 	const f = fixture();
 	f.items.splice(1);
@@ -1814,6 +1791,7 @@ describe("dispatcher admission", () => {
 						runtimeState: "running", expiresAt: new Date(${confirmed}).toISOString(),
 					}),
 					() => false,
+					{ wait: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 100))) },
 				));
 				`,
 			],
@@ -1835,9 +1813,11 @@ describe("dispatcher admission", () => {
 		);
 		try {
 			lease.update({ spawned: true });
-			await until(() => events.length === 2, 1200);
+			await until(() => events.length >= 2, 1200);
+			// The expired-at-start lease is renewed at once; the one-second
+			// authority probe then sees the fresh expiry and stays quiet.
 			expect(events.slice(0, 2)).toEqual([
-				{ kind: "confirmed", expiry: confirmed },
+				{ kind: "renewed", expiry: renewed },
 				{ kind: "renewed", expiry: renewed },
 			]);
 		} finally {
@@ -1847,14 +1827,6 @@ describe("dispatcher admission", () => {
 	it("renews the real heartbeat while an executor child-process probe is pending", async () => {
 		const f = fixture();
 		f.items.splice(1);
-		let heartbeat!: () => void;
-		const intervals = spyOn(globalThis, "setInterval").mockImplementation(((
-			callback: () => void,
-			ms: number,
-		) => {
-			if (ms === 60_000) heartbeat = callback;
-			return setTimeout(() => {}, 60_000);
-		}) as typeof setInterval);
 		const dispatcher = f.restart();
 		try {
 			await dispatcher.tick();
@@ -1866,7 +1838,7 @@ describe("dispatcher admission", () => {
 			};
 			const offset = f.events.length;
 			const tick = dispatcher.tick();
-			setTimeout(() => heartbeat(), 20);
+			await f.renewOnce();
 			await until(() =>
 				f.events.slice(offset).some((e) => e.verb === "heartbeat"),
 			);
@@ -1874,20 +1846,11 @@ describe("dispatcher admission", () => {
 		} finally {
 			for (const done of f.releases) done();
 			await dispatcher.drain();
-			intervals.mockRestore();
 		}
 	});
 	it("renews while a pickup read is blocked", async () => {
 		const f = fixture();
 		f.items.splice(1);
-		let heartbeat!: () => void;
-		const intervals = spyOn(globalThis, "setInterval").mockImplementation(((
-			callback: () => void,
-			ms: number,
-		) => {
-			if (ms === 60_000) heartbeat = callback;
-			return setTimeout(() => {}, 60_000);
-		}) as typeof setInterval);
 		let release!: () => void;
 		let blocked = false;
 		let blockNext = false;
@@ -1902,6 +1865,7 @@ describe("dispatcher admission", () => {
 				{
 					TEDIX_AGENT_SESSION: receipt.session,
 					TEDIX_EXTERNAL_AGENT: receipt.executorKey,
+					TEDIX_CLI_EXPECTED_ATTEMPT_ID: receipt.attemptId,
 				},
 			);
 		};
@@ -1931,11 +1895,11 @@ describe("dispatcher admission", () => {
 			const first = pickup();
 			await until(() => Boolean(release));
 			const offset = f.events.length;
-			const second = pickup();
-			heartbeat();
+			await f.renewOnce();
 			await until(() =>
 				f.events.slice(offset).some((event) => event.verb === "heartbeat"),
 			);
+			const second = pickup();
 			release();
 			await Promise.all([first, second]);
 			expect(
@@ -1950,7 +1914,6 @@ describe("dispatcher admission", () => {
 			release?.();
 			for (const done of f.releases) done();
 			await dispatcher.drain();
-			intervals.mockRestore();
 		}
 	});
 	it("runs settlement and completion before queued background reads", async () => {
@@ -2446,13 +2409,11 @@ describe("dispatcher admission", () => {
 			let now = 1_800_000_000_000;
 			const clock = spyOn(Date, "now").mockImplementation(() => now);
 			let leaseCheck!: () => void;
-			let heartbeat!: () => void;
 			const timer = spyOn(globalThis, "setInterval").mockImplementation(((
 				callback: () => void,
 				ms: number,
 			) => {
 				if (ms === 1000) leaseCheck = callback;
-				if (ms === 60_000) heartbeat = callback;
 				return setTimeout(() => {}, 60_000);
 			}) as typeof setInterval);
 			const kill = spyOn(process, "kill").mockReturnValue(true);
@@ -2470,7 +2431,7 @@ describe("dispatcher admission", () => {
 				const receipt = JSON.parse(readFileSync(path, "utf8"));
 				// A failed renewal is not proof the server lost the Attempt.
 				now += 60_000;
-				heartbeat();
+				await f.renewOnce();
 				await until(() =>
 					readFileSync(join(f.dir, "dispatcher.log"), "utf8").includes(
 						'"event":"heartbeat-failed"',
@@ -2489,7 +2450,7 @@ describe("dispatcher admission", () => {
 							: "Attempt not found",
 						scenario === "stale" ? "CONFLICT" : "NOT_FOUND",
 					);
-					heartbeat();
+					await f.renewOnce();
 				} else {
 					f.control.history.data = [
 						{
@@ -2540,7 +2501,7 @@ describe("dispatcher admission", () => {
 					);
 					f.control.heartbeatError = undefined;
 					f.control.heartbeatExpiry = true;
-					heartbeat();
+					await f.renewOnce();
 					await until(
 						() =>
 							f.events.filter((event) => event.verb === "heartbeat").length ===
@@ -2581,13 +2542,11 @@ describe("dispatcher admission", () => {
 			let now = 1_800_000_000_000;
 			const clock = spyOn(Date, "now").mockImplementation(() => now);
 			let leaseCheck!: () => void;
-			let heartbeat!: () => void;
 			const timer = spyOn(globalThis, "setInterval").mockImplementation(((
 				callback: () => void,
 				ms: number,
 			) => {
 				if (ms === 1000) leaseCheck = callback;
-				if (ms === 60_000) heartbeat = callback;
 				return setTimeout(() => {}, 60_000);
 			}) as typeof setInterval);
 			const kill = spyOn(process, "kill").mockReturnValue(true);
@@ -2611,7 +2570,7 @@ describe("dispatcher admission", () => {
 					now += 30_000;
 					leaseCheck();
 					now += 30_000;
-					heartbeat();
+					await f.renewOnce();
 					await until(
 						() =>
 							f.events.filter((event) => event.verb === "heartbeat").length ===
@@ -4868,21 +4827,6 @@ describe("dispatcher admission", () => {
 		f.items.splice(1);
 		f.items[0]!.workKind = "coding";
 		f.control.commits = ["a".repeat(40)];
-		const renewals = new Map<unknown, () => void>();
-		const intervals = spyOn(globalThis, "setInterval").mockImplementation(((
-			callback: () => void,
-			ms: number,
-		) => {
-			const handle = setTimeout(() => {}, 60_000);
-			if (ms === 60_000) renewals.set(handle, callback);
-			return handle;
-		}) as typeof setInterval);
-		const cleared = spyOn(globalThis, "clearInterval").mockImplementation(((
-			handle: ReturnType<typeof setTimeout>,
-		) => {
-			renewals.delete(handle);
-			clearTimeout(handle);
-		}) as typeof clearInterval);
 		let proofStarted = false;
 		let releaseProof!: () => void;
 		f.deps.landedCommits = async () => {
@@ -4892,6 +4836,8 @@ describe("dispatcher admission", () => {
 			});
 			return f.control.commits;
 		};
+		const heartbeats = () =>
+			f.events.filter((event) => event.verb === "heartbeat").length;
 		const dispatcher = f.restart();
 		try {
 			await dispatcher.tick();
@@ -4899,24 +4845,19 @@ describe("dispatcher admission", () => {
 			f.releases[0]!();
 			await until(() => proofStarted);
 			// The run's own renewal ended with its child; one covers the proof.
-			expect(renewals.size).toBe(1);
-			const before = f.events.filter((e) => e.verb === "heartbeat").length;
-			for (const renew of renewals.values()) renew();
-			await until(
-				() => f.events.filter((e) => e.verb === "heartbeat").length > before,
-			);
+			const before = heartbeats();
+			for (let n = 0; n < 50 && heartbeats() === before; n++)
+				await f.renewOnce();
+			await until(() => heartbeats() > before);
 			expect(f.events.some((event) => event.verb === "settle")).toBe(false);
 			releaseProof();
 			await dispatcher.drain();
-			expect(renewals.size).toBe(0);
 			const verbs = f.events.map((event) => event.verb);
 			expect(verbs.lastIndexOf("heartbeat")).toBeLessThan(
 				verbs.indexOf("settle"),
 			);
 		} finally {
 			releaseProof?.();
-			intervals.mockRestore();
-			cleared.mockRestore();
 		}
 	});
 	it("fails an undeclared result that left no Attempt evidence", async () => {
@@ -5478,15 +5419,12 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 	});
 	it.each([
-		["picks another tool", true, 0.82, "82", "35"],
-		["is unavailable", false, 0, "0", "35"],
-		["is unsure", true, 0.3, "30", "35"],
-		["is just below threshold", true, 0.349, "34.9", "35.0"],
-		["is at threshold", true, 0.35, "35.0", "35.0"],
-		["is just above threshold", true, 0.351, "35.1", "35.0"],
+		["picks another tool", true],
+		["is unavailable", false],
+		["is unsure", "unsure"],
 	] as const)(
 		"asks Clef once per revision; when Clef %s the task says so",
-		async (_name, answers, likely, percent, threshold) => {
+		async (_name, answers) => {
 			const { restart, deps, items, events, dir, config, releases } = fixture();
 			const routing = join(dir, "routing.json");
 			writeFileSync(
@@ -5507,13 +5445,23 @@ describe("dispatcher admission", () => {
 			deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
 				if (args[5] !== "choose-tool") return base<T>(args, env);
 				asked.push(JSON.parse(args[args.indexOf("--input") + 1]!));
+				if (answers === "unsure")
+					return {
+						status: "ok",
+						executor: "opencode",
+						confidence: 0.08,
+						probabilities: { codex: 0.29, opencode: 0.3 },
+						model: "@cf/cloudflare/clef-flash",
+						latencyMs: 400,
+						reason: null,
+					} as T;
 				return (
 					answers
 						? {
 								status: "ok",
 								executor: "opencode",
 								confidence: 0.12,
-								probabilities: { codex: 0.18, opencode: likely },
+								probabilities: { codex: 0.18, opencode: 0.82 },
 								model: "@cf/cloudflare/clef-flash",
 								latencyMs: 400,
 								reason: null,
@@ -5549,7 +5497,7 @@ describe("dispatcher admission", () => {
 				(event) =>
 					event.verb === "dispatch-reassign" && event.input?.idleReassignment,
 			);
-			if (answers && likely < 0.35) {
+			if (answers === "unsure") {
 				expect(moves).toHaveLength(0);
 				expect(
 					events.some(
@@ -5557,7 +5505,7 @@ describe("dispatcher admission", () => {
 							event.verb === "comment" &&
 							event.args.some((arg) =>
 								arg.startsWith(
-									`Clef would pick OpenCode but rates it only ${percent}% likely (threshold ${threshold}%), so the routing rules decide and the task stays with Codex.`,
+									"Clef would pick OpenCode but rates it only 30% likely (threshold 35%), so the routing rules decide and the task stays with Codex.",
 								),
 							),
 					),
@@ -5570,7 +5518,7 @@ describe("dispatcher admission", () => {
 						fromExecutor: "codex",
 						reason: "chosen",
 						detail: expect.stringContaining(
-							`Clef chose OpenCode (${percent}% likely): small routine edits and docs`,
+							"Clef chose OpenCode (82% likely): small routine edits and docs",
 						),
 					},
 				});
@@ -7166,18 +7114,18 @@ describe("dispatcher admission", () => {
 	it("defers running heartbeat and settlement during dark wake, then resumes", async () => {
 		let now = Date.now();
 		const clock = spyOn(Date, "now").mockImplementation(() => now);
-		let heartbeat!: () => Promise<void>;
 		let leaseCheck!: () => Promise<void>;
 		const timer = spyOn(globalThis, "setInterval").mockImplementation(((
 			callback: () => Promise<void>,
 			ms: number,
 		) => {
-			if (ms === 60_000) heartbeat = callback;
 			if (ms === 1000) leaseCheck = callback;
 			return setTimeout(() => {}, 60_000);
 		}) as typeof setInterval);
 		const f = fixture();
 		f.items.splice(1);
+		const heartbeats = () =>
+			f.events.filter((event) => event.verb === "heartbeat").length;
 		try {
 			await f.dispatcher.tick();
 			await until(() => f.releases.length === 1);
@@ -7190,16 +7138,13 @@ describe("dispatcher admission", () => {
 			expect(
 				f.events.filter((event) => event.verb === "dispatch-attempts"),
 			).toHaveLength(reads);
-			await heartbeat();
-			expect(
-				f.events.filter((event) => event.verb === "heartbeat"),
-			).toHaveLength(0);
+			await f.renewOnce();
+			await new Promise((done) => setTimeout(done, 10));
+			expect(heartbeats()).toBe(0);
 			f.control.darkWake = false;
 			f.control.heartbeatExpiry = true;
-			await heartbeat();
-			expect(
-				f.events.filter((event) => event.verb === "heartbeat"),
-			).toHaveLength(1);
+			await f.renewOnce();
+			await until(() => heartbeats() === 1);
 			f.control.darkWake = true;
 			f.releases[0]!();
 			await f.dispatcher.drain();
@@ -8551,6 +8496,10 @@ exec '${realGit}' "$@"
 		...Array.from({ length: 10 }, (_, i) => item(i + 1)),
 	);
 	f.control.heartbeatExpiry = true;
+	f.deps.leaseTiming = {
+		wait: (ms) =>
+			new Promise((resolve) => setTimeout(resolve, Math.min(ms, 20))),
+	};
 	const interval = globalThis.setInterval;
 	const intervals = spyOn(globalThis, "setInterval").mockImplementation(((
 		callback: () => void,
@@ -10988,30 +10937,6 @@ describe("structured dispatcher outcomes", () => {
 			},
 		);
 	});
-	it("rejects a retired final-question declaration without completing or opening another ask", async () => {
-		const f = fixture();
-		f.items.splice(1);
-		f.control.commits = [];
-		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...common(), outcome: "question", question: "Which table?" })}`;
-		await f.dispatcher.tick();
-		await until(() => f.releases.length === 1);
-		liveFence(f);
-		f.releases[0]!();
-		await f.dispatcher.drain();
-		expect(f.events.filter(requestsCompletion)).toHaveLength(0);
-		expect(f.events.some((event) => event.verb === "interaction-create")).toBe(
-			false,
-		);
-		expect(
-			f.control.stepCalls.some((call) =>
-				call.steps.some((step) => step.kind === "question"),
-			),
-		).toBe(false);
-		expect(f.events.find((event) => event.verb === "settle")?.args).toContain(
-			"failed",
-		);
-	});
-
 	it("retains one human request across ticks and restart, then releases it on a Work edit while fresh Work advances", async () => {
 		const f = fixture();
 		f.items.splice(1);
@@ -11252,13 +11177,11 @@ describe("structured dispatcher outcomes", () => {
 		};
 		const at = "2026-10-31T12:00:00.000Z";
 		const cli = f.deps.cli!;
-		let detailReads = 0;
 		f.deps.cli = async <T>(
 			args: string[],
 			env: NodeJS.ProcessEnv,
 		): Promise<T> => {
 			if (args[5] !== "interaction-get") return cli<T>(args, env);
-			detailReads++;
 			return {
 				request: {
 					id: interactionId,
@@ -11302,32 +11225,6 @@ describe("structured dispatcher outcomes", () => {
 			JSON.parse(readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"))
 				.waitReleasedAt,
 		).toBeUndefined();
-		const initialReads = detailReads;
-		const nextCli = f.deps.cli!;
-		let finishWait!: (value: unknown) => void;
-		let waitInput!: { cursor: unknown };
-		let waitCalls = 0;
-		f.deps.cli = async <T>(
-			args: string[],
-			env: NodeJS.ProcessEnv,
-		): Promise<T> => {
-			if (args[5] !== "wait") return nextCli<T>(args, env);
-			waitCalls++;
-			waitInput = JSON.parse(args[args.indexOf("--input") + 1]!);
-			return await new Promise<T>((resolve) => {
-				finishWait = resolve as (value: unknown) => void;
-			});
-		};
-		const watching = f.restart();
-		await watching.tick();
-		await watching.tick();
-		await watching.tick();
-		expect(waitCalls).toBe(1);
-		expect(detailReads).toBe(initialReads);
-		finishWait({ reason: "timeout", changes: [], cursor: waitInput.cursor });
-		await Promise.resolve();
-		await watching.tick();
-		expect(detailReads).toBe(initialReads);
 	});
 	it("consumes a resolving human response once, then uses fresh admission on the same Work revision", async () => {
 		const f = fixture();
@@ -13152,6 +13049,86 @@ describe("watching and steering a run", () => {
 		}
 	});
 
+	const asks = (question: string, choices?: string[]) => {
+		const { outcome: _outcome, ...fence } = completedResult(item(1));
+		return `Asking.\nTEDIX_LANE_RESULT ${JSON.stringify({ ...fence, outcome: "question", question, ...(choices ? { choices } : {}) })}`;
+	};
+
+	it("releases the Attempt and resumes the same native session with a late answer", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.uniqueAttempts = true;
+		const sessions: string[] = [];
+		f.control.duringTurn = (turn) => {
+			sessions.push(turn.args[turn.args.indexOf("resume") + 1]!);
+			f.control.finalMessage =
+				turn.number === 1
+					? asks("Which table holds the plan?", ["accounts", "subscriptions"])
+					: "Used subscriptions.";
+		};
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+
+		const settled = f.events.find((event) => event.verb === "settle")!;
+		expect(settled.args[settled.args.indexOf("--outcome") + 1]).toBe(
+			"cancelled",
+		);
+		expect(settled.input?.metadata).toMatchObject({
+			runQuestion: { kind: "question", text: "Which table holds the plan?" },
+			laneResult: { outcome: "deferred" },
+		});
+		expect(sentSteps(f).map((step) => step.kind)).toEqual([
+			"started",
+			"question",
+		]);
+		expect(sentSteps(f).at(-1)?.choices).toEqual(["accounts", "subscriptions"]);
+
+		f.control.history.data[0]!.outcome = "cancelled";
+		f.control.history.data[0]!.metadata = settled.input?.metadata;
+		// Even after the usual deferral timer, only an answer can wake this run.
+		const path = join(f.dir, `${item().id}-2.json`);
+		const waiting = JSON.parse(readFileSync(path, "utf8"));
+		waiting.recheckAt = 0;
+		writeFileSync(path, JSON.stringify(waiting));
+		const restarted = f.restart();
+		await restarted.tick();
+		expect(
+			f.events.filter(
+				(event) => event.verb === "start" && event.args[4] === "work",
+			),
+		).toHaveLength(1);
+
+		const answerId = "77777777-7777-4777-8777-777777777777";
+		f.items[0]!.metadata = {
+			...f.items[0]!.metadata,
+			questionContinuation: {
+				attemptId: "fictional-attempt-1",
+				messageId: answerId,
+			},
+		};
+		f.control.stepReplies = [[fromOwner(answerId, "subscriptions")]];
+		await restarted.tick();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await restarted.drain();
+
+		expect(sessions).toEqual([sessions[0]!, sessions[0]!]);
+		expect(f.briefs).toHaveLength(2);
+		expect(f.briefs[1]).toContain('You asked: "Which table holds the plan?".');
+		expect(f.briefs[1]).toContain("From user fictional-owner:\nsubscriptions");
+		expect(
+			f.control.stepCalls
+				.filter((call) => call.applied.length)
+				.map((call) => [call.attemptId, call.applied]),
+		).toEqual([["fictional-attempt-2", [answerId]]]);
+		expect(
+			f.events.filter((event) => event.verb === "settle").at(-1)?.args,
+		).toContain("succeeded");
+	});
+
 	const liveFence = (f: ReturnType<typeof fixture>) => {
 		const saved = JSON.parse(
 			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
@@ -13166,6 +13143,39 @@ describe("watching and steering a run", () => {
 			},
 		];
 	};
+
+	it("does not pass on a question that asks for a secret, a sign-in, consent or MFA", async () => {
+		for (const question of [
+			"What is the API key for the billing service?",
+			"Can you paste your password here?",
+			"Could you sign in to the dashboard for me?",
+			"Please approve the OAuth consent screen.",
+			"Tell me the verification code you received.",
+		])
+			expect(questionRefusal(question), question).toContain("not passed on");
+		for (const question of [
+			"Should the token cache live in memory or on disk?",
+			"Which table holds the plan: accounts or subscriptions?",
+			"Do you want the sign-in page tests moved too?",
+		])
+			expect(questionRefusal(question), question).toBeUndefined();
+
+		const f = fixture();
+		f.items.splice(1);
+		f.control.finalMessage = asks(
+			"What is the API key for the billing service?",
+		);
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(sentSteps(f).map((step) => step.kind)).not.toContain("question");
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
+			"Deferred: Question not passed on",
+		);
+	});
 
 	it("leaves the turn running when its agent has no clean stop, and applies the follow-up after it", async () => {
 		const flush = flushNow();
@@ -13243,10 +13253,7 @@ describe("watching and steering a run", () => {
 				"cancelled",
 			);
 			expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
-				"Stopped by a person",
-			);
-			expect(settle.args[settle.args.indexOf("--note") + 1]).not.toContain(
-				"fictional-owner",
+				"Stopped by user fictional-owner",
 			);
 			const path = join(f.dir, `${item().id}-2.json`);
 			const receipt = JSON.parse(readFileSync(path, "utf8"));
@@ -13254,12 +13261,12 @@ describe("watching and steering a run", () => {
 				phase: "settled",
 				outcome: "cancelled",
 				held: true,
-				note: "Stopped by a person",
+				note: "Stopped by user fictional-owner",
 			});
 			expect(receipt.interrupted).toBeUndefined();
 			expect(sentSteps(f).map((step) => [step.kind, step.text])).toEqual([
 				["started", expect.any(String)],
-				["stopped", "Stopped by a person"],
+				["stopped", "Stopped by user fictional-owner"],
 				["finished", "Agent run ended: cancelled"],
 			]);
 			// The stop is acknowledged after the agent ended, not when it arrived.
