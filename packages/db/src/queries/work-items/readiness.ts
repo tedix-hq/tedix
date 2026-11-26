@@ -1,5 +1,10 @@
 import { chunkForBoundParams } from "../../utils/batch";
-import { workDeferralWait } from "./deferral";
+import {
+	workDeferralWait,
+	buildWorkDeferralHistoryStatement,
+	evaluateWorkDeferralWait,
+	workDeferralChangedAt,
+} from "./deferral";
 import { taskContractRefusal } from "./task-contract";
 import {
 	workAttemptLimitAvailable,
@@ -8,7 +13,6 @@ import {
 import { inheritedChildAuthority } from "./child-delegation";
 import { WorkControlError } from "./factory-validation";
 import {
-	hasOwnerWorkDelegation,
 	matchesWorkApprovalVersion,
 	ownerWorkApprovalIsCurrent,
 	ownerWorkDelegation,
@@ -22,6 +26,7 @@ import {
 	getColumns,
 	inArray,
 	lt,
+	lte,
 	ne,
 	or,
 	sql,
@@ -46,7 +51,7 @@ import {
 	workResourceRequirements as d1WorkResourceRequirements,
 	CREDIT_BUDGET_CURRENCY,
 } from "../../schema/work-factory";
-import { ACTIVE_ATTEMPT_STATES, getScopedWorkItem } from "./factory-state";
+import { ACTIVE_ATTEMPT_STATES, WorkFactoryError } from "./factory-state";
 import { normalizeWorkItemRow } from "./normalization";
 import {
 	evaluateWorkAdmissionApprovals,
@@ -414,20 +419,32 @@ async function readinessInheritedAuthority(
 
 type ReadinessParams = Parameters<typeof deriveReadiness>[1];
 interface ReadinessCapacity {
+	item: WorkItem;
+	ownerDelegated: boolean;
+	attemptLimitAvailable: boolean;
+	blockingDependencyId: string | null;
 	activeAttemptId: string | null;
 	hasResourceRequirement: boolean;
 	hasBudgetEnvelope: boolean;
 	hasSpentCreditBudget: boolean;
+	changedAt: string | null;
+	approvalReceipts: WorkAdmissionApprovalReceipt[];
+	history: Awaited<ReturnType<typeof buildWorkDeferralHistoryStatement>>;
 }
 
 export async function deriveWorkItemReadiness(
 	db: DbQueryClient,
 	params: ReadinessParams,
 ): Promise<WorkItemReadinessResult> {
-	return deriveReadiness(db, params);
+	return (
+		await deriveWorkItemsReadiness(db, {
+			...params,
+			workItemIds: [params.workItemId],
+		})
+	)[0]!;
 }
 
-/** Batch the fleet's repeated capacity reads; admission still rechecks live facts. */
+/** Read each page's Work and capacity facts together; admission rechecks live facts. */
 export async function deriveWorkItemsReadiness(
 	db: DbQueryClient,
 	params: Omit<ReadinessParams, "workItemId"> & { workItemIds: string[] },
@@ -435,29 +452,91 @@ export async function deriveWorkItemsReadiness(
 	const derivedAt = params.derivedAt ?? new Date().toISOString();
 	const workItems = coreTable(db, d1WorkItems);
 	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
 	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
 	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
 	const workCaseItems = coreTable(db, d1WorkCaseItems);
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
 	// Postgres `enabled` is a real boolean; D1 stores it as 1/0.
 	const enabledPredicate =
 		coreStore(db) === "postgres" ? sql`e.enabled` : sql`e.enabled=1`;
 	const results: WorkItemReadinessResult[] = [];
 	for (const ids of chunkForBoundParams(params.workItemIds, 40)) {
-		const rows = await db
-			.select({
-				id: workItems.id,
-				// Nested SQL preserves outer-column qualification in SELECT projections.
-				activeAttemptId: sql<string | null>`${sql`(
+		const approvalRows = db.$with("readiness_approvals").as(
+			db
+				.select({
+					workItemId: workApprovalProposals.workItemId,
+					workItemVersion: workItems.version,
+					authorityKey: workApprovalProposals.authorityKey,
+					action: workApprovalProposals.action,
+					rank: sql<number>`row_number() OVER (PARTITION BY ${workApprovalProposals.workItemId})`.as(
+						"approval_rank",
+					),
+				})
+				.from(workApprovalProposals)
+				.innerJoin(
+					workItems,
+					and(
+						eq(workItems.orgId, workApprovalProposals.orgId),
+						eq(workItems.id, workApprovalProposals.workItemId),
+						matchesWorkApprovalVersion(db, workItems),
+						ownerWorkApprovalIsCurrent(db, workItems, derivedAt),
+					),
+				)
+				.innerJoin(
+					workApprovalDecisions,
+					and(
+						eq(workApprovalDecisions.proposalId, workApprovalProposals.id),
+						eq(workApprovalDecisions.decision, "approved"),
+						eq(
+							workApprovalDecisions.resolvedProposalVersion,
+							workApprovalProposals.version,
+						),
+					),
+				)
+				.where(
+					and(
+						eq(workApprovalProposals.orgId, params.orgId),
+						anyIds(db, workApprovalProposals.workItemId, ids),
+						eq(workApprovalProposals.action, WORK_ADMISSION_APPROVAL_ACTION),
+						eq(workApprovalProposals.status, "approved"),
+						sql`${workApprovalProposals.expiresAt}>${derivedAt}`,
+					),
+				),
+		);
+		const [rows, approvals, history] = await db.batch([
+			db
+				.select({
+					...workItemSelection(db),
+					changedAt: workDeferralChangedAt(db, workItems).as(
+						"deferral_change_at",
+					),
+					ownerDelegated: ownerWorkDelegation(db, workItems, derivedAt).as(
+						"owner_delegated",
+					),
+					attemptLimitAvailable: workAttemptLimitAvailable(db).as(
+						"attempt_limit_available",
+					),
+					blockingDependencyId: sql<string | null>`${sql`(
+					SELECT blocker.id FROM ${workItemRelations} relation
+					JOIN ${workItems} blocker ON blocker.org_id=${params.orgId} AND blocker.id=relation.from_work_item_id
+					WHERE relation.org_id=${params.orgId} AND relation.to_work_item_id=${workItems.id}
+						AND relation.relation_type='blocks' AND blocker.disposition NOT IN ('completed','cancelled')
+					LIMIT 1
+				)`}`.as("blocking_dependency_id"),
+					// Nested SQL preserves outer-column qualification in SELECT projections.
+					activeAttemptId: sql<string | null>`${sql`(
 					SELECT a.id FROM ${workAttempts} a
 					WHERE a.org_id=${params.orgId} AND a.work_item_id=${workItems.id}
 						AND a.runtime_state IN ('queued','running','waiting','retrying')
 						AND a.expires_at>${derivedAt} LIMIT 1
 				)`}`.as("active_attempt_id"),
-				hasResourceRequirement: sql<boolean>`${sql`EXISTS (
+					hasResourceRequirement: sql<boolean>`${sql`EXISTS (
 					SELECT 1 FROM ${workResourceRequirements} r
 					WHERE r.org_id=${params.orgId} AND r.work_item_id=${workItems.id}
 				)`}`.as("has_resource_requirement"),
-				hasBudgetEnvelope: sql<boolean>`${sql`EXISTS (
+					hasBudgetEnvelope: sql<boolean>`${sql`EXISTS (
 					SELECT 1 FROM ${workBudgetEnvelopes} e
 					WHERE e.org_id=${params.orgId} AND ${enabledPredicate} AND e.currency<>${CREDIT_BUDGET_CURRENCY}
 						AND (
@@ -470,18 +549,39 @@ export async function deriveWorkItemsReadiness(
 							))
 						)
 				)`}`.as("has_budget_envelope"),
-				hasSpentCreditBudget: sql<boolean>`${sql`EXISTS (
+					hasSpentCreditBudget: sql<boolean>`${sql`EXISTS (
 					SELECT 1 FROM ${workBudgetEnvelopes} e
 					WHERE e.org_id=${params.orgId} AND ${enabledPredicate} AND e.currency=${CREDIT_BUDGET_CURRENCY}
 						AND e.mode='stop' AND e.alerted_percent>=100
 				)`}`.as("has_spent_credit_budget"),
-			})
-			.from(workItems)
-			// bound-params: 40 Work IDs plus fixed org, currency and time predicates.
-			.where(
-				and(eq(workItems.orgId, params.orgId), anyIds(db, workItems.id, ids)),
-			);
-		const facts = new Map(rows.map((row) => [row.id, row]));
+				})
+				.from(workItems)
+				// bound-params: 40 Work IDs plus fixed org, currency and time predicates.
+				.where(
+					and(eq(workItems.orgId, params.orgId), anyIds(db, workItems.id, ids)),
+				),
+			db
+				.with(approvalRows)
+				.select()
+				.from(approvalRows)
+				.where(lte(approvalRows.rank, 1000)),
+			buildWorkDeferralHistoryStatement(db, params.orgId, ids),
+		]);
+		const facts = new Map(
+			rows.map((row) => [
+				row.id,
+				{
+					...row,
+					item: normalizeWorkItemRow(row),
+					approvalReceipts: approvals.filter(
+						(approval) => approval.workItemId === row.id,
+					),
+					history: history.filter((attempt) => attempt.workItemId === row.id),
+					ownerDelegated: Boolean(row.ownerDelegated),
+					attemptLimitAvailable: Boolean(row.attemptLimitAvailable),
+				},
+			]),
+		);
 		results.push(
 			...(await Promise.all(
 				ids.map((workItemId) =>
@@ -510,174 +610,53 @@ async function deriveReadiness(
 	capacity?: ReadinessCapacity,
 ): Promise<WorkItemReadinessResult> {
 	const derivedAt = params.derivedAt ?? new Date().toISOString();
-	const workItems = coreTable(db, d1WorkItems);
-	const workAttempts = coreTable(db, d1WorkAttempts);
-	const workItemRelations = coreTable(db, d1WorkItemRelations);
-	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
-	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
-	const workCaseItems = coreTable(db, d1WorkCaseItems);
-	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
-	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
-	const item = await getScopedWorkItem(db, params.orgId, params.workItemId);
-	const ownerDelegated = await hasOwnerWorkDelegation(db, item, derivedAt);
-	const [attemptLimit] = await db
-		.select({
-			available: workAttemptLimitAvailable(db).as("attempt_limit_available"),
-		})
-		.from(workItems)
-		.where(and(eq(workItems.orgId, params.orgId), eq(workItems.id, item.id)))
-		.limit(1);
+	if (!capacity)
+		throw new WorkFactoryError(
+			"NOT_FOUND",
+			`Work Item ${params.workItemId} was not found`,
+		);
+	const item = capacity.item;
 	await ensureWorkRiskApproval(db, item, derivedAt);
-	const [
-		activeAttemptId,
-		dependency,
-		hasResourceRequirement,
-		hasBudgetEnvelope,
-		approvalReceipts,
-		spentCreditBudget,
-	] = await Promise.all([
-		capacity
-			? Promise.resolve(capacity.activeAttemptId)
-			: db
-					.select({ id: workAttempts.id })
-					.from(workAttempts)
-					.where(
-						and(
-							eq(workAttempts.orgId, params.orgId),
-							eq(workAttempts.workItemId, params.workItemId),
-							inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
-							sql`${workAttempts.expiresAt}>${derivedAt}`,
-						),
-					)
-					.limit(1)
-					.then((rows) => rows[0]?.id ?? null),
-		db
-			.select({ id: workItems.id })
-			.from(workItemRelations)
-			.innerJoin(
-				workItems,
-				and(
-					eq(workItems.orgId, params.orgId),
-					eq(workItems.id, workItemRelations.fromWorkItemId),
-				),
-			)
-			.where(
-				and(
-					eq(workItemRelations.orgId, params.orgId),
-					eq(workItemRelations.toWorkItemId, params.workItemId),
-					eq(workItemRelations.relationType, "blocks"),
-					ne(workItems.disposition, "completed"),
-					ne(workItems.disposition, "cancelled"),
-				),
-			)
-			.limit(1),
-		capacity
-			? Promise.resolve(capacity.hasResourceRequirement)
-			: db
-					.select({ resourceKey: workResourceRequirements.resourceKey })
-					.from(workResourceRequirements)
-					.where(
-						and(
-							eq(workResourceRequirements.orgId, params.orgId),
-							eq(workResourceRequirements.workItemId, params.workItemId),
-						),
-					)
-					.limit(1)
-					.then((rows) => Boolean(rows[0])),
-		capacity
-			? Promise.resolve(capacity.hasBudgetEnvelope)
-			: db
-					.select({ id: workBudgetEnvelopes.id })
-					.from(workBudgetEnvelopes)
-					.where(
-						and(
-							eq(workBudgetEnvelopes.orgId, params.orgId),
-							eq(workBudgetEnvelopes.enabled, true),
-							// Credit budgets are enforced by the organization wallet as credits are spent.
-							ne(workBudgetEnvelopes.currency, CREDIT_BUDGET_CURRENCY),
-							or(
-								and(
-									eq(workBudgetEnvelopes.scopeType, "organization"),
-									eq(workBudgetEnvelopes.scopeId, params.orgId),
-								),
-								and(
-									eq(workBudgetEnvelopes.scopeType, "work_item"),
-									eq(workBudgetEnvelopes.scopeId, params.workItemId),
-								),
-								item.projectId
-									? and(
-											eq(workBudgetEnvelopes.scopeType, "project"),
-											eq(workBudgetEnvelopes.scopeId, item.projectId),
-										)
-									: undefined,
-								and(
-									eq(workBudgetEnvelopes.scopeType, "case"),
-									sql`EXISTS (SELECT 1 FROM ${workCaseItems} ci WHERE ci.org_id=${params.orgId} AND ci.work_item_id=${params.workItemId} AND ci.case_id=${workBudgetEnvelopes.scopeId})`,
-								),
-							),
-						),
-					)
-					.limit(1)
-					.then((rows) => Boolean(rows[0])),
-		db
-			.select({
-				workItemId: workApprovalProposals.workItemId,
-				workItemVersion: workItems.version,
-				authorityKey: workApprovalProposals.authorityKey,
-				action: workApprovalProposals.action,
+	const spentCreditBudget = capacity.hasSpentCreditBudget
+		? await findSpentCreditBudget(db, {
+				orgId: params.orgId,
+				workItemId: params.workItemId,
 			})
-			.from(workApprovalProposals)
-			.innerJoin(
-				workItems,
-				and(
-					eq(workItems.orgId, workApprovalProposals.orgId),
-					eq(workItems.id, workApprovalProposals.workItemId),
-					matchesWorkApprovalVersion(db, workItems),
-					ownerWorkApprovalIsCurrent(db, workItems, derivedAt),
-				),
-			)
-			.innerJoin(
-				workApprovalDecisions,
-				and(
-					eq(workApprovalDecisions.proposalId, workApprovalProposals.id),
-					eq(workApprovalDecisions.decision, "approved"),
-					eq(
-						workApprovalDecisions.resolvedProposalVersion,
-						workApprovalProposals.version,
-					),
-				),
-			)
-			.where(
-				and(
-					eq(workApprovalProposals.orgId, params.orgId),
-					eq(workApprovalProposals.workItemId, params.workItemId),
-					eq(workApprovalProposals.action, WORK_ADMISSION_APPROVAL_ACTION),
-					eq(workApprovalProposals.status, "approved"),
-					sql`${workApprovalProposals.expiresAt}>${derivedAt}`,
-				),
-			)
-			.limit(1000),
-		capacity && !capacity.hasSpentCreditBudget
-			? Promise.resolve(null)
-			: findSpentCreditBudget(db, {
-					orgId: params.orgId,
-					workItemId: params.workItemId,
-				}),
-	]);
+		: null;
 	return evaluateWorkItemReadiness({
-		deferralWait: await workDeferralWait(db, item, derivedAt),
+		deferralWait: await evaluateWorkDeferralWait(
+			item,
+			derivedAt,
+			capacity.history,
+			async () => {
+				// Risk approval creation can itself wake a deferred run after the batch.
+				if (
+					item.disposition === "accepted" &&
+					(item.riskLevel === "critical" ||
+						(item.riskLevel === "high" && !capacity.ownerDelegated))
+				) {
+					const [change] = await db
+						.select({
+							at: workDeferralChangedAt(db, item).as("deferral_change_at"),
+						})
+						.from(sql`(SELECT 1) AS deferral_change`);
+					return change?.at ?? "";
+				}
+				return capacity.changedAt ?? "";
+			},
+		),
 		item,
-		ownerDelegated,
-		attemptLimitAvailable: Boolean(attemptLimit?.available),
+		ownerDelegated: capacity.ownerDelegated,
+		attemptLimitAvailable: capacity.attemptLimitAvailable,
 		inheritedAuthority: await readinessInheritedAuthority(db, item, derivedAt),
 		contractRefusal: await taskContractRefusal(db, item, derivedAt),
 		derivedAt,
-		activeAttemptId: activeAttemptId ?? undefined,
-		blockingDependencyId: dependency[0]?.id,
-		hasResourceRequirement,
-		hasBudgetEnvelope,
+		activeAttemptId: capacity.activeAttemptId ?? undefined,
+		blockingDependencyId: capacity.blockingDependencyId ?? undefined,
+		hasResourceRequirement: Boolean(capacity.hasResourceRequirement),
+		hasBudgetEnvelope: Boolean(capacity.hasBudgetEnvelope),
 		availableCapabilities: params.availableCapabilities,
-		approvalReceipts,
+		approvalReceipts: capacity.approvalReceipts,
 		budgetAdmissible: params.budgetAdmissible,
 		spentCreditBudget,
 		resourcesAvailable: params.resourcesAvailable,

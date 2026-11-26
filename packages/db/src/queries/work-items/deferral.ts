@@ -1,11 +1,12 @@
-import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, lte, sql, type SQL } from "drizzle-orm";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { DbQueryClient } from "../../query-client";
 import { coreTable } from "../../core-store/client";
-import { coreStore, jsonRead } from "../../core-store/dialect";
+import { anyIds, coreStore, jsonRead } from "../../core-store/dialect";
 import {
 	type WorkItem,
 	workAttempts as d1WorkAttempts,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 import { workAdmissions as d1WorkAdmissions } from "../../schema/work-factory";
 
@@ -104,39 +105,87 @@ export function unansweredRunQuestionWait(
 	return `Waiting for an answer to the run's question${text ? `: "${text}"` : ""}. This ended run cannot accept answer messages. An organization owner/admin or the item's tedi owner/steward must record the answer in the Work description with update_work_item. The revised task can start a fresh Attempt; a Work comment alone does not resume it.`;
 }
 
+/** Six newest admitted Attempts per Work, suitable for a readiness batch. */
+export function buildWorkDeferralHistoryStatement(
+	db: DbQueryClient,
+	orgId: string,
+	workItemIds: string[],
+) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workAdmissions = coreTable(db, d1WorkAdmissions);
+	const ranked = db.$with("readiness_attempt_history").as(
+		db
+			.select({
+				id: workAttempts.id,
+				workItemId: workAttempts.workItemId,
+				rank: sql<number>`row_number() OVER (PARTITION BY ${workAttempts.workItemId} ORDER BY ${workAttempts.attemptNumber} DESC)`.as(
+					"attempt_history_rank",
+				),
+				outcome: workAttempts.outcome,
+				metadata: workAttempts.metadata,
+				startedAt: workAttempts.startedAt,
+				finishedAt: workAttempts.finishedAt,
+				workItemVersion: workAdmissions.workItemVersion,
+			})
+			.from(workAttempts)
+			.innerJoin(
+				workAdmissions,
+				and(
+					eq(workAdmissions.id, workAttempts.admissionId),
+					eq(workAdmissions.orgId, workAttempts.orgId),
+				),
+			)
+			.where(
+				and(
+					eq(workAttempts.orgId, orgId),
+					anyIds(db, workAttempts.workItemId, workItemIds),
+				),
+			),
+	);
+	return db
+		.with(ranked)
+		.select()
+		.from(ranked)
+		.where(lte(ranked.rank, FAILURES_BEFORE_WAIT + 2))
+		.orderBy(ranked.workItemId, ranked.rank);
+}
+
+export function workDeferralChangedAt(
+	db: DbQueryClient,
+	item: Pick<WorkItem, "orgId" | "id"> | typeof d1WorkItems,
+) {
+	return sql<string | null>`${sql`(SELECT max(at) FROM (
+		SELECT ${jsonRead(db, sql`deferred_item.metadata`, ["decisionContinuation", "at"])} AS at FROM work_items deferred_item WHERE deferred_item.org_id=${item.orgId} AND deferred_item.id=${item.id}
+		UNION ALL SELECT ${latestOf(db, sql`coalesce(d.updated_at, d.created_at)`, sql`r.created_at`)} FROM work_item_relations r JOIN work_items d ON d.org_id=r.org_id AND d.id=r.from_work_item_id WHERE r.org_id=${item.orgId} AND r.to_work_item_id=${item.id} AND r.relation_type='blocks'
+		UNION ALL SELECT ${latestOf(db, sql`created_at`, sql`coalesce(resolved_at, created_at)`)} FROM work_approval_proposals WHERE org_id=${item.orgId} AND work_item_id=${item.id}
+	) changes)`}`;
+}
+
 /** Readiness uses durable history, including on runners without local receipts. */
 export async function workDeferralWait(
 	db: DbQueryClient,
 	item: WorkItem,
 	now: string,
 ): Promise<string | undefined> {
-	const workAttempts = coreTable(db, d1WorkAttempts);
-	const workAdmissions = coreTable(db, d1WorkAdmissions);
-	const attempts = await db
-		.select({
-			id: workAttempts.id,
-			outcome: workAttempts.outcome,
-			metadata: workAttempts.metadata,
-			startedAt: workAttempts.startedAt,
-			finishedAt: workAttempts.finishedAt,
-			workItemVersion: workAdmissions.workItemVersion,
-		})
-		.from(workAttempts)
-		.innerJoin(
-			workAdmissions,
-			and(
-				eq(workAdmissions.id, workAttempts.admissionId),
-				eq(workAdmissions.orgId, workAttempts.orgId),
-			),
-		)
-		.where(
-			and(
-				eq(workAttempts.orgId, item.orgId),
-				eq(workAttempts.workItemId, item.id),
-			),
-		)
-		.orderBy(desc(workAttempts.attemptNumber))
-		.limit(FAILURES_BEFORE_WAIT + 2);
+	const attempts = await buildWorkDeferralHistoryStatement(db, item.orgId, [
+		item.id,
+	]);
+	return evaluateWorkDeferralWait(item, now, attempts, async () => {
+		const [change] = await db
+			.select({
+				at: workDeferralChangedAt(db, item).as("deferral_change_at"),
+			})
+			.from(sql`(SELECT 1) AS deferral_change`);
+		return change?.at ?? "";
+	});
+}
+
+export async function evaluateWorkDeferralWait(
+	item: WorkItem,
+	now: string,
+	attempts: Awaited<ReturnType<typeof buildWorkDeferralHistoryStatement>>,
+	getChangedAt: () => Promise<string>,
+): Promise<string | undefined> {
 	const failed = failedAttemptsWait(attempts, item.version, now);
 	if (failed) return failed;
 	const latest = attempts[0];
@@ -159,16 +208,8 @@ export async function workDeferralWait(
 		return;
 	const reason = result.reason.trim().replace(/\s+/g, " ");
 	if (!reason) return;
-	// Progress notes and runner heartbeats must not wake the task. Decisions,
-	// dependency edits and approval changes do, even without a Work revision.
-	const [change] = await db.select({
-		at: sql<string | null>`max(at)`.as("deferral_change_at"),
-	}).from(sql`(
-		SELECT ${jsonRead(db, sql`metadata`, ["decisionContinuation", "at"])} AS at FROM work_items WHERE org_id=${item.orgId} AND id=${item.id}
-		UNION ALL SELECT ${latestOf(db, sql`coalesce(d.updated_at, d.created_at)`, sql`r.created_at`)} FROM work_item_relations r JOIN work_items d ON d.org_id=r.org_id AND d.id=r.from_work_item_id WHERE r.org_id=${item.orgId} AND r.to_work_item_id=${item.id} AND r.relation_type='blocks'
-		UNION ALL SELECT ${latestOf(db, sql`created_at`, sql`coalesce(resolved_at, created_at)`)} FROM work_approval_proposals WHERE org_id=${item.orgId} AND work_item_id=${item.id}
-	)`);
-	const changedAt = change?.at ?? "";
+	// Only decisions, dependency edits and approval changes wake a deferred run.
+	const changedAt = await getChangedAt();
 	if (changedAt > latest.startedAt) return;
 	// Free-form explanations can paraphrase the same blocker on every run.
 	// Only a relevant state change resets consecutive deferred Attempts.
