@@ -97,6 +97,8 @@ function fixture(configured = true, settings: LaneExecutionSettings = {}) {
 			budgets: () => control.budgets,
 			baseCommit: () => "a".repeat(40),
 			landedCommits: async () => [],
+			workCommits: async () => [],
+			unpushedCommits: async () => [],
 			cleanup: () => false,
 			hasRepository: () => true,
 			provision: (_source, destination) => {
@@ -144,7 +146,8 @@ function fixture(configured = true, settings: LaneExecutionSettings = {}) {
 						input.idleReassignment.fromExecutor
 					)
 						throw new Error("Stale assignment");
-					item.executorId = input.executor;
+					item.executorType = input.executorReference.type;
+					item.executorId = input.executorReference.id;
 					item.metadata = {
 						...item.metadata,
 						idleReassignment: {
