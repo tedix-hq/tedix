@@ -118,8 +118,11 @@ export const act = (action: Parameters<PanelApi["setup"]>[0], id?: string) =>
 
 const CHECKING = { pending: "Checking…", key: "check" };
 /** Looks for coding tools and their state again. */
-export const checkAgain = (label = "Check again") =>
-	button(label, "quiet", () => act("check"), false, CHECKING);
+export const checkAgain = (label = "Check again") => {
+	const node = button(label, "quiet", () => act("check"), false, CHECKING);
+	node.classList.add("recheck");
+	return node;
+};
 
 export const EXECUTOR_NAMES: Record<string, string> = {
 	codex: "Codex",

@@ -2110,7 +2110,7 @@ async function newChat(text: string): Promise<void> {
  */
 /**
  * Tasks run only while Tedix is open, so a Mac that runs tasks opens Tedix at
- * login: switching on "Use for tasks" turns Open at login on, and switching
+ * login: switching an agent on for tasks turns Open at login on, and switching
  * off the last one turns it off again. Settings shows the result.
  */
 function matchOpenAtLogin(): void {

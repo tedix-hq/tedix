@@ -9,7 +9,7 @@ import {
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
-import { app } from "electron";
+import { app, nativeImage } from "electron";
 import {
 	ListMcpAuthorizationsResultSchema,
 	ListMcpSignInsResultSchema,
@@ -424,6 +424,8 @@ export interface SetupState {
 	/** True while the command-line tool or the sign-in is still to do. */
 	open: boolean;
 	desktopApps: Record<DesktopApp, boolean>;
+	/** Each installed app's own icon, as an image URL, read from the app. */
+	appIcons: Partial<Record<DesktopApp, string>>;
 	/**
 	 * Which tool takes which tasks, one plain sentence per rule, and the file
 	 * runners read it from. Undefined when the command-line tool cannot say.
@@ -1068,6 +1070,7 @@ async function readConnectionGrants(): Promise<void> {
 async function readToolFacts(): Promise<void> {
 	const facts: typeof toolFacts = {};
 	await locateDesktopApps();
+	await readAppIcons();
 	const versionOf = async (command: string) => {
 		const version = await run(command, ["--version"], { timeoutMs: 10_000 });
 		return version.ok
@@ -1377,7 +1380,33 @@ export function setupState(): SetupState {
 			devin: Boolean(desktopAppPath("devin")),
 			opencode: Boolean(desktopAppPath("opencode")),
 		},
+		appIcons,
 	};
+}
+
+/** The apps' own icons, read once per app path so a moved or updated app shows its new one. */
+const appIcons: Partial<Record<DesktopApp, string>> = {};
+const iconPaths: Partial<Record<DesktopApp, string>> = {};
+async function readAppIcons(): Promise<void> {
+	for (const name of ["claude", "chatgpt", "devin", "opencode"] as const) {
+		const path = desktopAppPath(name);
+		if (!path) {
+			delete appIcons[name];
+			delete iconPaths[name];
+			continue;
+		}
+		if (iconPaths[name] === path) continue;
+		try {
+			const image = await nativeImage
+				.createThumbnailFromPath(path, { width: 64, height: 64 })
+				.catch(() => app.getFileIcon(path, { size: "normal" }));
+			if (image.isEmpty()) continue;
+			appIcons[name] = image.toDataURL();
+			iconPaths[name] = path;
+		} catch {
+			// Without its icon the row shows a plain one.
+		}
+	}
 }
 
 /**

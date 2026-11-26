@@ -62,8 +62,8 @@ const known = (id: string): SettingsSection =>
 let section: SettingsSection = known(location.hash.slice(1));
 let nameDraft: string | undefined;
 const sessionsUi: SessionsUi = { query: "" };
-/** The rules file row shows only after the person asks for it. */
-let routingAdvanced = false;
+/** The Agents page's technical rows show only after the person opens them. */
+let agentsAdvanced = false;
 
 /** One line in a card: what it is on the left, its control on the right. */
 interface Item {
@@ -71,6 +71,8 @@ interface Item {
 	sub?: Child;
 	tone?: "good" | "warn" | "bad";
 	glyph?: IconName;
+	/** An image in place of the glyph: an app's own icon. */
+	image?: string;
 	control?: Child[];
 	/** Shown under the line: a failure with its retry, a list. */
 	below?: Child;
@@ -83,6 +85,8 @@ interface Group {
 	title?: string;
 	/** Right-aligned over the controls, like a column heading. */
 	column?: string;
+	/** A control at the right end of the heading, such as Show. */
+	headingControl?: Child;
 	items: Item[];
 	/** A whole element instead of items, for the Sessions list. */
 	body?: HTMLElement;
@@ -92,6 +96,10 @@ interface Section {
 	name: string;
 	glyph: IconName;
 	groups: (now: PanelState) => Group[];
+	/** A control beside the page title. */
+	action?: () => Child;
+	/** One sentence under the page title. */
+	intro?: string;
 	/** Starts a new group in the sidebar, under a thin line. */
 	split?: boolean;
 }
@@ -416,9 +424,14 @@ function tools(now: PanelState): Group[] {
 			now.setup.app.state === "in" ? now.setup.app.email : "",
 		);
 		const app = TOOL_APPS[named.id];
+		// The header's refresh does this; a row needs no button of its own.
+		const action = view.action?.classList.contains("recheck")
+			? undefined
+			: view.action;
 		add(app, {
 			title: named.name,
 			glyph: TOOL_ICONS[named.id] ?? "terminal",
+			image: app && now.setup.appIcons?.[app],
 			sub: el(
 				"span",
 				"",
@@ -466,20 +479,20 @@ function tools(now: PanelState): Group[] {
 					named.connection === "signed-in" &&
 					named.readVerified &&
 					!view.working &&
-					!view.action &&
+					!action &&
 					button("Check account", "quiet", () => act("verify", named.id)),
 				// Held back from tasks, its connection still works: say so, so the
 				// row does not look broken beside the line that says why.
-				view.ready ? READY_MARK(limit ? "Connected" : "Ready") : view.action,
+				view.ready ? READY_MARK(limit ? "Connected" : "Ready") : action,
 				// Takes Tedix out so it can be connected fresh; it asks first.
 				// Only once the agent no longer takes tasks.
 				named.tedix === "added" &&
 					!on &&
 					!view.working &&
-					!view.action &&
+					!action &&
 					removeButton(named),
 				toggle(
-					`Use ${named.name} for tasks`,
+					`Let ${named.name} work on Tedix tasks from this Mac`,
 					on,
 					(next) => useForTasks(now, named, next),
 					!now.setup.signedIn,
@@ -493,6 +506,7 @@ function tools(now: PanelState): Group[] {
 		add("claude", {
 			title: "Claude (Cowork)",
 			glyph: "bubble",
+			image: now.setup.appIcons?.claude,
 			sub: CLAUDE_PLUGIN_STEPS,
 			control: claudePluginButtons(),
 			words: "claude chat cowork plugin marketplace",
@@ -503,7 +517,7 @@ function tools(now: PanelState): Group[] {
 			glyph: "bolt",
 			control: [
 				toggle(
-					`Use ${EXECUTOR_NAMES[runner.executor] ?? "this tool"} for tasks`,
+					`Let ${EXECUTOR_NAMES[runner.executor] ?? "this tool"} work on Tedix tasks from this Mac`,
 					runner.enabled,
 					(on) => void tedixShell.set(runner.index, "enabled", on),
 				),
@@ -511,16 +525,13 @@ function tools(now: PanelState): Group[] {
 		});
 	const groups: Group[] = AGENT_APPS.map(([app, title]) => ({
 		title,
-		column: "Use for tasks",
 		items: appItems.get(app) ?? [],
 	})).filter((group) => group.items.length);
 	if (loose.length)
 		groups.push({
 			title: "Other runners",
-			column: "Use for tasks",
 			items: loose,
 		});
-	const again = checkAgain();
 	if (!groups.length)
 		return [
 			{
@@ -528,7 +539,7 @@ function tools(now: PanelState): Group[] {
 				items: [
 					{
 						title: "None found",
-						sub: "An agent is a coding tool on this Mac that Tedix can hand code tasks to. Tedix works for everything else without one. To add one, get Claude Code or Codex, then choose Check again.",
+						sub: "An agent is a coding tool on this Mac that Tedix can hand code tasks to. Tedix works for everything else without one. Install Claude Code or Codex and it shows up here.",
 						control: [
 							button(
 								"Get Claude Code",
@@ -540,42 +551,45 @@ function tools(now: PanelState): Group[] {
 								"quiet",
 								() => void tedixShell.open("install-codex"),
 							),
-							again,
 						],
 					},
 					setupDetails(now),
 				],
 			},
 		];
+	// Searching looks inside Advanced too, so a match is never hidden.
+	const open = agentsAdvanced || search.value.trim() !== "";
 	return [
 		...groups,
-		...(now.setup.routing ? [routingGroup(now.setup.routing)] : []),
+		{ title: "Help", items: [setupDetails(now)] },
 		{
-			items: [
-				{
-					title: "Project folder",
-					sub:
-						now.setup.repo.split("/").at(-1) ||
-						"Only for code tasks. Other tasks need no folder.",
-					control: [
-						button("Choose…", "plain", () => act("choose-folder"), false, {
-							pending: "Choosing…",
-						}),
-						(now.setup.repo || now.setup.steps.folder?.error) &&
-							button("Use without a folder", "quiet", () =>
-								act("clear-folder"),
-							),
-					],
-					below: fail(now.setup.steps.folder?.error),
-					words: "repository repo folder",
-				},
-				{
-					title: "Look for agents again",
-					control: [again],
-					words: "check refresh",
-				},
-				setupDetails(now),
-			],
+			title: "Advanced",
+			headingControl: button(open ? "Hide" : "Show", "quiet", () => {
+				agentsAdvanced = !agentsAdvanced;
+				draw();
+			}),
+			items: open
+				? [
+						...(now.setup.routing ? routingItems(now.setup.routing) : []),
+						{
+							title: "Project folder",
+							sub:
+								now.setup.repo.split("/").at(-1) ||
+								"Only for code tasks. Other tasks need no folder.",
+							control: [
+								button("Choose…", "plain", () => act("choose-folder"), false, {
+									pending: "Choosing…",
+								}),
+								(now.setup.repo || now.setup.steps.folder?.error) &&
+									button("Use without a folder", "quiet", () =>
+										act("clear-folder"),
+									),
+							],
+							below: fail(now.setup.steps.folder?.error),
+							words: "repository repo folder",
+						},
+					]
+				: [],
 		},
 	];
 }
@@ -603,7 +617,7 @@ const toolNames = (tools: string[]) =>
  * Which tool takes which tasks, in plain words: one summary line, whose
  * setting it is, and a row per kind of task only when the kinds differ.
  */
-function routingGroup(routing: Routing): Group {
+function routingItems(routing: Routing): Item[] {
 	const same = routing.rules.every(
 		(rule) => toolNames(rule.tools) === toolNames(routing.rules[0]!.tools),
 	);
@@ -645,7 +659,7 @@ function routingGroup(routing: Routing): Group {
 				plain: true,
 				words: "routing",
 			});
-	if (routing.file && routingAdvanced)
+	if (routing.file)
 		items.push({
 			title: "Rules file",
 			control: [
@@ -653,18 +667,7 @@ function routingGroup(routing: Routing): Group {
 			],
 			words: "routing rules file",
 		});
-	else if (routing.file)
-		items.push({
-			title: "Advanced",
-			plain: true,
-			control: [
-				button("Show", "quiet", () => {
-					routingAdvanced = true;
-					draw();
-				}),
-			],
-		});
-	return { title: "Who takes which tasks", items };
+	return items;
 }
 
 function mac(now: PanelState): Group[] {
@@ -696,7 +699,7 @@ function mac(now: PanelState): Group[] {
 	const tasksRow: Item = noRunner
 		? {
 				title: "This Mac does not run tasks yet",
-				sub: "To let it, sign in and switch on Use for tasks for an agent under Agents.",
+				sub: "To let it, sign in and switch an agent on under Agents.",
 				words: "pause resume restart tasks",
 			}
 		: {
@@ -823,7 +826,24 @@ function mac(now: PanelState): Group[] {
 const SECTIONS: Section[] = [
 	{ id: "general", name: "General", glyph: "window", groups: general },
 	{ id: "mac", name: "This Mac", glyph: "laptop", groups: mac },
-	{ id: "tools", name: "Agents", glyph: "terminal", groups: tools },
+	{
+		id: "tools",
+		name: "Agents",
+		glyph: "terminal",
+		groups: tools,
+		intro:
+			"Switch an agent on to let it work on your Tedix tasks from this Mac.",
+		action: () => {
+			// One look covers every agent; the app also looks on its own.
+			const node = checkAgain("Look for agents again");
+			if (node.getAttribute("aria-busy") !== "true")
+				node.replaceChildren(icon("refresh", 16));
+			node.classList.add("icon-only");
+			node.title = "Look for agents again";
+			node.setAttribute("aria-label", "Look for agents again");
+			return node;
+		},
+	},
 ];
 
 /** A section in the sidebar shows a dot when something there needs the person. */
@@ -848,7 +868,13 @@ function itemNode(item: Item): HTMLElement {
 	return el(
 		"div",
 		"item",
-		item.glyph && el("span", "glyph", icon(item.glyph, 18)),
+		item.image
+			? el(
+					"span",
+					"glyph",
+					Object.assign(el("img", "app-icon"), { src: item.image, alt: "" }),
+				)
+			: item.glyph && el("span", "glyph", icon(item.glyph, 18)),
 		el(
 			"div",
 			"text",
@@ -870,6 +896,7 @@ function groupNode(group: Group, heading?: string): HTMLElement {
 				"heading",
 				el("span", "", heading ?? group.title ?? ""),
 				group.column && el("span", "column", group.column),
+				group.headingControl,
 			),
 		group.body ?? el("div", "group", ...group.items.map(itemNode)),
 	);
@@ -985,10 +1012,11 @@ function draw(): void {
 				)
 			: [el("p", "empty", "No setting matches.")]
 		: [
-				el("h1", "", active.name),
+				el("div", "title-bar", el("h1", "", active.name), active.action?.()),
+				active.intro && el("p", "intro", active.intro),
 				...active.groups(now).map((group) => groupNode(group)),
 			];
-	page.replaceChildren(...body);
+	page.replaceChildren(...body.filter((node): node is HTMLElement => !!node));
 }
 
 function redraw(): void {

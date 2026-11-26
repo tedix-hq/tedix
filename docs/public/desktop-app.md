@@ -59,7 +59,7 @@ alert that says the app is damaged or will damage your computer. See
 for more about these warnings.
 
 You can connect an app later in **Settings → Agents**. To start over with an
-app, switch off its **Use for tasks**, choose the trash icon on its row, then
+app, switch it off, choose the trash icon on its row, then
 **Connect**. Removing Tedix ends only that install's Tedix sign-in. Other
 agents, installs and CLI logins stay signed in. If removal cannot reach the
 server, the connection stays so you can try again.
@@ -69,8 +69,8 @@ provider, Tedix uses the Mac app when its coding tool is ready.
 - **Codex in ChatGPT and Claude Code.** Settings → Agents has a section for
   each app. Choose **Connect** to install the Tedix plugin supplied with the
   Mac app. For Codex, review the hooks in **Settings → Hooks** in ChatGPT. In
-  Claude Desktop, open the **Code** tab once and choose **Look again** in
-  Tedix if Claude Code does not appear.
+  Claude Desktop, open the **Code** tab once. Tedix looks for agents again
+  when you come back to it; the round arrow next to **Agents** looks at once.
 - **Chat and Cowork in Claude.** In the Claude section, choose **Copy
   marketplace** and **Open Claude**. In Claude, choose **Customize → Plugins
   → Add marketplace**, paste `tedix-hq/tedix-plugins` and install **Tedix**.
@@ -83,7 +83,9 @@ provider, Tedix uses the Mac app when its coding tool is ready.
   Tedix checks the connection after sign-in. Choose **Check connection** to
   check an app you already connected.
 
-To let an agent run tasks on your Mac, use **Use for tasks** in Settings.
+To let an agent work on your Tedix tasks from this Mac, switch it on in
+**Settings → Agents**. Each app shows its own icon. Which agent takes which
+kind of task, the rules file and the project folder are under **Advanced**.
 Tasks run only while Tedix is open, so this also turns on **Open at login**
 in **Settings → General**. Switching off the last agent turns it off again.
 

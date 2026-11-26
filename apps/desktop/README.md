@@ -134,7 +134,9 @@ The app is not signed or notarized yet and has been run on macOS only.
   Mac, a sample workspace, and the sessions: one switch, a tab per
   agent, a searchable project list) and Agents (the Claude and
   ChatGPT apps, and one row per agent with its next step and a
-  **Use for tasks** switch; **Ready** only after Tedix worked inside it).
+  switch that lets it take tasks; **Ready** only after Tedix worked inside
+  it; one round arrow beside the title looks for agents again; routing,
+  rules file and project folder under a collapsed **Advanced**).
   Every button answers at once: it shows a spinner and what it is doing
   ("Checking…", "Signing in…") until it finishes, and the row then shows
   the result. The version row says what the update entry says: checking,

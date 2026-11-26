@@ -4,7 +4,7 @@
 		<meta charset="utf-8" />
 		<meta
 			http-equiv="Content-Security-Policy"
-			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'"
+			content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
 		/>
 		<title>Settings</title>
 		<link rel="stylesheet" href="ui.css" />
@@ -256,6 +256,33 @@
 				padding-bottom: 4px;
 				font-size: 14px;
 				font-weight: 600;
+			}
+			.title-bar {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 12px;
+			}
+			.title-bar {
+				margin-bottom: -12px;
+			}
+			.title-bar h1 {
+				margin: 0;
+			}
+			.title-bar + .intro {
+				margin: -12px 0 -8px;
+				font-size: 13px;
+				color: var(--muted-foreground);
+			}
+			.heading .btn {
+				height: 24px;
+				padding: 0 10px;
+				font-size: 12px;
+			}
+			.item .glyph .app-icon {
+				display: block;
+				width: 24px;
+				height: 24px;
 			}
 			.heading .column {
 				font-size: 12px;
