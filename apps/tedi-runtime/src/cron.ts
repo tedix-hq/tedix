@@ -7,6 +7,7 @@
  * docs/engineering/tedi/agent-runtime.md.
  */
 
+import type { CronPacingSchedule } from "./cron-pacing";
 import { scrubText } from "@tedix/context-core/trace-safety";
 import { DEFAULT_SESSION_KEY } from "@tedix/tedi-session/session-harness";
 
@@ -23,6 +24,8 @@ export interface CronFirePayload {
 	expiresAtMs?: number | null;
 	/** Provenance: in-session `cron` tool add vs policy-pack template reconcile. */
 	source?: "tool" | "template";
+	/** Recurrence survives schedule replacement and lookup outages. */
+	pacing?: CronPacingSchedule;
 }
 
 /** The subset of an Agents-SDK `Schedule` row `scheduleToCronJob` reads. */

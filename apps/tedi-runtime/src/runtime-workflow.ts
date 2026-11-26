@@ -21,6 +21,7 @@ import {
 } from "./computer-workspace-scope";
 import { summarizeCronTurnTransitions } from "./cron";
 import { cronSuppressionReason } from "./cron-budget-control";
+import { finishCronTask } from "./cron-pacing";
 import {
 	delegatedWorkLeaseTerminalKey,
 	type FacetWorkflowTurnInput,
@@ -789,6 +790,15 @@ export const runtimeWorkflow = {
 		const context = await this.ctx.storage.get<WorkflowDispatchContext>(
 			`wfctx:${workflowInstanceId}`,
 		);
+		if (imageCleanup && context?.cron) {
+			// Persist terminal spacing before cleanup can delete its only identity.
+			await finishCronTask(
+				this.ctx.storage,
+				context.cron.name,
+				workflowInstanceId,
+				Date.now(),
+			);
+		}
 		await cleanupComputerWorkflow(this.ctx.storage, workflowInstanceId, {
 			scope: computerWorkspaceScope,
 			computer: (scope) => this.computerEnvironment(scope, null),

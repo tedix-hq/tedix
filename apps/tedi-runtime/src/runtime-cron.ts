@@ -43,6 +43,12 @@ import type { CronToolInput } from "./mcp-mount";
 import { type WorkflowDispatchContext } from "./workflow-start-watchdog";
 import type { AgentTediDO } from "./do";
 import type { State } from "./runtime-state";
+import {
+	cronPacingKey,
+	finishCronTask,
+	reserveCronTask,
+	type CronPacingState,
+} from "./cron-pacing";
 
 export type CronFireOutcome =
 	| {
@@ -65,6 +71,11 @@ export type CronFireOutcome =
 				| "orphaned_runtime"
 				| "conversation_unstable"
 				| "previous_run_open";
+	  }
+	| {
+			status: "held";
+			reason: string;
+			eligibleAt?: number;
 	  };
 
 export type PolicyCronReconcileReceipt = {
@@ -423,6 +434,15 @@ export async function cronTool(
 			const jobs = (await host.listSchedules())
 				.filter((s) => s.callback === "onCronFire")
 				.map(scheduleToCronJob);
+			for (const job of jobs) {
+				if (job.source === "tool" && typeof job.name === "string") {
+					job.pacing = await host.ctx.storage
+						.get<CronPacingState>(cronPacingKey(job.name))
+						.catch(() => ({
+							deferred: { reason: "pacing_state_unknown", at: Date.now() },
+						}));
+				}
+			}
 			return input.action === "status"
 				? { ok: true, count: jobs.length, jobs }
 				: { ok: true, jobs };
@@ -493,6 +513,12 @@ export async function cronTool(
 				sessionKey,
 				expiresAtMs: expiry.expiresAtMs,
 				source: "tool",
+				pacing:
+					sched.kind === "every" && sched.everyMs
+						? { everyMs: Math.max(1, Math.round(sched.everyMs / 1000)) * 1000 }
+						: sched.kind === "cron" && sched.expr
+							? { expr: sched.expr }
+							: { everyMs: 0 },
 			};
 			try {
 				let spec:
@@ -816,6 +842,29 @@ export async function openCronRun(
 	return null;
 }
 
+async function holdCronFire(
+	host: RuntimeCronHost,
+	name: string | undefined,
+	reason: string,
+): Promise<CronFireOutcome> {
+	const deferred = { reason, at: Date.now() };
+	if (name) {
+		try {
+			await host.ctx.storage.transaction(async (tx) => {
+				const key = cronPacingKey(name);
+				const state = (await tx.get<CronPacingState>(key)) ?? {};
+				await tx.put(key, { ...state, deferred });
+			});
+		} catch (error) {
+			console.warn("[isolate.cron] unable to persist pacing hold", {
+				reason,
+				exception: exceptionTopology(error),
+			});
+		}
+	}
+	return { status: "held", reason };
+}
+
 /**
  * Cron callback — invoked by the SDK alarm when a scheduled job fires (with
  * the job payload and the schedule row). Dispatches onto `CHAT_TURN_WORKFLOW`
@@ -893,10 +942,9 @@ export async function onCronFire(
 	}
 	const sessionKey = payload?.sessionKey || DEFAULT_SESSION_KEY;
 	const fireKey = `cron:${row?.id ?? payload?.name ?? "job"}:${row?.time ?? Date.now()}`;
-	// A recurring task never stacks runs: while an earlier fire of the same
-	// schedule is still queued or running, this one is skipped. Fail-soft: a
-	// read error falls through to a normal fire.
-	if (row?.id) {
+	// Platform templates retain their schedule-ID guard. Tool-created tasks
+	// use durable named-task pacing below.
+	if (row?.id && payload.source !== "tool") {
 		try {
 			const open = await openCronRun(
 				host.ctx.storage,
@@ -918,11 +966,6 @@ export async function onCronFire(
 	}
 	const { tediId, slug } = host.state;
 	const runId = buildRunId(tediId, fireKey, "cron");
-	await host.acceptRuntimeTurn(runId, sessionKey, {
-		kind: "cron",
-		payload,
-		schedule: row,
-	});
 	// A billing-policy denial (credits used up, inactive subscription) pauses
 	// scheduled fires until the next UTC day instead of starting turns that
 	// fail the same way. Skip before opening a run or execution stamp; the
@@ -962,197 +1005,267 @@ export async function onCronFire(
 			{ exception: exceptionTopology(err) },
 		);
 	}
-	const userTs = Date.now();
-	// Stamp the fire before the stability gate: a named alarm that woke but
-	// could not enter a turn is a real failed execution, not "never executed".
-	const cronStamp = buildCronExecutionStart(
-		payload ?? {},
-		fireKey,
-		runId,
-		userTs,
-	);
-	if (cronStamp) await host.stampCronExecution(cronStamp);
-	let stable: boolean;
-	try {
-		stable = await (
-			await host.subAgent(
-				ConversationFacet,
-				sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_"),
-			)
-		).waitUntilStable({ timeout: 30_000 });
-	} catch (error) {
-		if (cronStamp) {
-			await host.stampCronExecution(
-				buildCronPreDispatchFailure(
-					cronStamp,
-					Date.now(),
-					"stability_error",
-					error,
-				),
-			);
-		}
-		throw error;
-	}
-	if (!stable) {
-		if (cronStamp) {
-			await host.stampCronExecution(
-				buildCronStabilityTimeoutFailure(cronStamp, Date.now()),
-			);
-		}
-		console.warn(
-			`[isolate.cron] conversation not stable; skipping scheduled turn fire=${fireKey}`,
-		);
-		return { status: "skipped", reason: "conversation_unstable" };
-	}
-	const conversationId = buildTediConversationId({
-		tediRef: slug || tediId,
-		sessionKey,
-	});
-	// Cloudflare Workflow instance ids reject colons — fireKey is colon-delimited
-	// (e.g. "cron:job-id:1234567890"), so sanitize to a valid, deterministic id.
-	// Same derivation as the inject and cancel paths — same fireKey → same id.
-	const workflowInstanceId = buildWorkflowInstanceId(fireKey);
-	// CANONICAL SCHEDULED-TURN ENVELOPE (scheduled-task-prompt.ts). The stored
-	// authored prompt stays verbatim on the schedule row; the identity,
-	// recurrence, intended-vs-actual occurrence, and the autonomous notice are
-	// composed here at dispatch. Without the notice a scheduled turn answers as
-	// if a human were reading — asking a question nobody will answer, or
-	// apologizing instead of doing tool work — which is exactly the false
-	// negative `cron-turn-outcome.ts` has to reclassify downstream.
-	// Fail-soft: recurrence lookup never blocks a fire.
-	let recurrence: ScheduledTaskRecurrence = { type: "one-off" };
-	try {
-		const schedule = row?.id ? await host.getScheduleById(row.id) : null;
-		if (schedule?.type === "cron" && typeof schedule.cron === "string") {
-			recurrence = { type: "cron", expr: schedule.cron };
-		} else if (
-			schedule?.type === "interval" &&
-			typeof schedule.intervalSeconds === "number"
-		) {
-			recurrence = {
-				type: "every",
-				everyMs: schedule.intervalSeconds * 1000,
-			};
-		}
-	} catch (err) {
-		console.warn(
-			"[isolate.cron] recurrence lookup failed; enveloping as one-off",
-			{ exception: exceptionTopology(err) },
-		);
-	}
-	const envelopedMessage = formatScheduledTaskPrompt({
-		name: payload?.name ?? null,
-		prompt: message,
-		// The SDK persists `Schedule.time` in unix SECONDS.
-		scheduledForMs: typeof row?.time === "number" ? row.time * 1000 : null,
-		currentTimeMs: userTs,
-		recurrence,
-	});
-	// Durable execution stamp (flywheel cron-health ledger): open a `running`
-	// row for every NAMED fire before dispatch. The terminal hooks
-	// (onWorkflowComplete / mirrorWorkflowFailure) seal it success/failure via
-	// the cron ctx persisted on the workflow dispatch record. Fail-soft: a
-	// stamp outage never blocks the fire.
-	const dispatchContextRecorded = await host.recordWorkflowDispatch(
-		workflowInstanceId,
-		{
-			runId,
-			sessionKey,
-			userText: envelopedMessage,
-			userTs,
-			...(cronStamp
-				? {
-						cron: {
-							name: cronStamp.cronName,
-							fireKey,
-							startedAtIso: cronStamp.startedAt,
-						},
-					}
-				: {}),
-		},
-	);
-	if (!dispatchContextRecorded) {
-		const error = new Error(
-			`workflow dispatch context could not be recorded for ${workflowInstanceId}`,
-		);
-		if (cronStamp) {
-			await host.stampCronExecution(
-				buildCronPreDispatchFailure(
-					cronStamp,
-					Date.now(),
-					"dispatch_context_error",
-					error,
-				),
-			);
-		}
-		// Do not launch an untrackable workflow: without persisted dispatch
-		// context neither its run nor its cron execution can be sealed later.
-		throw error;
-	}
-	try {
-		await host.dispatchAdmittedChatWorkflow(
-			"CHAT_TURN_WORKFLOW",
-			{
-				agentName: host.name,
-				sessionKey,
-				userText: envelopedMessage,
-				userTs,
-				conversationId,
-				runId,
-				clientRequestId: fireKey,
-				// This message was loaded from the authenticated persisted schedule,
-				// not supplied by the current MCP caller.
-				trustedInstructionOrigin: "cron",
-			},
-			{ id: workflowInstanceId, agentBinding: "TEDI_AGENT" },
-		);
-	} catch (e) {
-		await host.clearWorkflowDispatch(workflowInstanceId);
-		if (cronStamp) {
-			await host.stampCronExecution(
-				buildCronPreDispatchFailure(
-					cronStamp,
-					Date.now(),
-					"workflow_dispatch_error",
-					e,
-				),
-			);
-		}
-		console.error(`[isolate.cron] workflow dispatch failed fire=${fireKey}`, {
-			exception: exceptionTopology(e),
-		});
-		// Re-throw so the SDK alarm retries this fire (schedule maxAttempts).
-		throw e;
-	}
-	// WS2 trajectory mining: the skill-development cycle carries a mechanical
-	// consolidation operator alongside its LLM turn — deterministic mining of
-	// recurring successful tool-call routines (evidence-linked rationale
-	// episodes) into draft Skill Workshop proposals via
-	// `skills.mineCandidates`. Runs AFTER the turn workflow dispatches so a
-	// slow mine never delays the cycle; fail-soft — mining problems never
-	// fail the fire.
-	if (shouldRunTrajectoryMining(payload ?? {})) {
+	let pacing = payload.pacing;
+	if (payload.source === "tool" && !pacing) {
 		try {
-			const platform = await host.getPlatformClient();
-			if (platform) {
-				const mined = await platform.mineSkillCandidates({});
-				console.log(
-					`[isolate.cron] trajectory mining: episodes=${mined.episodesExamined} runs=${mined.runsExamined} patterns=${mined.patterns.length} proposed=${mined.proposed.length} skipped=${mined.skipped.length}`,
+			const schedule = row?.id ? await host.getScheduleById(row.id) : null;
+			if (!schedule)
+				return holdCronFire(host, payload.name, "recurrence_unknown");
+			if (schedule.type === "interval" && schedule.intervalSeconds)
+				pacing = { everyMs: schedule.intervalSeconds * 1000 };
+			else if (schedule.type === "cron" && schedule.cron)
+				pacing = { expr: schedule.cron };
+			else if (schedule.type === "scheduled" || schedule.type === "delayed")
+				pacing = { everyMs: 0 };
+			else return holdCronFire(host, payload.name, "recurrence_unknown");
+		} catch {
+			return holdCronFire(host, payload.name, "recurrence_unknown");
+		}
+	}
+	if (payload.source === "tool" && !payload.name)
+		return holdCronFire(host, payload.name, "task_identity_unknown");
+	const pacedName =
+		payload.source === "tool" && pacing ? payload.name : undefined;
+	if (pacing && pacedName) {
+		try {
+			const deferred = await reserveCronTask(host.ctx.storage, {
+				name: pacedName,
+				schedule: pacing,
+				fireKey,
+				workflowId: buildWorkflowInstanceId(fireKey),
+				now: Date.now(),
+				// Manual fires use milliseconds; SDK alarm rows use seconds.
+				scheduledFor:
+					row?.time === undefined
+						? undefined
+						: row.time < 1e12
+							? row.time * 1000
+							: row.time,
+			});
+			if (deferred)
+				return {
+					status: "held",
+					reason: deferred.reason,
+					eligibleAt: deferred.eligibleAt,
+				};
+		} catch (error) {
+			console.warn("[isolate.cron] pacing state unknown; holding fire", {
+				exception: exceptionTopology(error),
+			});
+			return holdCronFire(host, pacedName, "pacing_state_unknown");
+		}
+	}
+	let dispatchAttempted = false;
+	try {
+		await host.acceptRuntimeTurn(runId, sessionKey, {
+			kind: "cron",
+			payload,
+			schedule: row,
+		});
+		const userTs = Date.now();
+		// Stamp the fire before the stability gate: a named alarm that woke but
+		// could not enter a turn is a real failed execution, not "never executed".
+		const cronStamp = buildCronExecutionStart(
+			payload ?? {},
+			fireKey,
+			runId,
+			userTs,
+		);
+		if (cronStamp) await host.stampCronExecution(cronStamp);
+		let stable: boolean;
+		try {
+			stable = await (
+				await host.subAgent(
+					ConversationFacet,
+					sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_"),
+				)
+			).waitUntilStable({ timeout: 30_000 });
+		} catch (error) {
+			if (cronStamp) {
+				await host.stampCronExecution(
+					buildCronPreDispatchFailure(
+						cronStamp,
+						Date.now(),
+						"stability_error",
+						error,
+					),
 				);
+			}
+			throw error;
+		}
+		if (!stable) {
+			if (cronStamp) {
+				await host.stampCronExecution(
+					buildCronStabilityTimeoutFailure(cronStamp, Date.now()),
+				);
+			}
+			console.warn(
+				`[isolate.cron] conversation not stable; skipping scheduled turn fire=${fireKey}`,
+			);
+			return { status: "skipped", reason: "conversation_unstable" };
+		}
+		const conversationId = buildTediConversationId({
+			tediRef: slug || tediId,
+			sessionKey,
+		});
+		// Cloudflare Workflow instance ids reject colons — fireKey is colon-delimited
+		// (e.g. "cron:job-id:1234567890"), so sanitize to a valid, deterministic id.
+		// Same derivation as the inject and cancel paths — same fireKey → same id.
+		const workflowInstanceId = buildWorkflowInstanceId(fireKey);
+		// CANONICAL SCHEDULED-TURN ENVELOPE (scheduled-task-prompt.ts). The stored
+		// authored prompt stays verbatim on the schedule row; the identity,
+		// recurrence, intended-vs-actual occurrence, and the autonomous notice are
+		// composed here at dispatch. Without the notice a scheduled turn answers as
+		// if a human were reading — asking a question nobody will answer, or
+		// apologizing instead of doing tool work — which is exactly the false
+		// negative `cron-turn-outcome.ts` has to reclassify downstream.
+		// Fail-soft: recurrence lookup never blocks a fire.
+		let recurrence: ScheduledTaskRecurrence = { type: "one-off" };
+		try {
+			const schedule = row?.id ? await host.getScheduleById(row.id) : null;
+			if (schedule?.type === "cron" && typeof schedule.cron === "string") {
+				recurrence = { type: "cron", expr: schedule.cron };
+			} else if (
+				schedule?.type === "interval" &&
+				typeof schedule.intervalSeconds === "number"
+			) {
+				recurrence = {
+					type: "every",
+					everyMs: schedule.intervalSeconds * 1000,
+				};
 			}
 		} catch (err) {
 			console.warn(
-				"[isolate.cron] trajectory mining failed (fire unaffected)",
+				"[isolate.cron] recurrence lookup failed; enveloping as one-off",
 				{ exception: exceptionTopology(err) },
 			);
 		}
+		const envelopedMessage = formatScheduledTaskPrompt({
+			name: payload?.name ?? null,
+			prompt: message,
+			// The SDK persists `Schedule.time` in unix SECONDS.
+			scheduledForMs: typeof row?.time === "number" ? row.time * 1000 : null,
+			currentTimeMs: userTs,
+			recurrence,
+		});
+		// Durable execution stamp (flywheel cron-health ledger): open a `running`
+		// row for every NAMED fire before dispatch. The terminal hooks
+		// (onWorkflowComplete / mirrorWorkflowFailure) seal it success/failure via
+		// the cron ctx persisted on the workflow dispatch record. Fail-soft: a
+		// stamp outage never blocks the fire.
+		const dispatchContextRecorded = await host.recordWorkflowDispatch(
+			workflowInstanceId,
+			{
+				runId,
+				sessionKey,
+				userText: envelopedMessage,
+				userTs,
+				...(cronStamp
+					? {
+							cron: {
+								name: cronStamp.cronName,
+								fireKey,
+								startedAtIso: cronStamp.startedAt,
+							},
+						}
+					: {}),
+			},
+		);
+		if (!dispatchContextRecorded) {
+			const error = new Error(
+				`workflow dispatch context could not be recorded for ${workflowInstanceId}`,
+			);
+			if (cronStamp) {
+				await host.stampCronExecution(
+					buildCronPreDispatchFailure(
+						cronStamp,
+						Date.now(),
+						"dispatch_context_error",
+						error,
+					),
+				);
+			}
+			// Do not launch an untrackable workflow: without persisted dispatch
+			// context neither its run nor its cron execution can be sealed later.
+			throw error;
+		}
+		try {
+			dispatchAttempted = true;
+			await host.dispatchAdmittedChatWorkflow(
+				"CHAT_TURN_WORKFLOW",
+				{
+					agentName: host.name,
+					sessionKey,
+					userText: envelopedMessage,
+					userTs,
+					conversationId,
+					runId,
+					clientRequestId: fireKey,
+					// This message was loaded from the authenticated persisted schedule,
+					// not supplied by the current MCP caller.
+					trustedInstructionOrigin: "cron",
+				},
+				{ id: workflowInstanceId, agentBinding: "TEDI_AGENT" },
+			);
+		} catch (e) {
+			// Dispatch may have reached the provider before throwing. Retain the
+			// paced reservation and context for the native status reconciler.
+			if (!pacedName) await host.clearWorkflowDispatch(workflowInstanceId);
+			if (cronStamp) {
+				await host.stampCronExecution(
+					buildCronPreDispatchFailure(
+						cronStamp,
+						Date.now(),
+						"workflow_dispatch_error",
+						e,
+					),
+				);
+			}
+			console.error(`[isolate.cron] workflow dispatch failed fire=${fireKey}`, {
+				exception: exceptionTopology(e),
+			});
+			// Re-throw so the SDK alarm retries this fire (schedule maxAttempts).
+			throw e;
+		}
+		// WS2 trajectory mining: the skill-development cycle carries a mechanical
+		// consolidation operator alongside its LLM turn — deterministic mining of
+		// recurring successful tool-call routines (evidence-linked rationale
+		// episodes) into draft Skill Workshop proposals via
+		// `skills.mineCandidates`. Runs AFTER the turn workflow dispatches so a
+		// slow mine never delays the cycle; fail-soft — mining problems never
+		// fail the fire.
+		if (shouldRunTrajectoryMining(payload ?? {})) {
+			try {
+				const platform = await host.getPlatformClient();
+				if (platform) {
+					const mined = await platform.mineSkillCandidates({});
+					console.log(
+						`[isolate.cron] trajectory mining: episodes=${mined.episodesExamined} runs=${mined.runsExamined} patterns=${mined.patterns.length} proposed=${mined.proposed.length} skipped=${mined.skipped.length}`,
+					);
+				}
+			} catch (err) {
+				console.warn(
+					"[isolate.cron] trajectory mining failed (fire unaffected)",
+					{ exception: exceptionTopology(err) },
+				);
+			}
+		}
+		return {
+			status: "dispatched",
+			fireKey,
+			runId,
+			workflowId: workflowInstanceId,
+		};
+	} finally {
+		if (pacedName && !dispatchAttempted) {
+			await finishCronTask(
+				host.ctx.storage,
+				pacedName,
+				buildWorkflowInstanceId(fireKey),
+				Date.now(),
+			);
+		}
 	}
-	return {
-		status: "dispatched",
-		fireKey,
-		runId,
-		workflowId: workflowInstanceId,
-	};
 }
 
 /**
