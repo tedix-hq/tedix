@@ -965,6 +965,24 @@ describe("CLI update lifecycle", () => {
 		}
 	});
 
+	test("accepts a release build that prints its source commit", async () => {
+		const test = fixture({ scriptBody: script(`${NEXT_VERSION}+76cb730bc`) });
+		const output = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			await runUpdateCommand(
+				{ check: false, force: false, json: true, version: test.version },
+				test.runtime,
+			);
+			expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toMatchObject({
+				changed: true,
+				version: test.version,
+			});
+		} finally {
+			output.mockRestore();
+			test.close();
+		}
+	});
+
 	test("installs and rolls back while retaining an atomic previous point", async () => {
 		const test = fixture();
 		const previous = `${test.installPath}.previous`;

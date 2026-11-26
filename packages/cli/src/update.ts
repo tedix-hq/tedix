@@ -797,11 +797,13 @@ async function smokeVersion(
 		clearTimeout(timer);
 	}
 	const version = stdout.trim();
+	// Release builds print their source commit as build metadata, e.g. 0.37.26+76cb730bc.
+	const release = version.replace(/\+.*$/, "");
 	if (
 		terminated ||
 		exitCode !== 0 ||
 		received > VERSION_OUTPUT_LIMIT_BYTES ||
-		(expected !== undefined && version !== expected)
+		(expected !== undefined && release !== expected)
 	) {
 		throw new Error(
 			expected
