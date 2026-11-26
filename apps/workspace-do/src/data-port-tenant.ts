@@ -59,6 +59,7 @@ import {
 } from "@tedix/api-contract/utils/app-runtime";
 import { z } from "zod";
 import {
+	countOsAppDraftsFromElsewhere,
 	getOsAppEditDraft,
 	proposeOsAppFileEdits,
 } from "@tedix/db/queries/os-workspaces/collaboration";
@@ -759,6 +760,13 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		const draft = pending
 			? OsAppDraftContentSchema.parse(JSON.parse(pending.content))
 			: undefined;
+		const otherDraftCount = !parsed.revisionId
+			? await countOsAppDraftsFromElsewhere(this.deps.core, {
+					...this.scope,
+					gadgetId: app.id,
+					conversationId: this.deps.conversationId,
+				})
+			: undefined;
 		return {
 			id: app.id,
 			name: app.name,
@@ -767,6 +775,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			manifest: draft?.manifest ?? manifest,
 			files:
 				draft?.files ?? AppRuntimeFilesSchema.parse(JSON.parse(code.files)),
+			...(otherDraftCount !== undefined ? { otherDraftCount } : {}),
 			...(pending
 				? { proposalId: pending.id, sequence: pending.sequence }
 				: {}),

@@ -168,20 +168,20 @@ interface Outputs {
 }`.trim(),
 	apps: `
 /** Apps installed in this workspace. Code edits preserve the manifest and resource grants. */
-interface AppCode { id: string; name: string; revision: number; revisionId: string; manifest: Record<string, unknown>; files: Record<string, string>; proposalId?: string; sequence?: number }
+interface AppCode { id: string; name: string; revision: number; revisionId: string; manifest: Record<string, unknown>; files: Record<string, string>; proposalId?: string; sequence?: number; otherDraftCount?: number }
 interface Apps {
   /** Register a new scheduled run. It stays off until a person switches it on in chat, Activity or Connections. Tell the person it is off. */
   registerSchedule(input: { appId: string; expectedRevisionId: string; schedule: { id: string; kind: "schedule"; cron: string; method: string; args?: unknown[] } }): Promise<{ gadgetId: string; triggerId: string; name: string; enabled: false; message: string }>;
   /** Workspace resources the saved gadget may use. Match each slot to resources.list(). */
   access(input: { appId: string }): Promise<Array<{ slot: string; operations: string[] }>>;
-  /** Read current source, or an earlier revision of this same app. */
+  /** Read this chat's draft or saved source, or an earlier revision. otherDraftCount counts pending changes from elsewhere, without exposing their files or IDs. Open the app and click Review to review those changes; this chat cannot publish them. */
   getCode(input: { appId: string; revisionId?: string }): Promise<AppCode>;
   /** Saved versions of this app, newest first. Read-only. */
   versions(input: { appId: string }): Promise<Array<{ revision: number; revisionId: string; current: boolean; savedAt: string; savedBy: "person" | "agent" | "automation" }>>;
   /** Read one file from this chat's pending draft, or committed code when there is no draft. */
-  readFile(input: {appId:string; path:string}): Promise<{appId:string; path:string; revisionId:string; proposalId?:string; sequence?:number; content:string}>;
+  readFile(input: {appId:string; path:string}): Promise<{appId:string; path:string; revisionId:string; proposalId?:string; sequence?:number; otherDraftCount?:number; content:string}>;
   /** Literal text search across this chat's app files; capped at 200 matches. */
-  grep(input: {appId:string; query:string}): Promise<{revisionId:string; matches:Array<{path:string; line:number; text:string}>; truncated:boolean}>;
+  grep(input: {appId:string; query:string}): Promise<{revisionId:string; otherDraftCount?:number; matches:Array<{path:string; line:number; text:string}>; truncated:boolean}>;
   /** Stage one exact replacement; before must be nonempty and match exactly once. Does not publish. */
   editFile(input: {appId:string; path:string; expectedRevisionId:string; proposalId?:string; expectedSequence?:number; before:string; after:string}): Promise<AppCode>;
   /** Stage a new file or replace a file in full. Prefer editFile for small changes. Does not publish. */

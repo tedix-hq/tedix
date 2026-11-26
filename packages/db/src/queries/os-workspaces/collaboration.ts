@@ -3,7 +3,19 @@ import {
 	OsAppDraftContentSchema,
 	type OsAppDraftContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	gte,
+	inArray,
+	lte,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsCollaborationProposalRow,
@@ -895,6 +907,36 @@ export interface AppEditSource {
 	gadgetId: string;
 	sourceKind: OsCollaborationProposalRow["sourceKind"];
 	sourceId: string;
+}
+
+export async function countOsAppDraftsFromElsewhere(
+	db: DbQueryClient,
+	params: {
+		organizationId: string;
+		workspaceId: string;
+		gadgetId: string;
+		conversationId?: string;
+	},
+): Promise<number> {
+	const [row] = await db
+		.select({ count: count() })
+		.from(osCollaborationProposals)
+		.where(
+			and(
+				eq(osCollaborationProposals.organizationId, params.organizationId),
+				eq(osCollaborationProposals.workspaceId, params.workspaceId),
+				eq(osCollaborationProposals.documentType, "gadget"),
+				eq(osCollaborationProposals.documentId, params.gadgetId),
+				inArray(osCollaborationProposals.status, ["open", "accepted"]),
+				params.conversationId
+					? or(
+							ne(osCollaborationProposals.sourceKind, "chat"),
+							ne(osCollaborationProposals.sourceId, params.conversationId),
+						)
+					: undefined,
+			),
+		);
+	return row?.count ?? 0;
 }
 
 export async function getOsAppEditDraft(

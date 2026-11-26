@@ -44,6 +44,8 @@ export interface AppCode {
 	files: Record<string, string>;
 	proposalId?: string;
 	sequence?: number;
+	/** Pending drafts outside this conversation; no source or proposal details. */
+	otherDraftCount?: number;
 }
 
 export interface AppVersion {

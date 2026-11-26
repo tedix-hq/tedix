@@ -1468,11 +1468,47 @@ describe("WorkspaceDO", () => {
    await env.apps.editFile({appId:"editable",path:"client.js",expectedRevisionId:file.revisionId,before:"Before",after:"After"});
    const changed = await env.apps.readFile({appId:"editable",path:"client.js"});
    if (!changed.content.includes("After")) throw new Error("Read did not see pending edits");
+   if (changed.otherDraftCount !== 0) throw new Error("Own draft counted as elsewhere");
    return env.apps.writeFile({appId:"editable",path:"README.md",expectedRevisionId:file.revisionId,proposalId:changed.proposalId,expectedSequence:changed.sequence,content:"App notes"});
   }`;
 		const rejected = await requestEdit(code);
 		expect(rejected.sequence).toBe(1);
-		expect((await data.getAppCode({ appId: "editable" })).files).toEqual(files);
+		const elsewhere = await data.getAppCode({ appId: "editable" });
+		expect(elsewhere.files).toEqual(files);
+		expect(elsewhere.otherDraftCount).toBe(1);
+		expect(elsewhere.proposalId).toBeUndefined();
+		expect(elsewhere.sequence).toBeUndefined();
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async env => {
+				const app = await env.apps.getCode({appId:"editable"});
+				const file = await env.apps.readFile({appId:"editable",path:"client.js"});
+				const search = await env.apps.grep({appId:"editable",query:"After"});
+				for (const read of [app, file, search]) {
+					if (read.otherDraftCount !== 1) throw new Error("Missing other-chat draft count");
+					if (read.proposalId || read.sequence !== undefined) throw new Error("Other-chat proposal leaked");
+				}
+				if (file.content.includes("After") || search.matches.length) throw new Error("Other-chat code leaked");
+				return app.otherDraftCount;
+			}`,
+			},
+		]);
+		const otherChat = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Publish the app draft",
+		});
+		await ws.awaitTurn(scope, otherChat.turnId, 20000);
+		const otherEvents = await ws.readEvents(scope, {
+			conversationId: otherChat.conversationId,
+		});
+		const otherSteps = otherEvents.filter(
+			(event) => event.type === "step.finished",
+		);
+		expect(otherSteps.length).toBeGreaterThan(0);
+		expect(otherSteps.filter((event) => event.status === "error")).toHaveLength(
+			0,
+		);
 		await decideOsCollaborationProposal(db, {
 			organizationId: scope.organizationId,
 			proposalId: rejected.id,
@@ -1483,7 +1519,10 @@ describe("WorkspaceDO", () => {
 			decidedByKind: "user",
 			decidedById: "u1",
 		});
-		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(1);
+		expect(await data.getAppCode({ appId: "editable" })).toMatchObject({
+			revision: 1,
+			otherDraftCount: 0,
+		});
 		const pending = await requestEdit(code);
 		expect(pending.id).not.toBe(rejected.id);
 		const content = JSON.parse(pending.content);
@@ -1512,7 +1551,10 @@ describe("WorkspaceDO", () => {
 		};
 		expect((await mergeOsCollaborationProposal(db, decision)).ok).toBe(true);
 		expect((await mergeOsCollaborationProposal(db, decision)).ok).toBe(false);
-		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(2);
+		expect(await data.getAppCode({ appId: "editable" })).toMatchObject({
+			revision: 2,
+			otherDraftCount: 0,
+		});
 		expect(
 			(await data.getAppCode({ appId: "editable" })).files["client.js"],
 		).toContain("After");

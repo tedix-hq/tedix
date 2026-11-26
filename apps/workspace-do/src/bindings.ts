@@ -340,6 +340,7 @@ export function buildWorkspaceBindings(
 				revisionId: app.revisionId,
 				proposalId: app.proposalId,
 				sequence: app.sequence,
+				otherDraftCount: app.otherDraftCount,
 				content: app.files[input.path],
 			};
 		},
@@ -359,7 +360,12 @@ export function buildWorkspaceBindings(
 					matches.push({ path, line: line + 1, text: value.slice(0, 2000) });
 				}
 			}
-			return { revisionId: app.revisionId, matches, truncated };
+			return {
+				revisionId: app.revisionId,
+				otherDraftCount: app.otherDraftCount,
+				matches,
+				truncated,
+			};
 		},
 		publishDraft: (input: PublishAppDraft) => data.publishAppDraft(input),
 		editFile: (input: {

@@ -6,6 +6,7 @@ import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { schemaDdl } from "../../test/schema-ddl";
 import { createD1Facade } from "../../test/d1-facade";
 import {
+	countOsAppDraftsFromElsewhere,
 	createOsCollaborationProposal,
 	decideOsCollaborationProposal,
 	getOsCollaborationProposal,
@@ -264,6 +265,47 @@ const decision = {
 };
 
 describe("OS collaboration proposals", () => {
+	it("counts only pending app drafts in scope outside this chat, including an editor with the same source ID", async () => {
+		const { db, sqlite } = fixture();
+		sqlite.exec(`INSERT INTO os_workspaces
+			SELECT 'ws-2', organization_id, name, description, status,
+				source_blueprint_id, source_blueprint_revision_id, created_by_kind,
+				created_by_id, created_at, updated_at FROM os_workspaces WHERE id = 'ws-1'`);
+		for (const [id, overrides] of [
+			["own", { sourceKind: "chat", sourceId: "chat-1" }],
+			["other", { sourceKind: "chat", sourceId: "chat-2" }],
+			[
+				"editor",
+				{ sourceKind: "user", sourceId: "chat-1", status: "accepted" },
+			],
+			["rejected", { status: "rejected" }],
+			["merged", { status: "merged" }],
+			["output", { documentType: "output" }],
+			["other-app", { documentId: "gadget-2" }],
+			["other-org", { organizationId: "org-2" }],
+			["other-workspace", { workspaceId: "ws-2" }],
+		] as const) {
+			await seedProposal(db, {
+				id,
+				documentType: "gadget",
+				documentId: "gadget-1",
+				...overrides,
+			});
+		}
+		const scope = {
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			gadgetId: "gadget-1",
+		};
+		expect(
+			await countOsAppDraftsFromElsewhere(db, {
+				...scope,
+				conversationId: "chat-1",
+			}),
+		).toBe(2);
+		expect(await countOsAppDraftsFromElsewhere(db, scope)).toBe(3);
+	});
+
 	it.each([
 		"DELETE FROM workspace_output_index",
 		"UPDATE workspace_output_index SET organization_id = 'org-2'",
