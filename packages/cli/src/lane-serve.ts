@@ -1270,6 +1270,46 @@ export function runnerChoice(
 	return null;
 }
 
+interface RunnerFailure {
+	category:
+		| "agent_gave_up"
+		| "timeout"
+		| "tedix_service_error"
+		| "database_unavailable"
+		| "validation_unavailable"
+		| "credential_exchange"
+		| "runner_error";
+	step: string;
+	source: "agent" | "tedix" | "runner";
+}
+
+// Classify caught step errors, never the agent's free-form explanation.
+function runnerFailure(error: unknown, step: string): RunnerFailure {
+	const message = String(error);
+	if (
+		/(?:credential|session).*exchange|exchange.*(?:credential|session)|EXTERNAL_AGENT_IDENTITY_REQUIRED/i.test(
+			message,
+		)
+	)
+		return { category: "credential_exchange", step, source: "tedix" };
+	if (
+		/D1_ERROR|database (?:temporarily )?(?:unavailable|is locked)|SQLITE_BUSY/i.test(
+			message,
+		)
+	)
+		return { category: "database_unavailable", step, source: "tedix" };
+	if (/timed? ?out|timeout|ETIMEDOUT/i.test(message))
+		return { category: "timeout", step, source: "runner" };
+	if (error instanceof CliReadError)
+		return { category: "tedix_service_error", step, source: "tedix" };
+	return {
+		category:
+			step === "result_validation" ? "validation_unavailable" : "runner_error",
+		step,
+		source: "runner",
+	};
+}
+
 interface Receipt {
 	itemId: string;
 	/** The task's title, so the Tedix app can name what runs on this Mac. */
@@ -1297,6 +1337,7 @@ interface Receipt {
 	attemptId?: string;
 	executorKey?: string;
 	outcome?: string;
+	failure?: RunnerFailure;
 	note?: string;
 	telemetry?: LaneObservation;
 	limits?: LaneLimits;
@@ -1425,8 +1466,9 @@ function landedForVerification(row: Receipt) {
 	return (
 		!row.verification &&
 		row.phase === "settled" &&
-		(row.outcome === "succeeded" || row.outcome === "landed_unverified") &&
-		row.laneResult?.outcome === "landed_unverified" &&
+		(row.outcome === "landed_unverified" ||
+			(row.outcome === "succeeded" &&
+				row.laneResult?.outcome === "landed_unverified")) &&
 		!!row.commits?.length
 	);
 }
@@ -2775,6 +2817,49 @@ export async function landedLaneCommits(
 	return landed;
 }
 
+/** A trailer proves something landed, not that this Attempt completed the outcome. */
+export async function mainWorkCommits(
+	repo: string,
+	workItemId: string,
+): Promise<string[]> {
+	try {
+		await gitOutput(repo, [
+			"fetch",
+			"--no-tags",
+			"origin",
+			"refs/heads/main:refs/remotes/origin/main",
+		]);
+		const candidates = (
+			await gitOutput(repo, [
+				"log",
+				"refs/remotes/origin/main",
+				"--format=%H",
+				"--fixed-strings",
+				`--grep=Work-Item: ${workItemId}`,
+			])
+		)
+			.split("\n")
+			.filter(Boolean);
+		for (const sha of candidates) {
+			const trailers = (
+				await gitOutput(repo, [
+					"show",
+					"-s",
+					"--format=%(trailers:only,unfold)",
+					sha,
+				])
+			)
+				.split("\n")
+				.filter((line) => /^Work-Item:/i.test(line));
+			if (trailers.length === 1 && trailers[0] === `Work-Item: ${workItemId}`)
+				return [sha];
+		}
+		return [];
+	} catch (error) {
+		throw new LaneCommitFetchError(String(error));
+	}
+}
+
 export async function mainLaneCommits(
 	repo: string,
 	commits: string[],
@@ -3193,6 +3278,7 @@ interface DispatcherDeps {
 		destination: string,
 	) => string | undefined | Promise<string | undefined>;
 	landedCommits: typeof landedLaneCommits;
+	workCommits: typeof mainWorkCommits;
 	mainCommits: (
 		repo: string,
 		commits: string[],
@@ -3284,6 +3370,7 @@ const defaultDeps: DispatcherDeps = {
 	baseCommit: (repo) => gitOutput(repo, ["rev-parse", "HEAD"]),
 	evictedWork: evictedLaneWork,
 	landedCommits: landedLaneCommits,
+	workCommits: mainWorkCommits,
 	mainCommits: mainLaneCommits,
 	existingCommits: existingLaneCommits,
 	landedDeployments,
@@ -4321,20 +4408,19 @@ export class LaneDispatcher {
 					row.pendingCommitProof === undefined &&
 					!row.completionPending
 				) {
-					await this.call(
-						[
-							"work",
-							"settle",
-							row.itemId,
-							"--outcome",
-							"failed",
-							"--note",
-							"Recorded agent process is dead; local work retained",
-						],
-						row.session,
-						row.executorKey,
-					);
-					attempt.outcome = "failed";
+					row.phase = "settling";
+					row.outcome = "failed";
+					row.note = "Recorded agent process is dead; local work retained";
+					row.failure ??= {
+						category: "runner_error",
+						step: "process_recovery",
+						source: "runner",
+					};
+					await this.recordUnpushedCommits(row);
+					await this.settle(row);
+					this.releasedAttempts.set(row.attemptId, row);
+					this.running.delete(row.itemId);
+					continue;
 				}
 				// A live lease is read again when it runs out; a process that
 				// cannot be verified stays as it is until the window passes.
@@ -6553,6 +6639,7 @@ export class LaneDispatcher {
 		let codexServer: CodexLaneServer | undefined;
 		let stepTimer: ReturnType<typeof setInterval> | undefined;
 		let stopKillTimer: ReturnType<typeof setTimeout> | undefined;
+		let failureStep = "preparation";
 		try {
 			let adoptedExpiry: number | undefined;
 			if (adopted) {
@@ -7617,6 +7704,10 @@ ${message.body}`,
 							if (run.stop || receipt.approvalWait) stopAgent();
 						},
 						onAgentStep: (step) => steps.add(step.kind, step.text),
+						onFailure: (error, step) => {
+							receipt.failure = runnerFailure(error, step);
+							this.save(path, receipt);
+						},
 						onTelemetry: (telemetry) => {
 							receipt.telemetry = telemetry;
 							this.save(path, receipt);
@@ -7715,6 +7806,7 @@ ${message.body}`,
 				}
 			};
 			// A stop that arrived during preparation starts no turn at all.
+			failureStep = "execution";
 			let exit = run.stop ? 1 : await runTurn(brief, resumed);
 			if (receipt.attemptId && this.releasedAttempts.has(receipt.attemptId))
 				return;
@@ -7836,6 +7928,7 @@ ${message.body}`,
 				};
 				receipt.note = receipt.laneResult.reason;
 			} else if (exit === 0 && receipt.outcome === "succeeded") {
+				failureStep = "result_validation";
 				let result: LaneResult | undefined;
 				if (executor === "codex") {
 					if (!existsSync(last))
@@ -7898,6 +7991,7 @@ ${message.body}`,
 				preflightPaused = true;
 				return;
 			}
+			receipt.failure = runnerFailure(error, failureStep);
 			receipt.outcome = receipt.interrupted
 				? "expired"
 				: error instanceof WorkRevisedDuringPreparationError ||
@@ -9310,6 +9404,7 @@ ${message.body}`,
 					return;
 				}
 				receipt.outcome = "failed";
+				receipt.failure = runnerFailure(error, "result_validation");
 				// Say whose failure this is and keep what the agent reported.
 				receipt.note =
 					`The runner failed while checking this run's result (${String(error).slice(0, 400)}). This is a runner fault, not the agent's result. ${receipt.note ?? ""}`.slice(
@@ -9335,7 +9430,57 @@ ${message.body}`,
 				? "landed_unverified"
 				: "failed";
 			receipt.note = receipt.limitState.reason;
+			receipt.failure = {
+				category: receipt.limitState.reason.includes("wall time")
+					? "timeout"
+					: "agent_gave_up",
+				step: "attempt_limit",
+				source: receipt.limitState.reason.includes("wall time")
+					? "runner"
+					: "agent",
+			};
 		}
+		if (
+			["failed", "cancelled"].includes(receipt.outcome ?? "") &&
+			!receipt.repoFree
+		) {
+			// Also covers stopped children, lost result files, and commits from an
+			// earlier Attempt. Do not require a success declaration or session custody.
+			let landed: string[];
+			try {
+				lease.stop();
+				lease.stop = this.keepLease(receipt);
+				landed = await this.deps.workCommits(
+					receipt.repo ?? this.options.repo,
+					receipt.itemId,
+				);
+			} catch (error) {
+				this.log("settlement-proof-deferred", receipt.itemId, String(error));
+				this.save(path, receipt);
+				return;
+			}
+			if (landed.length) {
+				receipt.commits = landed;
+				receipt.outcome = "landed_unverified";
+				delete receipt.localBranchProof;
+				delete receipt.skillRevisionProof;
+				delete receipt.runtimeAppProof;
+				delete receipt.existingProof;
+				delete receipt.repositoryProof;
+				delete receipt.existingCommitsProven;
+				receipt.note =
+					`Work commits are on origin/main (${landed.join(", ")}); accepted outcome still requires verification. ${receipt.note ?? ""}`.slice(
+						0,
+						1800,
+					);
+			}
+		}
+		if (receipt.outcome === "failed")
+			receipt.failure ??= {
+				category: "agent_gave_up",
+				step: "agent_result",
+				source: "agent",
+			};
 		const unlanded = recordUnlandedCommits(receipt);
 		const settlement: z.infer<typeof WorkAttemptSettlementSchema> | undefined =
 			receipt.localBranchProof
@@ -9399,6 +9544,13 @@ ${message.body}`,
 						...(complete ? { complete } : {}),
 						metadata: {
 							dispatchVersion: receipt.version,
+							...(receipt.failure
+								? {
+										failureCategory: receipt.failure.category,
+										failureStep: receipt.failure.step,
+										failureSource: receipt.failure.source,
+									}
+								: {}),
 							routing: receipt.routing ?? null,
 							session: receipt.session,
 							usage: receipt.telemetry?.usage ?? null,
@@ -9456,6 +9608,7 @@ ${message.body}`,
 
 			receipt.phase =
 				!receipt.verification &&
+				receipt.outcome !== "landed_unverified" &&
 				(["failed", "expired"].includes(receipt.outcome ?? "") ||
 					(receipt.outcome === "cancelled" &&
 						!receipt.laneResult &&
@@ -9807,21 +9960,17 @@ ${message.body}`,
 			if (!attempt.expiresAt || Date.parse(attempt.expiresAt) > Date.now()) {
 				if ((receipt.pid && alive(receipt.pid)) || !receipt.executorKey) return;
 				const note = `Attempt recovered without an agent process; retry after failed or interrupted start. ${receipt.note ?? ""}`;
-				await this.call(
-					[
-						"work",
-						"settle",
-						receipt.itemId,
-						"--outcome",
-						"failed",
-						"--note",
-						note,
-					],
-					receipt.session,
-					receipt.executorKey,
-				);
-				attempt.outcome = "failed";
+				receipt.phase = "settling";
+				receipt.outcome = "failed";
 				receipt.note = note;
+				receipt.failure ??= {
+					category: "runner_error",
+					step: "process_recovery",
+					source: "runner",
+				};
+				await this.recordUnpushedCommits(receipt);
+				await this.settle(receipt);
+				return;
 			} else {
 				receipt.outcome = "expired";
 				receipt.note ??=

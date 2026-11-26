@@ -44,6 +44,7 @@ import {
 	landedLaneCommits,
 	landedDeployments,
 	mainLaneCommits,
+	mainWorkCommits,
 	existingLaneCommits,
 	retainedLaneWorktree,
 	sharesHistoryWithMain,
@@ -349,6 +350,7 @@ function fixture({
 			return control.commits;
 		},
 		mainCommits: (_repo, commits) => commits,
+		workCommits: async () => control.commits,
 		landedDeployments: async (_repo, commits) => {
 			control.deploymentChecks.push(commits);
 			if (!control.deployments.length)
@@ -2284,31 +2286,35 @@ describe("dispatcher admission", () => {
 				1,
 			);
 		});
-		it("settles this session's live Attempt when no process exists", async () => {
-			const f = fixture();
-			f.items.splice(1);
-			const path = stuck(f);
-			f.control.history.data = [
-				{
-					id: "lost-attempt",
-					externalSessionKey: "codex:lost-session",
-					outcome: null,
-					metadata: { dispatchVersion: 2 },
-					expiresAt: new Date(Date.now() + 300_000).toISOString(),
-				},
-			];
-			await f.dispatcher.tick();
-			await f.dispatcher.drain();
-			expect(admissions(f)).toHaveLength(0);
-			const receipt = JSON.parse(readFileSync(path, "utf8"));
-			expect(receipt.attemptId).toBe("lost-attempt");
-			expect(receipt.admissionState).toBe("admitted");
-			expect(receipt.phase).toBe("deferred");
-			expect(receipt.outcome).toBe("failed");
-			expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(
-				1,
-			);
-		});
+		it.each([false, true])(
+			"settles this session's orphan with landed=%s",
+			async (landed) => {
+				const f = fixture();
+				f.items.splice(1);
+				if (landed) f.control.commits = ["b".repeat(40)];
+				const path = stuck(f);
+				f.control.history.data = [
+					{
+						id: "lost-attempt",
+						externalSessionKey: "codex:lost-session",
+						outcome: null,
+						metadata: { dispatchVersion: 2 },
+						expiresAt: new Date(Date.now() + 300_000).toISOString(),
+					},
+				];
+				await f.dispatcher.tick();
+				await f.dispatcher.drain();
+				expect(admissions(f)).toHaveLength(0);
+				const receipt = JSON.parse(readFileSync(path, "utf8"));
+				expect(receipt.attemptId).toBe("lost-attempt");
+				expect(receipt.admissionState).toBe("admitted");
+				expect(receipt.phase).toBe(landed ? "settled" : "deferred");
+				expect(receipt.outcome).toBe(landed ? "landed_unverified" : "failed");
+				expect(
+					f.events.filter((event) => event.verb === "settle"),
+				).toHaveLength(1);
+			},
+		);
 		it("settles a failed start response after admission and retries without lease expiry", async () => {
 			const f = fixture();
 			f.items.splice(1);
@@ -2340,6 +2346,8 @@ describe("dispatcher admission", () => {
 			expect(receipt.attemptId).toBe(attempt.id);
 			expect(receipt.phase).toBe("deferred");
 			expect(receipt.outcome).toBe("failed");
+			// Reflect the successful settlement in the fake canonical ledger.
+			attempt.outcome = "failed";
 			f.control.startResponseError = undefined;
 			await f.dispatcher.tick();
 			await until(() => f.releases.length === 1);
@@ -4521,7 +4529,7 @@ describe("dispatcher admission", () => {
 			"invalid",
 		],
 	] as const)(
-		"fails Codex result file %j despite successful telemetry and landed evidence",
+		"retains landed evidence as unverified for Codex result file %j",
 		async (content, reason) => {
 			const f = fixture();
 			f.items.splice(1);
@@ -4534,10 +4542,10 @@ describe("dispatcher admission", () => {
 			const saved = JSON.parse(
 				readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
 			);
-			expect(saved.outcome).toBe("failed");
+			expect(saved.outcome).toBe("landed_unverified");
 			expect(saved.note).toContain(`Codex lane result file is ${reason}`);
 			expect(f.events.find((event) => event.verb === "settle")!.args).toContain(
-				"failed",
+				"landed_unverified",
 			);
 			expect(f.events.some(requestsCompletion)).toBe(false);
 		},
@@ -4656,6 +4664,7 @@ describe("dispatcher admission", () => {
 			f.control.finalMessage =
 				"Push refused: this change conflicts with origin/main";
 			f.deps.mainCommits = (_repo, commits) => mainLaneCommits(repo, commits);
+			f.deps.workCommits = (_repo, workId) => mainWorkCommits(repo, workId);
 			const dispatcher = f.restart();
 			await dispatcher.tick();
 			await until(() => f.releases.length === 1);
@@ -4949,7 +4958,7 @@ describe("dispatcher admission", () => {
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
 		expect(f.events.some(requestsCompletion)).toBe(false);
 	});
-	it("keeps an explicitly incomplete coding result open despite its landed commit", async () => {
+	it("settles an explicitly incomplete coding result as landed_unverified when its commit landed", async () => {
 		const f = fixture();
 		f.items.splice(1);
 		f.items[0]!.workKind = "coding";
@@ -4960,12 +4969,99 @@ describe("dispatcher admission", () => {
 		f.releases[0]!();
 		await f.dispatcher.drain();
 		const settle = f.events.find((event) => event.verb === "settle")!;
-		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("rejected");
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+			"landed_unverified",
+		);
 		expect(settle.input).toMatchObject({
 			settlement: { mode: "commit", commitShas: ["a".repeat(40)] },
 		});
 		expect(f.events.some(requestsCompletion)).toBe(false);
 	});
+	it.each(["failed", "cancelled"])(
+		"recovers a %s run without a result file from its main trailer",
+		async (outcome) => {
+			const f = fixture();
+			const sha = "b".repeat(40);
+			f.control.commits = [sha];
+			await f.dispatcher["settle"]({
+				itemId: item().id,
+				version: 2,
+				phase: "settling",
+				outcome,
+				session: "codex:original",
+				executorKey: "executor",
+				attemptId: "attempt",
+				repo: join(f.dir, "repo"),
+				held: outcome === "cancelled",
+				note: "Child stopped",
+			});
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+				"landed_unverified",
+			);
+			expect(settle.input?.settlement).toEqual({
+				mode: "commit",
+				commitShas: [sha],
+			});
+			expect(f.events.some(requestsCompletion)).toBe(false);
+		},
+	);
+	it("retains failed settlement when the main-trailer check is unavailable", async () => {
+		const f = fixture();
+		f.deps.workCommits = async () => {
+			throw new LaneCommitFetchError("offline");
+		};
+		const dispatcher = f.restart();
+		await dispatcher["settle"]({
+			itemId: item().id,
+			version: 2,
+			phase: "settling",
+			outcome: "failed",
+			session: "codex:original",
+			executorKey: "executor",
+			attemptId: "attempt",
+			repo: join(f.dir, "repo"),
+			note: "Child failed",
+		});
+		expect(f.events.some((event) => event.verb === "settle")).toBe(false);
+	});
+	it.each([
+		[
+			new CliReadError("D1_ERROR: database unavailable"),
+			"database_unavailable",
+			"tedix",
+		],
+		[
+			new CliReadError("External-agent session exchange failed"),
+			"credential_exchange",
+			"tedix",
+		],
+		[
+			new CliReadError("Service unavailable", "SERVICE_UNAVAILABLE", 503),
+			"tedix_service_error",
+			"tedix",
+		],
+		[new Error("Process timed out"), "timeout", "runner"],
+	])(
+		"persists the cause reported by the child wrapper: %s",
+		async (error, category, source) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.deps.launch = async (_args, deps) => {
+				deps!.onFailure!(error, "work_delivery");
+				return 1;
+			};
+			const dispatcher = f.restart();
+			await dispatcher.tick();
+			await dispatcher.drain();
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.input?.metadata).toMatchObject({
+				failureCategory: category,
+				failureStep: "work_delivery",
+				failureSource: source,
+			});
+		},
+	);
 	it("bounds settlement notes after adding unlanded commit diagnostics", async () => {
 		const f = fixture();
 		f.items.splice(1);
@@ -4981,6 +5077,9 @@ describe("dispatcher admission", () => {
 		expect(note).toHaveLength(2000);
 		expect(note).toStartWith("Result:\nUnlanded:");
 		expect(settle.input?.metadata).toMatchObject({
+			failureCategory: "agent_gave_up",
+			failureSource: "agent",
+			failureStep: "agent_result",
 			laneResult: {
 				outcome: "incomplete",
 				remaining: "Push refused. ".repeat(120),
@@ -5182,7 +5281,7 @@ describe("dispatcher admission", () => {
 				});
 				expect(
 					f.events.filter((event) => event.verb === "settle").at(-1)?.args,
-				).toContain("rejected");
+				).toContain("landed_unverified");
 			}
 			if (verdict === "inconclusive")
 				expect(work.metadata?.laneDispatch).toMatchObject({
@@ -5391,7 +5490,7 @@ describe("dispatcher admission", () => {
 				settlement: { mode: "commit", commitShas: [commitSha] },
 			});
 			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
-				outcome === "completed" ? "succeeded" : "rejected",
+				outcome === "completed" ? "succeeded" : "landed_unverified",
 			);
 			expect(
 				f.events.filter(
@@ -9287,6 +9386,36 @@ it("rechecks collected commit reachability and retains unknown proof on Git fail
 	);
 	git(["remote", "set-url", "origin", join(root, "unavailable.git")]);
 	await expect(mainLaneCommits(repo, [landed])).rejects.toThrow(
+		LaneCommitFetchError,
+	);
+});
+
+it("finds main Work trailers without a cited SHA and excludes prose, duplicate trailers and unpushed commits", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const stale = join(root, "stale");
+	git(["clone", join(root, "origin.git"), stale]);
+	const commit = (message: string) => {
+		git([
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"--allow-empty",
+			"-m",
+			message,
+		]);
+		return git(["rev-parse", "HEAD"]);
+	};
+	commit(`Mention Work-Item: ${item().id} in prose`);
+	commit(`Duplicate\n\nWork-Item: ${item().id}\nWork-Item: ${item(2).id}`);
+	const landed = commit(
+		`Fix\n\nWork-Item: ${item().id}\nAgent-Session: codex:older`,
+	);
+	git(["push", "origin", "main"]);
+	commit(`Unpushed\n\nWork-Item: ${item().id}`);
+	expect(await mainWorkCommits(stale, item().id)).toEqual([landed]);
+	expect(await mainWorkCommits(repo, item(3).id)).toEqual([]);
+	git(["remote", "set-url", "origin", join(root, "unavailable.git")]);
+	await expect(mainWorkCommits(repo, item().id)).rejects.toBeInstanceOf(
 		LaneCommitFetchError,
 	);
 });

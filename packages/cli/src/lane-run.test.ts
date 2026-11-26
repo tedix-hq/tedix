@@ -847,6 +847,7 @@ it("reconciles Claude output only against the admitted native identity and trans
 		);
 		chmodSync(executable, 0o700);
 		const reports: Record<string, unknown>[] = [];
+		const failures: string[] = [];
 		const result = await runLaneProcess(
 			[
 				"run",
@@ -867,6 +868,7 @@ it("reconciles Claude output only against the admitted native identity and trans
 			{
 				cwd: dir,
 				sessionKey: id,
+				onFailure: (_error, step) => failures.push(step),
 				report: async (input) => {
 					reports.push(input);
 					return {};
@@ -874,6 +876,9 @@ it("reconciles Claude output only against the admitted native identity and trans
 			},
 		);
 		expect(result).toBe(mode === "ok" ? 0 : 1);
+		if (mode === "missing-transcript")
+			expect(failures).toContain("result_validation");
+		if (mode === "ok") expect(failures).toEqual([]);
 		expect(reports.at(-1)?.sessionKey).toBe(id);
 		expect(reports.at(-1)?.telemetry).toMatchObject({
 			usage: { input: 5, output: 2 },

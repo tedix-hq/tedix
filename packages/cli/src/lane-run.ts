@@ -232,6 +232,7 @@ async function runLaneProcessWithReporter(
 		/** A bounded summary of what the agent just did, for the run's log. */
 		onAgentStep?: (step: LaneStep) => void;
 		onTelemetry?: (value: LaneObservation) => void;
+		onFailure?: (error: unknown, step: string) => void;
 		onNativeActivity?: (value: NativeProviderActivity) => void;
 		providerStallMs?: number;
 		confirmProviderStallSafe?: (input: {
@@ -1125,11 +1126,13 @@ async function runLaneProcessWithReporter(
 					exitCode = 0;
 				} else if (nativeTurn.error) {
 					streamFailureMessage = JSON.stringify(nativeTurn.error).slice(-24000);
+					deps.onFailure?.(new Error(streamFailureMessage), "execution");
 				}
 			} else if (canStart()) {
 				[exitCode, signal] = await launchExec();
 			}
 		} catch (error) {
+			deps.onFailure?.(error, "execution");
 			appServer?.close();
 			exitCode = 1;
 			signal = null;
@@ -1252,6 +1255,7 @@ async function runLaneProcessWithReporter(
 			}
 		} catch (error) {
 			if (deps.sessionKey || devin) {
+				deps.onFailure?.(error, "result_validation");
 				exitCode = 1;
 				turnChecksFailed = true;
 			}
@@ -1260,6 +1264,7 @@ async function runLaneProcessWithReporter(
 		await heartbeat;
 		await updateLimitUsage().catch((error) => {
 			if (usageLimits) {
+				deps.onFailure?.(error, "result_validation");
 				exitCode = 1;
 				telemetry.finalMessage = `Attempt usage could not be checked: ${String(error)}`;
 			}
@@ -1291,6 +1296,7 @@ async function runLaneProcessWithReporter(
 				// The dispatcher needs the scoped declaration outside the delivery note.
 				exitCode = result.outcome === "succeeded" ? 0 : 1;
 			} catch (error) {
+				deps.onFailure?.(error, "work_delivery");
 				exitCode = 1;
 				telemetry.finalMessage = `Devin Work result delivery failed: ${String(error)}\n${telemetry.finalMessage}`;
 			}
@@ -1342,6 +1348,7 @@ async function runLaneProcessWithReporter(
 					].slice(0, 100);
 					break;
 				}
+				deps.onFailure?.(error, "work_delivery");
 				exitCode = 1;
 				telemetry.finalMessage = `Devin Work exchange failed: ${String(error)}\n${telemetry.finalMessage}`;
 			}
