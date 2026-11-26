@@ -435,13 +435,11 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 			.update(mcpConsentGrants)
 			.set({ lastUsedAt: "2026-12-31T00:00:00.000Z" });
 		vi.setSystemTime(new Date("2027-01-01T00:00:00.000Z"));
-		await db
-			.insert(mcpConsentGrants)
-			.values({
-				...active,
-				revision: "idle",
-				createdAt: "2026-10-01T00:00:00.000Z",
-			});
+		await db.insert(mcpConsentGrants).values({
+			...active,
+			revision: "idle",
+			createdAt: "2026-10-01T00:00:00.000Z",
+		});
 		const next = {
 			...pending,
 			revision: "next",
