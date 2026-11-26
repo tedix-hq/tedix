@@ -1,5 +1,7 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { jsonType } from "../core-store/dialect";
 import {
 	type KernelRuntimeRun,
 	kernelRuntimeRuns,
@@ -11,15 +13,11 @@ export async function hasPendingKernelWake(
 	db: DbClient,
 	organizationId: string,
 ): Promise<boolean> {
+	const table = coreTable(db, kernelWakeQueue);
 	const [row] = await db
-		.select({ id: kernelWakeQueue.id })
-		.from(kernelWakeQueue)
-		.where(
-			and(
-				eq(kernelWakeQueue.organizationId, organizationId),
-				isNull(kernelWakeQueue.ackedAt),
-			),
-		)
+		.select({ id: table.id })
+		.from(table)
+		.where(and(eq(table.organizationId, organizationId), isNull(table.ackedAt)))
 		.limit(1);
 	return row !== undefined;
 }
@@ -28,13 +26,14 @@ export async function listPendingKernelWakes(
 	db: DbClient,
 	input: { organizationId: string; limit: number },
 ) {
+	const table = coreTable(db, kernelWakeQueue);
 	return db
 		.select()
-		.from(kernelWakeQueue)
+		.from(table)
 		.where(
 			and(
-				eq(kernelWakeQueue.organizationId, input.organizationId),
-				isNull(kernelWakeQueue.ackedAt),
+				eq(table.organizationId, input.organizationId),
+				isNull(table.ackedAt),
 			),
 		)
 		.limit(input.limit);
@@ -44,10 +43,11 @@ export async function acknowledgeKernelWake(
 	db: DbClient,
 	input: { id: string; ackedAt: string },
 ): Promise<void> {
+	const table = coreTable(db, kernelWakeQueue);
 	await db
-		.update(kernelWakeQueue)
+		.update(table)
 		.set({ ackedAt: input.ackedAt })
-		.where(eq(kernelWakeQueue.id, input.id));
+		.where(eq(table.id, input.id));
 }
 
 export async function failActiveKernelRun(
@@ -59,8 +59,9 @@ export async function failActiveKernelRun(
 		now: string;
 	},
 ): Promise<boolean> {
+	const table = coreTable(db, kernelRuntimeRuns);
 	const rows = await db
-		.update(kernelRuntimeRuns)
+		.update(table)
 		.set({
 			status: "failed",
 			progressLabel: "Model unavailable",
@@ -70,12 +71,12 @@ export async function failActiveKernelRun(
 		})
 		.where(
 			and(
-				eq(kernelRuntimeRuns.id, input.id),
-				eq(kernelRuntimeRuns.organizationId, input.organizationId),
-				inArray(kernelRuntimeRuns.status, ["running", "queued"]),
+				eq(table.id, input.id),
+				eq(table.organizationId, input.organizationId),
+				inArray(table.status, ["running", "queued"]),
 			),
 		)
-		.returning({ id: kernelRuntimeRuns.id });
+		.returning({ id: table.id });
 	return rows.length > 0;
 }
 
@@ -87,17 +88,18 @@ export async function listKernelRunsByStatus(
 		limit: number;
 	},
 ) {
+	const table = coreTable(db, kernelRuntimeRuns);
 	return db
 		.select(kernelRuntimeRunStoredColumns)
-		.from(kernelRuntimeRuns)
+		.from(table)
 		.where(
 			and(
-				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				eq(table.organizationId, input.organizationId),
 				// bound-params: subset of the closed KernelRuntimeRun status enum
-				inArray(kernelRuntimeRuns.status, input.statuses),
+				inArray(table.status, input.statuses),
 			),
 		)
-		.orderBy(asc(kernelRuntimeRuns.updatedAt))
+		.orderBy(asc(table.updatedAt))
 		.limit(input.limit);
 }
 
@@ -105,13 +107,14 @@ export async function getKernelRunForRecovery(
 	db: DbClient,
 	input: { id: string; organizationId: string },
 ) {
+	const table = coreTable(db, kernelRuntimeRuns);
 	const [row] = await db
 		.select(kernelRuntimeRunStoredColumns)
-		.from(kernelRuntimeRuns)
+		.from(table)
 		.where(
 			and(
-				eq(kernelRuntimeRuns.id, input.id),
-				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				eq(table.id, input.id),
+				eq(table.organizationId, input.organizationId),
 			),
 		)
 		.limit(1);
@@ -127,17 +130,18 @@ export async function transitionKernelRunForRecovery(
 		patch: Partial<typeof kernelRuntimeRuns.$inferInsert>;
 	},
 ): Promise<boolean> {
+	const table = coreTable(db, kernelRuntimeRuns);
 	const rows = await db
-		.update(kernelRuntimeRuns)
+		.update(table)
 		.set(input.patch)
 		.where(
 			and(
-				eq(kernelRuntimeRuns.id, input.id),
-				eq(kernelRuntimeRuns.organizationId, input.organizationId),
-				eq(kernelRuntimeRuns.status, input.expectedStatus),
+				eq(table.id, input.id),
+				eq(table.organizationId, input.organizationId),
+				eq(table.status, input.expectedStatus),
 			),
 		)
-		.returning({ id: kernelRuntimeRuns.id });
+		.returning({ id: table.id });
 	return rows.length > 0;
 }
 
@@ -159,21 +163,22 @@ export async function claimUnroutedKernelRunForRedrive(
 		>;
 	},
 ): Promise<boolean> {
+	const table = coreTable(db, kernelRuntimeRuns);
 	const rows = await db
-		.update(kernelRuntimeRuns)
+		.update(table)
 		.set(input.patch)
 		.where(
 			and(
-				eq(kernelRuntimeRuns.id, input.id),
-				eq(kernelRuntimeRuns.organizationId, input.organizationId),
-				eq(kernelRuntimeRuns.status, input.expectedStatus),
-				isNull(kernelRuntimeRuns.delegatedTediId),
-				isNull(kernelRuntimeRuns.childRunId),
+				eq(table.id, input.id),
+				eq(table.organizationId, input.organizationId),
+				eq(table.status, input.expectedStatus),
+				isNull(table.delegatedTediId),
+				isNull(table.childRunId),
 				// 'null' is the stored "route not decided yet" marker; an absent key proves nothing.
-				sql`json_type(${kernelRuntimeRuns.metadata}, '$.kernelRoute') = 'null'`,
-				sql`coalesce(json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation'), 'null') = 'null'`,
+				sql`${jsonType(db, table.metadata, ["kernelRoute"])} = 'null'`,
+				sql`coalesce(${jsonType(db, table.metadata, ["homeDelegation"])}, 'null') = 'null'`,
 			),
 		)
-		.returning({ id: kernelRuntimeRuns.id });
+		.returning({ id: table.id });
 	return rows.length > 0;
 }

@@ -12,6 +12,8 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { anyIds, jsonRead } from "../core-store/dialect";
 import {
 	kernelRuntimeEvents,
 	kernelRuntimeRuns,
@@ -28,26 +30,27 @@ export async function listSettledKernelRunsForEvaluation(
 	db: DbClient,
 	input: { organizationId: string; cutoff: string; limit: number },
 ) {
+	const table = coreTable(db, kernelRuntimeRuns);
 	return db
 		.select({
-			id: kernelRuntimeRuns.id,
-			organizationId: kernelRuntimeRuns.organizationId,
-			status: kernelRuntimeRuns.status,
-			metadata: kernelRuntimeRuns.metadata,
-			createdAt: kernelRuntimeRuns.createdAt,
-			delegatedTediId: kernelRuntimeRuns.delegatedTediId,
-			childRunId: kernelRuntimeRuns.childRunId,
+			id: table.id,
+			organizationId: table.organizationId,
+			status: table.status,
+			metadata: table.metadata,
+			createdAt: table.createdAt,
+			delegatedTediId: table.delegatedTediId,
+			childRunId: table.childRunId,
 		})
-		.from(kernelRuntimeRuns)
+		.from(table)
 		.where(
 			and(
-				eq(kernelRuntimeRuns.organizationId, input.organizationId),
-				inArray(kernelRuntimeRuns.status, ["completed", "failed", "canceled"]),
-				gte(kernelRuntimeRuns.createdAt, input.cutoff),
-				isNotNull(kernelRuntimeRuns.metadata),
+				eq(table.organizationId, input.organizationId),
+				inArray(table.status, ["completed", "failed", "canceled"]),
+				gte(table.createdAt, input.cutoff),
+				isNotNull(table.metadata),
 			),
 		)
-		.orderBy(desc(kernelRuntimeRuns.createdAt))
+		.orderBy(desc(table.createdAt))
 		.limit(input.limit);
 }
 
@@ -60,15 +63,16 @@ export async function listExistingKernelEvalResultIds(
 		limit: number;
 	},
 ) {
+	const table = coreTable(db, harnessSubjectEvalResults);
 	return db
-		.select({ id: harnessSubjectEvalResults.id })
-		.from(harnessSubjectEvalResults)
+		.select({ id: table.id })
+		.from(table)
 		.where(
 			and(
-				eq(harnessSubjectEvalResults.orgId, input.organizationId),
-				eq(harnessSubjectEvalResults.subjectKind, "kernel"),
-				eq(harnessSubjectEvalResults.subjectId, input.subjectId),
-				eq(harnessSubjectEvalResults.harnessVersionId, input.harnessVersionId),
+				eq(table.orgId, input.organizationId),
+				eq(table.subjectKind, "kernel"),
+				eq(table.subjectId, input.subjectId),
+				eq(table.harnessVersionId, input.harnessVersionId),
 			),
 		)
 		.limit(input.limit);
@@ -81,34 +85,26 @@ export async function listCorrectedKernelRunIds(
 	input: { organizationId: string; runIds: string[] },
 ): Promise<string[]> {
 	if (input.runIds.length === 0) return [];
-	const metadata = harnessSubjectEvalResults.metadata;
-	const runId = sql<string>`CASE WHEN json_valid(${metadata}) THEN json_extract(${metadata}, '$.runId') ELSE NULL END`;
-	const source = sql<string>`CASE WHEN json_valid(${metadata}) THEN json_extract(${metadata}, '$.source') ELSE NULL END`;
-	const corrected: string[] = [];
-	for (const chunk of chunkForBoundParams(
-		[...new Set(input.runIds)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		const rows = await db
-			.select({ runId })
-			.from(harnessSubjectEvalResults)
-			.where(
-				and(
-					eq(harnessSubjectEvalResults.orgId, input.organizationId),
-					eq(harnessSubjectEvalResults.subjectKind, "kernel"),
-					eq(
-						harnessSubjectEvalResults.subjectId,
-						`kernel:${input.organizationId}`,
-					),
-					sql`${source} = 'kernel-route-correction'`,
-					inArray(runId, chunk),
-				),
-			)
-			.groupBy(runId)
-			.limit(chunk.length);
-		corrected.push(...rows.map((row) => row.runId));
-	}
-	return corrected;
+	const table = coreTable(db, harnessSubjectEvalResults);
+	const ids = [...new Set(input.runIds)];
+	const metadata = table.metadata;
+	const runId = sql<string>`${jsonRead(db, metadata, ["runId"])}`;
+	const source = jsonRead(db, metadata, ["source"]);
+	const rows = await db
+		.select({ runId })
+		.from(table)
+		.where(
+			and(
+				eq(table.orgId, input.organizationId),
+				eq(table.subjectKind, "kernel"),
+				eq(table.subjectId, `kernel:${input.organizationId}`),
+				sql`${source} = 'kernel-route-correction'`,
+				anyIds(db, runId, ids),
+			),
+		)
+		.groupBy(runId)
+		.limit(ids.length);
+	return rows.map((row) => row.runId);
 }
 
 export async function listKernelEvaluationEvents(
@@ -120,18 +116,19 @@ export async function listKernelEvaluationEvents(
 	},
 ) {
 	if (input.runIds.length === 0) return [];
+	const table = coreTable(db, kernelRuntimeEvents);
 	const selectChunk = (chunk: string[]) =>
 		db
 			.select({
-				runId: kernelRuntimeEvents.runId,
-				kind: kernelRuntimeEvents.kind,
-				payload: kernelRuntimeEvents.payload,
+				runId: table.runId,
+				kind: table.kind,
+				payload: table.payload,
 			})
-			.from(kernelRuntimeEvents)
+			.from(table)
 			.where(
 				and(
-					eq(kernelRuntimeEvents.organizationId, input.organizationId),
-					inArray(kernelRuntimeEvents.runId, chunk),
+					eq(table.organizationId, input.organizationId),
+					inArray(table.runId, chunk),
 				),
 			);
 	const rows: Awaited<ReturnType<typeof selectChunk>> = [];
@@ -158,33 +155,34 @@ export async function listKernelRouteCorrectionEvents(
 		after?: { createdAt: string; id: string };
 	},
 ) {
-	const validAction = sql`CASE WHEN json_valid(${kernelRuntimeEvents.payload}) THEN json_extract(${kernelRuntimeEvents.payload}, '$.action') ELSE NULL END`;
+	const table = coreTable(db, kernelRuntimeEvents);
+	const validAction = jsonRead(db, table.payload, ["action"]);
 	return db
 		.select({
-			id: kernelRuntimeEvents.id,
-			runId: kernelRuntimeEvents.runId,
-			createdAt: kernelRuntimeEvents.createdAt,
-			payload: kernelRuntimeEvents.payload,
+			id: table.id,
+			runId: table.runId,
+			createdAt: table.createdAt,
+			payload: table.payload,
 		})
-		.from(kernelRuntimeEvents)
+		.from(table)
 		.where(
 			and(
-				eq(kernelRuntimeEvents.organizationId, input.organizationId),
-				eq(kernelRuntimeEvents.kind, "decision.recorded"),
-				gte(kernelRuntimeEvents.createdAt, input.cutoff),
+				eq(table.organizationId, input.organizationId),
+				eq(table.kind, "decision.recorded"),
+				gte(table.createdAt, input.cutoff),
 				sql`${validAction} = 'kernel.route_corrected'`,
 				input.after
 					? or(
-							gt(kernelRuntimeEvents.createdAt, input.after.createdAt),
+							gt(table.createdAt, input.after.createdAt),
 							and(
-								eq(kernelRuntimeEvents.createdAt, input.after.createdAt),
-								gt(kernelRuntimeEvents.id, input.after.id),
+								eq(table.createdAt, input.after.createdAt),
+								gt(table.id, input.after.id),
 							),
 						)
 					: undefined,
 			),
 		)
-		.orderBy(asc(kernelRuntimeEvents.createdAt), asc(kernelRuntimeEvents.id))
+		.orderBy(asc(table.createdAt), asc(table.id))
 		.limit(input.limit);
 }
 
@@ -194,24 +192,16 @@ export async function listKernelRunsForCorrection(
 	input: { organizationId: string; runIds: string[] },
 ) {
 	if (input.runIds.length === 0) return [];
-	const rows: Array<KernelRuntimeRun> = [];
-	for (const chunk of chunkForBoundParams(
-		[...new Set(input.runIds)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		rows.push(
-			...(await db
-				.select(kernelRuntimeRunStoredColumns)
-				.from(kernelRuntimeRuns)
-				.where(
-					and(
-						eq(kernelRuntimeRuns.organizationId, input.organizationId),
-						inArray(kernelRuntimeRuns.id, chunk),
-					),
-				)),
+	const table = coreTable(db, kernelRuntimeRuns);
+	return db
+		.select(kernelRuntimeRunStoredColumns)
+		.from(table)
+		.where(
+			and(
+				eq(table.organizationId, input.organizationId),
+				anyIds(db, table.id, [...new Set(input.runIds)]),
+			),
 		);
-	}
-	return rows;
 }
 
 /** This rare correction lookup preserves the version and original grade history. */
@@ -219,25 +209,23 @@ export async function listKernelEvalResultsForPriorRun(
 	db: DbClient,
 	input: { organizationId: string; runId: string },
 ) {
-	const runId = sql`CASE WHEN json_valid(${harnessSubjectEvalResults.metadata}) THEN json_extract(${harnessSubjectEvalResults.metadata}, '$.runId') ELSE NULL END`;
+	const table = coreTable(db, harnessSubjectEvalResults);
+	const runId = sql<string>`${jsonRead(db, table.metadata, ["runId"])}`;
 	return db
 		.select()
-		.from(harnessSubjectEvalResults)
+		.from(table)
 		.where(
 			and(
-				eq(harnessSubjectEvalResults.orgId, input.organizationId),
-				eq(harnessSubjectEvalResults.subjectKind, "kernel"),
-				inArray(harnessSubjectEvalResults.subjectId, [
+				eq(table.orgId, input.organizationId),
+				eq(table.subjectKind, "kernel"),
+				inArray(table.subjectId, [
 					`kernel:${input.organizationId}`,
 					`tedi-selection:${input.organizationId}`,
 				]),
 				sql`${runId} = ${input.runId}`,
 			),
 		)
-		.orderBy(
-			asc(harnessSubjectEvalResults.createdAt),
-			asc(harnessSubjectEvalResults.id),
-		)
+		.orderBy(asc(table.createdAt), asc(table.id))
 		.limit(40);
 }
 
@@ -246,15 +234,16 @@ export async function getKernelCorrectionEvalRevision(
 	db: DbClient,
 	input: { organizationId: string; id: string },
 ) {
+	const table = coreTable(db, harnessSubjectEvalResults);
 	return (
 		await db
 			.select()
-			.from(harnessSubjectEvalResults)
+			.from(table)
 			.where(
 				and(
-					eq(harnessSubjectEvalResults.orgId, input.organizationId),
-					eq(harnessSubjectEvalResults.subjectKind, "kernel"),
-					eq(harnessSubjectEvalResults.id, input.id),
+					eq(table.orgId, input.organizationId),
+					eq(table.subjectKind, "kernel"),
+					eq(table.id, input.id),
 				),
 			)
 			.limit(1)
@@ -266,23 +255,21 @@ export async function listChildTurnEvidenceEvents(
 	input: { organizationId: string; runIds: string[] },
 ) {
 	if (input.runIds.length === 0) return [];
+	const table = coreTable(db, tediRuntimeEvents);
 	const selectChunk = (chunk: string[]) =>
 		db
 			.select({
-				runId: tediRuntimeEvents.runId,
-				kind: tediRuntimeEvents.kind,
-				payload: tediRuntimeEvents.payload,
-				createdAt: tediRuntimeEvents.createdAt,
+				runId: table.runId,
+				kind: table.kind,
+				payload: table.payload,
+				createdAt: table.createdAt,
 			})
-			.from(tediRuntimeEvents)
+			.from(table)
 			.where(
 				and(
-					eq(tediRuntimeEvents.organizationId, input.organizationId),
-					inArray(tediRuntimeEvents.runId, chunk),
-					inArray(tediRuntimeEvents.kind, [
-						"tool.started",
-						"message.completed",
-					]),
+					eq(table.organizationId, input.organizationId),
+					inArray(table.runId, chunk),
+					inArray(table.kind, ["tool.started", "message.completed"]),
 				),
 			);
 	const rows: Awaited<ReturnType<typeof selectChunk>> = [];

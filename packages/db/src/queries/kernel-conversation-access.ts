@@ -1,6 +1,7 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { chunkForBoundParams } from "../utils/batch";
+import { coreTable } from "../core-store/client";
+import { anyIds } from "../core-store/dialect";
 import {
 	type KernelConversationGrant,
 	kernelConversationGrants,
@@ -10,13 +11,14 @@ export async function listKernelConversationGrants(
 	db: DbClient,
 	input: { organizationId: string; conversationId: string; limit?: number },
 ): Promise<KernelConversationGrant[]> {
+	const table = coreTable(db, kernelConversationGrants);
 	return db
 		.select()
-		.from(kernelConversationGrants)
+		.from(table)
 		.where(
 			and(
-				eq(kernelConversationGrants.organizationId, input.organizationId),
-				eq(kernelConversationGrants.conversationId, input.conversationId),
+				eq(table.organizationId, input.organizationId),
+				eq(table.conversationId, input.conversationId),
 			),
 		)
 		.limit(input.limit ?? 50);
@@ -28,21 +30,21 @@ export async function listKernelConversationGrantsByConversation(
 	input: { organizationId: string; conversationIds: string[] },
 ): Promise<Map<string, KernelConversationGrant[]>> {
 	const grouped = new Map<string, KernelConversationGrant[]>();
-	for (const chunk of chunkForBoundParams(input.conversationIds, 90)) {
-		const rows = await db
-			.select()
-			.from(kernelConversationGrants)
-			.where(
-				and(
-					eq(kernelConversationGrants.organizationId, input.organizationId),
-					inArray(kernelConversationGrants.conversationId, chunk),
-				),
-			);
-		for (const row of rows) {
-			const list = grouped.get(row.conversationId) ?? [];
-			list.push(row);
-			grouped.set(row.conversationId, list);
-		}
+	if (input.conversationIds.length === 0) return grouped;
+	const table = coreTable(db, kernelConversationGrants);
+	const rows = await db
+		.select()
+		.from(table)
+		.where(
+			and(
+				eq(table.organizationId, input.organizationId),
+				anyIds(db, table.conversationId, input.conversationIds),
+			),
+		);
+	for (const row of rows) {
+		const list = grouped.get(row.conversationId) ?? [];
+		list.push(row);
+		grouped.set(row.conversationId, list);
 	}
 	return grouped;
 }

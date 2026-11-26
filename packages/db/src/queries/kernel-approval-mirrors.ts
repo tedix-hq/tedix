@@ -1,7 +1,8 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { anyIds } from "../core-store/dialect";
 import { kernelHomeApprovalMirrors } from "../schema/index";
-import { chunkForBoundParams } from "../utils/batch";
 
 export type ActiveKernelApprovalMirror = Pick<
 	typeof kernelHomeApprovalMirrors.$inferSelect,
@@ -29,10 +30,11 @@ export async function createKernelApprovalMirror(
 		escalateAt: number;
 	},
 ): Promise<void> {
+	const table = coreTable(db, kernelHomeApprovalMirrors);
 	await db
-		.insert(kernelHomeApprovalMirrors)
+		.insert(table)
 		.values({ ...input, delegatedTediId: input.delegatedTediId ?? null })
-		.onConflictDoNothing({ target: kernelHomeApprovalMirrors.id });
+		.onConflictDoNothing({ target: table.id });
 }
 
 /** A mirror row this call — and only this call — moved to `escalated`. */
@@ -58,31 +60,25 @@ export async function escalateKernelApprovalMirrors(
 	input: { ids: string[]; escalatedAt: string },
 ): Promise<EscalatedKernelApprovalMirror[]> {
 	if (input.ids.length === 0) return [];
-	const escalated: EscalatedKernelApprovalMirror[] = [];
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	for (const chunk of chunkForBoundParams([...new Set(input.ids)], 50)) {
-		escalated.push(
-			...(await db
-				.update(kernelHomeApprovalMirrors)
-				.set({
-					status: "escalated",
-					escalatedAt: input.escalatedAt,
-					updatedAt: input.escalatedAt,
-				})
-				.where(
-					and(
-						inArray(kernelHomeApprovalMirrors.id, chunk),
-						eq(kernelHomeApprovalMirrors.status, "pending"),
-						isNull(kernelHomeApprovalMirrors.clearedAt),
-					),
-				)
-				.returning({
-					id: kernelHomeApprovalMirrors.id,
-					approvalRequestId: kernelHomeApprovalMirrors.approvalRequestId,
-				})),
-		);
-	}
-	return escalated;
+	const table = coreTable(db, kernelHomeApprovalMirrors);
+	return db
+		.update(table)
+		.set({
+			status: "escalated",
+			escalatedAt: input.escalatedAt,
+			updatedAt: input.escalatedAt,
+		})
+		.where(
+			and(
+				anyIds(db, table.id, [...new Set(input.ids)]),
+				eq(table.status, "pending"),
+				isNull(table.clearedAt),
+			),
+		)
+		.returning({
+			id: table.id,
+			approvalRequestId: table.approvalRequestId,
+		});
 }
 
 export async function clearKernelApprovalMirrors(
@@ -95,26 +91,19 @@ export async function clearKernelApprovalMirrors(
 		clearedAt: string;
 	},
 ): Promise<void> {
+	const table = coreTable(db, kernelHomeApprovalMirrors);
 	await db
-		.update(kernelHomeApprovalMirrors)
+		.update(table)
 		.set({ clearedAt: input.clearedAt, updatedAt: input.clearedAt })
 		.where(
 			and(
-				eq(kernelHomeApprovalMirrors.organizationId, input.organizationId),
-				eq(
-					kernelHomeApprovalMirrors.parentConversationId,
-					input.parentConversationId,
-				),
-				eq(kernelHomeApprovalMirrors.childRunId, input.childRunId),
+				eq(table.organizationId, input.organizationId),
+				eq(table.parentConversationId, input.parentConversationId),
+				eq(table.childRunId, input.childRunId),
 				...(input.approvalRequestId
-					? [
-							eq(
-								kernelHomeApprovalMirrors.approvalRequestId,
-								input.approvalRequestId,
-							),
-						]
+					? [eq(table.approvalRequestId, input.approvalRequestId)]
 					: []),
-				isNull(kernelHomeApprovalMirrors.clearedAt),
+				isNull(table.clearedAt),
 			),
 		);
 }
