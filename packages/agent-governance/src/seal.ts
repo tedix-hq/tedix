@@ -266,8 +266,8 @@ export async function importSigningKey(
 		true,
 		["sign"],
 	);
-	const jwk = (await crypto.subtle.exportKey("jwk", privateKey)) as JsonWebKey;
-	if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || !jwk.x)
+	const jwk = await crypto.subtle.exportKey("jwk", privateKey);
+	if (!("kty" in jwk) || jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || !jwk.x)
 		throw new TypeError("The signing key is not an Ed25519 key");
 	const publicKey = await crypto.subtle.importKey(
 		"jwk",
