@@ -59,10 +59,10 @@ alert that says the app is damaged or will damage your computer. See
 for more about these warnings.
 
 You can connect an app later in **Settings → Agents**. To start over with an
-app, switch it off, choose the trash icon on its row, then
-**Connect**. Removing Tedix ends only that install's Tedix sign-in. Other
-agents, installs and CLI logins stay signed in. If removal cannot reach the
-server, the connection stays so you can try again.
+app, choose **Remove Tedix** on its row, then **Connect**. Tedix asks first
+and switches that app off for tasks. Removing Tedix ends only that install's
+Tedix sign-in. Other agents, installs and CLI logins stay signed in. If
+removal cannot reach the server, the connection stays so you can try again.
 If you installed both the Mac app and a separate coding tool for the same
 provider, Tedix uses the Mac app when its coding tool is ready.
 
