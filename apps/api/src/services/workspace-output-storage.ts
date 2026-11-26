@@ -90,6 +90,20 @@ async function readLocation(
 		: undefined;
 }
 
+/** The caller already checked workspace access; read its current file in one RPC. */
+export async function getOsOutputWithCurrentRevision(
+	db: DbQueryClient,
+	params: OsWorkspaceScopeParams & { outputId: string },
+) {
+	const result = await readRuntime().outputQuery(params, {
+		op: "current",
+		outputId: params.outputId,
+	});
+	if (result)
+		await markRowsRead(db, params.organizationId, "output", [params.outputId]);
+	return result;
+}
+
 export async function getOsOutput(
 	...args: [db: DbQueryClient, params: OutputScope]
 ) {

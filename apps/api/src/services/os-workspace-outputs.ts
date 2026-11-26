@@ -342,6 +342,28 @@ async function migrateSheetRevision(
 	return readOutputRevisionStorage({ ...row, ...body, content: "" }, bucket);
 }
 
+export async function getOsOutputWithCurrentRevision(
+	db: Parameters<typeof outputs.getOsOutputWithCurrentRevision>[0],
+	params: Parameters<typeof outputs.getOsOutputWithCurrentRevision>[1],
+	bucket?: OutputBodyBucket,
+) {
+	const result = await outputs.getOsOutputWithCurrentRevision(db, params);
+	if (!result) return undefined;
+	return {
+		output: result.output,
+		revision: await hydrateOutputRevision(
+			await migrateSheetRevision(
+				db,
+				result.revision,
+				params.workspaceId,
+				bucket,
+				false,
+			),
+			bucket,
+		),
+	};
+}
+
 export async function getOsOutputRevision(
 	db: Parameters<typeof outputs.getOsOutputRevision>[0],
 	params: Parameters<typeof outputs.getOsOutputRevision>[1],

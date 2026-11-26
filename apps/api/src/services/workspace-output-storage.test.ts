@@ -242,6 +242,46 @@ describe("workspace output storage authority", () => {
 		).toEqual([]);
 	});
 
+	it("reads the current file directly in its workspace and refuses stale or foreign files", async () => {
+		const { core, coreSql, tenant, output, revision } = await fixture();
+		await executeOutputQuery(tenant, scope, { op: "create", output, revision });
+		// App slots already identify the workspace; feed publication need not have finished.
+		coreSql.exec("DROP TABLE workspace_output_index");
+		const params = { ...scope, outputId: output.id };
+		expect(
+			await storage.getOsOutputWithCurrentRevision(core, params),
+		).toMatchObject({
+			output: { id: output.id },
+			revision: { id: revision.id },
+		});
+		expect(
+			await storage.getOsOutputWithCurrentRevision(core, {
+				...params,
+				organizationId: "other-org",
+			}),
+		).toBeUndefined();
+		expect(
+			await storage.getOsOutputWithCurrentRevision(core, {
+				...params,
+				workspaceId: "other-workspace",
+			}),
+		).toBeUndefined();
+		await tenant
+			.update(osOutputs)
+			.set({ currentRevisionId: "missing" })
+			.where(eq(osOutputs.id, output.id));
+		expect(
+			await storage.getOsOutputWithCurrentRevision(core, params),
+		).toBeUndefined();
+		await tenant
+			.update(osOutputs)
+			.set({ currentRevisionId: revision.id, status: "archived" })
+			.where(eq(osOutputs.id, output.id));
+		expect(
+			await storage.getOsOutputWithCurrentRevision(core, params),
+		).toBeUndefined();
+	});
+
 	it("lists only the organization index without a runtime, excluding shared-only rows", async () => {
 		const { core, output, revision } = await fixture(false);
 		await d1Outputs.createOsOutput(core, scope, output, revision);

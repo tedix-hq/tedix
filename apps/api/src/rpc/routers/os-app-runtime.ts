@@ -58,6 +58,7 @@ import { getOsOutput } from "../../services/workspace-output-storage";
 import { parseOutputContentWithImages } from "../../services/os-output-assets";
 import {
 	getOsOutputRevision,
+	getOsOutputWithCurrentRevision,
 	readStoredOutputRevision,
 	createOsOutputRevision,
 } from "../../services/os-workspace-outputs";
@@ -1187,10 +1188,19 @@ export function createOsAppRuntimeRouter() {
 		) {
 			if (resource.providerId !== "tedix" || resource.resourceType !== "output")
 				throw createError(ErrorCodes.FORBIDDEN, "Slot is not an Output");
-			const output = await getOsOutput(queryDb(acting), {
+			const outputScope = {
 				organizationId: scope.organizationId,
+				workspaceId: scope.workspaceId,
 				outputId: resource.providerResourceId,
-			});
+			};
+			const current =
+				input.operation === "outputs.read"
+					? await getOsOutputWithCurrentRevision(queryDb(acting), outputScope)
+					: undefined;
+			const output =
+				input.operation === "outputs.read"
+					? current?.output
+					: await getOsOutput(queryDb(acting), outputScope);
 			if (
 				!output ||
 				output.workspaceId !== scope.workspaceId ||
@@ -1198,14 +1208,17 @@ export function createOsAppRuntimeRouter() {
 				!output.currentRevisionId
 			)
 				throw createError(ErrorCodes.NOT_FOUND, "Granted Output unavailable");
-			const revision = await (
-				input.operation === "outputs.read" || output.kind !== "sheet"
-					? getOsOutputRevision
-					: readStoredOutputRevision
-			)(queryDb(acting), {
-				organizationId: scope.organizationId,
-				revisionId: output.currentRevisionId,
-			});
+			const revision =
+				current?.revision ??
+				(await (
+					input.operation === "outputs.read" || output.kind !== "sheet"
+						? getOsOutputRevision
+						: readStoredOutputRevision
+				)(queryDb(acting), {
+					organizationId: scope.organizationId,
+					revisionId: output.currentRevisionId,
+					workspaceId: scope.workspaceId,
+				}));
 			const envelope = parseDerivedAccessEnvelope(
 				revision?.accessEnvelope ?? null,
 			);

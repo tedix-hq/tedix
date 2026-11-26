@@ -63,6 +63,7 @@ export interface OutputQueryInputs {
 	list: { options?: outputs.ListOsOutputsOptions };
 	activeSheet: { title: string };
 	get: { outputId: string };
+	current: { outputId: string };
 	revision: { revisionId: string };
 	revisionByNumber: { outputId: string; revision: number };
 	history: {
@@ -99,6 +100,7 @@ export interface OutputQueryResults {
 	list: Awaited<ReturnType<typeof outputs.listOsOutputs>>;
 	activeSheet: Awaited<ReturnType<typeof outputs.getActiveSheetByTitle>>;
 	get: Awaited<ReturnType<typeof outputs.getOsOutput>>;
+	current: { output: OsOutputRow; revision: OsOutputRevisionRow } | undefined;
 	revision: Awaited<ReturnType<typeof outputs.getOsOutputRevision>>;
 	revisionByNumber: Awaited<
 		ReturnType<typeof outputs.getOsOutputRevisionByNumber>
@@ -205,6 +207,21 @@ async function execute(
 			);
 		case "get":
 			return owned(query.outputId);
+		case "current": {
+			const output = await outputs.getOsOutput(db, params(query.outputId));
+			if (
+				!output?.currentRevisionId ||
+				output.workspaceId !== scope.workspaceId ||
+				output.status !== "active"
+			)
+				return undefined;
+			const revision = await outputs.getOsOutputRevision(db, {
+				organizationId: scope.organizationId,
+				revisionId: output.currentRevisionId,
+			});
+			if (!revision || revision.outputId !== output.id) return undefined;
+			return { output, revision };
+		}
 		case "revision": {
 			const revision = await outputs.getOsOutputRevision(db, {
 				organizationId: scope.organizationId,
