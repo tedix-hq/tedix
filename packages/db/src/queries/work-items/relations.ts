@@ -1,6 +1,6 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { recordWorkRelationEdges } from "../decision-graph-writers";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkItemDisposition,
@@ -107,38 +107,6 @@ export async function findWorkItemsBlockedBy(
 			),
 		)
 		.orderBy(asc(workItems.createdAt));
-}
-
-export async function firstNonTerminalBlocker(
-	db: DbQueryClient,
-	workItemId: string,
-	orgId?: string,
-): Promise<WorkItemDependencyRow | null> {
-	return (
-		(
-			await db
-				.select({
-					id: workItems.id,
-					title: workItems.title,
-					disposition: workItems.disposition,
-				})
-				.from(workItemRelations)
-				.innerJoin(
-					workItems,
-					eq(workItems.id, workItemRelations.fromWorkItemId),
-				)
-				.where(
-					and(
-						eq(workItemRelations.toWorkItemId, workItemId),
-						eq(workItemRelations.relationType, "blocks"),
-						ne(workItems.disposition, "completed"),
-						ne(workItems.disposition, "cancelled"),
-						orgId ? eq(workItemRelations.orgId, orgId) : undefined,
-					),
-				)
-				.limit(1)
-		)[0] ?? null
-	);
 }
 
 export interface WorkItemRelationRow {

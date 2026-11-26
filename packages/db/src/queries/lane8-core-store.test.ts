@@ -67,7 +67,6 @@ import {
 	setConnectionConsumerGrants,
 	getConnectionConsumerGrants,
 	buildApplyOrganizationPlanFeaturesStatement,
-	decrementAppCount,
 } from "./organizations";
 import {
 	readAuthContextCacheVersion,
@@ -534,12 +533,6 @@ for (const store of ["d1", "postgres"] as const)
 				.from(coreTable(db, organizations))
 				.where(eq(coreTable(db, organizations).id, "org"));
 			expect(org?.features?.os).toBe(false);
-			await decrementAppCount(db, "org");
-			const [counted] = await db
-				.select()
-				.from(coreTable(db, organizations))
-				.where(eq(coreTable(db, organizations).id, "org"));
-			expect(counted?.appsCount).toBe(0);
 			for (const [id, appSlug, toolId] of [
 				["global", "*", "*"],
 				["exact", "app", "write"],

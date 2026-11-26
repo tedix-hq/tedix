@@ -13,7 +13,6 @@ import { deriveWorkItemReadiness } from "./readiness";
 import {
 	addWorkItemRelation,
 	findWorkItemsBlockedBy,
-	firstNonTerminalBlocker,
 	queryWorkItemBlockers,
 } from "./relations";
 
@@ -134,24 +133,6 @@ describe("canonical Work Item dependencies", () => {
 			).state,
 		).toBe("ready");
 	});
-
-	it.each(["completed", "cancelled"])(
-		"treats %s as a terminal blocker disposition",
-		async (disposition) => {
-			const { db, seed } = fixture();
-			seed("blocker", disposition);
-			seed("target");
-			await addWorkItemRelation(db, {
-				id: "r",
-				orgId: "org",
-				fromWorkItemId: "blocker",
-				toWorkItemId: "target",
-				relationType: "blocks",
-				createdAt: NOW,
-			});
-			expect(await firstNonTerminalBlocker(db, "target", "org")).toBeNull();
-		},
-	);
 
 	it("rejects cross-organization relation endpoints", async () => {
 		const { db, seed } = fixture();

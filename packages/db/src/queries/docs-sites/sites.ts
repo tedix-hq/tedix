@@ -48,19 +48,6 @@ export async function getDocsSiteById(
 	return site ?? null;
 }
 
-export async function getDocsSiteBySlug(
-	db: DbQueryClient,
-	slug: string,
-): Promise<DocsSite | null> {
-	const docsSites = coreTable(db, d1DocsSites);
-	const [site] = await db
-		.select()
-		.from(docsSites)
-		.where(eq(docsSites.slug, slug))
-		.limit(1);
-	return site ?? null;
-}
-
 export async function getRuntimeDocsSiteBySlug(
 	db: DbQueryClient,
 	slug: string,

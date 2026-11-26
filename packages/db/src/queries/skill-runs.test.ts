@@ -4,7 +4,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
-	cancelSkillRun,
 	createPinnedSkillRun,
 	createPinnedSkillRunWithinCap,
 	createSkillRun,
@@ -450,30 +449,6 @@ describe("skill run environment fencing", () => {
 		expect(rows.find((row) => row.id === "skill-1-new")).toMatchObject({
 			skillRevision: 2,
 			runtimeEnvironment: "production",
-		});
-	});
-
-	it("fences cancellation mutations by environment", async () => {
-		const { db, insert, sqlite } = fixture();
-		insert({ id: "staging", runtimeEnvironment: "staging" });
-
-		expect(await cancelSkillRun(db, "staging", "org-1", "production")).toBe(
-			false,
-		);
-		expect(
-			sqlite
-				.prepare("SELECT status FROM skill_runs WHERE id = ?")
-				.get("staging"),
-		).toEqual({
-			status: "running",
-		});
-		expect(await cancelSkillRun(db, "staging", "org-1", "staging")).toBe(true);
-		expect(
-			sqlite
-				.prepare("SELECT status FROM skill_runs WHERE id = ?")
-				.get("staging"),
-		).toEqual({
-			status: "canceled",
 		});
 	});
 });

@@ -221,10 +221,10 @@ graph:
 
 ```typescript
 import { createDbQueryClient } from "@tedix/db/query-client";
-import { getDocsSiteBySlug } from "@tedix/db/queries/docs-sites/sites";
+import { getRuntimeDocsSiteBySlug } from "@tedix/db/queries/docs-sites/sites";
 
 const db = createDbQueryClient(env.DB);
-const site = await getDocsSiteBySlug(db, "handbook");
+const site = await getRuntimeDocsSiteBySlug(db, "handbook");
 ```
 
 Applications use these package factories; they do not call `drizzle()`

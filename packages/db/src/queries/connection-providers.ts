@@ -7,10 +7,7 @@
  * sites that only ever need 1-2 providers per request.
  */
 
-import type {
-	ConnectionProviderCategory,
-	ConnectionProviderTemplate,
-} from "@tedix/api-contract/schemas/connection-provider-templates";
+import type { ConnectionProviderTemplate } from "@tedix/api-contract/schemas/connection-provider-templates";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
 	ConnectionAllowedResourcesSchema,
@@ -102,30 +99,6 @@ export async function listConnectionProviders(
 	const rows = await db
 		.select()
 		.from(connectionProviders)
-		.orderBy(asc(connectionProviders.sortOrder), asc(connectionProviders.id));
-	return rows.map(toConnectionProviderTemplate);
-}
-
-export async function listConnectionProvidersByCategory(
-	db: DbClient,
-	category: ConnectionProviderCategory,
-): Promise<ConnectionProviderTemplate[]> {
-	const rows = await db
-		.select()
-		.from(connectionProviders)
-		.where(eq(connectionProviders.category, category))
-		.orderBy(asc(connectionProviders.sortOrder), asc(connectionProviders.id));
-	return rows.map(toConnectionProviderTemplate);
-}
-
-export async function listConnectionProvidersByType(
-	db: DbClient,
-	type: ConnectionProviderTemplate["type"],
-): Promise<ConnectionProviderTemplate[]> {
-	const rows = await db
-		.select()
-		.from(connectionProviders)
-		.where(eq(connectionProviders.type, type))
 		.orderBy(asc(connectionProviders.sortOrder), asc(connectionProviders.id));
 	return rows.map(toConnectionProviderTemplate);
 }

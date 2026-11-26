@@ -71,7 +71,6 @@
 		"./queries/tedi-console": "./src/queries/tedi-console.ts",
 		"./queries/work-items/outbound": "./src/queries/work-items/outbound.ts",
 		"./queries/billing/provider-cost-evidence": "./src/queries/billing/provider-cost-evidence.ts",
-		"./queries/billing/model-fit-report": "./src/queries/billing/model-fit-report.ts",
 		"./queries/billing/cost-rollups": "./src/queries/billing/cost-rollups.ts",
 		"./queries/billing/gateway-reconciliation": "./src/queries/billing/gateway-reconciliation.ts",
 		"./queries/billing/dashboard": "./src/queries/billing/dashboard.ts",

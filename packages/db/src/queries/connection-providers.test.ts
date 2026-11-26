@@ -8,8 +8,6 @@ import {
 	getConnectionProviderById,
 	getConnectionProviderIssuerPin,
 	listConnectionProviders,
-	listConnectionProvidersByCategory,
-	listConnectionProvidersByType,
 	pinConnectionProviderIssuer,
 } from "./connection-providers";
 
@@ -127,25 +125,6 @@ describe("getConnectionProviderByDescopeAppId", () => {
 		expect(
 			await getConnectionProviderByDescopeAppId(db, "unregistered-project-id"),
 		).toBeUndefined();
-	});
-});
-
-describe("listConnectionProvidersByCategory / listConnectionProvidersByType", () => {
-	it("filters by category", async () => {
-		const { db, select } = makeDb([
-			row({ id: "google-analytics", category: "analytics" }),
-		]);
-		const results = await listConnectionProvidersByCategory(db, "analytics");
-		expect(results).toHaveLength(1);
-		expect(select).toHaveBeenCalledTimes(1);
-	});
-
-	it("filters by type", async () => {
-		const { db } = makeDb([row({ id: "nosana-api-key", type: "api_key" })]);
-		const results = await listConnectionProvidersByType(db, "api_key");
-		expect(results).toEqual([
-			expect.objectContaining({ id: "nosana-api-key", type: "api_key" }),
-		]);
 	});
 });
 

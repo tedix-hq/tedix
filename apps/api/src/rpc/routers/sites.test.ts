@@ -22,7 +22,6 @@ const mocks = vi.hoisted(() => ({
 	listCmsSitesByOrganization: vi.fn(),
 	pauseCmsSiteUnlessRestoring: vi.fn(),
 	restoreCmsSiteUnlessDeprovisioning: vi.fn(),
-	deleteCmsSite: vi.fn(),
 	getDocsSiteById: vi.fn(),
 	listDocsSites: vi.fn(),
 	listDocsBuilds: vi.fn(),
@@ -120,7 +119,6 @@ vi.mock("@tedix/db/queries/cms-sites", () => ({
 	activateCmsSiteAfterMedia: mocks.activateCmsSiteAfterMedia,
 	updateCmsSiteDomain: mocks.updateCmsSiteDomain,
 	listCmsSitesByOrganization: mocks.listCmsSitesByOrganization,
-	deleteCmsSite: mocks.deleteCmsSite,
 	pauseCmsSiteUnlessRestoring: mocks.pauseCmsSiteUnlessRestoring,
 	restoreCmsSiteUnlessDeprovisioning: mocks.restoreCmsSiteUnlessDeprovisioning,
 }));
@@ -441,7 +439,6 @@ describe("site lifecycle confirmation", () => {
 			operationId: cmsSite.id,
 		});
 		expect(create).toHaveBeenCalledOnce();
-		expect(mocks.deleteCmsSite).not.toHaveBeenCalled();
 	});
 
 	it("reports an atomic reservation conflict without starting cleanup", async () => {

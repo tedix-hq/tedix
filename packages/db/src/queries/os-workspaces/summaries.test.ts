@@ -21,7 +21,6 @@ import {
 	applyOsWorkspaceObjectUsage,
 	applyOsWorkspaceSummary,
 	computeOsWorkspaceSummary,
-	deleteOsWorkspaceSummary,
 	getOsWorkspaceSummary,
 	listOsWorkspaceSummaries,
 	parseOsWorkspaceSummaryPayload,
@@ -289,16 +288,11 @@ for (const store of ["d1", "postgres"] as const) {
 			).toBe(2);
 		});
 
-		it("lists an org's summary rows and deletes by scope", async () => {
+		it("lists an org's summary rows by scope", async () => {
 			const { db } = await seed();
 			await applyOsWorkspaceSummary(db, message(1));
 			expect(await listOsWorkspaceSummaries(db, ORG)).toHaveLength(1);
 			expect(await listOsWorkspaceSummaries(db, "org-2")).toHaveLength(0);
-			await deleteOsWorkspaceSummary(db, {
-				organizationId: ORG,
-				workspaceId: WS,
-			});
-			expect(await listOsWorkspaceSummaries(db, ORG)).toHaveLength(0);
 		});
 	});
 }

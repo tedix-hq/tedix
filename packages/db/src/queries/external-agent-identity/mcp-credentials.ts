@@ -530,26 +530,6 @@ export async function listActiveExternalAgentMcpCredentialsForSession(
 		);
 }
 
-export async function listActiveExternalAgentMcpCredentialsByServer(
-	db: DbClient,
-	mcpServerId: string,
-): Promise<ExternalAgentMcpCredential[]> {
-	const externalAgentMcpCredentials = coreTable(
-		db,
-		d1ExternalAgentMcpCredentials,
-	);
-	return db
-		.select()
-		.from(externalAgentMcpCredentials)
-		.where(
-			and(
-				eq(externalAgentMcpCredentials.mcpServerId, mcpServerId),
-				eq(externalAgentMcpCredentials.status, "active"),
-			),
-		)
-		.orderBy(externalAgentMcpCredentials.expiresAt);
-}
-
 export async function refreshExternalAgentMcpCredentialUnderLease(
 	db: DbClient,
 	params: {

@@ -15,50 +15,6 @@ import {
 import { normalizeEmailAddress, parseAddressParts } from "./recipients";
 import { clampLimit } from "./storage-normalization";
 
-export async function ensurePrimaryTediEmailAddress(
-	db: DbClient,
-	input: {
-		tediId: string;
-		organizationId: string;
-		slug: string;
-		domain?: string;
-	},
-) {
-	const address = normalizeEmailAddress(
-		`${input.slug}@${input.domain ?? "tedix.tech"}`,
-	);
-	const existing = await db.query.tediEmailAddresses.findFirst({
-		where: { address },
-	});
-	if (existing) return existing;
-
-	const parts = parseAddressParts(address);
-	try {
-		const rows = await db
-			.insert(tediEmailAddresses)
-			.values({
-				id: crypto.randomUUID(),
-				organizationId: input.organizationId,
-				tediId: input.tediId,
-				address,
-				localPart: parts.localPart,
-				domain: parts.domain,
-				kind: "primary",
-				status: "active",
-				routingPolicy: { source: "implicit-slug-address" },
-				createdBy: "system",
-			})
-			.returning();
-		return rows[0]!;
-	} catch {
-		const raced = await db.query.tediEmailAddresses.findFirst({
-			where: { address },
-		});
-		if (raced) return raced;
-		throw new Error(`Failed to create tedi email address ${address}`);
-	}
-}
-
 export async function listTediEmailAddresses(
 	db: DbClient,
 	input: {

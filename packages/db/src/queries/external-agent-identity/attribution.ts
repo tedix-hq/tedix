@@ -237,36 +237,3 @@ export async function recordExternalAgentAttribution(
 	}
 	return diagnoseMutableSession(db, input);
 }
-
-export async function resolveExternalAgentAttributionStamp(
-	db: DbClient,
-	params: {
-		organizationId: string;
-		principalId: string;
-		sessionId: string;
-		clientRecordId: string;
-	},
-): Promise<{
-	externalSessionKey: string;
-	harness: string;
-	clientRecordId: string;
-} | null> {
-	const row = await db.query.externalAgentMcpCredentials.findFirst({
-		columns: { clientRecordId: true },
-		where: {
-			organizationId: params.organizationId,
-			principalId: params.principalId,
-			sessionId: params.sessionId,
-			clientRecordId: params.clientRecordId,
-		},
-		with: {
-			session: { columns: { externalSessionKey: true, harness: true } },
-		},
-	});
-	if (!row?.session) return null;
-	return {
-		externalSessionKey: row.session.externalSessionKey,
-		harness: row.session.harness,
-		clientRecordId: row.clientRecordId,
-	};
-}

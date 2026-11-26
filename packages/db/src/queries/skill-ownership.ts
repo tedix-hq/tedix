@@ -53,54 +53,6 @@ export async function listInFlightSkillRuns(
 		.limit(Math.min(Math.max(params.limit ?? 20, 1), 100));
 }
 
-export interface SkillReference {
-	id: string;
-	slug: string | null;
-	title: string;
-	tediId: string | null;
-}
-
-/**
- * Non-archived skills a request names: by id, slug or exact title first; a
- * title that merely contains the words only when nothing matched exactly.
- */
-export async function findSkillsByReference(
-	db: DbClient,
-	params: { organizationId: string; reference: string; limit?: number },
-): Promise<SkillReference[]> {
-	const reference = params.reference.trim();
-	if (!reference) return [];
-	const lowered = reference.toLowerCase();
-	const columns = {
-		id: skillEntries.id,
-		slug: skillEntries.slug,
-		title: skillEntries.title,
-		tediId: skillEntries.tediId,
-	};
-	const scope = and(
-		eq(skillEntries.organizationId, params.organizationId),
-		sql`coalesce(${skillEntries.lifecycleState}, '') <> 'archived'`,
-	);
-	const limit = Math.min(Math.max(params.limit ?? 5, 1), 20);
-	const exact = await db
-		.select(columns)
-		.from(skillEntries)
-		.where(
-			and(
-				scope,
-				sql`(${skillEntries.id} = ${reference} OR ${skillEntries.slug} = ${lowered} OR lower(${skillEntries.title}) = ${lowered})`,
-			),
-		)
-		.limit(limit);
-	if (exact.length > 0) return exact;
-	return db
-		.select(columns)
-		.from(skillEntries)
-		.where(and(scope, sql`instr(lower(${skillEntries.title}), ${lowered}) > 0`))
-		.orderBy(skillEntries.title)
-		.limit(limit);
-}
-
 export interface MoveSkillToTediParams {
 	organizationId: string;
 	skillId: string;

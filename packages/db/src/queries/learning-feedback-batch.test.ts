@@ -7,9 +7,6 @@ import { tedis } from "../schema/tedis";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
-	listLearningInteractionsForIssueKey,
-	listLearningInteractionsForIssuePrefix,
-	listLearningIssueKeysForReflection,
 	listLearningOwnersForReflection,
 	listOwnerLearningInteractionsPage,
 	recordLearningInteractionsBatch,
@@ -49,60 +46,6 @@ describe("recordLearningInteractionsBatch", () => {
 		expect(
 			await recordLearningInteractionsBatch(db, [...rows, row(99)]),
 		).toEqual({ recorded: 1 });
-	});
-
-	it("lists scopes and their events, optionally only one person's", async () => {
-		const db = makeDb();
-		await recordLearningInteractionsBatch(db, [
-			row(1, { issueKey: "decision:acme:codex:a" }),
-			row(2, { issueKey: "decision:acme:codex:b" }),
-			row(3, { issueKey: "decision:acme:codex:c", scopeId: "user-2" }),
-		]);
-		expect(
-			await listLearningIssueKeysForReflection(db, {
-				organizationId: "org-1",
-				surface: "agent_session_import",
-				ownerUserId: "user-1",
-				limit: 10,
-			}),
-		).toEqual(["decision:acme:codex:b", "decision:acme:codex:a"]);
-		const events = await listLearningInteractionsForIssueKey(db, {
-			organizationId: "org-1",
-			issueKey: "decision:acme:codex:c",
-			surfaces: ["decision_capture", "agent_session_import"],
-			limit: 10,
-		});
-		expect(events.map((e) => e.clientEventId)).toEqual([
-			"agent-session-import:3",
-		]);
-		const byRepo = await listLearningInteractionsForIssuePrefix(db, {
-			organizationId: "org-1",
-			issuePrefix: "decision:acme:",
-			surfaces: ["agent_session_import"],
-			limit: 10,
-		});
-		expect(byRepo.map((e) => e.clientEventId).sort()).toEqual([
-			"agent-session-import:1",
-			"agent-session-import:2",
-			"agent-session-import:3",
-		]);
-		expect(
-			await listLearningInteractionsForIssuePrefix(db, {
-				organizationId: "org-1",
-				issuePrefix: "decision:acm:",
-				surfaces: ["agent_session_import"],
-				limit: 10,
-			}),
-		).toEqual([]);
-		expect(
-			await listLearningInteractionsForIssueKey(db, {
-				organizationId: "org-1",
-				issueKey: "decision:acme:codex:c",
-				surfaces: ["agent_session_import"],
-				ownerUserId: "user-1",
-				limit: 10,
-			}),
-		).toEqual([]);
 	});
 });
 

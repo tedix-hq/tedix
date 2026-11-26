@@ -612,30 +612,6 @@ export async function recordGraphProjectionFailure(
 	await db.batch([eventUpdate, consumerUpdate]);
 }
 
-export async function resetGraphProjectionFailure(
-	db: DbClient,
-	organizationId: string,
-	sequence: number,
-): Promise<boolean> {
-	const graphProjectionOutbox = coreTable(db, d1GraphProjectionOutbox);
-	const [updated] = await db
-		.update(graphProjectionOutbox)
-		.set({
-			attemptCount: 0,
-			nextAttemptAt: null,
-			lastError: null,
-			poisonedAt: null,
-		})
-		.where(
-			and(
-				eq(graphProjectionOutbox.organizationId, organizationId),
-				eq(graphProjectionOutbox.sequence, sequence),
-			),
-		)
-		.returning({ sequence: graphProjectionOutbox.sequence });
-	return Boolean(updated);
-}
-
 /**
  * SQLite-native UTC timestamp literal (`YYYY-MM-DD HH:MM:SS`).
  *

@@ -31,7 +31,6 @@ import {
 	getTediById,
 	getTediByGlobalSlug,
 	getTedisByOrganization,
-	listRetiredTedisByOrganization,
 	retireTedi,
 } from "./tedis";
 
@@ -231,16 +230,12 @@ describe("retireTedi — compare-and-swap", () => {
 });
 
 describe("retired tedis are readable but not live", () => {
-	it("drops out of the org's live list and into the retired list", async () => {
+	it("drops out of the org's live list", async () => {
 		const { db } = setup();
 		await seed(db);
 		await retireTedi(db, { tediId: "tedi-1", retiredAt: RETIRED_AT });
 
 		expect(await getTedisByOrganization(db, "org-1")).toEqual([]);
-
-		const retiredList = await listRetiredTedisByOrganization(db, "org-1");
-		expect(retiredList.map((row) => row.id)).toEqual(["tedi-1"]);
-		expect(retiredList[0]?.retiredSlug).toBe("cto");
 	});
 
 	it("stays in the live list when includeRetired is set", async () => {
@@ -273,26 +268,5 @@ describe("retired tedis are readable but not live", () => {
 
 		expect(await getTediByGlobalSlug(db, "cto")).toBeUndefined();
 		expect(await getTediByGlobalSlug(db, "cto-retired-tedi-1")).toBeUndefined();
-	});
-
-	it("orders the retired list newest retirement first", async () => {
-		const { db } = setup();
-		await seed(db);
-		await db.insert(tedis).values({
-			id: "tedi-2",
-			organizationId: "org-1",
-			name: "CFO",
-			slug: "cfo",
-		});
-
-		await retireTedi(db, { tediId: "tedi-1", retiredAt: RETIRED_AT });
-		await retireTedi(db, {
-			tediId: "tedi-2",
-			retiredAt: "2026-08-17T12:00:00.000Z",
-		});
-
-		expect(
-			(await listRetiredTedisByOrganization(db, "org-1")).map((row) => row.id),
-		).toEqual(["tedi-2", "tedi-1"]);
 	});
 });

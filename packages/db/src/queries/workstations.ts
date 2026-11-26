@@ -911,24 +911,6 @@ const WARM_WORKSTATION_LEASE_STATUSES = [
 	"releasing",
 ] as const;
 
-/** Whether one lease is still in a state that should keep its Sandbox warm. */
-export async function hasActiveWorkstationLease(
-	db: DbClient,
-	leaseId: string,
-): Promise<boolean> {
-	const [row] = await db
-		.select({ id: workstationLeases.id })
-		.from(workstationLeases)
-		.where(
-			and(
-				eq(workstationLeases.id, leaseId),
-				inArray(workstationLeases.status, [...WARM_WORKSTATION_LEASE_STATUSES]),
-			),
-		)
-		.limit(1);
-	return row !== undefined;
-}
-
 export async function updateWorkstationLeaseBodyGeneration(
 	db: DbClient,
 	input: {

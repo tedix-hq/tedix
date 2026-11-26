@@ -1133,35 +1133,6 @@ export async function getLatestReportedSkillRun(
 	return row;
 }
 
-/**
- * Mark a run as canceled in the DB. Does NOT call the workflow engine —
- * the handler is responsible for engine cancellation before invoking this.
- */
-export async function cancelSkillRun(
-	db: DbClient,
-	runId: string,
-	orgId: string,
-	runtimeEnvironment: SkillRunRuntimeEnvironment,
-): Promise<boolean> {
-	const skillRuns = coreTable(db, d1SkillRuns);
-	const canceled = await db
-		.update(skillRuns)
-		.set({
-			status: "canceled",
-			completedAt: new Date().toISOString(),
-		})
-		.where(
-			and(
-				eq(skillRuns.id, runId),
-				eq(skillRuns.organizationId, orgId),
-				skillRunEnvironmentCondition(db, runtimeEnvironment),
-				notInArray(skillRuns.status, ["completed", "failed", "canceled"]),
-			),
-		)
-		.returning({ id: skillRuns.id });
-	return canceled.length > 0;
-}
-
 export interface ListSkillRunSnapshotsOptions {
 	limit?: number;
 	tediId?: string;

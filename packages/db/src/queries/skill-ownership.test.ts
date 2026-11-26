@@ -2,11 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
-import {
-	findSkillsByReference,
-	listInFlightSkillRuns,
-	moveSkillToTedi,
-} from "./skill-ownership";
+import { listInFlightSkillRuns, moveSkillToTedi } from "./skill-ownership";
 
 const ORG = "org-1";
 const SKILL = "skill-1";
@@ -209,25 +205,5 @@ describe("skill ownership transfer", () => {
 			["r1", "running"],
 			["r3", "paused"],
 		]);
-	});
-
-	it("finds a skill by id, slug or exact title before a partial title", async () => {
-		sqlite.exec(`
-			UPDATE skill_entries SET slug = 'account-watcher', lifecycle_state = 'active';
-			INSERT INTO skill_entries (id, organization_id, tedi_id, slug, title, lifecycle_state) VALUES
-				('skill-2', '${ORG}', 'tedi-a', 'account-watcher-old', 'Account watcher (old)', 'archived'),
-				('skill-3', '${ORG}', 'tedi-a', 'mail-watcher', 'Mail watcher', 'active'),
-				('skill-4', 'org-2', 'tedi-z', 'account-watcher', 'Account watcher', 'active');
-		`);
-		const find = (reference: string) =>
-			findSkillsByReference(db, { organizationId: ORG, reference }).then(
-				(rows) => rows.map((row) => row.id),
-			);
-		expect(await find("Account Watcher")).toEqual([SKILL]);
-		expect(await find("account-watcher")).toEqual([SKILL]);
-		expect(await find(SKILL)).toEqual([SKILL]);
-		expect(await find("watcher")).toEqual([SKILL, "skill-3"]);
-		expect(await find("old")).toEqual([]);
-		expect(await find("  ")).toEqual([]);
 	});
 });

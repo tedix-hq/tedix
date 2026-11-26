@@ -538,14 +538,6 @@ export async function setCmsSiteAuthoringApp(
 	return rows.length === 1;
 }
 
-export async function deleteCmsSite(
-	db: DbQueryClient,
-	id: string,
-): Promise<void> {
-	const cmsSites = coreTable(db, schemaCmsSites);
-	await runCmsWrite(db, db.delete(cmsSites).where(eq(cmsSites.id, id)));
-}
-
 export async function registerCmsSite(
 	db: DbQueryClient,
 	input: NewCmsSite,

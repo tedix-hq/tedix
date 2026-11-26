@@ -1,5 +1,5 @@
 /**
- * App quota — `canCreateApp` and the app-count maintenance queries, executed
+ * App quota — `canCreateApp`, executed
  * against the D1 facade with real billing rows rather than a mocked
  * entitlement. The facade rejects `db.transaction()` and duplicate output
  * column names, so this file also keeps those invariants on every query it
@@ -7,7 +7,6 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { apps } from "../schema/apps";
@@ -23,12 +22,7 @@ import {
 } from "../schema/organizations";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import {
-	canCreateApp,
-	decrementAppCount,
-	incrementAppCount,
-	syncAppCount,
-} from "./organizations";
+import { canCreateApp } from "./organizations";
 
 const NOW = "2026-10-20T12:00:00.000Z";
 const PAST = "2026-01-01T00:00:00.000Z";
@@ -291,58 +285,5 @@ describe("canCreateApp", () => {
 			status: "active",
 		});
 		expect(await canCreateApp(db, "org-override")).toEqual({ allowed: true });
-	});
-});
-
-describe("app count maintenance", () => {
-	async function count(db: DbClient, id: string) {
-		const [row] = await db
-			.select({ appsCount: organizations.appsCount })
-			.from(organizations)
-			.where(eq(organizations.id, id));
-		return row?.appsCount;
-	}
-
-	it("increments and decrements, never below zero", async () => {
-		const db = setup();
-		await seedOrganization(db, { id: "org-count" });
-		await seedOrganization(db, { id: "org-other", appsCount: 5 });
-
-		await incrementAppCount(db, "org-count");
-		await incrementAppCount(db, "org-count");
-		expect(await count(db, "org-count")).toBe(2);
-
-		await decrementAppCount(db, "org-count");
-		await decrementAppCount(db, "org-count");
-		await decrementAppCount(db, "org-count");
-		expect(await count(db, "org-count")).toBe(0);
-
-		expect(await count(db, "org-other")).toBe(5);
-	});
-
-	it("recounts from the apps table and only touches the target organization", async () => {
-		const db = setup();
-		await seedOrganization(db, { id: "org-drifted", appsCount: 7 });
-		await seedOrganization(db, { id: "org-neighbour", appsCount: 9 });
-		const app = (id: string, organizationId: string) => ({
-			id,
-			organizationId,
-			name: id,
-			slug: id,
-		});
-		await db
-			.insert(apps)
-			.values([
-				app("app-1", "org-drifted"),
-				app("app-2", "org-drifted"),
-				app("app-3", "org-drifted"),
-				app("app-n", "org-neighbour"),
-			]);
-
-		expect(await syncAppCount(db, "org-drifted")).toBe(3);
-		expect(await count(db, "org-drifted")).toBe(3);
-		expect(await count(db, "org-neighbour")).toBe(9);
-
-		expect(await syncAppCount(db, "org-without-apps")).toBe(0);
 	});
 });

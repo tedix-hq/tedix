@@ -304,46 +304,6 @@ export async function listOsWorkspaceIdsLinkingSkill(
 	return [...new Set(rows.map((row) => row.workspaceId))];
 }
 
-/**
- * Tedis that work in a workspace: the owners of the skills linked to it
- * (active `tedix`/`skill` resources). Bounded; order is by skill name so the
- * result is stable across turns.
- */
-export async function listOsWorkspaceLinkedTediIds(
-	db: DbQueryClient,
-	params: OsWorkspaceResourceScope,
-): Promise<string[]> {
-	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
-	const skillEntries = coreTable(db, d1SkillEntries);
-	const rows = await db
-		.select({ linkedTediId: skillEntries.tediId })
-		.from(osWorkspaceResources)
-		.innerJoin(
-			skillEntries,
-			and(
-				eq(skillEntries.id, osWorkspaceResources.providerResourceId),
-				eq(skillEntries.organizationId, osWorkspaceResources.organizationId),
-			),
-		)
-		.where(
-			and(
-				eq(osWorkspaceResources.organizationId, params.organizationId),
-				eq(osWorkspaceResources.workspaceId, params.workspaceId),
-				eq(osWorkspaceResources.providerId, "tedix"),
-				eq(osWorkspaceResources.resourceType, "skill"),
-				eq(osWorkspaceResources.status, "active"),
-				isNotNull(skillEntries.tediId),
-			),
-		)
-		.orderBy(asc(osWorkspaceResources.name), asc(osWorkspaceResources.id))
-		.limit(50);
-	const ids: string[] = [];
-	for (const row of rows)
-		if (row.linkedTediId && !ids.includes(row.linkedTediId))
-			ids.push(row.linkedTediId);
-	return ids;
-}
-
 export async function updateOsWorkspaceResourceMetadata(
 	db: DbQueryClient | TenantStoreDb,
 	params: OsWorkspaceResourceIdentity & {

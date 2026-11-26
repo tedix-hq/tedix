@@ -3,7 +3,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import {
-	listActiveExternalAgentMcpCredentialsByServer,
 	listActiveExternalAgentMcpCredentialsForSession,
 	listReapableExternalAgentMcpCredentials,
 	markExternalAgentMcpCredentialCleanupAttempted,
@@ -126,41 +125,6 @@ describe("listActiveExternalAgentMcpCredentialsForSession", () => {
 });
 
 const NOW = "2026-08-13T00:00:00.000Z";
-
-describe("listActiveExternalAgentMcpCredentialsByServer", () => {
-	it("returns only active credentials bound to the requested server", async () => {
-		const { sqlite, db } = fixture();
-		insert(sqlite, {
-			id: "1",
-			client: "active-a",
-			server: "MS-a",
-			status: "active",
-			expiresAt: "2026-08-20T00:00:00.000Z",
-		});
-		insert(sqlite, {
-			id: "2",
-			client: "revoked-a",
-			server: "MS-a",
-			status: "revoked",
-			expiresAt: "2026-08-19T00:00:00.000Z",
-			revokedAt: NOW,
-		});
-		insert(sqlite, {
-			id: "3",
-			client: "active-b",
-			server: "MS-b",
-			status: "active",
-			expiresAt: "2026-08-18T00:00:00.000Z",
-		});
-
-		const rows = await listActiveExternalAgentMcpCredentialsByServer(
-			db,
-			"MS-a",
-		);
-
-		expect(rows.map((row) => row.clientRecordId)).toEqual(["active-a"]);
-	});
-});
 
 describe("listReapableExternalAgentMcpCredentials", () => {
 	it("returns expired and unfinished revoked rows, oldest-first, failures last", async () => {

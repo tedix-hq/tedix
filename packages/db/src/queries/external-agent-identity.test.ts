@@ -7,10 +7,7 @@ import { externalAgentAttributions } from "../schema/external-agent-identity";
 import { workAttempts } from "../schema/work-items";
 import { createD1Facade } from "../test/d1-facade";
 import { tableDdl } from "../test/schema-ddl";
-import {
-	recordExternalAgentAttribution,
-	resolveExternalAgentAttributionStamp,
-} from "./external-agent-identity/attribution";
+import { recordExternalAgentAttribution } from "./external-agent-identity/attribution";
 import { getExternalAgentContextualReputation } from "./external-agent-identity/contextual-reputation";
 import {
 	endExternalAgentSession,
@@ -352,19 +349,6 @@ describe("external-agent identity", () => {
 			principal: { id: actor.id, status: "active" },
 			session: { id: run.id, externalSessionKey: run.externalSessionKey },
 		});
-		await expect(
-			resolveExternalAgentAttributionStamp(db, {
-				organizationId: ORG,
-				principalId: actor.id,
-				sessionId: run.id,
-				clientRecordId: credential.clientRecordId,
-			}),
-		).resolves.toEqual({
-			externalSessionKey: run.externalSessionKey,
-			harness: run.harness,
-			clientRecordId: credential.clientRecordId,
-		});
-
 		await setExternalAgentPrincipalStatus(db, {
 			organizationId: ORG,
 			principalId: actor.id,

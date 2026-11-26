@@ -17,10 +17,7 @@ import {
 import { listActiveProviderCatalogApps } from "./catalog/health-metrics";
 import { getOrganizationDescopeTenantId } from "./organizations";
 import { closeStalePendingRationaleRecords } from "./rationale-records";
-import {
-	hasActiveWorkstationLease,
-	updateWorkstationLeaseBodyGeneration,
-} from "./workstations";
+import { updateWorkstationLeaseBodyGeneration } from "./workstations";
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
@@ -94,8 +91,6 @@ describe("platform D1 access boundaries", () => {
 		`);
 
 		expect(await closeStalePendingRationaleRecords(db)).toBe(1);
-		expect(await hasActiveWorkstationLease(db, "lease-active")).toBe(true);
-		expect(await hasActiveWorkstationLease(db, "lease-released")).toBe(false);
 
 		await updateWorkstationLeaseBodyGeneration(db, {
 			leaseId: "lease-active",

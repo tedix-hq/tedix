@@ -27,7 +27,6 @@ import {
 import { activateDocsBuild, listDocsReleases } from "./releases";
 import {
 	getDocsSiteById,
-	getDocsSiteBySlug,
 	getRuntimeDocsSiteBySlug,
 	listDocsSites,
 	setDocsSiteStatus,
@@ -97,9 +96,6 @@ describe("docs sites query leaves", () => {
 		expect(created.sourceAuthMode).toBe("connection");
 		expect((await getDocsSiteById(context.db, created.id))?.slug).toBe(
 			"site-1",
-		);
-		expect((await getDocsSiteBySlug(context.db, "site-1"))?.id).toBe(
-			created.id,
 		);
 		expect(await listDocsSites(context.db, "docs-org")).toHaveLength(1);
 

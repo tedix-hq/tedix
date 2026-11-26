@@ -257,30 +257,6 @@ export async function listTediRoster(
 	return { data, total };
 }
 
-/**
- * List an organization's retired tedis, newest retirement first.
- *
- * This is the read that makes the retention claim checkable: a retired worker's
- * memory, rationale, skills, artifacts and growth history are still in D1 keyed
- * by this `id`, and `retiredSlug` is the name it answered to before retirement
- * renamed `slug` to free the unique namespace.
- */
-export async function listRetiredTedisByOrganization(
-	db: DbClient,
-	organizationId: string,
-): Promise<Tedi[]> {
-	return db
-		.select()
-		.from(tedis)
-		.where(
-			and(
-				eq(tedis.organizationId, organizationId),
-				sql`${tedis.retiredAt} IS NOT NULL`,
-			),
-		)
-		.orderBy(desc(tedis.retiredAt));
-}
-
 /** Bounded identity/display projection for an org-scoped set of tedis. */
 export async function listTediDisplayNamesByIds(
 	db: DbQueryClient,

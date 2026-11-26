@@ -188,21 +188,6 @@ export async function listOsWorkspaceSummaries(
 		.where(eq(osWorkspaceSummaries.organizationId, organizationId));
 }
 
-export async function deleteOsWorkspaceSummary(
-	db: DbQueryClient,
-	params: OsWorkspaceSummaryScopeParams,
-): Promise<void> {
-	const osWorkspaceSummaries = coreTable(db, d1OsWorkspaceSummaries);
-	await db
-		.delete(osWorkspaceSummaries)
-		.where(
-			and(
-				eq(osWorkspaceSummaries.organizationId, params.organizationId),
-				eq(osWorkspaceSummaries.workspaceId, params.workspaceId),
-			),
-		);
-}
-
 function listActiveOsWorkspaceWorkLinks(
 	db: DbQueryClient,
 	params: OsWorkspaceSummaryScopeParams,

@@ -33,7 +33,6 @@ import {
 import { activateDocsBuild, listDocsReleases } from "./releases";
 import {
 	getDocsSiteById,
-	getDocsSiteBySlug,
 	getRuntimeDocsSiteBySlug,
 	listDocsSites,
 	setDocsSiteStatus,
@@ -124,7 +123,6 @@ for (const store of ["d1", "postgres"] as const)
 		it("preserves tenant ownership, build terminality and change CAS through native table bindings", async () => {
 			const created = await site("lifecycle");
 			expect(created.createdAt).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/);
-			expect(await getDocsSiteBySlug(db, created.slug)).toEqual(created);
 			expect(await getRuntimeDocsSiteBySlug(db, created.slug)).toMatchObject({
 				descopeTenantId: "docs-tenant",
 			});

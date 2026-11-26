@@ -23,7 +23,6 @@ import {
 	recordGraphProjectionFailure,
 	releaseGraphProjectionLease,
 	renewGraphProjectionLease,
-	resetGraphProjectionFailure,
 	setGraphProjectionReadiness,
 } from "./graph-projection";
 
@@ -492,49 +491,6 @@ describe("graph projection ledger queries", () => {
 			repairCursor: "fact-100",
 			repairHighWater: 12,
 		});
-	});
-
-	it("resets a failed head without changing another tenant's event", async () => {
-		const sqlite = new DatabaseSync(":memory:");
-		createProjectionTables(sqlite);
-		const sequence = insertOutbox(sqlite, {
-			id: "failed",
-			attemptCount: 2,
-			nextAttemptAt: "2099-01-01T00:00:00.000Z",
-			poisonedAt: "2026-07-01T00:00:00.000Z",
-		});
-		const otherSequence = insertOutbox(sqlite, {
-			id: "other",
-			orgId: "org-2",
-			attemptCount: 2,
-			poisonedAt: "2026-07-01T00:00:00.000Z",
-		});
-		const db = createDbClient(createD1Facade(sqlite));
-
-		await expect(
-			resetGraphProjectionFailure(db, "org-1", sequence),
-		).resolves.toBe(true);
-		await expect(
-			resetGraphProjectionFailure(db, "org-1", otherSequence),
-		).resolves.toBe(false);
-		expect(
-			sqlite
-				.prepare(
-					"SELECT attempt_count, next_attempt_at, poisoned_at FROM graph_projection_outbox WHERE sequence = ?",
-				)
-				.get(sequence),
-		).toMatchObject({
-			attempt_count: 0,
-			next_attempt_at: null,
-			poisoned_at: null,
-		});
-		expect(
-			sqlite
-				.prepare(
-					"SELECT poisoned_at FROM graph_projection_outbox WHERE sequence = ?",
-				)
-				.get(otherSequence)!.poisoned_at,
-		).not.toBeNull();
 	});
 
 	it("tracks retry and poison backlog independently", async () => {

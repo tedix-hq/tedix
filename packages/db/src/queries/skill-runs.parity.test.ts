@@ -16,7 +16,6 @@ import { createD1Facade } from "../test/d1-facade";
 import { createPGliteFacade } from "../test/pglite-facade";
 import { tableDdl } from "../test/schema-ddl";
 import {
-	cancelSkillRun,
 	createPinnedSkillRun,
 	createPinnedSkillRunWithinCap,
 	createSkillRun,
@@ -349,7 +348,6 @@ for (const store of ["d1", "postgres"] as const)
 				}),
 			).toBe(true);
 			expect(await listSkillRunsAwaitingReconcile(db, env, 10)).toEqual([]);
-			expect(await cancelSkillRun(db, "retry", "org", env)).toBe(false);
 		});
 
 		it("records terminal wake effects once per epoch and rolls them back with the source batch", async () => {

@@ -47,7 +47,6 @@ vi.mock("../../kernel/runtime-submission-bridge", async (importOriginal) => {
 });
 
 vi.mock("@tedix/db/queries/skill-runs", () => ({
-	cancelSkillRun: vi.fn(),
 	createSkillRun: vi.fn(),
 	getSkillRun: mocks.getSkillRun,
 	listSkillRunSnapshotsForSkill: vi.fn(),

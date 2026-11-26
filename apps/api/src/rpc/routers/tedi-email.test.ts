@@ -7,7 +7,6 @@ import { tediEmailContractRouter } from "./tedi-email";
 
 const queries = vi.hoisted(() => ({
 	address: vi.fn(),
-	ensurePrimary: vi.fn(),
 	tedi: vi.fn(),
 	activeSlug: vi.fn(),
 	ingest: vi.fn(),
@@ -35,7 +34,6 @@ vi.mock("@tedix/auth/jwt", async (importOriginal) => ({
 vi.mock("@tedix/db/queries/tedi-email/addresses", async (importOriginal) => ({
 	...(await importOriginal<object>()),
 	getActiveTediEmailAddressByAddress: queries.address,
-	ensurePrimaryTediEmailAddress: queries.ensurePrimary,
 	createTediEmailAddress: queries.createAddress,
 	getTediEmailAddressById: queries.addressById,
 	updateTediEmailAddressStatus: queries.updateAddressStatus,
@@ -152,7 +150,6 @@ describe("inbound email mailbox acknowledgement", () => {
 		await expect(
 			client().inboundEmail({ ...input, slug: "worker" }),
 		).resolves.toEqual({ delivered: false });
-		expect(queries.ensurePrimary).not.toHaveBeenCalled();
 		expect(queries.ingest).not.toHaveBeenCalled();
 	});
 
