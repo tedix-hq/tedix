@@ -595,10 +595,15 @@ export async function listReadyWork(
 		let inheritedAuthority: boolean;
 		let ancestors: WorkItem[];
 		try {
-			inheritedAuthority = await inheritedChildAuthority(db, item, {
-				type: p.executorType,
-				id: p.executorId,
-			});
+			inheritedAuthority = await inheritedChildAuthority(
+				db,
+				item,
+				{
+					type: p.executorType,
+					id: p.executorId,
+				},
+				p.now,
+			);
 			ancestors = await workDelegationAncestors(db, item);
 		} catch (error) {
 			if (!(error instanceof WorkControlError)) throw error;

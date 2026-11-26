@@ -2072,6 +2072,10 @@
 		{
 			"name": "20261125224500_example-billing-catalog/migration.sql",
 			"sha256": "a505030209de86fc1638c9af1dd942bcb53cd0cf3328f17305f01cd90e0b183d"
+		},
+		{
+			"name": "20261125232346_child_delegation_live_parent/migration.sql",
+			"sha256": "46a18b63427dd59593f6ccb9c4e04631047906df2cb57decd20246c6f485f72a"
 		}
 	]
 }

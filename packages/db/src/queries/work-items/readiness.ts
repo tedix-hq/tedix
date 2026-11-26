@@ -376,9 +376,13 @@ function evaluateWorkItemReadiness(
 	};
 }
 
-async function readinessInheritedAuthority(db: DbQueryClient, item: WorkItem) {
+async function readinessInheritedAuthority(
+	db: DbQueryClient,
+	item: WorkItem,
+	now: string,
+) {
 	try {
-		return await inheritedChildAuthority(db, item);
+		return await inheritedChildAuthority(db, item, undefined, now);
 	} catch (error) {
 		if (!(error instanceof WorkControlError)) throw error;
 		return false;
@@ -626,7 +630,7 @@ async function deriveReadiness(
 		item,
 		ownerDelegated,
 		attemptLimitAvailable: Boolean(attemptLimit?.available),
-		inheritedAuthority: await readinessInheritedAuthority(db, item),
+		inheritedAuthority: await readinessInheritedAuthority(db, item, derivedAt),
 		contractRefusal: await taskContractRefusal(db, item, derivedAt),
 		derivedAt,
 		activeAttemptId: activeAttemptId ?? undefined,
@@ -839,7 +843,11 @@ export async function listWorkItemReadinessProjection(
 				item,
 				ownerDelegated: Boolean(rows[index]?.ownerDelegated),
 				attemptLimitAvailable: Boolean(rows[index]?.attemptLimitAvailable),
-				inheritedAuthority: await readinessInheritedAuthority(db, item),
+				inheritedAuthority: await readinessInheritedAuthority(
+					db,
+					item,
+					observedAt,
+				),
 				contractRefusal: await taskContractRefusal(db, item, observedAt),
 				derivedAt: observedAt,
 				activeAttemptId: activeAttempts.get(item.id),

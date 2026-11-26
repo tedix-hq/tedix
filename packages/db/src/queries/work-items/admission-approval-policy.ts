@@ -78,11 +78,17 @@ export function evaluateWorkAdmissionApprovals(
 			)
 			.map((receipt) => receipt.authorityKey),
 	);
+	// Delegated authority never covers explicit authorities or critical risk;
+	// only non-critical risk levels descend from the parent's admission.
+	const inherited = (authority: string) =>
+		inheritedAuthority &&
+		authority.startsWith("risk:") &&
+		authority !== "risk:critical";
 	const satisfiedAuthorities = requiredAuthorities.filter(
-		(authority) => inheritedAuthority || satisfied.has(authority),
+		(authority) => satisfied.has(authority) || inherited(authority),
 	);
 	const missingAuthorities = requiredAuthorities.filter(
-		(authority) => !inheritedAuthority && !satisfied.has(authority),
+		(authority) => !satisfied.has(authority) && !inherited(authority),
 	);
 	return {
 		requiredAuthorities,

@@ -7,7 +7,7 @@ import {
 	coreStore,
 	anyIds,
 } from "../../core-store/dialect";
-import { and, eq, inArray, getColumns, sql, type SQL } from "drizzle-orm";
+import { and, eq, getColumns, sql, type SQL } from "drizzle-orm";
 import { TaskContractTermsSchema } from "@tedix/api-contract/schemas/task-contract-terms";
 import { assertChildTaskContract } from "@tedix/api-contract/utils/task-contract-terms";
 import { getAdmittedTaskContract } from "./task-contract";
@@ -49,6 +49,16 @@ function workTreeContains(orgId: string, rootId: string, itemId: SQL) {
 		UNION SELECT child.id FROM work_items child JOIN tree ON child.parent_work_item_id=tree.id WHERE child.org_id=${orgId}
 	) SELECT id FROM tree)`;
 }
+
+const WORK_RISK_RANK: Record<WorkItem["riskLevel"], number> = {
+	low: 0,
+	medium: 1,
+	high: 2,
+	critical: 3,
+};
+
+/** A lane may configure more, but a delegation tree never exceeds this many descendants. */
+const MAX_DELEGATED_DESCENDANTS = 12;
 
 export async function workDelegationAncestors(
 	db: DbQueryClient,
@@ -139,11 +149,7 @@ export async function createChildWorkItem(
 					p.externalSessionKey
 						? eq(storeWorkAttempts.externalSessionKey, p.externalSessionKey)
 						: undefined,
-					inArray(storeWorkAttempts.runtimeState, [
-						"running",
-						"waiting",
-						"retrying",
-					]),
+					eq(storeWorkAttempts.runtimeState, "running"),
 					sql`${storeWorkAttempts.expiresAt}>${p.now}`,
 				),
 			)
@@ -239,6 +245,7 @@ export async function createChildWorkItem(
 	const maxDescendants = Math.min(
 		rootLane?.maxDescendants ?? WORK_DELEGATION_DEFAULTS.maxDescendants,
 		lane?.maxDescendants ?? WORK_DELEGATION_DEFAULTS.maxDescendants,
+		MAX_DELEGATED_DESCENDANTS,
 	);
 	if (
 		ancestors.length > Math.min(maxDepth, lane?.maxDelegationDepth ?? maxDepth)
@@ -339,132 +346,151 @@ export async function createChildWorkItem(
 					}
 				).for("update")
 			: rootQuery;
-	const [, rows] = await db.batch([
-		rootLock,
-		db
-			.insert(storeWorkItems)
-			.values({
-				id,
-				orgId: parent.orgId,
-				// The NOT NULL title makes a stale grant or concurrent descendant overflow roll back the entire batch.
-				title: sql`CASE WHEN EXISTS (SELECT 1 FROM work_attempts a JOIN work_items p ON p.id=a.work_item_id AND p.org_id=a.org_id JOIN work_admissions grant_receipt ON grant_receipt.id=a.admission_id AND grant_receipt.admission_spec_revision=p.admission_spec_revision
-				WHERE a.id=${attempt.id} AND a.expires_at>${p.now} AND a.runtime_state IN ('running','waiting','retrying') AND p.version=${parent.version} AND p.disposition='accepted')
+	const [, rows] = await db
+		.batch([
+			rootLock,
+			db
+				.insert(storeWorkItems)
+				.values({
+					id,
+					orgId: parent.orgId,
+					// The NOT NULL title makes a stale grant or concurrent descendant overflow roll back the entire batch.
+					title: sql`CASE WHEN EXISTS (SELECT 1 FROM work_attempts a JOIN work_items p ON p.id=a.work_item_id AND p.org_id=a.org_id JOIN work_admissions grant_receipt ON grant_receipt.id=a.admission_id AND grant_receipt.admission_spec_revision=p.admission_spec_revision
+				WHERE a.id=${attempt.id} AND a.expires_at>${p.now} AND a.runtime_state='running' AND p.version=${parent.version} AND p.disposition='accepted')
 				AND (SELECT count(*) FROM work_items WHERE ${workTreeContains(parent.orgId, root.id, sql`id`)}) <= ${maxDescendants}
 				AND (SELECT coalesce(sum(${jsonRead(db, sql`allocation.payload`, ["taskContract", "budget", "maxTokens"], "number")}),0) FROM work_events allocation JOIN work_items child ON child.id=allocation.id AND child.org_id=allocation.org_id WHERE child.org_id=${parent.orgId} AND child.parent_work_item_id=${parent.id}) + ${childContract.budget.maxTokens} <= ${parentContract.budget.maxTokens}
 				AND (SELECT coalesce(sum(${jsonRead(db, sql`allocation.payload`, ["taskContract", "budget", "maxCostUsd"], "number")}),0) FROM work_events allocation JOIN work_items child ON child.id=allocation.id AND child.org_id=allocation.org_id WHERE child.org_id=${parent.orgId} AND child.parent_work_item_id=${parent.id}) + ${childContract.budget.maxCostUsd} <= ${parentContract.budget.maxCostUsd}
 				THEN ${input.title} ELSE NULL END`,
-				description: input.description,
-				workKind: input.workKind,
-				riskLevel: parent.riskLevel,
-				requiredCapabilities: parent.requiredCapabilities,
-				requiredAuthorities: parent.requiredAuthorities,
-				accountableOwnerType: parent.accountableOwnerType,
-				accountableOwnerId: parent.accountableOwnerId,
-				stewardType: parent.stewardType,
-				stewardId: parent.stewardId,
-				objectiveId: parent.objectiveId,
-				workClass: parent.workClass,
-				purposeExceptionExpiresAt: parent.purposeExceptionExpiresAt,
-				projectId: parent.projectId,
-				parentWorkItemId: parent.id,
-				rootWorkItemId: root.id,
-				executorType: input.executorReference?.type ?? parent.executorType,
-				executorId: input.executorReference?.id ?? parent.executorId,
-				dispatchState: "ready",
-				delegationDepth: (parent.delegationDepth ?? 0) + 1,
-				maxAttempts: parent.maxAttempts ?? WORK_DELEGATION_DEFAULTS.maxAttempts,
-				priority: input.priority,
-				disposition: accepted ? "accepted" : "proposed",
-				acceptanceContract: {
-					version: 1,
-					doneLooksLike: childContract.goal,
+					description: input.description,
+					workKind: input.workKind,
+					riskLevel:
+						WORK_RISK_RANK[input.riskLevel] <= WORK_RISK_RANK[parent.riskLevel]
+							? input.riskLevel
+							: parent.riskLevel,
+					requiredCapabilities: input.requiredCapabilities,
+					requiredAuthorities: input.requiredAuthorities,
+					accountableOwnerType: parent.accountableOwnerType,
+					accountableOwnerId: parent.accountableOwnerId,
+					stewardType: parent.stewardType,
+					stewardId: parent.stewardId,
+					objectiveId: parent.objectiveId,
+					workClass: parent.workClass,
+					purposeExceptionExpiresAt: parent.purposeExceptionExpiresAt,
+					projectId: parent.projectId,
+					parentWorkItemId: parent.id,
+					rootWorkItemId: root.id,
+					executorType: input.executorReference?.type ?? parent.executorType,
+					executorId: input.executorReference?.id ?? parent.executorId,
+					dispatchState: "ready",
+					delegationDepth: (parent.delegationDepth ?? 0) + 1,
+					maxAttempts:
+						parent.maxAttempts ?? WORK_DELEGATION_DEFAULTS.maxAttempts,
+					priority: input.priority,
+					disposition: accepted ? "accepted" : "proposed",
+					acceptanceContract: {
+						version: 1,
+						doneLooksLike: childContract.goal,
+						taskContract: childContract,
+					},
+					acceptedAt: accepted ? p.now : null,
+					metadata,
+					admissionSpecRevision: crypto.randomUUID(),
+					createdAt: p.now,
+					sourceIntentId: input.sourceIntentId,
+					startAt: input.startAt,
+				})
+				.returning(
+					Object.fromEntries(
+						Object.keys(workItemStoredColumns).map((key) => [
+							key,
+							getColumns(storeWorkItems)[
+								key as keyof typeof workItemStoredColumns
+							],
+						]),
+					) as typeof workItemStoredColumns,
+				),
+			db.insert(storeWorkResourceRequirements).select(
+				db
+					.select({
+						orgId: storeWorkResourceRequirements.orgId,
+						workItemId: sql<string>`${id}`.as("work_item_id"),
+						resourceKey: storeWorkResourceRequirements.resourceKey,
+						quantity: storeWorkResourceRequirements.quantity,
+						createdAt: sql<string>`${p.now}`.as("created_at"),
+						updatedAt: sql<string>`${p.now}`.as("updated_at"),
+					})
+					.from(storeWorkResourceRequirements)
+					.where(
+						and(
+							eq(storeWorkResourceRequirements.orgId, parent.orgId),
+							eq(storeWorkResourceRequirements.workItemId, parent.id),
+						),
+					),
+			),
+			db.insert(storeWorkCaseItems).select(
+				db
+					.select({
+						id: (coreStore(db) === "postgres"
+							? sql<string>`gen_random_uuid()::text`
+							: sql<string>`lower(hex(randomblob(16)))`
+						).as("id"),
+						orgId: storeWorkCaseItems.orgId,
+						caseId: storeWorkCaseItems.caseId,
+						workItemId: sql<string>`${id}`.as("work_item_id"),
+						discoveredAt: sql<string>`${p.now}`.as("discovered_at"),
+					})
+					.from(storeWorkCaseItems)
+					.where(
+						and(
+							eq(storeWorkCaseItems.orgId, parent.orgId),
+							eq(storeWorkCaseItems.workItemId, parent.id),
+						),
+					),
+			),
+			...(input.blockedByWorkItemIds?.length
+				? [
+						db.insert(storeWorkItemRelations).values(
+							[...new Set(input.blockedByWorkItemIds)].map((predecessor) => ({
+								id: crypto.randomUUID(),
+								orgId: parent.orgId,
+								fromWorkItemId: predecessor,
+								toWorkItemId: id,
+								relationType: "blocks" as const,
+								createdAt: p.now,
+							})),
+						),
+					]
+				: []),
+			db.insert(storeWorkEvents).values({
+				id,
+				orgId: parent.orgId,
+				workItemId: id,
+				eventType: accepted ? "work.accepted" : "work.created",
+				actorType: p.actor.type,
+				actorId: p.actor.id,
+				actorSessionId: p.actor.sessionId,
+				payload: {
+					parentAttemptId: attempt.id,
+					rootId: root.id,
 					taskContract: childContract,
 				},
-				acceptedAt: accepted ? p.now : null,
-				metadata,
-				admissionSpecRevision: crypto.randomUUID(),
-				createdAt: p.now,
-				sourceIntentId: input.sourceIntentId,
-				startAt: input.startAt,
-			})
-			.returning(
-				Object.fromEntries(
-					Object.keys(workItemStoredColumns).map((key) => [
-						key,
-						getColumns(storeWorkItems)[
-							key as keyof typeof workItemStoredColumns
-						],
-					]),
-				) as typeof workItemStoredColumns,
-			),
-		db.insert(storeWorkResourceRequirements).select(
-			db
-				.select({
-					orgId: storeWorkResourceRequirements.orgId,
-					workItemId: sql<string>`${id}`.as("work_item_id"),
-					resourceKey: storeWorkResourceRequirements.resourceKey,
-					quantity: storeWorkResourceRequirements.quantity,
-					createdAt: sql<string>`${p.now}`.as("created_at"),
-					updatedAt: sql<string>`${p.now}`.as("updated_at"),
-				})
-				.from(storeWorkResourceRequirements)
-				.where(
-					and(
-						eq(storeWorkResourceRequirements.orgId, parent.orgId),
-						eq(storeWorkResourceRequirements.workItemId, parent.id),
-					),
-				),
-		),
-		db.insert(storeWorkCaseItems).select(
-			db
-				.select({
-					id: (coreStore(db) === "postgres"
-						? sql<string>`gen_random_uuid()::text`
-						: sql<string>`lower(hex(randomblob(16)))`
-					).as("id"),
-					orgId: storeWorkCaseItems.orgId,
-					caseId: storeWorkCaseItems.caseId,
-					workItemId: sql<string>`${id}`.as("work_item_id"),
-					discoveredAt: sql<string>`${p.now}`.as("discovered_at"),
-				})
-				.from(storeWorkCaseItems)
-				.where(
-					and(
-						eq(storeWorkCaseItems.orgId, parent.orgId),
-						eq(storeWorkCaseItems.workItemId, parent.id),
-					),
-				),
-		),
-		...(input.blockedByWorkItemIds?.length
-			? [
-					db.insert(storeWorkItemRelations).values(
-						[...new Set(input.blockedByWorkItemIds)].map((predecessor) => ({
-							id: crypto.randomUUID(),
-							orgId: parent.orgId,
-							fromWorkItemId: predecessor,
-							toWorkItemId: id,
-							relationType: "blocks" as const,
-							createdAt: p.now,
-						})),
-					),
-				]
-			: []),
-		db.insert(storeWorkEvents).values({
-			id,
-			orgId: parent.orgId,
-			workItemId: id,
-			eventType: accepted ? "work.accepted" : "work.created",
-			actorType: p.actor.type,
-			actorId: p.actor.id,
-			actorSessionId: p.actor.sessionId,
-			payload: {
-				parentAttemptId: attempt.id,
-				rootId: root.id,
-				taskContract: childContract,
-			},
-			occurredAt: p.now,
-		}),
-	]);
+				occurredAt: p.now,
+			}),
+		])
+		.catch((error: unknown) => {
+			// The guarded title is NULL when the parent's grant or the descendant
+			// budget changed between validation and this atomic batch.
+			if (
+				/NOT NULL constraint failed:[^\n]*\btitle\b/i.test(
+					error instanceof Error ? error.message : String(error),
+				)
+			)
+				throw new WorkControlError(
+					"NOT_ELIGIBLE",
+					"Parent delegation or descendant limits changed during creation",
+				);
+			throw error;
+		});
 	return normalizeWorkItemRow(rows[0]!);
 }
 
@@ -473,6 +499,7 @@ export async function inheritedChildAuthority(
 	db: DbQueryClient,
 	item: WorkItem,
 	executor?: { type: string; id: string },
+	now = new Date().toISOString(),
 ) {
 	const storeWorkAttempts = coreTable(db, workAttempts);
 	const storeOrganizations = coreTable(db, organizations);
@@ -485,6 +512,8 @@ export async function inheritedChildAuthority(
 		.where(
 			and(
 				eq(storeWorkAttempts.orgId, item.orgId),
+				eq(storeWorkAttempts.runtimeState, "running"),
+				sql`${storeWorkAttempts.expiresAt}>${now}`,
 				anyIds(
 					db,
 					storeWorkAttempts.id,
@@ -535,18 +564,12 @@ export async function inheritedChildAuthority(
 				"Child executor is outside the parent's admitted authority",
 			);
 		if (
-			child.riskLevel !== parent.riskLevel ||
+			WORK_RISK_RANK[child.riskLevel] > WORK_RISK_RANK[parent.riskLevel] ||
 			child.requiredCapabilities.some(
 				(c) => !parent.requiredCapabilities.includes(c),
 			) ||
-			parent.requiredAuthorities.some(
-				(c) => !child.requiredAuthorities.includes(c),
-			) ||
 			child.requiredAuthorities.some(
 				(c) => !parent.requiredAuthorities.includes(c),
-			) ||
-			parent.requiredCapabilities.some(
-				(c) => !child.requiredCapabilities.includes(c),
 			)
 		)
 			throw new WorkControlError(

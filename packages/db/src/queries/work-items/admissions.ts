@@ -383,10 +383,15 @@ async function evaluate(
 	const root = ancestors.at(-1)!;
 	let inheritedAuthority = false;
 	try {
-		inheritedAuthority = await inheritedChildAuthority(db, item, {
-			type: p.executorType,
-			id: p.executorId,
-		});
+		inheritedAuthority = await inheritedChildAuthority(
+			db,
+			item,
+			{
+				type: p.executorType,
+				id: p.executorId,
+			},
+			p.now,
+		);
 	} catch (error) {
 		if (!(error instanceof WorkControlError)) throw error;
 		return {

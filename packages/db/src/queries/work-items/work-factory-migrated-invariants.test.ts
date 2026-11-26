@@ -490,6 +490,23 @@ describe("migrated Work factory raw-D1 invariants", () => {
 			missingAuthorities: [],
 			satisfied: true,
 		});
+		// Delegated authority covers only non-critical risk, never explicit authorities.
+		expect(evaluateWorkAdmissionApprovals(item, [], true)).toEqual({
+			requiredAuthorities: ["deploy", "risk:high"],
+			satisfiedAuthorities: ["risk:high"],
+			missingAuthorities: ["deploy"],
+			satisfied: false,
+		});
+		expect(
+			evaluateWorkAdmissionApprovals(
+				{ ...item, riskLevel: "critical" as const },
+				[],
+				true,
+			),
+		).toMatchObject({
+			missingAuthorities: ["deploy", "risk:critical"],
+			satisfied: false,
+		});
 	});
 
 	it("backfills legacy resource and budget specifications before dropping their columns", () => {
