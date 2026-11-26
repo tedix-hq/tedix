@@ -2124,7 +2124,7 @@ export const CreateWorkItemInputSchema = z
 			.max(100)
 			.default([]),
 		accountableOwnerType: WorkItemOwnerTypeSchema.optional().describe(
-			"Who answers for the Work. Omit both owner fields and a person who creates Work answers for it; for an external agent, the person it acts for or who registered it. Work a tedi proposes names nobody.",
+			"Who answers for the Work; provide it together with accountableOwnerId. Omit both owner fields and a person who creates Work answers for it; for an external agent, the person it acts for or who registered it. An external agent with no verified accountable person must name an owner here — creation is refused without one, because acceptance needs an owner and only a person can assign one later. Work a tedi proposes names nobody.",
 		),
 		accountableOwnerId: z.string().max(300).optional(),
 		stewardType: WorkItemOwnerTypeSchema.optional(),

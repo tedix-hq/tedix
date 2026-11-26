@@ -289,8 +289,10 @@ An explicit --project must match the parent. Parent access is checked in the sel
 Inherited objectives override --class and --expires defaults.
 A Work Item joins an epic afterwards with epic-attach, not at creation.
 Without --owner, the person who creates the Work answers for it; for an agent
-session that is the person it acts for or who registered it. Name someone else
-with --owner <user|tedi|team|system>:<id>.
+session that is the person it acts for or who registered it. An agent session
+with no verified accountable person must name one with --owner, or creation is
+refused: acceptance needs an owner and only a person can assign one later.
+Name someone else with --owner <user|tedi|team|system>:<id>.
 
 Accept states the outcome in plain language with --done-when.
 Create/delegate --parent and accept also support --task-contract <json|@path>:

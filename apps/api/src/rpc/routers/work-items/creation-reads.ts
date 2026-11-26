@@ -18,6 +18,7 @@ import {
 import { withAuthorization } from "../../orpc";
 import {
 	defaultAccountableOwner,
+	externalAgentWorkCreator,
 	workItemCreationActor,
 } from "./creation-actor";
 import { getOrgGraphHealth } from "@tedix/db/queries/org-graph-health";
@@ -224,11 +225,32 @@ export const createProcedure = authOs.create.handler(
 				isLaneReadyExecutorReference(executorReference)
 					? { state: "ready" as const }
 					: undefined;
+			if (
+				Boolean(input.accountableOwnerType) !==
+				Boolean(input.accountableOwnerId)
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"accountableOwnerType and accountableOwnerId must be provided together",
+				);
 			const createdBy = await workItemCreationActor(context, orgId);
 			const owner =
 				input.accountableOwnerType || input.accountableOwnerId
 					? undefined
 					: await defaultAccountableOwner(context, orgId, createdBy);
+			const accountableOwnerType = input.accountableOwnerType ?? owner?.type;
+			const accountableOwnerId = input.accountableOwnerId || owner?.id;
+			if (
+				(!accountableOwnerType || !accountableOwnerId) &&
+				(await externalAgentWorkCreator(context, orgId, createdBy))
+			)
+				// Acceptance refuses Work without an accountable owner and only
+				// a person can assign one afterwards, so ownerless routine Work
+				// an agent files fails here with the one thing it can supply.
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Creating Work as an external agent requires an accountable owner. Pass accountableOwnerType and accountableOwnerId naming the person or tedi that answers for it.",
+				);
 			return await createWorkItem(context.db, {
 				id: crypto.randomUUID(),
 				orgId,
@@ -240,8 +262,8 @@ export const createProcedure = authOs.create.handler(
 				requiredCapabilities: input.requiredCapabilities,
 				requiredAuthorities: input.requiredAuthorities,
 				priority: input.priority,
-				accountableOwnerType: input.accountableOwnerType ?? owner?.type,
-				accountableOwnerId: input.accountableOwnerId ?? owner?.id,
+				accountableOwnerType,
+				accountableOwnerId,
 				stewardType: input.stewardType ?? (laneSteward ? "tedi" : undefined),
 				stewardId: input.stewardId ?? laneSteward ?? undefined,
 				objectiveId: purpose.objectiveId ?? undefined,

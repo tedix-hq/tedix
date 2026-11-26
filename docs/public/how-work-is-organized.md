@@ -65,7 +65,9 @@ Tedix accepts a Work Item only when it has a project, a statement of what done
 looks like and an accountable owner. Otherwise the accept is refused and the
 message names what is missing. `list_work_triage` lists what still waits: one
 list per project, and one for the organization with the proposals that have no
-project yet.
+project yet. An agent that files Work names the accountable owner at creation —
+the person it acts for or who registered it — or the create itself is refused,
+because only a person can assign an owner afterwards.
 
 Tedix also files work for you. When you ask Home to hand a task to a tedi,
 that tedi is the owner, and Home picks the project the request already points

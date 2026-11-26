@@ -198,9 +198,32 @@ it.each([
 		"client-id",
 		"UPDATE external_agent_principals SET organization_id='other'",
 	],
-])("names nobody for %s", async (_name, binding, bindingId, sql) => {
+])(
+	"refuses routine Work from %s with one actionable owner requirement",
+	async (_name, binding, bindingId, sql) => {
+		const { person, sqlite } = fixture();
+		principal(sqlite, binding, bindingId);
+		if (sql) sqlite.exec(sql);
+		await expect(create(agent(person))).rejects.toThrow(
+			"requires an accountable owner",
+		);
+	},
+);
+
+it("lets the same agent session create Work when it names an owner", async () => {
 	const { person, sqlite } = fixture();
-	principal(sqlite, binding, bindingId);
-	if (sql) sqlite.exec(sql);
-	expect(await create(agent(person))).toEqual({ type: null, id: null });
+	principal(sqlite, "github_actions_oidc", "repo:example/repo");
+	expect(
+		await create(agent(person), {
+			accountableOwnerType: "user",
+			accountableOwnerId: "person",
+		}),
+	).toEqual({ type: "user", id: "person" });
+});
+
+it("refuses half an owner pair", async () => {
+	const { person } = fixture();
+	await expect(
+		create(person, { accountableOwnerType: "user" }),
+	).rejects.toThrow("must be provided together");
 });

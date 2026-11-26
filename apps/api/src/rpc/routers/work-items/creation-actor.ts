@@ -15,6 +15,30 @@ import {
 } from "../work-items-principal";
 
 /**
+ * The verified external-agent session behind a Work creation, when the
+ * caller is one. `workItemCreationActor` stays undefined for these callers,
+ * so the gateway-verified identity fields are the signal.
+ */
+export async function externalAgentWorkCreator(
+	context: BaseContext,
+	orgId: string,
+	creator: { type: string; id: string } | undefined,
+): Promise<{ type: "external_agent"; id: string } | undefined> {
+	if (creator?.type === "external_agent")
+		return { type: "external_agent", id: creator.id };
+	if (
+		context.authType === "service-binding" &&
+		context.externalAgentPrincipalId
+	) {
+		const agent = await verifiedExternalAgent(context, orgId);
+		return agent
+			? { type: "external_agent", id: agent.executor.id }
+			: undefined;
+	}
+	return undefined;
+}
+
+/**
  * Who answers for Work created without a named owner. A person who creates
  * Work directly answers for it. Work an external agent creates is answered
  * for by the person that agent acts for, or the person who registered it on
@@ -30,13 +54,7 @@ export async function defaultAccountableOwner(
 ): Promise<{ type: "user"; id: string } | undefined> {
 	if (context.authType === "user" && creator?.type === "user")
 		return { type: "user", id: creator.id };
-	const agent =
-		creator?.type === "external_agent"
-			? creator
-			: context.authType === "service-binding" &&
-				  context.externalAgentPrincipalId
-				? (await verifiedExternalAgent(context, orgId))?.executor
-				: undefined;
+	const agent = await externalAgentWorkCreator(context, orgId, creator);
 	if (!agent) return undefined;
 	const party = { type: "external_agent", id: agent.id };
 	const represented = canonicalPartyKey(

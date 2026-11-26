@@ -1,4 +1,5 @@
 import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import { externalAgentSessions } from "@tedix/db/schema/external-agent-identity";
 import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
 import { WORK_PROPOSAL_SCHEMA } from "@tedix/api-contract/schemas/work-interactions";
 import { projects } from "@tedix/db/schema/projects";
@@ -57,6 +58,7 @@ function fixture() {
 			tedis,
 			tediObjectives,
 			decisionEdges,
+			externalAgentSessions,
 		),
 	);
 	// schemaDdl omits triggers; use the production response-application trigger.
