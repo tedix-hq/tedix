@@ -7,13 +7,14 @@ import {
 	eq,
 	exists,
 	gte,
-	inArray,
 	isNotNull,
 	isNull,
 	lt,
+	notExists,
 	or,
 	sql,
 } from "drizzle-orm";
+import { union } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
 	effectiveCallCostsRelation,
@@ -50,8 +51,10 @@ export async function getBillingSettlementHealth(
 	unsettledSince: string,
 ): Promise<BillingSettlementHealth> {
 	const recentReservations = db
-		.select({ id: billingUsageReservations.id })
-		.from(billingUsageReservations)
+		.select({ id: sql<string>`${billingUsageReservations.id}`.as("id") })
+		.from(
+			sql`${billingUsageReservations} INDEXED BY idx_billing_reservation_newest`,
+		)
 		.where(
 			and(
 				anyBillingReservation,
@@ -59,7 +62,11 @@ export async function getBillingSettlementHealth(
 			),
 		);
 	const recentWalletHolds = db
-		.select({ id: providerExecutionAttempts.billingReservationId })
+		.select({
+			id: sql<string>`${providerExecutionAttempts.billingReservationId}`.as(
+				"id",
+			),
+		})
 		.from(providerExecutionAttempts)
 		.where(
 			and(
@@ -67,6 +74,10 @@ export async function getBillingSettlementHealth(
 				isNotNull(providerExecutionAttempts.billingReservationId),
 			),
 		);
+	// UNION counts a call once even when its hold has both kinds of evidence.
+	const recentReservationIds = union(recentReservations, recentWalletHolds).as(
+		"recent_reservation_ids",
+	);
 	// One D1 batch reads every figure from the same snapshot.
 	const [calls, charges, quarantines] = await db.batch([
 		db
@@ -78,28 +89,37 @@ export async function getBillingSettlementHealth(
 					string | null
 				>`MIN(${tediCallCosts.snapshotAt})`.as("oldestUnsettledAt"),
 			})
-			.from(tediCallCosts)
-			.leftJoin(
-				billingUsageCharges,
-				eq(billingUsageCharges.gatewayLogId, tediCallCosts.gatewayLogId),
-			)
-			.leftJoin(
-				billingUsageQuarantines,
-				eq(billingUsageQuarantines.gatewayLogId, tediCallCosts.gatewayLogId),
-			)
+			.from(recentReservationIds)
+			// CROSS JOIN keeps recent holds outside the call lookup in SQLite's
+			// loop order; an inner join may start with the entire call history.
+			.crossJoin(tediCallCosts)
 			.where(
 				and(
-					// Pre-wallet D1 reservations, plus wallet holds proven by their
-					// dispatch fence (the wallet keeps holds in a Durable Object).
-					// bound-params: subqueries, not lists of values
-					or(
-						inArray(tediCallCosts.billingReservationId, recentReservations),
-						inArray(tediCallCosts.billingReservationId, recentWalletHolds),
-					),
+					eq(tediCallCosts.billingReservationId, recentReservationIds.id),
 					eq(tediCallCosts.success, true),
 					isNotNull(tediCallCosts.orgId),
-					isNull(billingUsageCharges.id),
-					isNull(billingUsageQuarantines.id),
+					notExists(
+						db
+							.select({ one: sql`1` })
+							.from(billingUsageCharges)
+							.where(
+								eq(
+									billingUsageCharges.gatewayLogId,
+									tediCallCosts.gatewayLogId,
+								),
+							),
+					),
+					notExists(
+						db
+							.select({ one: sql`1` })
+							.from(billingUsageQuarantines)
+							.where(
+								eq(
+									billingUsageQuarantines.gatewayLogId,
+									tediCallCosts.gatewayLogId,
+								),
+							),
+					),
 				),
 			),
 		db

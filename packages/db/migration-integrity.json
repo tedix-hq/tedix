@@ -2104,6 +2104,14 @@
 		{
 			"name": "20261126072801_drop_redundant_memory_prefix_indexes/migration.sql",
 			"sha256": "c2d8f0a84fa1d783f05d01930e45e477fed2a23a7ba9d347165f334651524284"
+		},
+		{
+			"name": "20261126085809_billing_health_covering_indexes/migration.sql",
+			"sha256": "989ec4198a49f5527533cf079aebd50ef3e7b02072aee9954f9a58ff72b6c239"
+		},
+		{
+			"name": "20261126085942_billing_health_rebuild_covering_indexes/migration.sql",
+			"sha256": "57e36c90b326c27c9c1b7099f5e45df330b60d56d1a7c3ca3c32aef9b0e12a14"
 		}
 	]
 }

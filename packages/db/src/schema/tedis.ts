@@ -719,7 +719,13 @@ export const tediCallCosts = sqliteTable(
 		),
 		index("idx_call_costs_run").on(table.runId, table.snapshotAt),
 		index("idx_call_costs_work_item").on(table.workItemId, table.snapshotAt),
-		index("idx_call_costs_billing_reservation").on(table.billingReservationId),
+		index("idx_call_costs_billing_reservation").on(
+			table.billingReservationId,
+			table.success,
+			table.orgId,
+			table.gatewayLogId,
+			table.snapshotAt,
+		),
 		index("idx_call_costs_execution").on(table.executionId),
 		uniqueIndex("idx_call_costs_gateway_log_id").on(table.gatewayLogId),
 		// Provider-unit settlement reads only the rare rows that carry units, in

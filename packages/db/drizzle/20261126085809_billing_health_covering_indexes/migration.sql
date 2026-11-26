@@ -1,0 +1,1 @@
+CREATE INDEX `idx_billing_charge_created` ON `billing_usage_charges` (`created_at`);

@@ -12,6 +12,7 @@ import {
 	billingProviderCostEvidenceVersions,
 } from "../../schema/billing";
 import {
+	getBillingSettlementHealth,
 	getRecentProviderAttributionHealth,
 	getRecentProviderPricingHealth,
 } from "./health";
@@ -20,6 +21,122 @@ const window = {
 	sinceInclusive: "2026-09-19T08:00:00.000Z",
 	untilExclusive: "2026-09-20T08:00:00.000Z",
 };
+
+it("reads settlement health through covering indexes without duplicating holds or changing the window", async () => {
+	const { db, sqlite, insert } = fixture();
+	for (const id of ["recent", "old"]) {
+		await reservation(db, id);
+		sqlite
+			.prepare(
+				"UPDATE billing_usage_reservations SET created_at = ? WHERE id = ?",
+			)
+			.run(
+				id === "recent" ? window.sinceInclusive : "2026-09-01T00:00:00.000Z",
+				id,
+			);
+	}
+	for (const id of ["recent", "wallet", "wallet-again"]) {
+		await db.insert(providerExecutionAttempts).values({
+			id,
+			organizationId: "org",
+			source: "kernel",
+			idempotencyKey: id,
+			settlementMode: "managed",
+			billingReservationId: id === "recent" ? "recent" : "wallet",
+			provider: "workers-ai",
+			requestModel: "model",
+			transportKind: "workers-ai-binding",
+			apiKind: "workers-ai-chat",
+			deploymentScope: "fictional-scope",
+			authorizedAt: window.sinceInclusive,
+			sendBefore: window.untilExclusive,
+		});
+	}
+	await insert({
+		orgId: "org",
+		success: true,
+		billingReservationId: "recent",
+		gatewayLogId: "pending",
+	});
+	await insert({
+		orgId: "org",
+		success: true,
+		billingReservationId: "recent",
+		gatewayLogId: "second-pending",
+	});
+	await insert({
+		orgId: "org",
+		success: true,
+		billingReservationId: "wallet",
+		snapshotAt: "2026-09-18T08:00:00.000Z",
+	});
+	await insert({ orgId: "org", success: true, billingReservationId: "old" });
+	await insert({
+		orgId: "org",
+		success: false,
+		billingReservationId: "recent",
+	});
+	await insert({ orgId: null, success: true, billingReservationId: "recent" });
+	await insert({
+		orgId: "org",
+		success: true,
+		billingReservationId: "missing",
+	});
+	for (const log of ["settled", "held"]) {
+		await insert({
+			orgId: "org",
+			success: true,
+			billingReservationId: "recent",
+			gatewayLogId: log,
+		});
+	}
+	await charge(db, "settled", "recent");
+	await hold(db, "held");
+	sqlite
+		.prepare("UPDATE billing_usage_charges SET created_at = ?")
+		.run(window.untilExclusive);
+	sqlite
+		.prepare("UPDATE billing_usage_quarantines SET created_at = ?")
+		.run(window.sinceInclusive);
+	const plans: string[] = [];
+	const observedDb = createDbClient(
+		createD1Facade({
+			prepare(query) {
+				plans.push(
+					...sqlite
+						.prepare(`EXPLAIN QUERY PLAN ${query}`)
+						.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+						.map((row) => String(row.detail)),
+				);
+				return sqlite.prepare(query);
+			},
+			exec: (query) => sqlite.exec(query),
+		}),
+	);
+	expect(
+		await getBillingSettlementHealth(
+			observedDb,
+			window.sinceInclusive,
+			window.sinceInclusive,
+		),
+	).toEqual({
+		unsettledReservedSuccessCount: 3,
+		oldestUnsettledAt: "2026-09-18T08:00:00.000Z",
+		latestSettledAt: window.untilExclusive,
+		quarantined24h: 1,
+	});
+	for (const index of [
+		"idx_billing_reservation_newest",
+		"idx_provider_execution_authorized",
+		"idx_call_costs_billing_reservation",
+		"idx_billing_charge_created",
+	]) {
+		expect(plans.join(" | ")).toContain(`USING COVERING INDEX ${index}`);
+	}
+	expect(plans.join(" | ")).not.toMatch(/SCAN tedi_call_costs/);
+	sqlite.close();
+});
+
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");

@@ -332,7 +332,7 @@ export const billingUsageReservations = sqliteTable(
 		// The metering check asks for the newest reservation of all
 		// organizations; without this it walked the whole table.
 		index("idx_billing_reservation_newest")
-			.on(table.createdAt)
+			.on(table.createdAt, table.id)
 			.where(anyBillingReservation),
 		// Run spending reads charges by run; without this each read walked every
 		// reservation of the organization.
@@ -481,6 +481,7 @@ export const billingUsageCharges = sqliteTable(
 			.where(
 				sql`json_extract(metadata,'$.monetaryQuote.schemaVersion')=1 AND json_extract(metadata,'$.monetaryQuote.rateSnapshot.customerCurrency')='EUR'`,
 			),
+		index("idx_billing_charge_created").on(table.createdAt),
 		index("idx_billing_charge_reservation").on(table.reservationId),
 		index("idx_billing_charge_org_run").on(
 			table.organizationId,
