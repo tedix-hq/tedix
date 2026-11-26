@@ -1869,7 +1869,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 							(await canonicalDigest(stored.target)) !==
 								(await canonicalDigest(input.target)))) ||
 					(approval.payload.fingerprint !== fingerprint &&
-						(workspaceRead ||
+						(workspaceConnection ||
 							(await canonicalDigest(storedIdentity)) !== callFingerprint))
 				) {
 					const differences = ownerToolCallDifferences(

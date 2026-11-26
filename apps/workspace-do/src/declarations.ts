@@ -250,13 +250,15 @@ interface Resources {
   requestConnection(input: { resourceId?: string; providerId?: string; connectionScope?: "personal" | "organization"; reason?: string }): Promise<{ requested: boolean; message: string }>;
 }`.trim(),
 	accounts: `
-/** Read linked accounts in a turn a person started. */
+/** Use linked accounts in a turn a person started. */
 interface Accounts {
   list(): Promise<Array<{ resourceId: string; name: string; service: string }>>;
-  /** Load the reviewed read tools for a source. Set its providerResourceId at each tool's resourcePaths. A "*" path segment means each array entry. */
-  describe(resourceId: string): Promise<{ providerResourceId: string; tools: Array<{ name: string; inputSchema: unknown; resourcePaths: string[][] }> }>;
+  /** Load reviewed read tools and writeTools for a source. Set its providerResourceId at each tool's resourcePaths. A "*" path segment means each array entry. */
+  describe(resourceId: string): Promise<{ providerResourceId: string; tools: Array<{ name: string; inputSchema: unknown; resourcePaths: string[][] }>; writeTools: Array<{ name: string; inputSchema: unknown; resourcePaths: string[][] }> }>;
   /** Read with the exact tool name and JSON arguments. A held read resumes after approval. */
   read(resourceId: string, toolName: string, args: Record<string, unknown>): Promise<unknown>;
+  /** Queue an exact write for the person's review. Nothing is sent until approval; the call runs once. */
+  write(resourceId: string, toolName: string, args: Record<string, unknown>): Promise<unknown>;
 }`.trim(),
 	work: `
 /**

@@ -1323,7 +1323,12 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			},
 		);
 		const scopes = new Set<string>(JSON.parse(resource.requiredScopes));
-		const tools = [];
+		const tools: Array<{
+			name: string;
+			inputSchema: unknown;
+			resourcePaths: string[][];
+		}> = [];
+		const writeTools: typeof tools = [];
 		for (const candidate of candidates) {
 			if (candidate.connectionProviderId !== providerId) continue;
 			const surface = await getAppByIdWithToolsForOrganization(
@@ -1343,14 +1348,19 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 				const config = tool.config as ToolConfig | null;
 				const auth = config?.auth;
 				const annotations = resolveToolAnnotations(tool);
+				const writing =
+					config?.connectionReadOnly === false &&
+					annotations?.readOnlyHint === false &&
+					resource.providerAccess?.canWrite === true;
 				const binding = PersonalResourceToolBindingSchema.safeParse(
 					config?.personalResourceBinding,
 				);
 				if (
 					!tool.enabled ||
 					!["external", "mcp"].includes(config?.transport ?? "") ||
-					config?.connectionReadOnly !== true ||
-					annotations?.readOnlyHint !== true ||
+					(!writing &&
+						(config?.connectionReadOnly !== true ||
+							annotations?.readOnlyHint !== true)) ||
 					annotations.destructiveHint === true ||
 					auth?.type !== "connection" ||
 					auth.connectionId !== providerId ||
@@ -1358,7 +1368,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 					!(auth.scopes ?? []).every((scope) => scopes.has(scope)) ||
 					!binding.success ||
 					binding.data.resourceType !== resource.resourceType ||
-					binding.data.operation !== "read" ||
+					binding.data.operation !== (writing ? "write" : "read") ||
 					!("paths" in binding.data)
 				)
 					continue;
@@ -1367,14 +1377,18 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 					toolName: tool.toolId,
 				});
 				if (resolved?.appId === candidate.id)
-					tools.push({
+					(writing ? writeTools : tools).push({
 						name: tool.toolId,
 						inputSchema: tool.inputSchema,
 						resourcePaths: binding.data.paths,
 					});
 			}
 		}
-		return { providerResourceId: resource.providerResourceId, tools };
+		return {
+			providerResourceId: resource.providerResourceId,
+			tools,
+			writeTools,
+		};
 	}
 
 	/**

@@ -16,6 +16,8 @@ export const WorkspaceConnectionReadInputSchema = z.strictObject({
 	args: z.record(z.string(), JsonValueSchema),
 	conversationId: z.string().min(1),
 	actor: WorkspaceConnectionActorSchema,
+	/** Omitted for the existing read-only callers. Writes always require review. */
+	operation: z.enum(["read", "write"]).optional(),
 	approvalRequestId: z.uuid().optional(),
 });
 

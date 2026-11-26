@@ -718,8 +718,9 @@ export function stepLabel(
 		},
 		accounts: {
 			list: "Checking connected accounts",
-			describe: "Checking what the account can read",
+			describe: "Checking available account actions",
 			read: "Reading from a connected account",
+			write: "Proposing a connected account change",
 		},
 		views: { show: "Showing a view" },
 		web: { fetch: "Reading a web page" },

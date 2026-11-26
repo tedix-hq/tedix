@@ -331,6 +331,10 @@ export class SqlComplianceAdapter implements ComplianceAdapter {
 				? { state: "granted" }
 				: { state: "denied", reason: READ_ONLY_REASON };
 		}
+		// The account adapter queues the exact call in the canonical connection
+		// approval service. Read only was refused above; no local receipt grants it.
+		if (call.resource === "connected_account" && call.operation === "write")
+			return { state: "not_required" };
 		// A read the mode asks for goes straight to the person's receipt.
 		const askedRead =
 			hold === "ask" && (!call.riskTier || call.riskTier === "read");

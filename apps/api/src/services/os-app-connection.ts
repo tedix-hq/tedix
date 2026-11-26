@@ -49,6 +49,7 @@ type ConnectionCaller =
 			workspaceId: string;
 			conversationId: string;
 			actor: WorkspaceConnectionActor;
+			operation?: "read" | "write";
 	  };
 
 /** Keeps the app's refusal text while allowing the agent to offer the right connect link. */
@@ -68,8 +69,10 @@ export async function mayDecideWorkspaceConnection(
 	return (
 		typeof target.workspaceId === "string" &&
 		(target.connectionScope === "tenant" || approverId === requesterId) &&
-		(await readWorkspaceSessionRole(db, target.workspaceId, approverId)) ===
-			"build"
+		["build", "owner"].includes(
+			(await readWorkspaceSessionRole(db, target.workspaceId, approverId)) ??
+				"",
+		)
 	);
 }
 
@@ -167,6 +170,8 @@ function observationReceipt(
 			: {}),
 		input: JSON.stringify({
 			kind: "connection_observation",
+			operation:
+				caller.kind === "agent" ? (caller.operation ?? "read") : "read",
 			...(caller.kind === "agent"
 				? { conversationId: caller.conversationId, actor: caller.actor }
 				: {}),
@@ -186,7 +191,11 @@ function observationReceipt(
 			wouldDeny: access.wouldDeny,
 			containsRestrictedData: access.containsRestrictedData,
 		}),
-		grantedCapabilities: JSON.stringify(["connections.read"]),
+		grantedCapabilities: JSON.stringify([
+			caller.kind === "agent" && caller.operation === "write"
+				? "connections.execute"
+				: "connections.read",
+		]),
 		policyDecision: JSON.stringify({
 			allowed: !access.denied,
 			reasons: [
@@ -241,6 +250,8 @@ export async function callWorkspaceResourceConnection(
 	input: unknown,
 ) {
 	const args = inputSchema.parse(input);
+	const writing = caller.kind === "agent" && caller.operation === "write";
+	if (writing && caller.actor.kind !== "user") refuse();
 	if (caller.kind === "app") {
 		const session = caller.session;
 		if (
@@ -303,8 +314,12 @@ export async function callWorkspaceResourceConnection(
 		!tool ||
 		!config ||
 		!["external", "mcp"].includes(config.transport ?? "") ||
-		config.connectionReadOnly !== true ||
-		annotations?.readOnlyHint !== true ||
+		(writing
+			? config.connectionReadOnly !== false ||
+				annotations?.readOnlyHint !== false ||
+				resource.providerAccess?.canWrite !== true
+			: config.connectionReadOnly !== true ||
+				annotations?.readOnlyHint !== true) ||
 		annotations?.destructiveHint === true ||
 		auth?.type !== "connection" ||
 		auth.connectionId !== resource.providerId ||
@@ -330,7 +345,7 @@ export async function callWorkspaceResourceConnection(
 	);
 	if (
 		binding.resourceType !== resource.resourceType ||
-		binding.operation !== "read" ||
+		binding.operation !== (writing ? "write" : "read") ||
 		!("paths" in binding)
 	)
 		refuse();
@@ -398,46 +413,53 @@ export async function callWorkspaceResourceConnection(
 	const { mcpGovernanceContractRouter } =
 		await import("../rpc/routers/mcp-governance");
 	const configHash = await sha256Hex(JSON.stringify(effectiveConfig));
-	const approval = await call(
-		mcpGovernanceContractRouter.requestOwnerToolApproval,
-		{
-			organizationId: resource.organizationId,
-			...(actingUserId ? { userId: actingUserId } : {}),
-			appSlug: surface.app.slug,
-			toolId: tool.toolId,
-			target: {
-				transport: config.transport ?? "",
-				configHash,
-				workspaceId: resource.workspaceId,
-				connectionScope: resource.connectionScope,
-				...(caller.kind === "app"
-					? {
-							gadgetId: caller.session.gadgetId,
-							revisionId: caller.session.revisionId,
-							slot: resource.slot,
-						}
-					: { conversationId: caller.conversationId, actor: caller.actor }),
-				resourceHash: await canonicalDigest(resource),
-				accountHash: await canonicalDigest(account),
-			},
-			args: args.arguments,
-			...(args.approvalRequestId
-				? { approvalRequestId: args.approvalRequestId }
-				: {}),
-		},
-		{
-			context: {
-				...context,
-				authType: "service-binding",
-				workspaceConnectionRead:
-					caller.kind === "agent"
-						? { actor: caller.actor, toolRowId: tool.id }
-						: undefined,
-				headers: new Headers({ "X-Service-Binding": "true" }),
-			},
-		},
-	);
-	if (!approval.approved) return JsonValueSchema.parse({ approval });
+	const target = {
+		transport: config.transport ?? "",
+		configHash,
+		workspaceId: resource.workspaceId,
+		connectionScope: resource.connectionScope,
+		...(caller.kind === "app"
+			? {
+					gadgetId: caller.session.gadgetId,
+					revisionId: caller.session.revisionId,
+					slot: resource.slot,
+				}
+			: { conversationId: caller.conversationId, actor: caller.actor }),
+		resourceHash: await canonicalDigest(resource),
+		accountHash: await canonicalDigest(account),
+	};
+	// On a write replay the gateway consumes the approval, after matching the
+	// freshly checked target and configuration. Consuming here would spend it twice.
+	const approval =
+		writing && args.approvalRequestId
+			? undefined
+			: await call(
+					mcpGovernanceContractRouter.requestOwnerToolApproval,
+					{
+						organizationId: resource.organizationId,
+						...(actingUserId ? { userId: actingUserId } : {}),
+						appSlug: surface.app.slug,
+						toolId: tool.toolId,
+						target,
+						args: args.arguments,
+						...(args.approvalRequestId
+							? { approvalRequestId: args.approvalRequestId }
+							: {}),
+					},
+					{
+						context: {
+							...context,
+							authType: "service-binding",
+							workspaceConnectionRead:
+								caller.kind === "agent" && !writing
+									? { actor: caller.actor, toolRowId: tool.id }
+									: undefined,
+							headers: new Headers({ "X-Service-Binding": "true" }),
+						},
+					},
+				);
+	if (approval && !approval.approved)
+		return JsonValueSchema.parse({ approval });
 	await createOsGadgetExecution(db, { ...receipt, status: "running" });
 	const receiptScope = {
 		organizationId: resource.organizationId,
@@ -456,7 +478,9 @@ export async function callWorkspaceResourceConnection(
 				...(actingUserId ? { "X-Tedix-Acting-User": actingUserId } : {}),
 				...(tediId ? { "X-Tedix-Tedi-Id": tediId } : {}),
 				"X-Tedix-Kernel": "true",
-				"X-Tedix-Tedi-Scopes": "connections.read",
+				"X-Tedix-Tedi-Scopes": writing
+					? "connections.execute"
+					: "connections.read",
 			},
 		},
 		"tools/call",
@@ -464,6 +488,12 @@ export async function callWorkspaceResourceConnection(
 			name: tool.toolId,
 			arguments: args.arguments,
 			_meta: {
+				...(writing
+					? {
+							"com.tedix/approvalRequestId": args.approvalRequestId,
+							"com.tedix/workspaceConnectionTarget": target,
+						}
+					: {}),
 				"tedix/expectedToolConfig": configHash,
 				"tedix/expectedConnection": {
 					providerId: resource.providerId,
@@ -490,6 +520,11 @@ export async function callWorkspaceResourceConnection(
 		status: failed ? "failed" : "completed",
 		...(failed ? { error: "Provider reported an error" } : {}),
 	});
+	if (writing && failed)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"The connected account change was not confirmed. Review the execution result before trying again.",
+		);
 	// Retain human-required protocol results; never answer elicitation or open consent.
 	return JsonValueSchema.parse(result);
 }

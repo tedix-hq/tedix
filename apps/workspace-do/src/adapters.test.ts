@@ -111,6 +111,17 @@ describe("the gate stages a person's file and Work writes in the asking modes", 
 		blastRadius: "single_resource",
 	});
 
+	test("account writes reach their canonical approval service except in Read only", async () => {
+		for (const mode of ["auto", "ask_every_time", "ask_for_changes"] as const)
+			expect(
+				(await gate(mode).check(call("connected_account", "write"))).verdict,
+			).toBe("allow");
+		expect(
+			(await gate("read_only").check(call("connected_account", "write")))
+				.verdict,
+		).toBe("deny");
+	});
+
 	test("a doc edit or a Work Item stages; nothing is allowed to run", async () => {
 		for (const mode of ["ask_every_time", "ask_for_changes"] as const)
 			for (const [resource, operation] of [

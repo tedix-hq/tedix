@@ -44,7 +44,12 @@ its code runs beside the data.
    whether it reads through each person's own account or one the organization
    shares, the access it grants, and whether the person the turn acts for has
    that account connected. It names no owner and holds no credential.
-   `env.accounts` reads a source through its reviewed read tools.
+   `env.accounts` reads a source through its reviewed read tools. Its
+   `describe` result also lists reviewed `writeTools` for writable sources.
+   `write(resourceId, toolName, args)` queues an exact change for the person's
+   approval, including in Auto. Approval runs it once through the gateway;
+   changed resources, accounts, tools or arguments require a new approval.
+   Read only refuses writes. Apps retain their read-only connection boundary.
    `env.resources.available()` lists the sending person's unlinked accounts
    using the Connections page inventory. `env.resources.requestLink({
    connections: [id, ...], reason })` proposes relevant accounts together in

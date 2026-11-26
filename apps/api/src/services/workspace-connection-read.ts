@@ -44,6 +44,11 @@ export async function readLinkedWorkspaceAccount(
 			message: "The connection read request is invalid.",
 		};
 	const request = parsed.data;
+	if (request.operation === "write" && request.actor.kind !== "user")
+		return {
+			status: "refused",
+			message: "Only a signed-in person can request a connected account write.",
+		};
 	const context = createContext(
 		new Request("https://api.internal/workspace-connection-read"),
 		env,
@@ -130,6 +135,7 @@ export async function readLinkedWorkspaceAccount(
 					workspaceId: request.workspaceId,
 					conversationId: request.conversationId,
 					actor: request.actor,
+					operation: request.operation,
 				},
 				resource,
 				{

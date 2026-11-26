@@ -910,6 +910,7 @@ export function buildWorkspaceBindings(
 				list: accountsUnavailable,
 				describe: accountsUnavailable,
 				read: accountsUnavailable,
+				write: accountsUnavailable,
 			},
 			{
 				...common,
@@ -919,6 +920,7 @@ export function buildWorkspaceBindings(
 					list: { riskTier: "read", blastRadius: "none" },
 					describe: { riskTier: "read", blastRadius: "none" },
 					read: { riskTier: "read", blastRadius: "none" },
+					write: { riskTier: "bounded_write", blastRadius: "single_resource" },
 				},
 			},
 		),

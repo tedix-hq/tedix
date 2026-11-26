@@ -3150,7 +3150,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			}),
 		);
 		try {
-			if (approval.binding === "accounts" && approval.method === "read") {
+			if (
+				approval.binding === "accounts" &&
+				["read", "write"].includes(approval.method)
+			) {
 				const decision =
 					await this.accountService().decideLinkedAccountApproval({
 						...scope,
@@ -5620,10 +5623,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						title: label,
 						reason:
 							"Someone with build access to this workspace must decide this. A personal account is decided only by its own person.",
-						input: boundedEventInput({
+						// A person must be able to review the exact outgoing write.
+						input: {
 							resourceId: args[0],
 							toolName: args[1],
-						}),
+							...(method === "write" ? { args: args[2] } : {}),
+						},
 					});
 			}
 			if (

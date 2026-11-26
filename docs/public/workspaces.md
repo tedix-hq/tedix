@@ -48,10 +48,16 @@ unavailable file shows an error and does not start a turn. Your message and
 file selections remain editable so you can remove the file and try again.
 Use a native file containing the material you want the workspace to read.
 
-The workspace agent can list installed apps and connected resources. It
-cannot yet create or edit apps, invoke their actions, or call connected
-services from this chat. Open the app to use its own controls; listing a
-resource does not grant access to its contents or permission to act.
+The workspace agent can create apps and propose edits to their files for
+review. In a conversation you start, it can read linked accounts through
+their configured read tools and propose changes through configured write
+tools. Connected-account changes wait for your approval, including in Auto.
+The review names the source, tool and arguments; accepting runs that exact
+call once. Rejecting sends nothing. A personal account needs its own person's
+approval; a shared account needs someone with build or owner access.
+The linked source must allow writes, and the connected account must already
+have the service's required permissions. Read only refuses changes. Apps
+themselves still use read-only connection tools.
 
 When you send a message, the workspace's agent answers in steps:
 

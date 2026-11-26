@@ -6,6 +6,7 @@ import {
 	it,
 	vi,
 } from "vite-plus/test";
+import { call } from "@orpc/server";
 import type { WorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
 import { userContext } from "../rpc/test-context";
@@ -111,7 +112,7 @@ vi.mock("../lib/first-party-mcp", () => ({
 }));
 // Load the real governance router during test collection so the first case
 // measures the adapter call without Vite's cold transform of the router graph.
-import "../rpc/routers/mcp-governance";
+import { mcpGovernanceContractRouter } from "../rpc/routers/mcp-governance";
 import { callWorkspaceAppConnection } from "./os-app-connection";
 import {
 	decideLinkedWorkspaceAccountApproval,
@@ -1187,6 +1188,108 @@ describe("workspace agent linked account reads", () => {
 		expect(mocks.resource).not.toHaveBeenCalled();
 		expect(mocks.findTool).not.toHaveBeenCalled();
 		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+
+	it("queues an exact write, authorizes its decision and consumes it only at gateway dispatch", async () => {
+		const writable = {
+			...resource,
+			providerAccess: { canRead: true, canWrite: true },
+		};
+		mocks.outputQuery.mockResolvedValue(writable);
+		const app = surface();
+		const tool = app.tools[0]!;
+		tool.annotations.readOnlyHint = false;
+		tool.config.connectionReadOnly = false;
+		tool.config.personalResourceBinding.operation = "write";
+		mocks.surface.mockResolvedValue(app);
+		const write = (overrides: Record<string, unknown> = {}) =>
+			read({ operation: "write", ...overrides });
+		expect(await write()).toMatchObject({ status: "approval_required" });
+		expect(mocks.gateway).not.toHaveBeenCalled();
+		const row = { ...mocks.create.mock.calls[0]![1], status: "pending" };
+		mocks.get.mockResolvedValue(row);
+		mocks.resolveApproval.mockImplementation(async (_db, _id, data) =>
+			Object.assign(row, data),
+		);
+		const decision = {
+			...request,
+			approvalRequestId: row.id,
+			by: "user-2",
+			decision: "approve",
+		};
+		const {
+			organizationId,
+			workspaceId,
+			conversationId,
+			approvalRequestId,
+			by,
+		} = decision;
+		const tray = {
+			organizationId,
+			workspaceId,
+			conversationId,
+			approvalRequestId,
+			by,
+		};
+		expect(
+			await decideLinkedWorkspaceAccountApproval(env(), {
+				...tray,
+				by: "other",
+				decision: "approve",
+			}),
+		).toMatchObject({ status: "refused" });
+		expect(
+			await decideLinkedWorkspaceAccountApproval(env(), {
+				...tray,
+				decision: "approve",
+			}),
+		).toEqual({ status: "approved" });
+		mocks.gateway.mockImplementation(async (_transport, _method, wire) => {
+			const approval = await call(
+				mcpGovernanceContractRouter.requestOwnerToolApproval,
+				{
+					organizationId,
+					userId: "user-2",
+					appSlug: app.app.slug,
+					toolId: tool.toolId,
+					target: wire._meta["com.tedix/workspaceConnectionTarget"],
+					args: wire.arguments,
+					approvalRequestId: wire._meta["com.tedix/approvalRequestId"],
+				},
+				{
+					context: {
+						...context("user-2"),
+						authType: "service-binding",
+						headers: new Headers({ "X-Service-Binding": "true" }),
+					},
+				},
+			);
+			return approval.approved
+				? { content: [{ type: "text", text: "saved" }] }
+				: { isError: true };
+		});
+		const replay = { approvalRequestId: row.id };
+		expect(
+			await write({
+				...replay,
+				args: { calendarId: "calendar-1", title: "changed" },
+			}),
+		).toMatchObject({ status: "refused" });
+		expect(mocks.consume).not.toHaveBeenCalled();
+		expect(await write(replay)).toMatchObject({ status: "ok" });
+		expect(mocks.consume).toHaveBeenCalledTimes(1);
+		expect(
+			mocks.gateway.mock.calls.at(-1)![0].headers["X-Tedix-Tedi-Scopes"],
+		).toBe("connections.execute");
+		mocks.consume.mockResolvedValue(false);
+		expect(await write(replay)).toMatchObject({ status: "refused" });
+		mocks.outputQuery.mockResolvedValue({
+			...writable,
+			providerAccess: { canWrite: false },
+		});
+		const calls = mocks.gateway.mock.calls.length;
+		expect(await write(replay)).toMatchObject({ status: "refused" });
+		expect(mocks.gateway).toHaveBeenCalledTimes(calls);
 	});
 
 	/** Holds a person's read of the organization account unless `personal` is set. */

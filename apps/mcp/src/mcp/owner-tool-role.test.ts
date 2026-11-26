@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createInMemoryAdapters } from "@tedix/agent-governance/in-memory";
 import { admitGatewayCall } from "./gateway-adapters";
 import { toolApprovalMetadata } from "./tool-risk-policy";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { AppTool, ServerContext } from "./server-context";
 
 const tool = {
@@ -15,6 +16,66 @@ const tool = {
 	AppTool,
 	"toolId" | "title" | "inputSchema" | "config" | "meta"
 >;
+
+it.each(["kernel", "stale", "user"])(
+	"pins workspace approval replay to the live configuration: %s",
+	async (kind) => {
+		const request = vi.fn(async () => ({
+			approved: true,
+			status: "consumed",
+			approvedUserId: "requester",
+		}));
+		const target = {
+			transport: tool.config.transport,
+			configHash:
+				kind === "stale" ? "old" : await sha256Hex(JSON.stringify(tool.config)),
+			workspaceId: "workspace-1",
+			conversationId: "chat-1",
+			resourceHash: "resource",
+			accountHash: "account",
+		};
+		const agent = {
+			server: { server: { elicitInput: vi.fn() } },
+			appSlug: "example",
+			app: { organizationId: "org-1" },
+			callerIdentity: {
+				authType: kind === "user" ? "oauth" : "service",
+				kernel: kind !== "user",
+				userId: "requester",
+				organizationId: "org-1",
+			},
+			apiClient: { mcpGovernance: { requestOwnerToolApproval: request } },
+		} as unknown as ServerContext;
+		const admission = await admitGatewayCall({
+			agent,
+			tool,
+			args: {},
+			annotations: { destructiveHint: true },
+			approval: {
+				args: {},
+				extra: {
+					_meta: {
+						"com.tedix/approvalRequestId": "approval",
+						"com.tedix/workspaceConnectionTarget": target,
+					},
+				},
+			},
+		});
+		if (kind === "stale") {
+			expect(admission.failure?.isError).toBe(true);
+			expect(request).not.toHaveBeenCalled();
+		} else {
+			expect(request).toHaveBeenCalledWith(
+				expect.objectContaining({
+					target:
+						kind === "kernel"
+							? target
+							: expect.not.objectContaining({ workspaceId: "workspace-1" }),
+				}),
+			);
+		}
+	},
+);
 
 it("isolates verified approvers across concurrent exact-call admissions", async () => {
 	const agent = {

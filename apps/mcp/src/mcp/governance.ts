@@ -954,6 +954,28 @@ async function ownerToolApproval(
 		const approvalRequesterUserId =
 			options?.extra?._meta?.["com.tedix/approvalRequesterUserId"];
 		const configHash = await sha256Hex(JSON.stringify(tool.config ?? {}));
+		const workspaceTargetRaw = replay
+			? options?.extra?._meta?.["com.tedix/workspaceConnectionTarget"]
+			: undefined;
+		const workspaceTarget =
+			workspaceTargetRaw &&
+			typeof workspaceTargetRaw === "object" &&
+			!Array.isArray(workspaceTargetRaw)
+				? (workspaceTargetRaw as Record<string, unknown>)
+				: undefined;
+		if (
+			workspaceTargetRaw !== undefined &&
+			(!workspaceTarget ||
+				workspaceTarget.configHash !== configHash ||
+				workspaceTarget.transport !== tool.config?.transport ||
+				typeof workspaceTarget.workspaceId !== "string" ||
+				typeof workspaceTarget.conversationId !== "string" ||
+				typeof workspaceTarget.resourceHash !== "string" ||
+				typeof workspaceTarget.accountHash !== "string")
+		)
+			return approvalFailure(
+				"The reviewed workspace connection changed. No side effect was executed.",
+			);
 		const approval =
 			await agent.apiClient.mcpGovernance.requestOwnerToolApproval({
 				organizationId: agent.app.organizationId,
@@ -973,7 +995,7 @@ async function ownerToolApproval(
 					: {}),
 				appSlug: agent.appSlug ?? "",
 				toolId: tool.toolId,
-				target: {
+				target: workspaceTarget ?? {
 					...(options?.sensitiveDataEgress
 						? { sensitiveDataEgress: options.sensitiveDataEgress }
 						: {}),

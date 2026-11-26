@@ -3088,6 +3088,7 @@ describe("WorkspaceDO", () => {
 			...own,
 			id: crypto.randomUUID(),
 			name: "Planning folder",
+			providerAccess: { canRead: true, canWrite: true },
 			providerId: "fixture-storage",
 			connectionScope: "user" as const,
 			personalOwnerUserId: "u1",
@@ -3172,6 +3173,20 @@ describe("WorkspaceDO", () => {
 				toolId: "write_folder",
 				annotations: { readOnlyHint: false },
 			},
+			{
+				...tool,
+				id: "fixture-update",
+				toolId: "update_folder",
+				annotations: { readOnlyHint: false },
+				config: {
+					...tool.config,
+					connectionReadOnly: false,
+					personalResourceBinding: {
+						...tool.config.personalResourceBinding,
+						operation: "write",
+					},
+				},
+			},
 		]);
 		const ws = workspace(own);
 		const approvalId = crypto.randomUUID();
@@ -3237,6 +3252,7 @@ describe("WorkspaceDO", () => {
 			result: expect.stringContaining("Access to this folder was refused."),
 		});
 		expect(JSON.stringify(result)).not.toContain("write_folder");
+		expect(JSON.stringify(result)).toContain("update_folder");
 		expect(
 			events.filter((event) => event.type === "connection.requested"),
 		).toEqual([
@@ -3333,6 +3349,86 @@ describe("WorkspaceDO", () => {
 				}),
 			]),
 		);
+	});
+
+	test("a connected account write waits with its full arguments and replays once after the person's decision", async () => {
+		await seedCore();
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		const ws = workspace(own);
+		await adoptStoreDirectory(ws, own);
+		const approvalId = crypto.randomUUID();
+		const deniedId = crypto.randomUUID();
+		const args = { folderKey: "folder-1", content: "review this ".repeat(220) };
+		await ws.scriptAccountReads(own, [
+			{ status: "approval_required", approvalId },
+			{ status: "approval_required", approvalId: deniedId },
+			{ status: "ok", result: { saved: true } },
+		]);
+		await ws.scriptModel(own, [
+			{
+				code: `export default async ({accounts}) => {
+				await accounts.write("source-1", "write_folder", ${JSON.stringify(args)}).catch(e => e.message);
+				await accounts.write("source-1", "write_folder", {folderKey:"folder-1",content:"deny"}).catch(e => e.message);
+			}`,
+			},
+			{ text: "Two changes await your review." },
+		]);
+		const started = await ws.sendTurn(own, {
+			actorKind: "user",
+			actorId: "u1",
+			text: "Update the folder.",
+		});
+		expect(await ws.awaitTurn(own, started.turnId, 20_000)).toMatchObject({
+			status: "finished",
+		});
+		const requests = (
+			await ws.readEvents(own, { conversationId: started.conversationId })
+		).filter((e) => e.type === "approval.requested");
+		expect(requests).toHaveLength(2);
+		expect(requests[0]).toMatchObject({
+			approvalId,
+			input: { resourceId: "source-1", toolName: "write_folder", args },
+		});
+		expect(await ws.readAccountCalls(own)).toHaveLength(2);
+		await ws.scriptModel(own, [
+			{ text: "Change saved." },
+			{ text: "Other change rejected." },
+		]);
+		const accepted = await ws.decideApproval(own, {
+			approvalId,
+			by: "approver",
+			decision: "approve",
+		});
+		expect(accepted.applied).toBe(true);
+		await ws.awaitTurn(own, accepted.turnId!, 20_000);
+		expect((await ws.readAccountCalls(own)).at(-1)).toMatchObject({
+			operation: "write",
+			args,
+			approvalRequestId: approvalId,
+			actor: { kind: "user", id: "u1" },
+		});
+		expect(
+			await ws.decideApproval(own, {
+				approvalId,
+				by: "approver",
+				decision: "approve",
+			}),
+		).toMatchObject({ alreadyDecided: true });
+		const rejected = await ws.decideApproval(own, {
+			approvalId: deniedId,
+			by: "approver",
+			decision: "deny",
+		});
+		await ws.awaitTurn(own, rejected.turnId!, 20_000);
+		const calls = await ws.readAccountCalls(own);
+		expect(
+			calls.filter((c) => "operation" in c && c.operation === "write"),
+		).toHaveLength(3);
+		expect(calls.at(-1)).toMatchObject({
+			approvalRequestId: deniedId,
+			decision: "deny",
+		});
 	});
 
 	test.each(["tedi", "service"] as const)(
