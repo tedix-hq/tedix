@@ -23,8 +23,9 @@ import {
 } from "@tedix/api-contract/schemas/tools";
 import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
-import { apps } from "../../schema/apps";
-import { appTools } from "../../schema/tools";
+import { apps as schemaApps } from "../../schema/apps";
+import { appTools as schemaAppTools } from "../../schema/tools";
+import { coreTable } from "../../core-store/client";
 
 /**
  * Why a tool is unclassified. Determines who can fix it and how:
@@ -85,6 +86,8 @@ export async function reportUnclassifiedWriteCapability(
 	db: DbClient,
 	options: ReportUnclassifiedWriteCapabilityOptions = {},
 ): Promise<UnclassifiedWriteCapabilityReport> {
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 	const limit = Math.min(
 		Math.max(options.limit ?? DEFAULT_LIMIT, 1),
 		MAX_LIMIT,

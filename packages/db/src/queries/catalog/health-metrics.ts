@@ -18,12 +18,14 @@ import {
 	sql,
 } from "drizzle-orm";
 import {
-	appCatalog,
 	type CatalogApp,
 	type ErrorClass,
 	type HealthStatus,
 	type TransportType,
 } from "../../schema/catalog";
+import { coreStore, jsonRead, likeText } from "../../core-store/dialect";
+import { catalogTables } from "./catalog-tables";
+import { catalogNow } from "./clock";
 import { chunkForBoundParams } from "../../utils/batch";
 import { prefixedColumns } from "../../utils/select";
 import { getCatalogAppById } from "./get-app";
@@ -126,6 +128,7 @@ export async function listActiveProviderCatalogApps(
 	slugs: readonly string[],
 ): Promise<Array<{ id: string; slug: string }>> {
 	if (slugs.length === 0) return [];
+	const { appCatalog } = catalogTables(db);
 	const results: Array<{ id: string; slug: string }> = [];
 	// D1 caps bound parameters at 100 per statement; chunk the slug IN() list.
 	for (const chunk of chunkForBoundParams([...new Set(slugs)], 50)) {
@@ -156,6 +159,7 @@ export async function updateCatalogAppHealthMetrics(
 	catalogAppId: string,
 	result: McpScanResult,
 ): Promise<CatalogApp | null> {
+	const { appCatalog } = catalogTables(db);
 	// Calculate consecutive failures
 	const app = await getCatalogAppById(db, catalogAppId);
 	if (!app) return null;
@@ -230,7 +234,7 @@ export async function updateCatalogAppHealthMetrics(
 			supportsPrompts: result.supportsPrompts ?? app.supportsPrompts,
 			supportsSampling: result.supportsSampling ?? app.supportsSampling,
 			supportsRoots: result.supportsRoots ?? app.supportsRoots,
-			...(observedChange ? { updatedAt: sql`datetime('now')` } : {}),
+			...(observedChange ? { updatedAt: catalogNow(db) } : {}),
 		})
 		.where(eq(appCatalog.id, catalogAppId));
 
@@ -261,6 +265,7 @@ export async function getCatalogAppsNeedingScan(
 		catalogAppIds,
 		catalogAppSlugs,
 	} = options;
+	const { appCatalog } = catalogTables(db);
 
 	// Targeted rescan: bypass age filter, just fetch the requested apps.
 	// Chunked: D1 caps bound parameters at 100 per statement.
@@ -316,7 +321,7 @@ export async function getCatalogAppsNeedingScan(
 		AND ${appCatalog.mcpToolCount} = 0
 		AND ${appCatalog.mcpResourceCount} = 0
 		AND ${appCatalog.mcpPromptCount} = 0
-		AND COALESCE(json_extract(${appCatalog.healthData}, '$.consecutiveFailures'), 0) >= 3
+		AND COALESCE(${jsonRead(db, appCatalog.healthData, ["consecutiveFailures"], "number")}, 0) >= 3
 	`;
 
 	return db
@@ -329,11 +334,11 @@ export async function getCatalogAppsNeedingScan(
 				or(
 					// Never checked
 					eq(appCatalog.healthStatus, "unknown"),
-					sql`json_extract(${appCatalog.healthData}, '$.lastCheckedAt') IS NULL`,
+					sql`${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} IS NULL`,
 					// Known auth/blocked endpoints: weekly cadence
 					and(
 						inArray(appCatalog.healthStatus, ["requires_auth", "blocked"]),
-						sql`json_extract(${appCatalog.healthData}, '$.lastCheckedAt') < ${gatedCutoff}`,
+						sql`${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} < ${gatedCutoff}`,
 					),
 					// Auth-gated zero-inventory endpoints still need a lighter manifest
 					// discovery pass. A recent failed auth handshake should not block
@@ -344,21 +349,21 @@ export async function getCatalogAppsNeedingScan(
 						eq(appCatalog.mcpResourceCount, 0),
 						eq(appCatalog.mcpPromptCount, 0),
 						or(
-							sql`json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') IS NULL`,
-							sql`json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') < ${standardCutoff}`,
+							sql`${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} IS NULL`,
+							sql`${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} < ${standardCutoff}`,
 						),
 					),
 					// Repeated unhealthy zero-inventory endpoints are low-value; revisit
 					// weekly so active/healthy provider inventory is not starved.
 					and(
 						repeatedUnhealthyZeroInventory,
-						sql`json_extract(${appCatalog.healthData}, '$.lastCheckedAt') < ${gatedCutoff}`,
+						sql`${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} < ${gatedCutoff}`,
 					),
 					// Everything else: standard cadence
 					and(
 						notInArray(appCatalog.healthStatus, ["requires_auth", "blocked"]),
 						sql`NOT (${repeatedUnhealthyZeroInventory})`,
-						sql`json_extract(${appCatalog.healthData}, '$.lastCheckedAt') < ${standardCutoff}`,
+						sql`${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} < ${standardCutoff}`,
 					),
 				),
 			),
@@ -368,9 +373,9 @@ export async function getCatalogAppsNeedingScan(
 			// backlog. This changes ordering only: age and auth cadence gates above
 			// still decide whether a Tedix-owned endpoint is due.
 			sql`CASE
-				WHEN lower(json_extract(${appCatalog.mcpMetadata}, '$.endpoint')) LIKE '%.tedix.dev/%'
-					OR lower(${appCatalog.mcpEndpointNormalized}) LIKE '%.tedix.dev/%'
-					OR lower(${appCatalog.mcpEndpointNormalized}) LIKE 'https://tedix.dev/%'
+				WHEN ${likeText(db, jsonRead(db, appCatalog.mcpMetadata, ["endpoint"]), "%.tedix.dev/%")}
+					OR ${likeText(db, appCatalog.mcpEndpointNormalized, "%.tedix.dev/%")}
+					OR ${likeText(db, appCatalog.mcpEndpointNormalized, "https://tedix.dev/%")}
 					THEN 0
 				WHEN EXISTS (
 					SELECT 1 FROM apps
@@ -391,7 +396,7 @@ export async function getCatalogAppsNeedingScan(
 				WHEN ${appCatalog.healthStatus} = 'blocked' THEN 7
 				ELSE 8
 			END`,
-			sql`COALESCE(json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt'), json_extract(${appCatalog.healthData}, '$.lastCheckedAt'), '1970-01-01T00:00:00.000Z')`,
+			sql`COALESCE(${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])}, ${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])}, '1970-01-01T00:00:00.000Z')`,
 		)
 		.limit(limit);
 }
@@ -429,6 +434,7 @@ export async function getCatalogScanBacklogSummary(
 	db: Database,
 	options: { maxAgeHours?: number } = {},
 ): Promise<CatalogScanBacklogSummary> {
+	const { appCatalog } = catalogTables(db);
 	const { maxAgeHours = 24 } = options;
 	const standardCutoff = new Date(
 		Date.now() - maxAgeHours * 60 * 60 * 1000,
@@ -447,7 +453,7 @@ export async function getCatalogScanBacklogSummary(
 		AND ${appCatalog.mcpToolCount} = 0
 		AND ${appCatalog.mcpResourceCount} = 0
 		AND ${appCatalog.mcpPromptCount} = 0
-		AND COALESCE(json_extract(${appCatalog.healthData}, '$.consecutiveFailures'), 0) >= 3
+		AND COALESCE(${jsonRead(db, appCatalog.healthData, ["consecutiveFailures"], "number")}, 0) >= 3
 	`;
 
 	const [row] = await db
@@ -455,10 +461,10 @@ export async function getCatalogScanBacklogSummary(
 			totalEnabledMcp: sql<number>`COUNT(*)`.as("total_enabled_mcp"),
 			dueNow: sql<number>`SUM(CASE WHEN (
 				${appCatalog.healthStatus} = 'unknown'
-				OR json_extract(${appCatalog.healthData}, '$.lastCheckedAt') IS NULL
+				OR ${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} IS NULL
 				OR (
 					${appCatalog.healthStatus} IN ('requires_auth', 'blocked')
-					AND json_extract(${appCatalog.healthData}, '$.lastCheckedAt') < ${gatedCutoff}
+					AND ${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} < ${gatedCutoff}
 				)
 				OR (
 					${appCatalog.healthStatus} IN ('requires_auth', 'blocked')
@@ -466,33 +472,33 @@ export async function getCatalogScanBacklogSummary(
 					AND ${appCatalog.mcpResourceCount} = 0
 					AND ${appCatalog.mcpPromptCount} = 0
 					AND (
-						json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') IS NULL
-						OR json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') < ${standardCutoff}
+						${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} IS NULL
+						OR ${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} < ${standardCutoff}
 					)
 				)
 				OR (
 					${repeatedUnhealthyZeroInventory}
-					AND json_extract(${appCatalog.healthData}, '$.lastCheckedAt') < ${gatedCutoff}
+					AND ${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} < ${gatedCutoff}
 				)
 				OR (
 					${appCatalog.healthStatus} NOT IN ('requires_auth', 'blocked')
 					AND NOT (${repeatedUnhealthyZeroInventory})
-					AND json_extract(${appCatalog.healthData}, '$.lastCheckedAt') < ${standardCutoff}
+					AND ${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} < ${standardCutoff}
 				)
 			) THEN 1 ELSE 0 END)`.as("due_now"),
 			staleOver24h: sql<number>`SUM(CASE WHEN (
-				json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') IS NULL
-				OR json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') < ${stale24hCutoff}
+				${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} IS NULL
+				OR ${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} < ${stale24hCutoff}
 			) THEN 1 ELSE 0 END)`.as("stale_over_24h"),
 			staleOver7d: sql<number>`SUM(CASE WHEN (
-				json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') IS NULL
-				OR json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') < ${stale7dCutoff}
+				${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} IS NULL
+				OR ${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} < ${stale7dCutoff}
 			) THEN 1 ELSE 0 END)`.as("stale_over_7d"),
 			skippedRequiresAuth: sql<number>`SUM(CASE WHEN (
 				${appCatalog.healthStatus} = 'requires_auth'
 				AND (
-					json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') IS NULL
-					OR json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') < ${standardCutoff}
+					${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} IS NULL
+					OR ${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} < ${standardCutoff}
 				)
 				AND NOT (
 					${appCatalog.mcpToolCount} = 0
@@ -500,15 +506,15 @@ export async function getCatalogScanBacklogSummary(
 					AND ${appCatalog.mcpPromptCount} = 0
 				)
 				AND (
-					json_extract(${appCatalog.healthData}, '$.lastCheckedAt') IS NOT NULL
-					AND json_extract(${appCatalog.healthData}, '$.lastCheckedAt') >= ${gatedCutoff}
+					${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} IS NOT NULL
+					AND ${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} >= ${gatedCutoff}
 				)
 			) THEN 1 ELSE 0 END)`.as("skipped_requires_auth"),
 			skippedBlocked: sql<number>`SUM(CASE WHEN (
 				${appCatalog.healthStatus} = 'blocked'
 				AND (
-					json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') IS NULL
-					OR json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') < ${standardCutoff}
+					${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} IS NULL
+					OR ${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} < ${standardCutoff}
 				)
 				AND NOT (
 					${appCatalog.mcpToolCount} = 0
@@ -516,8 +522,8 @@ export async function getCatalogScanBacklogSummary(
 					AND ${appCatalog.mcpPromptCount} = 0
 				)
 				AND (
-					json_extract(${appCatalog.healthData}, '$.lastCheckedAt') IS NOT NULL
-					AND json_extract(${appCatalog.healthData}, '$.lastCheckedAt') >= ${gatedCutoff}
+					${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} IS NOT NULL
+					AND ${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])} >= ${gatedCutoff}
 				)
 			) THEN 1 ELSE 0 END)`.as("skipped_blocked"),
 			blockedZeroToolCandidates: sql<number>`SUM(CASE WHEN (
@@ -525,17 +531,21 @@ export async function getCatalogScanBacklogSummary(
 				AND ${appCatalog.mcpToolCount} = 0
 				AND ${appCatalog.mcpResourceCount} = 0
 				AND ${appCatalog.mcpPromptCount} = 0
-				AND COALESCE(json_extract(${appCatalog.healthData}, '$.consecutiveFailures'), 0) >= 3
+				AND COALESCE(${jsonRead(db, appCatalog.healthData, ["consecutiveFailures"], "number")}, 0) >= 3
 			) THEN 1 ELSE 0 END)`.as("blocked_zero_tool_candidates"),
 			unhealthyZeroToolCandidates: sql<number>`SUM(CASE WHEN (
 				${appCatalog.healthStatus} = 'unhealthy'
 				AND ${appCatalog.mcpToolCount} = 0
 				AND ${appCatalog.mcpResourceCount} = 0
 				AND ${appCatalog.mcpPromptCount} = 0
-				AND COALESCE(json_extract(${appCatalog.healthData}, '$.consecutiveFailures'), 0) >= 3
+				AND COALESCE(${jsonRead(db, appCatalog.healthData, ["consecutiveFailures"], "number")}, 0) >= 3
 			) THEN 1 ELSE 0 END)`.as("unhealthy_zero_tool_candidates"),
 		})
-		.from(sql`${appCatalog} INDEXED BY app_catalog_mcp_endpoint_idx`)
+		.from(
+			coreStore(db) === "d1"
+				? sql`${appCatalog} INDEXED BY app_catalog_mcp_endpoint_idx`
+				: appCatalog,
+		)
 		.where(
 			and(
 				eq(appCatalog.status, "ENABLED"),
@@ -632,6 +642,7 @@ export async function getCatalogHealthSummary(db: Database): Promise<{
 	};
 	scanBacklog: CatalogScanBacklogSummary;
 }> {
+	const { appCatalog } = catalogTables(db);
 	const columns = prefixedColumns(appCatalog, "catalog");
 	const [result, protocolRows, scanBacklog] = await Promise.all([
 		db
@@ -639,7 +650,11 @@ export async function getCatalogHealthSummary(db: Database): Promise<{
 				status: columns.healthStatus,
 				count: count(),
 			})
-			.from(sql`${appCatalog} INDEXED BY app_catalog_mcp_endpoint_idx`)
+			.from(
+				coreStore(db) === "d1"
+					? sql`${appCatalog} INDEXED BY app_catalog_mcp_endpoint_idx`
+					: appCatalog,
+			)
 			.where(sql`${appCatalog.mcpEndpointNormalized} IS NOT NULL`)
 			.groupBy(appCatalog.healthStatus),
 		db
@@ -652,7 +667,11 @@ export async function getCatalogHealthSummary(db: Database): Promise<{
 				healthData: columns.healthData,
 				mcpMetadata: columns.mcpMetadata,
 			})
-			.from(sql`${appCatalog} INDEXED BY app_catalog_mcp_endpoint_idx`)
+			.from(
+				coreStore(db) === "d1"
+					? sql`${appCatalog} INDEXED BY app_catalog_mcp_endpoint_idx`
+					: appCatalog,
+			)
 			.where(sql`${appCatalog.mcpEndpointNormalized} IS NOT NULL`),
 		getCatalogScanBacklogSummary(db),
 	]);

@@ -12,15 +12,12 @@
 
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { type App, apps } from "../../schema/apps";
-import {
-	appCatalog,
-	appCatalogChanges,
-	type CatalogApp,
-	type Source,
-} from "../../schema/catalog";
+import type { App } from "../../schema/apps";
+import { type CatalogApp, type Source } from "../../schema/catalog";
 import { listBaseAppsForCatalogApps } from "../apps";
 import { batchNonEmpty } from "../../utils/batch";
+import { catalogNow } from "./clock";
+import { catalogTables } from "./catalog-tables";
 import {
 	extractVendorDomain,
 	normalizeVendorName,
@@ -135,6 +132,7 @@ export async function rankCatalogVendorSiblings(
 	const domain = extractVendorDomain(params.website);
 	const name = normalizeVendorName(params.name);
 	if (!domain || !name) return [];
+	const { appCatalog } = catalogTables(db);
 
 	const candidates = await db
 		.select()
@@ -274,6 +272,7 @@ export async function planCatalogPlainSlugReassignment(
 		return plan;
 	}
 
+	const { apps } = catalogTables(db);
 	const [builtFrom] = await db
 		.select({ id: apps.id })
 		.from(apps)
@@ -320,6 +319,7 @@ export async function applyCatalogPlainSlugReassignment(
 		throw new Error(`Plan for ${plan.slug} is not a reassignment`);
 	}
 	const holderId = plan.holder.catalogAppId;
+	const { appCatalog, appCatalogChanges } = catalogTables(db);
 	const now = new Date().toISOString();
 	const slugChange = (catalogAppId: string, from: string | null, to: string) =>
 		db.insert(appCatalogChanges).values({
@@ -334,7 +334,7 @@ export async function applyCatalogPlainSlugReassignment(
 	const setSlug = (catalogAppId: string, slug: string) =>
 		db
 			.update(appCatalog)
-			.set({ slug, updatedAt: sql`datetime('now')` })
+			.set({ slug, updatedAt: catalogNow(db) })
 			.where(eq(appCatalog.id, catalogAppId));
 
 	const writes: BatchItem<"sqlite">[] = [

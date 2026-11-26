@@ -5,8 +5,11 @@
 
 import { toolClassDeclarationGap } from "@tedix/api-contract/utils/tool-declared-class";
 import { eq, inArray } from "drizzle-orm";
-import { apps, appTools } from "../../schema/index";
-import { chunkForBoundParams } from "../../utils/batch";
+import type { BatchItem } from "drizzle-orm/batch";
+import { apps as schemaApps } from "../../schema/apps";
+import { appTools as schemaAppTools } from "../../schema/tools";
+import { coreTable } from "../../core-store/client";
+import { chunkForBoundParams, batchNonEmpty } from "../../utils/batch";
 import {
 	CatalogProxyAppToolMutationError,
 	type Database,
@@ -123,6 +126,8 @@ export async function propagateTools(
 			"removed_tool",
 		],
 	);
+	const apps = coreTable(db, schemaApps);
+	const appTools = coreTable(db, schemaAppTools);
 
 	// 1. Get source app
 	const sourceAppRows = await db
@@ -186,6 +191,7 @@ export async function propagateTools(
 	}
 
 	const results: PropagateToolsResultItem[] = [];
+	const writes: BatchItem<"sqlite">[] = [];
 
 	// 4. Process each target app
 	for (const targetAppId of appIds) {
@@ -273,40 +279,42 @@ export async function propagateTools(
 
 					const newId = crypto.randomUUID();
 					const now = new Date().toISOString();
-					await db.insert(appTools).values({
-						id: newId,
-						appId: targetAppId,
-						toolTypeId: sourceTool.toolTypeId,
-						toolId: sourceTool.toolId,
-						title: sourceTool.title,
-						description: sourceTool.description,
-						inputSchema: sourceTool.inputSchema,
-						outputSchema: sourceTool.outputSchema,
-						config: newConfig as typeof appTools.$inferInsert.config,
-						icons: sourceTool.icons,
-						executionTaskSupport: sourceTool.executionTaskSupport,
-						annotations: sourceTool.annotations,
-						writeCapability: sourceTool.writeCapability,
-						meta: sourceTool.meta,
-						invocationStatus: sourceTool.invocationStatus,
-						fileParams: sourceTool.fileParams,
-						schemaDialect: sourceTool.schemaDialect,
-						schemaSource: sourceTool.schemaSource,
-						schemaSourceRef: sourceTool.schemaSourceRef,
-						schemaSourceHash: sourceTool.schemaSourceHash,
-						schemaSyncedAt: sourceTool.schemaSyncedAt,
-						enabled: sourceTool.enabled,
-						sortOrder: sourceTool.sortOrder,
-						adapterScope: sourceTool.adapterScope,
-						resultStrategy: sourceTool.resultStrategy,
-						outputTemplate: sourceTool.outputTemplate,
-						widgetRoute: sourceTool.widgetRoute,
-						widgetKey: sourceTool.widgetKey,
-						visibility: sourceTool.visibility,
-						authRequired: sourceTool.authRequired,
-						createdAt: now,
-						updatedAt: now,
-					});
+					writes.push(
+						db.insert(appTools).values({
+							id: newId,
+							appId: targetAppId,
+							toolTypeId: sourceTool.toolTypeId,
+							toolId: sourceTool.toolId,
+							title: sourceTool.title,
+							description: sourceTool.description,
+							inputSchema: sourceTool.inputSchema,
+							outputSchema: sourceTool.outputSchema,
+							config: newConfig as typeof appTools.$inferInsert.config,
+							icons: sourceTool.icons,
+							executionTaskSupport: sourceTool.executionTaskSupport,
+							annotations: sourceTool.annotations,
+							writeCapability: sourceTool.writeCapability,
+							meta: sourceTool.meta,
+							invocationStatus: sourceTool.invocationStatus,
+							fileParams: sourceTool.fileParams,
+							schemaDialect: sourceTool.schemaDialect,
+							schemaSource: sourceTool.schemaSource,
+							schemaSourceRef: sourceTool.schemaSourceRef,
+							schemaSourceHash: sourceTool.schemaSourceHash,
+							schemaSyncedAt: sourceTool.schemaSyncedAt,
+							enabled: sourceTool.enabled,
+							sortOrder: sourceTool.sortOrder,
+							adapterScope: sourceTool.adapterScope,
+							resultStrategy: sourceTool.resultStrategy,
+							outputTemplate: sourceTool.outputTemplate,
+							widgetRoute: sourceTool.widgetRoute,
+							widgetKey: sourceTool.widgetKey,
+							visibility: sourceTool.visibility,
+							authRequired: sourceTool.authRequired,
+							createdAt: now,
+							updatedAt: now,
+						}),
+					);
 
 					results.push({
 						targetAppId,
@@ -359,19 +367,21 @@ export async function propagateTools(
 							: "Schema differs from source",
 					});
 				} else {
-					await db
-						.update(appTools)
-						.set({
-							inputSchema: sourceTool.inputSchema,
-							outputSchema: sourceTool.outputSchema,
-							schemaDialect: sourceTool.schemaDialect,
-							schemaSource: sourceTool.schemaSource,
-							schemaSourceRef: sourceTool.schemaSourceRef,
-							schemaSourceHash: sourceTool.schemaSourceHash,
-							schemaSyncedAt: sourceTool.schemaSyncedAt,
-							updatedAt: new Date().toISOString(),
-						})
-						.where(eq(appTools.id, targetTool.id));
+					writes.push(
+						db
+							.update(appTools)
+							.set({
+								inputSchema: sourceTool.inputSchema,
+								outputSchema: sourceTool.outputSchema,
+								schemaDialect: sourceTool.schemaDialect,
+								schemaSource: sourceTool.schemaSource,
+								schemaSourceRef: sourceTool.schemaSourceRef,
+								schemaSourceHash: sourceTool.schemaSourceHash,
+								schemaSyncedAt: sourceTool.schemaSyncedAt,
+								updatedAt: new Date().toISOString(),
+							})
+							.where(eq(appTools.id, targetTool.id)),
+					);
 
 					results.push({
 						targetAppId,
@@ -392,13 +402,15 @@ export async function propagateTools(
 						reason: "Description differs from source",
 					});
 				} else {
-					await db
-						.update(appTools)
-						.set({
-							description: sourceTool.description,
-							updatedAt: new Date().toISOString(),
-						})
-						.where(eq(appTools.id, targetTool.id));
+					writes.push(
+						db
+							.update(appTools)
+							.set({
+								description: sourceTool.description,
+								updatedAt: new Date().toISOString(),
+							})
+							.where(eq(appTools.id, targetTool.id)),
+					);
 
 					results.push({
 						targetAppId,
@@ -419,18 +431,20 @@ export async function propagateTools(
 						reason: "MCP metadata differs from source",
 					});
 				} else {
-					await db
-						.update(appTools)
-						.set({
-							title: sourceTool.title,
-							icons: sourceTool.icons,
-							executionTaskSupport: sourceTool.executionTaskSupport,
-							annotations: sourceTool.annotations,
-							writeCapability: sourceTool.writeCapability,
-							meta: sourceTool.meta,
-							updatedAt: new Date().toISOString(),
-						})
-						.where(eq(appTools.id, targetTool.id));
+					writes.push(
+						db
+							.update(appTools)
+							.set({
+								title: sourceTool.title,
+								icons: sourceTool.icons,
+								executionTaskSupport: sourceTool.executionTaskSupport,
+								annotations: sourceTool.annotations,
+								writeCapability: sourceTool.writeCapability,
+								meta: sourceTool.meta,
+								updatedAt: new Date().toISOString(),
+							})
+							.where(eq(appTools.id, targetTool.id)),
+					);
 
 					results.push({
 						targetAppId,
@@ -472,6 +486,11 @@ export async function propagateTools(
 					});
 				}
 			}
+		}
+
+		if (!dryRun && writes.length > 0) {
+			await db.batch(batchNonEmpty(writes));
+			writes.length = 0;
 		}
 	}
 

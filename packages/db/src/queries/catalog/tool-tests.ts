@@ -6,15 +6,17 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, count, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import {
-	appCatalog,
-	appCatalogMcpTools,
-	appCatalogToolTests,
+	appCatalog as schemaAppCatalog,
+	appCatalogMcpTools as schemaAppCatalogMcpTools,
+	appCatalogToolTests as schemaAppCatalogToolTests,
 	type CatalogMcpTool,
 	type CatalogToolTest,
 	type ToolTestErrorClass,
 	type ToolTestInputSource,
 	type ToolTestType,
 } from "../../schema/catalog";
+import { anyIds } from "../../core-store/dialect";
+import { catalogTables } from "./catalog-tables";
 import type { Database } from "./tool-source-policy";
 
 // =============================================================================
@@ -70,6 +72,7 @@ export async function insertToolTest(
 	db: Database,
 	input: InsertToolTestInput,
 ): Promise<CatalogToolTest> {
+	const { appCatalogToolTests } = catalogTables(db);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -128,6 +131,7 @@ export async function getToolTests(
 	toolName: string,
 	options: GetToolTestsOptions = {},
 ): Promise<CatalogToolTest[]> {
+	const { appCatalogToolTests } = catalogTables(db);
 	const { limit = 100, offset = 0, testType, successOnly, days } = options;
 
 	const conditions = [
@@ -166,6 +170,7 @@ export async function updateToolTestMetrics(
 	catalogAppId: string,
 	toolName: string,
 ): Promise<void> {
+	const { appCatalogMcpTools, appCatalogToolTests } = catalogTables(db);
 	// Get tests from last 30 days for success rate
 	const thirtyDaysAgo = new Date(
 		Date.now() - 30 * 24 * 60 * 60 * 1000,
@@ -263,6 +268,7 @@ export async function getToolsNeedingTest(
 		"id" | "catalogAppId" | "toolName" | "description" | "inputSchema"
 	>[]
 > {
+	const { appCatalog, appCatalogMcpTools } = catalogTables(db);
 	const {
 		limit = 50,
 		maxAgeHours = 24,
@@ -289,14 +295,10 @@ export async function getToolsNeedingTest(
 		conditions.push(inArray(appCatalog.healthStatus, ["healthy", "degraded"]));
 	}
 	if (catalogAppIds && catalogAppIds.length > 0) {
-		conditions.push(
-			sql`${appCatalogMcpTools.catalogAppId} IN (SELECT value FROM json_each(${JSON.stringify(catalogAppIds)}))`,
-		);
+		conditions.push(anyIds(db, appCatalogMcpTools.catalogAppId, catalogAppIds));
 	}
 	if (toolNames && toolNames.length > 0) {
-		conditions.push(
-			sql`${appCatalogMcpTools.toolName} IN (SELECT value FROM json_each(${JSON.stringify(toolNames)}))`,
-		);
+		conditions.push(anyIds(db, appCatalogMcpTools.toolName, toolNames));
 	}
 
 	// Filter to tools needing test
@@ -359,6 +361,8 @@ export interface ToolTestStats {
  * Get overall tool test statistics
  */
 export async function getToolTestStats(db: Database): Promise<ToolTestStats> {
+	const { appCatalog, appCatalogMcpTools, appCatalogToolTests } =
+		catalogTables(db);
 	const [
 		totalToolsResult,
 		testedToolsResult,
@@ -477,6 +481,7 @@ export async function getToolTestsForApp(
 	catalogAppId: string,
 	options: GetToolTestsOptions = {},
 ): Promise<CatalogToolTest[]> {
+	const { appCatalogToolTests } = catalogTables(db);
 	const { limit = 100, offset = 0, testType, successOnly, days } = options;
 
 	const conditions = [eq(appCatalogToolTests.catalogAppId, catalogAppId)];
@@ -510,6 +515,7 @@ export async function getLatestToolTests(
 	db: Database,
 	options: GetToolTestsOptions & { toolName?: string } = {},
 ): Promise<{ tests: CatalogToolTest[]; total: number }> {
+	const { appCatalogToolTests } = catalogTables(db);
 	const {
 		limit = 100,
 		offset = 0,

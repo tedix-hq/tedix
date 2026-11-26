@@ -4,7 +4,8 @@
  */
 
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { apps } from "../../schema/index";
+import { apps as schemaApps } from "../../schema/apps";
+import { coreTable } from "../../core-store/client";
 import { generateSlug, getCatalogAppById } from "./get-app";
 import {
 	syncCatalogToolsToApp,
@@ -28,6 +29,7 @@ export async function backfillCatalogBaseAppAutoSync(
 	options: { limit?: number } = {},
 ): Promise<number> {
 	const limit = Math.min(Math.max(options.limit ?? 500, 1), 10_000);
+	const apps = coreTable(db, schemaApps);
 	const rows = await db
 		.select()
 		.from(apps)
@@ -108,6 +110,7 @@ export async function createBaseAppFromCatalog(
 
 	const catalogApp = await getCatalogAppById(db, catalogAppId);
 	if (!catalogApp) throw new Error(`Catalog app not found: ${catalogAppId}`);
+	const apps = coreTable(db, schemaApps);
 
 	const mcpServerUrl = catalogApp.mcpEndpointNormalized || catalogApp.baseUrl;
 	if (!mcpServerUrl)

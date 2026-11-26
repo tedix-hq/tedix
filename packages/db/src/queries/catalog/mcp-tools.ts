@@ -17,19 +17,20 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
-import {
-	appCatalog,
-	appCatalogMcpPrompts,
-	appCatalogMcpResources,
-	appCatalogMcpResourceTemplates,
-	appCatalogMcpTools,
-	type CatalogMcpTool,
-	type CatalogToolSource,
-	type ConnectorType,
-	type HealthStatus,
-	upstreamDriftReports,
+import type {
+	CatalogMcpTool,
+	CatalogToolSource,
+	ConnectorType,
+	HealthStatus,
 } from "../../schema/catalog";
-import { apps, appTools } from "../../schema/index";
+import {
+	anyIds,
+	booleanValue,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
+import { catalogTables } from "./catalog-tables";
+import { catalogNow } from "./clock";
 import { batchNonEmpty, chunkForBoundParams } from "../../utils/batch";
 import { prefixedColumns } from "../../utils/select";
 import {
@@ -73,6 +74,7 @@ export async function getCatalogMcpTools(
 	options: { includeRemoved?: boolean; toolNames?: string[] } = {},
 ): Promise<CatalogMcpTool[]> {
 	const { includeRemoved = false } = options;
+	const { appCatalogMcpTools } = catalogTables(db);
 
 	const conditions = [eq(appCatalogMcpTools.catalogAppId, catalogAppId)];
 
@@ -80,9 +82,7 @@ export async function getCatalogMcpTools(
 		conditions.push(isNull(appCatalogMcpTools.removedAt));
 	}
 	if (options.toolNames) {
-		conditions.push(
-			sql`${appCatalogMcpTools.toolName} IN (SELECT value FROM json_each(${JSON.stringify(options.toolNames)}))`,
-		);
+		conditions.push(anyIds(db, appCatalogMcpTools.toolName, options.toolNames));
 	}
 
 	return db
@@ -115,6 +115,7 @@ export async function syncCatalogMcpTools(
 	let removed = 0;
 	const drifts: ToolDriftReportItem[] = [];
 	const writes: BatchItem<"sqlite">[] = [];
+	const { appCatalog, appCatalogMcpTools } = catalogTables(db);
 
 	// Get existing tools
 	const existingTools = await getCatalogMcpTools(db, catalogAppId, {
@@ -377,7 +378,7 @@ export async function syncCatalogMcpTools(
 	const [inventory] = await db
 		.select({
 			toolCount: count(),
-			writeCount: sql<number>`coalesce(sum(case when json_extract(${appCatalogMcpTools.annotations}, '$.readOnlyHint') = 1 then 0 else 1 end), 0)`,
+			writeCount: sql<number>`coalesce(sum(case when ${jsonRead(db, appCatalogMcpTools.annotations, ["readOnlyHint"], "boolean")} = ${booleanValue(db, true)} then 0 else 1 end), 0)`,
 		})
 		.from(appCatalogMcpTools)
 		.where(
@@ -755,6 +756,8 @@ async function getCatalogIntegritySnapshot(
 	db: Database,
 	options: Pick<CheckCatalogIntegrityOptions, "catalogAppId" | "limit">,
 ): Promise<CatalogIntegritySnapshot> {
+	const { appCatalog, appCatalogMcpTools, apps, upstreamDriftReports } =
+		catalogTables(db);
 	const limit = Math.min(Math.max(options.limit ?? 1000, 1), 10_000);
 	const appWhere = and(
 		eq(appCatalog.status, "ENABLED"),
@@ -910,6 +913,7 @@ export async function backfillCatalogToolProvenance(
 ): Promise<BackfillCatalogToolProvenanceResult> {
 	const dryRun = options.dryRun ?? true;
 	const limit = Math.min(Math.max(options.limit ?? 500, 1), 10_000);
+	const { appCatalog, appCatalogMcpTools, apps, appTools } = catalogTables(db);
 	const missingWhere = and(
 		isNull(appCatalogMcpTools.removedAt),
 		options.catalogAppId
@@ -1056,13 +1060,14 @@ export async function backfillCatalogToolProvenance(
 		});
 	}
 
-	if (!dryRun) {
-		for (const mutation of planned) {
-			await db
+	if (!dryRun && planned.length > 0) {
+		const writes: BatchItem<"sqlite">[] = planned.map((mutation) =>
+			db
 				.update(appCatalogMcpTools)
 				.set(mutation.set)
-				.where(eq(appCatalogMcpTools.id, mutation.toolId));
-		}
+				.where(eq(appCatalogMcpTools.id, mutation.toolId)),
+		);
+		await db.batch(batchNonEmpty(writes));
 	}
 
 	const remaining = Math.max(totalMissing - (dryRun ? 0 : planned.length), 0);
@@ -1086,6 +1091,7 @@ export async function checkCatalogIntegrity(
 	db: Database,
 	options: CheckCatalogIntegrityOptions = {},
 ): Promise<CheckCatalogIntegrityResult> {
+	const { appCatalog } = catalogTables(db);
 	const apply = options.apply ?? false;
 	const initialSnapshot = await getCatalogIntegritySnapshot(db, options);
 	const initialIssues = buildCatalogIntegrityIssues(initialSnapshot);
@@ -1110,17 +1116,23 @@ export async function checkCatalogIntegrity(
 		const toolCountIssues = initialIssues.filter(
 			(issue) => issue.repairAction === "update_tool_count",
 		);
+		const toolCountWrites: BatchItem<"sqlite">[] = [];
 		for (const issue of toolCountIssues) {
 			const stats = initialSnapshot.statsByCatalogId.get(issue.catalogAppId);
-			await db
-				.update(appCatalog)
-				.set({
-					// GROUP BY yields no row when the active snapshot is empty.
-					mcpToolCount: stats?.activeTools ?? 0,
-					updatedAt: sql`datetime('now')`,
-				})
-				.where(eq(appCatalog.id, issue.catalogAppId));
+			toolCountWrites.push(
+				db
+					.update(appCatalog)
+					.set({
+						// GROUP BY yields no row when the active snapshot is empty.
+						mcpToolCount: stats?.activeTools ?? 0,
+						updatedAt: catalogNow(db),
+					})
+					.where(eq(appCatalog.id, issue.catalogAppId)),
+			);
 			repaired.toolCounts++;
+		}
+		if (toolCountWrites.length > 0) {
+			await db.batch(batchNonEmpty(toolCountWrites));
 		}
 	}
 
@@ -1163,6 +1175,7 @@ export async function projectCatalogToolsFromBaseApp(
 	if (!catalogApp) {
 		throw new Error(`Catalog app not found: ${catalogAppId}`);
 	}
+	const { appCatalog, apps, appTools } = catalogTables(db);
 
 	const baseApps = await db
 		.select()
@@ -1227,18 +1240,19 @@ export async function projectCatalogToolsFromBaseApp(
 		.update(appCatalog)
 		.set({
 			mcpToolCount: sourceTools.length,
-			mcpMetadata: sql`json_set(
-				COALESCE(${appCatalog.mcpMetadata}, '{}'),
-				'$.lastScannedAt', ${now},
-				'$.serverName', ${baseApp.name}
-			)`,
+			mcpMetadata: jsonWrite(
+				db,
+				jsonWrite(db, appCatalog.mcpMetadata, ["lastScannedAt"], now),
+				["serverName"],
+				baseApp.name,
+			),
 			healthData: {
 				...catalogApp.healthData,
 				lastCheckedAt: now,
 				errorMessage: null,
 			},
 			lastSyncedAt: now,
-			updatedAt: sql`datetime('now')`,
+			updatedAt: catalogNow(db),
 		})
 		.where(eq(appCatalog.id, catalogAppId));
 
@@ -1284,6 +1298,7 @@ export async function syncCatalogMcpResources(
 		_meta?: Record<string, JsonValue>;
 	}>,
 ): Promise<{ added: number; updated: number; removed: number }> {
+	const { appCatalogMcpResources } = catalogTables(db);
 	const now = new Date().toISOString();
 	let added = 0;
 	let updated = 0;
@@ -1301,9 +1316,8 @@ export async function syncCatalogMcpResources(
 	const existingUris = new Set(existing.map((r) => r.uri));
 	const incomingUris = new Set(resources.map((r) => r.uri));
 
-	for (const res of resources) {
-		const isNew = !existingUris.has(res.uri);
-		await db
+	const writes: BatchItem<"sqlite">[] = resources.map((res) =>
+		db
 			.insert(appCatalogMcpResources)
 			.values({
 				id: crypto.randomUUID(),
@@ -1336,19 +1350,26 @@ export async function syncCatalogMcpResources(
 					lastSeenAt: now,
 					removedAt: null,
 				},
-			});
-		if (isNew) added++;
+			}),
+	);
+	for (const res of resources) {
+		if (!existingUris.has(res.uri)) added++;
 		else updated++;
 	}
 
-	for (const ex of existing) {
-		if (!incomingUris.has(ex.uri)) {
-			await db
+	const removedWrites: BatchItem<"sqlite">[] = existing
+		.filter((ex) => !incomingUris.has(ex.uri))
+		.map((ex) =>
+			db
 				.update(appCatalogMcpResources)
 				.set({ removedAt: now })
-				.where(eq(appCatalogMcpResources.id, ex.id));
-			removed++;
-		}
+				.where(eq(appCatalogMcpResources.id, ex.id)),
+		);
+	removed = removedWrites.length;
+
+	const batch = [...writes, ...removedWrites];
+	if (batch.length > 0) {
+		await db.batch(batchNonEmpty(batch));
 	}
 
 	return { added, updated, removed };
@@ -1380,6 +1401,7 @@ export async function syncCatalogMcpResourceTemplates(
 		_meta?: Record<string, JsonValue>;
 	}>,
 ): Promise<{ added: number; updated: number; removed: number }> {
+	const { appCatalogMcpResourceTemplates } = catalogTables(db);
 	const now = new Date().toISOString();
 	let added = 0;
 	let updated = 0;
@@ -1397,9 +1419,8 @@ export async function syncCatalogMcpResourceTemplates(
 	const existingNames = new Set(existing.map((t) => t.name));
 	const incomingNames = new Set(templates.map((t) => t.name));
 
-	for (const tpl of templates) {
-		const isNew = !existingNames.has(tpl.name);
-		await db
+	const writes: BatchItem<"sqlite">[] = templates.map((tpl) =>
+		db
 			.insert(appCatalogMcpResourceTemplates)
 			.values({
 				id: crypto.randomUUID(),
@@ -1432,19 +1453,26 @@ export async function syncCatalogMcpResourceTemplates(
 					lastSeenAt: now,
 					removedAt: null,
 				},
-			});
-		if (isNew) added++;
+			}),
+	);
+	for (const tpl of templates) {
+		if (!existingNames.has(tpl.name)) added++;
 		else updated++;
 	}
 
-	for (const ex of existing) {
-		if (!incomingNames.has(ex.name)) {
-			await db
+	const removedWrites: BatchItem<"sqlite">[] = existing
+		.filter((ex) => !incomingNames.has(ex.name))
+		.map((ex) =>
+			db
 				.update(appCatalogMcpResourceTemplates)
 				.set({ removedAt: now })
-				.where(eq(appCatalogMcpResourceTemplates.id, ex.id));
-			removed++;
-		}
+				.where(eq(appCatalogMcpResourceTemplates.id, ex.id)),
+		);
+	removed = removedWrites.length;
+
+	const batch = [...writes, ...removedWrites];
+	if (batch.length > 0) {
+		await db.batch(batchNonEmpty(batch));
 	}
 
 	return { added, updated, removed };
@@ -1479,6 +1507,7 @@ export async function syncCatalogMcpPrompts(
 		_meta?: Record<string, JsonValue>;
 	}>,
 ): Promise<{ added: number; updated: number; removed: number }> {
+	const { appCatalogMcpPrompts } = catalogTables(db);
 	const now = new Date().toISOString();
 	let added = 0;
 	let updated = 0;
@@ -1496,9 +1525,8 @@ export async function syncCatalogMcpPrompts(
 	const existingNames = new Set(existing.map((p) => p.promptName));
 	const incomingNames = new Set(prompts.map((p) => p.name));
 
-	for (const prompt of prompts) {
-		const isNew = !existingNames.has(prompt.name);
-		await db
+	const writes: BatchItem<"sqlite">[] = prompts.map((prompt) =>
+		db
 			.insert(appCatalogMcpPrompts)
 			.values({
 				id: crypto.randomUUID(),
@@ -1529,19 +1557,26 @@ export async function syncCatalogMcpPrompts(
 					lastSeenAt: now,
 					removedAt: null,
 				},
-			});
-		if (isNew) added++;
+			}),
+	);
+	for (const prompt of prompts) {
+		if (!existingNames.has(prompt.name)) added++;
 		else updated++;
 	}
 
-	for (const ex of existing) {
-		if (!incomingNames.has(ex.promptName)) {
-			await db
+	const removedWrites: BatchItem<"sqlite">[] = existing
+		.filter((ex) => !incomingNames.has(ex.promptName))
+		.map((ex) =>
+			db
 				.update(appCatalogMcpPrompts)
 				.set({ removedAt: now })
-				.where(eq(appCatalogMcpPrompts.id, ex.id));
-			removed++;
-		}
+				.where(eq(appCatalogMcpPrompts.id, ex.id)),
+		);
+	removed = removedWrites.length;
+
+	const batch = [...writes, ...removedWrites];
+	if (batch.length > 0) {
+		await db.batch(batchNonEmpty(batch));
 	}
 
 	return { added, updated, removed };
