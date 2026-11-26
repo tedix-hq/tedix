@@ -241,21 +241,40 @@ if (import.meta.main) {
 				after: args[i + 2]!,
 			});
 		const read: Read = (command) => {
-			const result = spawnSync(
-				"tedix",
-				["--organization", organization, "--workspace", workspace, ...command],
-				{
-					cwd: homedir(),
-					env: detachedGitEnv(),
-					encoding: "utf8",
-					timeout: 30_000,
-				},
-			);
-			if (result.status !== 0)
-				throw new Error(
-					`Tedix ${command.slice(0, 2).join(" ")} unavailable; push refused`,
+			// A brief backend refusal ("...unavailable") is retried; any other
+			// failure, such as a missing Attempt, still refuses at once.
+			for (let attempt = 1; ; attempt += 1) {
+				const result = spawnSync(
+					"tedix",
+					[
+						"--organization",
+						organization,
+						"--workspace",
+						workspace,
+						...command,
+					],
+					{
+						cwd: homedir(),
+						env: detachedGitEnv(),
+						encoding: "utf8",
+						timeout: 30_000,
+					},
 				);
-			return JSON.parse(result.stdout);
+				if (result.status === 0) return JSON.parse(result.stdout);
+				const transient = /unavailable/i.test(
+					`${result.stdout ?? ""}${result.stderr ?? ""}`,
+				);
+				if (!transient || attempt >= 6)
+					throw new Error(
+						`Tedix ${command.slice(0, 2).join(" ")} unavailable; push refused`,
+					);
+				Atomics.wait(
+					new Int32Array(new SharedArrayBuffer(4)),
+					0,
+					0,
+					2_000 * attempt,
+				);
+			}
 		};
 		for (const receipt of authorizePush(root, updates, read))
 			console.error(`pre-push: ${receipt}`);
