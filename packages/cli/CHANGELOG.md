@@ -3,6 +3,15 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.27 (2026-11-26)
+
+### Patch Changes
+
+- Runners can serve more than one organization from one login. Each organization gets its own agent identity, chosen by `--organization` (or `TEDIX_ORGANIZATION`), instead of every runner reusing the first organization's identity.
+- `tedix update` installs release builds again. Release builds print their source commit after the version (for example `0.37.26+76cb730bc`), and the update check accepted only the bare version, so every update stopped there.
+- OpenCode runs count reasoning tokens in their output totals, so Tedix can record usage and settle successful runs.
+- `tedix poppy` adds the Personal Agent side of Poppy 1.0: publish a client metadata document and JWKS for a locally held ES256 key, discover a company's `/.well-known/poppy.json`, and call its listed endpoints with a signed `Poppy-Session` request as one of three clearly named simulated agent identities. `--unsigned` sends the same request without Poppy headers.
+
 ## 0.37.26 (2026-11-26)
 
 ### Patch Changes
