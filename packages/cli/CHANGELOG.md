@@ -3,6 +3,21 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.26 (2026-11-26)
+
+### Patch Changes
+
+- Runners can hand waiting Work to another agent again. They now name the agent in the form the server expects, so new items reach Codex, OpenCode, Devin or a tedi instead of staying unassigned.
+- A runner checks main for a task's commit before it records a failure or cancellation. Work that already landed is kept as landed and unchecked, and a failed run records which step failed and why.
+- `tedix work comment <id> <text> --evidence <ref>` records an explicit observation and replaces `work confirm`. `--contradicts` corrects an earlier claim. Ordinary comments do not count as independent observations.
+- `tedix work parent <id> <parent|none>` changes where a Work Item sits, and `tedix work unrelate <id> <related> --kind <kind>` removes a relation.
+- An owner or admin can name the accountable person with `work accept --owner`, so a Work Item without one can be accepted without recreating it.
+- Archiving a factory uses archive_factory, so its own skill binding and schedule no longer block archival. A skill shared with other factories still blocks it.
+- A local Lead pass starts only with a verified agent session and uses that identity for its Tedix calls. Cloud Lead launches that cannot receive the credential are refused.
+- OpenCode runs read the AI Gateway token from the macOS Keychain when it is not in the environment. The token stays out of configuration files.
+- Tool-choice comments include each agent's 7- and 30-day scorecard.
+- The old epic dependency command is removed. Work Item dependencies still work.
+
 ## 0.37.25 (2026-11-26)
 
 ### Patch Changes
