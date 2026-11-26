@@ -94,14 +94,14 @@ describe("setScheduleEnabled", () => {
 
 describe("factory commands", () => {
 	for (const verb of ["pause", "resume", "archive"] as const) {
-		it(`${verb} resolves the lane and uses only the documented skill route`, async () => {
+		it(`${verb} resolves the lane and uses its documented route`, async () => {
 			const stdout = spyOn(console, "log").mockImplementation(() => {});
 			try {
 				const lane = {
 					slug: "docs",
 					skillId: "skill-1",
 					lifecycleState: "active",
-					scheduleEnabled: verb !== "resume",
+					scheduleEnabled: verb === "pause",
 					healthWorkItemId: "health-1",
 					projectId: "project-1",
 					projectKey: "DOCS",
@@ -133,14 +133,14 @@ describe("factory commands", () => {
 					);
 				const expected =
 					verb === "archive"
-						? { id: "skill-1", lifecycleState: "archived" }
+						? { factory: "docs" }
 						: {
 								id: "skill-1",
 								content: setScheduleEnabled(content, verb === "resume"),
 								revisionReasoning: `${verb === "pause" ? "Pause" : "Resume"} factory docs.`,
 							};
 				expect(calls.at(-1)).toBe(
-					`async () => await skills.improve_skills(${JSON.stringify(expected)})`,
+					`async () => await ${verb === "archive" ? "projects.archive_factory" : "skills.improve_skills"}(${JSON.stringify(expected)})`,
 				);
 				expect(calls).toHaveLength(verb === "archive" ? 2 : 3);
 				expect(stdout.mock.calls).toEqual([[JSON.stringify(result)]]);

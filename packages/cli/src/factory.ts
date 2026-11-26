@@ -58,7 +58,7 @@ export function factoryUsage(): string {
 		"nothing), failing, not_firing, paused (schedule turned off) or pending.",
 		"With a slug it lists the recent runs and what each delivered.",
 		"",
-		"`pause`, `resume` and `archive` revise the lane through improve_skills; see",
+		"`pause` and `resume` use improve_skills; `archive` uses archive_factory. See",
 		"docs/public/factory-agent-guide.md (Pause or archive a factory).",
 	].join("\n");
 }
@@ -362,10 +362,7 @@ async function reviseFactory(
 		);
 		return 0;
 	}
-	let input: Record<string, unknown> = {
-		id: lane.skillId,
-		lifecycleState: "archived",
-	};
+	let input: Record<string, unknown> = { factory: slug };
 	if (verb !== "archive") {
 		const skill = await readGatewayProjection(ctx.client, "skills.get_skills", {
 			id: lane.skillId,
@@ -381,7 +378,7 @@ async function reviseFactory(
 	}
 	const result = await readGatewayProjection(
 		ctx.client,
-		"skills.improve_skills",
+		verb === "archive" ? "projects.archive_factory" : "skills.improve_skills",
 		input,
 	);
 	if (ctx.json) {
