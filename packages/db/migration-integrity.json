@@ -2128,6 +2128,10 @@
 		{
 			"name": "20261126120924_workspace_executor_roles/migration.sql",
 			"sha256": "dc7c5d162873614d0eba67126b14d557aa3fb49f60eed8ae36c2407bf1247d5e"
+		},
+		{
+			"name": "20261126133943_workspace_resource_provider_object/migration.sql",
+			"sha256": "7f71b412da7d6b5e2df53d8c92324ef2046bc7bc3baf32a1345c458654fee03f"
 		}
 	]
 }

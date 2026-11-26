@@ -1,0 +1,1 @@
+CREATE INDEX `os_workspace_resources_org_provider_object_status_idx` ON `os_workspace_resources` (`organization_id`,`provider_id`,`resource_type`,`provider_resource_id`,`status`);

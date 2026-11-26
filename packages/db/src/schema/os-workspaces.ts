@@ -251,6 +251,13 @@ export const osWorkspaceResources = sqliteTable(
 			table.workspaceId,
 			table.status,
 		),
+		index("os_workspace_resources_org_provider_object_status_idx").on(
+			table.organizationId,
+			table.providerId,
+			table.resourceType,
+			table.providerResourceId,
+			table.status,
+		),
 	],
 );
 
