@@ -154,6 +154,33 @@ export const skillsImprove = authedSkills.improve
 		const orgId = context.organizationId;
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
+		// A display-title edit does not change the canonical slug or manifest.
+		// Do not revalidate stored tools or reconcile timers as a side effect.
+		const titleOnly =
+			input.title !== undefined &&
+			Object.entries(input).every(
+				([key, value]) =>
+					value === undefined ||
+					["id", "title", "revisionReasoning", "validate"].includes(key),
+			);
+		if (titleOnly) {
+			await updateSkillEntryGated(
+				context,
+				existing.id,
+				{
+					title: input.title,
+					revision: existing.revision + 1,
+					...(input.revisionReasoning !== undefined
+						? { revisionReasoning: input.revisionReasoning }
+						: {}),
+				},
+				{ organizationId: orgId },
+			);
+			const updated = await getSkillEntry(context.db, existing.id, orgId);
+			if (!updated) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
+			await markRowsRead(context.db, orgId, "skill", [updated.id]);
+			return { entry: updated };
+		}
 		if (
 			input.lifecycleState === "archived" &&
 			existing.lifecycleState !== "archived"
