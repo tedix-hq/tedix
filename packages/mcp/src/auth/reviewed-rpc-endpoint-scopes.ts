@@ -961,6 +961,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"workItems/addCaseDependency": "mcp:work.write",
 	"workItems/addComment": "mcp:work.write",
 	"workItems/addRelation": "mcp:work.write",
+	"workItems/removeRelation": "mcp:work.write",
 	"workItems/attachCaseWorkItem": "mcp:work.write",
 	"workItems/detachCaseWorkItem": "mcp:work.write",
 	"workItems/restoreFiling": "mcp:work.write",
