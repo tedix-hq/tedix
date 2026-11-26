@@ -14,10 +14,7 @@ interface RevisionRow {
 	record: string;
 }
 
-/** Workspace-local revisions; graph memory retains its separate owner storage. */
-export class SqlMemoryAdapter implements MemoryAdapter {
-	constructor(private readonly storage: WorkspaceStorage) {
-		storage.run(`
+export const MEMORY_SCHEMA = `
 CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 	revision_id TEXT PRIMARY KEY,
 	key TEXT NOT NULL,
@@ -27,7 +24,12 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 	UNIQUE(key, revision)
 );
 CREATE INDEX IF NOT EXISTS workspace_memory_review ON workspace_memory_revisions(key, review, revision);
-`);
+`;
+
+/** Workspace-local revisions; graph memory retains its separate owner storage. */
+export class SqlMemoryAdapter implements MemoryAdapter {
+	constructor(private readonly storage: WorkspaceStorage) {
+		storage.run(MEMORY_SCHEMA);
 	}
 
 	private async append(

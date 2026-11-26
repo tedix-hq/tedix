@@ -1,3 +1,4 @@
+import { sweepWorkspaceSchemaVersions } from "./schema-sweep";
 import {
 	copyGadgetExecutionBody,
 	readGadgetExecutionBody,
@@ -91,6 +92,11 @@ export class InternalEntrypoint
 	extends WorkerEntrypoint<WorkspaceEnv>
 	implements OrganizationLogRuntime
 {
+	/** Internal service binding only; the operator supplies every provider inventory page. */
+	sweepOwnSchemaVersions(objectIds: string[]) {
+		return sweepWorkspaceSchemaVersions(this.env, objectIds);
+	}
+
 	async organizationLogAppend(
 		organizationId: string,
 		input: OrganizationLogAppendInput,

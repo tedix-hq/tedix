@@ -7,6 +7,10 @@ import {
 	gadgetExecutionOutputKey,
 	readGadgetExecutionBody,
 } from "./gadget-execution-archive";
+import {
+	migrateWorkspaceSchema,
+	readWorkspaceSchemaVersion,
+} from "./workspace-schema";
 import type { ActionClass } from "@tedix/api-contract/utils/approval-holds";
 import { matchingChatSentence } from "@tedix/api-contract/utils/markdown-plain-text";
 import type {
@@ -374,70 +378,6 @@ interface ActivityPageInput {
 	limit?: number;
 	source?: "bindings" | "events";
 }
-
-const CHAT_SCHEMA = `
-CREATE TABLE IF NOT EXISTS conversations (
-	id TEXT PRIMARY KEY,
-	title TEXT,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	last_turn_at TEXT,
-	archived_at TEXT
-);
-CREATE TABLE IF NOT EXISTS messages (
-	seq INTEGER PRIMARY KEY AUTOINCREMENT,
-	conversation_id TEXT NOT NULL,
-	turn_id TEXT NOT NULL,
-	at TEXT NOT NULL,
-	message TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, seq);
-CREATE TABLE IF NOT EXISTS turns (
-	turn_id TEXT PRIMARY KEY,
-	conversation_id TEXT NOT NULL,
-	started_at TEXT NOT NULL,
-	finished_at TEXT,
-	status TEXT NOT NULL,
-	actor_id TEXT NOT NULL,
-	actor_kind TEXT NOT NULL,
-	tedi_id TEXT,
-	text TEXT,
-	error TEXT,
-	first_seq INTEGER
-);
-CREATE INDEX IF NOT EXISTS turns_conversation ON turns(conversation_id);
-CREATE TABLE IF NOT EXISTS approvals (
-	approval_id TEXT PRIMARY KEY,
-	turn_id TEXT NOT NULL,
-	conversation_id TEXT NOT NULL,
-	step_id TEXT NOT NULL,
-	binding TEXT NOT NULL,
-	method TEXT NOT NULL,
-	args TEXT NOT NULL,
-	resource TEXT NOT NULL,
-	args_hash TEXT NOT NULL,
-	actor_id TEXT NOT NULL,
-	actor_kind TEXT NOT NULL,
-	tedi_id TEXT,
-	status TEXT NOT NULL,
-	decided_by TEXT,
-	decided_at TEXT,
-	action_class TEXT
-);
-CREATE TABLE IF NOT EXISTS queued_messages (
-	message_id TEXT PRIMARY KEY,
-	conversation_id TEXT NOT NULL,
-	at TEXT NOT NULL,
-	status TEXT NOT NULL,
-	turn_id TEXT NOT NULL,
-	seq INTEGER NOT NULL,
-	actor_id TEXT NOT NULL,
-	actor_kind TEXT NOT NULL,
-	model_text TEXT NOT NULL,
-	request TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS queued_messages_waiting ON queued_messages(conversation_id, status);
-`;
 
 type TurnStatus = "running" | "finished" | "failed" | "cancelled" | "waiting";
 
@@ -831,16 +771,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	constructor(ctx: DurableObjectState, env: WorkspaceEnv) {
 		super(ctx, env, tenantStoreDefinition);
 		this.#store = sqlStorage(ctx.storage);
-		this.#store.delete("auto-approval-rules");
+		ctx.storage.transactionSync(() => migrateWorkspaceSchema(this.#store));
 		this.#memory = new SqlMemoryAdapter(this.#store);
-		this.#store.run(CHAT_SCHEMA);
-		// Stores made before approval modes keep their approvals table.
-		if (
-			!this.#store
-				.exec<{ name: string }>("PRAGMA table_info(approvals)")
-				.some((column) => column.name === "action_class")
-		)
-			this.#store.run("ALTER TABLE approvals ADD COLUMN action_class TEXT");
 		this.#activityRecords = new SqlActivityRecords(this.#store);
 		this.#events = new SqlEventLedger(this.#store, (event) => {
 			this.#recordConversationActivity(event);
@@ -922,6 +854,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			...this.#diagnostics(() => ({ latestSeq: this.#events.latestSeq() })),
 			interrupted,
 		});
+	}
+
+	/** Internal schema metadata only; no tenant data or scope binding. */
+	readOwnSchemaVersion() {
+		return {
+			objectId: this.ctx.id.toString(),
+			...readWorkspaceSchemaVersion(this.#store),
+		};
 	}
 
 	/** Counts for a diagnostic line; never chat or file content. */
@@ -7047,6 +6987,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
 export interface WorkspaceRpc extends DocumentTransferRuntime {
+	readOwnSchemaVersion(): {
+		objectId: string;
+		version: number;
+		appliedAt: string | null;
+	};
 	rehearseStorageRecovery(
 		scope: WorkspaceScope,
 		phase: WorkspaceRecoveryPhase,

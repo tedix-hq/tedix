@@ -296,3 +296,29 @@ API test measures the whole router call, including middleware and response
 validation, against a 1,000 ms local budget with 200 distinct workspaces.
 HTTP authentication and remote D1/DO transport need separate deployed timing
 proof; local latency does not establish their cost.
+
+## Workspace table versions
+
+`workspace_schema_version` records the version and application time of the
+WorkspaceDO-owned tables, separately from TenantStore's generated Drizzle
+chain. Version 1 initializes the chat, web grants, personal chat index, event
+ledger, change ledger, staged changes, memory revisions and activity tables.
+The baseline and its version record commit together with `transactionSync`.
+Older unversioned stores run the retired approval-key cleanup and approval
+column upgrade once. Later opens skip that migration.
+
+An operator can call the trusted `InternalEntrypoint.sweepOwnSchemaVersions`
+service binding with a page of up to 100 object IDs. Use every page of the
+provider's complete WORKSPACE namespace inventory, including stored objects
+that have not opened recently, and the matching deployment jurisdiction.
+Do not substitute the current workspace directory: personal chat indexes and
+memory owners also use this namespace. The sweep opens each object, so it can
+apply the migration. It returns each object's version and application time;
+failed objects remain explicit `unavailable` entries. No public HTTP route
+exposes this operation.
+
+Keep the inventory, every page's result and any failures in the matching
+Tedix Work evidence. Only after every live object reports version 1 or later
+may the version-zero repair code be deleted. An incomplete inventory, a failed
+object or a local test does not establish that condition. Future table changes
+must advance the WorkspaceDO version and supply the corresponding migration.
