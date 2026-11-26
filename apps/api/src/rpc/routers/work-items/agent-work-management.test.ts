@@ -33,6 +33,8 @@ import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
 import {
 	cancelFactoryWorkItemProcedure,
 	completeProcedure,
+	putBudgetEnvelopeProcedure,
+	putResourcePoolProcedure,
 	settleAttemptProcedure,
 	updateSpecificationProcedure,
 } from "./factory-lifecycle";
@@ -385,6 +387,48 @@ describe("verified native artifact completion", () => {
 });
 
 describe("owner-granted external-agent Work management", () => {
+	it("keeps budget and capacity changes reserved despite an organization management grant", async () => {
+		const { context, sqlite } = await fixture();
+		sqlite
+			.prepare("UPDATE external_agent_principals SET metadata=?")
+			.run(
+				JSON.stringify({
+					workManagement: {
+						scope: "organization",
+						actions: ["specification", "assignment", "cancellation"],
+					},
+				}),
+			);
+		await expect(
+			putBudgetEnvelopeProcedure["~orpc"].handler!({
+				context,
+				input: {
+					scopeType: "work_item",
+					scopeId: id,
+					limitMicros: 1000,
+					reservationMicros: 100,
+				},
+				path: [],
+				procedure: putBudgetEnvelopeProcedure,
+				signal: undefined,
+				lastEventId: undefined,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			putResourcePoolProcedure["~orpc"].handler!({
+				context,
+				input: {
+					resourceKey: "example:capacity",
+					allocationMode: "capacity",
+					capacity: 10,
+				},
+				path: [],
+				procedure: putResourcePoolProcedure,
+				signal: undefined,
+				lastEventId: undefined,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
 	it("grants org-wide edits without a source and revokes them immediately", async () => {
 		const { sqlite, update, db, context, item } = await fixture();
 		sqlite.exec("UPDATE work_items SET source_intent_id=NULL");

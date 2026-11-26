@@ -10,7 +10,9 @@ import {
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
-import type { ReadJson } from "./hooks/hook-io";
+import { McpNativeContextSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
+import { cliRead, ORGANIZATION_PROBE, type ReadJson } from "./hooks/hook-io";
+import { unwrapToolResult } from "./home-payload";
 import { laneChildEnv } from "./lane-child-env";
 import { beginFileLock } from "./local-file-lock";
 import {
@@ -113,9 +115,45 @@ export function leadCommand(
 }
 
 /** Wait for process exit, not just a session-start receipt, before falling back. */
-export function leadRunner(env: NodeJS.ProcessEnv): LeadRun {
+export function leadRunner(
+	env: NodeJS.ProcessEnv,
+	read: ReadJson = cliRead,
+): LeadRun {
 	return async (config, executor, prompt, onSpawn, onExit) => {
 		if (protectedResumeReason(config.cwd, env)) return false;
+		if (executor.executor === "devin")
+			throw new Error(
+				"Cloud Lead sessions cannot receive the local agent credential",
+			);
+		const childEnv = {
+			...laneChildEnv(env),
+			TEDIX_AGENT_SESSION: `${executor.executor}:${executor.session}`,
+			TEDIX_EXTERNAL_AGENT: "true",
+		};
+		const info = unwrapToolResult(
+			await read(
+				[
+					"--workspace",
+					config.workspace,
+					"--organization",
+					config.organization,
+					"mcp",
+					"call",
+					"tools/call",
+					"--params",
+					ORGANIZATION_PROBE,
+				],
+				30_000,
+				undefined,
+				{ env: childEnv, cwd: config.cwd },
+			),
+			"get_info",
+		);
+		const { nativeContext: context } = z
+			.object({ nativeContext: McpNativeContextSchema })
+			.parse(info);
+		if (context.actor.authType !== "external_agent")
+			throw new Error("Lead requires a verified external-agent session");
 		const directory = join(configDir(env), "supervisor", "lead");
 		mkdirSync(directory, { recursive: true, mode: 0o700 });
 		const input = join(directory, "prompt.txt");
@@ -125,18 +163,14 @@ export function leadRunner(env: NodeJS.ProcessEnv): LeadRun {
 		const launch = leadCommand(executor, input, output);
 		const fds = [
 			openSync(input, "r"),
-			openSync(
-				executor.executor === "devin" ? `${output}.log` : output,
-				"w",
-				0o600,
-			),
+			openSync(output, "w", 0o600),
 			openSync(join(directory, "stderr.log"), "a", 0o600),
 		];
 		let child;
 		try {
 			child = spawn(launch.command, launch.args, {
 				cwd: config.cwd,
-				env: laneChildEnv(env),
+				env: childEnv,
 				detached: true,
 				stdio: fds,
 			});
@@ -370,8 +404,10 @@ export class LeadDuty {
 							exitCode = code;
 						},
 					);
-				} catch {
-					this.log(`${executor.executor} launch or receipt failed`);
+				} catch (error) {
+					this.log(
+						`${executor.executor} launch or receipt failed: ${error instanceof Error ? error.message : "unknown error"}`,
+					);
 				}
 				activePid = null;
 				save(null);

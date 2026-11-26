@@ -1923,6 +1923,17 @@ describe("Lead duty", () => {
 });
 
 describe("Lead executor process", () => {
+	const agentInfo = (authType = "external_agent") => ({
+		nativeContext: {
+			version: 1,
+			surface: "mcp-gateway",
+			appId: "fixture",
+			appSlug: "fixture",
+			organizationId: "fixture",
+			actor: { authType },
+			nativeTransportAvailable: true,
+		},
+	});
 	const options = {
 		enabled: true as const,
 		intervalMinutes: 20,
@@ -1975,7 +1986,10 @@ describe("Lead executor process", () => {
 				{ mode: 0o700 },
 			);
 			let pid = 0;
-			const ok = await leadRunner({ PATH: bin, TEDIX_CONFIG_DIR: config })(
+			const ok = await leadRunner(
+				{ PATH: bin, TEDIX_CONFIG_DIR: config },
+				async () => agentInfo(),
+			)(
 				options,
 				{ executor: "codex", session: SESSION },
 				"one pass",
@@ -1989,13 +2003,86 @@ describe("Lead executor process", () => {
 	}
 	test("missing executable fails without hanging", async () => {
 		expect(
-			await leadRunner({ PATH: "/nonexistent", TEDIX_CONFIG_DIR: config })(
-				options,
-				{ executor: "codex", session: SESSION },
-				"one pass",
-				() => {},
-			),
+			await leadRunner(
+				{ PATH: "/nonexistent", TEDIX_CONFIG_DIR: config },
+				async () => agentInfo(),
+			)(options, { executor: "codex", session: SESSION }, "one pass", () => {}),
 		).toBe(false);
+	});
+	test("refuses owner OAuth, unavailable identity and cloud launch before spawning", async () => {
+		let spawned = false;
+		for (const read of [
+			async () => agentInfo("oauth"),
+			async () => {
+				throw new Error("session not started");
+			},
+		]) {
+			await expect(
+				leadRunner({}, read)(
+					options,
+					{ executor: "codex", session: SESSION },
+					"pass",
+					() => {
+						spawned = true;
+					},
+				),
+			).rejects.toThrow();
+		}
+		await expect(
+			leadRunner({}, async () => agentInfo())(
+				options,
+				{ executor: "devin", session: SESSION },
+				"pass",
+				() => {
+					spawned = true;
+				},
+			),
+		).rejects.toThrow("Cloud Lead");
+		expect(spawned).toBe(false);
+	});
+	test("probes and spawns with the Lead session instead of inherited owner or runner credentials", async () => {
+		const bin = join(config, "bin");
+		mkdirSync(bin);
+		writeFileSync(
+			join(bin, "codex"),
+			`#!${process.execPath}\nconsole.log(JSON.stringify({type:'thread.started',thread_id:'${SESSION}'}));\nconsole.log(JSON.stringify({session:process.env.TEDIX_AGENT_SESSION,agent:process.env.TEDIX_EXTERNAL_AGENT,bearer:process.env.TEDIX_MCP_BEARER_TOKEN,key:process.env.TEDIX_MCP_API_KEY}));`,
+			{ mode: 0o700 },
+		);
+		const ok = await leadRunner(
+			{
+				PATH: bin,
+				TEDIX_CONFIG_DIR: config,
+				TEDIX_AGENT_SESSION: "codex:other",
+				TEDIX_EXTERNAL_AGENT: "other",
+				TEDIX_MCP_BEARER_TOKEN: "owner-token",
+				TEDIX_MCP_API_KEY: "owner-key",
+			},
+			async (args, _timeout, _input, readOptions) => {
+				expect(args.slice(0, 4)).toEqual([
+					"--workspace",
+					"fixture",
+					"--organization",
+					"org_fixture",
+				]);
+				expect(readOptions?.env).toMatchObject({
+					TEDIX_AGENT_SESSION: `codex:${SESSION}`,
+					TEDIX_EXTERNAL_AGENT: "true",
+				});
+				expect(readOptions?.env?.TEDIX_MCP_BEARER_TOKEN).toBeUndefined();
+				return agentInfo();
+			},
+		)(options, { executor: "codex", session: SESSION }, "pass", () => {});
+		expect(ok).toBe(true);
+		const output = readFileSync(
+			join(config, "supervisor", "lead", "codex.jsonl"),
+			"utf8",
+		)
+			.trim()
+			.split("\n");
+		expect(JSON.parse(output[1]!)).toEqual({
+			session: `codex:${SESSION}`,
+			agent: "true",
+		});
 	});
 	test("supervisor --once waits for the Lead duty while regular ticks stay responsive", async () => {
 		writeFileSync(

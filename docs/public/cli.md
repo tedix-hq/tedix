@@ -188,9 +188,17 @@ After a reinstall, a new runner checks every 250 ms for its predecessor's lock t
 To run a recurring Lead pass, create `~/.tedix/supervisor-lead.json` with
 `enabled: true`, `workspace`, `organization`, an absolute `cwd`, `playbook`
 and `status` document references, and an `executors` array in fallback order,
-such as `[{"executor":"devin","session":"your-conversation"},{"executor":"codex","session":"your-thread-id"}]`.
-Each entry names an existing conversation; supported executors are `devin`
-(cloud), `codex`, `claude-code` and `opencode`. Set `intervalMinutes` to change
+such as `[{"executor":"codex","session":"your-thread-id"}]`.
+Each entry names an existing conversation in `codex`, `claude-code` or
+`opencode`. Enroll that exact conversation as an external-agent session first.
+An owner or admin must explicitly grant its principal the required Work
+management actions; the grant and changes to it are audited. The supervisor
+checks the agent connection before launch and passes that identity to the Lead.
+Missing or invalid sessions stop the pass. Cloud `devin` sessions are refused
+because this launcher cannot deliver the local agent credential to them.
+Lead writes name the agent. Management grants do not authorize owner-only
+Attempt grants, budget or capacity changes, or reserved approvals.
+Set `intervalMinutes` to change
 the default 20-minute cadence. The existing supervisor clock runs one pass,
 waits for its result, and tries the next executor if it fails or cannot sign
 in; it never signs in for you. It keeps handling replies while the pass runs,
