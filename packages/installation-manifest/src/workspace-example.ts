@@ -206,12 +206,6 @@ export const workspaceInstallationManifest: InstallationManifest = {
 	],
 	secretRequirements: [
 		...developerInstallationManifest.secretRequirements,
-		...(["workspace-storage", "mcp-gateway"] as const).map((target) => ({
-			name: "MIGRATE_WORKSPACES_TOKEN",
-			scope: "worker" as const,
-			target,
-			required: true,
-		})),
 		{
 			name: "CF_AI_GATEWAY_TOKEN",
 			scope: "worker",

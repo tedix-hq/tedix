@@ -47,7 +47,6 @@ describe("local Wrangler config", () => {
 			path,
 			JSON.stringify({
 				name: "public-installation-workspace-do",
-				vars: { MIGRATE_WORKSPACES_TOKEN: "deployment-token" },
 			}),
 		);
 		const previous = process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN;
@@ -55,14 +54,13 @@ describe("local Wrangler config", () => {
 			delete process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN;
 			expect(
 				(createLocalWranglerConfig(path).vars as Record<string, unknown>)
-					.MIGRATE_WORKSPACES_TOKEN,
+					.LOCAL_WORKSPACE_SEED_TOKEN,
 			).toBeUndefined();
 			process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN = "temporary-local-token";
 			const vars = createLocalWranglerConfig(path).vars as Record<
 				string,
 				unknown
 			>;
-			expect(vars.MIGRATE_WORKSPACES_TOKEN).toBeUndefined();
 			expect(vars.LOCAL_WORKSPACE_SEED_TOKEN).toBe("temporary-local-token");
 		} finally {
 			if (previous === undefined)

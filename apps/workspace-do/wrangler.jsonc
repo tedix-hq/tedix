@@ -39,7 +39,7 @@
 		"AI_GATEWAY_AUTO_ALLOWED_MODELS": "",
 	},
 	"secrets": {
-		"required": ["CF_AI_GATEWAY_TOKEN", "MIGRATE_WORKSPACES_TOKEN"],
+		"required": ["CF_AI_GATEWAY_TOKEN"],
 	},
 	"worker_loaders": [
 		{

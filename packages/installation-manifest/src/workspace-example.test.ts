@@ -102,7 +102,6 @@ describe("workspace storage installation example", () => {
 					{ binding: "MCP_SERVICE", service: "acme-mcp" },
 				]);
 				expect(result.config.vars).toMatchObject({ DO_JURISDICTION: "" });
-				expect(result.requiredSecrets).toContain("MIGRATE_WORKSPACES_TOKEN");
 			} else {
 				expect(result.config.services).toContainEqual({
 					binding: "WORKSPACE_RUNTIME",

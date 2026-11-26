@@ -366,7 +366,6 @@ export function createLocalWranglerConfig(configPath: string): JsonObject {
 	if (config.name === LOCAL_WORKSPACE_WORKER_NAME) {
 		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
 		config.vars = vars;
-		delete vars.MIGRATE_WORKSPACES_TOKEN;
 		if (process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN)
 			vars.LOCAL_WORKSPACE_SEED_TOKEN =
 				process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN;
