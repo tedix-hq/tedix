@@ -98,7 +98,6 @@ describe("hot production query plans", () => {
 			sqlite.exec(`ANALYZE;
 				INSERT INTO sqlite_stat1(tbl,idx,stat) VALUES
 				('memory_edges','idx_memory_edges_type','24000 60'),
-				('memory_edges','idx_memory_edges_source','24000 4'),
 				('memory_edges','idx_memory_edges_target','24000 3'),
 				('memory_edges','sqlite_autoindex_memory_edges_2','24000 4 1 1'),
 				('memory_edges','sqlite_autoindex_memory_edges_1','24000 1'),
@@ -110,7 +109,9 @@ describe("hot production query plans", () => {
 				"SEARCH memory_facts USING INTEGER PRIMARY KEY (rowid=?)",
 			);
 			expect(plan).not.toMatch(/SCAN (memory_facts|e|newer|replacement)\b/);
-			expect(plan).toContain("idx_memory_edges_source");
+			expect(plan).toContain(
+				"USING COVERING INDEX sqlite_autoindex_memory_edges_2 (source_fact_id=?)",
+			);
 			expect(plan).toContain("idx_memory_edges_target");
 			expect(plan).toContain("SEARCH e USING INTEGER PRIMARY KEY (rowid=?)");
 			expect(plan).not.toContain("idx_memory_edges_type");

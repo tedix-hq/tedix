@@ -27,7 +27,6 @@ export const memoryDomains = sqliteTable(
 	},
 	(table) => [
 		unique("uniq_domain_org_name").on(table.organizationId, table.name),
-		index("idx_memory_domains_org").on(table.organizationId),
 		index("idx_memory_domains_parent").on(table.parentId),
 	],
 );
@@ -245,7 +244,6 @@ export const memoryEdges = sqliteTable(
 			table.targetFactId,
 			table.relationType,
 		),
-		index("idx_memory_edges_source").on(table.sourceFactId),
 		index("idx_memory_edges_target").on(table.targetFactId),
 		index("idx_memory_edges_type").on(table.relationType),
 	],

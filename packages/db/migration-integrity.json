@@ -2100,6 +2100,10 @@
 		{
 			"name": "20261126072759_drop_workspace_work_links/migration.sql",
 			"sha256": "6bd004bfc8b05165ad74eb13714f6a0307e0ad6a139343e55647f263cf0c4fa9"
+		},
+		{
+			"name": "20261126072801_drop_redundant_memory_prefix_indexes/migration.sql",
+			"sha256": "c2d8f0a84fa1d783f05d01930e45e477fed2a23a7ba9d347165f334651524284"
 		}
 	]
 }

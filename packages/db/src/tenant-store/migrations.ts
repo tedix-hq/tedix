@@ -43,4 +43,6 @@ export const tenantStoreMigrations: Record<string, string> = {
 		"DROP INDEX IF EXISTS `idx_memory_facts_confidence`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_visibility`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_priority`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_scope`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_use_policy`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_facts_review_status`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_kernel_runtime_events_child_created`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_kernel_runtime_events_trace`;",
 	"20261123072228_conversation-event-stream-index":
 		"CREATE INDEX `idx_kernel_runtime_events_conversation_run_created` ON `kernel_runtime_events` (`organization_id`,`conversation_id`,`run_id`,`created_at`,`id`);",
+	"20261126072815_drop_redundant_memory_prefix_indexes":
+		"DROP INDEX IF EXISTS `idx_memory_domains_org`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_edges_source`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_tedi_expertise_tedi`;",
 };

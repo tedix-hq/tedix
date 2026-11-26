@@ -80,7 +80,7 @@ function eligible(scope: RecallScope): SQL {
 		sql`NOT EXISTS (
 			SELECT 1 FROM memory_edges e NOT INDEXED CROSS JOIN memory_facts newer INDEXED BY sqlite_autoindex_memory_facts_1
 			WHERE e.rowid IN (
-				SELECT rowid FROM memory_edges INDEXED BY idx_memory_edges_source WHERE source_fact_id = ${f.id}
+				SELECT rowid FROM memory_edges INDEXED BY sqlite_autoindex_memory_edges_2 WHERE source_fact_id = ${f.id}
 				UNION SELECT rowid FROM memory_edges INDEXED BY idx_memory_edges_target WHERE target_fact_id = ${f.id}
 			)
 			AND newer.organization_id = ${scope.organizationId}

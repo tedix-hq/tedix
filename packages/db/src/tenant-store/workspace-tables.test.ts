@@ -33,6 +33,42 @@ const EXPRESSION_INDEX = "os_workspace_resources_provider_object_unique";
 const CORE_SWEEP_INDEX = "idx_kernel_runtime_runs_quiet_delegated";
 
 describe("workspace table contract", () => {
+	it.each(["main", "workspace"])(
+		"seeks memory prefixes through unique indexes in the %s migration chain",
+		(store) => {
+			const db =
+				store === "main"
+					? createMigratedSqlite()
+					: new DatabaseSync(":memory:");
+			databases.push(db);
+			if (store === "workspace")
+				for (const migration of Object.values(tenantStoreMigrations))
+					db.exec(migration);
+			for (const [table, column, dropped] of [
+				["memory_domains", "organization_id", "idx_memory_domains_org"],
+				["memory_edges", "source_fact_id", "idx_memory_edges_source"],
+				["tedi_expertise", "tedi_id", "idx_tedi_expertise_tedi"],
+			]) {
+				expect(
+					db
+						.prepare("SELECT name FROM sqlite_schema WHERE name=?")
+						.get(dropped!),
+				).toBeUndefined();
+				const plan = db
+					.prepare(
+						`EXPLAIN QUERY PLAN SELECT * FROM ${table} WHERE ${column}=?`,
+					)
+					.all("fictional-id")
+					.map((row) => String(row.detail))
+					.join("\n");
+				expect(plan).toContain(
+					`SEARCH ${table} USING INDEX sqlite_autoindex_${table}_2 (${column}=?)`,
+				);
+				expect(plan).not.toContain("SCAN");
+			}
+		},
+	);
+
 	it("matches the core columns and indexes so rows copy by name", () => {
 		const platform = createMigratedSqlite();
 		databases.push(platform);

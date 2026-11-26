@@ -35,7 +35,6 @@ export const tediExpertise = sqliteTable(
 	},
 	(table) => [
 		unique("uniq_tedi_domain").on(table.tediId, table.domainId),
-		index("idx_tedi_expertise_tedi").on(table.tediId),
 		index("idx_tedi_expertise_domain").on(table.domainId),
 	],
 );

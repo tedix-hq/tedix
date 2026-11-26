@@ -325,7 +325,10 @@ describe("canonical hybrid recall D1 queries", () => {
 		expect(
 			plan.filter((detail) => detail.includes("idx_memory_edges_type")),
 		).toEqual([]);
-		for (const index of ["idx_memory_edges_source", "idx_memory_edges_target"])
+		for (const index of [
+			"sqlite_autoindex_memory_edges_2",
+			"idx_memory_edges_target",
+		])
 			expect(plan.some((detail) => detail.includes(index))).toBe(true);
 		expect(
 			plan.some((detail) =>
