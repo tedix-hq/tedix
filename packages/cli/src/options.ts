@@ -15,6 +15,7 @@ import { parseWorkOption, workOptionNames } from "./work-options";
 import { parseFlowOption } from "./flow-options";
 import { hasFactoryOptions, parseFactoryOption } from "./factory-options";
 import { parseAgentOption } from "./agent-options";
+import { parsePoppyOption } from "./poppy-options";
 
 // The local apps/mcp Worker (see docs/engineering/development.md). TedixHomeClient adds
 // the app-resolution header for loopback targets; a tunnel is an explicit opt-in.
@@ -109,6 +110,20 @@ const commandOptions: Record<string, string[]> = {
 		"--artifact-ref",
 		"--agent-scopes",
 	],
+	poppy: [
+		"--client-id",
+		"--key-file",
+		"--client-name",
+		"--company",
+		"--identity",
+		"--surface",
+		"--session",
+		"--method",
+		"--body",
+		"--text",
+		"--unsigned",
+		"--allow-internal",
+	],
 };
 
 export function parseOptions(argv: string[]): {
@@ -160,7 +175,10 @@ export function parseOptions(argv: string[]): {
 			parseWorkOption(args, index, options) ??
 			parseFlowOption(args, index, options) ??
 			parseFactoryOption(args, index, options) ??
-			parseAgentOption(args, index, options);
+			parseAgentOption(args, index, options) ??
+			(command === "poppy"
+				? parsePoppyOption(args, index, options)
+				: undefined);
 		if (consumed !== undefined) {
 			if (equals >= 0 && consumed === optionIndex) {
 				throw new Error(

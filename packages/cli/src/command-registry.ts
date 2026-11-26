@@ -27,6 +27,7 @@ import { workUsage } from "./work";
 import { laneUsage } from "./lane";
 import { workflowUsage } from "./workflow";
 import { factoryUsage } from "./factory";
+import { poppyUsage } from "./poppy";
 
 export type CliCommandSurface =
 	| "gateway-direct"
@@ -356,6 +357,15 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		mutability: "write",
 		output: HUMAN_JSON,
 		help: updateUsage,
+	},
+	{
+		name: "poppy",
+		argHint: "<verb>",
+		surface: "local",
+		summary: "Send signed Poppy 1.0 requests as a simulated agent",
+		mutability: "mixed",
+		output: HUMAN_JSON,
+		help: poppyUsage,
 	},
 	{
 		name: "help",

@@ -8,6 +8,7 @@
 	"exports": {
 		"./mcp-installation-revocation": "./src/mcp-installation-revocation.ts",
 		"./personal-agent-session": "./src/personal-agent-session.ts",
+		"./personal-agent-client": "./src/personal-agent-client.ts",
 		"./workspace-app-session": "./src/workspace-app-session.ts",
 		"./tedi-console-session": "./src/tedi-console-session.ts",
 		"./client": "./src/client.ts",

@@ -68,6 +68,7 @@ import {
 import { runFlowCommand } from "./flow";
 import { logoutMessage, logoutWorkspace } from "./oauth-revoke";
 import { parseMcpCallRequest, runMcpCall } from "./mcp-call";
+import { runPoppyCommand } from "./poppy";
 import {
 	channelUsage,
 	parseChannelFilters,
@@ -245,6 +246,16 @@ export async function main() {
 			{ json: options.json },
 			{ reloadService: reloadSupervisorAfterUpdate },
 		);
+		return;
+	}
+	// `poppy` needs no Tedix login: it signs requests with a local agent key and
+	// calls the target company's own endpoints.
+	if (command === "poppy") {
+		process.exitCode = await runPoppyCommand({
+			json: options.json,
+			positionals: options.positionals ?? [],
+			poppy: options.poppy ?? {},
+		});
 		return;
 	}
 	// `auth`, `agent`, `logout`, `login`, `workspaces`, and `use` run BEFORE resolveAuth:

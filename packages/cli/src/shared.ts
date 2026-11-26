@@ -245,6 +245,21 @@ export interface CliOptions {
 	agentZeroWorkReason?: string;
 	agentStaleBefore?: string;
 	agentArtifactRef?: string;
+	// `tedix poppy` flags (parsed in poppy-options.ts).
+	poppy?: {
+		clientId?: string;
+		keyFile?: string;
+		clientName?: string;
+		company?: string;
+		identity?: string;
+		surface?: string;
+		sessionId?: string;
+		method?: string;
+		body?: string;
+		text?: string;
+		unsigned?: boolean;
+		allowInternal?: boolean;
+	};
 }
 
 export function defaultConversationId(): string {

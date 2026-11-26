@@ -799,6 +799,19 @@ hostname that serves it. The document lists the organization's name and that
 one MCP address, and marks protocol sign-in as disabled. A missing or invalid
 setting, a different hostname, or an organization being offboarded returns 404.
 
+The agent side of the protocol lives in `tedix poppy`. `tedix poppy keygen`
+writes a private ES256 JWK outside the repository and prints the client
+metadata document and JWKS to host at the `client_id` URL and its `jwks_uri`
+on the same host. `tedix poppy discover --company <host>` reads a company's
+`/.well-known/poppy.json`, and `tedix poppy call --company <host> --identity
+<id>` sends one request with `Poppy-Version: 1.0` and a signed
+`Poppy-Session` JWT bound to the method, URL, audience, session, user and
+agent. `--unsigned` sends the same request without Poppy headers so the
+company answers it as unidentified. `tedix poppy identities` lists the
+simulated personas for demos; each name starts with "Simulated". The key is
+read from `--key-file`, `TEDIX_POPPY_AGENT_KEY_FILE`, or the
+`TEDIX_POPPY_AGENT_JWK` secret and is never printed or committed.
+
 ## Limit a GitHub connection
 
 An administrator can open **Accounts → Organization**, expand a GitHub account's
