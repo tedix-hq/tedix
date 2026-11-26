@@ -286,7 +286,65 @@ describe("findSecretValuePattern", () => {
 		);
 	});
 
-	describe("snake_case word slugs", () => {
+	describe("public JWKS", () => {
+		const coordinate = toBase64(randomBinary(32))
+			.replace(/\+/g, "-")
+			.replace(/\//g, "_")
+			.replace(/=+$/, "");
+		const key = {
+			kty: "EC",
+			crv: "P-256",
+			x: coordinate,
+			y: coordinate,
+			kid: OPAQUE_KEY,
+			use: "sig",
+			alg: "ES256",
+		};
+		const jwks = { keys: [key] };
+
+		it("allows public members in objects, JSON files and base64 JSON files", () => {
+			const json = JSON.stringify({ jwks });
+			for (const content of [json, btoa(json)]) {
+				expect(
+					findSecretValuePattern({
+						file: { filename: "client.json", content },
+					}),
+				).toBeNull();
+			}
+			expect(findSecretValuePattern(jwks)).toBeNull();
+			expect(
+				findSecretValuePattern({
+					keys: [
+						{ kty: "RSA", n: coordinate.repeat(8), e: "AQAB", kid: OPAQUE_KEY },
+					],
+				}),
+			).toBeNull();
+		});
+
+		it("still scans private fields, symmetric keys, unrelated values and credentials in public fields", () => {
+			for (const value of [
+				{ keys: [{ ...key, d: OPAQUE_KEY }] },
+				{ keys: [{ kty: "oct", k: OPAQUE_KEY, kid: OPAQUE_KEY }] },
+				{ keys: [{ ...key, extra: OPAQUE_KEY }] },
+				{ ...jwks, secret: OPAQUE_KEY },
+				{ x: coordinate, kid: OPAQUE_KEY },
+				{ keys: [{ kid: OPAQUE_KEY }] },
+				{ keys: [{ ...key, kid: GITHUB_TOKEN }] },
+			]) {
+				expect(findSecretValuePattern(value)).not.toBeNull();
+				expect(
+					findSecretValuePattern({ content: JSON.stringify(value) }),
+				).not.toBeNull();
+			}
+		});
+	});
+
+	it("blocks opaque secrets in overwritten JSON properties", () => {
+		const content = `{"secret":"${OPAQUE_KEY}","secret":"public"}`;
+		expect(findSecretValuePattern({ content })).toBe("long opaque token");
+	});
+
+	describe("word slugs", () => {
 		const COPY_KEY =
 			"ui_invoice_ocr_latency_spiked_2_9_on_jun_7_consider_adding_a_re";
 
@@ -295,6 +353,24 @@ describe("findSecretValuePattern", () => {
 			expect(
 				findSecretValuePattern({ blocks: [{ copy: { [COPY_KEY]: "Hi" } }] }),
 			).toBeNull();
+		});
+
+		it("allows long readable product URL slugs while blocking adjacent secrets", () => {
+			const slug = "123456789-modern-outdoor-garden-table-with-six-chairs";
+			const url = `https://catalog.example.com/products/${slug}`;
+			expect(findSecretValuePattern({ url })).toBeNull();
+			expect(
+				findSecretValuePattern({ content: JSON.stringify([{ url }]) }),
+			).toBeNull();
+			expect(
+				findSecretValuePattern({ url: `${url}?token=${GITHUB_TOKEN}` }),
+			).toBe("GitHub token");
+			expect(findSecretValuePattern({ url: `${url}/${OPAQUE_KEY}` })).toBe(
+				"long opaque token",
+			);
+			expect(
+				findSecretValuePattern({ url: OPAQUE_KEY.replace(/(.{8})/g, "$1-") }),
+			).toBe("long opaque token");
 		});
 
 		it("still blocks random 40+ char tokens, including ones with a few underscores", () => {

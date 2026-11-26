@@ -15,9 +15,9 @@ import {
  * identify: base64 file bytes (by file signature, or a field the tool schema or
  * the argument shape declares as file content) and declared pagination
  * cursors, plus structured identifiers (full Git commit IDs, CMS deploy job
- * IDs) constrained by the exact schema pattern below, and lowercase
- * snake_case word slugs such as copy keys. Base64 that decodes to text is
- * scanned as that text.
+ * IDs) constrained by the exact schema pattern below, lowercase word slugs,
+ * and public JWK members in a JWKS. JSON file text is scanned structurally;
+ * base64 that decodes to text is scanned as that text.
  *
  * @module @tedix/mcp/secret-egress-scan
  */
@@ -77,7 +77,29 @@ const FILE_SIGNATURES: readonly (readonly number[])[] = [
 	[0xd0, 0xcf, 0x11, 0xe0], // legacy Office
 ];
 
-type StringRole = "plain" | "file" | "cursor";
+type StringRole = "plain" | "file" | "cursor" | "jwk";
+
+const PUBLIC_JWK_MEMBERS = new Set([
+	"kty",
+	"crv",
+	"x",
+	"y",
+	"n",
+	"e",
+	"kid",
+	"alg",
+	"use",
+]);
+
+function isPublicJwk(value: Record<string, unknown>): boolean {
+	const member = (key: string) =>
+		typeof value[key] === "string" && /^[A-Za-z0-9_-]+$/.test(value[key]);
+	if (value.kty === "RSA") return member("n") && member("e");
+	if (value.kty === "EC")
+		return typeof value.crv === "string" && member("x") && member("y");
+	if (value.kty === "OKP") return typeof value.crv === "string" && member("x");
+	return false;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -194,7 +216,7 @@ function findHighConfidencePattern(text: string): string | null {
 }
 
 /**
- * A lowercase snake_case word slug such as a copy key
+ * A lowercase underscore- or hyphen-separated word slug such as a copy key
  * (`ui_invoice_ocr_latency_spiked_2_9_on_jun_7_...`): at least six segments,
  * each at most 12 characters and either all letters or all digits. Random
  * base64/base62/hex tokens mix case or mix letters and digits within short
@@ -202,7 +224,7 @@ function findHighConfidencePattern(text: string): string | null {
  * are matched by the high-confidence patterns before this check runs.
  */
 const WORD_SLUG_RE =
-	/^(?:[a-z]{1,12}|[0-9]{1,12})(?:_(?:[a-z]{1,12}|[0-9]{1,12})){5,}$/;
+	/^(?:[a-z]{1,12}|[0-9]{1,12})(?:[_-](?:[a-z]{1,12}|[0-9]{1,12})){5,}$/;
 
 function findOpaqueToken(text: string): string | null {
 	LONG_OPAQUE_SECRET_RE.lastIndex = 0;
@@ -226,6 +248,29 @@ function scanString(value: string, role: StringRole): string | null {
 	const highConfidence = findHighConfidencePattern(value);
 	if (highConfidence) return highConfidence;
 	if (!findOpaqueToken(value)) return null;
+	// CMS files carry JSON as text; preserve JWK context instead of scanning
+	// each public coordinate as an unrelated opaque token.
+	if (/^\s*[\[{]/.test(value)) {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(value);
+		} catch {
+			return "long opaque token";
+		}
+		const found = scan(parsed, undefined, "plain", undefined);
+		if (found) return found;
+		// JSON.parse discards overwritten duplicate properties. Any opaque
+		// token lost during parsing must still be refused in the original file.
+		const retained = new Set(
+			JSON.stringify(parsed).match(LONG_OPAQUE_SECRET_RE),
+		);
+		LONG_OPAQUE_SECRET_RE.lastIndex = 0;
+		for (const match of value.matchAll(LONG_OPAQUE_SECRET_RE)) {
+			if (!retained.has(match[0]) && findOpaqueToken(match[0]))
+				return "long opaque token";
+		}
+		return null;
+	}
 
 	const bytes = decodeBase64(value);
 	if (!bytes) return "long opaque token";
@@ -238,7 +283,7 @@ function scanString(value: string, role: StringRole): string | null {
 		return text === null ? null : findHighConfidencePattern(text);
 	}
 	if (role === "file") {
-		if (text !== null) return findInText(text);
+		if (text !== null) return scanString(text, "plain");
 		return bytes.length >= MIN_UNSIGNED_BINARY_BYTES
 			? null
 			: "long opaque token";
@@ -275,7 +320,7 @@ function scan(
 			const found = scan(
 				item,
 				items,
-				role === "file" ? "file" : "plain",
+				role === "file" || role === "jwk" ? role : "plain",
 				returned,
 			);
 			if (found) return found;
@@ -284,10 +329,16 @@ function scan(
 	}
 	if (!isRecord(value)) return null;
 	const fileShaped = isFileShaped(value);
+	const publicJwk = role === "jwk" && isPublicJwk(value);
 	for (const [key, child] of Object.entries(value)) {
 		const keyFinding = findInText(key);
 		if (keyFinding) return keyFinding;
 		const childSchema = propertySchema(schema, key);
+		if (publicJwk && PUBLIC_JWK_MEMBERS.has(key) && typeof child === "string") {
+			const found = findHighConfidencePattern(child);
+			if (found) return found;
+			continue;
+		}
 		let childRole: StringRole = "plain";
 		if (
 			declaresBinary(childSchema) ||
@@ -296,6 +347,8 @@ function scan(
 			childRole = "file";
 		} else if (CURSOR_KEY_RE.test(key) && childSchema) {
 			childRole = "cursor";
+		} else if (key === "keys" && Array.isArray(child)) {
+			childRole = "jwk";
 		}
 		const found = scan(child, childSchema, childRole, returned);
 		if (found) return found;
