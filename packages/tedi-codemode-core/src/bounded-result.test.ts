@@ -295,17 +295,39 @@ describe("result handles", () => {
 		expect(JSON.parse(parts.join(""))).toEqual(value);
 	});
 
-	it("caps a page at the result budget so a page always fits", () => {
-		const serialized = serializeCodeModeResultForHandle(oversizedPage());
-		const page = readCodeModeResultPage(
-			"exec-1",
-			serialized,
-			{ limit: 1_000_000 },
-			{ maxTokens: 100 },
+	it("retrieves a saved 43 KB Unicode draft without re-truncating its pages", () => {
+		const files = { "client.js": '// ‹ › – \\"\n'.repeat(1_000) };
+		files["client.js"] += "x".repeat(
+			43_000 - new TextEncoder().encode(JSON.stringify({ files })).length,
 		);
-		expect(page.limit).toBe(400);
-		expect(page.text).toHaveLength(400);
-		expect(page.nextOffset).toBe(400);
+		const content = JSON.stringify({ files });
+		expect(new TextEncoder().encode(content).length).toBe(43_000);
+		const value = { proposal: { id: "saved-draft", content } };
+		const serialized = serializeCodeModeResultForHandle(value);
+		for (const maxChars of [400, 12_000, serialized.length]) {
+			const parts: string[] = [];
+			let offset = 0;
+			for (;;) {
+				const page = readCodeModeResultPage(
+					"exec-1",
+					serialized,
+					{ offset, limit: 1_000_000 },
+					{ maxChars },
+				);
+				expect(shapeBoundedCodeModeResult(page, { maxChars })).toBe(page);
+				if (page.value !== undefined) {
+					expect(page.value).toEqual(value);
+					break;
+				}
+				parts.push(page.text!);
+				if (page.nextOffset === undefined) {
+					expect(JSON.parse(parts.join(""))).toEqual(value);
+					break;
+				}
+				expect(page.nextOffset).toBeGreaterThan(offset);
+				offset = page.nextOffset;
+			}
+		}
 	});
 
 	it("selects a nested value by path with dot and index notation", () => {

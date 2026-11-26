@@ -292,15 +292,34 @@ export function readCodeModeResultPage(
 		...navigationHints(selected),
 	};
 	if (offset === 0 && text.length <= limit) {
-		return { ...base, value: selected, complete: true };
+		const page = { ...base, value: selected, complete: true };
+		if (JSON.stringify(page).length <= maxChars) return page;
 	}
-	const end = Math.min(offset + limit, text.length);
-	return {
+	const pageAt = (end: number): CodeModeResultPage => ({
 		...base,
 		text: text.slice(offset, end),
 		...(end < text.length ? { nextOffset: end } : {}),
 		complete: end >= text.length,
-	};
+	});
+	let end = Math.min(offset + limit, text.length);
+	let page = pageAt(end);
+	if (JSON.stringify(page).length <= maxChars) return page;
+	// Budget the whole page, including metadata and JSON escaping of its text.
+	let low = offset;
+	let high = end;
+	while (low < high) {
+		const mid = Math.ceil((low + high) / 2);
+		if (JSON.stringify(pageAt(mid)).length <= maxChars) low = mid;
+		else high = mid - 1;
+	}
+	end = low;
+	page = pageAt(end);
+	if (
+		JSON.stringify(page).length > maxChars ||
+		(end === offset && offset < text.length)
+	)
+		throw new Error("Result page metadata exceeds the Code Mode result budget");
+	return page;
 }
 
 /**
