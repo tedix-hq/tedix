@@ -8,6 +8,7 @@ import {
 	billingPolicyDeniedWorkflowResult,
 } from "./billing-reservation-client";
 import { ChatTurnWorkflow } from "./chat-turn-workflow";
+import { cronPacingKey, type CronPacingState } from "./cron-pacing";
 import { CRON_BUDGET_SUPPRESSION_STORAGE_KEY } from "./cron-budget-control";
 import { cronTurnMaxSteps } from "./cron-turn-outcome";
 import { WORKFLOW_TERMINAL_MAX_REDRIVES } from "./workflow-terminal-reconciliation";
@@ -894,6 +895,111 @@ function orphanProbe(options: {
 	assert.deepEqual(calls, [
 		{ payload: maintenancePayload, schedule: maintenanceSchedule },
 	]);
+}
+
+// Exercise the real fire and terminal-clear paths, not just the pacing helper.
+for (const terminal of ["success", "failure", "cancelled"] as const) {
+	const probe = cronFireProbe();
+	const recurring = {
+		...payload,
+		source: "tool" as const,
+		pacing: { everyMs: 300_000 },
+	};
+	const first = await probe.agent.onCronFire(recurring, row);
+	assert.equal(first.status, "dispatched");
+	const repeated = await probe.agent.onCronFire(recurring, row);
+	assert.equal(
+		repeated.reason,
+		"previous_run_open",
+		"same-fire retry retains its slot",
+	);
+	const replaced = await probe.agent.onCronFire(recurring, {
+		id: "replacement",
+		time: Date.now(),
+	});
+	assert.equal(replaced.reason, "previous_run_open");
+	const terminalAgent = tediDo({
+		ctx: { storage: probe.storage },
+		async cleanupChatWorkflowImages() {},
+		async stampCronExecution() {},
+		async mirrorFailedTurn() {},
+		async clearFanoutSlot() {},
+		sessionHarness: {
+			async appendTurn() {
+				return true;
+			},
+		},
+	});
+	if (terminal === "success")
+		await terminalAgent.onWorkflowComplete(
+			"CHAT_TURN_WORKFLOW",
+			first.workflowId,
+		);
+	else if (terminal === "failure")
+		await terminalAgent.settleWorkflowFailure(
+			first.workflowId,
+			"model refused",
+		);
+	else await terminalAgent.clearWorkflowDispatch(first.workflowId, "cancelled");
+	const state = await probe.storage.get<CronPacingState>(
+		cronPacingKey(payload.name),
+	);
+	assert.equal(state?.open, undefined);
+	assert.ok(state?.finishedAt);
+	assert.equal(state.eligibleAt, state.finishedAt + 300_000);
+	const cooldown = await probe.agent.onCronFire(recurring, {
+		id: "replacement",
+		time: Date.now(),
+	});
+	assert.equal(cooldown.reason, "completion_cooldown");
+	probe.agent.listSchedules = async () => [
+		{ ...row, callback: "onCronFire", type: "interval", payload: recurring },
+	];
+	const status = await probe.agent.cronTool({ action: "status" });
+	assert.equal(status.jobs[0].pacing.deferred.reason, "completion_cooldown");
+}
+{
+	const probe = cronFireProbe({
+		async runWorkflow() {
+			throw new Error("provider response lost");
+		},
+	});
+	const recurring = {
+		...payload,
+		source: "tool" as const,
+		pacing: { everyMs: 300_000 },
+	};
+	await assert.rejects(
+		probe.agent.onCronFire(recurring, row),
+		/provider response lost/,
+	);
+	assert.equal(
+		probe.cleared.length,
+		0,
+		"uncertain dispatch retains native reconciliation context",
+	);
+	assert.equal(
+		(await probe.agent.onCronFire(recurring, row)).reason,
+		"previous_run_open",
+	);
+	assert.equal(probe.dispatched.length, 0);
+}
+{
+	const probe = cronFireProbe();
+	probe.storage.list = async () => {
+		throw new Error("storage unavailable");
+	};
+	const outcome = await probe.agent.onCronFire(
+		{ ...payload, source: "tool", pacing: { everyMs: 300_000 } },
+		row,
+	);
+	assert.equal(outcome.reason, "pacing_state_unknown");
+	assert.equal(
+		(await probe.storage.get<CronPacingState>(cronPacingKey(payload.name)))
+			?.deferred?.reason,
+		"pacing_state_unknown",
+	);
+	assert.equal(probe.dispatched.length, 0);
 }
 
 console.log("cron-terminal-wiring.test.ts: all assertions passed");
