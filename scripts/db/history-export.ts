@@ -260,7 +260,8 @@ export async function exportHistory(params: {
 		exclusions: [
 			"Platform-only cron/workflow rows and platform call costs",
 			"Business-state tables outside the declared history inventory",
-			"Separate audit-exports and change-record-evidence bundles; their history rows are collected from D1/d1-archive",
+			"Separate audit-exports; their audit rows are collected from D1/d1-archive",
+			"Organization log store gateway change records, checkpoints, day manifests and change-record-evidence bundles, including historical exceptions and public signing keys",
 		],
 		indirectOwnership:
 			"D1 artifacts/usage use the organization's current main skill_runs/tedis IDs; R2 uses the organization prefix recorded at archival time. Deleted parents cannot be attributed from D1 alone.",

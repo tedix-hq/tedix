@@ -50,13 +50,18 @@ filter: the key's day describes only the first row in a chunk.
 
 The inventory includes audit events and their metadata dictionaries, runtime
 events, skill artifacts, agent attributions, organization call costs, request
-events, usage events, widget events, gateway change records/checkpoints and
-Work events. Dictionaries have no timestamp and are included in full for the
-organization, with null observed time bounds. Platform cron/workflow rows and
+events, usage events, widget events and Work events. Dictionaries have no
+timestamp and are included in full for the organization, with null observed
+time bounds. Platform cron/workflow rows and
 platform call costs have no organization and are excluded. This is a history
 export, not a backup of all business-state tables or referenced artifact bodies.
-Separate `audit-exports` and gateway evidence bundles are not copied; their
-history rows come from D1 and `d1-archive`.
+Separate `audit-exports` are not copied; their audit rows come from D1 and
+`d1-archive`. The organization log store's gateway change records, checkpoints,
+day manifests and `change-record-evidence` bundles are outside this export's
+inventory. Collect and verify them separately, including historical exceptions
+and public signing keys. A successful history pack does not prove that the
+signed ledger was exported or that a workspace and its live R2 bodies can be
+restored.
 
 Each source's copies remain separate, including conflicting versions and
 duplicates made during retention moves. Do not sum counts as unique events.
