@@ -338,13 +338,12 @@ describe("run log and steering", () => {
 		).rejects.toMatchObject({ code: "CONFLICT" });
 	});
 
-	it("lets the item's creator answer the run's open question, nothing more", async () => {
+	it("does not grant run steering to the creator through legacy question metadata", async () => {
 		const { sqlite, person } = fixture();
 		sqlite.exec(
 			`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES('created','${org}','${work}','work.created','user','member','2026-10-19T00:00:00.000Z')`,
 		);
 		const member = person("member-subject");
-		// The creator cannot steer the live run; only its open question.
 		await expect(
 			call(sendAttemptMessageProcedure, member, { id: work, body: "Hi" }),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -363,16 +362,17 @@ describe("run log and steering", () => {
 			metadata: { dispatchVersion: 1, runQuestion: question },
 		});
 		const answer = { id: work, attemptId: attempt, body: "Plans" };
-		const message = await call(sendAttemptMessageProcedure, member, answer);
-		expect(message).toMatchObject({
-			kind: "follow_up",
-			senderType: "user",
-			senderId: "member",
-		});
-		// Once answered, the creator's say is spent with the question.
 		await expect(
 			call(sendAttemptMessageProcedure, member, answer),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			call(stopAttemptProcedure, member, { id: work }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(
+			sqlite
+				.prepare("SELECT count(*) AS count FROM work_attempt_messages")
+				.get(),
+		).toMatchObject({ count: 0 });
 	});
 
 	it("keeps another organization out of the log and the controls", async () => {

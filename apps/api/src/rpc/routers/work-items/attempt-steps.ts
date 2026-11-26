@@ -9,16 +9,11 @@ import {
 	listWorkAttemptSteps,
 	sendWorkAttemptMessage,
 } from "@tedix/db/queries/work-items/attempt-steps";
-import { workItemCreatedByActor } from "@tedix/db/queries/work-items/specification-access";
-import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
 import { findWorkToolApprovalWait } from "@tedix/db/queries/work-items/tool-approval-wait";
 import { verifiedActiveWorkActor } from "../work-items-principal";
 import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
-import type {
-	WorkAttemptMessageRow,
-	WorkItem,
-} from "@tedix/db/schema/work-items";
+import type { WorkAttemptMessageRow } from "@tedix/db/schema/work-items";
 import { writeRunSteeringRecord } from "../../../services/machine-change-records";
 import {
 	type BaseContext,
@@ -152,43 +147,6 @@ export const listAttemptStepsProcedure = readerOs.listAttemptSteps.handler(
 	},
 );
 
-/**
- * A run that ended on a question waits for its answer, and the person who
- * created the Work Item may give it even when they are not its owner or
- * steward: the message only resumes that run. Live-run steering and stops
- * still require the steward path, so this fallback applies solely to an
- * unanswered question on the newest ended run of the current Work version.
- */
-async function creatorRunAnswerActor(
-	context: BaseContext,
-	workItem: WorkItem,
-	denied: unknown,
-) {
-	if (!isRecord(denied) || denied.code !== ErrorCodes.FORBIDDEN) throw denied;
-	if (workItem.disposition !== "accepted") throw denied;
-	const actor = await verifiedActiveWorkActor(context, workItem.orgId);
-	const run = await listWorkAttemptSteps(context.db, {
-		orgId: workItem.orgId,
-		workItemId: workItem.id,
-	});
-	const continuation = workItem.metadata?.questionContinuation;
-	const answered =
-		isRecord(continuation) && continuation.attemptId === run.attemptId;
-	if (
-		run.live ||
-		!run.attemptId ||
-		run.questionVersion !== workItem.version ||
-		answered ||
-		!(await workItemCreatedByActor(context.db, {
-			orgId: workItem.orgId,
-			workItemId: workItem.id,
-			actor: { type: actor.type, id: actor.id },
-		}))
-	)
-		throw denied;
-	return actor;
-}
-
 async function steerRun(
 	context: BaseContext,
 	params: {
@@ -227,12 +185,7 @@ async function steerRun(
 			actor = parent;
 		}
 	}
-	actor ??= await workItemStewardActor(context, workItem, "completion").catch(
-		(error) =>
-			params.kind === "follow_up"
-				? creatorRunAnswerActor(context, workItem, error)
-				: Promise.reject(error),
-	);
+	actor ??= await workItemStewardActor(context, workItem, "completion");
 	const message = await sendWorkAttemptMessage(context.db, {
 		orgId: workItem.orgId,
 		workItemId: workItem.id,
