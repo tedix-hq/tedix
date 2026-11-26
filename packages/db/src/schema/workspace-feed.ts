@@ -6,7 +6,7 @@
  * each write it appends one `WorkspaceChangeEvent` to its own ledger and sends
  * it through the automation-events queue. The consumer applies every event
  * exactly once, in per-workspace sequence order, into the tables below. Org
- * level readers (recent activity, output library and search, Work linkage,
+ * level readers (recent activity, output library and search,
  * the Home conversation list) read these rows and never list a workspace
  * object; a detail view may still fetch one object directly.
  *
@@ -242,33 +242,6 @@ export const workspaceOutputIndex = sqliteTable(
 	],
 );
 
-/** Which Work Items an output is linked to, as the workspace object reports it. */
-export const workspaceWorkLinks = sqliteTable(
-	"workspace_work_links",
-	{
-		/** Deterministic `${outputId}:${workItemId}`. */
-		id: text("id").primaryKey(),
-		organizationId: text("organization_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		workspaceId: text("workspace_id").notNull(),
-		outputId: text("output_id").notNull(),
-		workItemId: text("work_item_id").notNull(),
-		/** Output revision that last confirmed the link. */
-		revision: integer("revision").notNull(),
-		linkedAt: text("linked_at").notNull(),
-		/** Set when a later revision no longer lists the Work Item. */
-		unlinkedAt: text("unlinked_at"),
-	},
-	(table) => [
-		index("workspace_work_links_work_item_idx").on(
-			table.organizationId,
-			table.workItemId,
-		),
-		index("workspace_work_links_output_idx").on(table.outputId),
-	],
-);
-
 export type WorkspaceFeedLedgerRow = typeof workspaceFeedLedger.$inferSelect;
 export type NewWorkspaceFeedLedgerRow = typeof workspaceFeedLedger.$inferInsert;
 export type WorkspaceFeedCursorRow = typeof workspaceFeedCursors.$inferSelect;
@@ -277,4 +250,3 @@ export type NewWorkspaceActivityRow = typeof workspaceActivity.$inferInsert;
 export type WorkspaceOutputIndexRow = typeof workspaceOutputIndex.$inferSelect;
 export type NewWorkspaceOutputIndexRow =
 	typeof workspaceOutputIndex.$inferInsert;
-export type WorkspaceWorkLinkRow = typeof workspaceWorkLinks.$inferSelect;

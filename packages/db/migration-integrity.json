@@ -2096,6 +2096,10 @@
 		{
 			"name": "20261126071520_commitment_reminder_annotation/migration.sql",
 			"sha256": "906dcda94f386237e30b6f2b5c94cfaa1928956930bae6bde70517cb6e28d5f0"
+		},
+		{
+			"name": "20261126072759_drop_workspace_work_links/migration.sql",
+			"sha256": "6bd004bfc8b05165ad74eb13714f6a0307e0ad6a139343e55647f263cf0c4fa9"
 		}
 	]
 }

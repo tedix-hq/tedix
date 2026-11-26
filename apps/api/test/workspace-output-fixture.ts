@@ -30,7 +30,6 @@ import {
 	workspaceFeedCursors,
 	workspaceActivity,
 	workspaceOutputIndex,
-	workspaceWorkLinks,
 } from "@tedix/db/schema/workspace-feed";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 
@@ -48,7 +47,6 @@ export function workspaceOutputFixture(
 				workspaceFeedCursors,
 				workspaceActivity,
 				workspaceOutputIndex,
-				workspaceWorkLinks,
 			),
 		);
 	const objectSql = new DatabaseSync(":memory:");

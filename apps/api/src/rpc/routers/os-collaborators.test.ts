@@ -46,7 +46,6 @@ import {
 	workspaceFeedCursors,
 	workspaceFeedLedger,
 	workspaceOutputIndex,
-	workspaceWorkLinks,
 } from "@tedix/db/schema/workspace-feed";
 import { savePushConfig } from "@tedix/db/queries/web-push";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -107,7 +106,6 @@ function createEnv() {
 			workspaceFeedCursors,
 			workspaceActivity,
 			workspaceOutputIndex,
-			workspaceWorkLinks,
 		),
 	);
 	sqlite.exec(`

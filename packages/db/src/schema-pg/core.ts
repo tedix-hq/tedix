@@ -14039,33 +14039,6 @@ export const workspaceTemplateSets = pgTable(
 			.onUpdate("no action"),
 	],
 );
-export const workspaceWorkLinks = pgTable(
-	"workspace_work_links",
-	{
-		id: text("id").primaryKey(),
-		organizationId: text("organization_id").notNull(),
-		workspaceId: text("workspace_id").notNull(),
-		outputId: text("output_id").notNull(),
-		workItemId: text("work_item_id").notNull(),
-		revision: bigint("revision", { mode: "number" }).notNull(),
-		linkedAt: text("linked_at").notNull(),
-		unlinkedAt: text("unlinked_at"),
-	},
-	(t) => [
-		index("workspace_work_links_work_item_idx").on(
-			t["organizationId"],
-			t["workItemId"],
-		),
-		index("workspace_work_links_output_idx").on(t["outputId"]),
-		foreignKey({
-			name: "workspace_work_links_organization_id_organizations_id_fk",
-			columns: [t["organizationId"]],
-			foreignColumns: [referencedColumn("organizations", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-	],
-);
 export const workstationLeases = pgTable(
 	"workstation_leases",
 	{
@@ -16105,7 +16078,6 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(workspaceFeedLedger), workspaceFeedLedger],
 	[getTableName(workspaceOutputIndex), workspaceOutputIndex],
 	[getTableName(workspaceTemplateSets), workspaceTemplateSets],
-	[getTableName(workspaceWorkLinks), workspaceWorkLinks],
 	[getTableName(workstationLeases), workstationLeases],
 	[getTableName(workstationParticipants), workstationParticipants],
 	[getTableName(workstationSessions), workstationSessions],

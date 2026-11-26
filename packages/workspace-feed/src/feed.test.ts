@@ -10,7 +10,6 @@ import {
 	workspaceActivity,
 	workspaceFeedCursors,
 	workspaceOutputIndex,
-	workspaceWorkLinks,
 } from "@tedix/db/schema/workspace-feed";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -54,7 +53,6 @@ function coreDb() {
 			workspaceFeedCursors,
 			workspaceActivity,
 			workspaceOutputIndex,
-			workspaceWorkLinks,
 		),
 	);
 	return createDbQueryClient(createD1Facade(sqlite));

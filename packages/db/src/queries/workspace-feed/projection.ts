@@ -17,16 +17,14 @@ import type {
 	WorkspaceChangeEvent,
 	WorkspaceChangeSummary,
 } from "@tedix/api-contract/schemas/workspace-feed";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { coreTable } from "../../core-store/client";
-import { anyIds, coreStore } from "../../core-store/dialect";
-import { chunkForBoundParams } from "../../utils/batch";
+import { coreStore } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
 	workspaceActivity as d1WorkspaceActivity,
 	workspaceFeedCursors as d1WorkspaceFeedCursors,
 	workspaceOutputIndex as d1WorkspaceOutputIndex,
-	workspaceWorkLinks as d1WorkspaceWorkLinks,
 } from "../../schema/workspace-feed";
 
 export type WorkspaceChangeOutcome = "applied" | "duplicate" | "gap";
@@ -214,7 +212,6 @@ function outputStatements(
 	event: WorkspaceChangeEvent,
 ): BatchStatement[] {
 	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
-	const workspaceWorkLinks = coreTable(db, d1WorkspaceWorkLinks);
 	const summary = event.summary;
 	const createdBy = summary.createdBy ?? event.actor;
 	const searchText = searchTextOf(summary);
@@ -283,50 +280,5 @@ function outputStatements(
 				},
 			}),
 	];
-	if (summary.workItemIds) {
-		const ids = [...new Set(summary.workItemIds)];
-		statements.push(
-			db
-				.update(workspaceWorkLinks)
-				.set({ unlinkedAt: event.at })
-				.where(
-					and(
-						eq(workspaceWorkLinks.outputId, event.id),
-						isNull(workspaceWorkLinks.unlinkedAt),
-						ids.length === 0
-							? undefined
-							: sql`NOT (${anyIds(db, workspaceWorkLinks.workItemId, ids)})`,
-					),
-				),
-		);
-		const rows = ids.map((workItemId) => ({
-			id: `${event.id}:${workItemId}`,
-			organizationId: event.organizationId,
-			workspaceId: event.workspaceId,
-			outputId: event.id,
-			workItemId,
-			revision: event.revision,
-			linkedAt: event.at,
-			unlinkedAt: null,
-		}));
-		for (const chunk of chunkForBoundParams(
-			rows,
-			coreStore(db) === "postgres" ? Math.max(rows.length, 1) : 10,
-		)) {
-			statements.push(
-				db
-					.insert(workspaceWorkLinks)
-					.values(chunk)
-					.onConflictDoUpdate({
-						target: workspaceWorkLinks.id,
-						set: {
-							workspaceId: event.workspaceId,
-							revision: event.revision,
-							unlinkedAt: null,
-						},
-					}),
-			);
-		}
-	}
 	return statements;
 }

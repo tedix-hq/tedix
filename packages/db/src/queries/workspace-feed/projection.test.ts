@@ -13,7 +13,6 @@ import {
 	workspaceFeedCursors,
 	workspaceFeedLedger,
 	workspaceOutputIndex,
-	workspaceWorkLinks,
 } from "../../schema/workspace-feed";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
@@ -26,11 +25,7 @@ import {
 	applyWorkspaceChangeEvents,
 	getWorkspaceFeedCursor,
 } from "./projection";
-import {
-	listWorkspaceActivity,
-	listWorkspaceOutputLibrary,
-	listWorkspaceWorkLinksForWorkItem,
-} from "./read";
+import { listWorkspaceActivity, listWorkspaceOutputLibrary } from "./read";
 import { snapshotWorkspaceProjection } from "./reconcile";
 
 const ORG = "00000000-0000-4000-8000-000000000001";
@@ -71,7 +66,6 @@ async function createFixture(store: "d1" | "postgres") {
 				workspaceFeedCursors,
 				workspaceActivity,
 				workspaceOutputIndex,
-				workspaceWorkLinks,
 			),
 		);
 		db = createDbQueryClient(createD1Facade(sqlite));
@@ -153,12 +147,6 @@ for (const store of ["d1", "postgres"] as const) {
 				name: "Finance",
 				status: "active",
 			});
-			expect(
-				await listWorkspaceWorkLinksForWorkItem(db, {
-					organizationId: ORG,
-					workItemId: WORK,
-				}),
-			).toHaveLength(1);
 
 			await applyWorkspaceChangeEvents(db, [
 				event(2, {
@@ -184,12 +172,6 @@ for (const store of ["d1", "postgres"] as const) {
 				title: "Q4 plan (final)",
 				searchText: "revised revenue targets",
 			});
-			expect(
-				await listWorkspaceWorkLinksForWorkItem(db, {
-					organizationId: ORG,
-					workItemId: WORK,
-				}),
-			).toHaveLength(0);
 			expect(
 				await listWorkspaceOutputLibrary(
 					db,
@@ -301,7 +283,7 @@ for (const store of ["d1", "postgres"] as const) {
 			).toEqual([]);
 		});
 
-		it("writes a large link set in one batch and treats search wildcards literally", async () => {
+		it("accepts legacy link metadata in one batch and treats search wildcards literally", async () => {
 			const db = await fixture();
 			const ids = Array.from({ length: 300 }, (_, index) => `work-${index}`);
 			const batch = vi.spyOn(db, "batch");
@@ -314,12 +296,6 @@ for (const store of ["d1", "postgres"] as const) {
 			]);
 			expect(batch).toHaveBeenCalledTimes(1);
 			batch.mockRestore();
-			expect(
-				await listWorkspaceWorkLinksForWorkItem(db, {
-					organizationId: ORG,
-					workItemId: "work-299",
-				}),
-			).toHaveLength(1);
 			expect(
 				(
 					await listWorkspaceOutputLibrary(
@@ -339,12 +315,7 @@ for (const store of ["d1", "postgres"] as const) {
 			await applyWorkspaceChangeEvents(db, [
 				event(3, { summary: { workItemIds: [] } }),
 			]);
-			expect(
-				await listWorkspaceWorkLinksForWorkItem(db, {
-					organizationId: ORG,
-					workItemId: "work-299",
-				}),
-			).toEqual([]);
+			expect(await getWorkspaceFeedCursor(db, WS)).toBe(3);
 		});
 		it("requires the first event before advancing a new projection", async () => {
 			const db = await fixture();

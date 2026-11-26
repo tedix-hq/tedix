@@ -12,11 +12,9 @@ import {
 	type WorkspaceActivityRow,
 	type WorkspaceChangeKind,
 	type WorkspaceOutputIndexRow,
-	type WorkspaceWorkLinkRow,
 	workspaceActivity as d1WorkspaceActivity,
 	workspaceFeedLedger as d1WorkspaceFeedLedger,
 	workspaceOutputIndex as d1WorkspaceOutputIndex,
-	workspaceWorkLinks as d1WorkspaceWorkLinks,
 } from "../../schema/workspace-feed";
 import { prefixedColumns } from "../../utils/select";
 import {
@@ -281,25 +279,6 @@ export async function retireWorkspaceOutputIndex(
 				eq(workspaceOutputIndex.outputId, params.outputId),
 			),
 		);
-}
-
-/** Active links from a Work Item to outputs, newest confirmation first. */
-export async function listWorkspaceWorkLinksForWorkItem(
-	db: DbQueryClient,
-	params: { organizationId: string; workItemId: string },
-): Promise<WorkspaceWorkLinkRow[]> {
-	const workspaceWorkLinks = coreTable(db, d1WorkspaceWorkLinks);
-	return db
-		.select()
-		.from(workspaceWorkLinks)
-		.where(
-			and(
-				eq(workspaceWorkLinks.organizationId, params.organizationId),
-				eq(workspaceWorkLinks.workItemId, params.workItemId),
-				sql`${workspaceWorkLinks.unlinkedAt} IS NULL`,
-			),
-		)
-		.orderBy(desc(workspaceWorkLinks.linkedAt));
 }
 
 /** Exact immutable source metadata; no event body leaves the query owner. */

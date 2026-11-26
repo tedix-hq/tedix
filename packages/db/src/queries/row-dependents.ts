@@ -46,10 +46,7 @@ import {
 	workItems as d1WorkItems,
 } from "../schema/work-items";
 import { workItemSources as d1WorkItemSources } from "../schema/work-item-sources";
-import {
-	workspaceOutputIndex as d1WorkspaceOutputIndex,
-	workspaceWorkLinks as d1WorkspaceWorkLinks,
-} from "../schema/workspace-feed";
+import { workspaceOutputIndex as d1WorkspaceOutputIndex } from "../schema/workspace-feed";
 import { chunkForBoundParams } from "../utils/batch";
 import { readFactoryBinding } from "./factories";
 
@@ -729,10 +726,9 @@ async function listOutputDependents(
 ): Promise<RowDependent[]> {
 	const osShareLinks = coreTable(db, d1OsShareLinks);
 	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
-	const workspaceWorkLinks = coreTable(db, d1WorkspaceWorkLinks);
 	const projects = coreTable(db, d1Projects);
 	const osReviewBatches = coreTable(db, d1OsReviewBatches);
-	const [shares, openProposals, workLinks, factoryProjects, reviewBatches] =
+	const [shares, openProposals, factoryProjects, reviewBatches] =
 		await db.batch([
 			db
 				.select({ count: sql<number>`count(*)` })
@@ -754,15 +750,6 @@ async function listOutputDependents(
 						eq(osCollaborationProposals.documentType, "output"),
 						eq(osCollaborationProposals.documentId, outputId),
 						eq(osCollaborationProposals.status, "open"),
-					),
-				),
-			db
-				.select({ count: sql<number>`count(*)` })
-				.from(workspaceWorkLinks)
-				.where(
-					and(
-						eq(workspaceWorkLinks.organizationId, orgId),
-						eq(workspaceWorkLinks.outputId, outputId),
 					),
 				),
 			db
@@ -809,15 +796,6 @@ async function listOutputDependents(
 			key: "proposals:open",
 			kind: "proposal",
 			label: `Has ${countLabel(proposalCount, "open collaboration proposal")}`,
-			lastSeenAt: null,
-			blocksArchive: true,
-		});
-	const linkCount = workLinks[0]?.count ?? 0;
-	if (linkCount > 0)
-		dependents.push({
-			key: "work:linked",
-			kind: "work_item",
-			label: `Is linked to ${countLabel(linkCount, "Work Item")}`,
 			lastSeenAt: null,
 			blocksArchive: true,
 		});

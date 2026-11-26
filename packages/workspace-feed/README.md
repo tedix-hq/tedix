@@ -3,8 +3,8 @@
 The change feed from a workspace object to the Tedix core. A workspace object
 owns its outputs, runs, artifacts, memory and chat. After each write it emits
 one `WorkspaceChangeEvent`; the core applies it to projections that back the
-org-level views (recent activity, the output library and search, Work
-linkage, the Home conversation list) within a second, without ever listing a
+org-level views (recent activity, the output library and search,
+the Home conversation list) within a second, without ever listing a
 workspace object.
 
 ## Sheet bodies
@@ -54,7 +54,8 @@ interface WorkspaceChangeEvent {
 chars). For an output revision send `title`, `outputKind`, `status`,
 `excerpt`, `note`, `createdBy`/`createdAt` of the output, `skillRunId`,
 `skillId`, `accessEnvelope`, `contentSha256`, `contentBytes`, `bodyR2Key`
-and, when known, `workItemIds`. For a chat message send `conversationId`
+when available. Legacy `workItemIds` metadata is accepted but is not projected.
+For a chat message send `conversationId`
 and, on the first message, `title`. For a rename or archive send the same
 `revision` and `changeRecordId` as the current revision with the new `title`
 or `status`; the projection keeps every field the event leaves out.
@@ -111,13 +112,12 @@ which applies them through `@tedix/db/queries/workspace-feed/projection`:
 
 Projections (all in `packages/db/src/schema/workspace-feed.ts`):
 
-| Table                    | Holds                                                   | Read by                                 |
-| ------------------------ | ------------------------------------------------------- | --------------------------------------- |
-| `workspace_activity`     | one row per event                                       | `os.workspaces.activity`                |
-| `workspace_output_index` | one row per output revision, `is_current` on the newest | `os.outputs.library` (with `search`)    |
-| `workspace_work_links`   | output ↔ Work Item links                                | `@tedix/db/queries/workspace-feed/read` |
-| `kernel_conversations`   | chat events bump the Home conversation index            | Home conversation list                  |
-| `workspace_feed_cursors` | last applied seq per workspace                          | the consumer, the reconciler            |
+| Table                    | Holds                                                   | Read by                              |
+| ------------------------ | ------------------------------------------------------- | ------------------------------------ |
+| `workspace_activity`     | one row per event                                       | `os.workspaces.activity`             |
+| `workspace_output_index` | one row per output revision, `is_current` on the newest | `os.outputs.library` (with `search`) |
+| `kernel_conversations`   | chat events bump the Home conversation index            | Home conversation list               |
+| `workspace_feed_cursors` | last applied seq per workspace                          | the consumer, the reconciler         |
 
 ## Reconciling
 

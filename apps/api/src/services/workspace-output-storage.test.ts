@@ -36,7 +36,6 @@ import {
 	workspaceFeedCursors,
 	workspaceActivity,
 	workspaceOutputIndex,
-	workspaceWorkLinks,
 } from "@tedix/db/schema/workspace-feed";
 
 const config = vi.hoisted(() => ({
@@ -77,7 +76,6 @@ async function fixture(moved = true) {
 			workspaceFeedCursors,
 			workspaceActivity,
 			workspaceOutputIndex,
-			workspaceWorkLinks,
 			osCollaborationProposals,
 		),
 	);

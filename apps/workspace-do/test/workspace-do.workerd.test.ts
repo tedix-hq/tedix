@@ -59,7 +59,6 @@ import {
 	workspaceFeedCursors,
 	workspaceActivity,
 	workspaceOutputIndex,
-	workspaceWorkLinks,
 } from "@tedix/db/schema/workspace-feed";
 import { projects } from "@tedix/db/schema/projects";
 import { osShareLinks, osReviewBatches } from "@tedix/db/schema/os-shares";
@@ -277,7 +276,6 @@ async function seedCore() {
 		workspaceFeedCursors,
 		workspaceActivity,
 		workspaceOutputIndex,
-		workspaceWorkLinks,
 		osWorkspaceProjects,
 		osWorkspaceResources,
 		osWorkspaceSummaries,
