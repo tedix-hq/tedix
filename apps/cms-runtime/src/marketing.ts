@@ -470,7 +470,8 @@ export async function marketingResponse(
 		return redirect(`https://${env.CLI_DOWNLOAD_HOST}/install.sh`, 302);
 	// Posts are served at /blog/{slug}; /posts is the collection's former path.
 	// The Markdown mirrors (/posts/{slug}.md) stay where the template serves them.
-	if (path === "/posts") return redirect("/blog");
+	if (path === "/posts" || url.pathname === "/blog")
+		return redirect("https://tedix.dev/blog/");
 	if (path.startsWith("/posts/") && !path.endsWith(".md"))
 		return redirect("/blog/" + path.slice("/posts/".length));
 	// The marketing template, sitemap, and article canonicals use slashless URLs.

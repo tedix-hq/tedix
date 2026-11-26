@@ -426,7 +426,7 @@ describe("public marketing adapters", () => {
 		["/docs", "https://docs.tedix.dev/", 301],
 		["/docs/getting-started/", "https://docs.tedix.dev/getting-started", 301],
 		["/install", "https://downloads.tedix.dev/install.sh", 302],
-		["/posts/", "https://landing.tedix.dev/blog", 301],
+		["/posts/", "https://tedix.dev/blog/", 301],
 		["/posts/hello/?x=1", "https://landing.tedix.dev/blog/hello?x=1", 301],
 	])("preserves %s redirects", async (path, target, status) => {
 		const r = await marketingResponse(
@@ -579,14 +579,25 @@ describe("public marketing adapters", () => {
 		expect(response?.headers.get("Allow")).toBe("GET, HEAD");
 		expect(get).not.toHaveBeenCalled();
 	});
-	it("serves /blog from the marketing tenant instead of redirecting", async () => {
-		expect(
-			await marketingResponse(
-				new Request("https://landing.tedix.dev/blog"),
+	it.each(["GET", "HEAD"])(
+		"redirects the blog index alias for %s without redirecting its canonical",
+		async (method) => {
+			const response = await marketingResponse(
+				new Request("https://landing.tedix.dev/blog?ref=source", { method }),
 				env,
-			),
-		).toBeNull();
-	});
+			);
+			expect(response?.status).toBe(301);
+			expect(response?.headers.get("Location")).toBe(
+				"https://tedix.dev/blog/?ref=source",
+			);
+			expect(
+				await marketingResponse(
+					new Request("https://landing.tedix.dev/blog/", { method }),
+					env,
+				),
+			).toBeNull();
+		},
+	);
 	it.each(["tedix.dev", "www.tedix.dev", "landing.tedix.dev"])(
 		"redirects article slash variants on %s directly to the canonical host",
 		async (host) => {
