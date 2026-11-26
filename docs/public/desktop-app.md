@@ -80,7 +80,15 @@ provider, Tedix uses the Mac app when its coding tool is ready.
   marketplaces, choose **Save the plugin file** and use **Add → Upload
   plugin** instead. For local
   hooks, use the **Claude Code** connection. Plugin availability depends on
-  your Claude account settings.
+  your Claude account settings. Once Claude chat is signed in to Tedix, the
+  row shows **Connected** instead of the steps.
+- **Chat in ChatGPT.** The ChatGPT (Chat) row lists three numbered steps.
+  Choose **Copy** and **Open Plugins**. On chatgpt.com, choose **+ → Add
+  custom MCP server**, name it Tedix and paste
+  `https://connect.mcp.tedix.dev/mcp`. Keep OAuth for sign-in, accept the
+  warning, choose **Create as a plugin** and sign in to Tedix. This needs a
+  ChatGPT Business or Enterprise workspace that lets you add custom MCP
+  servers. Once ChatGPT is signed in, the row shows **Connected**.
 - **Devin and OpenCode.** Choose **Connect** and finish browser sign-in.
   Tedix checks the connection after sign-in. Choose **Check connection** to
   check an app you already connected.

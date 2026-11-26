@@ -74,7 +74,10 @@ The app is not signed or notarized yet and has been run on macOS only.
   bundled native plugin marketplace, with hook review in the host. For
   Claude (Cowork), add the `tedix-hq/tedix-plugins` marketplace and install
   Tedix. If marketplaces are unavailable, save the bundled plugin ZIP for
-  Claude's upload screen. Local tasks and session sharing are set up separately in
+  Claude's upload screen. For ChatGPT (Chat), the row gives steps to add
+  `https://connect.mcp.tedix.dev/mcp` as a custom MCP server on chatgpt.com
+  (Business or Enterprise workspaces). Both chat rows show Connected once
+  that app's own Tedix sign-in is active. Local tasks and session sharing are set up separately in
   **Settings → Agents**.
 - **The command-line tool.** With no `tedix` installed, the app links its own
   copy and adds `~/.local/bin` to your shell profile if it is missing. A

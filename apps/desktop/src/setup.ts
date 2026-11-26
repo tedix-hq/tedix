@@ -428,6 +428,8 @@ export interface SetupState {
 	appIcons: Partial<Record<DesktopApp, string>>;
 	/** True while Tedix looks for apps and checks them. */
 	looking: boolean;
+	/** The chat apps whose own Tedix sign-in is active for this organization. */
+	chatConnected: Partial<Record<"chatgpt" | "claude", boolean>>;
 	/**
 	 * Which tool takes which tasks, one plain sentence per rule, and the file
 	 * runners read it from. Undefined when the command-line tool cannot say.
@@ -1417,7 +1419,23 @@ export function setupState(): SetupState {
 		},
 		appIcons,
 		looking: readingStatus !== undefined,
+		chatConnected: chatConnected(),
 	};
+}
+
+/** ChatGPT chat and Claude chat sign in to Tedix under their app's own name. */
+function chatConnected(): SetupState["chatConnected"] {
+	if (grantIdentity !== `${loginIdentity}:${organization()}` || !serverGrants)
+		return {};
+	const active = (name: RegExp) =>
+		serverGrants?.some(
+			(grant) =>
+				name.test(grant.clientName ?? "") &&
+				grant.status === "active" &&
+				grant.providerStatus !== "missing" &&
+				grant.selectedTenantIds.includes(organization()),
+		) ?? false;
+	return { chatgpt: active(/^chatgpt$/i), claude: active(/^claude$/i) };
 }
 
 /** The apps' own icons, read once per app path so a moved or updated app shows its new one. */

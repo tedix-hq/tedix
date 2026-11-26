@@ -71,6 +71,7 @@ export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 /** The pages the chat-app rows may open in the browser. */
 export type PanelLink =
 	| "chatgpt-app"
+	| "chatgpt-plugins"
 	| "claude-connectors"
 	| "claude-app"
 	| "devin-app"

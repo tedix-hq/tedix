@@ -167,6 +167,49 @@ export const CLAUDE_MARKETPLACE = "tedix-hq/tedix-plugins";
 export const CLAUDE_PLUGIN_SUB =
 	"Add Tedix to Claude as a plugin. Claude keeps it up to date.";
 
+/** The address chat apps connect to. */
+export const TEDIX_MCP_ADDRESS = "https://connect.mcp.tedix.dev/mcp";
+
+export const CHATGPT_CHAT_SUB =
+	"Use Tedix in ChatGPT chats. Needs a ChatGPT Business or Enterprise workspace that lets you add custom MCP servers.";
+
+/** A chat app's row once its own Tedix sign-in is active. */
+export const CHAT_CONNECTED = (app: string) =>
+	`Connected. You can use Tedix in ${app} chats.`;
+
+/** Adding Tedix to ChatGPT chat as a custom MCP server, on chatgpt.com. */
+export function chatgptChatSteps(): HTMLElement {
+	const step = (text: string, control?: Child) =>
+		el("li", "", el("span", "", text), control);
+	return el(
+		"div",
+		"steps",
+		el(
+			"ol",
+			"",
+			step(
+				"Copy the Tedix address.",
+				button(
+					"Copy",
+					"plain",
+					() => tedixShell.copy(TEDIX_MCP_ADDRESS),
+					false,
+					{ done: "Copied", key: "copy-chatgpt-address" },
+				),
+			),
+			step(
+				"In ChatGPT on the web, open Plugins, choose + → Add custom MCP server, name it Tedix and paste the address.",
+				button("Open Plugins", "plain", () =>
+					tedixShell.open("chatgpt-plugins"),
+				),
+			),
+			step(
+				"Keep OAuth for sign-in, accept the warning, choose Create as a plugin and sign in to Tedix.",
+			),
+		),
+	);
+}
+
 /**
  * The Cowork plugin setup as numbered steps, each with the button for it,
  * and the plugin file for organizations that turn marketplaces off.

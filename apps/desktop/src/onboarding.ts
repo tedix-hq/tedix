@@ -1,7 +1,10 @@
 import type { PanelApi, PanelState } from "./api";
 import { icon, type IconName } from "./icons";
 import {
+	CHAT_CONNECTED,
+	CHATGPT_CHAT_SUB,
 	CLAUDE_PLUGIN_SUB,
+	chatgptChatSteps,
 	claudePluginSteps,
 	foundTools,
 	keepFocus,
@@ -248,6 +251,19 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				cancel: view.cancel,
 			});
 		});
+	const chat = now.setup.chatConnected ?? {};
+	if (desktopApps.chatgpt)
+		rows.unshift(
+			row({
+				key: "chat:chatgpt",
+				icon: "bubble",
+				image: now.setup.appIcons?.chatgpt,
+				title: "ChatGPT (Chat)",
+				sub: chat.chatgpt ? CHAT_CONNECTED("ChatGPT") : CHATGPT_CHAT_SUB,
+				control: chat.chatgpt ? done("Connected") : undefined,
+				below: chat.chatgpt ? undefined : chatgptChatSteps(),
+			}),
+		);
 	if (desktopApps.claude)
 		rows.unshift(
 			row({
@@ -255,8 +271,9 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				icon: "bubble",
 				image: now.setup.appIcons?.claude,
 				title: "Claude (Cowork)",
-				sub: CLAUDE_PLUGIN_SUB,
-				below: claudePluginSteps(),
+				sub: chat.claude ? CHAT_CONNECTED("Claude") : CLAUDE_PLUGIN_SUB,
+				control: chat.claude ? done("Connected") : undefined,
+				below: chat.claude ? undefined : claudePluginSteps(),
 			}),
 		);
 	for (const [app, id, name] of [

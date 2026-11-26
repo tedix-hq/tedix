@@ -10,6 +10,9 @@ import { tedixAccountSummary } from "./tool-connection";
 import {
 	act,
 	button,
+	CHAT_CONNECTED,
+	CHATGPT_CHAT_SUB,
+	chatgptChatSteps,
 	type Child,
 	checkAgain,
 	CLAUDE_PLUGIN_SUB,
@@ -492,13 +495,25 @@ function tools(now: PanelState): Group[] {
 			words: `${app ?? ""} ${named.name} sign in add check`,
 		});
 	}
+	const chat = now.setup.chatConnected ?? {};
+	if (now.setup.desktopApps.chatgpt)
+		add("chatgpt", {
+			title: "ChatGPT (Chat)",
+			glyph: "bubble",
+			image: now.setup.appIcons?.chatgpt,
+			sub: chat.chatgpt ? CHAT_CONNECTED("ChatGPT") : CHATGPT_CHAT_SUB,
+			control: chat.chatgpt ? [READY_MARK("Connected")] : undefined,
+			below: chat.chatgpt ? undefined : chatgptChatSteps(),
+			words: "chatgpt chat plugin custom mcp server connector",
+		});
 	if (now.setup.desktopApps.claude)
 		add("claude", {
 			title: "Claude (Cowork)",
 			glyph: "bubble",
 			image: now.setup.appIcons?.claude,
-			sub: CLAUDE_PLUGIN_SUB,
-			below: claudePluginSteps(),
+			sub: chat.claude ? CHAT_CONNECTED("Claude") : CLAUDE_PLUGIN_SUB,
+			control: chat.claude ? [READY_MARK("Connected")] : undefined,
+			below: chat.claude ? undefined : claudePluginSteps(),
 			words: "claude chat cowork plugin marketplace",
 		});
 	for (const runner of otherRunners(now))
