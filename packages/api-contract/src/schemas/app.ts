@@ -397,6 +397,17 @@ export const McpConfigSchema = z
 		 * `connectionProviderId` / outbound app IDs instead.
 		 */
 		connectionLabel: z.string().optional(),
+		/** Organization credential access for verified signed-out Poppy calls only. */
+		poppyConnection: z
+			.object({
+				providerId: z.string().min(1),
+				mcpServerUrl: z.url(),
+				/** App tool ID to permitted upstream tool name. */
+				tools: z.record(z.string().min(1), z.string().min(1)),
+				connectionInstanceId: z.uuid().optional(),
+			})
+			.strict()
+			.optional(),
 		capabilities: z.array(z.string()).default([]),
 		descopeResourceId: z.string().optional(),
 		expectedAudience: z.string().optional(),

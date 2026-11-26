@@ -109,6 +109,8 @@ const log = createMcpLogger("mcp.tool_handler");
  * Context passed to the handler during tool execution
  */
 export interface ToolExecutionContext<TConfig = unknown> {
+	/** Request-local binding from verified Poppy attribution; never caller input. */
+	verifiedPoppyAppId?: string;
 	/** Request-local API client used for gateway policy reads. */
 	apiClient?: ApiClient;
 	/** Timing headers from the trusted API service binding only. */

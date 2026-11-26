@@ -148,6 +148,47 @@ it("loads a shard definition before execution and applies the fresh connection p
 	expect(agent.toolHandler.execute).toHaveBeenCalledOnce();
 });
 
+it("binds Poppy credential access only to verified request attribution", async () => {
+	const attribution = {
+		clientId: "https://agent.example/agent.json",
+		sessionId: "session-example",
+	};
+	const agent = {
+		...makeAgent({ status: 200, data: {} }),
+		callerIdentity: undefined,
+		personalAgentSession: attribution,
+	};
+	const options = {
+		adapterScope: "primary" as const,
+		resultStrategy: "merge" as const,
+	};
+	await executeTool(agent, makeTool(), {}, options);
+	expect(agent.toolHandler.execute).toHaveBeenLastCalledWith(
+		{},
+		expect.objectContaining({
+			verifiedPoppyAppId: agent.appId,
+			callerIdentity: undefined,
+		}),
+	);
+	await executeTool(
+		{
+			...agent,
+			personalAgentSession: undefined,
+			requestMeta: {
+				personalAgentSession: attribution,
+				verifiedPoppyAppId: agent.appId,
+			},
+		},
+		makeTool(),
+		{},
+		options,
+	);
+	expect(agent.toolHandler.execute).toHaveBeenLastCalledWith(
+		{},
+		expect.objectContaining({ verifiedPoppyAppId: undefined }),
+	);
+});
+
 it("emits reconnect control only for the canonical unexecuted credential outcome", async () => {
 	const options = {
 		adapterScope: "primary" as const,

@@ -834,6 +834,7 @@ async function executeWithHandler(
 		| undefined;
 
 	const ctx: ToolExecutionContext<ToolConfig> = {
+		verifiedPoppyAppId: agent.personalAgentSession ? agent.appId : undefined,
 		apiClient: agent.apiClient,
 		publicEgress: tool.publicEgress === true,
 		expectedPolicyCredential,

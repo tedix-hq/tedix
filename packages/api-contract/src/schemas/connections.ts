@@ -730,3 +730,36 @@ export const SaveExportToDriveOutputSchema = z.object({
 	/** Where the person can open the saved file. */
 	url: z.url(),
 });
+
+export const PoppyConnectionTokenInputSchema = z.strictObject({
+	organizationId: z.uuid(),
+	appId: z.uuid(),
+	toolId: z.string().min(1).max(200),
+	mcpServerUrl: z.url(),
+	mcpToolName: z.string().min(1),
+	providerId: z.string().min(1),
+	connectionInstanceId: z.uuid().optional(),
+	arguments: JsonValueSchema,
+});
+
+export const PoppyConnectionTokenOutputSchema = z.object({
+	accessToken: z.string(),
+	expiresAt: z.number().optional(),
+	scopes: z.array(z.string()).optional(),
+	selectedCredential: SelectedConnectionCredentialSchema.optional(),
+});
+
+/** Stored provider configuration rechecked before a Poppy credential lookup. */
+export const PoppyProviderToolConfigSchema = z.object({
+	transport: z.literal("mcp"),
+	mcpServerUrl: z.url(),
+	mcpToolName: z.string().min(1),
+	auth: z.object({
+		type: z.literal("connection"),
+		connectionId: z.string().min(1),
+		connectionInstanceId: z.uuid().optional(),
+		scope: z.enum(["tenant", "user", "hybrid"]).optional(),
+		credentialScope: z.enum(["tenant", "user", "hybrid"]).optional(),
+		scopes: z.array(z.string()).optional(),
+	}),
+});

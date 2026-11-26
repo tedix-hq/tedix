@@ -5,6 +5,7 @@ import type { BaseContext } from "./context";
 const AUDITED_MCP_GATEWAY_ROUTES = new Set([
 	"connections.fetchTediToken",
 	"connections.fetchOrgToken",
+	"connections.fetchPoppyToken",
 	"mcpGovernance.resolveToolApprovalGrant",
 	"mcpGovernance.requestOwnerToolApproval",
 	"mcpGovernance.resolveHomeToolApproval",

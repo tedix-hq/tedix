@@ -34,6 +34,44 @@ Tedix applications use saved settings that persist over time. Tool descriptions,
 required permissions, identity rules, and interface components can change
 without releasing separate software for every organization.
 
+### Share provider tools with Poppy agents
+
+To offer a connected provider through Poppy, first install its catalog tools
+in an app owned by your organization. Use that public app's `/mcp` address
+as `personalAgentProtocol.mcpUrl` in the organization's settings. The
+organization's `/.well-known/poppy.json` then lists the Tedix app, where each
+signed-out request passes the Poppy Session check before tools can run.
+
+A Poppy Session proves an agent's identity; it does not sign the agent into
+an organization account. Public apps cannot use organization credentials by
+default. A connection administrator can explicitly allow selected tools in
+the app's `mcpConfig`:
+
+```json
+{
+	"authMode": "public",
+	"poppyConnection": {
+		"providerId": "shop_catalog",
+		"mcpServerUrl": "https://catalog.example.com/mcp",
+		"tools": { "search_products": "search" }
+	}
+}
+```
+
+The `tools` map pairs each installed app tool ID with its upstream tool name.
+Each tool must use the MCP transport, the same provider and server address,
+and tenant-scoped connection authentication. The tool's normal public-access
+settings must also permit signed-out calls. Personal credentials and
+client-credentials exchanges are not available through this allowance. To
+select a named organization account, set the same `connectionInstanceId` on
+the allowance and the tool's connection authentication.
+
+Existing connection consumer and resource restrictions still apply. The server
+checks the saved allowance on every credential lookup, so removing it blocks
+further provider calls. Publishing the app does not prove the provider works:
+test a valid Session and confirm that a missing or invalid Session cannot
+reach the provider.
+
 ## MCP and durable work
 
 MCP calls can participate in durable Tedix work:

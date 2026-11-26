@@ -242,6 +242,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"connections/disconnectProvider": "mcp:settings.admin",
 	"connections/disconnectTediProvider": "mcp:settings.admin",
 	"connections/fetchOrgToken": "mcp:settings.write",
+	"connections/fetchPoppyToken": "platform:admin",
 	"connections/fetchTediToken": "mcp:settings.write",
 	"connections/fetchToken": "platform:admin",
 	"connections/getAllowedResources": "mcp:settings.read",

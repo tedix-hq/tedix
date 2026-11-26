@@ -35,6 +35,26 @@ const { userContext, apiKeyContext } = bindTestContexts({
 });
 
 describe("apps authorization-plane composition", () => {
+	it("does not let an app creator publish an organization credential allowance", async () => {
+		const client = createRouterClient(appsContractRouter, {
+			context: userContext({ permissions: ["apps:create"] }),
+		});
+		await expect(
+			client.create({
+				name: "Store",
+				metadata: {
+					mcpConfig: {
+						authMode: "public",
+						poppyConnection: {
+							providerId: "example",
+							mcpServerUrl: "https://provider.example/mcp",
+							tools: { search_products: "search" },
+						},
+					},
+				},
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
 	it("rejects a user without apps:read from a public read", async () => {
 		const client = createRouterClient(appsContractRouter, {
 			context: userContext({ permissions: [] }),

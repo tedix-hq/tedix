@@ -28,6 +28,8 @@ import {
 	SaveExportToDriveInputSchema,
 	SaveExportToDriveOutputSchema,
 	SelectedConnectionCredentialSchema,
+	PoppyConnectionTokenInputSchema,
+	PoppyConnectionTokenOutputSchema,
 	UserConnectionSchema,
 } from "../schemas/connections";
 import {
@@ -480,6 +482,16 @@ export const connectionsContract = oc
 					selectedCredential: SelectedConnectionCredentialSchema.optional(),
 				}),
 			),
+
+		fetchPoppyToken: oc
+			.route({
+				method: "POST",
+				path: "/poppy-token",
+				tags: ["internal"],
+				summary: "Resolve an explicitly allowed Poppy app connection",
+			})
+			.input(PoppyConnectionTokenInputSchema)
+			.output(PoppyConnectionTokenOutputSchema),
 
 		/**
 		 * Fetch a connection token at the org/tenant level — no tedi proxy required.

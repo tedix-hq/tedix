@@ -67,6 +67,7 @@ import { generateAppSlug, isReservedAppSlug } from "../../utils/app";
 import { getDomain } from "../../utils/url-processing";
 import { requireAppForOrg } from "../app-scope";
 import { requireOrgId } from "../org-scope";
+import { hasScope } from "@tedix/mcp-shared/auth/scopes";
 import {
 	AUTHZ,
 	withAuthorization,
@@ -75,6 +76,8 @@ import {
 	ErrorCodes,
 	skipOutputValidation,
 	withAuth,
+	hasRequiredScope,
+	userHoldsPermission,
 } from "../orpc";
 import { mergeAppMetadataPatch, normalizeAppMetadata } from "./app-metadata";
 import { purgeMcpDiscoveryCache } from "./app-discovery-cache";
@@ -196,6 +199,11 @@ export const createAppProcedure = authedAppsOs.create
 			visibility,
 			metadata,
 		} = input;
+
+		const mcpConfig = metadata && normalizeAppMetadata(metadata).mcpConfig;
+		if (mcpConfig?.poppyConnection) {
+			await assertTenantMcpConfigAllowed(db, context, orgId, { mcpConfig });
+		}
 
 		// Use provided domain or generate a placeholder
 		const cleanDomain = primaryDomain ? getDomain(primaryDomain) : null;
@@ -353,6 +361,21 @@ export async function assertTenantMcpConfigAllowed(
 	},
 ): Promise<void> {
 	const mc = opts.mcpConfig;
+	if (
+		mc?.poppyConnection &&
+		!isPlatformPrincipal(context) &&
+		!(context.authType === "user"
+			? userHoldsPermission(context, "integrations:manage") &&
+				hasRequiredScope(context, "connections.admin")
+			: context.authType === "service-binding"
+				? hasScope(context.tediScopes ?? [], "connections.admin")
+				: hasRequiredScope(context, "connections.admin"))
+	) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Publishing a Poppy connection allowance requires connection administration authority",
+		);
+	}
 
 	// UPSTREAM_SAME_ZONE — reject-write for every principal: this config is
 	// provably broken at serve time, not a policy preference.

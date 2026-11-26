@@ -411,6 +411,65 @@ export async function fetchConnectionToken(
 	const tenantOrganizationId = ctx.app?.organizationId ?? organizationId;
 	const resolvedScope = scope ?? "tenant";
 
+	if (ctx.verifiedPoppyAppId) {
+		if (
+			ctx.callerIdentity ||
+			ctx.verifiedPoppyAppId !== ctx.appId ||
+			connectionToolIdentity(ctx).appId !== ctx.appId ||
+			resolvedScope !== "tenant" ||
+			ctx.config.transport !== "mcp" ||
+			ctx.config.auth?.clientCredentials ||
+			!ctx.app.organizationId
+		) {
+			return {
+				token: null,
+				status: 403,
+				detail:
+					"Poppy connection access is restricted to this app's organization tools",
+			};
+		}
+		const { data, status } = await callApiRpc(
+			ctx.env,
+			"connections/fetchPoppyToken",
+			{
+				organizationId: ctx.app.organizationId,
+				appId: ctx.appId,
+				toolId: ctx.toolId,
+				mcpServerUrl: ctx.config.mcpServerUrl,
+				mcpToolName: ctx.config.mcpToolName,
+				providerId: connectionId,
+				connectionInstanceId: selectedConnectionInstanceId(ctx),
+				arguments: providerArguments ?? {},
+			},
+			{
+				headers: {
+					"X-Tedix-Auth-Poppy-App-Id": ctx.appId,
+					"X-Tedix-Org-Id": ctx.app.organizationId,
+					"X-Tedix-Mcp-Tool-Id": ctx.toolId,
+				},
+			},
+		);
+		if (status >= 400)
+			return {
+				token: null,
+				status,
+				detail: summarizeRpcErrorResponse(data).summary,
+			};
+		const token =
+			isRecord(data) && typeof data.accessToken === "string"
+				? data.accessToken
+				: null;
+		const selected = SelectedConnectionCredentialSchema.safeParse(
+			isRecord(data) ? data.selectedCredential : undefined,
+		);
+		return {
+			token,
+			...(token && selected.success
+				? { selectedCredential: selected.data }
+				: {}),
+		};
+	}
+
 	if (!tediId && !organizationId) {
 		log.error("Connection token lookup lacks caller identity", {
 			event: "handler.credential_identity_missing",

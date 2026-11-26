@@ -60,6 +60,44 @@ beforeEach(() => {
 });
 
 describe("assertTenantMcpConfigAllowed", () => {
+	it("requires connection administration to publish a Poppy credential allowance", async () => {
+		const mcpConfig = {
+			poppyConnection: {
+				providerId: "example",
+				mcpServerUrl: "https://provider.example/mcp",
+				tools: { search_products: "search" },
+			},
+		};
+		await expect(
+			assertTenantMcpConfigAllowed(db, tenantCtx(), CALLER_ORG, { mcpConfig }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			assertTenantMcpConfigAllowed(
+				db,
+				{
+					authType: "service-binding",
+					serviceBindingAuthorization: {
+						source: "mcp-tool",
+						toolId: "update_app",
+					},
+					tediScopes: ["apps:write"],
+				} as BaseContext,
+				CALLER_ORG,
+				{ mcpConfig },
+			),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			assertTenantMcpConfigAllowed(
+				db,
+				{
+					authType: "apikey",
+					apiKey: { scopes: ["connections.admin"] },
+				} as BaseContext,
+				CALLER_ORG,
+				{ mcpConfig },
+			),
+		).resolves.toBeUndefined();
+	});
 	it("lets platform principals set otherwise-forbidden keys", async () => {
 		await expect(
 			assertTenantMcpConfigAllowed(db, platformCtx(), CALLER_ORG, {

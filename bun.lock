@@ -264,6 +264,7 @@
         "@orpc/server": "catalog:",
         "@tedix/tsconfig": "workspace:*",
         "cf": "catalog:",
+        "jose": "^6.2.18",
         "typescript": "catalog:",
         "vite": "catalog:",
         "vite-plus": "catalog:",

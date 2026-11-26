@@ -49,6 +49,7 @@ import {
 import { settleOutboundOAuth } from "./connections/outbound-oauth-settle";
 import { saveExportToDrive } from "./connections/drive-export";
 import { connectionsOs } from "./connections/policy-resolution";
+import { fetchPoppyToken } from "./connections/poppy-credentials";
 
 // =============================================================================
 // ROUTER
@@ -79,6 +80,7 @@ export const connectionsContractRouter = connectionsOs.router({
 	fetchToken,
 	fetchTediToken,
 	fetchOrgToken,
+	fetchPoppyToken,
 	getTediConnections,
 	storeApiKey,
 	createProvider,
