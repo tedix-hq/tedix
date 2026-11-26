@@ -1,10 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
 import { S3Client } from "bun";
 import { Database } from "bun:sqlite";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
+import { importSigningKey, sealRun } from "@tedix/agent-governance/seal";
+import {
+	DAY_MANIFEST_FORMAT,
+	EVIDENCE_BUNDLE_FORMAT,
+} from "@tedix/agent-governance/evidence";
+import { collectLedger, verifyLedger } from "./history-ledger";
 import {
 	createHistoryReader,
 	HISTORY_TABLES,
@@ -191,6 +198,207 @@ test("pack spans paged main, numbered logs and multi-day archive chunks with ver
 		main.db.close();
 		logs.db.close();
 		older.db.close();
+	}
+});
+
+test("signed post-cutover ledger and standalone exceptions verify offline with tenant isolation", async () => {
+	const root = await mkdtemp(join(tmpdir(), "history-ledger-"));
+	roots.push(root);
+	const output = join(root, "pack");
+	const main = store(),
+		logs = store();
+	const { api, objects } = bucket();
+	const pair = generateKeyPairSync("ed25519");
+	const key = await importSigningKey(
+		pair.privateKey.export({ format: "der", type: "pkcs8" }).toString("base64"),
+	);
+	const keys = { [key.fingerprint]: key.publicKeySpki };
+	const records = [
+		{ id: "context", recordedAt: "2025-12-31T23:59:59Z", sequence: 1 },
+		{
+			id: "post-cutover",
+			recordedAt: "2026-01-02T00:00:00Z",
+			sequence: 2,
+			value: 0.000001,
+		},
+	];
+	const sealed = await sealRun({
+		organizationId: organization,
+		records,
+		previousChainHash: null,
+		previousCheckpointDigest: null,
+		sealedAt: "2026-02-02T00:00:00Z",
+		signer: { privateKey: key.privateKey, keyId: key.fingerprint },
+	});
+	const bundle = {
+		format: EVIDENCE_BUNDLE_FORMAT,
+		checkpointId: "checkpoint",
+		writtenAt: "2026-02-02T00:00:00Z",
+		checkpoint: sealed.checkpoint,
+		records: records.map((row, i) => ({ ...row, ...sealed.seals[i] })),
+		publicKey: null,
+		verification: { recordsVerified: 2, signature: "not_checked" },
+	};
+	const bundleKey = `change-record-evidence/v1/${organization}/000000000002-checkpoint.json`;
+	const bytes = new TextEncoder().encode(JSON.stringify(bundle));
+	objects.set(bundleKey, bytes);
+	const dayKey = `change-record-evidence/v1/${organization}/days/2026-02-02.json`;
+	objects.set(
+		dayKey,
+		new TextEncoder().encode(
+			JSON.stringify({
+				format: DAY_MANIFEST_FORMAT,
+				organizationId: organization,
+				day: "2026-02-02",
+				updatedAt: bundle.writtenAt,
+				checkpoints: [
+					{
+						checkpointId: "checkpoint",
+						firstSequence: 1,
+						lastSequence: 2,
+						recordCount: 2,
+						checkpointDigest: sealed.checkpoint.digest,
+						bundleKey,
+						bundleSha256: sha256(bytes),
+					},
+				],
+			}),
+		),
+	);
+	// The same records can survive in a historical bundle without a day manifest.
+	objects.set(
+		`change-record-evidence/v1/${organization}/historical-copy.json`,
+		bytes,
+	);
+	const historicalRecord = {
+		id: "historical-version",
+		sequence: 2,
+		recordedAt: "2026-01-02T00:00:00Z",
+	};
+	const historical = await sealRun({
+		organizationId: organization,
+		records: [historicalRecord],
+		previousChainHash: null,
+		previousCheckpointDigest: "a".repeat(64),
+		sealedAt: "2026-01-03T00:00:00Z",
+	});
+	objects.set(
+		`change-record-evidence/v1/${organization}/unsigned-exception.json`,
+		new TextEncoder().encode(
+			JSON.stringify({
+				...bundle,
+				checkpointId: "historical",
+				checkpoint: historical.checkpoint,
+				records: [{ ...historicalRecord, ...historical.seals[0] }],
+			}),
+		),
+	);
+	objects.set(
+		"change-record-evidence/v1/org_other/private.json",
+		new TextEncoder().encode("private"),
+	);
+	objects.set(
+		`audit-exports/v1/${organization}/2026-01-02/00.jsonl.gz`,
+		gzipSync(
+			JSON.stringify({
+				id: "audit-only",
+				organizationId: organization,
+				timestamp: "2026-01-02T00:00:00Z",
+			}) + "\n",
+		),
+	);
+	objects.set(
+		"audit-exports/v1/org_other/2026-01-02/00.jsonl.gz",
+		gzipSync("private"),
+	);
+	try {
+		const receipt = await exportHistory({
+			organization,
+			from,
+			to,
+			output,
+			stores: [
+				{ binding: "DB", read: main.read },
+				{ binding: "LOGS_DB", read: logs.read },
+			],
+			bucket: api,
+			verifier: new Uint8Array(
+				await readFile(new URL("./verify-history-pack.py", import.meta.url)),
+			),
+			ledgerKeys: keys,
+		});
+		const manifest = JSON.parse(
+			await readFile(join(output, "manifest.json"), "utf8"),
+		);
+		expect(manifest.ledger.selectedRecords).toBe(3);
+		expect(manifest.ledger.contextRecords).toBe(2);
+		expect(manifest.ledger.duplicateRecords).toBe(2);
+		expect(manifest.ledger.standalone).toHaveLength(2);
+		expect(manifest.ledger.unsigned).toHaveLength(1);
+		expect(manifest.ledger.conflictingSequences).toEqual([2]);
+		expect(manifest.ledger.missingPredecessors).toHaveLength(1);
+		expect(manifest.ledger.missingDays).toContain("2026-01-02");
+		expect(
+			manifest.files.some((file: { source: string }) =>
+				file.source.includes("org_other"),
+			),
+		).toBe(false);
+		const keysPath = join(root, "keys.json");
+		await writeFile(keysPath, JSON.stringify(keys));
+		const verified = Bun.spawnSync([
+			"python3",
+			join(output, "verify.py"),
+			output,
+			"--sha256",
+			receipt.manifestSha256,
+			"--keys",
+			keysPath,
+		]);
+		expect(verified.stderr.toString()).toBe("");
+		expect(verified.exitCode).toBe(0);
+		expect(
+			JSON.parse(verified.stdout.toString()).ledger.keyFingerprints,
+		).toEqual([key.fingerprint]);
+		const collected = await collectLedger(api, organization, from, to);
+		await expect(
+			verifyLedger(collected, organization, from, to, {}),
+		).rejects.toThrow("verification failed");
+		const changed = structuredClone(bundle);
+		changed.records[1]!.id = "tampered";
+		await expect(
+			verifyLedger(
+				[
+					{
+						key: bundleKey,
+						bytes: new TextEncoder().encode(JSON.stringify(changed)),
+					},
+				],
+				organization,
+				from,
+				to,
+				keys,
+			),
+		).rejects.toThrow("verification failed");
+		objects.set(bundleKey, new TextEncoder().encode(JSON.stringify(changed)));
+		await expect(collectLedger(api, organization, from, to)).rejects.toThrow(
+			"Missing or changed",
+		);
+		objects.set(bundleKey, bytes);
+		objects.set(
+			`change-record-evidence/v1/${organization}/wrong-tenant.json`,
+			new TextEncoder().encode(
+				JSON.stringify({
+					...bundle,
+					checkpoint: { ...bundle.checkpoint, organizationId: "org_other" },
+				}),
+			),
+		);
+		await expect(collectLedger(api, organization, from, to)).rejects.toThrow(
+			"tenant",
+		);
+	} finally {
+		main.db.close();
+		logs.db.close();
 	}
 });
 

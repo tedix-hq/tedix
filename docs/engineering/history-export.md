@@ -7,7 +7,7 @@ description: "Organization history packs"
 
 An authorized installation operator can collect one organization's history for
 an inclusive `--from` and exclusive `--to`. The command reads main D1, every
-supplied logs partition and the organization's `d1-archive/v1` objects, writes
+supplied logs partition and the organization's archives and signed ledger, writes
 a local working copy, and publishes the pack in the private EU R2 bucket.
 It does not change source rows or archive objects.
 
@@ -22,6 +22,14 @@ example Worker configuration. Set:
   the existing private EU archive bucket, with object list/read/write access.
   The command uses the account's `.eu.r2.cloudflarestorage.com` endpoint;
   there is no fallback to a bucket outside EU.
+- `HISTORY_LEDGER_KEYS`: a JSON object mapping key IDs to base64 Ed25519
+  SPKI public keys obtained from the installation operator through an independent
+  trusted channel. Include historical keys after rotation. Signed bundles fail
+  verification without a matching trusted key. Embedded bundle keys are never
+  used as trust roots; `{}` permits only unsigned historical bundles.
+- `HISTORY_LEDGER_KEY_PROVENANCE`: the independent source or receipt for the
+  public keys. The manifest records this statement with the verified key
+  fingerprints; if omitted, it explicitly reports the source as unrecorded.
 
 ```sh
 bun scripts/db/history-export.ts \
@@ -55,13 +63,28 @@ timestamp and are included in full for the organization, with null observed
 time bounds. Platform cron/workflow rows and
 platform call costs have no organization and are excluded. This is a history
 export, not a backup of all business-state tables or referenced artifact bodies.
-Separate `audit-exports` are not copied; their audit rows come from D1 and
-`d1-archive`. The organization log store's gateway change records, checkpoints,
-day manifests and `change-record-evidence` bundles are outside this export's
-inventory. Collect and verify them separately, including historical exceptions
-and public signing keys. A successful history pack does not prove that the
-signed ledger was exported or that a workspace and its live R2 bodies can be
-restored.
+Standalone `audit-exports/v1` rows are filtered by record time and included as
+`audit_daily_export`, preserving their source key and compressed input hash.
+The exporter also scans the organization's `change-record-evidence/v1` prefix,
+including the authoritative day manifests written by the organization log store
+after cutover and older standalone bundles. It selects bundles by record time
+or sealing time, then includes the full applicable sealing-day manifests and
+their referenced bundles. A record can be sealed days after it was recorded;
+the scan therefore does not prune bundles by object name or sealing day.
+
+Complete checkpoint bundles are preserved byte for byte. Records outside the
+requested dates remain as verification context, counted separately in
+`ledger.contextRecords`; `ledger.selectedRecords` counts records in the range.
+The report retains unsigned historical exceptions, standalone bundles, duplicate
+record copies, conflicting sequence versions, missing sealing-day manifests and
+missing predecessor checkpoints. Missing coverage is unknown, never proof of
+an empty day. Missing referenced bundles, changed manifest digests, broken
+checkpoint links and invalid signatures or record hashes fail the export.
+Unsigned exceptions receive content/chain checks only, not signature proof.
+The report records fingerprints of the independently supplied keys that verified
+signatures. It does not establish who controlled those keys.
+A successful history pack does not prove that a workspace and its live R2
+bodies can be restored.
 
 Each source's copies remain separate, including conflicting versions and
 duplicates made during retention moves. Do not sum counts as unique events.
@@ -81,20 +104,25 @@ pagination fail the export instead of producing a successful partial manifest.
 ## Offline verification
 
 Download the entire unique pack prefix, preserving file names, or use the
-local copy. Python 3 with its standard library is sufficient; credentials,
+local copy. Python 3 with its standard library and Bun are required; credentials,
 network access and the repository are unnecessary. Use a trusted copy of the
 verifier (included as `verify.py`) and the digest from the export receipt:
 
 ```sh
-python3 verify.py /path/to/pack --sha256 <trusted-manifest-sha256>
+python3 verify.py /path/to/pack --sha256 <trusted-manifest-sha256> --keys /trusted/keys.json
 ```
 
 It checks the pinned manifest hash, every file's hash and size, NDJSON row
 counts, direct tenant ownership, requested and observed time bounds, scan
 totals and unsafe file paths. Hashes prove integrity against the pinned
 manifest, not the truth of source events or completeness of undisclosed stores.
-Gateway chain/signature verification is a separate check using the existing
-change-record evidence bundles.
+After checking file integrity, Python invokes the included `verify-ledger.js`,
+a self-contained bundle of the existing DSSE/Ed25519 and record-chain verifier.
+It checks the signed statement against the exported checkpoint, each record's
+canonical content hash and chain link, day-manifest references, checkpoint
+linkage and the coverage/version report. Supply the independent public-key map
+again for offline verification, or `{}` for wholly unsigned history. Never use
+keys copied from the pack as proof of signing-key provenance.
 
 Focused development checks:
 
@@ -102,5 +130,4 @@ Focused development checks:
 bun test scripts/db/history-export.test.ts
 python3 scripts/db/test_verify_history_pack.py
 bun run type-check:scripts
-bun run --cwd packages/db type-check
 ```

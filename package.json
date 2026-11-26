@@ -86,6 +86,7 @@
 	},
 	"devDependencies": {
 		"@changesets/cli": "^3.0.3",
+		"@tedix/agent-governance": "workspace:*",
 		"@tedix/api-client": "workspace:*",
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/db": "workspace:*",

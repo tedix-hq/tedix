@@ -4,6 +4,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -14,7 +15,7 @@ def timestamp(value, epoch=False):
     return parsed.replace(tzinfo=datetime.timezone.utc) if parsed.tzinfo is None else parsed
 
 
-def verify(root, expected):
+def verify(root, expected, keys=None):
     raw = (root / "manifest.json").read_bytes()
     if hashlib.sha256(raw).hexdigest() != expected:
         raise ValueError("Manifest SHA-256 mismatch")
@@ -60,7 +61,7 @@ def verify(root, expected):
                     raise ValueError("Observed time range mismatch: " + name)
             elif entry["from"] is not None or entry["to"] is not None:
                 raise ValueError("Unexpected time range: " + name)
-            source = "d1-archive/v1" if entry["source"].startswith("d1-archive/v1/") else entry["source"]
+            source = next((prefix for prefix in ("d1-archive/v1", "audit-exports/v1") if entry["source"].startswith(prefix + "/")), entry["source"])
             key = (entry["table"], source)
             counts[key] = counts.get(key, 0) + rows
     for scan in manifest["scans"]:
@@ -68,12 +69,23 @@ def verify(root, expected):
             raise ValueError("Scan count mismatch")
     if counts:
         raise ValueError("File has no matching scan")
-    return {"verifiedFiles": len(seen), "organization": manifest["organization"], "manifestSha256": expected}
+    result = {"verifiedFiles": len(seen), "organization": manifest["organization"], "manifestSha256": expected}
+    if "ledger" in manifest:
+        if keys is None:
+            raise ValueError("Supply --keys with independently obtained ledger public keys ({} for unsigned history)")
+        if "verify-ledger.js" not in seen:
+            raise ValueError("Missing ledger verifier")
+        checked = subprocess.run(["bun", str(root / "verify-ledger.js"), str(root), str(keys)], check=True, capture_output=True, text=True)
+        result["ledger"] = json.loads(checked.stdout)
+        if any(result["ledger"][key] != value for key, value in manifest["ledger"].items() if key != "keyProvenance"):
+            raise ValueError("Ledger summary mismatch")
+    return result
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pack", type=Path)
     parser.add_argument("--sha256", required=True, help="Trusted manifest SHA-256 from the export receipt")
+    parser.add_argument("--keys", type=Path, help="Independent key-id to base64 Ed25519 SPKI map")
     args = parser.parse_args()
-    print(json.dumps(verify(args.pack, args.sha256)))
+    print(json.dumps(verify(args.pack.resolve(), args.sha256, args.keys.resolve() if args.keys else None)))

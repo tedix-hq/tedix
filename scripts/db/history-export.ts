@@ -13,6 +13,12 @@ import {
 	type HistoryTable,
 } from "@tedix/db/queries/history-export";
 import { remoteD1QueryRest } from "../lib/remote-d1";
+import {
+	collectLedger,
+	inRange,
+	objectKeys,
+	verifyLedger,
+} from "./history-ledger";
 
 export interface HistoryBucket {
 	list(options: { prefix: string; continuationToken?: string }): Promise<{
@@ -101,6 +107,8 @@ export async function exportHistory(params: {
 	stores: { binding: string; read: HistoryRead }[];
 	bucket: HistoryBucket;
 	verifier: Uint8Array;
+	ledgerKeys?: Record<string, string>;
+	ledgerKeyProvenance?: string;
 }) {
 	const { organization, bucket, stores } = params;
 	if (!organization || organization === "_platform")
@@ -240,6 +248,81 @@ export async function exportHistory(params: {
 		}
 		scans.push(scan);
 	}
+	const auditTable: HistoryTable = {
+		table: "audit_daily_export",
+		owner: "organizationId",
+		time: "timestamp",
+		logs: false,
+	};
+	const auditScan = {
+		table: auditTable.table,
+		source: "audit-exports/v1",
+		rows: 0,
+		objects: 0,
+	};
+	for await (const key of objectKeys(
+		bucket,
+		`audit-exports/v1/${organization}/`,
+	)) {
+		if (!key.endsWith(".jsonl.gz"))
+			throw new Error("Unexpected audit export key");
+		const input = await bucket.get(key);
+		const rows = gunzipSync(input)
+			.toString("utf8")
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => JSON.parse(line) as HistoryRow);
+		const selected = rows.filter((row) => {
+			if (row.organizationId !== organization)
+				throw new Error("Audit export tenant mismatch");
+			return inRange(row.timestamp, from, to);
+		});
+		await writeRows(auditTable, key, selected, sha256(input));
+		auditScan.rows += selected.length;
+		auditScan.objects++;
+	}
+	scans.push(auditScan);
+	const ledgerObjects = await collectLedger(bucket, organization, from, to);
+	const ledger = await verifyLedger(
+		ledgerObjects,
+		organization,
+		from,
+		to,
+		params.ledgerKeys ?? {},
+	);
+	for (const object of ledgerObjects) {
+		await write(
+			`${String(files.length).padStart(6, "0")}-ledger.json`,
+			object.bytes,
+			{
+				table: null,
+				source: object.key,
+				rows: null,
+				from: null,
+				to: null,
+			},
+		);
+	}
+	const build = await Bun.build({
+		entrypoints: [
+			new URL("./verify-history-ledger.ts", import.meta.url).pathname,
+		],
+		target: "bun",
+		minify: false,
+	});
+	if (!build.success || build.outputs.length !== 1)
+		throw new Error("Could not bundle offline ledger verifier");
+	await write(
+		"verify-ledger.js",
+		new Uint8Array(await build.outputs[0]!.arrayBuffer()),
+		{
+			table: null,
+			source: "verifier",
+			rows: null,
+			from: null,
+			to: null,
+		},
+	);
 	await write("verify.py", params.verifier, {
 		table: null,
 		source: "verifier",
@@ -260,12 +343,16 @@ export async function exportHistory(params: {
 		exclusions: [
 			"Platform-only cron/workflow rows and platform call costs",
 			"Business-state tables outside the declared history inventory",
-			"Separate audit-exports; their audit rows are collected from D1/d1-archive",
-			"Organization log store gateway change records, checkpoints, day manifests and change-record-evidence bundles, including historical exceptions and public signing keys",
 		],
 		indirectOwnership:
 			"D1 artifacts/usage use the organization's current main skill_runs/tedis IDs; R2 uses the organization prefix recorded at archival time. Deleted parents cannot be attributed from D1 alone.",
-		tables: HISTORY_TABLES,
+		ledger: {
+			...ledger,
+			keyProvenance:
+				params.ledgerKeyProvenance ??
+				"Operator-supplied SPKI keys; independent source not recorded. Embedded bundle keys are not trusted.",
+		},
+		tables: [...HISTORY_TABLES, auditTable],
 		stores: stores.map((store) => store.binding),
 		scans,
 		files,
@@ -397,6 +484,10 @@ async function main() {
 				stores,
 				bucket,
 				verifier,
+				ledgerKeys: process.env.HISTORY_LEDGER_KEYS
+					? JSON.parse(process.env.HISTORY_LEDGER_KEYS)
+					: {},
+				ledgerKeyProvenance: process.env.HISTORY_LEDGER_KEY_PROVENANCE,
 			}),
 		),
 	);
