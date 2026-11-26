@@ -709,3 +709,48 @@ it("keeps atomic audit delivery pending until both stores confirm, then drains w
 		logs.sqlite.close();
 	}
 });
+
+it("delivers older expiry receipts before newer events with smaller IDs", async () => {
+	const main = store();
+	const logs = store();
+	const append = vi.fn(
+		async (_org: string, events: OrganizationAuditEvent[]) => ({
+			status: "live" as const,
+			value: events,
+		}),
+	);
+	const bindings = {
+		DB: main.binding,
+		LOGS_DB: logs.binding,
+		WORKSPACE_RUNTIME: { organizationAuditAppend: append },
+	};
+	try {
+		await withCoreStore(bindings, async () => {
+			await insertAuditEvent(main.db, {
+				...event,
+				id: "z-expiry",
+				action: "interaction.expiry.run",
+			});
+			for (let index = 0; index < 500; index++) {
+				await insertAuditEvent(main.db, {
+					...event,
+					id: `a-newer-${index}`,
+				});
+			}
+			expect(await drainAuditDeliveryOutbox(main.db, bindings)).toBe(500);
+			expect(append.mock.calls[0]![1][0]?.id).toBe("z-expiry");
+			expect(
+				logs.sqlite
+					.prepare("SELECT id FROM audit_events WHERE id = 'z-expiry'")
+					.get(),
+			).toEqual({ id: "z-expiry" });
+			expect(
+				main.sqlite.prepare("SELECT id FROM audit_delivery_outbox").all(),
+			).toEqual([{ id: "a-newer-499" }]);
+			expect(await drainAuditDeliveryOutbox(main.db, bindings)).toBe(1);
+		});
+	} finally {
+		main.sqlite.close();
+		logs.sqlite.close();
+	}
+});

@@ -141,10 +141,11 @@ export async function drainAuditDeliveryOutbox(
 	const logs = getLogStores(db)?.logs;
 	const runtime = (bindings as { WORKSPACE_RUNTIME?: OrganizationAuditRuntime })
 		.WORKSPACE_RUNTIME;
+	// IDs include deterministic receipts; lexical ordering lets new UUIDs starve them.
 	const rows = await db
 		.select()
 		.from(auditDeliveryOutbox)
-		.orderBy(auditDeliveryOutbox.id)
+		.orderBy(sql`rowid`)
 		.limit(500);
 	if (!rows.length) return 0;
 	if (!logs || !runtime)
