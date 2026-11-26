@@ -51,6 +51,44 @@ Keeping new rows in the main database for the keep window keeps every one of
 those correct. The retention move bounds what the main database holds to the
 keep window, and the merged readers keep older rows visible.
 
+## Work events: retain in main
+
+Decision, 26 Nov 2026: close the proposed `work_events` move without enabling
+it. The terminal-for-90-days proposal is a risk-analysed plan, not an obsolete
+one. Calling this table minor core growth is an unmeasured judgment: row
+counts and daily row rates establish neither storage cost nor reclaimable
+bytes. No eligible-row or byte measurement supports that claim here.
+
+The proposed exclusions (attempt grants, creation, personal-agent and
+authorization events) protect important dependencies, but do not establish a
+complete safe subset:
+
+- `work-items/attempt-limit.ts` counts historical `lane.attempt_granted`
+  receipts. `work-items/specification-access.ts` derives creator authority
+  from `work.created`, and `mcp-governance.ts` joins authorization receipts
+  and revocations in the same database. These rows must remain in main.
+- `work-items/lane-attempt-grants.ts`, `work-items/lane-lifecycle.ts`,
+  `support.ts` and `personal-agent-outbound.ts` use event existence to prevent
+  duplicate actions. Moving a guard receipt can make an old action eligible
+  again. The stopped-lane notifier also has a whole-ledger pass for later
+  agent reactivation or reopened Work; terminal age alone is insufficient.
+- Event rows can change after insertion, including personal-agent delivery
+  state and project/objective scope maintained by database triggers. A move
+  must account for later mutations as well as compare copied contents before
+  deletion.
+- `listWorkItemEvents`, `listWorkActivity`, `readWorkWaitPage` and the state
+  change/head queries in `work-items/events.ts` still need a shared ordered
+  history. A future move must preserve original ids and sequences, deduplicate
+  overlap before limiting, and retain visibility across every logs partition.
+
+Reconsider implementation with a measured eligible subset and its bytes,
+including index cost and destination headroom, plus a complete reader and
+mutation audit. Prove old authority and duplicate guards remain effective,
+and exercise history cursors across a copy/delete boundary before activation.
+Until then, `work_events` has no logs move policy. This closes the proposed
+implementation on correctness and evidence grounds; it does not establish
+that the table is small or that a future safe move has no value.
+
 ## Reads
 
 Readers that can see moved rows run the same statement against both stores
