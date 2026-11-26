@@ -7,7 +7,7 @@ import {
 	SQLiteDialect,
 	type SQLiteTable,
 } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { coreTable } from "../core-store/client";
@@ -28,6 +28,7 @@ import { projects } from "../schema/projects";
 import { workAdmissions } from "../schema/work-factory";
 import { tedis } from "../schema/tedis";
 import { workItems, workAttempts, workEvents } from "../schema/work-items";
+import { workDue } from "../schema/work-due";
 import * as external from "../schema/external-agent-identity";
 import * as policy from "../schema/tenant-tool-policy";
 import { mcpToolApprovalGrants } from "../schema/mcp-governance";
@@ -131,6 +132,7 @@ for (const store of ["d1", "postgres"] as const)
 					workAttempts,
 					workAdmissions,
 					workEvents,
+					workDue,
 					mcpToolApprovalGrants,
 					external.externalAgentPrincipals,
 					external.externalAgentSessions,
@@ -187,6 +189,15 @@ for (const store of ["d1", "postgres"] as const)
 					"utf8",
 				);
 				sqlite.exec(generations.slice(generations.indexOf("CREATE TRIGGER")));
+				sqlite.exec(
+					readFileSync(
+						new URL(
+							"../../drizzle/20261125213240_remaining_work_timers/migration.sql",
+							import.meta.url,
+						),
+						"utf8",
+					),
+				);
 				db = createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
 			}
 
@@ -483,6 +494,50 @@ for (const store of ["d1", "postgres"] as const)
 			expect(await getTenantToolPolicyResourceGenerations(db, input)).toEqual(
 				next,
 			);
+		});
+
+		it("recomputes outbound review timers when organization policy changes", async () => {
+			const orgId = `outbound-${store}`;
+			const itemId = `${orgId}-item`;
+			await db.insert(coreTable(db, organizations)).values({
+				id: orgId,
+				name: "Outbound",
+				slug: orgId,
+				metadata: {
+					outboundReview: { routes: [], reviewTimeoutMinutes: 30 },
+				},
+			});
+			await db.insert(coreTable(db, workItems)).values({
+				id: itemId,
+				orgId,
+				title: "Draft",
+				workKind: "outbound",
+				disposition: "accepted",
+				metadata: {
+					outbound: { status: "reviewing", reviewRequestedAt: at },
+				},
+				createdAt: at,
+			});
+			await db
+				.update(coreTable(db, organizations))
+				.set({
+					metadata: {
+						outboundReview: { routes: [], reviewTimeoutMinutes: 60 },
+					},
+				})
+				.where(eq(coreTable(db, organizations).id, orgId));
+			const dueTable = coreTable(db, workDue);
+			const [due] = await db
+				.select()
+				.from(dueTable)
+				.where(
+					and(
+						eq(dueTable.orgId, orgId),
+						eq(dueTable.kind, "outbound-review"),
+						eq(dueTable.objectId, itemId),
+					),
+				);
+			expect(due?.dueAt).toBe(later);
 		});
 
 		it("preserves JSON organization projections and exact-scope grant precedence", async () => {
