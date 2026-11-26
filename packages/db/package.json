@@ -108,6 +108,7 @@
 		"./schema/approvals": "./src/schema/approvals.ts",
 		"./schema/approval-simulations": "./src/schema/approval-simulations.ts",
 		"./schema/audit-events": "./src/schema/audit-events.ts",
+		"./schema/audit-metadata-refs": "./src/schema/audit-metadata-refs.ts",
 		"./schema/ops-alert-state": "./src/schema/ops-alert-state.ts",
 		"./schema/read-marks": "./src/schema/read-marks.ts",
 		"./schema/billing": "./src/schema/billing.ts",

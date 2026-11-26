@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
+import { configureLogStore, createDbClient } from "@tedix/db/client";
+import { searchAuditEvents } from "@tedix/db/queries/audit";
 import { auditEvents } from "@tedix/db/schema/audit-events";
+import { auditMetadataRefs } from "@tedix/db/schema/audit-metadata-refs";
 import { tediCallCosts, tedis, tediUsageEvents } from "@tedix/db/schema/tedis";
 import { widgetEvents } from "@tedix/db/schema/analytics";
 import { workflowRunLedger } from "@tedix/db/schema/workflow-runs";
@@ -260,6 +263,116 @@ async function gunzipLines(bytes: Uint8Array): Promise<string[]> {
 }
 
 describe("runD1Retention", () => {
+	it("moves compact audit identifiers safely through retries and rotation with a recoverable archive", async () => {
+		const main = fixture(
+			"('audit_events','move_to_logs_db',90,10000,'2026-10-21')",
+		);
+		const logs = logsFixture();
+		const rotated = logsFixture();
+		const bucket = new MemoryBucket();
+		const compact = JSON.stringify({ _r: { a: "a1", c: "c1" }, n: 0 });
+		const expanded = {
+			n: 0,
+			appId: "app-original",
+			clientId: "client-original",
+		};
+		main.seed([120]);
+		main.sqlite.exec(schemaDdl(auditMetadataRefs));
+		main.sqlite.prepare("UPDATE audit_events SET metadata = ?").run(compact);
+		main.sqlite.exec(`INSERT INTO audit_metadata_refs VALUES
+			('fictional-lighthouse','a1','app','app-original'),
+			('other-tenant','a1','app','app-other'),
+			('other-tenant','c1','client','client-other')`);
+		const run = (logsDb = logs.db) =>
+			runD1Retention({
+				db: main.db,
+				logsDb,
+				bucket: bucket as unknown as R2Bucket,
+				now: NOW,
+				pagePauseMs: 0,
+			});
+		const sourceSafe = () => {
+			expect(main.count()).toBe(1);
+			expect(
+				main.sqlite.prepare("SELECT metadata FROM audit_events").get(),
+			).toEqual({ metadata: compact });
+			expect(bucket.objects.size).toBe(0);
+		};
+		try {
+			// A same-ref mapping in another tenant cannot fill a missing source ref.
+			expect((await run()).tables[0]?.error).toContain(
+				"Missing audit metadata reference: c1",
+			);
+			sourceSafe();
+			expect(logs.count()).toBe(0);
+			main.sqlite.exec(`INSERT INTO audit_metadata_refs VALUES
+				('fictional-lighthouse','c1','app','client-original')`);
+			expect((await run()).tables[0]?.error).toContain(
+				"Missing audit metadata reference: c1",
+			);
+			sourceSafe();
+			main.sqlite.exec(`UPDATE audit_metadata_refs SET kind = 'client'
+				WHERE organization_id = 'fictional-lighthouse' AND ref = 'c1'`);
+			main.sqlite
+				.prepare("UPDATE audit_events SET metadata = ?")
+				.run(JSON.stringify({ _r: { a: "a1", c: "c1" }, appId: "conflict" }));
+			expect((await run()).tables[0]?.error).toContain(
+				"Conflicting audit metadata reference: a1",
+			);
+			expect(main.count()).toBe(1);
+			expect(logs.count()).toBe(0);
+			main.sqlite.prepare("UPDATE audit_events SET metadata = ?").run(compact);
+			logs.sqlite.exec("ALTER TABLE audit_events RENAME TO unavailable");
+			expect((await run()).tables[0]?.error).toContain("audit_events");
+			sourceSafe();
+			logs.sqlite.exec("ALTER TABLE unavailable RENAME TO audit_events");
+			// A colliding destination dictionary must not influence expansion.
+			logs.sqlite.exec(schemaDdl(auditMetadataRefs));
+			logs.sqlite.exec(`INSERT INTO audit_metadata_refs VALUES
+				('fictional-lighthouse','a1','app','destination-collision')`);
+			bucket.failPuts = true;
+			expect((await run()).tables[0]?.error).toContain("r2 unavailable");
+			sourceSafe();
+			expect(logs.count()).toBe(1);
+			expect((await run()).tables[0]?.error).toContain("r2 unavailable");
+			expect(logs.count()).toBe(1);
+			sourceSafe();
+			bucket.failPuts = false;
+			// Retry into an empty, rotated store with no dictionary schema.
+			const result = await run(rotated.db);
+			expect(result.tables[0]).toMatchObject({
+				movedRows: 1,
+				deletedRows: 1,
+				archivedRows: 1,
+				conflictedRows: 0,
+			});
+			expect(result.tables[0]?.error).toBeUndefined();
+			expect(main.count()).toBe(0);
+			main.sqlite.exec("DROP TABLE audit_metadata_refs");
+			const reader = createDbClient(main.d1);
+			configureLogStore(reader, { LOGS_DB: rotated.d1, LOGS_DB_1: logs.d1 });
+			const found = await searchAuditEvents(reader, {
+				organizationId: "fictional-lighthouse",
+			});
+			expect(found.data).toHaveLength(1);
+			expect(found.data[0]?.metadata).toEqual(expanded);
+			expect(
+				(await searchAuditEvents(reader, { organizationId: "other-tenant" }))
+					.data,
+			).toEqual([]);
+			const [archive] = bucket.objects.values();
+			const recovered = JSON.parse((await gunzipLines(archive!))[0]!);
+			expect(recovered.organization_id).toBe("fictional-lighthouse");
+			expect(JSON.parse(recovered.metadata)).toEqual(expanded);
+			expect((await run(rotated.db)).deletedRows).toBe(0);
+			expect(bucket.objects.size).toBe(1);
+		} finally {
+			main.sqlite.close();
+			logs.sqlite.close();
+			rotated.sqlite.close();
+		}
+	});
+
 	it.each([
 		"audit_events",
 		"tedi_runtime_events",

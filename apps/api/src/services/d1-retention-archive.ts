@@ -50,6 +50,7 @@ import {
 	d1RetentionPolicyProblem,
 	deleteD1RetentionRows,
 	estimateD1RetentionBacklog,
+	expandD1RetentionAuditRefs,
 	filterD1RetentionReferencedRows,
 	getD1RetentionTableSpec,
 	groupD1RetentionArchiveRows,
@@ -576,9 +577,17 @@ async function movePages(
 				continue;
 			}
 			let conflicted = 0;
+			const portableRows = archives
+				? await timed(timings, "readMs", () =>
+						withOverloadBackoff(
+							() => expandD1RetentionAuditRefs(db, tableSpec, rows),
+							deadline,
+						),
+					)
+				: rows;
 			if (policy.mode === "move_to_logs_db" && logsDb) {
 				const check = await timed(timings, "copyMs", () =>
-					copyChunkToLogs(logsDb, tableSpec, rows, deadline),
+					copyChunkToLogs(logsDb, tableSpec, portableRows, deadline),
 				);
 				conflicted = check.mismatched.length;
 				result.conflictedRows += conflicted;
@@ -591,7 +600,11 @@ async function movePages(
 				}
 			}
 			if (archives && bucket) {
-				const groups = await groupD1RetentionArchiveRows(db, tableSpec, rows);
+				const groups = await groupD1RetentionArchiveRows(
+					db,
+					tableSpec,
+					portableRows,
+				);
 				// One object per organization; all must be confirmed before the delete.
 				await timed(timings, "archiveMs", () =>
 					Promise.all(

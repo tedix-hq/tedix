@@ -22,6 +22,7 @@ import { eq, getColumns, type SQL, sql } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { auditEvents } from "../schema/audit-events";
+import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { MCP_TELEMETRY_ACTIONS } from "../utils/audit-telemetry";
 import {
 	billingProviderCostEvidenceVersions,
@@ -1169,6 +1170,77 @@ function tableColumnNames(tableSpec: D1RetentionTableSpec): string[] {
 function rowValue(row: D1RetentionRow, column: string): JsonValue {
 	const value = row[column];
 	return value === undefined ? null : value;
+}
+
+/**
+ * Make audit copies and archives independent of the source's dictionary.
+ * Keep the original fingerprint: deletion must still compare the compact source.
+ * No destination dictionary is needed, including after logs-store rotation.
+ */
+export async function expandD1RetentionAuditRefs(
+	db: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	rows: D1RetentionRow[],
+): Promise<D1RetentionRow[]> {
+	if (tableSpec.tableName !== "audit_events") return rows;
+	const pending = rows.map((row) => {
+		if (typeof row.metadata !== "string") return null;
+		const metadata = JSON.parse(row.metadata) as Record<
+			string,
+			JsonValue
+		> | null;
+		if (!metadata || metadata._r === undefined) return null;
+		const refs = metadata._r;
+		if (typeof refs !== "object" || refs === null || Array.isArray(refs))
+			throw new Error(`Invalid audit metadata references: ${row.id}`);
+		return { row, metadata, refs };
+	});
+	const byOrganization = new Map<string, Set<string>>();
+	for (const item of pending) {
+		if (!item) continue;
+		const organizationId = String(item.row.organization_id);
+		const refs = byOrganization.get(organizationId) ?? new Set<string>();
+		for (const key of ["a", "c"]) {
+			const ref = item.refs[key];
+			if (ref === undefined) continue;
+			if (typeof ref !== "string")
+				throw new Error(`Invalid audit metadata reference: ${item.row.id}`);
+			refs.add(ref);
+		}
+		byOrganization.set(organizationId, refs);
+	}
+	const mappings = new Map<string, typeof auditMetadataRefs.$inferSelect>();
+	for (const [organizationId, refs] of byOrganization) {
+		if (refs.size === 0) continue;
+		const found = await db.select().from(auditMetadataRefs)
+			.where(sql`${auditMetadataRefs.organizationId} = ${organizationId}
+				AND ${auditMetadataRefs.ref} IN (SELECT value FROM json_each(${JSON.stringify([...refs])}))`);
+		for (const mapping of found)
+			mappings.set(`${organizationId}\0${mapping.ref}`, mapping);
+	}
+	return rows.map((row, index) => {
+		const item = pending[index];
+		if (!item) return row;
+		const metadata = { ...item.metadata };
+		const refs = { ...item.refs };
+		for (const [refKey, key, kind] of [
+			["a", "appId", "app"],
+			["c", "clientId", "client"],
+		] as const) {
+			const ref = refs[refKey];
+			if (ref === undefined) continue;
+			const mapping = mappings.get(`${row.organization_id}\0${ref}`);
+			if (!mapping || mapping.kind !== kind)
+				throw new Error(`Missing audit metadata reference: ${ref}`);
+			if (metadata[key] !== undefined && metadata[key] !== mapping.value)
+				throw new Error(`Conflicting audit metadata reference: ${ref}`);
+			metadata[key] = mapping.value;
+			delete refs[refKey];
+		}
+		if (Object.keys(refs).length === 0) delete metadata._r;
+		else metadata._r = refs;
+		return { ...row, metadata: JSON.stringify(metadata) };
+	});
 }
 
 export interface D1LogsCopyStatement {
