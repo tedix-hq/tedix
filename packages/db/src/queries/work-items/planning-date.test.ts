@@ -89,7 +89,7 @@ it("stores executor selection without losing other metadata and rejects another 
 		orgId: "org-acme",
 		workItemId: "work",
 		actor: { type: "user" as const, id: "acme-owner" },
-		executor: "codex",
+		executorReference: { type: "external_agent" as const, id: "codex" },
 	};
 	const updated = await updateWorkItemSpecification(db, {
 		...input,

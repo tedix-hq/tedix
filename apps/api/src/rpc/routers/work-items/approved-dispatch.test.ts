@@ -46,8 +46,8 @@ const migration = readFileSync(
 
 it.each([
 	{ laneDispatch: { state: "ready" as const } },
-	{ executor: "codex" as const },
-	{ executor: "claude-code" as const },
+	{ executorReference: { type: "external_agent" as const, id: "codex" } },
+	{ executorReference: { type: "external_agent" as const, id: "claude-code" } },
 ])(
 	"re-queues approved high-risk Work with immutable approval guards: %j",
 	async (change) => {
@@ -114,7 +114,9 @@ it.each([
 			expect(updated.version).toBe(2);
 			expect(updated.disposition).toBe("accepted");
 			expect(updated.dispatchState).toBe("ready");
-			expect(updated.executorId).toBe(change.executor ?? "codex");
+			expect(updated.executorId).toBe(
+				"executorReference" in change ? change.executorReference.id : "codex",
+			);
 			expect(
 				sqlite
 					.prepare(
@@ -123,7 +125,10 @@ it.each([
 					.get(),
 			).toEqual({ version: 1, status: "approved" });
 			expect((await readiness()).state).toBe(
-				change.executor === "claude-code" ? "approval_blocked" : "ready",
+				"executorReference" in change &&
+					change.executorReference.id === "claude-code"
+					? "approval_blocked"
+					: "ready",
 			);
 			expect(
 				sqlite.prepare("SELECT id, body FROM work_item_comments").all(),

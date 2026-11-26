@@ -873,10 +873,9 @@ export const workItemsContract = oc
 						.describe(
 							"Owner/admin dispatcher reassignment when the assigned tool is unreachable or unavailable (out of credits, at its limit, signed out). Preserves the Work revision and failure hold; cannot accompany specification edits. Work with metadata.onlyExecutor stays on its tool.",
 						),
-					executor: WorkExecutorSchema.optional().describe(
-						"codex or claude-code on accepted Work queues a fresh session that a connected Mac starts and that claims its own Attempt. Owners, admins and the Work's tedi steward may set it.",
+					executorReference: WorkExecutorReferenceSchema.optional().describe(
+						"The executor's type and ID. Owners, admins and the Work's tedi steward may set it. External agents codex and claude-code queue a fresh session on accepted Work.",
 					),
-					executorReference: WorkExecutorReferenceSchema.optional(),
 					laneDispatch: LaneDispatchPlanSchema.optional(),
 					delegationDepth: z
 						.number()

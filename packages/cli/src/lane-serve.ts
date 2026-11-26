@@ -5,6 +5,7 @@ import {
 } from "@tedix/api-contract/schemas/work-wait";
 import {
 	WorkAttemptSettlementSchema,
+	workExecutorReference,
 	workSettlementCommits,
 	type WorkAttemptCloseoutResultSchema,
 } from "@tedix/api-contract/schemas/work-items";
@@ -5172,8 +5173,7 @@ export class LaneDispatcher {
 						item.id,
 						"--input",
 						JSON.stringify({
-							// The server's reassignment takes `executor`, nothing else.
-							executor,
+							executorReference: workExecutorReference(executor),
 							expectedWorkItemVersion: item.version,
 							idleReassignment: {
 								fromExecutor: donor,
@@ -6052,7 +6052,7 @@ export class LaneDispatcher {
 				item.id,
 				"--input",
 				JSON.stringify({
-					executor: selection.executor,
+					executorReference: workExecutorReference(selection.executor),
 					expectedWorkItemVersion: item.version,
 					idleReassignment: {
 						fromExecutor: "any-local",
@@ -6311,7 +6311,7 @@ export class LaneDispatcher {
 				item.id,
 				"--input",
 				JSON.stringify({
-					executor: answer.executor,
+					executorReference: workExecutorReference(answer.executor),
 					expectedWorkItemVersion: item.version,
 					idleReassignment: {
 						fromExecutor: from,
@@ -6464,7 +6464,7 @@ export class LaneDispatcher {
 				item.id,
 				"--input",
 				JSON.stringify({
-					executor: target,
+					executorReference: workExecutorReference(target),
 					expectedWorkItemVersion: item.version,
 					idleReassignment: {
 						fromExecutor: from,
