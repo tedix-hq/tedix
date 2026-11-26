@@ -10,19 +10,17 @@ import {
 import {
 	and,
 	asc,
+	count,
 	desc,
 	eq,
 	inArray,
 	ne,
 	or,
 	type SQL,
+	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
 import {
-	appCatalog,
-	appCatalogBrowseTotals,
-	appCatalogStoreListings,
-	appCatalogMcpTools,
 	type CatalogApp,
 	type Category,
 	type ConnectorType,
@@ -30,7 +28,9 @@ import {
 	type HealthStatus,
 	type Source,
 } from "../../schema/catalog";
+import { coreStore, jsonRead } from "../../core-store/dialect";
 import { prefixedColumns } from "../../utils/select";
+import { catalogTables } from "./catalog-tables";
 import { catalogFeedKey } from "./sync-logs";
 import type { Database } from "./tool-source-policy";
 import {
@@ -88,6 +88,25 @@ function catalogCategoryFilterValues(category: string): Category[] {
 	return getCatalogCategoryAliases(category) as Category[];
 }
 
+/** SQLite LOWER() + LIKE folded ASCII only; translate() matches that on Postgres. */
+function lowerLike(db: Database, expr: SQLWrapper, pattern: string): SQL {
+	return coreStore(db) === "postgres"
+		? sql`translate(${expr}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') LIKE ${pattern}`
+		: sql`LOWER(${expr}) LIKE ${pattern}`;
+}
+
+function lowerEq(db: Database, expr: SQLWrapper, value: string): SQL {
+	return coreStore(db) === "postgres"
+		? sql`translate(${expr}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') = ${value}`
+		: sql`LOWER(${expr}) = ${value}`;
+}
+
+function asText(db: Database, column: SQLWrapper): SQL {
+	return coreStore(db) === "postgres"
+		? sql`${column}::text`
+		: sql`CAST(${column} AS TEXT)`;
+}
+
 /**
  * List catalog apps with filtering and pagination
  */
@@ -118,9 +137,23 @@ export async function listCatalogApps(
 		includeUnreleased = false,
 		hideShadowedVariants = false,
 	} = options;
+	const postgres = coreStore(db) === "postgres";
+	const {
+		appCatalog,
+		appCatalogBrowseTotals,
+		appCatalogMcpTools,
+		appCatalogStoreListings,
+	} = catalogTables(db);
+	const mcpToolsTable = postgres
+		? sql`catalog.app_catalog_mcp_tools`
+		: sql`app_catalog_mcp_tools`;
+	const storeListingsTable = postgres
+		? sql`catalog.app_catalog_store_listings`
+		: sql`app_catalog_store_listings`;
 
 	// Default: only trusted, discoverable, enabled, RELEASED apps
 	const conditions: Array<SQL | undefined> = catalogVisibilityConditions(
+		db,
 		appCatalog,
 		{ includeAll, includeUnreleased },
 	);
@@ -145,36 +178,35 @@ export async function listCatalogApps(
 	if (normalizedSearch) {
 		const searchPattern = `%${normalizedSearch}%`;
 		const lexicalCondition = or(
-			sql`LOWER(${appCatalog.name}) LIKE ${searchPattern}`,
-			sql`LOWER(${appCatalog.description}) LIKE ${searchPattern}`,
-			sql`LOWER(${appCatalog.developer}) LIKE ${searchPattern}`,
-			sql`LOWER(${appCatalog.slug}) LIKE ${searchPattern}`,
-			sql`LOWER(${appCatalog.modelDescription}) LIKE ${searchPattern}`,
-			sql`LOWER(${appCatalog.seoDescription}) LIKE ${searchPattern}`,
-			sql`LOWER(CAST(${appCatalog.keywordsForDiscovery} AS TEXT)) LIKE ${searchPattern}`,
-			sql`LOWER(CAST(${appCatalog.keywordsForTriggering} AS TEXT)) LIKE ${searchPattern}`,
-			sql`LOWER(CAST(${appCatalog.categories} AS TEXT)) LIKE ${searchPattern}`,
-			sql`LOWER(CAST(${appCatalog.subCategories} AS TEXT)) LIKE ${searchPattern}`,
+			lowerLike(db, appCatalog.name, searchPattern),
+			lowerLike(db, appCatalog.description, searchPattern),
+			lowerLike(db, appCatalog.developer, searchPattern),
+			lowerLike(db, appCatalog.slug, searchPattern),
+			lowerLike(db, appCatalog.modelDescription, searchPattern),
+			lowerLike(db, appCatalog.seoDescription, searchPattern),
+			lowerLike(db, asText(db, appCatalog.keywordsForDiscovery), searchPattern),
+			lowerLike(
+				db,
+				asText(db, appCatalog.keywordsForTriggering),
+				searchPattern,
+			),
+			lowerLike(db, asText(db, appCatalog.categories), searchPattern),
+			lowerLike(db, asText(db, appCatalog.subCategories), searchPattern),
 			sql`EXISTS (
-					SELECT 1 FROM ${appCatalogMcpTools}
+					SELECT 1 FROM ${mcpToolsTable}
 					WHERE ${appCatalogMcpTools.catalogAppId} = ${appCatalog.id}
 						AND ${appCatalogMcpTools.removedAt} IS NULL
 						AND (
-							LOWER(${appCatalogMcpTools.toolName}) LIKE ${searchPattern}
-							OR LOWER(${appCatalogMcpTools.title}) LIKE ${searchPattern}
-							OR LOWER(${appCatalogMcpTools.description}) LIKE ${searchPattern}
+							${lowerLike(db, appCatalogMcpTools.toolName, searchPattern)}
+							OR ${lowerLike(db, appCatalogMcpTools.title, searchPattern)}
+							OR ${lowerLike(db, appCatalogMcpTools.description, searchPattern)}
 						)
 				)`,
 		);
+		const semanticIds = normalizedSemanticMatches.map((match) => match.id);
 		conditions.push(
-			semanticMatchesJson
-				? or(
-						lexicalCondition,
-						sql`${appCatalog.id} IN (
-							SELECT json_extract(value, '$.id')
-							FROM json_each(${semanticMatchesJson})
-						)`,
-					)
+			semanticMatchesJson && semanticIds.length > 0
+				? or(lexicalCondition, inArray(appCatalog.id, semanticIds))
 				: lexicalCondition,
 		);
 	}
@@ -208,7 +240,7 @@ export async function listCatalogApps(
 	// Source filter — store_listings owns the per-store source
 	if (source) {
 		conditions.push(
-			sql`EXISTS (SELECT 1 FROM app_catalog_store_listings WHERE catalog_app_id = ${appCatalog.id} AND source = ${source})`,
+			sql`EXISTS (SELECT 1 FROM ${storeListingsTable} WHERE catalog_app_id = ${appCatalog.id} AND source = ${source})`,
 		);
 	}
 
@@ -224,7 +256,9 @@ export async function listCatalogApps(
 	// Region filter — store_listings owns the per-store regions
 	if (region) {
 		conditions.push(
-			sql`EXISTS (SELECT 1 FROM app_catalog_store_listings WHERE catalog_app_id = ${appCatalog.id} AND json_array_length(regions) > 0 AND regions LIKE ${`%"${region}"%`})`,
+			postgres
+				? sql`EXISTS (SELECT 1 FROM ${storeListingsTable} WHERE catalog_app_id = ${appCatalog.id} AND jsonb_array_length(regions) > 0 AND regions::text LIKE ${`%"${region}"%`})`
+				: sql`EXISTS (SELECT 1 FROM ${storeListingsTable} WHERE catalog_app_id = ${appCatalog.id} AND json_array_length(regions) > 0 AND regions LIKE ${`%"${region}"%`})`,
 		);
 	}
 
@@ -235,7 +269,9 @@ export async function listCatalogApps(
 
 	// Tag filter - search within the categories JSON array
 	if (tag) {
-		conditions.push(sql`${appCatalog.categories} LIKE ${`%"${tag}"%`}`);
+		conditions.push(
+			sql`${asText(db, appCatalog.categories)} LIKE ${`%"${tag}"%`}`,
+		);
 	}
 
 	const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -249,7 +285,7 @@ export async function listCatalogApps(
 		[];
 	// COALESCE so apps without source_created_at (NATIVE, SERVICE, Claude entries
 	// missing createdOn) sort by first_seen_at instead of falling to the bottom.
-	const effectiveDate = sql`COALESCE(${appCatalog.sourceCreatedAt}, json_extract(${appCatalog.firstSeen}, '$.at'))`;
+	const effectiveDate = sql`COALESCE(${appCatalog.sourceCreatedAt}, ${jsonRead(db, appCatalog.firstSeen, ["at"])})`;
 	switch (effectiveSortBy) {
 		case "relevance": {
 			const exact = normalizedSearch;
@@ -257,34 +293,34 @@ export async function listCatalogApps(
 			const contains = `%${normalizedSearch}%`;
 			const lexicalRank = sql`(
 				CASE
-					WHEN LOWER(${appCatalog.name}) = ${exact} THEN 1000
-					WHEN LOWER(${appCatalog.slug}) = ${exact} THEN 950
-					WHEN LOWER(${appCatalog.name}) LIKE ${prefix} THEN 850
-					WHEN LOWER(${appCatalog.developer}) = ${exact} THEN 780
-					WHEN LOWER(${appCatalog.slug}) LIKE ${prefix} THEN 740
-					WHEN LOWER(${appCatalog.developer}) LIKE ${prefix} THEN 700
-					WHEN LOWER(${appCatalog.name}) LIKE ${contains} THEN 620
-					WHEN LOWER(${appCatalog.category}) LIKE ${contains} THEN 560
-					WHEN LOWER(${appCatalog.developer}) LIKE ${contains} THEN 520
+					WHEN ${lowerEq(db, appCatalog.name, exact)} THEN 1000
+					WHEN ${lowerEq(db, appCatalog.slug, exact)} THEN 950
+					WHEN ${lowerLike(db, appCatalog.name, prefix)} THEN 850
+					WHEN ${lowerEq(db, appCatalog.developer, exact)} THEN 780
+					WHEN ${lowerLike(db, appCatalog.slug, prefix)} THEN 740
+					WHEN ${lowerLike(db, appCatalog.developer, prefix)} THEN 700
+					WHEN ${lowerLike(db, appCatalog.name, contains)} THEN 620
+					WHEN ${lowerLike(db, appCatalog.category, contains)} THEN 560
+					WHEN ${lowerLike(db, appCatalog.developer, contains)} THEN 520
 					WHEN EXISTS (
-						SELECT 1 FROM ${appCatalogMcpTools}
+						SELECT 1 FROM ${mcpToolsTable}
 						WHERE ${appCatalogMcpTools.catalogAppId} = ${appCatalog.id}
 							AND ${appCatalogMcpTools.removedAt} IS NULL
 							AND (
-								LOWER(${appCatalogMcpTools.toolName}) LIKE ${contains}
-								OR LOWER(${appCatalogMcpTools.title}) LIKE ${contains}
+								${lowerLike(db, appCatalogMcpTools.toolName, contains)}
+								OR ${lowerLike(db, appCatalogMcpTools.title, contains)}
 							)
 					) THEN 460
-					WHEN LOWER(CAST(${appCatalog.keywordsForTriggering} AS TEXT)) LIKE ${contains} THEN 420
-					WHEN LOWER(CAST(${appCatalog.keywordsForDiscovery} AS TEXT)) LIKE ${contains} THEN 380
-					WHEN LOWER(${appCatalog.seoDescription}) LIKE ${contains} THEN 300
-					WHEN LOWER(${appCatalog.description}) LIKE ${contains} THEN 260
-					WHEN LOWER(${appCatalog.modelDescription}) LIKE ${contains} THEN 220
+					WHEN ${lowerLike(db, asText(db, appCatalog.keywordsForTriggering), contains)} THEN 420
+					WHEN ${lowerLike(db, asText(db, appCatalog.keywordsForDiscovery), contains)} THEN 380
+					WHEN ${lowerLike(db, appCatalog.seoDescription, contains)} THEN 300
+					WHEN ${lowerLike(db, appCatalog.description, contains)} THEN 260
+					WHEN ${lowerLike(db, appCatalog.modelDescription, contains)} THEN 220
 					WHEN EXISTS (
-						SELECT 1 FROM ${appCatalogMcpTools}
+						SELECT 1 FROM ${mcpToolsTable}
 						WHERE ${appCatalogMcpTools.catalogAppId} = ${appCatalog.id}
 							AND ${appCatalogMcpTools.removedAt} IS NULL
-							AND LOWER(${appCatalogMcpTools.description}) LIKE ${contains}
+							AND ${lowerLike(db, appCatalogMcpTools.description, contains)}
 					) THEN 180
 					ELSE 0
 				END
@@ -292,11 +328,17 @@ export async function listCatalogApps(
 				+ CASE WHEN COALESCE(${appCatalog.mcpToolCount}, 0) > 0 THEN 20 ELSE 0 END
 			)`;
 			const semanticRank = semanticMatchesJson
-				? sql`COALESCE((
-					SELECT CAST(json_extract(value, '$.score') AS REAL) * 500
-					FROM json_each(${semanticMatchesJson})
-					WHERE json_extract(value, '$.id') = ${appCatalog.id}
-				), 0)`
+				? postgres
+					? sql`COALESCE((
+						SELECT (match.value->>'score')::double precision * 500
+						FROM jsonb_array_elements(${semanticMatchesJson}::jsonb) AS match(value)
+						WHERE match.value->>'id' = ${appCatalog.id}
+					), 0)`
+					: sql`COALESCE((
+						SELECT CAST(json_extract(value, '$.score') AS REAL) * 500
+						FROM json_each(${semanticMatchesJson})
+						WHERE json_extract(value, '$.id') = ${appCatalog.id}
+					), 0)`
 				: sql`0`;
 			const searchRank = sql`(${lexicalRank} + ${semanticRank})`;
 			orderBy = [desc(searchRank), asc(appCatalog.name)];
@@ -345,16 +387,18 @@ export async function listCatalogApps(
 		!healthStatus &&
 		!region &&
 		!tag;
-	const nameIndex = hideShadowedVariants
-		? sql`${appCatalog} INDEXED BY app_catalog_explore_name_idx`
-		: sql`${appCatalog} INDEXED BY app_catalog_public_browse_name_idx`;
+	const nameIndex = postgres
+		? appCatalog
+		: hideShadowedVariants
+			? sql`${appCatalog} INDEXED BY app_catalog_explore_name_idx`
+			: sql`${appCatalog} INDEXED BY app_catalog_public_browse_name_idx`;
 
 	// A public page filtered by category or health status. Left to itself
 	// SQLite reads every discoverable app for the count and again for the page
 	// (18,560 rows each on 17 Nov 2026, whatever the category). The filter's own
 	// index reads only the apps of that category or status.
 	const filterIndex =
-		includeAll || includeUnreleased || normalizedSearch
+		postgres || includeAll || includeUnreleased || normalizedSearch
 			? null
 			: category && catalogCategoryFilterValues(category).length > 0
 				? sql`${appCatalog} INDEXED BY app_catalog_category_idx`
@@ -419,15 +463,18 @@ export async function listCatalogApps(
 		return { apps, total };
 	}
 
+	// Contains search cannot seek text; narrow by status before matching it.
+	const countSource =
+		!postgres && normalizedSearch && healthStatus
+			? sql`${appCatalog} INDEXED BY app_catalog_health_status_idx`
+			: appCatalog;
 	const total = unfilteredPublicBrowse
 		? await getPublicBrowseTotal(db, hideShadowedVariants)
-		: await db.$count(
-				// Contains search cannot seek text; narrow by status before matching it.
-				normalizedSearch && healthStatus
-					? sql`${appCatalog} INDEXED BY app_catalog_health_status_idx`
-					: appCatalog,
-				whereClause,
-			);
+		: await db
+				.select({ total: count() })
+				.from(countSource)
+				.where(whereClause)
+				.then((rows) => Number(rows[0]?.total ?? 0));
 
 	const browseTable =
 		unfilteredPublicBrowse && effectiveSortBy === "name"
@@ -452,21 +499,36 @@ export async function listPublicChatgptObservations(
 	offset: number,
 	limit: number,
 ) {
-	const listings = appCatalogStoreListings;
+	const postgres = coreStore(db) === "postgres";
+	const { appCatalog, appCatalogStoreListings: listings } = catalogTables(db);
 	// Bound as a parameter; catalogFeedKey also admits only a plain identifier.
 	const key = catalogFeedKey(feedKey);
-	const feedPath = (field: string) => `$.${key}.${field}`;
-	const observation = sql`json_extract(${listings.rawData}, ${feedPath("searchObservation")})`;
+	const observation = jsonRead(
+		db,
+		listings.rawData,
+		[key, "searchObservation"],
+		"json",
+	);
 	const listingName = sql<
 		string | null
-	>`nullif(json_extract(${observation}, '$.name'), '')`;
+	>`nullif(${jsonRead(db, observation, ["name"])}, '')`;
 	const browsable = and(
 		eq(appCatalog.status, "ENABLED"),
 		eq(appCatalog.isDiscoverable, true),
 	);
-	const matchedCount = sql<number>`json_extract(${observation}, '$.matchedCount')`;
-	const checkedAt = sql<string>`json_extract(${observation}, '$.checkedAt')`;
-	const queryCount = sql<number>`json_extract(${observation}, '$.queryCount')`;
+	const matchedCount = jsonRead(
+		db,
+		observation,
+		["matchedCount"],
+		"number",
+	) as unknown as SQL<number>;
+	const checkedAt = jsonRead(db, observation, ["checkedAt"]) as SQL<string>;
+	const queryCount = jsonRead(
+		db,
+		observation,
+		["queryCount"],
+		"number",
+	) as unknown as SQL<number>;
 	return db
 		.select({
 			name: sql<string>`coalesce(${listingName}, ${appCatalog.name})`.as(
@@ -496,7 +558,7 @@ export async function listPublicChatgptObservations(
 					"THIRD_PARTY",
 				]),
 				inArray(appCatalog.status, ["ENABLED", "DISABLED"]),
-				sql`coalesce(json_extract(${listings.rawData}, ${feedPath("visibility")}), 'public') <> 'private'`,
+				sql`coalesce(${jsonRead(db, listings.rawData, [key, "visibility"])}, 'public') <> 'private'`,
 				// Health maintenance can hide or disable a connector while its native
 				// store listing still has a public, dated search observation.
 				or(
@@ -506,9 +568,11 @@ export async function listPublicChatgptObservations(
 						sql`${listings.storeUrl} like 'https://chatgpt.com/apps/%'`,
 					),
 				),
-				sql`typeof(${matchedCount}) = 'integer' AND ${matchedCount} >= 0`,
-				sql`typeof(${queryCount}) = 'integer' AND ${queryCount} > 0`,
-				sql`datetime(${checkedAt}) IS NOT NULL`,
+				sql`${matchedCount} >= 0`,
+				sql`${queryCount} > 0`,
+				postgres
+					? sql`${checkedAt} ~ '^\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}'`
+					: sql`datetime(${checkedAt}) IS NOT NULL`,
 			),
 		)
 		.orderBy(desc(matchedCount), asc(listings.sourceAppId))
@@ -519,12 +583,17 @@ export async function listPublicChatgptObservations(
 export async function listPublicCatalogSitemapSlugs(
 	db: Database,
 ): Promise<string[]> {
+	const { appCatalog } = catalogTables(db);
 	const rows = await db
 		.select({ slug: sql<string>`${appCatalog.slug}`.as("slug") })
-		.from(sql`${appCatalog} INDEXED BY app_catalog_explore_name_idx`)
+		.from(
+			coreStore(db) === "postgres"
+				? appCatalog
+				: sql`${appCatalog} INDEXED BY app_catalog_explore_name_idx`,
+		)
 		.where(
 			and(
-				...catalogVisibilityConditions(appCatalog),
+				...catalogVisibilityConditions(db, appCatalog),
 				buildHideShadowedVariantsCondition(db),
 				ne(appCatalog.connectorType, "FIRST_PARTY_ECOSYSTEM"),
 				ne(appCatalog.slug, ""),
@@ -538,6 +607,7 @@ async function getPublicBrowseTotal(
 	db: Database,
 	hideShadowedVariants: boolean,
 ): Promise<number> {
+	const { appCatalogBrowseTotals } = catalogTables(db);
 	const [row] = await db
 		.select({
 			total: hideShadowedVariants

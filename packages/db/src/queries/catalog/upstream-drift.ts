@@ -4,12 +4,11 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, isNull, sql } from "drizzle-orm";
-import {
-	appCatalog,
-	appCatalogMcpTools,
-	upstreamDriftReports,
-} from "../../schema/catalog";
+import { and, eq, isNull } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+import { jsonWrite } from "../../core-store/dialect";
+import { batchNonEmpty } from "../../utils/batch";
+import { catalogTables } from "./catalog-tables";
 import { getCatalogAppById } from "./get-app";
 import {
 	getCatalogMcpTools,
@@ -68,6 +67,8 @@ export async function checkUpstreamDrift(
 	drifts: ToolDriftReportItem[];
 }> {
 	const empty = { addedTools: 0, removedTools: 0, changedTools: 0, drifts: [] };
+	const { appCatalog, appCatalogMcpTools, upstreamDriftReports } =
+		catalogTables(db);
 
 	// 1. Fetch the catalog app
 	const catalogApp = await getCatalogAppById(db, catalogAppId);
@@ -126,10 +127,12 @@ export async function checkUpstreamDrift(
 				.update(appCatalog)
 				.set({
 					healthStatus: "requires_auth",
-					mcpMetadata: sql`json_set(
-						COALESCE(${appCatalog.mcpMetadata}, '{}'),
-						'$.lastScannedAt', ${new Date().toISOString()}
-					)`,
+					mcpMetadata: jsonWrite(
+						db,
+						appCatalog.mcpMetadata,
+						["lastScannedAt"],
+						new Date().toISOString(),
+					),
 				})
 				.where(eq(appCatalog.id, catalogAppId));
 			console.log(
@@ -169,6 +172,7 @@ export async function checkUpstreamDrift(
 	const now = new Date().toISOString();
 
 	const drifts: ToolDriftReportItem[] = [];
+	const writes: BatchItem<"sqlite">[] = [];
 	let addedTools = 0;
 	let removedTools = 0;
 	let changedTools = 0;
@@ -226,34 +230,13 @@ export async function checkUpstreamDrift(
 			addedTools++;
 
 			// Upsert new row into snapshot
-			await db
-				.insert(appCatalogMcpTools)
-				.values({
-					id: crypto.randomUUID(),
-					catalogAppId,
-					toolName: liveTool.name,
-					title,
-					description: liveTool.description ?? null,
-					inputSchema,
-					outputSchema,
-					icons,
-					executionTaskSupport,
-					annotations,
-					meta,
-					schemaDialect,
-					schemaSource,
-					schemaSourceRef,
-					schemaSourceHash,
-					schemaSyncedAt: now,
-					detectedAt: now,
-					lastSeenAt: now,
-				})
-				.onConflictDoUpdate({
-					target: [
-						appCatalogMcpTools.catalogAppId,
-						appCatalogMcpTools.toolName,
-					],
-					set: {
+			writes.push(
+				db
+					.insert(appCatalogMcpTools)
+					.values({
+						id: crypto.randomUUID(),
+						catalogAppId,
+						toolName: liveTool.name,
 						title,
 						description: liveTool.description ?? null,
 						inputSchema,
@@ -267,10 +250,33 @@ export async function checkUpstreamDrift(
 						schemaSourceRef,
 						schemaSourceHash,
 						schemaSyncedAt: now,
+						detectedAt: now,
 						lastSeenAt: now,
-						removedAt: null,
-					},
-				});
+					})
+					.onConflictDoUpdate({
+						target: [
+							appCatalogMcpTools.catalogAppId,
+							appCatalogMcpTools.toolName,
+						],
+						set: {
+							title,
+							description: liveTool.description ?? null,
+							inputSchema,
+							outputSchema,
+							icons,
+							executionTaskSupport,
+							annotations,
+							meta,
+							schemaDialect,
+							schemaSource,
+							schemaSourceRef,
+							schemaSourceHash,
+							schemaSyncedAt: now,
+							lastSeenAt: now,
+							removedAt: null,
+						},
+					}),
+			);
 			continue;
 		}
 
@@ -351,31 +357,13 @@ export async function checkUpstreamDrift(
 		}
 
 		// Update snapshot row
-		await db
-			.insert(appCatalogMcpTools)
-			.values({
-				id: snap.id,
-				catalogAppId,
-				toolName: liveTool.name,
-				title,
-				description: liveTool.description ?? snap.description ?? null,
-				inputSchema,
-				outputSchema,
-				icons,
-				executionTaskSupport,
-				annotations,
-				meta,
-				schemaDialect,
-				schemaSource,
-				schemaSourceRef,
-				schemaSourceHash,
-				schemaSyncedAt: now,
-				detectedAt: snap.detectedAt,
-				lastSeenAt: now,
-			})
-			.onConflictDoUpdate({
-				target: [appCatalogMcpTools.catalogAppId, appCatalogMcpTools.toolName],
-				set: {
+		writes.push(
+			db
+				.insert(appCatalogMcpTools)
+				.values({
+					id: snap.id,
+					catalogAppId,
+					toolName: liveTool.name,
 					title,
 					description: liveTool.description ?? snap.description ?? null,
 					inputSchema,
@@ -389,10 +377,33 @@ export async function checkUpstreamDrift(
 					schemaSourceRef,
 					schemaSourceHash,
 					schemaSyncedAt: now,
+					detectedAt: snap.detectedAt,
 					lastSeenAt: now,
-					removedAt: null,
-				},
-			});
+				})
+				.onConflictDoUpdate({
+					target: [
+						appCatalogMcpTools.catalogAppId,
+						appCatalogMcpTools.toolName,
+					],
+					set: {
+						title,
+						description: liveTool.description ?? snap.description ?? null,
+						inputSchema,
+						outputSchema,
+						icons,
+						executionTaskSupport,
+						annotations,
+						meta,
+						schemaDialect,
+						schemaSource,
+						schemaSourceRef,
+						schemaSourceHash,
+						schemaSyncedAt: now,
+						lastSeenAt: now,
+						removedAt: null,
+					},
+				}),
+		);
 	}
 
 	// 4b. Find tools in snapshot not in live response (removed_upstream)
@@ -422,34 +433,46 @@ export async function checkUpstreamDrift(
 			removedTools++;
 
 			// Mark as removed in snapshot
-			await db
-				.update(appCatalogMcpTools)
-				.set({ removedAt: now })
-				.where(eq(appCatalogMcpTools.id, snap.id));
+			writes.push(
+				db
+					.update(appCatalogMcpTools)
+					.set({ removedAt: now })
+					.where(eq(appCatalogMcpTools.id, snap.id)),
+			);
 		}
 	}
 
 	// Update catalog app lastScannedAt
-	await db
-		.update(appCatalog)
-		.set({
-			mcpMetadata: sql`json_set(
-				COALESCE(${appCatalog.mcpMetadata}, '{}'),
-				'$.lastScannedAt', ${now}
-			)`,
-		})
-		.where(eq(appCatalog.id, catalogAppId));
+	writes.push(
+		db
+			.update(appCatalog)
+			.set({
+				mcpMetadata: jsonWrite(
+					db,
+					appCatalog.mcpMetadata,
+					["lastScannedAt"],
+					now,
+				),
+			})
+			.where(eq(appCatalog.id, catalogAppId)),
+	);
 
 	if (drifts.length === 0) {
-		await db
-			.update(upstreamDriftReports)
-			.set({ resolvedAt: now })
-			.where(
-				and(
-					eq(upstreamDriftReports.catalogAppId, catalogAppId),
-					isNull(upstreamDriftReports.resolvedAt),
+		writes.push(
+			db
+				.update(upstreamDriftReports)
+				.set({ resolvedAt: now })
+				.where(
+					and(
+						eq(upstreamDriftReports.catalogAppId, catalogAppId),
+						isNull(upstreamDriftReports.resolvedAt),
+					),
 				),
-			);
+		);
+	}
+
+	if (writes.length > 0) {
+		await db.batch(batchNonEmpty(writes));
 	}
 
 	return { addedTools, removedTools, changedTools, drifts };

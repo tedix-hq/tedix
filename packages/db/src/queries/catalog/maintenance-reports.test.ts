@@ -175,7 +175,7 @@ describe("buildCatalogQualityReport stale boundary", () => {
 			] as const) {
 				await insertEntity(db, id, lastSeenAt, removedAt);
 			}
-			const report = await buildCatalogQualityReport(d1, {
+			const report = await buildCatalogQualityReport(db, {
 				staleLastSeenDays: 14,
 			});
 			expect(report.issues).toEqual([
@@ -231,7 +231,7 @@ describe("buildCatalogQualityReport", () => {
 			logoUrl: null,
 		});
 		const before = sqlite.prepare("SELECT total_changes() AS changes").get();
-		const report = await buildCatalogQualityReport(d1);
+		const report = await buildCatalogQualityReport(db);
 		expect(sqlite.prepare("SELECT total_changes() AS changes").get()).toEqual(
 			before,
 		);
@@ -333,7 +333,7 @@ describe("buildCatalogQualityReport", () => {
 			slug: "same_slug",
 		});
 		await seedCatalog(db, "unrelated", { name: "" });
-		const report = await buildCatalogQualityReport(d1, {
+		const report = await buildCatalogQualityReport(db, {
 			catalogAppId: "chosen",
 		});
 		expect(report).toMatchObject({ catalogAppId: "chosen", issueCount: 2 });
@@ -348,7 +348,7 @@ describe("buildCatalogQualityReport", () => {
 			details: { catalogAppIds: ["chosen", "sibling"] },
 		});
 		expect(
-			(await buildCatalogQualityReport(d1, { catalogAppId: "absent" })).issues,
+			(await buildCatalogQualityReport(db, { catalogAppId: "absent" })).issues,
 		).toEqual([]);
 	});
 
@@ -372,7 +372,7 @@ describe("buildCatalogQualityReport", () => {
 			title: "List entries",
 			toolTypeId: "mcp",
 		});
-		const report = await buildCatalogQualityReport(d1);
+		const report = await buildCatalogQualityReport(db);
 		expect(report).toMatchObject({
 			issueCount: 3,
 			errorCount: 1,
@@ -418,7 +418,7 @@ describe("buildCatalogQualityReport", () => {
 				logoUrl,
 				rawData: { quality: { logoStatus } },
 			});
-			const report = await buildCatalogQualityReport(d1);
+			const report = await buildCatalogQualityReport(db);
 			expect(report.issues.map((issue) => issue.code)).toEqual(
 				expected ? ["asset_backfill_candidate"] : [],
 			);
@@ -443,7 +443,7 @@ describe("buildCatalogQualityReport", () => {
 			detectedAt: NOW,
 			lastSeenAt: "2020-01-01T00:00:00.000Z",
 		});
-		const report = await buildCatalogQualityReport(d1, {
+		const report = await buildCatalogQualityReport(db, {
 			staleLastSeenDays: input,
 		});
 		expect(report.staleLastSeenDays).toBe(expected);
@@ -454,13 +454,13 @@ describe("buildCatalogQualityReport", () => {
 		const { db, d1 } = setup();
 		for (let index = 0; index < 205; index++)
 			await seedCatalog(db, `fictional-${index}`, { name: "" });
-		const report = await buildCatalogQualityReport(d1);
+		const report = await buildCatalogQualityReport(db);
 		expect(report).toMatchObject({
 			issueCount: 200,
 			errorCount: 200,
 			warningCount: 0,
 		});
-		const integrity = await runCatalogIntegrityMaintenance(db, d1, {
+		const integrity = await runCatalogIntegrityMaintenance(db, {
 			apply: false,
 		});
 		expect(integrity.checkedApps).toBe(205);
@@ -505,7 +505,7 @@ describe("runCatalogIntegrityMaintenance", () => {
 	it("apply:false writes nothing while composing integrity, quality and write-capability reports", async () => {
 		const { db, d1, sqlite } = await fixture();
 		const before = sqlite.prepare("SELECT total_changes() AS changes").get();
-		const report = await runCatalogIntegrityMaintenance(db, d1, {
+		const report = await runCatalogIntegrityMaintenance(db, {
 			apply: false,
 			catalogAppId: "a-fictional-repair",
 		});
@@ -544,7 +544,7 @@ describe("runCatalogIntegrityMaintenance", () => {
 				.select()
 				.from(appCatalog)
 				.where(eq(appCatalog.id, "b-fictional-other"));
-			const report = await runCatalogIntegrityMaintenance(db, d1, {
+			const report = await runCatalogIntegrityMaintenance(db, {
 				apply,
 				catalogAppId: "a-fictional-repair",
 			});
@@ -581,7 +581,7 @@ describe("runCatalogIntegrityMaintenance", () => {
 					.from(appCatalog)
 					.where(eq(appCatalog.id, "b-fictional-other")),
 			).toEqual([beforeOther]);
-			const repeated = await runCatalogIntegrityMaintenance(db, d1, {
+			const repeated = await runCatalogIntegrityMaintenance(db, {
 				apply: true,
 				catalogAppId: "a-fictional-repair",
 			});
@@ -593,7 +593,7 @@ describe("runCatalogIntegrityMaintenance", () => {
 		const { db, d1 } = setup();
 		await seedCatalog(db, "a-fictional", { mcpToolCount: 3 });
 		await seedCatalog(db, "b-fictional", { mcpToolCount: 4 });
-		const report = await runCatalogIntegrityMaintenance(db, d1, {
+		const report = await runCatalogIntegrityMaintenance(db, {
 			apply: true,
 			limit: 1,
 		});
@@ -656,7 +656,7 @@ describe("runCatalogDriftDetection", () => {
 			await seedCandidate(db, "fictional-drift");
 			await seedBase(db, "fictional-drift");
 			vi.mocked(checkUpstreamDrift).mockResolvedValue(drift(driftType));
-			const report = await runCatalogDriftDetection(db, d1);
+			const report = await runCatalogDriftDetection(db);
 			expect(report).toEqual({
 				checked: 1,
 				candidates: 1,
@@ -692,7 +692,7 @@ describe("runCatalogDriftDetection", () => {
 		await seedCandidate(db, "fictional-manual");
 		await seedBase(db, "fictional-manual");
 		vi.mocked(checkUpstreamDrift).mockResolvedValue(drift("schema_changed"));
-		const disabled = await runCatalogDriftDetection(db, d1, {
+		const disabled = await runCatalogDriftDetection(db, {
 			autoSync: false,
 		});
 		expect(disabled).toMatchObject({
@@ -704,7 +704,7 @@ describe("runCatalogDriftDetection", () => {
 		vi.mocked(checkUpstreamDrift).mockResolvedValue(
 			drift("manual_review" as ToolDriftReportItem["driftType"]),
 		);
-		const manual = await runCatalogDriftDetection(db, d1);
+		const manual = await runCatalogDriftDetection(db);
 		expect(manual).toMatchObject({ reportsSaved: 1, autoSyncs: 0 });
 		expect(syncCatalogToolsToApp).not.toHaveBeenCalled();
 		expect(await db.select().from(upstreamDriftReports)).toEqual([
@@ -738,7 +738,7 @@ describe("runCatalogDriftDetection", () => {
 			sourceAppId: "opted-in",
 		});
 		vi.mocked(checkUpstreamDrift).mockResolvedValue(drift("metadata_changed"));
-		expect(await runCatalogDriftDetection(db, d1)).toMatchObject({
+		expect(await runCatalogDriftDetection(db)).toMatchObject({
 			autoSyncs: 1,
 		});
 		expect(syncCatalogToolsToApp).toHaveBeenCalledExactlyOnceWith(
@@ -759,7 +759,7 @@ describe("runCatalogDriftDetection", () => {
 			await seedBase(db, "fictional-default");
 			sqlite.prepare("UPDATE apps SET metadata = ?").run(metadata);
 			vi.mocked(checkUpstreamDrift).mockResolvedValue(drift("new_upstream"));
-			expect(await runCatalogDriftDetection(db, d1)).toMatchObject({
+			expect(await runCatalogDriftDetection(db)).toMatchObject({
 				autoSyncs: 1,
 			});
 			expect(syncCatalogToolsToApp).toHaveBeenCalledWith(
@@ -780,7 +780,7 @@ describe("runCatalogDriftDetection", () => {
 		await seedCandidate(db, "disabled", { status: "DISABLED" });
 		await seedCatalog(db, "endpointless");
 		await seedCandidate(db, "requires-auth", { healthStatus: "requires_auth" });
-		expect(await runCatalogDriftDetection(db, d1, { limit: 1 })).toMatchObject({
+		expect(await runCatalogDriftDetection(db, { limit: 1 })).toMatchObject({
 			checked: 1,
 			candidates: 1,
 		});
@@ -790,7 +790,7 @@ describe("runCatalogDriftDetection", () => {
 		);
 		vi.mocked(checkUpstreamDrift).mockClear();
 		expect(
-			await runCatalogDriftDetection(db, d1, {
+			await runCatalogDriftDetection(db, {
 				catalogAppId: "a-without-base",
 			}),
 		).toMatchObject({ checked: 1, candidates: 1 });
@@ -799,7 +799,7 @@ describe("runCatalogDriftDetection", () => {
 			"a-without-base",
 		);
 		vi.mocked(checkUpstreamDrift).mockClear();
-		expect(await runCatalogDriftDetection(db, d1)).toMatchObject({
+		expect(await runCatalogDriftDetection(db)).toMatchObject({
 			checked: 2,
 			candidates: 3,
 			reportsSaved: 0,
@@ -815,7 +815,7 @@ describe("runCatalogDriftDetection", () => {
 			toolSource: "openapi",
 		});
 		vi.mocked(checkUpstreamDrift).mockResolvedValue(drift("schema_changed"));
-		expect(await runCatalogDriftDetection(db, d1)).toMatchObject({
+		expect(await runCatalogDriftDetection(db)).toMatchObject({
 			checked: 1,
 			reportsSaved: 1,
 			autoSyncs: 0,
@@ -839,7 +839,7 @@ describe("runCatalogDriftDetection", () => {
 			};
 		});
 		vi.mocked(syncCatalogToolsToApp).mockRejectedValue("Fictional sync failed");
-		const report = await runCatalogDriftDetection(db, d1);
+		const report = await runCatalogDriftDetection(db);
 		expect(report).toMatchObject({
 			checked: 3,
 			reportsSaved: 2,

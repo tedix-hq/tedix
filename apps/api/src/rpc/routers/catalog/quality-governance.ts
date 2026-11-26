@@ -776,7 +776,7 @@ export const checkIntegrityCatalog = fleetCatalogOs.checkIntegrity
 		if (input.apply) {
 			requireCatalogOperatorAccess(context);
 		}
-		return runCatalogIntegrityMaintenance(context.db, context.env.DB, input);
+		return runCatalogIntegrityMaintenance(context.db, input);
 	});
 
 // =============================================================================

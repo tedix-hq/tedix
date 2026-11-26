@@ -405,7 +405,7 @@ describe("catalog vendor variants", () => {
 		const rows = await db
 			.select({
 				id: appCatalog.id,
-				vendorKey: catalogVendorKeySql(appCatalog).as("vendor_key"),
+				vendorKey: catalogVendorKeySql(db, appCatalog).as("vendor_key"),
 			})
 			.from(appCatalog)
 			.orderBy(appCatalog.id);

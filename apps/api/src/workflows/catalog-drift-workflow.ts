@@ -40,7 +40,7 @@ export class CatalogDriftWorkflow extends WorkflowEntrypoint<
 
 		try {
 			const result = await step.do("check upstream catalog drift", async () =>
-				runCatalogDriftDetection(db, this.env.DB, {
+				runCatalogDriftDetection(db, {
 					limit: payload.limit ?? 50,
 					catalogAppId: payload.catalogAppId,
 					autoSync: payload.autoSync ?? true,

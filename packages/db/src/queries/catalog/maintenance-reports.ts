@@ -8,20 +8,12 @@ import {
 	notExists,
 	or,
 	sql,
+	type SQLWrapper,
 } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
-import { createDbQueryClient, type DbQueryClient } from "../../query-client";
-import { apps } from "../../schema/apps";
-import {
-	appCatalog,
-	appCatalogMcpPrompts,
-	appCatalogMcpResources,
-	appCatalogMcpResourceTemplates,
-	appCatalogMcpTools,
-	appCatalogStoreListings,
-} from "../../schema/catalog";
-import { appTools } from "../../schema/tools";
+import { coreStore, jsonRead } from "../../core-store/dialect";
+import { catalogTables } from "./catalog-tables";
 import { resolveDriftReport, saveDriftReport } from "./drift-reports";
 import { checkCatalogIntegrity } from "./mcp-tools";
 import { syncCatalogToolsToApp } from "./sync-tools-to-app";
@@ -155,12 +147,14 @@ const QUALITY_ISSUE_LIMIT = 200;
 const DEFAULT_STALE_LAST_SEEN_DAYS = 14;
 const MIN_PUBLIC_DESCRIPTION_LENGTH = 80;
 
-const catalogQualityFields = {
+const catalogQualityFields = (
+	appCatalog: ReturnType<typeof catalogTables>["appCatalog"],
+) => ({
 	id: appCatalog.id,
 	name: appCatalog.name,
 	slug: appCatalog.slug,
 	toolSource: appCatalog.toolSource,
-};
+});
 
 /** `(?1 IS NULL OR column = ?1)`: only a supplied catalog app ID narrows. */
 function scopedToCatalogApp(
@@ -226,12 +220,13 @@ function qualityIssue(
 }
 
 async function collectMissingCatalogFieldIssues(
-	db: DbQueryClient,
+	db: DbClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
+	const { appCatalog } = catalogTables(db);
 	const rows = await db
 		.select({
-			...catalogQualityFields,
+			...catalogQualityFields(appCatalog),
 			description: appCatalog.description,
 			logoUrl: appCatalog.logoUrl,
 		})
@@ -304,20 +299,27 @@ async function collectMissingCatalogFieldIssues(
 }
 
 async function collectPublicPresentationIssues(
-	db: DbQueryClient,
+	db: DbClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
-	const screenshotUrl = sql`json_extract(${appCatalog.richContent}, '$.screenshotUrl')`;
-	const logoAssetStatus = sql`json_extract(${appCatalog.rawData}, '$.quality.logoStatus')`;
-	const screenshotAssetStatus = sql`json_extract(${appCatalog.rawData}, '$.quality.screenshotStatus')`;
+	const { appCatalog } = catalogTables(db);
+	const screenshotUrl = jsonRead(db, appCatalog.richContent, ["screenshotUrl"]);
+	const logoAssetStatus = jsonRead(db, appCatalog.rawData, [
+		"quality",
+		"logoStatus",
+	]);
+	const screenshotAssetStatus = jsonRead(db, appCatalog.rawData, [
+		"quality",
+		"screenshotStatus",
+	]);
 	const rows = await db
 		.select({
-			...catalogQualityFields,
+			...catalogQualityFields(appCatalog),
 			description: appCatalog.description,
 			logoUrl: appCatalog.logoUrl,
 			svgLogo: sql<
 				string | null
-			>`json_extract(${appCatalog.systemHints}, '$.svgLogo')`.as("svgLogo"),
+			>`${jsonRead(db, appCatalog.systemHints, ["svgLogo"])}`.as("svgLogo"),
 			screenshotUrl: sql<string | null>`${screenshotUrl}`.as("screenshotUrl"),
 			logoAssetStatus: sql<string | null>`${logoAssetStatus}`.as(
 				"logoAssetStatus",
@@ -411,12 +413,13 @@ async function collectPublicPresentationIssues(
 }
 
 async function collectMissingSourceIdIssues(
-	db: DbQueryClient,
+	db: DbClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
+	const { appCatalog, appCatalogStoreListings } = catalogTables(db);
 	const blankSourceRows = await db
 		.select({
-			...catalogQualityFields,
+			...catalogQualityFields(appCatalog),
 			count: sql<number>`count(*)`.as("count"),
 		})
 		.from(appCatalogStoreListings)
@@ -436,7 +439,7 @@ async function collectMissingSourceIdIssues(
 		.limit(QUALITY_ISSUE_LIMIT);
 
 	const missingListingRows = await db
-		.select(catalogQualityFields)
+		.select(catalogQualityFields(appCatalog))
 		.from(appCatalog)
 		.where(
 			and(
@@ -476,13 +479,14 @@ async function collectMissingSourceIdIssues(
 }
 
 async function collectLeakageIssues(
-	db: DbQueryClient,
+	db: DbClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
+	const { appCatalog, apps, appTools } = catalogTables(db);
 	const exposedUrls = sql`lower(coalesce(${appCatalog.baseUrl}, '') || ' ' || coalesce(${appCatalog.mcpEndpointNormalized}, '') || ' ' || coalesce(${appCatalog.website}, ''))`;
 	const endpointRows = await db
 		.select({
-			...catalogQualityFields,
+			...catalogQualityFields(appCatalog),
 			baseUrl: appCatalog.baseUrl,
 			mcpEndpointNormalized: appCatalog.mcpEndpointNormalized,
 			website: appCatalog.website,
@@ -511,7 +515,7 @@ async function collectLeakageIssues(
 
 	const proxyToolRows = await db
 		.select({
-			...catalogQualityFields,
+			...catalogQualityFields(appCatalog),
 			appId: sql<string>`${apps.id}`.as("appId"),
 			appSlug: sql<string | null>`${apps.slug}`.as("appSlug"),
 			count: sql<number>`count(${appTools.id})`.as("count"),
@@ -532,7 +536,7 @@ async function collectLeakageIssues(
 
 	const publicProxyRows = await db
 		.select({
-			...catalogQualityFields,
+			...catalogQualityFields(appCatalog),
 			appId: sql<string>`${apps.id}`.as("appId"),
 			appSlug: sql<string | null>`${apps.slug}`.as("appSlug"),
 		})
@@ -588,9 +592,15 @@ async function collectLeakageIssues(
 }
 
 async function collectDuplicateSlugIssues(
-	db: DbQueryClient,
+	db: DbClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
+	const postgres = coreStore(db) === "postgres";
+	const { appCatalog } = catalogTables(db);
+	const concat = (expr: SQLWrapper, separator: string) =>
+		postgres
+			? sql`string_agg(${expr}, ${separator})`
+			: sql`group_concat(${expr}, ${separator})`;
 	const normalized = db.$with("normalized").as(
 		db
 			.select({
@@ -619,11 +629,11 @@ async function collectDuplicateSlugIssues(
 				"normalizedSlug",
 			),
 			count: sql<number>`count(*)`.as("count"),
-			catalogAppIds: sql<string>`group_concat(${normalized.id}, ',')`.as(
+			catalogAppIds: sql<string>`${concat(normalized.id, ",")}`.as(
 				"catalogAppIds",
 			),
-			names: sql<string>`group_concat(${normalized.name}, ' | ')`.as("names"),
-			slugs: sql<string>`group_concat(${normalized.slug}, ' | ')`.as("slugs"),
+			names: sql<string>`${concat(normalized.name, " | ")}`.as("names"),
+			slugs: sql<string>`${concat(normalized.slug, " | ")}`.as("slugs"),
 		})
 		.from(normalized)
 		.groupBy(normalized.normalizedSlug)
@@ -656,27 +666,32 @@ async function collectDuplicateSlugIssues(
 }
 
 async function collectStaleLastSeenIssues(
-	db: DbQueryClient,
+	db: DbClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
 	const staleLastSeenDays = Math.min(
 		Math.max(options.staleLastSeenDays ?? DEFAULT_STALE_LAST_SEEN_DAYS, 1),
 		365,
 	);
+	const postgres = coreStore(db) === "postgres";
 	const threshold = `-${staleLastSeenDays} days`;
-	const tables = [
-		{ table: appCatalogMcpTools, entity: "tool" },
-		{ table: appCatalogMcpResources, entity: "resource" },
-		{ table: appCatalogMcpResourceTemplates, entity: "resource_template" },
-		{ table: appCatalogMcpPrompts, entity: "prompt" },
+	const tables = catalogTables(db);
+	const surfaces = [
+		{ table: tables.appCatalogMcpTools, entity: "tool" },
+		{ table: tables.appCatalogMcpResources, entity: "resource" },
+		{
+			table: tables.appCatalogMcpResourceTemplates,
+			entity: "resource_template",
+		},
+		{ table: tables.appCatalogMcpPrompts, entity: "prompt" },
 	] as const;
+	const { appCatalog } = tables;
 	const issues: CatalogQualityIssue[] = [];
 
-	for (const table of tables) {
-		const surface = table.table;
+	for (const { table: surface, entity } of surfaces) {
 		const rows = await db
 			.select({
-				...catalogQualityFields,
+				...catalogQualityFields(appCatalog),
 				count: sql<number>`count(${surface.id})`.as("count"),
 				oldestLastSeenAt: sql<string | null>`min(${surface.lastSeenAt})`.as(
 					"oldestLastSeenAt",
@@ -691,7 +706,9 @@ async function collectStaleLastSeenIssues(
 				and(
 					eq(appCatalog.status, "ENABLED"),
 					isNull(surface.removedAt),
-					sql`julianday(${surface.lastSeenAt}) < julianday('now', ${threshold})`,
+					postgres
+						? sql`${surface.lastSeenAt}::timestamptz < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - ${staleLastSeenDays} * interval '1 day'`
+						: sql`julianday(${surface.lastSeenAt}) < julianday('now', ${threshold})`,
 					scopedToCatalogApp(appCatalog.id, options.catalogAppId),
 				),
 			)
@@ -706,9 +723,9 @@ async function collectStaleLastSeenIssues(
 					"stale_last_seen",
 					"warning",
 					normalizeCount(row.count),
-					`${row.slug ?? row.name} has ${normalizeCount(row.count)} active ${table.entity} row(s) not seen in ${staleLastSeenDays}+ day(s).`,
+					`${row.slug ?? row.name} has ${normalizeCount(row.count)} active ${entity} row(s) not seen in ${staleLastSeenDays}+ day(s).`,
 					{
-						entity: table.entity,
+						entity,
 						staleLastSeenDays,
 						oldestLastSeenAt: row.oldestLastSeenAt,
 						newestLastSeenAt: row.newestLastSeenAt,
@@ -722,14 +739,13 @@ async function collectStaleLastSeenIssues(
 }
 
 export async function buildCatalogQualityReport(
-	d1: D1Database,
+	db: DbClient,
 	options: RunCatalogIntegrityOptions = {},
 ): Promise<CatalogQualityReport> {
 	const staleLastSeenDays = Math.min(
 		Math.max(options.staleLastSeenDays ?? DEFAULT_STALE_LAST_SEEN_DAYS, 1),
 		365,
 	);
-	const db = createDbQueryClient(d1);
 	const issueGroups = await Promise.all([
 		collectMissingCatalogFieldIssues(db, options),
 		collectPublicPresentationIssues(db, options),
@@ -758,7 +774,6 @@ export async function buildCatalogQualityReport(
 
 export async function runCatalogIntegrityMaintenance(
 	db: DbClient,
-	d1: D1Database,
 	options: RunCatalogIntegrityOptions = {},
 ) {
 	const integrity = await checkCatalogIntegrity(db, {
@@ -766,7 +781,7 @@ export async function runCatalogIntegrityMaintenance(
 		limit: options.limit ?? 10_000,
 		catalogAppId: options.catalogAppId,
 	});
-	const qualityReport = await buildCatalogQualityReport(d1, options);
+	const qualityReport = await buildCatalogQualityReport(db, options);
 	// Standing backlog of tools nobody has classified. Rides this workflow (cron
 	// + workflow_runs ledger + operator endpoint) rather than a one-off script,
 	// because a script nobody re-runs is exactly the invisible backlog the
@@ -789,12 +804,12 @@ export type RunCatalogDriftOptions = {
 
 export async function runCatalogDriftDetection(
 	db: DbClient,
-	d1: D1Database,
 	options: RunCatalogDriftOptions = {},
 ) {
 	const limit = options.limit ?? 50;
 	const autoSync = options.autoSync ?? true;
-	const reader = createDbQueryClient(d1);
+	const { appCatalog, apps } = catalogTables(db);
+	const reader = db;
 	const catalogApps: CatalogDriftCandidate[] = await reader
 		.select({
 			id: appCatalog.id,
@@ -828,8 +843,8 @@ export async function runCatalogDriftDetection(
 				ELSE 3
 			END`,
 			sql`COALESCE(
-				json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt'),
-				json_extract(${appCatalog.healthData}, '$.lastCheckedAt'),
+				${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])},
+				${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])},
 				'1970-01-01T00:00:00.000Z'
 			)`,
 			appCatalog.slug,

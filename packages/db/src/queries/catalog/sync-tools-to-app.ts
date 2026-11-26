@@ -21,7 +21,11 @@ import {
 } from "@tedix/api-contract/schemas/tools";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { apps, appTools, skillEntries } from "../../schema/index";
+import {
+	apps as schemaApps,
+	appTools as schemaAppTools,
+} from "../../schema/index";
+import { catalogTables } from "./catalog-tables";
 import type {
 	ToolReviewDiff,
 	ToolReviewPendingDefinition,
@@ -108,9 +112,9 @@ export interface SyncCatalogToolsToAppOptions {
 	dryRun: boolean;
 	disableRemoved?: boolean;
 	/** Internal dry-run support for createBaseAppFromCatalog planning. */
-	targetAppOverride?: typeof apps.$inferSelect;
+	targetAppOverride?: typeof schemaApps.$inferSelect;
 	/** Internal dry-run support for createBaseAppFromCatalog planning. */
-	existingToolsOverride?: Array<typeof appTools.$inferSelect>;
+	existingToolsOverride?: Array<typeof schemaAppTools.$inferSelect>;
 }
 
 export interface SyncCatalogToolsToAppResultItem {
@@ -197,6 +201,7 @@ export async function syncCatalogToolsToApp(
 		existingToolsOverride,
 	} = options;
 
+	const { apps, appTools, skillEntries } = catalogTables(db);
 	const catalogApp = await getCatalogAppById(db, catalogAppId);
 	if (!catalogApp) {
 		throw new Error(`Catalog app not found: ${catalogAppId}`);
@@ -312,10 +317,10 @@ export async function syncCatalogToolsToApp(
 	});
 
 	// Collect all planned mutations, then execute atomically in a D1 batch.
-	const plannedInserts: (typeof appTools.$inferInsert)[] = [];
+	const plannedInserts: (typeof schemaAppTools.$inferInsert)[] = [];
 	const plannedUpdates: Array<{
 		id: string;
-		set: Partial<typeof appTools.$inferInsert>;
+		set: Partial<typeof schemaAppTools.$inferInsert>;
 	}> = [];
 	const plannedDisables: string[] = [];
 
@@ -467,7 +472,7 @@ export async function syncCatalogToolsToApp(
 					visibility: "public",
 					createdAt: now,
 					updatedAt: now,
-				} as typeof appTools.$inferInsert);
+				} as typeof schemaAppTools.$inferInsert);
 				results.push({
 					toolName: ct.toolName,
 					action: "created",
@@ -710,7 +715,7 @@ export async function syncCatalogToolsToApp(
 								reviewBatchId,
 								reviewPending: null,
 								updatedAt: now,
-							}) as Partial<typeof appTools.$inferInsert>,
+							}) as Partial<typeof schemaAppTools.$inferInsert>,
 			});
 			results.push({
 				toolName: ct.toolName,

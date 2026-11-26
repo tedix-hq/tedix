@@ -42,7 +42,7 @@ export class CatalogIntegrityWorkflow extends WorkflowEntrypoint<
 
 		try {
 			const result = await step.do("check catalog integrity", async () =>
-				runCatalogIntegrityMaintenance(db, this.env.DB, {
+				runCatalogIntegrityMaintenance(db, {
 					apply: payload.apply ?? true,
 					limit: payload.limit ?? 10_000,
 					catalogAppId: payload.catalogAppId,

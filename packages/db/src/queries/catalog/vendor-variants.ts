@@ -25,8 +25,15 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-import { alias, type SQLiteColumn } from "drizzle-orm/sqlite-core";
-import { appCatalog } from "../../schema/catalog";
+import {
+	alias as sqliteAlias,
+	type SQLiteColumn,
+	type SQLiteTable,
+} from "drizzle-orm/sqlite-core";
+import { alias as pgAlias, type PgTable } from "drizzle-orm/pg-core";
+import { appCatalog as schemaAppCatalog } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import type { Database } from "./tool-source-policy";
 
 type CatalogVendorColumns = {
@@ -51,10 +58,13 @@ type CatalogVendorColumns = {
  * SQL mirror of `extractVendorDomain(website)`: lowercased host without a
  * scheme, path, query, fragment, port or leading `www.`; NULL when empty.
  */
-function vendorDomainSql(table: CatalogVendorColumns): SQL {
+function vendorDomainSql(db: Database, table: CatalogVendorColumns): SQL {
+	const postgres = coreStore(db) === "postgres";
 	const unschemed = sql`replace(replace(lower(trim(${table.website})), 'https://', ''), 'http://', '')`;
 	const delimited = sql`replace(replace(replace(${unschemed}, '?', '/'), '#', '/'), ':', '/')`;
-	const host = sql`substr(${delimited}, 1, instr(${delimited} || '/', '/') - 1)`;
+	const host = postgres
+		? sql`substr(${delimited}, 1, strpos(${delimited} || '/', '/') - 1)`
+		: sql`substr(${delimited}, 1, instr(${delimited} || '/', '/') - 1)`;
 	return sql`nullif(substr(${host}, CASE WHEN ${host} LIKE 'www.%' THEN 5 ELSE 1 END), '')`;
 }
 
@@ -62,17 +72,33 @@ function vendorDomainSql(table: CatalogVendorColumns): SQL {
  * SQL mirror of `normalizeVendorName(name)`: trimmed, lowercased, internal
  * whitespace collapsed (runs of up to 16 characters); NULL when empty.
  */
-function vendorNameSql(table: CatalogVendorColumns): SQL {
-	let collapsed = sql`replace(replace(replace(lower(${table.name}), char(9), ' '), char(10), ' '), char(13), ' ')`;
+function vendorNameSql(db: Database, table: CatalogVendorColumns): SQL {
+	const postgres = coreStore(db) === "postgres";
+	const chr = (code: number) =>
+		postgres ? sql`chr(${code})` : sql`char(${code})`;
+	let collapsed = sql`replace(replace(replace(lower(${table.name}), ${chr(9)}, ' '), ${chr(10)}, ' '), ${chr(13)}, ' ')`;
 	for (let pass = 0; pass < 4; pass += 1) {
 		collapsed = sql`replace(${collapsed}, '  ', ' ')`;
 	}
 	return sql`nullif(trim(${collapsed}), '')`;
 }
 
+function catalogAlias<T extends SQLiteTable>(
+	db: Database,
+	table: T,
+	name: string,
+): T {
+	return (coreStore(db) === "d1"
+		? sqliteAlias(table, name)
+		: pgAlias(table as unknown as PgTable, name)) as unknown as T;
+}
+
 /** `domain|name` vendor key, NULL when either half is missing. */
-export function catalogVendorKeySql(table: CatalogVendorColumns): SQL {
-	return sql`(${vendorDomainSql(table)} || '|' || ${vendorNameSql(table)})`;
+export function catalogVendorKeySql(
+	db: Database,
+	table: CatalogVendorColumns,
+): SQL {
+	return sql`(${vendorDomainSql(db, table)} || '|' || ${vendorNameSql(db, table)})`;
 }
 
 /**
@@ -101,8 +127,16 @@ export interface CatalogVisibilityOptions {
 	includeUnreleased?: boolean;
 }
 
+/** Literal booleans keep SQLite's partial-index proofs working under INDEXED BY. */
+function boolLiteral(db: Database, value: boolean): SQL {
+	return coreStore(db) === "postgres"
+		? sql.raw(value ? "true" : "false")
+		: sql.raw(value ? "1" : "0");
+}
+
 /** The public catalog visibility filter used by list browsing. */
 export function catalogVisibilityConditions(
+	db: Database,
 	table: CatalogVendorColumns,
 	options: CatalogVisibilityOptions = {},
 ): SQL[] {
@@ -112,7 +146,7 @@ export function catalogVisibilityConditions(
 		conditions.push(
 			sql`${table.developerType} IN ('TRUSTED_PARTNER', 'OAI', 'THIRD_PARTY')`,
 		);
-		conditions.push(sql`${table.isDiscoverable} = 1`);
+		conditions.push(sql`${table.isDiscoverable} = ${boolLiteral(db, true)}`);
 		conditions.push(sql`${table.status} = 'ENABLED'`);
 	}
 	if (!options.includeUnreleased) {
@@ -138,11 +172,18 @@ function shadowedCatalogIdsQuery(
 	db: Database,
 	options: CatalogVisibilityOptions = {},
 ) {
-	const sibling = alias(appCatalog, "vendor_sibling");
-	const key = catalogVendorKeySql(sibling);
+	const postgres = coreStore(db) === "postgres";
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const sibling = catalogAlias(db, appCatalog, "vendor_sibling");
+	const key = catalogVendorKeySql(db, sibling);
 	const inventory = catalogInventorySql(sibling);
 	const runnable = sql`(CASE WHEN ${catalogRunnableSql(sibling)} THEN 1 ELSE 0 END)`;
 	const stocked = sql`(CASE WHEN ${inventory} > 0 THEN 1 ELSE 0 END)`;
+	// SQLite GLOB is NULL on a NULL slug and sorts before 0; Postgres ~ is
+	// boolean, so NULLS FIRST keeps the same rank order.
+	const slugPattern = postgres
+		? sql`(${sibling.slug} ~ '-[0-9]')`
+		: sql`(${sibling.slug} GLOB '*-[0-9]*')`;
 	const grouped = db
 		.select({
 			id: sql<string>`${sibling.id}`.as("grouped_id"),
@@ -155,7 +196,7 @@ function shadowedCatalogIdsQuery(
 			groupStocked: sql<number>`max(${stocked}) OVER (PARTITION BY ${key})`.as(
 				"group_stocked",
 			),
-			rank: sql<number>`row_number() OVER (PARTITION BY ${key} ORDER BY ${stocked} DESC, (${sibling.slug} GLOB '*-[0-9]*') ASC, ${inventory} DESC, ${sibling.id} ASC)`.as(
+			rank: sql<number>`row_number() OVER (PARTITION BY ${key} ORDER BY ${stocked} DESC, ${slugPattern} ASC${postgres ? sql` NULLS FIRST` : sql``}, ${inventory} DESC, ${sibling.id} ASC)`.as(
 				"group_rank",
 			),
 		})
@@ -163,7 +204,7 @@ function shadowedCatalogIdsQuery(
 		.where(
 			and(
 				sql`${key} IS NOT NULL`,
-				...catalogVisibilityConditions(sibling, options),
+				...catalogVisibilityConditions(db, sibling, options),
 			),
 		)
 		.as("vendor_grouped");
@@ -187,8 +228,9 @@ export function buildHideShadowedVariantsCondition(
 	db: Database,
 	options: CatalogVisibilityOptions = {},
 ): SQL {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	if (!options.includeAll && !options.includeUnreleased) {
-		return sql`${appCatalog.exploreShadowed} = 0`;
+		return sql`${appCatalog.exploreShadowed} = ${boolLiteral(db, false)}`;
 	}
 	return sql`${appCatalog.id} NOT IN ${shadowedCatalogIdsQuery(db, options)}`;
 }
@@ -218,31 +260,47 @@ export function buildRefreshCatalogShadowedVariantsStatements(
 	if (catalogAppIds.length > REFRESH_PAGE_SIZE) {
 		throw new Error("Catalog shadow refresh exceeds its 80-row page");
 	}
+	const postgres = coreStore(db) === "postgres";
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	// bound-params: the guard caps IDs at 80; flag/clear add two booleans (82 total).
 	const scope = inArray(appCatalog.id, catalogAppIds);
-	const vendorKey = catalogVendorKeySql(appCatalog);
+	const vendorKey = catalogVendorKeySql(db, appCatalog);
 	const keys = db
 		.update(appCatalog)
 		.set({ vendorKey })
-		.where(and(scope, sql`${appCatalog.vendorKey} IS NOT ${vendorKey}`));
-	const sibling = alias(appCatalog, "vendor_sibling");
+		.where(
+			and(
+				scope,
+				postgres
+					? sql`${appCatalog.vendorKey} IS DISTINCT FROM ${vendorKey}`
+					: sql`${appCatalog.vendorKey} IS NOT ${vendorKey}`,
+			),
+		);
+	const sibling = catalogAlias(db, appCatalog, "vendor_sibling");
 	const inventory = catalogInventorySql(appCatalog);
 	const siblingInventory = catalogInventorySql(sibling);
 	// SQLite orders NULL before false for the nullable slug's GLOB result.
-	const slugRank = sql`coalesce(${appCatalog.slug} GLOB '*-[0-9]*', -1)`;
-	const siblingSlugRank = sql`coalesce(${sibling.slug} GLOB '*-[0-9]*', -1)`;
+	const slugRank = postgres
+		? sql`coalesce((${appCatalog.slug} ~ '-[0-9]')::int, -1)`
+		: sql`coalesce(${appCatalog.slug} GLOB '*-[0-9]*', -1)`;
+	const siblingSlugRank = postgres
+		? sql`coalesce((${sibling.slug} ~ '-[0-9]')::int, -1)`
+		: sql`coalesce(${sibling.slug} GLOB '*-[0-9]*', -1)`;
 	// The old two window scans read 393k rows for a 12k-row catalog. Seek only
 	// this row's vendor group and stop at the first sibling that outranks it.
-	const shadowed = sql`coalesce((${and(...catalogVisibilityConditions(appCatalog))}), 0) AND ${exists(
+	const visible = and(...catalogVisibilityConditions(db, appCatalog));
+	const outranks = exists(
 		db
 			.select({ present: sql`1` })
 			.from(
-				sql`${appCatalog} AS "vendor_sibling" INDEXED BY app_catalog_vendor_key_idx`,
+				postgres
+					? sibling
+					: sql`${appCatalog} AS "vendor_sibling" INDEXED BY app_catalog_vendor_key_idx`,
 			)
 			.where(
 				and(
 					eq(sibling.vendorKey, appCatalog.vendorKey),
-					...catalogVisibilityConditions(sibling),
+					...catalogVisibilityConditions(db, sibling),
 					sql`(
 						(NOT ${catalogRunnableSql(appCatalog)} AND ${catalogRunnableSql(sibling)})
 						OR (${inventory} <= 0 AND ${siblingInventory} > 0)
@@ -256,7 +314,10 @@ export function buildRefreshCatalogShadowedVariantsStatements(
 					)`,
 				),
 			),
-	)}`;
+	);
+	const shadowed = postgres
+		? sql`coalesce((${visible}), false) AND ${outranks}`
+		: sql`coalesce((${visible}), 0) AND ${outranks}`;
 	const flag = db
 		.update(appCatalog)
 		.set({ exploreShadowed: true })
@@ -281,6 +342,7 @@ export function buildRefreshCatalogShadowedVariantsStatements(
 export async function refreshCatalogShadowedVariants(
 	db: Database,
 ): Promise<RefreshCatalogShadowedVariantsResult> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const pages: string[][] = [];
 	let afterId = "";
 	for (;;) {
@@ -323,12 +385,13 @@ export async function buildRefreshCatalogVendorGroupsStatements(
 	if (catalogAppIds.length > 2) {
 		throw new Error("Catalog vendor refresh supports at most two anchors");
 	}
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	// bound-params: at most two guarded IDs, plus at most four old/fresh vendor keys.
 	const anchorScope = inArray(appCatalog.id, catalogAppIds);
 	const anchors = await db
 		.select({
 			key: appCatalog.vendorKey,
-			freshKey: catalogVendorKeySql(appCatalog).as("fresh_key"),
+			freshKey: catalogVendorKeySql(db, appCatalog).as("fresh_key"),
 		})
 		.from(appCatalog)
 		.where(anchorScope);
@@ -385,7 +448,12 @@ export async function listCatalogVendorVariants(
 	catalogAppId: string,
 	options: CatalogVisibilityOptions = {},
 ): Promise<CatalogVendorVariantRow[]> {
-	const anchor = alias(appCatalog, "vendor_anchor");
+	const postgres = coreStore(db) === "postgres";
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const storeListings = postgres
+		? sql`catalog.app_catalog_store_listings`
+		: sql`app_catalog_store_listings`;
+	const anchor = catalogAlias(db, appCatalog, "vendor_anchor");
 	const anchorKey = db
 		.select({ vendorKey: anchor.vendorKey })
 		.from(anchor)
@@ -404,7 +472,7 @@ export async function listCatalogVendorVariants(
 			mcpResourceCount: appCatalog.mcpResourceCount,
 			mcpPromptCount: appCatalog.mcpPromptCount,
 			primarySource: sql<string | null>`(
-				SELECT source FROM app_catalog_store_listings
+				SELECT source FROM ${storeListings}
 				WHERE catalog_app_id = ${sql.identifier("app_catalog")}.${sql.identifier("id")}
 				ORDER BY CASE source
 					WHEN 'official' THEN 0 WHEN 'tedix' THEN 1 WHEN 'chatgpt' THEN 2
@@ -420,7 +488,7 @@ export async function listCatalogVendorVariants(
 		.where(
 			and(
 				ne(appCatalog.id, catalogAppId),
-				...catalogVisibilityConditions(appCatalog, options),
+				...catalogVisibilityConditions(db, appCatalog, options),
 				sql`${appCatalog.vendorKey} = (${anchorKey})`,
 			),
 		)

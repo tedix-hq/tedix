@@ -4,11 +4,9 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
 	type AuthType,
-	appCatalog,
-	appCatalogStoreListings,
 	type CatalogApp,
 	type CatalogStoreListing,
 	type Category,
@@ -19,6 +17,8 @@ import {
 	type ReviewStatus,
 	type Source,
 } from "../../schema/catalog";
+import { catalogTables } from "./catalog-tables";
+import { catalogNow } from "./clock";
 import { recordCatalogChange, recordCatalogChanges } from "./change-tracking";
 import {
 	getCanonicalCatalogAppForConnector,
@@ -200,6 +200,7 @@ export async function syncCatalogAppFromStore(
 	created: boolean;
 	storeListing: CatalogStoreListing;
 } | null> {
+	const { appCatalog, appCatalogStoreListings } = catalogTables(db);
 	const now = new Date().toISOString();
 	const allowCreate = options.allowCreate ?? true;
 	const feedKey =
@@ -333,7 +334,7 @@ export async function syncCatalogAppFromStore(
 		catalogApp = existingApp;
 		await db
 			.update(appCatalog)
-			.set({ lastSyncedAt: now, updatedAt: sql`datetime('now')` })
+			.set({ lastSyncedAt: now, updatedAt: catalogNow(db) })
 			.where(eq(appCatalog.id, existingApp.id));
 	} else if (existingApp) {
 		const isUsableLogo = (url: unknown) =>
@@ -605,7 +606,7 @@ export async function syncCatalogAppFromStore(
 						existingApp.firstSeen?.inDirectoryAt ??
 						(input.seenInDirectory ? now : null),
 				},
-				updatedAt: sql`datetime('now')`,
+				updatedAt: catalogNow(db),
 			})
 			.where(eq(appCatalog.id, existingApp.id));
 
