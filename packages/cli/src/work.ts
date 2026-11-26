@@ -99,7 +99,7 @@ export interface WorkOptions {
 	limit?: number;
 	/** `create`: --desc / --description body. */
 	desc?: string;
-	/** `create`: --owner <user|tedi|team|system>:<id>, the accountable owner. */
+	/** `create` / `accept`: --owner <user|tedi|team|system>:<id>. */
 	owner?: string;
 	/** `create`: adapter-neutral work kind. */
 	kind?: string;
@@ -241,7 +241,7 @@ Usage: tedix work <verb> [args] [options]
 Lifecycle:
   create "<title>" --kind <kind> (--parent <id> | --project <id> | --objective <id> | --class <class> --expires <duration>)
               [--project <id>] [--desc|--description <text>] [--owner tedi:<id>] [--executor <exec>]
-  accept <id> --done-when "<what done looks like>" [--executor <exec>]
+  accept <id> --done-when "<what done looks like>" [--executor <exec>] [--owner <type>:<id>]
   readiness <id>
   start <id> [--lane] [--worktree [--worktree-root <path>]]
   handoff <id> --host codex|claude [--to codex:<chat-id>] [--launch]
@@ -295,6 +295,9 @@ refused: acceptance needs an owner and only a person can assign one later.
 Name someone else with --owner <user|tedi|team|system>:<id>.
 
 Accept states the outcome in plain language with --done-when.
+Owner/admin can repair an ownerless item without recreating it:
+  tedix work accept <id> --owner user:<id> --done-when "<what done looks like>"
+The owner is saved first; if acceptance fails, that assignment remains.
 Create/delegate --parent and accept also support --task-contract <json|@path>:
 version 2 terms with goal, successCriterion, budget (maxTokens, maxCostUsd),
 remainingDepth, errorAllowance, returnFormat and deadline. A child of your running

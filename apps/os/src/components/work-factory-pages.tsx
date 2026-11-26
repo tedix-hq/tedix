@@ -29,6 +29,7 @@ import { WorkItemDescription } from "@/components/work-item-description";
 import { WorkItemCommentComposer } from "@/components/work-item-comment-composer";
 import { WorkItemRunSection } from "@/components/work-item-run-section";
 import { WorkItemSpecificationEditor } from "@/components/work-item-specification-editor";
+import { WorkItemOwnerEditor } from "@/components/work-item-owner-editor";
 import { OS_COPY } from "@/shared/os-copy";
 import {
 	plainWorkText,
@@ -1663,6 +1664,12 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 									content={value}
 									interactive={false}
 								/>
+								{label === OS_COPY.work.owner ? (
+									<WorkItemOwnerEditor
+										key={`${item.id}:${item.version}`}
+										item={item}
+									/>
+								) : null}
 							</dd>
 						</div>
 					))}

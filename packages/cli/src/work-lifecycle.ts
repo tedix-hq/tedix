@@ -34,6 +34,7 @@ import {
 	parseObjectArgument,
 	workTaskContract,
 	workExecutorArg,
+	workOwnerArgs,
 } from "./work-queries";
 import type { WorkContext } from "./work";
 
@@ -402,22 +403,26 @@ export async function workAccept(
 		...buildAcceptanceContract(ctx.work.doneWhen),
 		...workTaskContract(ctx.work.taskContract),
 	};
+	const owner = workOwnerArgs(ctx.work.owner);
 	id = await resolveWorkItemId(ctx, id);
-	// Acceptance has no assignment field; persist it through the specification API.
-	if (executor) {
+	// Persist assignments through the guarded specification API before accepting.
+	if (executor || owner) {
 		const assignment = await boardCall(
 			ctx,
 			"work.update_work_item_specification",
 			{
 				id,
-				executorReference: workExecutorReference(executor),
+				...(executor
+					? { executorReference: workExecutorReference(executor) }
+					: {}),
+				...owner,
 			},
 		);
 		if (assignment.error)
 			return fail(
 				ctx,
 				assignment.error,
-				`Could not assign ${id} to ${executor}; acceptance was not attempted: ${assignment.error.message}${ownerActionHint(ctx, assignment.error)}`,
+				`Could not assign ${id}; acceptance was not attempted: ${assignment.error.message}${ownerActionHint(ctx, assignment.error)}`,
 			);
 	}
 	const call = await boardCall(ctx, "work.accept_work_item", {
@@ -428,7 +433,7 @@ export async function workAccept(
 		return fail(
 			ctx,
 			call.error,
-			`Could not accept ${id}${executor ? ` (executor is assigned to ${executor})` : ""}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
+			`Could not accept ${id}${executor ? ` (executor is assigned to ${executor})` : ""}${owner ? ` (owner is assigned to ${ctx.work.owner?.trim()})` : ""}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
 		);
 	return ok(ctx, call.value, () =>
 		console.log(`${green("Accepted", ctx.color)} ${id}.`),

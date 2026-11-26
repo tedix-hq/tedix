@@ -5,12 +5,21 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { osQuery } from "@/lib/os-query-options";
 import { WorkItemSpecificationEditor } from "./work-item-specification-editor";
+import { WorkItemOwnerEditor } from "./work-item-owner-editor";
 
-const { updateSpecification } = vi.hoisted(() => ({
+const { updateSpecification, authority } = vi.hoisted(() => ({
 	updateSpecification: vi.fn(),
+	authority: { role: "owner" },
 }));
 vi.mock("@/lib/api", () => ({
 	osApi: { workItems: { updateSpecification } },
+}));
+vi.mock("@/lib/use-os-preferences", () => ({
+	useOsOperationalContext: () => ({ data: { authority } }),
+}));
+vi.mock("./work-form-pickers", () => ({
+	usePrincipalOptions: (type: string) =>
+		type === "user" ? [{ value: "person", label: "Cedar lead" }] : [],
 }));
 
 (
@@ -74,9 +83,10 @@ afterEach(() => {
 	}
 	vi.restoreAllMocks();
 	updateSpecification.mockReset();
+	authority.role = "owner";
 });
 
-async function mount(value = item) {
+async function mount(value = item, ownerEditor = false) {
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
@@ -87,11 +97,16 @@ async function mount(value = item) {
 	await act(async () => {
 		root.render(
 			<QueryClientProvider client={client}>
-				<WorkItemSpecificationEditor item={value} />
+				{ownerEditor ? (
+					<WorkItemOwnerEditor item={value} />
+				) : (
+					<WorkItemSpecificationEditor item={value} />
+				)}
 			</QueryClientProvider>,
 		);
 	});
-	await act(async () => host.querySelector("button")!.click());
+	if (host.querySelector("button"))
+		await act(async () => host.querySelector("button")!.click());
 	return {
 		host,
 		client,
@@ -127,6 +142,39 @@ async function submit(host: HTMLElement) {
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	});
 }
+
+it("repairs an ownerless item with its version fence and refreshes the Work reads", async () => {
+	updateSpecification.mockResolvedValue({
+		...item,
+		version: 38,
+		accountableOwnerType: "user",
+		accountableOwnerId: "person",
+	});
+	const view = await mount({ ...item, disposition: "proposed" }, true);
+	const invalidate = vi.spyOn(view.client, "invalidateQueries");
+	expect(view.submit.disabled).toBe(true);
+	await act(async () => view.priority.click());
+	await act(async () => {
+		document.querySelector<HTMLElement>('[role="option"]')!.click();
+	});
+	await submit(view.host);
+	expect(updateSpecification).toHaveBeenCalledExactlyOnceWith({
+		id: item.id,
+		expectedWorkItemVersion: 37,
+		accountableOwnerType: "user",
+		accountableOwnerId: "person",
+	});
+	expect(invalidate).toHaveBeenCalledExactlyOnceWith({
+		queryKey: osQuery.workItems.key({ type: "query" }),
+	});
+});
+
+it("does not offer owner assignment to a member", async () => {
+	authority.role = "member";
+	const view = await mount(item, true);
+	expect(view.host.textContent).toBe("");
+	expect(updateSpecification).not.toHaveBeenCalled();
+});
 
 it("names each field from one visible label reference without fresh-render warnings", async () => {
 	const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

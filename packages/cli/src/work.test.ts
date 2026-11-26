@@ -2060,6 +2060,43 @@ describe("canonical ID and title resolution", () => {
 });
 
 describe("Work executor assignment", () => {
+	test("assigns an accountable owner to the same item before acceptance", async () => {
+		const fixture = makeContext({ owner: "user:person", doneWhen: "Done" });
+		expect((await capture(`accept ${ITEM}`, fixture.ctx)).code).toBe(0);
+		expect(fixture.sources).toEqual([
+			`work.update_work_item_specification(${JSON.stringify({ id: ITEM, accountableOwnerType: "user", accountableOwnerId: "person" })})`,
+			`work.accept_work_item(${JSON.stringify({ id: ITEM, acceptanceContract: { version: 1, doneLooksLike: "Done" } })})`,
+		]);
+	});
+
+	test("rejects an invalid owner before mutation", async () => {
+		const fixture = makeContext({ owner: "person", doneWhen: "Done" });
+		await expect(runWork(`accept ${ITEM}`, fixture.ctx)).rejects.toThrow(
+			"--owner must be",
+		);
+		expect(fixture.sources).toHaveLength(0);
+	});
+
+	test("owner assignment refusal prevents acceptance", async () => {
+		const fixture = makeContext(
+			{ owner: "user:person", doneWhen: "Done" },
+			undefined,
+			() => ({
+				defined: true,
+				code: "FORBIDDEN",
+				status: 403,
+				message: "Owner assignment denied",
+			}),
+		);
+		expect((await capture(`accept ${ITEM}`, fixture.ctx)).code).toBe(
+			WORK_EXIT_FAIL,
+		);
+		expect(fixture.sources).toHaveLength(1);
+		expect(fixture.sources[0]).toStartWith(
+			"work.update_work_item_specification(",
+		);
+	});
+
 	test.each([
 		"codex",
 		"claude-code",

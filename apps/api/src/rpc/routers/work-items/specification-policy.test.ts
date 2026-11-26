@@ -14,7 +14,10 @@ import {
 	workItemSpecificationActor,
 	assertSpecificationContributorGrant,
 } from "./specification-policy";
-import { updateSpecificationProcedure } from "./factory-lifecycle";
+import {
+	acceptProcedure,
+	updateSpecificationProcedure,
+} from "./factory-lifecycle";
 import { addCommentProcedure } from "./lifecycle-marketing";
 
 const id = "11111111-1111-4111-8111-111111111111";
@@ -47,6 +50,52 @@ async function fixture() {
 }
 
 describe("member specification policy", () => {
+	it.each(["owner", "admin"])(
+		"lets an %s assign and accept the same ownerless item",
+		async (role) => {
+			const { context, sqlite, db, item } = await fixture();
+			sqlite.prepare("UPDATE organization_members SET role=?").run(role);
+			expect(item.accountableOwnerId).toBeNull();
+			await updateSpecificationProcedure["~orpc"].handler!({
+				context,
+				input: {
+					id,
+					expectedWorkItemVersion: item.version,
+					accountableOwnerType: "user",
+					accountableOwnerId: "member",
+				},
+				path: [],
+				procedure: updateSpecificationProcedure,
+				signal: undefined,
+				lastEventId: undefined,
+			});
+			await acceptProcedure["~orpc"].handler!({
+				context,
+				input: {
+					id,
+					acceptanceContract: {
+						version: 1,
+						doneLooksLike: "Ownerless item repaired",
+					},
+				},
+				path: [],
+				procedure: acceptProcedure,
+				signal: undefined,
+				lastEventId: undefined,
+			});
+			expect(await getWorkItemById(db, id, "org")).toMatchObject({
+				id,
+				accountableOwnerType: "user",
+				accountableOwnerId: "member",
+				disposition: "accepted",
+			});
+			expect(
+				sqlite.prepare("SELECT COUNT(*) AS count FROM work_items").get(),
+			).toMatchObject({ count: 1 });
+			sqlite.close();
+		},
+	);
+
 	it("records ordinary comments without entering specification authorization, and denies explicit delegation", async () => {
 		const { context, sqlite } = await fixture();
 		const post = (input: {

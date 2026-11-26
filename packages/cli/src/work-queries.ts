@@ -333,6 +333,17 @@ export async function workFind(
 
 // ─── Verbs ─────────────────────────────────────────────────────────────────
 
+export function workOwnerArgs(value: string | undefined) {
+	const owner = value?.trim();
+	if (!owner) return undefined;
+	const match = /^(user|tedi|team|system):(\S+)$/.exec(owner);
+	if (!match)
+		throw new Error(
+			`--owner must be <user|tedi|team|system>:<id>, got "${owner}"`,
+		);
+	return { accountableOwnerType: match[1], accountableOwnerId: match[2] };
+}
+
 export function workExecutorArg(value: string | undefined) {
 	if (value === undefined) return undefined;
 	const parsed = WorkExecutorSchema.safeParse(value.trim());
@@ -552,27 +563,14 @@ export async function workCreate(
 		);
 	}
 
-	const owner = ctx.work.owner?.trim();
-	const ownerMatch = owner
-		? /^(user|tedi|team|system):(\S+)$/.exec(owner)
-		: null;
-	if (owner && !ownerMatch) {
-		throw new Error(
-			`--owner must be <user|tedi|team|system>:<id>, got "${owner}"`,
-		);
-	}
+	const owner = workOwnerArgs(ctx.work.owner);
 
 	const args: Record<string, unknown> = {
 		title: t,
 		...workTaskContract(ctx.work.taskContract),
 		...(executor ? { executorReference: workExecutorReference(executor) } : {}),
 		...(desc?.trim() ? { description: desc.trim() } : {}),
-		...(ownerMatch
-			? {
-					accountableOwnerType: ownerMatch[1],
-					accountableOwnerId: ownerMatch[2],
-				}
-			: {}),
+		...owner,
 		...(kind ? { workKind: kind } : {}),
 		...(priority ? { priority } : {}),
 		...(objective ? { objectiveId: objective.trim() } : {}),
