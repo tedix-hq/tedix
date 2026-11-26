@@ -3,28 +3,40 @@ import {
 	desc,
 	eq,
 	exists,
+	getColumns,
 	inArray,
 	isNull,
-	like,
 	ne,
 	notExists,
 	type SQL,
+	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { QueryBuilder } from "drizzle-orm/sqlite-core";
-import { workItems, workAttempts } from "../schema/work-items";
-import { runtimeSubmissions } from "../schema/runtime-submissions";
+import {
+	chatDispatchIdempotency as d1ChatDispatchIdempotency,
+	kernelRuntimeEvents as d1KernelRuntimeEvents,
+	kernelRuntimeRuns as d1KernelRuntimeRuns,
+} from "../schema/cognitive-runtime";
+import {
+	workAttempts as d1WorkAttempts,
+	workItems as d1WorkItems,
+} from "../schema/work-items";
+import { runtimeSubmissions as d1RuntimeSubmissions } from "../schema/runtime-submissions";
 import type { BatchItem } from "drizzle-orm/batch";
+import { QueryBuilder } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
-import { chunkForBoundParams } from "../utils/batch";
+import { coreTable } from "../core-store/client";
 import {
-	chatDispatchIdempotency,
-	kernelRuntimeEvents,
-	kernelRuntimeRuns,
-	kernelRuntimeRunStoredColumns,
-} from "../schema/cognitive-runtime";
+	anyIds,
+	coreStore,
+	jsonRead,
+	jsonType,
+	likeText,
+	pgTextArray,
+	unixTime,
+} from "../core-store/dialect";
 import {
 	buildRecordKernelConversationMessageStatement,
 	type RecordKernelConversationMessageParams,
@@ -48,20 +60,158 @@ import {
 } from "./kernel-runtime-events";
 
 export type KernelRuntimeRun = Omit<
-	typeof kernelRuntimeRuns.$inferSelect,
+	typeof d1KernelRuntimeRuns.$inferSelect,
 	"workItemId" | "targetTediId"
 >;
 export type KernelRuntimeRunUpdate = Partial<
-	Omit<typeof kernelRuntimeRuns.$inferInsert, "id" | "organizationId">
+	Omit<typeof d1KernelRuntimeRuns.$inferInsert, "id" | "organizationId">
 >;
-export type NewKernelRuntimeRun = typeof kernelRuntimeRuns.$inferInsert;
+export type NewKernelRuntimeRun = typeof d1KernelRuntimeRuns.$inferInsert;
+
+type StoreDb = DbClient | DbQueryClient;
+
+function postgres(db: StoreDb): boolean {
+	return coreStore(db) === "postgres";
+}
+
+/** SQLite JSON path text bound as a parameter; segments are fixed code paths, never caller SQL. */
+function sqliteJsonPath(path: readonly string[]): string {
+	return (
+		"$" +
+		path
+			.map((segment) =>
+				/^[A-Za-z_][A-Za-z_0-9]*$/.test(segment)
+					? "." + segment
+					: "." + JSON.stringify(segment),
+			)
+			.join("")
+	);
+}
+
+/** `json_type`/`jsonb_typeof` of a whole JSON document expression. */
+function jsonDocumentKind(db: StoreDb, document: SQL): SQL {
+	return postgres(db)
+		? sql`jsonb_typeof(${document})`
+		: sql`json_type(${document})`;
+}
+
+/** Empty JSON object literal matching the active store's JSON type. */
+function emptyJsonDocument(db: StoreDb): SQL {
+	return postgres(db) ? sql`'{}'::jsonb` : sql`'{}'`;
+}
+
+/** A bound JSON value usable as a `json_set`/`jsonb_set` target document. */
+function jsonDocument(db: StoreDb, value: unknown): SQL {
+	const text = JSON.stringify(value);
+	if (text === undefined) throw new Error("JSON values must be serializable");
+	return postgres(db) ? sql`${text}::text::jsonb` : sql`${text}`;
+}
+
+/** A JSON literal for `json_set`/`jsonb_set` values. */
+function jsonLiteral(db: StoreDb, value: unknown): SQL {
+	const text = JSON.stringify(value);
+	if (text === undefined) throw new Error("JSON values must be serializable");
+	return postgres(db) ? sql`${text}::text::jsonb` : sql`json(${text})`;
+}
+
+/** A scalar string as a JSON value (`json_set` stores text as a JSON string). */
+function jsonStringValue(db: StoreDb, value: SQLWrapper): SQL {
+	return postgres(db) ? sql`to_jsonb(${value})` : sql`${value}`;
+}
+
+/**
+ * `json_set`/`jsonb_set` over path/value pairs applied in order. `base` is the
+ * document expression (a column, a bound document, or a CASE expression).
+ */
+function jsonSetPaths(
+	db: StoreDb,
+	base: SQLWrapper,
+	pairs: readonly (readonly [path: readonly string[], value: SQL])[],
+): SQL {
+	if (postgres(db)) {
+		let document: SQLWrapper = base;
+		for (const [path, value] of pairs)
+			document = sql`jsonb_set(${document}, ${pgTextArray(path)}::text[], coalesce(${value}, 'null'::jsonb), true)`;
+		return pairs.length ? (document as SQL) : sql`${base}`;
+	}
+	return sql`json_set(${base}, ${sql.join(
+		pairs.flatMap(([path, value]) => [sql`${sqliteJsonPath(path)}`, value]),
+		sql`, `,
+	)})`;
+}
+
+/** `json_remove`/`#-` for one path on a JSON document expression. */
+function jsonRemovePath(
+	db: StoreDb,
+	document: SQL,
+	path: readonly string[],
+): SQL {
+	return postgres(db)
+		? sql`(${document} #- ${pgTextArray(path)}::text[])`
+		: sql`json_remove(${document}, ${sqliteJsonPath(path)})`;
+}
+
+/** Run-row columns readers select/return; generated columns stay in SQL only. */
+function kernelRunStoredColumns(db: StoreDb) {
+	const {
+		workItemId: _workItemId,
+		targetTediId: _targetTediId,
+		...columns
+	} = getColumns(coreTable(db, d1KernelRuntimeRuns));
+	return columns;
+}
+
+/**
+ * D1 `work_item_id` is a generated column over `metadata.workItemId`; the
+ * Postgres column is a plain NULL, so read the same JSON path there.
+ */
+function runWorkItemId(db: StoreDb): SQL {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	return postgres(db)
+		? jsonRead(db, kernelRuntimeRuns.metadata, ["workItemId"])
+		: sql`${kernelRuntimeRuns.workItemId}`;
+}
+
+/** Same split for the generated `target_tedi_id` column. */
+function runTargetTediId(db: StoreDb): SQL {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	return postgres(db)
+		? jsonRead(db, kernelRuntimeRuns.metadata, [
+				"homeDelegation",
+				"workOrder",
+				"targetTediId",
+			])
+		: sql`${kernelRuntimeRuns.targetTediId}`;
+}
+
+/**
+ * `value = strftime('%Y-%m-%dT%H:%M:%fZ', value)`: the text is a canonical ISO
+ * instant. Postgres matches the same shape with a regex instead.
+ */
+function canonicalIsoInstant(db: StoreDb, value: SQL): SQL {
+	return postgres(db)
+		? sql`${value} ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'`
+		: sql`${value} = strftime('%Y-%m-%dT%H:%M:%fZ', ${value})`;
+}
+
+/**
+ * `julianday(value)` as a comparable instant. Postgres casts ISO and
+ * `CURRENT_TIMESTAMP`-style text to timestamptz behind a shape guard so a
+ * malformed value yields NULL instead of an error.
+ */
+function instantSeconds(db: StoreDb, value: SQL): SQL {
+	return postgres(db)
+		? sql`CASE WHEN ${value} ~ '^\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z)?$' THEN extract(epoch FROM (${value})::timestamptz) END`
+		: sql`julianday(${value})`;
+}
 
 export async function getKernelRuntimeRun(
 	db: DbClient,
 	input: { id: string; organizationId?: string },
 ): Promise<KernelRuntimeRun | undefined> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const [row] = await db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(kernelRunStoredColumns(db))
 		.from(kernelRuntimeRuns)
 		.where(
 			input.organizationId
@@ -79,6 +229,7 @@ export async function insertKernelRuntimeRunIfAbsent(
 	db: DbClient,
 	value: NewKernelRuntimeRun,
 ): Promise<void> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	await db
 		.insert(kernelRuntimeRuns)
 		.values(value)
@@ -89,13 +240,18 @@ export async function hasUnacceptedChatDispatch(
 	db: DbClient,
 	input: { tediId: string; homeRunId: string },
 ): Promise<boolean> {
+	const chatDispatchIdempotency = coreTable(db, d1ChatDispatchIdempotency);
 	const rows = await db
 		.select({ runId: chatDispatchIdempotency.runId })
 		.from(chatDispatchIdempotency)
 		.where(
 			and(
 				eq(chatDispatchIdempotency.tediId, input.tediId),
-				like(chatDispatchIdempotency.idempotencyKey, `${input.homeRunId}:%`),
+				likeText(
+					db,
+					chatDispatchIdempotency.idempotencyKey,
+					`${input.homeRunId}:%`,
+				),
 				isNull(chatDispatchIdempotency.runId),
 			),
 		)
@@ -107,6 +263,7 @@ export async function getKernelRuntimeRunStatus(
 	db: DbClient,
 	input: { id: string; organizationId: string },
 ): Promise<KernelRuntimeRun["status"] | undefined> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const [row] = await db
 		.select({ status: kernelRuntimeRuns.status })
 		.from(kernelRuntimeRuns)
@@ -132,6 +289,7 @@ export async function listKernelRuntimeRuns(
 	},
 ): Promise<KernelRuntimeRun[]> {
 	if (input.childRunIds?.length === 0) return [];
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const conditions = [
 		eq(kernelRuntimeRuns.organizationId, input.organizationId),
 		...(input.conversationId
@@ -139,11 +297,11 @@ export async function listKernelRuntimeRuns(
 			: []),
 		// bound-params: delegated child-run refs of ONE Home run / conversation
 		...(input.childRunIds
-			? [inArray(kernelRuntimeRuns.childRunId, input.childRunIds)]
+			? [anyIds(db, kernelRuntimeRuns.childRunId, input.childRunIds)]
 			: []),
 	];
 	const base = db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(kernelRunStoredColumns(db))
 		.from(kernelRuntimeRuns)
 		.where(and(...conditions));
 	const ordered =
@@ -172,16 +330,17 @@ export async function listPendingDelegationRuns(
 		workspaceId?: string;
 	},
 ): Promise<KernelRuntimeRun[]> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	return db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(kernelRunStoredColumns(db))
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
 				eq(kernelRuntimeRuns.organizationId, input.organizationId),
 				eq(kernelRuntimeRuns.status, "requires_approval"),
 				input.kind === "home_delegation"
-					? sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object'`
-					: sql`(json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object' OR json_extract(${kernelRuntimeRuns.metadata}, '$.delegationWorkOrder.kind') = 'workstation.attach')`,
+					? sql`${jsonType(db, kernelRuntimeRuns.metadata, ["homeDelegation", "workOrder"])} = 'object'`
+					: sql`(${jsonType(db, kernelRuntimeRuns.metadata, ["homeDelegation", "workOrder"])} = 'object' OR ${jsonRead(db, kernelRuntimeRuns.metadata, ["delegationWorkOrder", "kind"])} = 'workstation.attach')`,
 				...(input.cursor
 					? [
 							sql`(${kernelRuntimeRuns.createdAt}, ${kernelRuntimeRuns.id}) < (${input.cursor.at}, ${input.cursor.id})`,
@@ -210,8 +369,9 @@ export async function listQuietDelegatedRuns(
 	db: DbClient,
 	input: { before: string; limit: number; dueIds?: string[] },
 ): Promise<KernelRuntimeRun[]> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	return db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(kernelRunStoredColumns(db))
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -221,8 +381,8 @@ export async function listQuietDelegatedRuns(
 				sql`${kernelRuntimeRuns.delegatedTediId} IS NOT NULL`,
 				sql`${kernelRuntimeRuns.childRunId} IS NOT NULL`,
 				// Rows carry both ISO and SQLite CURRENT_TIMESTAMP spellings.
-				sql`datetime(COALESCE(${kernelRuntimeRuns.startedAt}, ${kernelRuntimeRuns.createdAt})) < datetime(${input.before})`,
-				sql`datetime(${kernelRuntimeRuns.updatedAt}) < datetime(${input.before})`,
+				sql`${unixTime(db, sql`coalesce(${kernelRuntimeRuns.startedAt}, ${kernelRuntimeRuns.createdAt})`)} < ${unixTime(db, sql`${input.before}`)}`,
+				sql`${unixTime(db, kernelRuntimeRuns.updatedAt)} < ${unixTime(db, sql`${input.before}`)}`,
 			),
 		)
 		.orderBy(kernelRuntimeRuns.updatedAt, kernelRuntimeRuns.id)
@@ -244,6 +404,7 @@ export async function countActiveDelegatedRunsByTedi(
 	db: DbQueryClient,
 	input: CountActiveDelegatedRunsParams,
 ): Promise<Map<string, number>> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const rows = await db
 		.select({
 			tediId: kernelRuntimeRuns.delegatedTediId,
@@ -255,7 +416,7 @@ export async function countActiveDelegatedRunsByTedi(
 				eq(kernelRuntimeRuns.organizationId, input.organizationId),
 				inArray(kernelRuntimeRuns.status, ["queued", "running"]),
 				// Rows carry both ISO and SQLite CURRENT_TIMESTAMP spellings.
-				sql`datetime(${kernelRuntimeRuns.updatedAt}) >= datetime(${input.updatedSince})`,
+				sql`${unixTime(db, kernelRuntimeRuns.updatedAt)} >= ${unixTime(db, sql`${input.updatedSince}`)}`,
 				sql`${kernelRuntimeRuns.delegatedTediId} IS NOT NULL`,
 			),
 		)
@@ -269,6 +430,7 @@ export async function listKernelRuntimeRunMetadata(
 	db: DbClient,
 	input: { organizationId: string; conversationId: string; limit: number },
 ): Promise<Array<Pick<KernelRuntimeRun, "metadata">>> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	return db
 		.select({ metadata: kernelRuntimeRuns.metadata })
 		.from(kernelRuntimeRuns)
@@ -287,26 +449,20 @@ export async function listKernelRuntimeRunObjectiveSourcesByIds(
 	input: { organizationId: string; ids: string[] },
 ): Promise<Array<Pick<KernelRuntimeRun, "id" | "metadata" | "preview">>> {
 	if (input.ids.length === 0) return [];
-	const rows: Array<Pick<KernelRuntimeRun, "id" | "metadata" | "preview">> = [];
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	for (const chunk of chunkForBoundParams([...new Set(input.ids)], 50)) {
-		rows.push(
-			...(await db
-				.select({
-					id: kernelRuntimeRuns.id,
-					metadata: kernelRuntimeRuns.metadata,
-					preview: kernelRuntimeRuns.preview,
-				})
-				.from(kernelRuntimeRuns)
-				.where(
-					and(
-						eq(kernelRuntimeRuns.organizationId, input.organizationId),
-						inArray(kernelRuntimeRuns.id, chunk),
-					),
-				)),
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	return db
+		.select({
+			id: kernelRuntimeRuns.id,
+			metadata: kernelRuntimeRuns.metadata,
+			preview: kernelRuntimeRuns.preview,
+		})
+		.from(kernelRuntimeRuns)
+		.where(
+			and(
+				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				anyIds(db, kernelRuntimeRuns.id, [...new Set(input.ids)]),
+			),
 		);
-	}
-	return rows;
 }
 
 export async function findKernelRuntimeRunByChild(
@@ -317,8 +473,9 @@ export async function findKernelRuntimeRunByChild(
 		childRunId: string;
 	},
 ): Promise<KernelRuntimeRun | undefined> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const [row] = await db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(kernelRunStoredColumns(db))
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -340,8 +497,9 @@ export async function getDurableKernelRuntimeRun(
 		childRunId: string;
 	},
 ): Promise<KernelRuntimeRun | undefined> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const [row] = await db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(kernelRunStoredColumns(db))
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -355,12 +513,19 @@ export async function getDurableKernelRuntimeRun(
 	return row;
 }
 
-function preserveHomeDelegationClaims(patch: KernelRuntimeRunUpdate) {
+function preserveHomeDelegationClaims(
+	db: StoreDb,
+	patch: KernelRuntimeRunUpdate,
+) {
 	if (patch.metadata === undefined) return patch;
-	let metadata = sql`${JSON.stringify(patch.metadata)}`;
-	for (const key of ["homeDelegationResume", "homeDelegationResolutionClaim"]) {
-		const path = "$." + key;
-		metadata = sql`case when json_type(${kernelRuntimeRuns.metadata}, ${path}) = 'object' then json_set(case when json_type(${metadata}) = 'object' then ${metadata} else '{}' end, ${path}, json_extract(${kernelRuntimeRuns.metadata}, ${path})) else json_remove(${metadata}, ${path}) end`;
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	let metadata = jsonDocument(db, patch.metadata);
+	for (const key of [
+		"homeDelegationResume",
+		"homeDelegationResolutionClaim",
+	] as const) {
+		const path = [key];
+		metadata = sql`case when ${jsonType(db, kernelRuntimeRuns.metadata, path)} = 'object' then ${jsonSetPaths(db, sql`case when ${jsonDocumentKind(db, metadata)} = 'object' then ${metadata} else ${emptyJsonDocument(db)} end`, [[path, jsonRead(db, kernelRuntimeRuns.metadata, path, "json")]])} else ${jsonRemovePath(db, metadata, path)} end`;
 	}
 	return { ...patch, metadata };
 }
@@ -370,9 +535,10 @@ export async function updateKernelRuntimeRun(
 	id: string,
 	patch: KernelRuntimeRunUpdate,
 ): Promise<void> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	await db
 		.update(kernelRuntimeRuns)
-		.set(preserveHomeDelegationClaims(patch))
+		.set(preserveHomeDelegationClaims(db, patch))
 		.where(eq(kernelRuntimeRuns.id, id));
 }
 
@@ -384,9 +550,10 @@ export async function updateKernelRuntimeRunForOrg(
 		patch: KernelRuntimeRunUpdate;
 	},
 ): Promise<void> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	await db
 		.update(kernelRuntimeRuns)
-		.set(preserveHomeDelegationClaims(input.patch))
+		.set(preserveHomeDelegationClaims(db, input.patch))
 		.where(
 			and(
 				eq(kernelRuntimeRuns.id, input.id),
@@ -408,9 +575,10 @@ export function buildTransitionKernelRuntimeRunStatusStatement(
 	db: DbClient,
 	input: TransitionKernelRuntimeRunStatusParams,
 ) {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	return db
 		.update(kernelRuntimeRuns)
-		.set(preserveHomeDelegationClaims(input.patch))
+		.set(preserveHomeDelegationClaims(db, input.patch))
 		.where(
 			and(
 				eq(kernelRuntimeRuns.id, input.id),
@@ -543,6 +711,7 @@ export async function openKernelRuntimeTurn(
 	params: OpenKernelRuntimeTurnParams,
 ): Promise<OpenKernelRuntimeTurnResult> {
 	const [received, started] = params.events;
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const eventStatements = [
 		buildInsertKernelRuntimeEventStatement(db, received),
 		buildInsertKernelRuntimeEventStatement(db, started),
@@ -618,17 +787,42 @@ export interface StaleDelegationResolutionTakeover {
  */
 export function staleDelegationResolutionTakeoverGuard(
 	takeover: StaleDelegationResolutionTakeover,
+	db?: StoreDb,
 ) {
+	const kernelRuntimeRuns = db
+		? coreTable(db, d1KernelRuntimeRuns)
+		: d1KernelRuntimeRuns;
+	const kernelRuntimeEvents = db
+		? coreTable(db, d1KernelRuntimeEvents)
+		: d1KernelRuntimeEvents;
+	const claimPath = (key: string) =>
+		["homeDelegationResolutionClaim", key] as const;
 	const claim = {
-		phase: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase')`,
-		claimId: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimId')`,
-		claimedAt: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimedAt')`,
-		approvalEventId: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalEventId')`,
-		approvalResolvedAt: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalResolvedAt')`,
+		phase: db
+			? jsonRead(db, kernelRuntimeRuns.metadata, claimPath("phase"))
+			: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase')`,
+		claimId: db
+			? jsonRead(db, kernelRuntimeRuns.metadata, claimPath("claimId"))
+			: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimId')`,
+		claimedAt: db
+			? jsonRead(db, kernelRuntimeRuns.metadata, claimPath("claimedAt"))
+			: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimedAt')`,
+		approvalEventId: db
+			? jsonRead(db, kernelRuntimeRuns.metadata, claimPath("approvalEventId"))
+			: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalEventId')`,
+		approvalResolvedAt: db
+			? jsonRead(
+					db,
+					kernelRuntimeRuns.metadata,
+					claimPath("approvalResolvedAt"),
+				)
+			: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalResolvedAt')`,
 	};
 	const receipt = (extra: SQL) =>
-		new QueryBuilder()
-			.select({ id: kernelRuntimeEvents.id })
+		(db
+			? db.select({ id: kernelRuntimeEvents.id })
+			: new QueryBuilder().select({ id: kernelRuntimeEvents.id })
+		)
 			.from(kernelRuntimeEvents)
 			.where(
 				and(
@@ -642,7 +836,9 @@ export function staleDelegationResolutionTakeoverGuard(
 				),
 			);
 	const base = and(
-		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null`,
+		db
+			? sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume"])} is null`
+			: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null`,
 		eq(kernelRuntimeRuns.status, "requires_approval"),
 		sql`${claim.phase} = 'resolving'`,
 		sql`${claim.claimId} = ${takeover.claimId}`,
@@ -658,6 +854,9 @@ export function staleDelegationResolutionTakeoverGuard(
 				),
 			),
 		)!;
+	const payloadStatus = db
+		? jsonRead(db, kernelRuntimeEvents.payload, ["status"])
+		: sql`json_extract(${kernelRuntimeEvents.payload}, '$.status')`;
 	return and(
 		base,
 		sql`${claim.approvalEventId} = ${recorded.approvalEventId}`,
@@ -671,7 +870,7 @@ export function staleDelegationResolutionTakeoverGuard(
 					),
 					eq(kernelRuntimeEvents.id, recorded.approvalEventId),
 					eq(kernelRuntimeEvents.createdAt, recorded.approvalResolvedAt),
-					sql`json_extract(${kernelRuntimeEvents.payload}, '$.status') = ${recorded.status}`,
+					sql`${payloadStatus} = ${recorded.status}`,
 				)!,
 			),
 		),
@@ -713,13 +912,40 @@ export async function compareAndTouchKernelRuntimeRun(
 	const takeover = input.staleDelegationResolutionClaim;
 	if (takeover && (!input.requireNoDelegationResumeClaim || !takeover.claimId))
 		return false;
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const rows = await db
 		.update(kernelRuntimeRuns)
 		.set({
 			updatedAt: input.updatedAt,
 			...(input.requireNoDelegationResumeClaim
 				? {
-						metadata: sql`json_set(coalesce(${kernelRuntimeRuns.metadata}, '{}'), '$.homeDelegationResolutionClaim', json(${JSON.stringify({ version: 1, phase: "resolving", claimId: input.delegationResolutionClaimId, claimedAt: input.updatedAt, approvalEventId: input.delegationApprovalEventId, approvalResolvedAt: input.delegationApprovalResolvedAt ?? input.updatedAt, organizationId: input.organizationId, runId: input.id, workItemId: input.delegationWorkItemId ?? null, scopeDigest: input.delegationScopeDigest ?? null, ...(takeover ? { takeoverOf: takeover.claimId } : {}) })}), '$.homeDelegationResolutionClaim.conversationId', ${kernelRuntimeRuns.conversationId})`,
+						metadata: jsonSetPaths(
+							db,
+							sql`coalesce(${kernelRuntimeRuns.metadata}, ${emptyJsonDocument(db)})`,
+							[
+								[
+									["homeDelegationResolutionClaim"],
+									jsonLiteral(db, {
+										version: 1,
+										phase: "resolving",
+										claimId: input.delegationResolutionClaimId,
+										claimedAt: input.updatedAt,
+										approvalEventId: input.delegationApprovalEventId,
+										approvalResolvedAt:
+											input.delegationApprovalResolvedAt ?? input.updatedAt,
+										organizationId: input.organizationId,
+										runId: input.id,
+										workItemId: input.delegationWorkItemId ?? null,
+										scopeDigest: input.delegationScopeDigest ?? null,
+										...(takeover ? { takeoverOf: takeover.claimId } : {}),
+									}),
+								],
+								[
+									["homeDelegationResolutionClaim", "conversationId"],
+									jsonStringValue(db, kernelRuntimeRuns.conversationId),
+								],
+							],
+						),
 					}
 				: {}),
 		})
@@ -731,8 +957,11 @@ export async function compareAndTouchKernelRuntimeRun(
 				eq(kernelRuntimeRuns.updatedAt, input.expectedUpdatedAt),
 				input.requireNoDelegationResumeClaim
 					? takeover
-						? staleDelegationResolutionTakeoverGuard(takeover)
-						: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim') is null or (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase') = 'admission_failed' and ${homeDelegationResolutionReceiptExists(db)}))`
+						? staleDelegationResolutionTakeoverGuard(takeover, db)
+						: and(
+								sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume"])} is null`,
+								sql`(${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim"])} is null or (${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "phase"])} = 'admission_failed' and ${homeDelegationResolutionReceiptExists(db)}))`,
+							)
 					: undefined,
 			),
 		)
@@ -749,6 +978,7 @@ export async function readPendingWorkflowHint(
 	},
 ): Promise<string | null> {
 	try {
+		const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 		const rows = await db
 			.select({
 				id: kernelRuntimeRuns.id,
@@ -789,8 +1019,9 @@ export async function readLatestRunAwaitingDelegationApproval(
 		targetTediId?: string;
 	},
 ): Promise<KernelRuntimeRun | null> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const [row] = await db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(kernelRunStoredColumns(db))
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -800,12 +1031,12 @@ export async function readLatestRunAwaitingDelegationApproval(
 				ne(kernelRuntimeRuns.id, input.excludeRunId),
 				isNull(kernelRuntimeRuns.childRunId),
 				input.targetTediId
-					? sql`${kernelRuntimeRuns.targetTediId} = ${input.targetTediId}`
+					? sql`${runTargetTediId(db)} = ${input.targetTediId}`
 					: undefined,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.decision.mode') = 'needs_approval'`,
-				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object'`,
-				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId') = 'text' AND length(${kernelRuntimeRuns.targetTediId}) > 0`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.resolutionStatus') IS NULL`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegation", "decision", "mode"])} = 'needs_approval'`,
+				sql`${jsonType(db, kernelRuntimeRuns.metadata, ["homeDelegation", "workOrder"])} = 'object'`,
+				sql`${jsonType(db, kernelRuntimeRuns.metadata, ["homeDelegation", "workOrder", "targetTediId"])} = 'string' AND length(${runTargetTediId(db)}) > 0`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegation", "resolutionStatus"])} IS NULL`,
 			),
 		)
 		.orderBy(desc(kernelRuntimeRuns.updatedAt), desc(kernelRuntimeRuns.id))
@@ -821,14 +1052,16 @@ export async function findKernelRuntimeRunForOutputRevision(
 	// Status and output are checked here, not in SQL: with a status equality the
 	// planner prefers the (organization_id, status) index while most
 	// output_revision_id values are NULL, and reads every completed run.
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const rows = await db
 		.select({
 			id: kernelRuntimeRuns.id,
 			conversationId: kernelRuntimeRuns.conversationId,
 			status: kernelRuntimeRuns.status,
-			outputId: sql<
-				string | null
-			>`json_extract(${kernelRuntimeRuns.metadata}, '$.kernelOutputReceipt.outputId')`,
+			outputId: jsonRead(db, kernelRuntimeRuns.metadata, [
+				"kernelOutputReceipt",
+				"outputId",
+			]),
 		})
 		.from(kernelRuntimeRuns)
 		.where(
@@ -911,6 +1144,7 @@ function validApprovalEventSet(
 
 /** Freeze the complete approval history, including producer fields, through the send boundary. */
 function approvedHomeApprovalHistoryGuard(
+	db: StoreDb,
 	input: Pick<
 		ClaimApprovedHomeDelegationResumeParams,
 		| "organizationId"
@@ -922,6 +1156,8 @@ function approvedHomeApprovalHistoryGuard(
 	>,
 	now: string,
 ) {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const proof = input.approvalEventSet;
 	if (!proof)
 		return sql`(select count(*) from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.organizationId} = ${input.organizationId} and ${kernelRuntimeEvents.runId} = ${input.runId} and ${kernelRuntimeEvents.kind} = 'approval.resolved') = 1`;
@@ -940,6 +1176,35 @@ function approvedHomeApprovalHistoryGuard(
 		)
 	)
 		return sql`0`;
+	if (postgres(db)) {
+		const field = (name: string) => sql`(approval_snapshot.value ->> ${name})`;
+		return sql`
+		${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegation", "expiresAt"])} = ${proof.originalExpiresAt}
+		and (select count(*) from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.organizationId} = ${input.organizationId} and ${kernelRuntimeEvents.runId} = ${input.runId} and ${kernelRuntimeEvents.kind} = 'approval.resolved') = ${proof.events.length}
+		and not exists (
+			select 1 from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.organizationId} = ${input.organizationId} and ${kernelRuntimeEvents.runId} = ${input.runId} and ${kernelRuntimeEvents.kind} = 'approval.resolved'
+			and not exists (select 1 from jsonb_array_elements(${JSON.stringify(proof.events)}::jsonb) as approval_snapshot(value) where
+				${kernelRuntimeEvents.id} IS NOT DISTINCT FROM ${field("id")}
+				and ${kernelRuntimeEvents.organizationId} IS NOT DISTINCT FROM ${field("organizationId")}
+				and ${kernelRuntimeEvents.runId} IS NOT DISTINCT FROM ${field("runId")}
+				and ${kernelRuntimeEvents.conversationId} IS NOT DISTINCT FROM ${field("conversationId")}
+				and ${kernelRuntimeEvents.kind} IS NOT DISTINCT FROM ${field("kind")}
+				and ${kernelRuntimeEvents.createdAt} IS NOT DISTINCT FROM ${field("createdAt")}
+				and ${kernelRuntimeEvents.payload} IS NOT DISTINCT FROM (approval_snapshot.value -> 'payload')
+				and ${kernelRuntimeEvents.runtimeMetadata} IS NOT DISTINCT FROM (approval_snapshot.value -> 'runtimeMetadata')
+				and ${kernelRuntimeEvents.runtimeBackend} IS NOT DISTINCT FROM ${field("runtimeBackend")}
+				and ${kernelRuntimeEvents.runtimeExternalId} IS NOT DISTINCT FROM ${field("runtimeExternalId")}
+				and ${kernelRuntimeEvents.runtimeExternalUrl} IS NOT DISTINCT FROM ${field("runtimeExternalUrl")}
+				and ${kernelRuntimeEvents.delegatedTediId} IS NOT DISTINCT FROM ${field("delegatedTediId")}
+				and ${kernelRuntimeEvents.childRunId} IS NOT DISTINCT FROM ${field("childRunId")}
+				and ${kernelRuntimeEvents.causeEventId} IS NOT DISTINCT FROM ${field("causeEventId")}
+				and ${kernelRuntimeEvents.messageId} IS NOT DISTINCT FROM ${field("messageId")}
+				and ${kernelRuntimeEvents.sequence} IS NOT DISTINCT FROM (${field("sequence")})::bigint
+				and ${kernelRuntimeEvents.delta} IS NOT DISTINCT FROM ${field("delta")}
+				and ${kernelRuntimeEvents.traceId} IS NOT DISTINCT FROM ${field("traceId")}
+			)
+		)`;
+	}
 	return sql`
 		json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.expiresAt') = ${proof.originalExpiresAt}
 		and (select count(*) from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.organizationId} = ${input.organizationId} and ${kernelRuntimeEvents.runId} = ${input.runId} and ${kernelRuntimeEvents.kind} = 'approval.resolved') = ${proof.events.length}
@@ -993,6 +1258,12 @@ export async function claimApprovedHomeDelegationResume(
 	db: DbQueryClient,
 	input: ClaimApprovedHomeDelegationResumeParams,
 ): Promise<KernelRuntimeRun | null> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const chatDispatchIdempotency = coreTable(db, d1ChatDispatchIdempotency);
+	const runtimeSubmissions = coreTable(db, d1RuntimeSubmissions);
 	const currentWork = db
 		.select({ id: workItems.id })
 		.from(workItems)
@@ -1016,17 +1287,57 @@ export async function claimApprovedHomeDelegationResume(
 				eq(kernelRuntimeEvents.conversationId, input.conversationId),
 				eq(kernelRuntimeEvents.kind, "approval.resolved"),
 				eq(kernelRuntimeEvents.createdAt, input.approvalResolvedAt),
-				sql`json_extract(${kernelRuntimeEvents.payload}, '$.status') = 'approved'`,
-				sql`json_type(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder') = 'object'`,
-				sql`json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.targetTediId') = ${kernelRuntimeRuns.targetTediId}`,
-				sql`(json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.workItemId') is null or json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.workItemId') = ${input.workItemId})`,
+				sql`${jsonRead(db, kernelRuntimeEvents.payload, ["status"])} = 'approved'`,
+				sql`${jsonType(db, kernelRuntimeEvents.payload, ["delegationWorkOrder"])} = 'object'`,
+				sql`${jsonRead(db, kernelRuntimeEvents.payload, ["delegationWorkOrder", "targetTediId"])} = ${runTargetTediId(db)}`,
+				sql`(${jsonRead(db, kernelRuntimeEvents.payload, ["delegationWorkOrder", "workItemId"])} is null or ${jsonRead(db, kernelRuntimeEvents.payload, ["delegationWorkOrder", "workItemId"])} = ${input.workItemId})`,
 			),
 		);
+	const receiptWorkOrder = postgres(db)
+		? sql`((${approvedReceipt}) #> '{delegationWorkOrder}')`
+		: sql`json_extract((${approvedReceipt}), '$.delegationWorkOrder')`;
+	const receiptField = (key: string) =>
+		postgres(db)
+			? sql`((${approvedReceipt}) #> ${pgTextArray([key])}::text[])`
+			: sql`json_extract((${approvedReceipt}), ${"$." + key})`;
 	const [run] = await db
 		.update(kernelRuntimeRuns)
 		.set({
 			updatedAt: input.now,
-			metadata: sql`json_set(${JSON.stringify({ ...input.expectedMetadata, homeDelegationResume: { version: 1, phase: "claimed", claimId: input.claimId, approvalEventId: input.approvalEventId, approvalResolvedAt: input.approvalResolvedAt, workItemId: input.workItemId, workItemVersion: input.workItemVersion, admissionSpecRevision: input.admissionSpecRevision, scopeDigest: input.scopeDigest, targetTediId: input.targetTediId, expectedChildRunId: input.expectedChildRunId, claimedAt: input.now, ...(input.approvalEventSet ? { approvalEventSet: input.approvalEventSet } : {}) } })}, '$.homeDelegation.workOrder', json_extract((${approvedReceipt}), '$.delegationWorkOrder'), '$.delegationWorkOrder', json_extract((${approvedReceipt}), '$.delegationWorkOrder'), '$.homeDelegation.resolutionStatus', 'approved', '$.homeDelegation.resolvedAt', ${input.approvalResolvedAt}, '$.homeDelegation.resolution', json_extract((${approvedReceipt}), '$.resolution'), '$.homeDelegation.resolvedBy', json_extract((${approvedReceipt}), '$.resolvedBy'))`,
+			metadata: jsonSetPaths(
+				db,
+				jsonDocument(db, {
+					...input.expectedMetadata,
+					homeDelegationResume: {
+						version: 1,
+						phase: "claimed",
+						claimId: input.claimId,
+						approvalEventId: input.approvalEventId,
+						approvalResolvedAt: input.approvalResolvedAt,
+						workItemId: input.workItemId,
+						workItemVersion: input.workItemVersion,
+						admissionSpecRevision: input.admissionSpecRevision,
+						scopeDigest: input.scopeDigest,
+						targetTediId: input.targetTediId,
+						expectedChildRunId: input.expectedChildRunId,
+						claimedAt: input.now,
+						...(input.approvalEventSet
+							? { approvalEventSet: input.approvalEventSet }
+							: {}),
+					},
+				}),
+				[
+					[["homeDelegation", "workOrder"], receiptWorkOrder],
+					[["delegationWorkOrder"], receiptWorkOrder],
+					[["homeDelegation", "resolutionStatus"], jsonLiteral(db, "approved")],
+					[
+						["homeDelegation", "resolvedAt"],
+						jsonLiteral(db, input.approvalResolvedAt),
+					],
+					[["homeDelegation", "resolution"], receiptField("resolution")],
+					[["homeDelegation", "resolvedBy"], receiptField("resolvedBy")],
+				],
+			),
 		})
 		.where(
 			and(
@@ -1042,15 +1353,15 @@ export async function claimApprovedHomeDelegationResume(
 				isNull(kernelRuntimeRuns.childRunId),
 				isNull(kernelRuntimeRuns.delegatedTediId),
 				isNull(kernelRuntimeRuns.childConversationId),
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null`,
-				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim') is null or (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase') = 'admission_failed' and ${homeDelegationResolutionReceiptExists(db)} and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalEventId') = ${input.approvalEventId} and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalResolvedAt') = ${input.approvalResolvedAt} and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.workItemId') = ${input.workItemId}) and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.scopeDigest') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.scopeDigest') = ${input.scopeDigest})))`,
-				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object'`,
-				sql`coalesce(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.resolutionStatus'), '') <> 'rejected'`,
-				sql`coalesce(${kernelRuntimeRuns.workItemId}, json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId'), json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId'), json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId')) = ${input.workItemId}`,
-				sql`(${kernelRuntimeRuns.workItemId} is null or ${kernelRuntimeRuns.workItemId} = ${input.workItemId})`,
-				sql`(json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId') is null or json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId') = ${input.workItemId})`,
-				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId') = ${input.workItemId})`,
-				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId') = ${input.workItemId})`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume"])} is null`,
+				sql`(${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim"])} is null or (${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "phase"])} = 'admission_failed' and ${homeDelegationResolutionReceiptExists(db)} and ${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "approvalEventId"])} = ${input.approvalEventId} and ${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "approvalResolvedAt"])} = ${input.approvalResolvedAt} and (${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "workItemId"])} is null or ${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "workItemId"])} = ${input.workItemId}) and (${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "scopeDigest"])} is null or ${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "scopeDigest"])} = ${input.scopeDigest})))`,
+				sql`${jsonType(db, kernelRuntimeRuns.metadata, ["homeDelegation", "workOrder"])} = 'object'`,
+				sql`coalesce(${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegation", "resolutionStatus"])}, '') <> 'rejected'`,
+				sql`coalesce(${runWorkItemId(db)}, ${jsonRead(db, kernelRuntimeRuns.runtimeMetadata, ["workItemId"])}, ${jsonRead(db, kernelRuntimeRuns.metadata, ["redriveInput", "runtimeMetadata", "workItemId"])}, ${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegation", "workOrder", "workItemId"])}) = ${input.workItemId}`,
+				sql`(${runWorkItemId(db)} is null or ${runWorkItemId(db)} = ${input.workItemId})`,
+				sql`(${jsonRead(db, kernelRuntimeRuns.runtimeMetadata, ["workItemId"])} is null or ${jsonRead(db, kernelRuntimeRuns.runtimeMetadata, ["workItemId"])} = ${input.workItemId})`,
+				sql`(${jsonRead(db, kernelRuntimeRuns.metadata, ["redriveInput", "runtimeMetadata", "workItemId"])} is null or ${jsonRead(db, kernelRuntimeRuns.metadata, ["redriveInput", "runtimeMetadata", "workItemId"])} = ${input.workItemId})`,
+				sql`(${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegation", "workOrder", "workItemId"])} is null or ${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegation", "workOrder", "workItemId"])} = ${input.workItemId})`,
 				notExists(
 					db
 						.select({ id: workAttempts.id })
@@ -1100,7 +1411,7 @@ export async function claimApprovedHomeDelegationResume(
 						),
 				),
 
-				approvedHomeApprovalHistoryGuard(input, input.now),
+				approvedHomeApprovalHistoryGuard(db, input, input.now),
 				exists(currentWork),
 				exists(approvedReceipt),
 				notExists(
@@ -1117,7 +1428,7 @@ export async function claimApprovedHomeDelegationResume(
 				),
 			),
 		)
-		.returning(kernelRuntimeRunStoredColumns);
+		.returning(kernelRunStoredColumns(db));
 	return run ?? null;
 }
 
@@ -1194,13 +1505,19 @@ export function parseApprovedHomeDelegationResumeScope(input: {
 	};
 }
 
-function approvedHomeResumeScope(input: ApprovedHomeDelegationResumeScope) {
+function approvedHomeResumeScope(
+	db: StoreDb,
+	input: ApprovedHomeDelegationResumeScope,
+) {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	return and(
 		eq(kernelRuntimeRuns.id, input.runId),
 		eq(kernelRuntimeRuns.organizationId, input.organizationId),
 		eq(kernelRuntimeRuns.conversationId, input.conversationId),
-		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.version') = 1`,
-		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.approvalEventSet') is json_extract(${JSON.stringify({ proof: input.approvalEventSet ?? null })}, '$.proof')`,
+		sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "version"], "number")} = 1`,
+		postgres(db)
+			? sql`(${kernelRuntimeRuns.metadata} #>> ${pgTextArray(["homeDelegationResume", "approvalEventSet"])}::text[]) IS NOT DISTINCT FROM (${JSON.stringify({ proof: input.approvalEventSet ?? null })}::jsonb #>> '{proof}')`
+			: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.approvalEventSet') is json_extract(${JSON.stringify({ proof: input.approvalEventSet ?? null })}, '$.proof')`,
 		...(
 			[
 				"claimId",
@@ -1215,7 +1532,7 @@ function approvedHomeResumeScope(input: ApprovedHomeDelegationResumeScope) {
 			] as const
 		).map(
 			(key) =>
-				sql`json_extract(${kernelRuntimeRuns.metadata}, ${"$.homeDelegationResume." + key}) = ${input[key]}`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", key], key === "workItemVersion" ? "number" : "text")} = ${input[key]}`,
 		),
 	);
 }
@@ -1224,6 +1541,9 @@ function approvedHomeResumeAuthority(
 	db: DbQueryClient,
 	input: ApprovedHomeDelegationResumeScope,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const runtimeSubmissions = coreTable(db, d1RuntimeSubmissions);
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	return and(
 		exists(
 			db
@@ -1263,7 +1583,7 @@ function approvedHomeResumeAuthority(
 						eq(kernelRuntimeEvents.conversationId, input.conversationId),
 						eq(kernelRuntimeEvents.kind, "approval.resolved"),
 						eq(kernelRuntimeEvents.createdAt, input.approvalResolvedAt),
-						sql`json_extract(${kernelRuntimeEvents.payload}, '$.status') = 'approved'`,
+						sql`${jsonRead(db, kernelRuntimeEvents.payload, ["status"])} = 'approved'`,
 					),
 				),
 		),
@@ -1281,23 +1601,38 @@ export async function beginApprovedHomeDelegationResumeDispatch(
 	db: DbQueryClient,
 	input: BeginApprovedHomeDelegationResumeDispatchParams,
 ): Promise<boolean> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const rows = await db
 		.update(kernelRuntimeRuns)
 		.set({
 			updatedAt: input.now,
-			metadata: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase', 'dispatching', '$.homeDelegationResume.expectedChildRunId', ${input.expectedChildRunId}, '$.homeDelegationResume.targetTediId', ${input.targetTediId}, '$.homeDelegationResume.dispatchStartedAt', ${input.now})`,
+			metadata: jsonSetPaths(db, kernelRuntimeRuns.metadata, [
+				[["homeDelegationResume", "phase"], jsonLiteral(db, "dispatching")],
+				[
+					["homeDelegationResume", "expectedChildRunId"],
+					jsonLiteral(db, input.expectedChildRunId),
+				],
+				[
+					["homeDelegationResume", "targetTediId"],
+					jsonLiteral(db, input.targetTediId),
+				],
+				[
+					["homeDelegationResume", "dispatchStartedAt"],
+					jsonLiteral(db, input.now),
+				],
+			]),
 		})
 		.where(
 			and(
-				approvedHomeResumeScope(input),
+				approvedHomeResumeScope(db, input),
 				approvedHomeResumeAuthority(db, input),
-				approvedHomeApprovalHistoryGuard(input, input.now),
+				approvedHomeApprovalHistoryGuard(db, input, input.now),
 				eq(kernelRuntimeRuns.status, "requires_approval"),
 				isNull(kernelRuntimeRuns.childRunId),
 				isNull(kernelRuntimeRuns.delegatedTediId),
 				isNull(kernelRuntimeRuns.childConversationId),
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase') = 'claimed'`,
-				sql`${kernelRuntimeRuns.targetTediId} = ${input.targetTediId}`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "phase"])} = 'claimed'`,
+				sql`${runTargetTediId(db)} = ${input.targetTediId}`,
 			),
 		)
 		.returning({ id: kernelRuntimeRuns.id });
@@ -1337,37 +1672,49 @@ export async function recordApprovedHomeDelegationResumeDispatch(
 		error: input.error?.slice(0, 1000) ?? null,
 		observedAt: input.now,
 	};
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	const observed = db
 		.update(kernelRuntimeRuns)
 		.set({
-			metadata: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase', 'observed', '$.homeDelegationResume.observation', json(${JSON.stringify(observation)}))`,
+			metadata: jsonSetPaths(db, kernelRuntimeRuns.metadata, [
+				[["homeDelegationResume", "phase"], jsonLiteral(db, "observed")],
+				[["homeDelegationResume", "observation"], jsonLiteral(db, observation)],
+			]),
 		})
 		.where(
 			and(
-				approvedHomeResumeScope(input),
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase') = 'dispatching'`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.expectedChildRunId') = ${input.expectedChildRunId}`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation') is null`,
+				approvedHomeResumeScope(db, input),
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "phase"])} = 'dispatching'`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "expectedChildRunId"])} = ${input.expectedChildRunId}`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "observation"])} is null`,
 			),
 		)
 		.returning({ id: kernelRuntimeRuns.id });
 	const lateObserved = db
 		.update(kernelRuntimeRuns)
 		.set({
-			metadata: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation', json(${JSON.stringify(observation)}))`,
+			metadata: jsonSetPaths(db, kernelRuntimeRuns.metadata, [
+				[
+					["homeDelegationResume", "lateObservation"],
+					jsonLiteral(db, observation),
+				],
+			]),
 		})
 		.where(
 			and(
-				approvedHomeResumeScope(input),
+				approvedHomeResumeScope(db, input),
 				sql`${outcome} = 'acknowledged'`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase') = 'observed'`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.outcome') = 'unknown'`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation') is null`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "phase"])} = 'observed'`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "observation", "outcome"])} = 'unknown'`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "lateObservation"])} is null`,
 			),
 		)
 		.returning({ id: kernelRuntimeRuns.id });
 
-	const dispatchStartedAt = sql<string>`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.dispatchStartedAt')`;
+	const dispatchStartedAt = jsonRead(db, kernelRuntimeRuns.metadata, [
+		"homeDelegationResume",
+		"dispatchStartedAt",
+	]);
 	const physical = db
 		.update(kernelRuntimeRuns)
 		.set({
@@ -1377,7 +1724,10 @@ export async function recordApprovedHomeDelegationResumeDispatch(
 						startedAt: dispatchStartedAt,
 						childRunId: input.observedChildRunId!,
 						childConversationId: input.childConversationId ?? null,
-						delegatedTediId: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.targetTediId')`,
+						delegatedTediId: jsonRead(db, kernelRuntimeRuns.metadata, [
+							"homeDelegationResume",
+							"targetTediId",
+						]),
 					}
 				: {}),
 			...(outcome === "failed" ? { completedAt: input.now } : {}),
@@ -1385,7 +1735,7 @@ export async function recordApprovedHomeDelegationResumeDispatch(
 		})
 		.where(
 			and(
-				approvedHomeResumeScope(input),
+				approvedHomeResumeScope(db, input),
 				approvedHomeResumeAuthority(db, input),
 				inArray(kernelRuntimeRuns.status, [
 					"requires_approval",
@@ -1395,15 +1745,15 @@ export async function recordApprovedHomeDelegationResumeDispatch(
 				sql`${outcome} <> 'unknown'`,
 				outcome === "acknowledged"
 					? and(
-							sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.dispatchStartedAt') = 'text'`,
-							sql`${dispatchStartedAt} = strftime('%Y-%m-%dT%H:%M:%fZ', ${dispatchStartedAt})`,
-							sql`julianday(${dispatchStartedAt}) <= julianday(${input.now})`,
-							sql`julianday(${dispatchStartedAt}) >= julianday(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.claimedAt'))`,
-							sql`julianday(${dispatchStartedAt}) >= julianday(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.approvalResolvedAt'))`,
+							sql`${jsonType(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "dispatchStartedAt"])} = 'string'`,
+							canonicalIsoInstant(db, dispatchStartedAt),
+							sql`${instantSeconds(db, dispatchStartedAt)} <= ${instantSeconds(db, sql`${input.now}`)}`,
+							sql`${instantSeconds(db, dispatchStartedAt)} >= ${instantSeconds(db, jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "claimedAt"]))}`,
+							sql`${instantSeconds(db, dispatchStartedAt)} >= ${instantSeconds(db, jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "approvalResolvedAt"]))}`,
 						)
 					: undefined,
-				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.id') = ${observationId} or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation.id') = ${observationId})`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.expectedChildRunId') = ${input.expectedChildRunId}`,
+				sql`(${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "observation", "id"])} = ${observationId} or ${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "lateObservation", "id"])} = ${observationId})`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "expectedChildRunId"])} = ${input.expectedChildRunId}`,
 				isNull(kernelRuntimeRuns.childRunId),
 				isNull(kernelRuntimeRuns.delegatedTediId),
 				isNull(kernelRuntimeRuns.childConversationId),
@@ -1411,9 +1761,9 @@ export async function recordApprovedHomeDelegationResumeDispatch(
 		)
 		.returning({ id: kernelRuntimeRuns.id });
 	const canonical = db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(kernelRunStoredColumns(db))
 		.from(kernelRuntimeRuns)
-		.where(approvedHomeResumeScope(input))
+		.where(approvedHomeResumeScope(db, input))
 		.limit(1);
 	const [saved, lateSaved, live, runs] = await db.batch([
 		observed,
@@ -1429,12 +1779,14 @@ export async function recordApprovedHomeDelegationResumeDispatch(
 }
 
 function homeDelegationResolutionReceiptExists(db: DbQueryClient) {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	return and(
-		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.version') = 1`,
-		sql`length(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimId')) > 0`,
-		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.organizationId') = ${kernelRuntimeRuns.organizationId}`,
-		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.runId') = ${kernelRuntimeRuns.id}`,
-		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.conversationId') = ${kernelRuntimeRuns.conversationId}`,
+		sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "version"], "number")} = 1`,
+		sql`length(${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "claimId"])}) > 0`,
+		sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "organizationId"])} = ${kernelRuntimeRuns.organizationId}`,
+		sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "runId"])} = ${kernelRuntimeRuns.id}`,
+		sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "conversationId"])} = ${kernelRuntimeRuns.conversationId}`,
 		exists(
 			db
 				.select({ id: kernelRuntimeEvents.id })
@@ -1451,9 +1803,9 @@ function homeDelegationResolutionReceiptExists(db: DbQueryClient) {
 							kernelRuntimeRuns.conversationId,
 						),
 						eq(kernelRuntimeEvents.kind, "approval.resolved"),
-						sql`${kernelRuntimeEvents.id} = json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalEventId')`,
-						sql`${kernelRuntimeEvents.createdAt} = json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalResolvedAt')`,
-						sql`json_extract(${kernelRuntimeEvents.payload}, '$.status') = 'approved'`,
+						sql`${kernelRuntimeEvents.id} = ${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "approvalEventId"])}`,
+						sql`${kernelRuntimeEvents.createdAt} = ${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "approvalResolvedAt"])}`,
+						sql`${jsonRead(db, kernelRuntimeEvents.payload, ["status"])} = 'approved'`,
 					),
 				),
 		),
@@ -1470,10 +1822,21 @@ export async function markHomeDelegationResolutionAdmissionFailed(
 		now: string;
 	},
 ): Promise<boolean> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const runtimeSubmissions = coreTable(db, d1RuntimeSubmissions);
 	const rows = await db
 		.update(kernelRuntimeRuns)
 		.set({
-			metadata: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase', 'admission_failed', '$.homeDelegationResolutionClaim.admissionFailedAt', ${input.now})`,
+			metadata: jsonSetPaths(db, kernelRuntimeRuns.metadata, [
+				[
+					["homeDelegationResolutionClaim", "phase"],
+					jsonLiteral(db, "admission_failed"),
+				],
+				[
+					["homeDelegationResolutionClaim", "admissionFailedAt"],
+					jsonLiteral(db, input.now),
+				],
+			]),
 		})
 		.where(
 			and(
@@ -1496,9 +1859,9 @@ export async function markHomeDelegationResolutionAdmissionFailed(
 							),
 						),
 				),
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimId') = ${input.expectedClaimId}`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase') = 'resolving'`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume"])} is null`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "claimId"])} = ${input.expectedClaimId}`,
+				sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResolutionClaim", "phase"])} = 'resolving'`,
 			),
 		)
 		.returning({ id: kernelRuntimeRuns.id });
@@ -1518,23 +1881,45 @@ export async function recordApprovedHomeDelegationResumeStopOutcome(
 	input: RecordApprovedHomeDelegationResumeStopOutcomeParams,
 ): Promise<boolean> {
 	if (!input.stopAttemptId.trim()) return false;
-	const acknowledgement = sql`((json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.outcome') = 'acknowledged' and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.observedChildRunId') = ${input.expectedChildRunId}) or (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.outcome') = 'unknown' and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation.outcome') = 'acknowledged' and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation.observedChildRunId') = ${input.expectedChildRunId}))`;
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const runtimeSubmissions = coreTable(db, d1RuntimeSubmissions);
+	const read = (path: readonly string[]) =>
+		jsonRead(db, kernelRuntimeRuns.metadata, path);
+	const acknowledgement = sql`((${read(["homeDelegationResume", "observation", "outcome"])} = 'acknowledged' and ${read(["homeDelegationResume", "observation", "observedChildRunId"])} = ${input.expectedChildRunId}) or (${read(["homeDelegationResume", "observation", "outcome"])} = 'unknown' and ${read(["homeDelegationResume", "lateObservation", "outcome"])} = 'acknowledged' and ${read(["homeDelegationResume", "lateObservation", "observedChildRunId"])} = ${input.expectedChildRunId}))`;
 	const attempt = input.outcome === "attempted";
 	const rows = await db
 		.update(kernelRuntimeRuns)
 		.set({
 			metadata: attempt
-				? sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation', json(${JSON.stringify({ attemptId: input.stopAttemptId, outcome: "attempted", attemptedAt: input.now })}))`
-				: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation.completion', json(${JSON.stringify({ outcome: input.outcome, completedAt: input.now, error: input.error?.slice(0, 1000) ?? null })}))`,
+				? jsonSetPaths(db, kernelRuntimeRuns.metadata, [
+						[
+							["homeDelegationResume", "stopObservation"],
+							jsonLiteral(db, {
+								attemptId: input.stopAttemptId,
+								outcome: "attempted",
+								attemptedAt: input.now,
+							}),
+						],
+					])
+				: jsonSetPaths(db, kernelRuntimeRuns.metadata, [
+						[
+							["homeDelegationResume", "stopObservation", "completion"],
+							jsonLiteral(db, {
+								outcome: input.outcome,
+								completedAt: input.now,
+								error: input.error?.slice(0, 1000) ?? null,
+							}),
+						],
+					]),
 		})
 		.where(
 			and(
-				approvedHomeResumeScope(input),
+				approvedHomeResumeScope(db, input),
 				acknowledgement,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase') = 'observed'`,
+				sql`${read(["homeDelegationResume", "phase"])} = 'observed'`,
 				attempt
 					? and(
-							sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation') is null`,
+							sql`${read(["homeDelegationResume", "stopObservation"])} is null`,
 							sql`(${kernelRuntimeRuns.status} = 'canceled' or ${exists(
 								db
 									.select({ id: runtimeSubmissions.id })
@@ -1552,8 +1937,8 @@ export async function recordApprovedHomeDelegationResumeStopOutcome(
 							)})`,
 						)
 					: and(
-							sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation.attemptId') = ${input.stopAttemptId}`,
-							sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation.completion') is null`,
+							sql`${read(["homeDelegationResume", "stopObservation", "attemptId"])} = ${input.stopAttemptId}`,
+							sql`${read(["homeDelegationResume", "stopObservation", "completion"])} is null`,
 						),
 			),
 		)
