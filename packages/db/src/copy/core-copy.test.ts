@@ -11,6 +11,7 @@ import {
 	copyPages,
 	keysetSource,
 	loadCheckpoint,
+	restoreDocsReleaseMarkers,
 	saveCheckpoint,
 	verifyCopy,
 	type CopyState,
@@ -423,5 +424,258 @@ test("wide core rows avoid the Postgres function argument limit and normalize ep
 			generated_value: "wide-generated",
 			updated_at: new Date("2026-01-01T00:00:00Z"),
 		},
+	]);
+});
+
+test("docs release copy preserves source rowid order, resumes ordinals and restores markers", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	cleanup.push(() => sqlite.close());
+	sqlite.exec(`
+		CREATE TABLE docs_sites (
+			id TEXT PRIMARY KEY,
+			slug TEXT NOT NULL,
+			active_build_id TEXT,
+			latest_build_id TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+		CREATE TABLE docs_releases (
+			id TEXT PRIMARY KEY,
+			site_id TEXT NOT NULL,
+			build_id TEXT NOT NULL,
+			previous_build_id TEXT,
+			action TEXT NOT NULL,
+			actor_type TEXT NOT NULL,
+			actor_id TEXT NOT NULL,
+			actor_session_id TEXT,
+			created_at TEXT NOT NULL
+		);
+	`);
+	const engine = new PGlite();
+	cleanup.push(() => engine.close());
+	await engine.exec(`
+		CREATE TABLE docs_sites (
+			id TEXT PRIMARY KEY,
+			slug TEXT NOT NULL,
+			active_build_id TEXT,
+			latest_build_id TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			active_release_id TEXT
+		);
+		CREATE TABLE docs_releases (
+			id TEXT PRIMARY KEY,
+			site_id TEXT NOT NULL,
+			build_id TEXT NOT NULL,
+			previous_build_id TEXT,
+			action TEXT NOT NULL,
+			actor_type TEXT NOT NULL,
+			actor_id TEXT NOT NULL,
+			actor_session_id TEXT,
+			created_at TEXT NOT NULL,
+			release_order BIGINT GENERATED ALWAYS AS IDENTITY
+		);
+		CREATE FUNCTION docs_sites_mark_activation() RETURNS trigger
+		LANGUAGE plpgsql AS $$
+		BEGIN
+			NEW.active_release_id := 'triggered';
+			RETURN NEW;
+		END
+		$$;
+		CREATE TRIGGER docs_sites_mark_activation
+			BEFORE UPDATE OF active_build_id ON docs_sites
+			FOR EACH ROW EXECUTE FUNCTION docs_sites_mark_activation();
+	`);
+	const d1 = createD1Facade(sqlite, { maxBoundParams: 100 });
+	const query: PgQuery = (sql, params) => engine.query(sql, params);
+	const source = (tableName: string, highWater: number) =>
+		keysetSource({
+			id: `docs-${tableName}-v1`,
+			table: tableName,
+			highWater,
+			read: async (sql, params) =>
+				(
+					await d1
+						.prepare(sql)
+						.bind(...params)
+						.all()
+				).results as Record<string, unknown>[],
+		});
+	const time = "2026-01-01 00:00:00";
+	sqlite
+		.prepare(
+			"INSERT INTO docs_sites (id, slug, active_build_id, latest_build_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		)
+		.run("site-a", "site-a", "build-a3", "build-a3", time, time);
+	sqlite
+		.prepare(
+			"INSERT INTO docs_sites (id, slug, active_build_id, latest_build_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		)
+		.run("site-b", "site-b", "build-b2", "build-b2", time, time);
+	const insertRelease = sqlite.prepare(
+		"INSERT INTO docs_releases (id, site_id, build_id, previous_build_id, action, actor_type, actor_id, actor_session_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	);
+	for (const row of [
+		["release-z", "site-a", "build-a1", null, "publish"],
+		["release-a", "site-a", "build-a2", "build-a1", "publish"],
+		["release-m", "site-b", "build-b1", "build-b0", "rollback"],
+		["release-b", "site-a", "build-a3", "build-a2", "rollback"],
+		["release-y", "site-b", "build-b2", "build-b1", "publish"],
+	] as const)
+		insertRelease.run(
+			row[0],
+			row[1],
+			row[2],
+			row[3],
+			row[4],
+			"service",
+			"actor",
+			null,
+			time,
+		);
+	const siteTable: CopyTable = {
+		table: "docs_sites",
+		keys: ["id"],
+		columns: {
+			id: "value",
+			slug: "value",
+			active_build_id: "value",
+			latest_build_id: "value",
+			created_at: "value",
+			updated_at: "value",
+		},
+	};
+	const releaseTable: CopyTable = {
+		table: "docs_releases",
+		keys: ["id"],
+		columns: {
+			id: "value",
+			site_id: "value",
+			build_id: "value",
+			previous_build_id: "value",
+			action: "value",
+			actor_type: "value",
+			actor_id: "value",
+			actor_session_id: "value",
+			created_at: "value",
+			release_order: "value",
+		},
+		sourceRowid: "release_order",
+	};
+	await copyPages({
+		table: siteTable,
+		source: source("docs_sites", 2),
+		query,
+		pauseMs: 0,
+		save: async () => {},
+	});
+	const releaseOptions = {
+		table: releaseTable,
+		source: source("docs_releases", 5),
+		query,
+		pageSize: 2,
+		pauseMs: 0,
+	};
+	let checkpoint: CopyState | undefined;
+	let saves = 0;
+	await expect(
+		copyPages({
+			...releaseOptions,
+			save: async (state) => {
+				if (++saves === 2) throw new Error("interrupted");
+				checkpoint = state;
+			},
+		}),
+	).rejects.toThrow("interrupted");
+	expect(checkpoint?.pages).toHaveLength(1);
+	const state = await copyPages({
+		...releaseOptions,
+		state: checkpoint,
+		save: async (value) => {
+			checkpoint = value;
+		},
+	});
+	expect(state.done).toBe(true);
+	expect(state.pages.map((page) => page.keys.length)).toEqual([2, 2, 1]);
+	await verifyCopy(releaseTable, query, state);
+	expect(
+		(
+			await engine.query(
+				"SELECT id, release_order FROM docs_releases ORDER BY release_order",
+			)
+		).rows,
+	).toEqual([
+		{ id: "release-z", release_order: 1 },
+		{ id: "release-a", release_order: 2 },
+		{ id: "release-m", release_order: 3 },
+		{ id: "release-b", release_order: 4 },
+		{ id: "release-y", release_order: 5 },
+	]);
+	await restoreDocsReleaseMarkers(query, ["site-a", "site-b"]);
+	expect(
+		(
+			await engine.query(
+				"SELECT id, active_build_id, active_release_id FROM docs_sites ORDER BY id",
+			)
+		).rows,
+	).toEqual([
+		{
+			id: "site-a",
+			active_build_id: "build-a3",
+			active_release_id: "release-b",
+		},
+		{
+			id: "site-b",
+			active_build_id: "build-b2",
+			active_release_id: "release-y",
+		},
+	]);
+	await engine.query(
+		`INSERT INTO docs_releases (
+			id, site_id, build_id, previous_build_id, action, actor_type, actor_id,
+			actor_session_id, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		[
+			"release-native",
+			"site-a",
+			"build-a4",
+			"build-a3",
+			"publish",
+			"service",
+			"actor",
+			null,
+			time,
+		],
+	);
+	expect(
+		(
+			await engine.query(
+				"SELECT release_order FROM docs_releases WHERE id = 'release-native'",
+			)
+		).rows,
+	).toEqual([{ release_order: 6 }]);
+	expect(
+		(
+			await engine.query(
+				"SELECT id FROM docs_releases WHERE site_id = 'site-a' ORDER BY created_at DESC, release_order DESC",
+			)
+		).rows,
+	).toEqual([
+		{ id: "release-native" },
+		{ id: "release-b" },
+		{ id: "release-a" },
+		{ id: "release-z" },
+	]);
+	await verifyCopy(releaseTable, query, state);
+	await restoreDocsReleaseMarkers(query, ["site-a", "site-b"]);
+	expect(
+		(
+			await engine.query(
+				"SELECT id, active_release_id FROM docs_sites ORDER BY id",
+			)
+		).rows,
+	).toEqual([
+		{ id: "site-a", active_release_id: "release-native" },
+		{ id: "site-b", active_release_id: "release-y" },
 	]);
 });

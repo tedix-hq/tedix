@@ -9,10 +9,14 @@ export interface CopyTable {
 	table: string;
 	keys: string[];
 	columns: Record<string, "value" | "json" | "boolean" | "epoch" | "timestamp">;
+	/** Target identity column that preserves the source rowid. */
+	sourceRowid?: string;
 }
 export interface CopySource {
 	/** Identifies the installation, immutable capture/window and source table. */
 	id: string;
+	/** Source rowid upper bound when the reader knows the whole window. */
+	highWater?: number;
 	page(
 		cursor: Row | null,
 		limit: number,
@@ -59,9 +63,24 @@ const hash = (value: unknown) =>
 	createHash("sha256").update(canonical(value)).digest("hex");
 const pageHash = (rows: Row[]) => hash(rows.map(canonical).sort());
 
+function copiedRowid(column: string, value: unknown) {
+	const numeric = typeof value === "string" ? Number(value) : value;
+	if (
+		typeof numeric !== "number" ||
+		!Number.isSafeInteger(numeric) ||
+		numeric <= 0
+	)
+		throw new Error(`Invalid copied rowid for ${column}`);
+	return numeric;
+}
+
 function normalize(table: CopyTable, row: Row, fromPg = false): Row {
 	return Object.fromEntries(
 		Object.entries(table.columns).map(([column, kind]) => {
+			if (column === table.sourceRowid) {
+				const value = fromPg ? row[column] : (row.__copy_rowid ?? row.__rowid);
+				return [column, copiedRowid(column, value)];
+			}
 			let value = row[column];
 			if (value === undefined) throw new Error(`Missing column ${column}`);
 			if (value !== null) {
@@ -93,23 +112,68 @@ function checkTable(table: CopyTable) {
 		table.keys.some((key) => !(key in table.columns))
 	)
 		throw new Error("Copy needs unique keys included in columns");
+	if (table.sourceRowid !== undefined) {
+		quote(table.sourceRowid);
+		if (!(table.sourceRowid in table.columns))
+			throw new Error("Source rowid column must be copied");
+		if (table.keys.includes(table.sourceRowid))
+			throw new Error("Source rowid column cannot be a copy key");
+	}
 }
 function returnedRows(table: CopyTable, rows: Row[]) {
 	return rows.map((row) => normalize(table, row.copied_row as Row, true));
+}
+
+async function advanceSourceRowid(
+	table: CopyTable,
+	query: PgQuery,
+	minimum: number,
+) {
+	const column = table.sourceRowid;
+	if (!column) return;
+	if (!Number.isSafeInteger(minimum) || minimum <= 0)
+		throw new Error("Invalid source rowid high water");
+	const sequence = await query(
+		`SELECT pg_get_serial_sequence($1, $2) AS sequence`,
+		[table.table, column],
+	);
+	const name = sequence.rows[0]?.sequence;
+	if (typeof name !== "string" || !name)
+		throw new Error(`Missing identity sequence for ${table.table}.${column}`);
+	await query(
+		`WITH target AS (
+			SELECT namespace.nspname AS schemaname, class.relname AS sequencename
+			FROM pg_class AS class
+			JOIN pg_namespace AS namespace ON namespace.oid = class.relnamespace
+			WHERE class.oid = to_regclass($1)
+		), current AS (
+			SELECT sequences.last_value
+			FROM pg_sequences AS sequences
+			JOIN target ON sequences.schemaname = target.schemaname
+				AND sequences.sequencename = target.sequencename
+		)
+		SELECT setval(
+			$1::regclass,
+			GREATEST($2::bigint, COALESCE((SELECT last_value FROM current), $2::bigint)),
+			true
+		)`,
+		[name, minimum],
+	);
 }
 
 /** One JSON parameter and one atomic upsert per page; replay after a crash is safe. */
 async function writePage(table: CopyTable, query: PgQuery, rows: Row[]) {
 	const columns = Object.keys(table.columns).map(quote).join(", ");
 	const updates = Object.keys(table.columns).filter(
-		(c) => !table.keys.includes(c),
+		(c) => !table.keys.includes(c) && c !== table.sourceRowid,
 	);
 	// A key-only table still needs RETURNING rows on replay.
 	const set = (updates.length ? updates : table.keys)
 		.map((c) => `${quote(c)} = EXCLUDED.${quote(c)}`)
 		.join(", ");
+	const override = table.sourceRowid ? " OVERRIDING SYSTEM VALUE" : "";
 	const result = await query(
-		`INSERT INTO ${quote(table.table)} AS target (${columns}) SELECT ${columns} FROM jsonb_populate_recordset(NULL::${quote(table.table)}, $1::jsonb) ON CONFLICT (${table.keys.map(quote).join(", ")}) DO UPDATE SET ${set} RETURNING to_jsonb(target) AS copied_row`,
+		`INSERT INTO ${quote(table.table)} AS target (${columns})${override} SELECT ${columns} FROM jsonb_populate_recordset(NULL::${quote(table.table)}, $1::jsonb) ON CONFLICT (${table.keys.map(quote).join(", ")}) DO UPDATE SET ${set} RETURNING to_jsonb(target) AS copied_row`,
 		[JSON.stringify(rows)],
 	);
 	if (pageHash(returnedRows(table, result.rows)) !== pageHash(rows))
@@ -133,6 +197,29 @@ export async function verifyCopy(
 		if (pageHash(returnedRows(table, result.rows)) !== page.sha256)
 			throw new Error("Target verification checksum mismatch");
 	}
+}
+
+/**
+ * Rebuild the Postgres docs_sites.active_release_id marker for copied sites.
+ * Run only after docs_sites, docs_builds and docs_releases are copied and
+ * verified; the update touches only the marker column.
+ */
+export async function restoreDocsReleaseMarkers(
+	query: PgQuery,
+	siteIds: readonly string[],
+) {
+	await query(
+		`UPDATE "docs_sites" AS site
+		SET "active_release_id" = (
+			SELECT release.id
+			FROM "docs_releases" AS release
+			WHERE release.site_id = site.id
+			ORDER BY release.created_at DESC, release.release_order DESC
+			LIMIT 1
+		)
+		WHERE site.id IN (SELECT jsonb_array_elements_text($1::jsonb))`,
+		[JSON.stringify(siteIds)],
+	);
 }
 
 export async function copyPages(options: {
@@ -169,6 +256,15 @@ export async function copyPages(options: {
 	if (state.format !== "tedix-core-copy/v1" || state.plan !== plan)
 		throw new Error("Checkpoint belongs to a different copy plan");
 	if (options.state) await verifyCopy(table, query, state);
+	let advancedSourceRowid = 0;
+	if (
+		table.sourceRowid &&
+		source.highWater !== undefined &&
+		source.highWater > 0
+	) {
+		await advanceSourceRowid(table, query, source.highWater);
+		advancedSourceRowid = source.highWater;
+	}
 	while (!state.done) {
 		await (options.wait ?? sleep)(pause);
 		const page = await source.page(state.cursor, size);
@@ -191,6 +287,15 @@ export async function copyPages(options: {
 			if (new Set(keys.map(canonical)).size !== rows.length)
 				throw new Error("Duplicate page key");
 			await writePage(table, query, rows);
+			if (table.sourceRowid) {
+				const pageMax = Math.max(
+					...rows.map((row) => Number(row[table.sourceRowid!])),
+				);
+				if (pageMax > advancedSourceRowid) {
+					await advanceSourceRowid(table, query, pageMax);
+					advancedSourceRowid = pageMax;
+				}
+			}
 			state = {
 				...state,
 				cursor: page.next,
@@ -250,6 +355,7 @@ export function keysetSource(options: {
 			hot: hot ?? null,
 			delta: delta ?? null,
 		}),
+		highWater,
 		async page(cursor, limit) {
 			const after = Number(cursor?.rowid ?? initialRowid);
 			let where = "rowid > ? AND rowid <= ?";

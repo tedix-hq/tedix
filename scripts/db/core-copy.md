@@ -21,6 +21,15 @@ seconds to timestamptz), and `timestamp` (a timestamp with an explicit UTC/offse
 to timestamptz). Use `value` for text timestamp columns. The destination schema,
 constraints, and triggers must already exist; this tool does not create them.
 
+A target `GENERATED ALWAYS AS IDENTITY` column can preserve source rowid
+order. Include the column in `columns` (normally `value`) and set
+`sourceRowid` to its name; it must not be a copy key. `keysetSource` exposes
+`__copy_rowid` and `archiveSource` exposes `__rowid`; both are normalized into
+the declared column. Page writes use `OVERRIDING SYSTEM VALUE`, and the copy
+advances the identity sequence to the source high water before paging, or to
+each page maximum when the source has no high water. Resume checksums include
+the preserved ordinal, so a changed target `release_order` fails verification.
+
 For example, from a local harness with an open SQLite `sqlite` and PGlite `pg`:
 
 ```ts
@@ -82,6 +91,14 @@ its hash with the saved page hash. It detects missing or changed copied rows,
 without reopening D1 or R2. It does not prove there are no extra target rows.
 Verify each pass before starting a delta that intentionally changes earlier
 rows; earlier receipts describe the earlier pass.
+
+For the docs registry, copy `docs_sites` without its target-only
+`active_release_id` column, copy `docs_releases` with
+`sourceRowid: "release_order"`, verify both passes, then call
+`restoreDocsReleaseMarkers(query, siteIds)` for the copied site IDs. It rebuilds
+`active_release_id` from each site's latest `(created_at, release_order)`
+receipt and writes only that marker column, so the active-build trigger cannot
+replace it. Do not run it before all site receipts are copied and verified.
 
 ## Hot windows and delta
 
