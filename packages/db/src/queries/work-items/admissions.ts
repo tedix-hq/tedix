@@ -933,26 +933,14 @@ export async function evaluateAndRecordWorkAdmission(
 	try {
 		const results = await db.batch(statements);
 		const admission = (results[0] as WorkAdmission[])[0];
-		if (!admission) throw new Error("lost admission race");
+		if (!admission)
+			throw new WorkAdmissionError(
+				"stale_specification",
+				"Work or executor eligibility changed before admission",
+			);
 		return admission;
 	} catch (error) {
-		// The reservation triggers are the last word: name the gate they hit
-		// instead of reporting every batch failure as a resource race.
-		const detail = describeCause(error);
-		if (/budget exhausted/i.test(detail))
-			throw new WorkAdmissionError(
-				"budget_blocked",
-				"Budget envelope lacks capacity for this reservation",
-			);
-		if (/resource capacity exhausted/i.test(detail))
-			throw new WorkAdmissionError(
-				"resource_blocked",
-				"Resource pool lacks capacity for this reservation",
-			);
-		throw new WorkAdmissionError(
-			"resource_blocked",
-			"Admission lost an eligibility or reservation race",
-		);
+		rethrowWorkAdmissionWriteError(error);
 	}
 }
 /** Prepare the admission and reservations for the Attempt's atomic start batch. */

@@ -2767,14 +2767,18 @@ describe("atomic admission and Attempt start", () => {
 			now: "2026-08-20T01:00:00.000Z",
 		};
 		const admission = await prepareWorkAdmission(db, params);
-		const start = (plan = admission, startedAt = params.now) =>
+		const start = (
+			plan = admission,
+			startedAt = params.now,
+			expiresAt = plan.expiresAt,
+		) =>
 			startWorkItemAttempt(db, {
 				orgId: "org",
 				workItemId: "work",
 				admissionId: plan.id,
 				admission: plan,
 				executor: { type: "tedi", id: "tedi" },
-				expiresAt: plan.expiresAt,
+				expiresAt,
 				startedAt,
 			});
 		return { sqlite, db, batch, params, admission, start };
@@ -2856,7 +2860,11 @@ describe("atomic admission and Attempt start", () => {
 			expect(f.sqlite.prepare("SELECT id FROM work_admissions").all()).toEqual(
 				[],
 			);
-			const { attempt } = await f.start();
+			const { attempt } = await f.start(
+				f.admission,
+				f.params.now,
+				"2026-08-20T02:00:00.000Z",
+			);
 			expect(f.batch).toHaveBeenCalledTimes(1);
 			expect(attempt.expiresAt).toBe(f.admission.expiresAt);
 			for (const table of [

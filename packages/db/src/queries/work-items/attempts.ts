@@ -467,6 +467,7 @@ export async function startWorkItemAttempt(
 	},
 ): Promise<{ workItem: WorkItem; attempt: WorkAttempt; resumed: boolean }> {
 	const startedAt = params.startedAt ?? new Date().toISOString();
+	const expiresAt = params.admission?.expiresAt ?? params.expiresAt;
 	const workAttempts = coreTable(db, d1WorkAttempts);
 	const workAdmissions = coreTable(db, d1WorkAdmissions);
 	const workItems = coreTable(db, d1WorkItems);
@@ -616,9 +617,7 @@ export async function startWorkItemAttempt(
 						),
 					startedAt: sql<string>`${startedAt}`.as("started_at"),
 					heartbeatAt: sql<string>`${startedAt}`.as("heartbeat_at"),
-					expiresAt: sql`${workAdmissions.expiresAt}`
-						.mapWith(workAdmissions.expiresAt)
-						.as("expires_at"),
+					expiresAt: sql<string>`${expiresAt}`.as("expires_at"),
 					finishedAt: sql<null>`NULL`.as("finished_at"),
 					summary: sql<null>`NULL`.as("summary"),
 					version: sql<number>`1`.as("version"),
@@ -643,8 +642,6 @@ export async function startWorkItemAttempt(
 						eq(workAdmissions.orgId, params.orgId),
 						eq(workAdmissions.workItemId, params.workItemId),
 						eq(workAdmissions.decision, "admitted"),
-						sql`${workAdmissions.expiresAt} > ${startedAt}`,
-						eq(workAdmissions.expiresAt, params.expiresAt),
 						eq(workAdmissions.executorType, params.executor.type),
 						eq(workAdmissions.executorId, params.executor.id),
 						params.sessionId
