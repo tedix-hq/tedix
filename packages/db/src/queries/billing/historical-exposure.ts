@@ -77,7 +77,7 @@ function jtype(db: object, doc: SQLWrapper, path: readonly string[]): SQL {
 /** SQLite json_type 'integer' excludes reals; Postgres jsonb keeps the literal text. */
 function jinteger(db: object, doc: SQLWrapper, path: readonly string[]): SQL {
 	if (!postgres(db))
-		return sql`json_type(${doc}, ${sql.raw(`'$.${path.join(".")}'`)}) = 'integer'`;
+		return sql`json_type(${doc}, ${`$.${path.join(".")}`}) = 'integer'`;
 	return sql`(jsonb_typeof(${doc} #> ${pgTextArray(path)}::text[]) = 'number' AND (${doc} #>> ${pgTextArray(path)}::text[]) ~ '^-?[0-9]+$')`;
 }
 /** json_valid: Postgres payload columns are jsonb and always valid. */

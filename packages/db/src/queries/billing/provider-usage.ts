@@ -46,7 +46,7 @@ function jsonDocument(db: object, doc: SQLWrapper): SQL {
 /** SQLite json_type 'integer' excludes reals; Postgres jsonb keeps the literal text. */
 function jinteger(db: object, doc: SQLWrapper, path: readonly string[]): SQL {
 	if (!postgres(db))
-		return sql`json_type(${doc}, '$.${sql.raw(path.join("."))}') = 'integer'`;
+		return sql`json_type(${doc}, ${`$.${path.join(".")}`}) = 'integer'`;
 	return sql`(jsonb_typeof(${doc} #> ${`{${path.join(",")}}`}::text[]) = 'number' AND (${doc} #>> ${`{${path.join(",")}}`}::text[]) ~ '^-?[0-9]+$')`;
 }
 

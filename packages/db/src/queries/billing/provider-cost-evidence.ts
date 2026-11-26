@@ -58,6 +58,31 @@ function pgCast(sqlType: string | null | undefined): string | null {
 	}
 }
 
+/** Postgres `::type` cast as a literal fragment; the raw-SQL ratchet counts sql.raw. */
+function castTo(
+	read: ReturnType<typeof sql>,
+	type: string,
+): ReturnType<typeof sql> {
+	switch (type) {
+		case "bigint":
+			return sql`(${read})::bigint`;
+		case "double precision":
+			return sql`(${read})::double precision`;
+		case "numeric":
+			return sql`(${read})::numeric`;
+		case "boolean":
+			return sql`(${read})::boolean`;
+		case "jsonb":
+			return sql`(${read})::jsonb`;
+		case "timestamptz":
+			return sql`(${read})::timestamptz`;
+		case "timestamp":
+			return sql`(${read})::timestamp`;
+		default:
+			return sql`(${read})`;
+	}
+}
+
 type CoreTable = Parameters<typeof getTableName>[0];
 
 /** `getSQLType()` of the Postgres column behind a SQLite schema table. */
@@ -83,13 +108,13 @@ function snapshotValue(
 ) {
 	if (db !== undefined && coreStore(db) === "postgres") {
 		const read = asJson
-			? sql`${document} -> ${sql.raw(`'${key}'`)}`
-			: sql`${document} ->> ${sql.raw(`'${key}'`)}`;
+			? sql`${document} -> ${key}`
+			: sql`${document} ->> ${key}`;
 		const cast =
 			asJson || table === undefined
 				? null
 				: pgCast(pgColumnType(db, table, key));
-		return cast ? sql`(${read})::${sql.raw(cast)}` : read;
+		return cast ? castTo(read, cast) : read;
 	}
 	return sql`json_extract(${document}, ${sql.raw(`'$.${key}'`)})`;
 }
@@ -478,11 +503,11 @@ export function buildAppendProviderCostEvidenceStatement(
 	};
 	/** `j(path)` cast to a physical type, for typed columns and INSERT values. */
 	const jCast = (path: string, type: string) =>
-		postgres ? sql`(${j(path)})::${sql.raw(type)}` : j(path);
+		postgres ? castTo(j(path), type) : j(path);
 	const jColumn = (path: string, table: CoreTable, key: string) => {
 		if (!postgres) return j(path);
 		const type = pgCast(pgColumnType(db, table, key));
-		return type ? sql`(${j(path)})::${sql.raw(type)}` : j(path);
+		return type ? castTo(j(path), type) : j(path);
 	};
 	/** SQLite `IS` is NULL-safe equality; Postgres spells it IS NOT DISTINCT FROM. */
 	const nullSafeEq = (

@@ -270,46 +270,36 @@ export async function listCostRollupDaysToBuild(
 	const boundedLimit = Math.max(0, Math.floor(limit));
 	if (boundedLimit === 0) return [];
 	const postgres = coreStore(db) === "postgres";
+	const seed = postgres
+		? sql`((${today})::date - 1)::text`
+		: sql`date(${today}, '-1 day')`;
+	const step = postgres ? sql`(day::date - 1)::text` : sql`date(day, '-1 day')`;
+	const horizon = postgres
+		? sql`((${today})::date - CAST(${lookbackDays} AS int))::text`
+		: sql`date(${today}, ${`-${lookbackDays} days`})`;
+	const dayEnd = postgres
+		? sql`(days.day::date + 1)::text`
+		: sql`date(days.day, '+1 day')`;
+	const staleEq = postgres ? sql`false` : sql`0`;
+	const orgAlias = postgres ? sql`"organizationId"` : sql`organizationId`;
 	// Raw: the day series is a recursive CTE, which Drizzle builders cannot express.
-	return db.all<{ organizationId: string; day: string }>(
-		postgres
-			? sql`
+	return db.all<{ organizationId: string; day: string }>(sql`
 		WITH RECURSIVE days(day) AS (
-			SELECT ((${today})::date - 1)::text
-			UNION ALL SELECT (day::date - 1)::text FROM days
-			WHERE day > ((${today})::date - ${lookbackDays}::int)::text
+			SELECT ${seed}
+			UNION ALL SELECT ${step} FROM days
+			WHERE day > ${horizon}
 		)
-		SELECT o.id AS "organizationId", days.day AS day
+		SELECT o.id AS ${orgAlias}, days.day AS day
 		FROM organizations o CROSS JOIN days
 		WHERE EXISTS (
 			SELECT 1 FROM tedi_call_costs c
 			WHERE c.org_id = o.id AND c.snapshot_at >= days.day
-				AND c.snapshot_at < (days.day::date + 1)::text
+				AND c.snapshot_at < ${dayEnd}
 		)
 		AND NOT EXISTS (
 			SELECT 1 FROM billing_cost_rollups r
-			WHERE r.organization_id = o.id AND r.day = days.day AND r.stale = false
+			WHERE r.organization_id = o.id AND r.day = days.day AND r.stale = ${staleEq}
 		)
 		ORDER BY days.day DESC, o.id
-		LIMIT ${boundedLimit}`
-			: sql`
-		WITH RECURSIVE days(day) AS (
-			SELECT date(${today}, '-1 day')
-			UNION ALL SELECT date(day, '-1 day') FROM days
-			WHERE day > date(${today}, ${`-${lookbackDays} days`})
-		)
-		SELECT o.id AS organizationId, days.day AS day
-		FROM organizations o CROSS JOIN days
-		WHERE EXISTS (
-			SELECT 1 FROM tedi_call_costs c
-			WHERE c.org_id = o.id AND c.snapshot_at >= days.day
-				AND c.snapshot_at < date(days.day, '+1 day')
-		)
-		AND NOT EXISTS (
-			SELECT 1 FROM billing_cost_rollups r
-			WHERE r.organization_id = o.id AND r.day = days.day AND r.stale = 0
-		)
-		ORDER BY days.day DESC, o.id
-		LIMIT ${boundedLimit}`,
-	);
+		LIMIT ${boundedLimit}`);
 }
