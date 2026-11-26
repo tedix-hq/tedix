@@ -718,21 +718,21 @@ export class ConversationFacet extends PiAgent<
 					);
 					const prompt = [...translated.prompt];
 					this.heapProxy.promptChars = payloadSize(prompt).chars;
-					const ordinal = await this.accounting.prepareStep(
-						{
-							messages: prompt,
-							estimatedTokens:
-								estimateSdkPromptTokens(prompt) +
-								(generation.turnConfig.maxOutputTokens ?? PI_MODEL.maxTokens),
-						},
-						this.state.finalReportStop
-							? {}
-							: accountingStepPolicy(
-									resolveFacetStepCeiling(this.state.maxSteps),
-								),
-					);
-					const providerAttempt =
-						await this.accounting.captureProviderAttempt();
+					const { ordinal, providerAttempt } =
+						await this.accounting.prepareProviderAttempt(
+							runId,
+							{
+								messages: prompt,
+								estimatedTokens:
+									estimateSdkPromptTokens(prompt) +
+									(generation.turnConfig.maxOutputTokens ?? PI_MODEL.maxTokens),
+							},
+							this.state.finalReportStop
+								? {}
+								: accountingStepPolicy(
+										resolveFacetStepCeiling(this.state.maxSteps),
+									),
+						);
 					if (this.state.lastToolsOffAnswer)
 						this.setState({ ...this.state, lastToolsOffAnswer: null });
 					const cache = explicitPromptCacheConfig({

@@ -963,7 +963,7 @@ export interface GovernedPiCompactionHost {
 	model: Model<Api>;
 	accounting: Pick<
 		PiTurnAccounting,
-		"begin" | "prepareStep" | "captureProviderAttempt" | "recordProviderUsage"
+		"prepareProviderAttempt" | "recordProviderUsage"
 	>;
 	runId(): string;
 	assertReady(): void | Promise<void>;
@@ -986,21 +986,22 @@ export function governedPiCompactionCompletion(
 					await host.assertReady();
 					if (host.runId() !== runId)
 						throw new Error("Compaction lost admitted run ownership");
-					await host.accounting.begin(runId);
-					const ordinal = await host.accounting.prepareStep(
-						{
-							messages: context.messages,
-							estimatedTokens:
-								estimateInferenceTokens(context.messages) +
-								(options.maxCompletionTokens ?? 4000),
-						},
-						{},
-					);
+					const { ordinal, providerAttempt } =
+						await host.accounting.prepareProviderAttempt(
+							runId,
+							{
+								messages: context.messages,
+								estimatedTokens:
+									estimateInferenceTokens(context.messages) +
+									(options.maxCompletionTokens ?? 4000),
+							},
+							{},
+						);
 					return {
 						receipt: {
 							runId,
 							ordinal,
-							original: await host.accounting.captureProviderAttempt(),
+							original: providerAttempt,
 						},
 						callOptions: {
 							temperature: options.temperature ?? 0.2,

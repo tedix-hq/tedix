@@ -592,18 +592,18 @@ test("native compaction reserves canonical journal before actual dispatch and re
 		},
 		resolveSdkModel: () => sdk,
 		accounting: {
-			begin: async () => {
+			prepareProviderAttempt: async (_runId, input) => {
 				order.push("begin");
-			},
-			prepareStep: async (input) => {
 				assert.ok(input.estimatedTokens! > 4000);
 				order.push("reserve");
-				return 1;
+				return {
+					ordinal: 1,
+					providerAttempt: {
+						runId: "run",
+						attemptId: "original-provider-attempt",
+					},
+				};
 			},
-			captureProviderAttempt: async () => ({
-				runId: "compaction-run",
-				attemptId: "original-provider-attempt",
-			}),
 			recordProviderUsage: async (value) => {
 				order.push("settle");
 				usage = value;
@@ -640,11 +640,12 @@ test("interrupted dispatched compaction retains unknown usage rather than measur
 				order,
 			),
 		accounting: {
-			begin: async () => undefined,
-			prepareStep: async () => 1,
-			captureProviderAttempt: async () => ({
-				runId: "compaction-run",
-				attemptId: "original-provider-attempt",
+			prepareProviderAttempt: async () => ({
+				ordinal: 1,
+				providerAttempt: {
+					runId: "run",
+					attemptId: "original-provider-attempt",
+				},
 			}),
 			recordProviderUsage: async (value) => {
 				usage = value;
@@ -1018,9 +1019,12 @@ test("native threshold compaction cannot race a conversation reservation or usag
 						calls.push("conversation"),
 					),
 				prepare: async (_model, context) => {
-					await accounting.begin("run");
-					await accounting.prepareStep({ messages: context.messages }, {});
-					return { receipt: await accounting.captureProviderAttempt() };
+					const { providerAttempt } = await accounting.prepareProviderAttempt(
+						"run",
+						{ messages: context.messages },
+						{},
+					);
+					return { receipt: providerAttempt };
 				},
 				settled: async (receipt) => {
 					await accounting.recordProviderUsage(
@@ -1178,9 +1182,10 @@ test("compaction settles its captured reservation after mutable host ownership c
 		assertReady: () => undefined,
 		resolveSdkModel: () => sdk,
 		accounting: {
-			begin: async () => undefined,
-			prepareStep: async () => 1,
-			captureProviderAttempt: async () => original,
+			prepareProviderAttempt: async () => ({
+				ordinal: 1,
+				providerAttempt: original,
+			}),
 			recordProviderUsage: async (_usage, _calls, attempt) => {
 				recorded = attempt;
 			},

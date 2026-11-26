@@ -85,17 +85,19 @@ function fixture(
 				}
 			: {}),
 		accounting: {
-			captureProviderAttempt: async () =>
-				Object.freeze({ runId: runId!, attemptId: "original-attempt" }),
-			begin: async (id) => {
+			prepareProviderAttempt: async (id, _input, limits) => {
 				assert.equal(id, runId);
 				order.push("begin");
-			},
-			prepareStep: async (_input, limits) => {
 				assert.equal(limits.maxSteps, 10);
 				order.push("reserve");
 				if (options.denied) throw new Error("budget denied");
-				return 1;
+				return {
+					ordinal: 1,
+					providerAttempt: Object.freeze({
+						runId: id,
+						attemptId: "original-attempt",
+					}),
+				};
 			},
 			recordProviderUsage: async (measured, steps, original) => {
 				assert.deepEqual(original, {

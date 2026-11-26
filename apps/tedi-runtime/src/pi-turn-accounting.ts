@@ -13,6 +13,11 @@ export interface PiProviderAttempt {
 	readonly attemptId: string;
 }
 
+interface PiPreparedProviderAttempt {
+	readonly ordinal: number;
+	readonly providerAttempt: Readonly<PiProviderAttempt>;
+}
+
 export interface PiStepReservation {
 	runId: string;
 	stepId: string;
@@ -249,8 +254,21 @@ export class PiTurnAccounting {
 		return this.fail(this.runId, cause);
 	}
 
+	private serialize<T>(operation: () => Promise<T>): Promise<T> {
+		const pending = this.receiptFence.then(operation);
+		this.receiptFence = pending.then(
+			() => {},
+			() => {},
+		);
+		return pending;
+	}
+
 	/** Bind each native Pi invocation, including retry and continuation. */
 	async begin(runId: string | null | undefined): Promise<void> {
+		return this.serialize(() => this.bindRun(runId));
+	}
+
+	private async bindRun(runId: string | null | undefined): Promise<void> {
 		if (!runId?.trim())
 			throw new Error("Pi accounting requires a run identity");
 		if (this.runId !== runId) this.fault = null;
@@ -288,6 +306,27 @@ export class PiTurnAccounting {
 		ctx: { messages: readonly unknown[]; estimatedTokens?: number },
 		policy: PiAccountingPolicy,
 	): Promise<number> {
+		return this.serialize(
+			async () => (await this.prepareReservedStep(ctx, policy)).ordinal,
+		);
+	}
+
+	/** Reservation and immutable ownership travel together, never through a later mutable capture. */
+	async prepareProviderAttempt(
+		runId: string,
+		ctx: { messages: readonly unknown[]; estimatedTokens?: number },
+		policy: PiAccountingPolicy,
+	): Promise<PiPreparedProviderAttempt> {
+		return this.serialize(async () => {
+			await this.bindRun(runId);
+			return this.prepareReservedStep(ctx, policy);
+		});
+	}
+
+	private async prepareReservedStep(
+		ctx: { messages: readonly unknown[]; estimatedTokens?: number },
+		policy: PiAccountingPolicy,
+	): Promise<PiPreparedProviderAttempt> {
 		const runId = this.runId;
 		if (!runId) throw new Error("Pi accounting invocation was not initialized");
 		try {
@@ -346,7 +385,10 @@ export class PiTurnAccounting {
 			attempt.phase = "started";
 			await this.save(checkpoint);
 			this.activeAttempt = attempt.id;
-			return started;
+			return {
+				ordinal: started,
+				providerAttempt: Object.freeze({ runId, attemptId: attempt.id }),
+			};
 		} catch (error) {
 			return this.fail(runId, error);
 		}
@@ -363,7 +405,7 @@ export class PiTurnAccounting {
 			return;
 		}
 		const operation = this.toolFence.then(() =>
-			this.persistToolFence(toolCallId, toolName),
+			this.serialize(() => this.persistToolFence(toolCallId, toolName)),
 		);
 		this.toolFence = operation.catch(() => {});
 		return operation;
@@ -377,9 +419,18 @@ export class PiTurnAccounting {
 			const checkpoint = await this.current();
 			this.assertHealthy(checkpoint);
 			await this.authority.assertActive(checkpoint.runId);
-			const attempt = checkpoint.attempts.find(
-				(item) => item.id === this.activeAttempt,
-			);
+			const owners = toolCallId
+				? checkpoint.attempts.filter(
+						(item) =>
+							item.generatedToolCallIds?.includes(toolCallId) ||
+							item.effectIds?.includes(toolCallId),
+					)
+				: [];
+			if (owners.length > 1)
+				throw new Error("Tool call has ambiguous durable inference attempt");
+			const attempt =
+				owners[0] ??
+				checkpoint.attempts.find((item) => item.id === this.activeAttempt);
 			if (!attempt)
 				throw new Error("Tool call has no durable inference attempt");
 			attempt.effectsStarted = true;
@@ -425,11 +476,9 @@ export class PiTurnAccounting {
 		});
 		const receivedUsage = { ...usage },
 			receivedCalls = [...toolCallIds];
-		const operation = this.receiptFence.then(() =>
+		return this.serialize(() =>
 			this.persistProviderReceipt(receivedUsage, receivedCalls, captured),
 		);
-		this.receiptFence = operation.catch(() => {});
-		return operation;
 	}
 
 	/** A Pi tool task can recover after the provider phase; bind its exact stored attempt. */
@@ -483,13 +532,24 @@ export class PiTurnAccounting {
 			for (const value of Object.values(usage))
 				if (value !== null && (!Number.isSafeInteger(value) || value < 0))
 					throw new Error("Invalid provider usage receipt");
-			if (
-				attempt.phase === "completed" &&
-				(JSON.stringify(attempt.usage) !== JSON.stringify(usage) ||
+			if (attempt.phase === "completed") {
+				const usageChanged =
+					JSON.stringify(attempt.usage) !== JSON.stringify(usage);
+				const toolCallsChanged =
 					JSON.stringify([...(attempt.generatedToolCallIds ?? [])].sort()) !==
-						JSON.stringify(calls))
-			)
-				throw new Error("Conflicting inference receipt");
+					JSON.stringify(calls);
+				if (usageChanged || toolCallsChanged) {
+					console.error({
+						event: "pi.inference_receipt_conflict",
+						runId,
+						attemptId,
+						boundRunId: this.runId,
+						usageChanged,
+						toolCallsChanged,
+					});
+					throw new Error("Conflicting inference receipt");
+				}
+			}
 			if (attempt.phase !== "completed") {
 				if (attempt.phase === "unknown") attempt.acknowledged = false;
 				attempt.generatedToolCallIds = calls;
@@ -512,6 +572,10 @@ export class PiTurnAccounting {
 	}
 
 	async assertComplete(): Promise<void> {
+		return this.serialize(() => this.sealComplete());
+	}
+
+	private async sealComplete(): Promise<void> {
 		const checkpoint = await this.current();
 		this.assertHealthy(checkpoint);
 		await this.flush(checkpoint);
@@ -549,6 +613,15 @@ export class PiTurnAccounting {
 	async reconcileEffects(
 		runId: string,
 		partialParts: UIMessage["parts"] = [],
+	): Promise<Array<ReconciledEffect & { toolCallId: string }>> {
+		return this.serialize(() =>
+			this.reconcileStoredEffects(runId, partialParts),
+		);
+	}
+
+	private async reconcileStoredEffects(
+		runId: string,
+		partialParts: UIMessage["parts"],
 	): Promise<Array<ReconciledEffect & { toolCallId: string }>> {
 		const checkpoint = await this.inspect(runId);
 		const interruptedFault =

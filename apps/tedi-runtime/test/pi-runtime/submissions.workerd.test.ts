@@ -10,6 +10,7 @@ import { admittedTediDo } from "../tedi-do";
 import { TediSessionRepo } from "@tedix/tedi-session/session-repo";
 import type { PiStorageFixture, PiStorageSnapshot } from "./storage-fixture";
 import type { PiFacetMediaFixture } from "./media-fixture";
+import { PiTurnAccounting } from "../../src/pi-turn-accounting";
 const bindings = env as unknown as {
 	PI_STORAGE: DurableObjectNamespace<PiStorageFixture>;
 	PI_FACET_MEDIA: DurableObjectNamespace<PiFacetMediaFixture>;
@@ -21,6 +22,84 @@ const inspect = async (
 ): Promise<PiStorageSnapshot> => JSON.parse(await agent.inspectFixture(runId));
 
 describe("native Pi provider and durable storage", () => {
+	it("keeps overlapping reservations and late receipts distinct across eviction", async () => {
+		const name = crypto.randomUUID();
+		const agent = await fixture(name);
+		const original = await runInDurableObject(agent, async (_instance, ctx) => {
+			let release!: () => void;
+			let entered!: () => void;
+			const held = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const reserving = new Promise<void>((resolve) => {
+				entered = resolve;
+			});
+			let reservations = 0;
+			const accounting = new PiTurnAccounting(ctx.storage, {
+				assertActive: async () => {},
+				reserveStep: async () => {
+					if (++reservations === 1) {
+						entered();
+						await held;
+					}
+				},
+				recordStep: async () => {},
+			});
+			const first = accounting.prepareProviderAttempt(
+				"receipt-replay",
+				{ messages: ["wake"] },
+				{},
+			);
+			await reserving;
+			const next = accounting.prepareProviderAttempt(
+				"receipt-replay",
+				{ messages: ["wake"] },
+				{},
+			);
+			release();
+			const { providerAttempt: original } = await first;
+			const late = accounting.recordProviderUsage(
+				{ inputTokens: 60, outputTokens: 40, totalTokens: 100 },
+				["effect"],
+				original,
+			);
+			const { providerAttempt: second } = await next;
+			await late;
+			await accounting.recordProviderUsage(
+				{ inputTokens: 120, outputTokens: 80, totalTokens: 200 },
+				["second-effect"],
+				second,
+			);
+			expect(original.attemptId).not.toBe(second.attemptId);
+			expect(reservations).toBe(2);
+			const checkpoint = await accounting.inspect(original.runId);
+			expect(checkpoint.attempts).toHaveLength(2);
+			expect(checkpoint.attempts.every((attempt) => attempt.acknowledged)).toBe(
+				true,
+			);
+			return original;
+		});
+		await abortAllDurableObjects();
+		await runInDurableObject(await fixture(name), async (_instance, ctx) => {
+			let acknowledgements = 0;
+			const accounting = new PiTurnAccounting(ctx.storage, {
+				assertActive: async () => {},
+				reserveStep: async () => {},
+				recordStep: async () => {
+					acknowledgements++;
+				},
+			});
+			await accounting.begin(original.runId);
+			await accounting.recordProviderUsage(
+				{ inputTokens: 60, outputTokens: 40, totalTokens: 100 },
+				["effect"],
+				original,
+			);
+			await accounting.assertComplete();
+			expect(acknowledgements).toBe(0);
+			expect((await accounting.usage()).totalTokens).toBe(300);
+		});
+	});
 	it("keeps repeated Workers AI call IDs distinct across durable tool rounds and eviction", async () => {
 		const name = crypto.randomUUID();
 		const agent = await fixture(name);

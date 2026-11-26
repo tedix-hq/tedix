@@ -25,7 +25,7 @@ export interface ToolFreePiProviderHost {
 	selected(): { model: TedixSdkModel; identity: TediSessionModelIdentity };
 	accounting: Pick<
 		PiTurnAccounting,
-		"begin" | "prepareStep" | "recordProviderUsage" | "captureProviderAttempt"
+		"prepareProviderAttempt" | "recordProviderUsage"
 	>;
 }
 
@@ -77,14 +77,15 @@ export function createToolFreePiModels(host: ToolFreePiProviderHost) {
 				const runId = host.runId();
 				if (!runId) throw new Error("Tool-free inference has no admitted run");
 				await host.assertDispatch?.();
-				await host.accounting.begin(runId);
-				const stepNumber = await host.accounting.prepareStep(
-					{ messages: context.messages },
-					{ maxSteps: host.maxSteps?.() ?? 10 },
-				);
+				const { ordinal: stepNumber, providerAttempt } =
+					await host.accounting.prepareProviderAttempt(
+						runId,
+						{ messages: context.messages },
+						{ maxSteps: host.maxSteps?.() ?? 10 },
+					);
 				return {
 					receipt: {
-						providerAttempt: await host.accounting.captureProviderAttempt(),
+						providerAttempt,
 						runId,
 						stepNumber,
 						operationId: host.receiptOperation?.(),

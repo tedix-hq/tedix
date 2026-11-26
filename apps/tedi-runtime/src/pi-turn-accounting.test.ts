@@ -385,6 +385,78 @@ await test("overlapping original receipts serialize conflict checks without repl
 	assert.equal(f.receipts.get(original.attemptId), 100);
 });
 
+await test("overlapping provider preparations own distinct reservations", async () => {
+	const rows = new Map<string, unknown>();
+	const receipts = new Map<string, number | null>();
+	let release!: () => void;
+	let entered!: () => void;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const reserving = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	let reservations = 0;
+	const accounting = new PiTurnAccounting(
+		{
+			get: async (key: string) => structuredClone(rows.get(key)),
+			put: async (key: string, value: unknown) => {
+				rows.set(key, structuredClone(value));
+			},
+		} as Pick<DurableObjectStorage, "get" | "put">,
+		{
+			assertActive: async () => {},
+			reserveStep: async () => {
+				if (++reservations === 1) {
+					entered();
+					await held;
+				}
+			},
+			recordStep: async ({ stepId, actualTokens }) => {
+				receipts.set(stepId, actualTokens);
+			},
+		},
+	);
+	const first = accounting.prepareProviderAttempt(
+		"overlapping-dispatch",
+		context,
+		{},
+	);
+	await reserving;
+	const next = accounting.prepareProviderAttempt(
+		"overlapping-dispatch",
+		context,
+		{},
+	);
+	release();
+	const { providerAttempt: original } = await first;
+	const { providerAttempt: second } = await next;
+	await accounting.recordProviderUsage(usage, ["first-effect"], original);
+	await accounting.recordProviderUsage(
+		{ inputTokens: 120, outputTokens: 80, totalTokens: 200 },
+		["second-effect"],
+		second,
+	);
+	assert.notEqual(original.attemptId, second.attemptId);
+	await accounting.beforeToolCall("first-effect", "write");
+	await accounting.beforeToolCall("first-effect", "write");
+	await accounting.beforeToolCall("second-effect", "execute");
+	const checkpoint = await accounting.inspect(original.runId);
+	assert.deepEqual(
+		checkpoint.attempts.find((attempt) => attempt.id === original.attemptId)
+			?.effectIds,
+		["first-effect"],
+	);
+	assert.deepEqual(
+		checkpoint.attempts.find((attempt) => attempt.id === second.attemptId)
+			?.effectIds,
+		["second-effect"],
+	);
+	await accounting.assertComplete();
+	assert.equal(receipts.size, 2);
+	assert.equal((await accounting.usage()).totalTokens, 300);
+});
+
 await test("old accounting requires explicit transfer and cannot dispatch anew", async () => {
 	const f = fixture();
 	const a = f.create();
