@@ -329,6 +329,7 @@ try {
 			name: "Share this app",
 			exact: true,
 		});
+		await itemShare.waitFor();
 		assert.equal(await itemShare.count(), 1, `${label}: one app Share`);
 		assert(
 			await itemShare.evaluate(
