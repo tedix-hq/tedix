@@ -153,23 +153,48 @@ export const namedAgentTool = (tool: ToolRow): ToolRow => {
 /** The public plugin repository, which Claude accepts as a marketplace. */
 export const CLAUDE_MARKETPLACE = "tedix-hq/tedix-plugins";
 
-export const CLAUDE_PLUGIN_STEPS = `In Claude, choose Customize → Plugins → Add marketplace and paste ${CLAUDE_MARKETPLACE}. Install Tedix, then open its Connectors tab and sign in. It stays up to date from there. If marketplaces are unavailable, choose Save plugin file and upload it in Claude.`;
+export const CLAUDE_PLUGIN_SUB =
+	"Add Tedix to Claude as a plugin. Claude keeps it up to date.";
 
-export function claudePluginButtons() {
-	return [
-		button(
-			"Copy marketplace",
-			"plain",
-			() => tedixShell.copy(CLAUDE_MARKETPLACE),
-			false,
-			{ done: "Copied" },
+/**
+ * The Cowork plugin setup as numbered steps, each with the button for it,
+ * and the plugin file for organizations that turn marketplaces off.
+ */
+export function claudePluginSteps(): HTMLElement {
+	const step = (text: string, control?: Child) =>
+		el("li", "", el("span", "", text), control);
+	return el(
+		"div",
+		"steps",
+		el(
+			"ol",
+			"",
+			step(
+				"Copy the Tedix plugin address.",
+				button(
+					"Copy",
+					"plain",
+					() => tedixShell.copy(CLAUDE_MARKETPLACE),
+					false,
+					{ done: "Copied", key: "copy-marketplace" },
+				),
+			),
+			step(
+				"In Claude, choose Customize → Plugins → Add marketplace, paste the address and install Tedix.",
+				button("Open Claude", "plain", () => tedixShell.open("claude-app")),
+			),
+			step("Open the plugin’s Connectors tab and sign in."),
 		),
-		button("Open Claude", "quiet", () => tedixShell.open("claude-app")),
-		// Without the marketplace (some organizations turn it off): the file.
-		button("Save plugin file", "quiet", () =>
-			tedixShell.action("save-claude-plugin"),
+		el(
+			"p",
+			"",
+			"Can’t add a marketplace? ",
+			button("Save the plugin file", "link", () =>
+				tedixShell.action("save-claude-plugin"),
+			),
+			" and choose Add → Upload plugin in Claude.",
 		),
-	];
+	);
 }
 
 export function openAgentApp(state: PanelState, tool: ToolRow) {

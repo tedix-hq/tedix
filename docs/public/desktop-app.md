@@ -71,12 +71,13 @@ provider, Tedix uses the Mac app when its coding tool is ready.
   Mac app. For Codex, review the hooks in **Settings → Hooks** in ChatGPT. In
   Claude Desktop, open the **Code** tab once. Tedix looks for agents again
   when you come back to it; the round arrow next to **Agents** looks at once.
-- **Chat and Cowork in Claude.** In the Claude section, choose **Copy
-  marketplace** and **Open Claude**. In Claude, choose **Customize → Plugins
-  → Add marketplace**, paste `tedix-hq/tedix-plugins` and install **Tedix**.
-  Then open the plugin's **Connectors** tab and sign in. Claude keeps the
-  plugin up to date. If your organization turns off marketplaces, choose
-  **Save plugin file** and use **Add → Upload plugin** instead. For local
+- **Chat and Cowork in Claude.** The Claude (Cowork) row lists three
+  numbered steps. Choose **Copy** and **Open Claude**. In Claude, choose
+  **Customize → Plugins → Add marketplace**, paste `tedix-hq/tedix-plugins`
+  and install **Tedix**. Then open the plugin's **Connectors** tab and sign
+  in. Claude keeps the plugin up to date. If your organization turns off
+  marketplaces, choose **Save the plugin file** and use **Add → Upload
+  plugin** instead. For local
   hooks, use the **Claude Code** connection. Plugin availability depends on
   your Claude account settings.
 - **Devin and OpenCode.** Choose **Connect** and finish browser sign-in.

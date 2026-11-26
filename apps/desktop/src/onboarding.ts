@@ -1,8 +1,8 @@
 import type { PanelApi, PanelState } from "./api";
 import { icon, type IconName } from "./icons";
 import {
-	CLAUDE_PLUGIN_STEPS,
-	claudePluginButtons,
+	CLAUDE_PLUGIN_SUB,
+	claudePluginSteps,
 	foundTools,
 	keepFocus,
 	namedAgentTool,
@@ -72,6 +72,8 @@ function row(view: {
 	working?: string;
 	failed?: string;
 	details?: string;
+	/** Under the text, across the row: steps with their own buttons. */
+	below?: Child;
 	retry?: () => void;
 	cancel?: () => void;
 }): HTMLElement {
@@ -96,6 +98,7 @@ function row(view: {
 					? button("Cancel", "quiet", view.cancel)
 					: el("span", "spinner")),
 		),
+		view.below && el("div", "below", view.below),
 		view.failed &&
 			el(
 				"div",
@@ -242,15 +245,12 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				key: "chat:claude",
 				icon: "bubble",
 				title: "Claude (Cowork)",
-				sub: now.setup.tools.some(
-					(tool) => tool.id === "claude" && tool.found === "found",
-				)
-					? CLAUDE_PLUGIN_STEPS
-					: `${CLAUDE_PLUGIN_STEPS} For Claude Code, open the Code tab, then choose Look again.`,
-				control: el("span", "controls", ...claudePluginButtons()),
+				sub: CLAUDE_PLUGIN_SUB,
+				below: claudePluginSteps(),
 			}),
 		);
 	for (const [app, id, name] of [
+		["claude", "claude", "Claude Code"],
 		["chatgpt", "codex", "ChatGPT"],
 		["devin", "devin", "Devin"],
 		["opencode", "opencode", "OpenCode"],
@@ -265,9 +265,12 @@ function screenFor(id: StepId, now: PanelState): Screen {
 				key: `app:${app}`,
 				icon: "bubble",
 				title: name,
-				sub: `Open and sign in to ${name}, then choose Look again.`,
+				sub:
+					app === "claude"
+						? "Open the Code tab in Claude once, then choose Look again."
+						: `Open and sign in to ${name}, then choose Look again.`,
 				control: button(
-					`Open ${name}`,
+					`Open ${app === "claude" ? "Claude" : name}`,
 					"plain",
 					() => void tedixShell.open(`${app}-app`),
 				),

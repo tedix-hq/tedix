@@ -605,3 +605,49 @@ input.field:focus {
 	margin: 0;
 	accent-color: var(--primary);
 }
+/* Numbered steps under a row, each with its own button on the right. */
+.steps {
+	display: grid;
+	gap: 8px;
+	font-size: 13px;
+	color: var(--muted-foreground);
+}
+.steps ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	counter-reset: step;
+	display: grid;
+	gap: 6px;
+}
+.steps li {
+	counter-increment: step;
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 8px;
+	min-height: 28px;
+}
+.steps li::before {
+	content: counter(step);
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: var(--muted);
+	color: var(--foreground);
+	font-size: 11px;
+	font-weight: 500;
+}
+.steps li > span {
+	color: var(--foreground);
+	text-wrap: pretty;
+}
+.steps p {
+	margin: 0;
+	font-size: 12px;
+}
+.steps .link {
+	font-size: inherit;
+}

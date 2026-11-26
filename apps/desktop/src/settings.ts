@@ -12,8 +12,8 @@ import {
 	button,
 	type Child,
 	checkAgain,
-	CLAUDE_PLUGIN_STEPS,
-	claudePluginButtons,
+	CLAUDE_PLUGIN_SUB,
+	claudePluginSteps,
 	EXECUTOR_NAMES,
 	el,
 	foundTools,
@@ -502,8 +502,8 @@ function tools(now: PanelState): Group[] {
 			title: "Claude (Cowork)",
 			glyph: "bubble",
 			image: now.setup.appIcons?.claude,
-			sub: CLAUDE_PLUGIN_STEPS,
-			control: claudePluginButtons(),
+			sub: CLAUDE_PLUGIN_SUB,
+			below: claudePluginSteps(),
 			words: "claude chat cowork plugin marketplace",
 		});
 	for (const runner of otherRunners(now))
