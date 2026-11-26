@@ -58,7 +58,7 @@ vi.mock("@/components/artifact-release-review", () => ({
 }));
 vi.mock("@/components/chat-cards", () => ({
 	compactPreview: () => null,
-	RunStatusChip: () => null,
+	RunStatusChip: ({ status }: { status: string }) => <span>{status}</span>,
 }));
 
 import {
@@ -106,6 +106,80 @@ afterEach(() => {
 });
 
 describe("Home execution read states", () => {
+	it("shows the run status and result throughout a delayed trace and its independent retry", async () => {
+		let rejectTrace!: (error: Error) => void;
+		reads.run.mockResolvedValue({
+			run: {
+				id: RUN_ID,
+				conversationId: "conversation",
+				status: "completed",
+				metadata: { childRunPreview: "The weekly summary is ready." },
+			},
+		});
+		reads.trace.mockImplementationOnce(
+			() =>
+				new Promise((_, reject) => {
+					rejectTrace = reject;
+				}),
+		);
+		await mount();
+		const expectSavedRun = () => {
+			const saved = host.querySelector('[aria-label="Saved execution"]');
+			expect(saved?.textContent).toContain("completed");
+			expect(saved?.textContent).toContain("The weekly summary is ready.");
+		};
+		expectSavedRun();
+		expect(
+			host.querySelector('[aria-label="Loading execution trace"]'),
+		).not.toBeNull();
+		expect(
+			host.querySelector('[aria-label="Loading Home execution"]'),
+		).toBeNull();
+
+		rejectTrace(new Error("Trace temporarily unavailable"));
+		await flush();
+		expectSavedRun();
+		expect(host.textContent).toContain("Trace temporarily unavailable");
+		let resolveTrace!: (value: unknown) => void;
+		reads.trace.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveTrace = resolve;
+				}),
+		);
+		const retry = [...host.querySelectorAll("button")].find(
+			(button) => button.textContent === "Retry execution trace",
+		);
+		if (!retry) throw new Error("Missing trace retry");
+		act(() => retry.click());
+		await flush();
+		expectSavedRun();
+		expect(
+			host.querySelector('[aria-label="Loading execution trace"]'),
+		).not.toBeNull();
+		expect(reads.run).toHaveBeenCalledTimes(1);
+		expect(reads.trace).toHaveBeenCalledTimes(2);
+
+		resolveTrace({
+			trace: {
+				branches: [],
+				parentEventIds: [],
+				complete: true,
+				gaps: [],
+				health: { status: "healthy" },
+				latency: { parentElapsedMs: 100 },
+			},
+		});
+		await flush();
+		expect(
+			host.querySelector('[aria-label="Response summary"]'),
+		).not.toBeNull();
+		expect(
+			host.querySelector('[aria-label="Loading execution trace"]'),
+		).toBeNull();
+		expect(host.textContent).toContain("completed");
+	});
+
 	it("keeps the durable failed run and navigation visible when its trace fails", async () => {
 		reads.run.mockResolvedValue({
 			run: {
@@ -184,7 +258,9 @@ describe("Home execution read states", () => {
 			expect(host.textContent).not.toContain("Read unavailable");
 			expect(host.textContent).toContain(RUN_ID);
 			expect(
-				host.querySelector('[aria-label="Loading Home execution"]'),
+				host.querySelector(
+					`[aria-label="${failed === "run" ? "Loading execution trace" : "Loading Home execution"}"]`,
+				),
 			).not.toBeNull();
 		},
 	);

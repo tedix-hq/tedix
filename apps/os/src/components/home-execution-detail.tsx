@@ -857,7 +857,11 @@ export function HomeExecutionDetailPage({
 	});
 
 	const identity = embedded ? null : <HomeRunIdentity runId={runId} />;
-	if (runQuery.isError || traceQuery.isError) {
+	if (
+		runQuery.isError ||
+		traceQuery.isError ||
+		(runQuery.data && traceQuery.isPending)
+	) {
 		return (
 			<Page width="lg">
 				{identity}
@@ -873,7 +877,9 @@ export function HomeExecutionDetailPage({
 									asRecord(runQuery.data.run.metadata)?.childRunPreview,
 								) ??
 								runQuery.data.run.progress?.detail ??
-								"The saved run is available. Its execution trace could not be loaded."
+								(traceQuery.isError
+									? "The saved run is available. Its execution trace could not be loaded."
+									: "The saved run is available. Its execution trace is still loading.")
 							}
 						/>
 						<Link
@@ -883,6 +889,9 @@ export function HomeExecutionDetailPage({
 							Back to conversation
 						</Link>
 					</PageSection>
+				) : null}
+				{runQuery.data && traceQuery.isPending ? (
+					<LoadingArea className="h-20" label="Loading execution trace" />
 				) : null}
 				{runQuery.isError ? (
 					<div className="grid gap-2">
