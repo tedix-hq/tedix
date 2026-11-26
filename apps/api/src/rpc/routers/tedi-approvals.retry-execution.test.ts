@@ -15,6 +15,9 @@ import {
 	listDueOwnerToolApprovals,
 } from "@tedix/db/queries/approvals";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
+import { tediApprovalDependencyEvents } from "@tedix/db/schema/approval-simulations";
+import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import { workItems } from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { eq } from "drizzle-orm";
@@ -50,6 +53,13 @@ vi.mock("@tedix/db/queries/organizations", async (load) => ({
 	...(await load<object>()),
 	getOrganizationById: mocks.getOrganizationById,
 }));
+vi.mock("../../services/learning-interaction-recorder", async (load) => ({
+	...(await load<object>()),
+	recordObservedLearningInteraction: vi.fn(),
+}));
+vi.mock("../../services/lesson-incremental-dispatch", () => ({
+	startIncrementalLessons: vi.fn(),
+}));
 
 import {
 	runQueuedOwnerToolApprovals,
@@ -65,6 +75,9 @@ function createFixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(schemaDdl(tediApprovalRequests));
+	sqlite.exec(schemaDdl(tediApprovalDependencyEvents));
+	sqlite.exec(schemaDdl(decisionEdges));
+	sqlite.exec(schemaDdl(workItems));
 	const facade = createD1Facade(sqlite);
 	const env = {
 		ENVIRONMENT: "test",
@@ -146,6 +159,90 @@ beforeEach(() => {
 	setOwnerToolExecutorForTest(mocks.executor);
 });
 afterEach(() => setOwnerToolExecutorForTest(null));
+
+describe("tediApprovals.resolve workflow start", () => {
+	it.each([true, false])(
+		"records the approved run_workflow outcome without an approval workflow: success=%s",
+		async (success) => {
+			const fixture = createFixture();
+			const args = {
+				skillId: "skill-1",
+				confirmDestructive: true,
+				reason: "Run skill",
+			};
+			await createApprovalRequest(fixture.db, {
+				id: APPROVAL_ID,
+				orgId: "org-1",
+				tediId: "9a8b7c6d-5e4f-4a3b-9c8d-7e6f5a4b3c2d",
+				actionType: "mcp.tool_call",
+				description: "Run skill",
+				payload: {
+					kind: "mcp_tool_call",
+					initiatedByUserId: "admin-2",
+					appSlug: "example-unified",
+					toolId: "tedix__run_workflow",
+					target: { transport: "rpc", endpoint: "skills/runWorkflow" },
+					args,
+					fingerprint: "fp-workflow",
+				},
+				createdAt: new Date().toISOString(),
+				expiresAt: FUTURE,
+			});
+			mocks.executor.mockResolvedValueOnce(
+				success
+					? { ok: true, data: { runId: "run-1", status: "queued" } }
+					: { ok: false, error: "Skill runtime unavailable", retryable: true },
+			);
+			const result = await client(fixture).resolve({
+				id: APPROVAL_ID,
+				status: "approved",
+			});
+			expect(result.workflowId).toBeNull();
+			expect(mocks.executor).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					approvalRequestId: APPROVAL_ID,
+					payload: expect.objectContaining({
+						toolId: "tedix__run_workflow",
+						args,
+						target: { transport: "rpc", endpoint: "skills/runWorkflow" },
+					}),
+				}),
+			);
+			expect(result.payload.execution).toMatchObject(
+				success
+					? { status: "executed" }
+					: {
+							status: "failed",
+							error: "Skill runtime unavailable",
+							retryable: true,
+						},
+			);
+			expect(await storedExecution(fixture)).toEqual(result.payload.execution);
+			expect(mocks.recordApprovalExecutionReceipt).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining(
+					success
+						? {
+								outcome: "succeeded",
+								observedResult: expect.objectContaining({
+									result: { runId: "run-1", status: "queued" },
+								}),
+							}
+						: {
+								outcome: "failed",
+								observedError: expect.objectContaining({
+									message: "Skill runtime unavailable",
+								}),
+							},
+				),
+			);
+			await expect(
+				client(fixture).resolve({ id: APPROVAL_ID, status: "approved" }),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			expect(mocks.executor).toHaveBeenCalledTimes(1);
+		},
+	);
+});
 
 describe("tediApprovals.retryExecution", () => {
 	it("runs the approved call once more and returns the recorded result", async () => {
