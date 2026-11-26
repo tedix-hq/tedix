@@ -620,6 +620,25 @@ retain settlement for retry; missing evidence or a mismatched revision fails
 proof. Recover previous app Work only through its owning dispatcher and Attempt;
 this contract does not authorize another session to settle it.
 
+Native sheets also have a commit-free API closeout path. Accept Work with
+`metadata.artifactKind` set to `native_sheet_revision` and
+`metadata.artifactNativeSheet` set to `workspaceId`, `outputId`, `revisionId`
+(UUIDs) and `revision` (a positive integer). Submit `native_sheet_revision`
+evidence on the admitted Attempt with the URI
+`tedix://workspaces/<workspaceId>/outputs/<outputId>/revisions/<revisionId>`.
+The server reads the current active sheet and its saved content at that exact
+revision. A missing, archived, superseded or invalid sheet cannot close Work.
+
+For a direct native sheet or runtime app Attempt, use `settle_work_item_attempt`
+with `outcome: "succeeded"`, `complete.expectedWorkItemVersion` and a typed
+`settlement`: `mode`, `evidenceId`, `evidenceUri`, and the configured artifact
+fields above. This settles the caller's latest admitted Attempt and completes
+Work atomically without a Git commit or a change of Work kind. Dispatcher-owned
+Attempts stay with their dispatcher and still require its exact outcome
+declaration. Actor, organization, admission, Work revision and human-reserved
+action checks still apply. Historical comments alone do not qualify as proof,
+and a cancelled Work Item stays cancelled.
+
 Some Work is finished on a local branch that must not be pushed yet, for
 example one step of a stack that lands later. Accept that Work with
 `metadata.artifactKind` set to `local_branch` and `metadata.artifactLocalBranch`

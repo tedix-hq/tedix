@@ -280,7 +280,8 @@ export async function ownAttemptCompletionProblem(
 	).data;
 	const artifact =
 		settlement?.mode === "skill_revision" ||
-		settlement?.mode === "runtime_app_revision";
+		settlement?.mode === "runtime_app_revision" ||
+		settlement?.mode === "native_sheet_revision";
 	if (
 		item.workKind === "coding" &&
 		!artifact &&
@@ -303,10 +304,13 @@ export async function ownAttemptCompletionProblem(
 		metadata.lane !== true &&
 		metadata.dispatchVersion === undefined &&
 		result === undefined
-	)
+	) {
+		if (artifact && settlement.mode !== "skill_revision")
+			return artifactCloseoutProblem(context, item, attempt, settlement);
 		return item.workKind === "coding" && !artifact
 			? undefined
 			: "Non-coding closeout requires the Work owner or a declared dispatcher outcome.";
+	}
 
 	const declaredCompletion =
 		result &&

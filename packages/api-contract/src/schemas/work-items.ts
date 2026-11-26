@@ -499,6 +499,14 @@ export const WorkAttemptSettlementSchema = z.discriminatedUnion("mode", [
 		evidenceUri: z.string().min(1).max(2000),
 	}),
 	z.strictObject({
+		mode: z.literal("native_sheet_revision"),
+		...SettlementEvidence,
+		workspaceId: z.uuid(),
+		outputId: z.uuid(),
+		revision: z.number().int().positive(),
+		revisionId: z.uuid(),
+	}),
+	z.strictObject({
 		mode: z.literal("runtime_app_revision"),
 		...SettlementEvidence,
 		workspaceId: z.uuid(),

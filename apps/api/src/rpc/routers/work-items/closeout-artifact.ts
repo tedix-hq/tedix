@@ -1,4 +1,5 @@
 import type { WorkAttemptSettlement } from "@tedix/api-contract/schemas/work-items";
+import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
@@ -9,7 +10,7 @@ import type { BaseContext } from "../../orpc";
 
 type ArtifactSettlement = Extract<
 	WorkAttemptSettlement,
-	{ mode: "runtime_app_revision" | "skill_revision" }
+	{ mode: "runtime_app_revision" | "skill_revision" | "native_sheet_revision" }
 >;
 
 export async function artifactCloseoutProblem(
@@ -58,6 +59,50 @@ export async function artifactCloseoutProblem(
 			skill.tediId !== null
 		)
 			return "A completed run of the accepted active organization skill revision is required.";
+		return;
+	}
+
+	if (proof.mode === "native_sheet_revision") {
+		const expected = metadata.artifactNativeSheet;
+		if (
+			!isRecord(expected) ||
+			expected.workspaceId !== proof.workspaceId ||
+			expected.outputId !== proof.outputId ||
+			expected.revisionId !== proof.revisionId ||
+			expected.revision !== proof.revision ||
+			proof.evidenceUri !==
+				`tedix://workspaces/${proof.workspaceId}/outputs/${proof.outputId}/revisions/${proof.revisionId}`
+		)
+			return "The sheet revision does not match the accepted native sheet.";
+		const { getOsOutput, getOsOutputRevision } =
+			await import("../../../services/workspace-output-storage");
+		const scope = {
+			organizationId: work.orgId,
+			workspaceId: proof.workspaceId,
+		};
+		const [output, revision] = await Promise.all([
+			getOsOutput(context.db, { ...scope, outputId: proof.outputId }),
+			getOsOutputRevision(context.db, {
+				...scope,
+				revisionId: proof.revisionId,
+			}),
+		]);
+		if (
+			output?.status !== "active" ||
+			output.kind !== "sheet" ||
+			output.currentRevisionId !== proof.revisionId ||
+			revision?.outputId !== proof.outputId ||
+			revision.revision !== proof.revision
+		)
+			return "The accepted native sheet revision must be current and active.";
+		const { hydrateOutputRevision } =
+			await import("../../../services/os-output-revision-body-store");
+		const hydrated = await hydrateOutputRevision(revision);
+		const content = OsOutputContentSchema.safeParse(
+			JSON.parse(hydrated.content),
+		);
+		if (!content.success || content.data.kind !== "sheet")
+			return "The native sheet revision must contain a valid sheet.";
 		return;
 	}
 

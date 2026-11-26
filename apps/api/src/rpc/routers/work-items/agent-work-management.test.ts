@@ -11,7 +11,12 @@ import {
 	workEvents,
 	workAttemptSteps,
 	workAttemptMessages,
+	workEvidence,
 } from "@tedix/db/schema/work-items";
+import {
+	WorkAttemptSettlementSchema,
+	type WorkAttemptSettlement,
+} from "@tedix/api-contract/schemas/work-items";
 import {
 	workAdmissions,
 	workResourceReservations,
@@ -33,6 +38,22 @@ import {
 } from "./factory-lifecycle";
 
 const { session } = vi.hoisted(() => ({ session: vi.fn() }));
+const native = vi.hoisted(() => ({
+	output: vi.fn(),
+	revision: vi.fn(),
+	gadget: vi.fn(),
+	code: vi.fn(),
+}));
+vi.mock("../../../services/workspace-output-storage", () => ({
+	getOsOutput: native.output,
+	getOsOutputRevision: native.revision,
+}));
+vi.mock("@tedix/db/queries/os-workspaces/gadgets", () => ({
+	getOsGadget: native.gadget,
+}));
+vi.mock("../../../services/os-app-runtime-code", () => ({
+	loadAppRuntimeRevision: native.code,
+}));
 vi.mock(
 	"@tedix/db/queries/external-agent-identity/mcp-credentials",
 	async (original) => ({
@@ -69,6 +90,7 @@ async function fixture({
 				workResourceReservations,
 				workBudgetReservations,
 				workInteractions,
+				workEvidence,
 			),
 	);
 	sqlite.exec(
@@ -130,6 +152,237 @@ async function fixture({
 		});
 	return { db, sqlite, context, item, update };
 }
+
+describe("verified native artifact completion", () => {
+	it.each(["native_sheet_revision", "runtime_app_revision"] as const)(
+		"atomically completes %s without a commit and refuses invalid proof",
+		async (mode) => {
+			const { db, sqlite, context } = await fixture();
+			const workspaceId = "22222222-2222-4222-8222-222222222222";
+			const artifactId = "33333333-3333-4333-8333-333333333333";
+			const revisionId = "44444444-4444-4444-8444-444444444444";
+			const evidenceId = "55555555-5555-4555-8555-555555555555";
+			const target = { workspaceId, revisionId, revision: 3 };
+			const proof: WorkAttemptSettlement =
+				mode === "native_sheet_revision"
+					? {
+							mode,
+							...target,
+							outputId: artifactId,
+							evidenceId,
+							evidenceUri: `tedix://workspaces/${workspaceId}/outputs/${artifactId}/revisions/${revisionId}`,
+						}
+					: {
+							mode,
+							...target,
+							gadgetId: artifactId,
+							evidenceId,
+							evidenceUri: `tedix://workspaces/${workspaceId}/gadgets/${artifactId}/revisions/${revisionId}`,
+						};
+			const metadata =
+				mode === "native_sheet_revision"
+					? {
+							artifactKind: mode,
+							artifactNativeSheet: { ...target, outputId: artifactId },
+						}
+					: {
+							artifactKind: mode,
+							artifactRuntimeApp: { ...target, gadgetId: artifactId },
+						};
+			const contract = {
+				version: 1,
+				doneLooksLike: "The native result is saved and verified.",
+			};
+			sqlite
+				.prepare(
+					"UPDATE work_items SET disposition='accepted',work_kind='coding',acceptance_contract=?,metadata=? WHERE id=?",
+				)
+				.run(JSON.stringify(contract), JSON.stringify(metadata), id);
+			const now = new Date().toISOString();
+			await db.insert(workAdmissions).values({
+				id: "native-admission",
+				orgId: "org",
+				workItemId: id,
+				workItemVersion: 1,
+				admissionSpecRevision: (await getWorkItemById(db, id))!
+					.admissionSpecRevision,
+				executorType: "external_agent",
+				executorId: "bot",
+				executorSessionId: "session",
+				externalSessionKey: "github-actions:example",
+				decision: "admitted",
+				createdAt: now,
+				decidedAt: now,
+				expiresAt: new Date(Date.now() + 300000).toISOString(),
+			});
+			await db.insert(workAttempts).values({
+				id: "native-attempt",
+				admissionId: "native-admission",
+				orgId: "org",
+				workItemId: id,
+				executorType: "external_agent",
+				executorId: "bot",
+				executorSessionId: "session",
+				externalSessionKey: "github-actions:example",
+				attemptNumber: 1,
+				startedAt: now,
+				heartbeatAt: now,
+				expiresAt: new Date(Date.now() + 300000).toISOString(),
+			});
+			await db.insert(workEvidence).values({
+				id: evidenceId,
+				orgId: "org",
+				workItemId: id,
+				attemptId: "native-attempt",
+				claimKey: "delivery",
+				kind: mode,
+				uri: proof.evidenceUri,
+				submittedByType: "external_agent",
+				submittedById: "bot",
+				submittedAt: now,
+			});
+			native.output.mockResolvedValue({
+				status: "active",
+				kind: "sheet",
+				currentRevisionId: revisionId,
+			});
+			native.revision.mockResolvedValue({
+				id: revisionId,
+				organizationId: "org",
+				outputId: artifactId,
+				revision: 3,
+				content: JSON.stringify({
+					kind: "sheet",
+					columns: ["Result"],
+					rows: [["Verified"]],
+				}),
+			});
+			native.gadget.mockResolvedValue({
+				status: "active",
+				workspaceId,
+				currentRevisionId: revisionId,
+			});
+			native.code.mockResolvedValue({
+				revision: 3,
+				files: {
+					"client.js": "export default {}",
+					"server.js": "export default {}",
+				},
+			});
+			const settle = (settlement = proof, callContext = context) =>
+				settleAttemptProcedure["~orpc"].handler!({
+					context: callContext,
+					input: {
+						id,
+						attemptId: "native-attempt",
+						outcome: "succeeded",
+						settlement: WorkAttemptSettlementSchema.parse(settlement),
+						complete: { expectedWorkItemVersion: 1 },
+					},
+					path: [],
+					procedure: settleAttemptProcedure,
+					signal: undefined,
+					lastEventId: undefined,
+				});
+			await expect(settle({ ...proof, revision: 2 })).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+			await expect(
+				settle({ ...proof, evidenceUri: "artifact://unrelated" }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				settle(proof, { ...context, organizationId: "other-org" }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				settle(proof, { ...context, externalAgentSessionId: "other-session" }),
+			).rejects.toThrow();
+			for (const [mutation, restore] of [
+				[
+					"UPDATE work_attempts SET expires_at='2000-01-01T00:00:00.000Z'",
+					`UPDATE work_attempts SET expires_at='${new Date(Date.now() + 300000).toISOString()}'`,
+				],
+				[
+					"INSERT INTO work_attempts(id,org_id,work_item_id,executor_type,executor_id,attempt_number,started_at,heartbeat_at,runtime_state,outcome) SELECT 'newer',org_id,work_item_id,executor_type,executor_id,2,started_at,heartbeat_at,'failed','failed' FROM work_attempts WHERE id='native-attempt'",
+					"DELETE FROM work_attempts WHERE id='newer'",
+				],
+				[
+					"UPDATE work_admissions SET work_item_version=2",
+					"UPDATE work_admissions SET work_item_version=1",
+				],
+				[
+					"UPDATE work_admissions SET decision='denied'",
+					"UPDATE work_admissions SET decision='admitted'",
+				],
+				[
+					"UPDATE work_items SET title='Send an email to the customer'",
+					"UPDATE work_items SET title='Repair test failure'",
+				],
+				[
+					"UPDATE work_items SET disposition='cancelled'",
+					"UPDATE work_items SET disposition='accepted'",
+				],
+				[
+					"UPDATE work_evidence SET attempt_id='older-attempt'",
+					"UPDATE work_evidence SET attempt_id='native-attempt'",
+				],
+				[
+					"UPDATE work_evidence SET org_id='other-org'",
+					"UPDATE work_evidence SET org_id='org'",
+				],
+			]) {
+				sqlite.exec(mutation);
+				await expect(settle()).rejects.toThrow();
+				sqlite.exec(restore);
+			}
+			if (mode === "native_sheet_revision") {
+				native.output.mockResolvedValueOnce({
+					status: "active",
+					kind: "sheet",
+					currentRevisionId: "newer",
+				});
+				await expect(settle()).rejects.toMatchObject({ code: "FORBIDDEN" });
+				native.revision.mockResolvedValueOnce({
+					outputId: artifactId,
+					revision: 3,
+					content: JSON.stringify({ kind: "sheet" }),
+				});
+				await expect(settle()).rejects.toMatchObject({ code: "FORBIDDEN" });
+			} else {
+				native.gadget.mockResolvedValueOnce({
+					status: "removed",
+					workspaceId,
+					currentRevisionId: revisionId,
+				});
+				await expect(settle()).rejects.toMatchObject({ code: "FORBIDDEN" });
+				native.code.mockResolvedValueOnce({
+					revision: 3,
+					files: { "client.js": "" },
+				});
+				await expect(settle()).rejects.toMatchObject({ code: "FORBIDDEN" });
+			}
+			expect(await getWorkItemById(db, id)).toMatchObject({
+				disposition: "accepted",
+				workKind: "coding",
+				version: 1,
+			});
+			expect(
+				await db.select({ outcome: workAttempts.outcome }).from(workAttempts),
+			).toEqual([{ outcome: null }]);
+			await expect(settle()).resolves.toMatchObject({
+				workItem: { disposition: "completed", workKind: "coding", version: 2 },
+				attempt: { outcome: "succeeded", metadata: { settlement: proof } },
+			});
+			await expect(settle()).resolves.toMatchObject({
+				workItem: { disposition: "completed", version: 2 },
+			});
+			expect(
+				(await db.select().from(workEvents)).filter(
+					(x) => x.eventType === "work.completed",
+				),
+			).toHaveLength(1);
+		},
+	);
+});
 
 describe("owner-granted external-agent Work management", () => {
 	it("grants org-wide edits without a source and revokes them immediately", async () => {
