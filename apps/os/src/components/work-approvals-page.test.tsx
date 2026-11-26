@@ -1,4 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
@@ -12,6 +14,7 @@ import {
 	pendingHomeDelegationsQueryOptions,
 	tediNamesQueryOptions,
 	workPendingApprovalsQueryOptions,
+	workApprovalsQueryOptions,
 } from "@/lib/os-query-options";
 import { expiryLabel, WorkApprovalsPage } from "./work-approvals-page";
 
@@ -60,7 +63,7 @@ function runtimeRequest(index: number, expiresInHours: number) {
 	};
 }
 
-function renderPage(
+function pageClient(
 	requests: unknown[],
 	executions: unknown[] = [],
 	homeRuns: unknown[] = [],
@@ -99,6 +102,15 @@ function renderPage(
 			},
 		},
 	);
+	return client;
+}
+
+function renderPage(
+	requests: unknown[],
+	executions: unknown[] = [],
+	homeRuns: unknown[] = [],
+) {
+	const client = pageClient(requests, executions, homeRuns);
 	const html = renderToStaticMarkup(
 		<QueryClientProvider client={client}>
 			<WorkApprovalsPage />
@@ -109,6 +121,66 @@ function renderPage(
 }
 
 describe("Approvals page", () => {
+	it("leads History rows with distinct recorded actions on the same long task", async () => {
+		const client = pageClient([]);
+		client.setDefaultOptions({ queries: { enabled: false } });
+		const title =
+			"Review the supplier shortlist and all supporting documents before the next quarterly purchasing meeting";
+		client.setQueryData<unknown>(workApprovalsQueryOptions().queryKey, {
+			data: ["agent.create", "resource.grant"].map((action, index) => ({
+				proposal: {
+					id: `proposal-${index}`,
+					action,
+					authorityKey: "work.start",
+					requestRationale: "The next step needs approval.",
+				},
+				effectiveStatus: "approved",
+				canDecide: false,
+				workItem: { id: "same-task", title },
+			})),
+			hasMore: false,
+		});
+		const host = document.createElement("div");
+		document.body.append(host);
+		const root = createRoot(host);
+		try {
+			await act(async () =>
+				root.render(
+					<QueryClientProvider client={client}>
+						<WorkApprovalsPage />
+					</QueryClientProvider>,
+				),
+			);
+			await act(async () => {
+				const history = Array.from(
+					host.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+				).find((tab) => tab.textContent === "History")!;
+				history.click();
+			});
+			const rows = host.querySelectorAll(
+				'[aria-labelledby="work-start-history-title"] li',
+			);
+			expect(rows).toHaveLength(2);
+			for (const [index, action] of [
+				"Agent create",
+				"Resource grant",
+			].entries()) {
+				expect(rows[index]?.textContent?.startsWith(action)).toBe(true);
+				expect(rows[index]?.querySelector("a")?.textContent).toBe(title);
+				expect(rows[index]?.querySelector("a")?.getAttribute("href")).toBe(
+					"/work/items/same-task",
+				);
+				expect(rows[index]?.textContent).toContain(
+					"The next step needs approval.",
+				);
+			}
+		} finally {
+			await act(async () => root.unmount());
+			host.remove();
+			client.clear();
+		}
+	});
+
 	it("shows every waiting request as its own card with a matching count", () => {
 		const requests = Array.from({ length: 25 }, (_, index) =>
 			runtimeRequest(index, 25 - index),

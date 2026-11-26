@@ -906,7 +906,22 @@ function WorkStartHistory() {
 							key={proposal.id}
 						>
 							<div className="grid min-w-0 gap-0.5">
-								<Text as="span" className="truncate" role="body" tone="strong">
+								<Text
+									as="span"
+									className="break-words"
+									role="body"
+									tone="strong"
+								>
+									{sanitizeUntrustedText(
+										sentenceCase(proposal.action.replaceAll(/[._:-]/g, " ")),
+									)}
+								</Text>
+								<Text
+									as="span"
+									className="truncate"
+									role="label"
+									tone="secondary"
+								>
 									{workItem ? (
 										<Link variant="record" href={`/work/items/${workItem.id}`}>
 											{workItem.title}
