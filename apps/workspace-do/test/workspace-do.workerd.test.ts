@@ -9808,6 +9808,39 @@ test("sandbox memory uses SQL revisions, trusted provenance, review approval and
 			(record) => record.operation === "write" && record.outcome === "applied",
 		)?.after?.revisionId,
 	).toBe(pending!.revisionId);
+
+	await ws.scriptModel(own, [{ text: "German." }]);
+	const fresh = await ws.sendTurn(own, {
+		actorId: "u1",
+		actorKind: "user",
+		text: "What language is saved?",
+	});
+	await ws.awaitTurn(own, fresh.turnId, 20_000);
+	expect(fresh.conversationId).not.toBe(read.conversationId);
+	const recalled = (await ws.readSystemPrompts(own)).at(-1)!;
+	expect(recalled).toContain("<durable_workspace_memory");
+	expect(recalled).toContain('"language": "German"');
+	expect(recalled).toContain("not this conversation's history");
+
+	const sameOrgOther = { ...own, workspaceId: crypto.randomUUID() };
+	const foreignOrg = {
+		organizationId: "org_other",
+		workspaceId: crypto.randomUUID(),
+	};
+	await seedWorkspaceRows([sameOrgOther, foreignOrg]);
+	for (const isolated of [sameOrgOther, foreignOrg]) {
+		const other = workspace(isolated);
+		await other.scriptModel(isolated, [{ text: "No memory here." }]);
+		const turn = await other.sendTurn(isolated, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "What language is saved?",
+		});
+		await other.awaitTurn(isolated, turn.turnId, 20_000);
+		const prompt = (await other.readSystemPrompts(isolated)).at(-1)!;
+		expect(prompt).not.toContain("durable_workspace_memory");
+		expect(prompt).not.toContain('"language": "German"');
+	}
 });
 
 describe("approval modes and computer access", () => {

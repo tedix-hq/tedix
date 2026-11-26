@@ -6493,6 +6493,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			pendingApprovals,
 			linkedAccounts,
 			tediCatalog,
+			workspaceMemory,
 		] = await Promise.all([
 			workspaceRead,
 			input.tediId
@@ -6509,6 +6510,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			input.tediId && input.actorKind === "user"
 				? this.#guestCatalog(scope, turnId)
 				: null,
+			this.#memory.list().catch(() => []),
 		]);
 		const { history, otherReplyAuthors } = await this.#attributedHistory(
 			conversationId,
@@ -6539,6 +6541,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				computer: policy.personSent && policy.machineAccess,
 				tedi: Boolean(tediCatalog),
 			},
+			workspaceMemory,
+			workspaceMemoryQuery: input.text,
 		});
 		const actorKind: ActorKind = input.tediId ? "tedi" : input.actorKind;
 		return {

@@ -1,5 +1,9 @@
 import { stepLabel } from "./wire";
 import { describe, expect, test } from "bun:test";
+import type {
+	MemoryEntry,
+	MemoryRevision,
+} from "@tedix/agent-governance/types";
 import {
 	BINDING_NAMES,
 	describeBinding,
@@ -198,6 +202,57 @@ describe("prompt", () => {
 				nowIso: "2026-11-07T17:00:00.000Z",
 			}),
 		).not.toContain("waiting_for_approval");
+	});
+
+	test("approved workspace memory is recalled as durable memory, not chat history", () => {
+		const revision = (
+			key: string,
+			number: number,
+			value: unknown,
+			review: MemoryRevision["review"],
+			extra: Partial<MemoryRevision> = {},
+		): MemoryRevision => ({
+			revisionId: `${key}-${number}`,
+			key,
+			revision: number,
+			value,
+			hash: `hash-${key}-${number}`,
+			writtenAt: `2026-11-26T10:00:0${number}.000Z`,
+			provenance: {
+				actor: { id: "u1", kind: "user", organizationId: "org_test" },
+				source: { surface: "workspace_object", traceId: `turn-${number}` },
+			},
+			review,
+			...extra,
+		});
+		const approved = revision("language", 1, "German", "approved", {
+			reviewedBy: "reviewer",
+			reviewedAt: "2026-11-26T10:01:00.000Z",
+		});
+		const pending = revision("language", 2, "French", "pending");
+		const pendingOnly = revision("pending-only", 1, "not durable", "pending");
+		const entries: MemoryEntry[] = [
+			{ key: "language", current: pending, approved },
+			{ key: "pending-only", current: pendingOnly },
+			{
+				key: "rejected",
+				current: revision("rejected", 1, "rejected value", "rejected"),
+			},
+		];
+		const suffix = dynamicPromptSuffix({
+			workspaceName: "Programme workspace",
+			nowIso: "2026-11-26T10:02:00.000Z",
+			workspaceMemory: entries,
+			workspaceMemoryQuery: "What language should I use?",
+		});
+		expect(suffix).toContain("<durable_workspace_memory");
+		expect(suffix).toContain('"language": "German"');
+		expect(suffix).toContain("approved by");
+		expect(suffix).toContain("not this conversation's history");
+		expect(suffix).not.toContain("French");
+		expect(suffix).not.toContain("pending-only");
+		expect(suffix).not.toContain("rejected value");
+		expect(staticPromptPrefix()).toContain("earlier chat messages are not");
 	});
 });
 
