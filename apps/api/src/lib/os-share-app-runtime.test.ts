@@ -72,6 +72,7 @@ import {
 	workspaceShareSummary,
 } from "./os-share-redemption";
 import { splitOsGadgetCodeRow } from "@tedix/db/queries/os-workspaces/gadget-code";
+import { guestAppStage } from "./os-guest-app-stage";
 
 /** Store an app revision's files the way the product does: a shared blob and a pointer row. */
 async function insertGadgetCode(
@@ -278,6 +279,36 @@ async function redeem(db: Fixture["db"], token: string) {
 }
 
 describe("share-link guests on a runtime app", () => {
+	it("reports an unresolved stage before cancellation without ending the call", async () => {
+		vi.useFakeTimers();
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		onTestFinished(() => {
+			vi.useRealTimers();
+			warn.mockRestore();
+		});
+		let finish!: (value: string) => void;
+		const call = guestAppStage(
+			"call",
+			"share_session",
+			() =>
+				new Promise<string>((resolve) => {
+					finish = resolve;
+				}),
+		);
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(warn).toHaveBeenCalledWith({
+			event: "os_guest_app_pending",
+			operation: "call",
+			phase: "share_session",
+			phaseMs: 10_000,
+		});
+		finish("unchanged result");
+		await expect(call).resolves.toBe("unchanged result");
+		await guestAppStage("open", "app_code", async () => "ready");
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(warn).toHaveBeenCalledTimes(1);
+	});
+
 	it("admits a signed-out guest through a use link to a runtime app only", async () => {
 		const { db } = await fixture();
 		const runtime = await seedLink(db);

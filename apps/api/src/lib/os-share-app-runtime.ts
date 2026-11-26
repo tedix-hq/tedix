@@ -68,6 +68,7 @@ import {
 	loadAppRuntimeRevision,
 } from "../services/os-app-runtime-code";
 import { runInteractiveAppCall } from "../services/os-app-triggers";
+import { guestAppStage } from "./os-guest-app-stage";
 import {
 	effectiveRole,
 	guestAppRefusal,
@@ -301,10 +302,8 @@ export async function handleGuestAppOpen(
 	body: unknown,
 ): Promise<Response> {
 	const started = Date.now();
-	const scope = await resolveGuestAppScope(
-		db,
-		field(body, "sessionToken"),
-		field(body, "appId"),
+	const scope = await guestAppStage("open", "share_session", () =>
+		resolveGuestAppScope(db, field(body, "sessionToken"), field(body, "appId")),
 	);
 	if (!scope) return notFound();
 	const guestName = AppRuntimeGuestNameSchema.safeParse(
@@ -315,29 +314,41 @@ export async function handleGuestAppOpen(
 	const resolveMs = Date.now() - started;
 	let code;
 	try {
-		code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
+		code = await guestAppStage("open", "app_code", () =>
+			loadAppRuntimeRevision(db, scope, scope.revisionId),
+		);
 	} catch {
 		return notFound();
 	}
 	const codeMs = Date.now() - started - resolveMs;
-	if (await guestAppRefusal(db, scope, code.grants)) return notFound();
+	if (
+		await guestAppStage("open", "guest_grants", () =>
+			guestAppRefusal(db, scope, code.grants),
+		)
+	)
+		return notFound();
 	const grantMs = Date.now() - started - resolveMs - codeMs;
-	const session = await mintWorkspaceAppSession(env.SECRETS_MASTER_KEY, {
-		organizationId: scope.organizationId,
-		workspaceId: scope.workspaceId,
-		gadgetId: scope.gadgetId,
-		revisionId: scope.revisionId,
-		revision: code.revision,
-		principal: { kind: SHARE_SESSION_PRINCIPAL_KIND, id: scope.shareSessionId },
-		role: GUEST_ROLE,
-		grants: code.grants,
-		codeDigest: code.digest,
-		config: code.config,
-		compatibilityDate: code.compatibilityDate,
-		shareLinkId: scope.shareLinkId,
-		guestName:
-			scope.verifiedEmail ?? (guestName.success ? guestName.data : "Guest"),
-	});
+	const session = await guestAppStage("open", "app_session", () =>
+		mintWorkspaceAppSession(env.SECRETS_MASTER_KEY, {
+			organizationId: scope.organizationId,
+			workspaceId: scope.workspaceId,
+			gadgetId: scope.gadgetId,
+			revisionId: scope.revisionId,
+			revision: code.revision,
+			principal: {
+				kind: SHARE_SESSION_PRINCIPAL_KIND,
+				id: scope.shareSessionId,
+			},
+			role: GUEST_ROLE,
+			grants: code.grants,
+			codeDigest: code.digest,
+			config: code.config,
+			compatibilityDate: code.compatibilityDate,
+			shareLinkId: scope.shareLinkId,
+			guestName:
+				scope.verifiedEmail ?? (guestName.success ? guestName.data : "Guest"),
+		}),
+	);
 	console.info({
 		event: "os_guest_app_open",
 		resolveMs,
@@ -375,10 +386,8 @@ export async function handleGuestAppCall(
 ): Promise<Response> {
 	const started = Date.now();
 	const timing: string[] = [];
-	const scope = await resolveGuestAppScope(
-		db,
-		field(body, "sessionToken"),
-		field(body, "appId"),
+	const scope = await guestAppStage("call", "share_session", () =>
+		resolveGuestAppScope(db, field(body, "sessionToken"), field(body, "appId")),
 	);
 	if (!scope) return notFound();
 	const input = z
@@ -395,9 +404,8 @@ export async function handleGuestAppCall(
 	if (!input.success) return notFound();
 	let session;
 	try {
-		session = await verifyWorkspaceAppSession(
-			env.SECRETS_MASTER_KEY,
-			input.data.session,
+		session = await guestAppStage("call", "app_session", () =>
+			verifyWorkspaceAppSession(env.SECRETS_MASTER_KEY, input.data.session),
 		);
 	} catch {
 		return notFound();
@@ -417,44 +425,51 @@ export async function handleGuestAppCall(
 		return notFound();
 	try {
 		// Published code is immutable; the host verifies its digest on load.
-		const { revision, manifest, grants } = await loadAppRuntimeManifest(
-			db,
-			scope,
-			scope.revisionId,
+		const { revision, manifest, grants } = await guestAppStage(
+			"call",
+			"app_code",
+			() => loadAppRuntimeManifest(db, scope, scope.revisionId),
 		);
 		const code = {
 			revision: revision.revision,
 			grants,
 			config: AppRuntimeConfigSchema.parse(manifest.config ?? { version: 1 }),
 		};
-		if (await guestAppRefusal(db, scope, code.grants)) return notFound();
+		if (
+			await guestAppStage("call", "guest_grants", () =>
+				guestAppRefusal(db, scope, code.grants),
+			)
+		)
+			return notFound();
 		const resolveMs = Date.now() - started;
-		const result = await runInteractiveAppCall(
-			env,
-			db,
-			{
-				organizationId: scope.organizationId,
-				workspaceId: scope.workspaceId,
-				gadgetId: scope.gadgetId,
-				revisionId: scope.revisionId,
-				code,
-				role: GUEST_ROLE,
-				session: input.data.session,
-				method: input.data.method,
-				args: input.data.args,
-				timing,
-				createdBy: {
-					kind: "service",
-					id: `${SHARE_SESSION_PRINCIPAL_KIND}:${scope.shareSessionId}`,
+		const result = await guestAppStage("call", "runtime", () =>
+			runInteractiveAppCall(
+				env,
+				db,
+				{
+					organizationId: scope.organizationId,
+					workspaceId: scope.workspaceId,
+					gadgetId: scope.gadgetId,
+					revisionId: scope.revisionId,
+					code,
+					role: GUEST_ROLE,
+					session: input.data.session,
+					method: input.data.method,
+					args: input.data.args,
+					timing,
+					createdBy: {
+						kind: "service",
+						id: `${SHARE_SESSION_PRINCIPAL_KIND}:${scope.shareSessionId}`,
+					},
+					policy: {
+						shareLinkId: scope.shareLinkId,
+						shareSessionId: scope.shareSessionId,
+						guestName: session.guestName ?? "Guest",
+						guestIdentity: "self_reported",
+					},
 				},
-				policy: {
-					shareLinkId: scope.shareLinkId,
-					shareSessionId: scope.shareSessionId,
-					guestName: session.guestName ?? "Guest",
-					guestIdentity: "self_reported",
-				},
-			},
-			waitUntil,
+				waitUntil,
+			),
 		);
 		console.info({
 			event: "os_guest_app_call",

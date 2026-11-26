@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { guestAppStage } from "../lib/os-guest-app-stage";
 
 export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// authz: public — published launcher/panel branding for one tenant slug, which
@@ -99,18 +100,23 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// authz: public — resolves by unguessable public id; refusals are the same 404 as an unknown link.
 	app.post("/os-shared/open", async (c) => {
 		const [{ handleOsShareOpen }, { coreQueryDb }, recipient] =
-			await Promise.all([
-				import("../lib/os-share-redemption"),
-				import("@tedix/db/core-store/scope"),
-				shareRecipient(c.req.raw, c.env),
-			]);
-		return handleOsShareOpen(
-			coreQueryDb(c.env),
-			bodyString(await c.req.json().catch(() => null), "id"),
-			c.req.header("X-Tedix-Tenant-Id") ?? null,
-			recipient.authorize,
-			recipient.identify,
-			recipient.mayManage,
+			await guestAppStage("share_open", "recipient", () =>
+				Promise.all([
+					import("../lib/os-share-redemption"),
+					import("@tedix/db/core-store/scope"),
+					shareRecipient(c.req.raw, c.env),
+				]),
+			);
+		const id = bodyString(await c.req.json().catch(() => null), "id");
+		return guestAppStage("share_open", "redemption", () =>
+			handleOsShareOpen(
+				coreQueryDb(c.env),
+				id,
+				c.req.header("X-Tedix-Tenant-Id") ?? null,
+				recipient.authorize,
+				recipient.identify,
+				recipient.mayManage,
+			),
 		);
 	});
 
@@ -214,27 +220,32 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// refusal is the same 404 as an unknown link.
 	// authz: public — the share session token is the only credential; apps/api binds it to one link, role use.
 	app.post("/os-shared/app/open", async (c) => {
-		const [{ handleGuestAppOpen }, { coreQueryDb }] = await Promise.all([
-			import("../lib/os-share-app-runtime"),
-			import("@tedix/db/core-store/scope"),
-		]);
-		return handleGuestAppOpen(
-			c.env,
-			coreQueryDb(c.env),
-			await c.req.json().catch(() => null),
+		const [{ handleGuestAppOpen }, { coreQueryDb }, body] = await guestAppStage(
+			"open",
+			"request",
+			() =>
+				Promise.all([
+					import("../lib/os-share-app-runtime"),
+					import("@tedix/db/core-store/scope"),
+					c.req.json().catch(() => null),
+				]),
 		);
+		return handleGuestAppOpen(c.env, coreQueryDb(c.env), body);
 	});
 	// authz: public — same share session token; the signed app session must match it and the link.
 	app.post("/os-shared/app/call", async (c) => {
-		const [{ handleGuestAppCall }, { coreQueryDb }] = await Promise.all([
-			import("../lib/os-share-app-runtime"),
-			import("@tedix/db/core-store/scope"),
-		]);
-		return handleGuestAppCall(
-			c.env,
-			coreQueryDb(c.env),
-			await c.req.json().catch(() => null),
-			(work) => c.executionCtx.waitUntil(work),
+		const [{ handleGuestAppCall }, { coreQueryDb }, body] = await guestAppStage(
+			"call",
+			"request",
+			() =>
+				Promise.all([
+					import("../lib/os-share-app-runtime"),
+					import("@tedix/db/core-store/scope"),
+					c.req.json().catch(() => null),
+				]),
+		);
+		return handleGuestAppCall(c.env, coreQueryDb(c.env), body, (work) =>
+			c.executionCtx.waitUntil(work),
 		);
 	});
 	// authz: public — same share session token; reads only granted, sourceless Outputs.
