@@ -21,6 +21,7 @@ import {
 import {
 	readWorkspaceRuntimeRole,
 	readWorkspaceSessionRole,
+	readWorkspaceUserAccessMany,
 } from "./os-workspace-access";
 
 const migration = (name: string) =>
@@ -191,6 +192,11 @@ describe("tedi workspace principals", () => {
 			"INSERT INTO organization_members (id, organization_id, descope_user_id, email, name, role, status) VALUES ('m2', 'org', 'guest', 'guest@example.test', 'Sam', 'member', 'active')",
 		);
 		const session = () => readWorkspaceSessionRole(f.db, "workspace", "guest");
+		const listedRole = async () =>
+			(
+				await readWorkspaceUserAccessMany(f.db, "org", "guest", ["workspace"])
+			).get("workspace")?.role ?? null;
+		expect(await listedRole()).toBe("build");
 		expect(await session()).toBe("build");
 		const fenceOnly = [expect.stringContaining("auth_context_cache_state")];
 		let seen = f.queries.length;
@@ -205,6 +211,7 @@ describe("tedi workspace principals", () => {
 		).toBe(false);
 
 		f.sqlite.exec("UPDATE os_workspaces SET visibility = 'private'");
+		expect(await listedRole()).toBeNull();
 		expect(await session()).toBeNull();
 		expect(await f.role("guest", "user")).toBeNull();
 
@@ -214,18 +221,22 @@ describe("tedi workspace principals", () => {
   `);
 		expect(await session()).toBe("use");
 		expect(await session()).toBe("use");
+		expect(await listedRole()).toBe("use");
 		f.sqlite.exec(
 			"UPDATE os_workspace_share_links SET revoked_at = '2026-01-02' WHERE id = 'link'",
 		);
+		expect(await listedRole()).toBeNull();
 		expect(await session()).toBeNull();
 
 		f.sqlite.exec(
 			"UPDATE os_workspace_share_links SET revoked_at = NULL WHERE id = 'link'",
 		);
+		expect(await listedRole()).toBe("use");
 		expect(await session()).toBe("use");
 		f.sqlite.exec(
 			"UPDATE organization_members SET status = 'deactivated' WHERE descope_user_id = 'guest'",
 		);
+		expect(await listedRole()).toBeNull();
 		expect(await session()).toBeNull();
 	});
 	it("suggests active tedis only in the selected organization", async () => {

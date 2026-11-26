@@ -10178,7 +10178,7 @@ describe("Home lists each person's workspace chats", () => {
 		return index.listPersonChats(owner);
 	}
 
-	test("a person's chat reaches their index after a turn and leaves it when deleted", async () => {
+	test("rebuilds after a producer restore behind the index, then removes deleted chats", async () => {
 		await seedCore();
 		const ws = workspace();
 		await ws.scriptModel(scope, [{ text: "Noted." }]);
@@ -10203,10 +10203,42 @@ describe("Home lists each person's workspace chats", () => {
 			),
 		).not.toContain(turn.conversationId);
 
+		const { owner, index } = personIndex("u1");
+		const stale = {
+			conversationId: "deleted-before-restore",
+			title: "Deleted title",
+			lastMessageAt: "2026-11-21",
+		};
+		await index.recordPersonChats(owner, {
+			workspaceId: scope.workspaceId,
+			seq: 1_000_000,
+			chats: [stale],
+		});
+		await other.index.recordPersonChats(other.owner, {
+			workspaceId: scope.workspaceId,
+			seq: 1_000_000,
+			chats: [stale],
+		});
+		// Simulate restored producer state with no pending delivery and a low sequence.
+		await runInDurableObject(ws, (_instance, state) => {
+			state.storage.kv.put("person-chats-seq", 1);
+			state.storage.kv.put("person-chats-pending", {});
+		});
+		await ws.rebuildPersonChats(scope, ["u2"]);
+		expect(await index.listPersonChats(owner)).toEqual(chats);
+		expect(await other.index.listPersonChats(other.owner)).toEqual([]);
+		// A delayed pre-restore payload cannot reintroduce a deleted title.
+		expect(
+			await index.recordPersonChats(owner, {
+				workspaceId: scope.workspaceId,
+				seq: 999_999,
+				chats: [stale],
+			}),
+		).toBe(false);
+
 		await runInDurableObject(ws, (instance: WorkspaceDO) =>
 			instance.deleteConversation(scope, turn.conversationId),
 		);
-		const { owner, index } = personIndex("u1");
 		let after = await index.listPersonChats(owner);
 		for (
 			let attempt = 0;

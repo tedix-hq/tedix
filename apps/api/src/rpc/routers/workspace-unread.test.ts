@@ -1,9 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import { env } from "cloudflare:workers";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { workspaceSessionAccess } from "../../services/os-workspace-session-access";
 import {
 	osWorkspaceCollaborators,
 	osWorkspaceAccessEdges,
+	osWorkspaceShareLinks,
 } from "@tedix/db/schema/os-collaborators";
 import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
@@ -17,7 +21,13 @@ import { savePushConfig } from "@tedix/db/queries/web-push";
 import { saveWorkspaceReadMarker } from "@tedix/db/queries/workspace-unread";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import {
+	afterEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+} from "vite-plus/test";
 import { apiKeyContext, userContext } from "../test-context";
 import { workspaceUnreadRouter } from "./workspace-unread";
 
@@ -39,13 +49,22 @@ function setup() {
 			osWorkspaces,
 			osWorkspaceCollaborators,
 			osWorkspaceAccessEdges,
+			osWorkspaceShareLinks,
+			organizationMembers,
 			workspaceActivity,
 			workspaceFeedCursors,
 			workspaceFeedLedger,
 			workspaceOutputIndex,
 		),
 	);
-	const d1 = createD1Facade(sqlite);
+	const queries: string[] = [];
+	const d1 = createD1Facade({
+		prepare: (sql) => {
+			queries.push(sql);
+			return sqlite.prepare(sql);
+		},
+		exec: (sql) => sqlite.exec(sql),
+	});
 	const db = createDbClient(d1);
 	const client = (userId = "person-a", organizationId = "org-a") =>
 		createRouterClient(workspaceUnreadRouter, {
@@ -128,7 +147,7 @@ function setup() {
 			conversationId: "chat-1",
 			on: true,
 		});
-	return { client, db, event, follow };
+	return { client, db, event, follow, sqlite, d1, queries };
 }
 
 async function workspaces(db: ReturnType<typeof setup>["db"]) {
@@ -158,6 +177,99 @@ async function workspaces(db: ReturnType<typeof setup>["db"]) {
 }
 
 describe("workspace unread API", () => {
+	it("lists 200 workspaces within five D1 statements and denies revoked list and open access", async () => {
+		const { sqlite, d1, db, queries } = setup();
+		const ids = Array.from(
+			{ length: 200 },
+			(_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+		);
+		const insert = sqlite.prepare(
+			"INSERT INTO os_workspaces (id, organization_id, name, visibility, owner_user_id, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, 'org-a', ?, 'private', 'person-b', 'user', 'person-b', '2026-11-01', '2026-11-01')",
+		);
+		for (const id of ids) {
+			insert.run(id, `Workspace ${id}`);
+			sqlite
+				.prepare(
+					"INSERT INTO os_workspace_access_edges (id, organization_id, workspace_id, target_user_id, edge_key, kind, sharer_user_id, role, created_at) VALUES (?, 'org-a', ?, 'person-a', 'user:person-b', 'user', 'person-b', 'build', '2026-11-01')",
+				)
+				.run(`edge-${id}`, id);
+		}
+		const entries = ids.map((workspaceId) => ({
+			workspaceId,
+			conversationId: `chat-${workspaceId}`,
+			title: "Current title",
+			lastMessageAt: "2026-11-21T10:00:00Z",
+		}));
+		const forgotten: string[] = [];
+		let indexReads = 0;
+		const bindings = env as unknown as { WORKSPACE_RUNTIME?: unknown };
+		const previous = bindings.WORKSPACE_RUNTIME;
+		onTestFinished(() => {
+			bindings.WORKSPACE_RUNTIME = previous;
+		});
+		bindings.WORKSPACE_RUNTIME = {
+			listPersonChats: async () => {
+				indexReads++;
+				return entries;
+			},
+			forgetPersonChatWorkspace: async (_owner: unknown, id: string) => {
+				forgotten.push(id);
+			},
+		};
+		const caller = createRouterClient(workspaceUnreadRouter, {
+			context: userContext({
+				db,
+				env: { DB: d1 },
+				organizationId: "org-a",
+				userId: "person-a",
+				sub: "person-a",
+				permissions: ["os:read"],
+			}),
+		});
+		queries.length = 0;
+		const started = performance.now();
+		expect((await caller.recentChats({ limit: 100 })).chats).toHaveLength(100);
+		const elapsed = performance.now() - started;
+		expect(queries).toHaveLength(5);
+		expect(indexReads).toBe(1);
+		// Local whole-router budget, including middleware and response validation;
+		// excludes HTTP/JWT and remote service transport, which need deployed proof.
+		expect(elapsed).toBeLessThan(1000);
+		console.info(
+			JSON.stringify({
+				proof: "recent-chats-200-workspaces",
+				statements: queries.length,
+				indexReads,
+				elapsedMs: elapsed,
+				budgetMs: 1000,
+			}),
+		);
+		const open = async () =>
+			(
+				await workspaceSessionAccess(
+					new Request("https://api.test/internal/workspace-session-access", {
+						method: "POST",
+						body: JSON.stringify({
+							workspaceId: ids[0],
+							userIds: ["person-a"],
+						}),
+					}),
+					{ DB: d1 },
+				)
+			).json();
+		expect(await open()).toEqual({ roles: { "person-a": "build" } });
+		sqlite
+			.prepare("DELETE FROM os_workspace_access_edges WHERE workspace_id = ?")
+			.run(ids[0]);
+		expect(
+			(await caller.recentChats({ limit: 100 })).chats.map(
+				(row) => row.workspaceId,
+			),
+		).not.toContain(ids[0]);
+		expect(forgotten).toContain(ids[0]);
+		expect(await open()).toEqual({ roles: { "person-a": null } });
+	});
+
 	it("counts only requests for a decision while a workspace is muted, and everything again once the mute ends", async () => {
 		const { client, db, event, follow } = setup();
 		await workspaces(db);

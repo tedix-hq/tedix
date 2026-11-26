@@ -2,7 +2,16 @@ import { getOsWorkspace } from "./os-workspaces/workspaces";
 import { and, eq } from "drizzle-orm";
 import { tedis } from "../schema/tedis";
 import type { DbQueryClient } from "../query-client";
-import type { OsWorkspaceRow } from "../schema/os-workspaces";
+import {
+	osWorkspaces as d1OsWorkspaces,
+	type OsWorkspaceRow,
+} from "../schema/os-workspaces";
+import {
+	osWorkspaceAccessEdges as d1Edges,
+	osWorkspaceShareLinks as d1Links,
+} from "../schema/os-collaborators";
+import { coreTable } from "../core-store/client";
+import { anyIds } from "../core-store/dialect";
 import {
 	getOsWorkspaceForCollaboration,
 	loadOsWorkspacePermissionRows,
@@ -35,6 +44,106 @@ const ORG_ROLE: Record<string, OsCollaboratorRole> = {
 	member: "build",
 	viewer: "use",
 };
+
+/** Fresh human roles and names for Home, in five statements regardless of list size.
+ * Uses the same roots and share graph as loadSessionRole, without per-workspace caches.
+ */
+export async function readWorkspaceUserAccessMany(
+	database: DbQueryClient,
+	organizationId: string,
+	userId: string,
+	workspaceIds: readonly string[],
+): Promise<Map<string, { name: string; role: OsCollaboratorRole | null }>> {
+	const result = new Map<
+		string,
+		{ name: string; role: OsCollaboratorRole | null }
+	>();
+	if (!workspaceIds.length) return result;
+	const workspaces = coreTable(database, d1OsWorkspaces);
+	const edges = coreTable(database, d1Edges);
+	const links = coreTable(database, d1Links);
+	const [workspaceRows, edgeRows, linkRows] = await database.batch([
+		database
+			.select()
+			.from(workspaces)
+			.where(
+				and(
+					eq(workspaces.organizationId, organizationId),
+					anyIds(database, workspaces.id, workspaceIds),
+				),
+			),
+		database
+			.select()
+			.from(edges)
+			.where(
+				and(
+					eq(edges.organizationId, organizationId),
+					anyIds(database, edges.workspaceId, workspaceIds),
+				),
+			),
+		database
+			.select()
+			.from(links)
+			.where(
+				and(
+					eq(links.organizationId, organizationId),
+					anyIds(database, links.workspaceId, workspaceIds),
+				),
+			),
+	]);
+	const member = await getMemberAccessByUserId(
+		database,
+		organizationId,
+		userId,
+	);
+	if (member && member.status !== "active") return result;
+	const candidates = new Set([userId]);
+	for (const edge of edgeRows) {
+		candidates.add(edge.targetUserId);
+		if (edge.sharerUserId) candidates.add(edge.sharerUserId);
+	}
+	for (const link of linkRows) candidates.add(link.creatorUserId);
+	const members = await listOsWorkspaceOrganizationMemberRoles(database, {
+		organizationId,
+		userIds: [...candidates],
+	});
+	const orgRoots = new Map(
+		members.flatMap((row) =>
+			ORG_ROLE[row.role] ? [[row.userId, ORG_ROLE[row.role]!] as const] : [],
+		),
+	);
+	for (const workspace of workspaceRows) {
+		if (workspace.status !== "active") continue;
+		const rows: OsWorkspacePermissionRows = {
+			collaborators: [],
+			edges: edgeRows.filter((row) => row.workspaceId === workspace.id),
+			links: linkRows.filter((row) => row.workspaceId === workspace.id),
+		};
+		const roots =
+			workspace.visibility === "private"
+				? new Map(
+						workspace.ownerUserId
+							? [[workspace.ownerUserId, "build" as const]]
+							: [],
+					)
+				: orgRoots;
+		const roles = computeEffectiveRoles({
+			roots,
+			edges: toGraphEdges(rows),
+			links: rows.links.map((link) => ({
+				id: link.id,
+				creatorId: link.creatorUserId,
+				role: link.role,
+				revoked: link.revokedAt !== null,
+			})),
+		});
+		result.set(workspace.id, {
+			name: workspace.name,
+			role: roles.get(userId) ?? null,
+		});
+	}
+	return result;
+}
 
 function toGraphEdges(rows: OsWorkspacePermissionRows): GraphEdge[] {
 	return rows.edges.flatMap((edge): GraphEdge[] => {

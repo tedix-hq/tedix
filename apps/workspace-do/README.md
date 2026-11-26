@@ -272,3 +272,27 @@ input is a subset of input. Missing provider usage stays unavailable, and totals
 with missing calls are marked partial. Model and usage events replay with the
 turn, including available receipts before a later failure. Cost stays unavailable:
 the adapter's zero pricing is a placeholder, not a price or a provider receipt.
+
+## Rebuild Home chat titles after restore
+
+After restoring a workspace object, call the trusted `InternalEntrypoint`
+service binding's `rebuildPersonChats(scope, previousUserIds)`. Pass the
+pre-restore participant IDs as `previousUserIds`, including people whose turns
+are absent from the restored store. Current participants are included
+from the restored turns. An absent person's empty snapshot clears stale titles.
+This operation reads only workspace chat titles and times; Home threads and
+personal, workspace and organization memory keep their existing owners.
+
+Each send reads the personal index's sequence before building a fresh snapshot
+and advances past both that sequence and the producer's sequence. This recovers
+when the producer is restored behind its index. Delayed snapshots still carry
+their original sequence and cannot replace the rebuilt list. Failed deliveries
+stay pending for the next activity flush or rebuild.
+
+Home checks current access before listing titles, and opening a chat checks
+access again. The list reads at most 200 index entries. Its access and name
+lookup budget is five D1 statements plus one personal-index RPC. The focused
+API test measures the whole router call, including middleware and response
+validation, against a 1,000 ms local budget with 200 distinct workspaces.
+HTTP authentication and remote D1/DO transport need separate deployed timing
+proof; local latency does not establish their cost.

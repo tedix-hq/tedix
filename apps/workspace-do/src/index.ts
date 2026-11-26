@@ -285,6 +285,9 @@ export class InternalEntrypoint
 	listConversations(scope: WorkspaceScope) {
 		return stubFor(this.env, scope).listConversations(scope);
 	}
+	rebuildPersonChats(scope: WorkspaceScope, previousUserIds?: string[]) {
+		return stubFor(this.env, scope).rebuildPersonChats(scope, previousUserIds);
+	}
 	/** One person's workspace chats for Home; the api checks access per workspace. */
 	listPersonChats(owner: PersonChatsOwner, limit?: number) {
 		return personChatsStub(this.env, owner).listPersonChats(owner, limit);

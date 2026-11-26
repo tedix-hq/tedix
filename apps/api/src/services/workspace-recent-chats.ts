@@ -1,7 +1,6 @@
 import { operationAllowed } from "@tedix/api-contract/schemas/os-collaborators";
 import type { WorkspaceRecentChat } from "@tedix/api-contract/schemas/workspace-unread";
-import { readWorkspaceRuntimeRole } from "@tedix/db/queries/os-workspace-access";
-import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { readWorkspaceUserAccessMany } from "@tedix/db/queries/os-workspace-access";
 import type { DbQueryClient } from "@tedix/db/query-client";
 
 export interface PersonChatsOwner {
@@ -47,27 +46,28 @@ export async function listRecentWorkspaceChats(
 		Math.min(200, limit * 2),
 	);
 	const names = new Map<string, string | null>();
-	for (const workspaceId of new Set(
-		entries.map((entry) => entry.workspaceId),
-	)) {
-		const scope = { organizationId: owner.organizationId, workspaceId };
-		try {
-			const role = await readWorkspaceRuntimeRole(db, scope, {
-				actorId: owner.userId,
-				actorKind: "user",
-			});
-			if (!operationAllowed(role, "app.chat")) {
+	const workspaceIds = [...new Set(entries.map((entry) => entry.workspaceId))];
+	try {
+		const access = await readWorkspaceUserAccessMany(
+			db,
+			owner.organizationId,
+			owner.userId,
+			workspaceIds,
+		);
+		for (const workspaceId of workspaceIds) {
+			const workspace = access.get(workspaceId);
+			if (!operationAllowed(workspace?.role ?? null, "app.chat")) {
 				names.set(workspaceId, null);
 				defer(
 					runtime.forgetPersonChatWorkspace(owner, workspaceId).catch(() => {}),
 				);
 				continue;
 			}
-			const workspace = await getOsWorkspace(db, scope);
 			names.set(workspaceId, workspace?.name ?? null);
-		} catch {
-			names.set(workspaceId, null);
 		}
+	} catch {
+		// A failed batch hides all entries without dropping any index rows.
+		return [];
 	}
 	return entries
 		.flatMap((entry) => {

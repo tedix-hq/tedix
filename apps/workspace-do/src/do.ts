@@ -2245,6 +2245,30 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		forgetPersonChatWorkspace(this.#personChatsStore(owner), workspaceId);
 	}
 
+	personChatSequence(owner: PersonChatsOwner, workspaceId: string): number {
+		return (
+			this.#personChatsStore(owner).exec<{ seq: number }>(
+				"SELECT seq FROM person_chat_workspaces WHERE workspace_id = ?",
+				workspaceId,
+			)[0]?.seq ?? 0
+		);
+	}
+
+	/** After restore, include pre-restore participants whose chats are now absent. */
+	async rebuildPersonChats(
+		scope: WorkspaceScope,
+		previousUserIds: string[] = [],
+	): Promise<void> {
+		this.bindScope(scope);
+		const users = this.#store
+			.exec<{ actor_id: string }>(
+				"SELECT DISTINCT actor_id FROM turns WHERE actor_kind = 'user'",
+			)
+			.map((row) => row.actor_id);
+		this.#markPersonChats([...new Set([...users, ...previousUserIds])]);
+		await this.#serializeActivity(() => this.#flushPersonChats());
+	}
+
 	/** Queues these people's chat lists for Home; `#flushPersonChats` sends them. */
 	#markPersonChats(userIds: readonly string[]) {
 		if (!userIds.length) return;
@@ -2288,21 +2312,28 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const identity = this.#storeIdentity();
 		if (!identity) return;
 		for (const [userId, mark] of Object.entries(pending)) {
-			const seq = (this.#store.get<number>("person-chats-seq") ?? 0) + 1;
-			this.#store.put("person-chats-seq", seq);
 			const owner = { organizationId: identity.organizationId, userId };
 			try {
-				await (
-					durableObjectStubByName(
-						this.env.WORKSPACE,
-						this.env,
-						personChatsName(owner),
-					) as unknown as WorkspaceRpc
-				).recordPersonChats(owner, {
+				const index = durableObjectStubByName(
+					this.env.WORKSPACE,
+					this.env,
+					personChatsName(owner),
+				) as unknown as WorkspaceRpc;
+				// Read the consumer's floor before building a fresh snapshot. A
+				// restored producer may be behind; never renumber an old payload.
+				const kept = await index.personChatSequence(
+					owner,
+					identity.workspaceId,
+				);
+				const seq =
+					Math.max(kept, this.#store.get<number>("person-chats-seq") ?? 0) + 1;
+				this.#store.put("person-chats-seq", seq);
+				const applied = await index.recordPersonChats(owner, {
 					workspaceId: identity.workspaceId,
 					seq,
 					chats: personChatsIn(this.#store, userId),
 				});
+				if (!applied) continue;
 				const left =
 					this.#store.get<Record<string, number>>("person-chats-pending") ?? {};
 				if (left[userId] === mark) {
@@ -7101,6 +7132,14 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		owner: PersonChatsOwner,
 		snapshot: PersonChatsSnapshot,
 	): Promise<boolean>;
+	personChatSequence(
+		owner: PersonChatsOwner,
+		workspaceId: string,
+	): Promise<number>;
+	rebuildPersonChats(
+		scope: WorkspaceScope,
+		previousUserIds?: string[],
+	): Promise<void>;
 	listPersonChats(
 		owner: PersonChatsOwner,
 		limit?: number,

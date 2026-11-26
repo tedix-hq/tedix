@@ -4,22 +4,24 @@ import type { DbQueryClient } from "@tedix/db/query-client";
 const roles = vi.hoisted(() => new Map<string, string | null | Error>());
 
 vi.mock("@tedix/db/queries/os-workspace-access", () => ({
-	readWorkspaceRuntimeRole: async (
+	readWorkspaceUserAccessMany: async (
 		_db: unknown,
-		scope: { workspaceId: string },
-		principal: { actorId: string; actorKind: string },
+		organizationId: string,
+		userId: string,
+		workspaceIds: string[],
 	) => {
-		expect(principal).toEqual({ actorId: "person-1", actorKind: "user" });
-		const role = roles.get(scope.workspaceId);
-		if (role instanceof Error) throw role;
-		return role ?? null;
+		expect({ organizationId, userId }).toEqual({
+			organizationId: "org-fictional",
+			userId: "person-1",
+		});
+		return new Map(
+			workspaceIds.map((id) => {
+				const role = roles.get(id);
+				if (role instanceof Error) throw role;
+				return [id, { name: `Workspace ${id}`, role: role ?? null }];
+			}),
+		);
 	},
-}));
-vi.mock("@tedix/db/queries/os-workspaces/workspaces", () => ({
-	getOsWorkspace: async (_db: unknown, scope: { workspaceId: string }) => ({
-		id: scope.workspaceId,
-		name: `Workspace ${scope.workspaceId}`,
-	}),
 }));
 
 const { listRecentWorkspaceChats } = await import("./workspace-recent-chats");
@@ -40,7 +42,6 @@ describe("listRecentWorkspaceChats", () => {
 		roles.set("revoked", null);
 		// Chat needs the build role; a use-only viewer cannot open it.
 		roles.set("viewer", "use");
-		roles.set("failing", new Error("database overloaded"));
 		const forgotten: string[] = [];
 		const deferred: Promise<unknown>[] = [];
 		const chats = await listRecentWorkspaceChats(
@@ -49,7 +50,6 @@ describe("listRecentWorkspaceChats", () => {
 				listPersonChats: async () => [
 					entry("revoked", "gone", "2026-11-21T12:00:00Z"),
 					entry("open", "newer", "2026-11-21T11:00:00Z"),
-					entry("failing", "kept-for-later", "2026-11-21T10:30:00Z"),
 					entry("open", "older", "2026-11-21T10:00:00Z"),
 					entry("viewer", "view-only", "2026-11-21T09:00:00Z"),
 				],
@@ -67,8 +67,24 @@ describe("listRecentWorkspaceChats", () => {
 			"older",
 		]);
 		expect(chats[0]?.workspaceName).toBe("Workspace open");
-		// A failed check hides entries this time but never deletes them.
 		expect(forgotten.sort()).toEqual(["revoked", "viewer"]);
+	});
+
+	it("hides a failed access batch without forgetting entries", async () => {
+		roles.set("failing", new Error("database overloaded"));
+		const forget = vi.fn(async () => {});
+		expect(
+			await listRecentWorkspaceChats(
+				{} as DbQueryClient,
+				{
+					listPersonChats: async () => [entry("failing", "kept", "2026-11-21")],
+					forgetPersonChatWorkspace: forget,
+				},
+				owner,
+				10,
+			),
+		).toEqual([]);
+		expect(forget).not.toHaveBeenCalled();
 	});
 
 	it("stops at the limit", async () => {
