@@ -67,7 +67,7 @@ export function jsonWrite(
 		const prefix = pgTextArray(path.slice(0, length));
 		document = sql`jsonb_set(${document}, ${prefix}::text[], coalesce(${column} #> ${prefix}::text[], '{}'::jsonb), true)`;
 	}
-	return sql`jsonb_set(${document}, ${pgTextArray(path)}::text[], ${json}::jsonb, true)`;
+	return sql`jsonb_set(${document}, ${pgTextArray(path)}::text[], ${json}::text::jsonb, true)`;
 }
 /** One bound array on Postgres; one bound JSON set on D1 (including empty sets). */
 export function anyIds(
@@ -118,9 +118,11 @@ export function changedRows(rows: readonly unknown[]): number {
 	return rows.length;
 }
 
-/** JSON expressions in INSERT ... SELECT need an explicit Postgres type. */
+/** Bind serialized JSON as text so postgres.js does not JSON-encode it again. */
 export function jsonParameter(db: object, value: unknown): SQL {
 	const text = JSON.stringify(value);
 	if (text === undefined) throw new Error("JSON values must be serializable");
-	return coreStore(db) === "postgres" ? sql`${text}::jsonb` : sql`${text}`;
+	return coreStore(db) === "postgres"
+		? sql`${text}::text::jsonb`
+		: sql`${text}`;
 }
