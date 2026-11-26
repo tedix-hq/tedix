@@ -765,7 +765,7 @@ describe("canonical work lifecycle", () => {
 		}
 	});
 
-	test("watch stops without touching a replacement cached Attempt", async () => {
+	test("watch keeps the admitted Attempt when the local cache changes", async () => {
 		let now = 0;
 		const { ctx, sources, attemptStore } = makeContext(
 			{ watch: 65 },
@@ -785,8 +785,9 @@ describe("canonical work lifecycle", () => {
 				attemptStore.set(key, "replacement");
 			},
 		};
-		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(WORK_EXIT_FAIL);
-		expect(sources).toHaveLength(1);
+		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(0);
+		expect(sources).toHaveLength(3);
+		for (const source of sources) expect(source).toContain(ATTEMPT);
 		expect(attemptStore.get(key)).toBe("replacement");
 	});
 
@@ -3332,16 +3333,16 @@ describe("heartbeat watch rate-pressure recovery", () => {
 			expect(sources).toHaveLength(1);
 		}
 	});
-	test("stops if the cached fence changes during a rate cooldown", async () => {
+	test("rate-limit recovery keeps the admitted Attempt when the local cache changes", async () => {
 		let now = 0,
 			calls = 0;
 		const { ctx, sources, attemptStore } = makeContext(
-			{ watch: 90 },
+			{ watch: 40 },
 			ATTEMPT,
 			() =>
-				++calls === 1
-					? { expiresAt: new Date(now + 90_000).toISOString() }
-					: rate(),
+				++calls === 2
+					? rate()
+					: { expiresAt: new Date(now + 90_000).toISOString() },
 		);
 		const key = {
 			workspace: "test",
@@ -3356,8 +3357,9 @@ describe("heartbeat watch rate-pressure recovery", () => {
 				if (calls === 2) attemptStore.set(key, "replacement");
 			},
 		};
-		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(WORK_EXIT_FAIL);
-		expect(sources).toHaveLength(2);
+		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(0);
+		expect(sources).toHaveLength(3);
+		for (const source of sources) expect(source).toContain(ATTEMPT);
 		expect(attemptStore.get(key)).toBe("replacement");
 	});
 	test.each([
@@ -3513,7 +3515,6 @@ test("dispatcher renews the same Attempt in-process during a shared gateway cool
 	const renew = createLaneHeartbeat(
 		["--workspace", "test", "--organization", "org_fixture"],
 		{
-			attemptStore: fixture.attemptStore,
 			auth: async ({ workspace, organization, sessionKey, selector }) => {
 				authCalls++;
 				expect({ workspace, organization, sessionKey, selector }).toEqual({
@@ -3552,17 +3553,8 @@ test("dispatcher renews the same Attempt in-process during a shared gateway cool
 			`work.heartbeat_work_item_attempt(${JSON.stringify({ id: ITEM, attemptId: ATTEMPT })})`,
 		),
 	);
-	fixture.attemptStore.set(
-		{
-			workspace: "test",
-			actor: "credential",
-			agentSession: receipt.session,
-			workItemId: ITEM,
-		},
-		"replacement",
-	);
-	await expect(renew(receipt)).rejects.toMatchObject({ code: "STALE_ATTEMPT" });
-	expect(fixture.sources).toHaveLength(2);
+	await expect(renew(receipt)).resolves.toEqual(expiry);
+	expect(fixture.sources).toHaveLength(3);
 });
 
 describe("native Work bootstrap cache", () => {
@@ -5426,21 +5418,6 @@ test("registers a lane on its admitted Attempt and rejects the flag on other ver
 	);
 });
 
-test("settle sends the exact human next click and original request to the server", async () => {
-	const { ctx, sources } = makeContext(
-		{
-			outcome: "succeeded",
-			note: "Draft: /docs/example",
-			needsUser: "Confirm address and send",
-			requestId: ITEM,
-		},
-		ATTEMPT,
-	);
-	expect(await runWork(`settle ${ITEM}`, ctx)).toBe(0);
-	expect(sources[0]).toContain('"needsUser":"Confirm address and send"');
-	expect(sources[0]).toContain(`"requestId":"${ITEM}"`);
-});
-
 describe("comment text options", () => {
 	test.each(["--body", "--message", "--text"])(
 		"posts the trimmed %s value",
@@ -5518,22 +5495,6 @@ describe("claim discovery retry budget", () => {
 			),
 		).toHaveLength(1);
 	});
-});
-
-test("dispatcher heartbeat retries cannot touch a replacement cached Attempt", async () => {
-	const previous = process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID;
-	process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID = "original-dispatcher-attempt";
-	try {
-		const fixture = makeContext({}, ATTEMPT);
-		const result = await capture(`heartbeat ${ITEM}`, fixture.ctx);
-		expect(result.code).toBe(WORK_EXIT_FAIL);
-		expect(fixture.sources).toEqual([]);
-		expect(result.out.join("\n")).toContain("STALE_ATTEMPT");
-	} finally {
-		if (previous === undefined)
-			delete process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID;
-		else process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID = previous;
-	}
 });
 
 test("claim discovery and mutation retain the parent subprocess deadline", async () => {
@@ -5660,6 +5621,37 @@ describe("work run command lifecycle", () => {
 		expect(fixture.sources.at(-2)).toContain('"outcome":"succeeded"');
 		expect(fixture.sources.at(-2)).toContain('"summary":"Command result"');
 		expect(fixture.sources.at(-1)).toContain("complete_work_item");
+	});
+
+	test("settles the Attempt it started when the local cache changes", async () => {
+		const fixture = commandFixture("await Bun.sleep(50)");
+		const store = fixture.attemptStore;
+		const get = store.get;
+		let replaced = false;
+		fixture.ctx.attemptStore = {
+			...store,
+			get: (key) => {
+				const attemptId = get(key);
+				if (!replaced && attemptId === ATTEMPT) {
+					replaced = true;
+					store.set(key, "replacement");
+				}
+				return attemptId;
+			},
+		};
+		expect((await capture(`run ${ITEM}`, fixture.ctx)).code).toBe(0);
+		const settlement = fixture.sources.find((source) =>
+			source.includes("settle_work_item_attempt"),
+		);
+		expect(settlement).toContain(`"attemptId":"${ATTEMPT}"`);
+		expect(
+			store.get({
+				workspace: "test",
+				actor: "credential",
+				agentSession: fixture.ctx.work.session!,
+				workItemId: ITEM,
+			}),
+		).toBe("replacement");
 	});
 
 	test("settles nonzero and spawn errors as failed without completing Work", async () => {

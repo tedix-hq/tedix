@@ -58,10 +58,6 @@ export async function workRun(ctx: WorkContext, id: string): Promise<number> {
 				loseLease("Attempt has no confirmed future lease");
 				return { kind: "stop" };
 			}
-			if (cachedAttemptId(ctx, id) !== attemptId) {
-				loseLease("Attempt fence changed while the command was running");
-				return { kind: "stop" };
-			}
 			resetDeadline();
 			try {
 				const result = await boardCall(
@@ -141,10 +137,6 @@ export async function workRun(ctx: WorkContext, id: string): Promise<number> {
 		console.error(failure);
 		return WORK_EXIT_FAIL;
 	}
-	if (cachedAttemptId(ctx, id) !== attemptId) {
-		console.error("Attempt fence changed; settlement refused");
-		return WORK_EXIT_FAIL;
-	}
 	resetDeadline();
 	const outcome = interrupted
 		? "cancelled"
@@ -166,7 +158,7 @@ export async function workRun(ctx: WorkContext, id: string): Promise<number> {
 		},
 	};
 	nativeCommands.set(settlementContext, nativeCommands.get(ctx)!);
-	const settled = await workSettle(settlementContext, id);
+	const settled = await workSettle(settlementContext, id, attemptId);
 	if (settled) return settled;
 	if (interrupted) return 130;
 	if (exitCode !== 0) return exitCode;

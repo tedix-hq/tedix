@@ -23,7 +23,6 @@ import { CodexLaneResultJsonSchema } from "./lane-result";
 import {
 	LaneDispatcher,
 	followUpRefusal,
-	questionRefusal,
 	LaneCommitFetchError,
 	ARCHIVED_RUNS_KEPT,
 	DISPATCHER_LOG_CAP_BYTES,
@@ -63,6 +62,7 @@ import {
 } from "./supervise-runners";
 import {
 	dispatcherNextCheckAt,
+	dispatcherAdmissionProblem,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
@@ -292,7 +292,6 @@ function fixture({
 				{
 					TEDIX_AGENT_SESSION: receipt.session,
 					TEDIX_EXTERNAL_AGENT: receipt.executorKey,
-					TEDIX_CLI_EXPECTED_ATTEMPT_ID: receipt.attemptId,
 				},
 			),
 		createStepSender: () => async (receipt, steps, applied) => {
@@ -442,7 +441,27 @@ function fixture({
 					row.metadata = { ...row.metadata, laneDispatch: input.laneDispatch };
 				if (input.startAt) row.startAt = input.startAt;
 				response = row;
-			} else if (verb === "interaction-create")
+			} else if (verb === "wait")
+				response = {
+					reason: "timeout",
+					changes: [],
+					cursor: {
+						workItemId: args[6],
+						event: 0,
+						message: 0,
+						response: 0,
+						...(input.interactionId
+							? {
+									interaction: {
+										id: input.interactionId,
+										version: 1,
+										state: "open",
+									},
+								}
+							: {}),
+					},
+				};
+			else if (verb === "interaction-create")
 				response = { id: "fictional-request" };
 			else if (verb === "dispatch-get")
 				response = {
@@ -816,6 +835,23 @@ function fixture({
 		},
 	};
 }
+it("reports preparation failures across deferred retry passes without starting an Attempt", async () => {
+	const f = fixture({ executor: "devin" });
+	f.items.splice(1);
+	f.deps.installDependencies = async () => {
+		throw new Error("Dependency download failed");
+	};
+	writeDispatcherHealthSource(f.dir, f.config);
+	const dispatcher = f.restart();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
+	expect(dispatcherAdmissionProblem(f.dir, process.pid)).toContain(
+		"Dependency download failed",
+	);
+	expect(f.events.some((event) => event.verb === "start")).toBe(false);
+});
+
 it("settles an Attempt limit with its reason and leaves Work open", async () => {
 	const f = fixture();
 	f.items.splice(1);
@@ -1865,7 +1901,6 @@ describe("dispatcher admission", () => {
 				{
 					TEDIX_AGENT_SESSION: receipt.session,
 					TEDIX_EXTERNAL_AGENT: receipt.executorKey,
-					TEDIX_CLI_EXPECTED_ATTEMPT_ID: receipt.attemptId,
 				},
 			);
 		};
@@ -5419,12 +5454,15 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 	});
 	it.each([
-		["picks another tool", true],
-		["is unavailable", false],
-		["is unsure", "unsure"],
+		["picks another tool", true, 0.82, "82", "35"],
+		["is unavailable", false, 0, "0", "35"],
+		["is unsure", true, 0.3, "30", "35"],
+		["is just below threshold", true, 0.349, "34.9", "35.0"],
+		["is at threshold", true, 0.35, "35.0", "35.0"],
+		["is just above threshold", true, 0.351, "35.1", "35.0"],
 	] as const)(
 		"asks Clef once per revision; when Clef %s the task says so",
-		async (_name, answers) => {
+		async (_name, answers, likely, percent, threshold) => {
 			const { restart, deps, items, events, dir, config, releases } = fixture();
 			const routing = join(dir, "routing.json");
 			writeFileSync(
@@ -5445,23 +5483,13 @@ describe("dispatcher admission", () => {
 			deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
 				if (args[5] !== "choose-tool") return base<T>(args, env);
 				asked.push(JSON.parse(args[args.indexOf("--input") + 1]!));
-				if (answers === "unsure")
-					return {
-						status: "ok",
-						executor: "opencode",
-						confidence: 0.08,
-						probabilities: { codex: 0.29, opencode: 0.3 },
-						model: "@cf/cloudflare/clef-flash",
-						latencyMs: 400,
-						reason: null,
-					} as T;
 				return (
 					answers
 						? {
 								status: "ok",
 								executor: "opencode",
 								confidence: 0.12,
-								probabilities: { codex: 0.18, opencode: 0.82 },
+								probabilities: { codex: 0.18, opencode: likely },
 								model: "@cf/cloudflare/clef-flash",
 								latencyMs: 400,
 								reason: null,
@@ -5497,7 +5525,7 @@ describe("dispatcher admission", () => {
 				(event) =>
 					event.verb === "dispatch-reassign" && event.input?.idleReassignment,
 			);
-			if (answers === "unsure") {
+			if (answers && likely < 0.35) {
 				expect(moves).toHaveLength(0);
 				expect(
 					events.some(
@@ -5505,7 +5533,7 @@ describe("dispatcher admission", () => {
 							event.verb === "comment" &&
 							event.args.some((arg) =>
 								arg.startsWith(
-									"Clef would pick OpenCode but rates it only 30% likely (threshold 35%), so the routing rules decide and the task stays with Codex.",
+									`Clef would pick OpenCode but rates it only ${percent}% likely (threshold ${threshold}%), so the routing rules decide and the task stays with Codex.`,
 								),
 							),
 					),
@@ -5518,7 +5546,7 @@ describe("dispatcher admission", () => {
 						fromExecutor: "codex",
 						reason: "chosen",
 						detail: expect.stringContaining(
-							"Clef chose OpenCode (82% likely): small routine edits and docs",
+							`Clef chose OpenCode (${percent}% likely): small routine edits and docs`,
 						),
 					},
 				});
@@ -10973,6 +11001,30 @@ describe("structured dispatcher outcomes", () => {
 			},
 		);
 	});
+	it("rejects a retired final-question declaration without completing or opening another ask", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.commits = [];
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...common(), outcome: "question", question: "Which table?" })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(f.events.filter(requestsCompletion)).toHaveLength(0);
+		expect(f.events.some((event) => event.verb === "interaction-create")).toBe(
+			false,
+		);
+		expect(
+			f.control.stepCalls.some((call) =>
+				call.steps.some((step) => step.kind === "question"),
+			),
+		).toBe(false);
+		expect(f.events.find((event) => event.verb === "settle")?.args).toContain(
+			"failed",
+		);
+	});
+
 	it("retains one human request across ticks and restart, then releases it on a Work edit while fresh Work advances", async () => {
 		const f = fixture();
 		f.items.splice(1);
@@ -11213,11 +11265,13 @@ describe("structured dispatcher outcomes", () => {
 		};
 		const at = "2026-10-31T12:00:00.000Z";
 		const cli = f.deps.cli!;
+		let detailReads = 0;
 		f.deps.cli = async <T>(
 			args: string[],
 			env: NodeJS.ProcessEnv,
 		): Promise<T> => {
 			if (args[5] !== "interaction-get") return cli<T>(args, env);
+			detailReads++;
 			return {
 				request: {
 					id: interactionId,
@@ -11261,6 +11315,32 @@ describe("structured dispatcher outcomes", () => {
 			JSON.parse(readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"))
 				.waitReleasedAt,
 		).toBeUndefined();
+		const initialReads = detailReads;
+		const nextCli = f.deps.cli!;
+		let finishWait!: (value: unknown) => void;
+		let waitInput!: { cursor: unknown };
+		let waitCalls = 0;
+		f.deps.cli = async <T>(
+			args: string[],
+			env: NodeJS.ProcessEnv,
+		): Promise<T> => {
+			if (args[5] !== "wait") return nextCli<T>(args, env);
+			waitCalls++;
+			waitInput = JSON.parse(args[args.indexOf("--input") + 1]!);
+			return await new Promise<T>((resolve) => {
+				finishWait = resolve as (value: unknown) => void;
+			});
+		};
+		const watching = f.restart();
+		await watching.tick();
+		await watching.tick();
+		await watching.tick();
+		expect(waitCalls).toBe(1);
+		expect(detailReads).toBe(initialReads);
+		finishWait({ reason: "timeout", changes: [], cursor: waitInput.cursor });
+		await Promise.resolve();
+		await watching.tick();
+		expect(detailReads).toBe(initialReads);
 	});
 	it("consumes a resolving human response once, then uses fresh admission on the same Work revision", async () => {
 		const f = fixture();
@@ -13085,86 +13165,6 @@ describe("watching and steering a run", () => {
 		}
 	});
 
-	const asks = (question: string, choices?: string[]) => {
-		const { outcome: _outcome, ...fence } = completedResult(item(1));
-		return `Asking.\nTEDIX_LANE_RESULT ${JSON.stringify({ ...fence, outcome: "question", question, ...(choices ? { choices } : {}) })}`;
-	};
-
-	it("releases the Attempt and resumes the same native session with a late answer", async () => {
-		const f = fixture();
-		f.items.splice(1);
-		f.control.uniqueAttempts = true;
-		const sessions: string[] = [];
-		f.control.duringTurn = (turn) => {
-			sessions.push(turn.args[turn.args.indexOf("resume") + 1]!);
-			f.control.finalMessage =
-				turn.number === 1
-					? asks("Which table holds the plan?", ["accounts", "subscriptions"])
-					: "Used subscriptions.";
-		};
-		await f.dispatcher.tick();
-		await until(() => f.releases.length === 1);
-		liveFence(f);
-		f.releases[0]!();
-		await f.dispatcher.drain();
-
-		const settled = f.events.find((event) => event.verb === "settle")!;
-		expect(settled.args[settled.args.indexOf("--outcome") + 1]).toBe(
-			"cancelled",
-		);
-		expect(settled.input?.metadata).toMatchObject({
-			runQuestion: { kind: "question", text: "Which table holds the plan?" },
-			laneResult: { outcome: "deferred" },
-		});
-		expect(sentSteps(f).map((step) => step.kind)).toEqual([
-			"started",
-			"question",
-		]);
-		expect(sentSteps(f).at(-1)?.choices).toEqual(["accounts", "subscriptions"]);
-
-		f.control.history.data[0]!.outcome = "cancelled";
-		f.control.history.data[0]!.metadata = settled.input?.metadata;
-		// Even after the usual deferral timer, only an answer can wake this run.
-		const path = join(f.dir, `${item().id}-2.json`);
-		const waiting = JSON.parse(readFileSync(path, "utf8"));
-		waiting.recheckAt = 0;
-		writeFileSync(path, JSON.stringify(waiting));
-		const restarted = f.restart();
-		await restarted.tick();
-		expect(
-			f.events.filter(
-				(event) => event.verb === "start" && event.args[4] === "work",
-			),
-		).toHaveLength(1);
-
-		const answerId = "77777777-7777-4777-8777-777777777777";
-		f.items[0]!.metadata = {
-			...f.items[0]!.metadata,
-			questionContinuation: {
-				attemptId: "fictional-attempt-1",
-				messageId: answerId,
-			},
-		};
-		f.control.stepReplies = [[fromOwner(answerId, "subscriptions")]];
-		await restarted.tick();
-		await until(() => f.releases.length === 2);
-		f.releases[1]!();
-		await restarted.drain();
-
-		expect(sessions).toEqual([sessions[0]!, sessions[0]!]);
-		expect(f.briefs).toHaveLength(2);
-		expect(f.briefs[1]).toContain('You asked: "Which table holds the plan?".');
-		expect(f.briefs[1]).toContain("From user fictional-owner:\nsubscriptions");
-		expect(
-			f.control.stepCalls
-				.filter((call) => call.applied.length)
-				.map((call) => [call.attemptId, call.applied]),
-		).toEqual([["fictional-attempt-2", [answerId]]]);
-		expect(
-			f.events.filter((event) => event.verb === "settle").at(-1)?.args,
-		).toContain("succeeded");
-	});
-
 	const liveFence = (f: ReturnType<typeof fixture>) => {
 		const saved = JSON.parse(
 			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
@@ -13179,39 +13179,6 @@ describe("watching and steering a run", () => {
 			},
 		];
 	};
-
-	it("does not pass on a question that asks for a secret, a sign-in, consent or MFA", async () => {
-		for (const question of [
-			"What is the API key for the billing service?",
-			"Can you paste your password here?",
-			"Could you sign in to the dashboard for me?",
-			"Please approve the OAuth consent screen.",
-			"Tell me the verification code you received.",
-		])
-			expect(questionRefusal(question), question).toContain("not passed on");
-		for (const question of [
-			"Should the token cache live in memory or on disk?",
-			"Which table holds the plan: accounts or subscriptions?",
-			"Do you want the sign-in page tests moved too?",
-		])
-			expect(questionRefusal(question), question).toBeUndefined();
-
-		const f = fixture();
-		f.items.splice(1);
-		f.control.finalMessage = asks(
-			"What is the API key for the billing service?",
-		);
-		await f.dispatcher.tick();
-		await until(() => f.releases.length === 1);
-		liveFence(f);
-		f.releases[0]!();
-		await f.dispatcher.drain();
-		expect(sentSteps(f).map((step) => step.kind)).not.toContain("question");
-		const settle = f.events.find((event) => event.verb === "settle")!;
-		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
-			"Deferred: Question not passed on",
-		);
-	});
 
 	it("leaves the turn running when its agent has no clean stop, and applies the follow-up after it", async () => {
 		const flush = flushNow();
@@ -13289,7 +13256,10 @@ describe("watching and steering a run", () => {
 				"cancelled",
 			);
 			expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
-				"Stopped by user fictional-owner",
+				"Stopped by a person",
+			);
+			expect(settle.args[settle.args.indexOf("--note") + 1]).not.toContain(
+				"fictional-owner",
 			);
 			const path = join(f.dir, `${item().id}-2.json`);
 			const receipt = JSON.parse(readFileSync(path, "utf8"));
@@ -13297,12 +13267,12 @@ describe("watching and steering a run", () => {
 				phase: "settled",
 				outcome: "cancelled",
 				held: true,
-				note: "Stopped by user fictional-owner",
+				note: "Stopped by a person",
 			});
 			expect(receipt.interrupted).toBeUndefined();
 			expect(sentSteps(f).map((step) => [step.kind, step.text])).toEqual([
 				["started", expect.any(String)],
-				["stopped", "Stopped by user fictional-owner"],
+				["stopped", "Stopped by a person"],
 				["finished", "Agent run ended: cancelled"],
 			]);
 			// The stop is acknowledged after the agent ended, not when it arrived.

@@ -214,26 +214,13 @@ export async function workHeartbeat(
 	if (!id) throw new Error("work heartbeat requires a work item id");
 	id = await resolveWorkItemId(ctx, id);
 	const attemptId = cachedAttemptId(ctx, id);
-	const expectedAttemptId = process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID;
-	if (expectedAttemptId && attemptId !== expectedAttemptId) {
-		return fail(
-			ctx,
-			{
-				code: "STALE_ATTEMPT",
-				message:
-					"The cached Attempt changed during the dispatcher read budget.",
-			},
-			"Heartbeat stopped: the cached Attempt differs from the dispatcher fence.",
-		);
-	}
 	if (!attemptId) {
 		return fail(
 			ctx,
 			missingAttemptResult(id).error!,
-			`Could not heartbeat ${id}: no active attempt is cached. Start the item in this workspace first.`,
+			`Could not heartbeat ${id}: no attempt id is cached. Start the item in this workspace first.`,
 		);
 	}
-	const key = workAttemptKey(ctx, id);
 	const clock = ctx.heartbeatClock ?? { now: Date.now, wait: sleep };
 	const deadline = clock.now() + (ctx.work.watch ?? 0) * 1_000;
 	const callable = mutationCallable(
@@ -278,18 +265,6 @@ export async function workHeartbeat(
 		step: async ({ expiresAt: leaseExpiry }) => {
 			rateRetryError = undefined;
 			try {
-				// Pin the original fence. Another process may settle or replace its cache.
-				if (ctx.attemptStore.get(key) !== attemptId) {
-					result = fail(
-						ctx,
-						{
-							code: "STALE_ATTEMPT",
-							message: "The cached Attempt changed; heartbeat watch stopped.",
-						},
-						"Heartbeat watch stopped: the cached Attempt changed.",
-					);
-					return { kind: "stop" };
-				}
 				const touch = await boardCall(ctx, callable, { id, attemptId });
 				if (touch.error) {
 					const { status } = touch.error;
@@ -319,8 +294,7 @@ export async function workHeartbeat(
 					// alone would mistake them for a refusal.
 					const transient =
 						transientReadFailure(touch.error) ||
-						(touch.error.status === undefined &&
-							touch.error.code === undefined);
+						(touch.error.status === undefined && touch.error.code === undefined);
 					// Retry only after a confirmed renewal and inside that lease; a guessed
 					// lease never grants permission to keep trying.
 					if (
@@ -478,9 +452,11 @@ export function resolveSettlementCommits(
 export async function workSettle(
 	ctx: WorkContext,
 	id: string,
+	attemptId?: string,
 ): Promise<number> {
 	if (!id) throw new Error("work settle requires a work item id");
 	id = await resolveWorkItemId(ctx, id);
+	attemptId ??= cachedAttemptId(ctx, id) ?? undefined;
 	const outcome = ctx.work.outcome?.trim();
 	if (
 		!outcome ||
@@ -497,12 +473,11 @@ export async function workSettle(
 			"work settle requires --outcome succeeded|landed_unverified|failed|rejected|cancelled|expired",
 		);
 	}
-	const attemptId = cachedAttemptId(ctx, id);
 	if (!attemptId)
 		return fail(
 			ctx,
 			missingAttemptResult(id).error!,
-			`Could not settle ${id}: no attempt is cached.`,
+			`Could not settle ${id}: no attempt id is cached.`,
 		);
 	const as = ctx.work.as?.trim();
 	// Resolve BEFORE the board call: a fabricated sha must fail locally, not
@@ -534,8 +509,6 @@ export async function workSettle(
 			attemptId,
 			outcome,
 			...(ctx.work.note?.trim() ? { summary: ctx.work.note.trim() } : {}),
-			...(ctx.work.needsUser ? { needsUser: ctx.work.needsUser } : {}),
-			...(ctx.work.requestId ? { requestId: ctx.work.requestId } : {}),
 			...(settlement ? { settlement } : {}),
 			...(input.complete !== undefined ? { complete: input.complete } : {}),
 			...(metadata ? { metadata } : {}),
@@ -617,7 +590,7 @@ export async function workSubmitEvidence(
 		return fail(
 			ctx,
 			missingAttemptResult(id).error!,
-			`Could not submit evidence for ${id}: no attempt is cached.`,
+			`Could not submit evidence for ${id}: no attempt id is cached.`,
 		);
 	const claimKey = ctx.work.claimKey?.trim();
 	const kind = ctx.work.evidenceKind?.trim();
