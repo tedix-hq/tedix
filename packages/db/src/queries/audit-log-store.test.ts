@@ -140,6 +140,56 @@ describe("optional audit log store", () => {
 		logs.sqlite.close();
 	});
 
+	it("moves fresh approvals and expiry receipts before either historical backlog", async () => {
+		const main = store();
+		const logs = store();
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		const old = new Date("2026-10-27T10:00:00Z");
+		const fresh = new Date("2026-11-26T09:00:00Z");
+		await insertAuditEventsBatch(main.db, [
+			...Array.from({ length: 501 }, (_, i) => ({
+				...event,
+				id: `old-expiry-${i}`,
+				action: "interaction.expiry.run",
+				occurredAt: old,
+			})),
+			...Array.from({ length: 501 }, (_, i) => ({
+				...event,
+				id: `old-approval-${i}`,
+				action: "approval.approved",
+				actorId: "policy",
+				occurredAt: old,
+			})),
+			{
+				...event,
+				id: "fresh-approval",
+				action: "approval.approved",
+				metadata: { resolvedBy: "policy" },
+				occurredAt: fresh,
+			},
+			{
+				...event,
+				id: "fresh-expiry",
+				action: "interaction.expiry.run",
+				occurredAt: fresh,
+			},
+			{ ...event, id: "human", action: "approval.approved", occurredAt: fresh },
+		]);
+		expect(await moveRoutineAuditEventsToLogs(main.db)).toBe(500);
+		expect(
+			logs.sqlite
+				.prepare("SELECT id FROM audit_events WHERE timestamp = ? ORDER BY id")
+				.all(fresh.getTime() / 1000),
+		).toEqual([{ id: "fresh-approval" }, { id: "fresh-expiry" }]);
+		expect(await moveRoutineAuditEventsToLogs(main.db)).toBe(500);
+		expect(await moveRoutineAuditEventsToLogs(main.db)).toBe(4);
+		expect(main.sqlite.prepare("SELECT id FROM audit_events").all()).toEqual([
+			{ id: "human" },
+		]);
+		main.sqlite.close();
+		logs.sqlite.close();
+	});
+
 	it("writes 100 telemetry rows in one batch without dictionary access and retains inline metadata", async () => {
 		const main = store();
 		const logs = store();

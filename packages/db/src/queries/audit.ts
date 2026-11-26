@@ -114,25 +114,36 @@ export async function moveRoutineAuditEventsToLogs(
 	const logs = getLogStores(db)?.logs;
 	if (!logs) return 0;
 	const table = coreTable(db, auditEvents);
-	const rows = await db
-		.select()
-		.from(table)
-		.where(
-			or(
-				eq(table.action, "interaction.expiry.run"),
-				and(
-					eq(table.action, "approval.approved"),
-					or(
-						eq(table.actorId, "policy"),
-						eq(jsonRead(db, table.metadata, ["resolvedBy"]), "policy"),
-						eq(jsonRead(db, table.metadata, ["resolverProvenance"]), "policy"),
-					),
-				),
+	// Separate action seeks keep old expiry receipts from starving approvals.
+	// New receipts move first; spare capacity drains the historical backlog.
+	const rows = (
+		await Promise.all(
+			["approval.approved", "interaction.expiry.run"].map((action) =>
+				db
+					.select()
+					.from(table)
+					.where(
+						and(
+							eq(table.action, action),
+							action === "approval.approved"
+								? or(
+										eq(table.actorId, "policy"),
+										eq(jsonRead(db, table.metadata, ["resolvedBy"]), "policy"),
+										eq(
+											jsonRead(db, table.metadata, ["resolverProvenance"]),
+											"policy",
+										),
+									)
+								: undefined,
+						),
+					)
+					.orderBy(desc(table.timestamp))
+					.limit(250),
 			),
 		)
-		.limit(500);
+	).flat();
 	if (!rows.length) return 0;
-	// 500 per two-minute maintenance tick exceeds the observed ~34 rows/minute.
+	// 250 approvals per two-minute tick exceeds the observed ~34 rows/minute.
 	// Copy before delete; a failed copy or interrupted drain is safe to replay.
 	const [first, ...rest] = chunkForBoundParams(rows, 8).map((chunk) =>
 		logs
