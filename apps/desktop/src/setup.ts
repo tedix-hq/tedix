@@ -971,6 +971,21 @@ async function connectCallable(
 	return tool.callable;
 }
 
+/**
+ * A Code Mode result without the run's own fields, such as
+ * completionEvidence, which the tool's strict result schema does not know.
+ */
+function codeResult(output: string): unknown {
+	const parsed = JSON.parse(output) as unknown;
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+		return parsed;
+	const { completionEvidence: _evidence, ...result } = parsed as Record<
+		string,
+		unknown
+	>;
+	return result;
+}
+
 async function callConnect(callable: string, input: unknown): Promise<unknown> {
 	const org = organization();
 	if (!org) return;
@@ -980,7 +995,7 @@ async function callConnect(callable: string, input: unknown): Promise<unknown> {
 		{ timeoutMs: 30_000 },
 	);
 	if (!result.ok) return;
-	return JSON.parse(result.output);
+	return codeResult(result.output);
 }
 
 /**
@@ -1059,7 +1074,7 @@ async function readConnectionGrants(): Promise<void> {
 		);
 		if (!result.ok) return;
 		const data = ListMcpAuthorizationsResultSchema.parse(
-			JSON.parse(result.output),
+			codeResult(result.output),
 		);
 		if (identity === `${loginIdentity}:${organization()}` && !data.hasMore) {
 			serverGrants = data.items;
