@@ -15,7 +15,8 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { chunkForBoundParams } from "../utils/batch";
+import { coreTable } from "../core-store/client";
+import { anyIds, coreStore } from "../core-store/dialect";
 import { harnessSubjectTraceBundles } from "../schema/harness-versions";
 import {
 	chatDispatchIdempotency,
@@ -110,70 +111,70 @@ export async function purgeKernelConversations(
 			conversationId: ids,
 			evictedAt: input.deletedAt,
 		}),
-		db.delete(kernelConversationArtifactPins).where(
+		db.delete(coreTable(db, kernelConversationArtifactPins)).where(
 			and(
 				eq(kernelConversationArtifactPins.organizationId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
 				inArray(kernelConversationArtifactPins.conversationId, ids),
 			),
 		),
-		db.delete(kernelConversationCapabilities).where(
+		db.delete(coreTable(db, kernelConversationCapabilities)).where(
 			and(
 				eq(kernelConversationCapabilities.organizationId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
 				inArray(kernelConversationCapabilities.conversationId, ids),
 			),
 		),
-		db.delete(kernelRuntimeEvents).where(
+		db.delete(coreTable(db, kernelRuntimeEvents)).where(
 			and(
 				eq(kernelRuntimeEvents.organizationId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
 				inArray(kernelRuntimeEvents.conversationId, ids),
 			),
 		),
-		db.delete(kernelRuntimeRuns).where(
+		db.delete(coreTable(db, kernelRuntimeRuns)).where(
 			and(
 				eq(kernelRuntimeRuns.organizationId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
 				inArray(kernelRuntimeRuns.conversationId, ids),
 			),
 		),
-		db.delete(kernelConversationGrants).where(
+		db.delete(coreTable(db, kernelConversationGrants)).where(
 			and(
 				eq(kernelConversationGrants.organizationId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
 				inArray(kernelConversationGrants.conversationId, ids),
 			),
 		),
-		db.delete(kernelHomeApprovalMirrors).where(
+		db.delete(coreTable(db, kernelHomeApprovalMirrors)).where(
 			and(
 				eq(kernelHomeApprovalMirrors.organizationId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
 				inArray(kernelHomeApprovalMirrors.parentConversationId, ids),
 			),
 		),
-		db.delete(kernelWakeQueue).where(
+		db.delete(coreTable(db, kernelWakeQueue)).where(
 			and(
 				eq(kernelWakeQueue.organizationId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
 				inArray(kernelWakeQueue.parentConversationId, ids),
 			),
 		),
-		db.delete(chatDispatchIdempotency).where(
+		db.delete(coreTable(db, chatDispatchIdempotency)).where(
 			and(
 				eq(chatDispatchIdempotency.organizationId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
 				inArray(chatDispatchIdempotency.conversationId, ids),
 			),
 		),
-		db.delete(runtimeSubmissions).where(
+		db.delete(coreTable(db, runtimeSubmissions)).where(
 			and(
 				eq(runtimeSubmissions.organizationId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
 				inArray(runtimeSubmissions.conversationId, ids),
 			),
 		),
-		db.delete(harnessSubjectTraceBundles).where(
+		db.delete(coreTable(db, harnessSubjectTraceBundles)).where(
 			and(
 				eq(harnessSubjectTraceBundles.orgId, org),
 				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
@@ -182,7 +183,7 @@ export async function purgeKernelConversations(
 		),
 		...(input.clearSessionPolicies
 			? [
-					db.delete(kernelConversationSessionPolicies).where(
+					db.delete(coreTable(db, kernelConversationSessionPolicies)).where(
 						and(
 							eq(kernelConversationSessionPolicies.organizationId, org),
 							// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
@@ -217,8 +218,9 @@ function buildKernelConversationTombstoneStatement(
 	db: DbClient,
 	input: { organizationId: string; conversationId: string; deletedAt: string },
 ) {
+	const table = coreTable(db, kernelConversations);
 	return db
-		.insert(kernelConversations)
+		.insert(table)
 		.values({
 			id: rowId(input.organizationId, input.conversationId),
 			organizationId: input.organizationId,
@@ -230,7 +232,7 @@ function buildKernelConversationTombstoneStatement(
 			updatedAt: input.deletedAt,
 		})
 		.onConflictDoUpdate({
-			target: kernelConversations.id,
+			target: table.id,
 			set: {
 				title: null,
 				titleSource: null,
@@ -241,7 +243,7 @@ function buildKernelConversationTombstoneStatement(
 				workpieceId: null,
 				lastMessageAt: input.deletedAt,
 				messageCount: 0,
-				deletedAt: sql`COALESCE(${kernelConversations.deletedAt}, ${input.deletedAt})`,
+				deletedAt: sql`COALESCE(${table.deletedAt}, ${input.deletedAt})`,
 				archivedAt: null,
 				pinnedAt: null,
 				updatedAt: input.deletedAt,
@@ -263,9 +265,10 @@ function rowId(organizationId: string, conversationId: string): string {
  *   pre-column rows that read as human, and reclassifying them would delete
  *   real chats from the operator's view.
  */
-function originConflictValue(origin: KernelConversationOrigin) {
+function originConflictValue(db: DbClient, origin: KernelConversationOrigin) {
+	const table = coreTable(db, kernelConversations);
 	if (origin === "human") return sql`'human'`;
-	return sql`CASE WHEN ${kernelConversations.origin} IS NOT NULL THEN ${kernelConversations.origin} WHEN ${kernelConversations.messageCount} = 0 THEN 'agent' ELSE NULL END`;
+	return sql`CASE WHEN ${table.origin} IS NOT NULL THEN ${table.origin} WHEN ${table.messageCount} = 0 THEN 'agent' ELSE NULL END`;
 }
 
 export interface RecordKernelConversationMessageParams {
@@ -303,8 +306,9 @@ export function buildRecordKernelConversationMessageStatement(
 ) {
 	const updatedAt = new Date().toISOString();
 	const origin = input.origin ?? null;
+	const table = coreTable(db, kernelConversations);
 	return db
-		.insert(kernelConversations)
+		.insert(table)
 		.values({
 			id: rowId(input.organizationId, input.conversationId),
 			organizationId: input.organizationId,
@@ -323,15 +327,15 @@ export function buildRecordKernelConversationMessageStatement(
 			updatedAt,
 		})
 		.onConflictDoUpdate({
-			target: kernelConversations.id,
+			target: table.id,
 			// A permanent-delete tombstone is terminal. Late runtime frames must
 			// not repopulate its content-free projection.
-			where: isNull(kernelConversations.deletedAt),
+			where: isNull(table.deletedAt),
 			set: {
-				lastMessageAt: sql`CASE WHEN ${kernelConversations.lastMessageAt} < ${input.createdAt} THEN ${input.createdAt} ELSE ${kernelConversations.lastMessageAt} END`,
-				messageCount: sql`${kernelConversations.messageCount} + 1`,
-				channel: sql`COALESCE(${input.channel}, ${kernelConversations.channel})`,
-				...(origin ? { origin: originConflictValue(origin) } : {}),
+				lastMessageAt: sql`CASE WHEN ${table.lastMessageAt} < ${input.createdAt} THEN ${input.createdAt} ELSE ${table.lastMessageAt} END`,
+				messageCount: sql`${table.messageCount} + 1`,
+				channel: sql`COALESCE(${input.channel}, ${table.channel})`,
+				...(origin ? { origin: originConflictValue(db, origin) } : {}),
 				...(input.workpieceKind
 					? {
 							workpieceKind: input.workpieceKind,
@@ -340,8 +344,8 @@ export function buildRecordKernelConversationMessageStatement(
 					: {}),
 				...(input.provisionalTitle
 					? {
-							title: sql`CASE WHEN ${kernelConversations.title} IS NULL AND ${kernelConversations.titleSource} IS NULL AND ${kernelConversations.messageCount} = 0 THEN ${input.provisionalTitle} ELSE ${kernelConversations.title} END`,
-							titleSource: sql`CASE WHEN ${kernelConversations.title} IS NULL AND ${kernelConversations.titleSource} IS NULL AND ${kernelConversations.messageCount} = 0 THEN 'provisional' ELSE ${kernelConversations.titleSource} END`,
+							title: sql`CASE WHEN ${table.title} IS NULL AND ${table.titleSource} IS NULL AND ${table.messageCount} = 0 THEN ${input.provisionalTitle} ELSE ${table.title} END`,
+							titleSource: sql`CASE WHEN ${table.title} IS NULL AND ${table.titleSource} IS NULL AND ${table.messageCount} = 0 THEN 'provisional' ELSE ${table.titleSource} END`,
 						}
 					: {}),
 				updatedAt,
@@ -359,8 +363,9 @@ export async function recordKernelConversationDeleted(
 	},
 ): Promise<void> {
 	const updatedAt = new Date().toISOString();
+	const table = coreTable(db, kernelConversations);
 	await db
-		.insert(kernelConversations)
+		.insert(table)
 		.values({
 			id: rowId(input.organizationId, input.conversationId),
 			organizationId: input.organizationId,
@@ -374,9 +379,9 @@ export async function recordKernelConversationDeleted(
 			updatedAt,
 		})
 		.onConflictDoUpdate({
-			target: kernelConversations.id,
+			target: table.id,
 			set: {
-				deletedAt: sql`COALESCE(${kernelConversations.deletedAt}, ${input.deletedAt})`,
+				deletedAt: sql`COALESCE(${table.deletedAt}, ${input.deletedAt})`,
 				updatedAt,
 			},
 		});
@@ -393,8 +398,9 @@ export async function recordKernelConversationPinned(
 ): Promise<void> {
 	const updatedAt = new Date().toISOString();
 	const pinnedAt = input.pinned ? input.createdAt : null;
+	const table = coreTable(db, kernelConversations);
 	await db
-		.insert(kernelConversations)
+		.insert(table)
 		.values({
 			id: rowId(input.organizationId, input.conversationId),
 			organizationId: input.organizationId,
@@ -406,7 +412,7 @@ export async function recordKernelConversationPinned(
 			updatedAt,
 		})
 		.onConflictDoUpdate({
-			target: kernelConversations.id,
+			target: table.id,
 			set: { pinnedAt, updatedAt },
 		});
 }
@@ -422,8 +428,9 @@ export async function recordKernelConversationArchived(
 ): Promise<void> {
 	const updatedAt = new Date().toISOString();
 	const archivedAt = input.archived ? input.createdAt : null;
+	const table = coreTable(db, kernelConversations);
 	await db
-		.insert(kernelConversations)
+		.insert(table)
 		.values({
 			id: rowId(input.organizationId, input.conversationId),
 			organizationId: input.organizationId,
@@ -435,7 +442,7 @@ export async function recordKernelConversationArchived(
 			updatedAt,
 		})
 		.onConflictDoUpdate({
-			target: kernelConversations.id,
+			target: table.id,
 			set: { archivedAt, updatedAt },
 		});
 }
@@ -451,6 +458,7 @@ export async function recordKernelConversationTitle(
 	},
 ): Promise<void> {
 	const updatedAt = new Date().toISOString();
+	const table = coreTable(db, kernelConversations);
 	const values = {
 		id: rowId(input.organizationId, input.conversationId),
 		organizationId: input.organizationId,
@@ -464,22 +472,22 @@ export async function recordKernelConversationTitle(
 	};
 	if (input.titleSource === "rename") {
 		await db
-			.insert(kernelConversations)
+			.insert(table)
 			.values(values)
 			.onConflictDoUpdate({
-				target: kernelConversations.id,
+				target: table.id,
 				set: { title: input.title, titleSource: input.titleSource, updatedAt },
 			});
 		return;
 	}
 	await db
-		.insert(kernelConversations)
+		.insert(table)
 		.values(values)
 		.onConflictDoUpdate({
-			target: kernelConversations.id,
+			target: table.id,
 			set: {
-				title: sql`CASE WHEN ${kernelConversations.titleSource} = 'rename' THEN ${kernelConversations.title} ELSE ${input.title} END`,
-				titleSource: sql`CASE WHEN ${kernelConversations.titleSource} = 'rename' THEN ${kernelConversations.titleSource} ELSE 'autoTitle' END`,
+				title: sql`CASE WHEN ${table.titleSource} = 'rename' THEN ${table.title} ELSE ${input.title} END`,
+				titleSource: sql`CASE WHEN ${table.titleSource} = 'rename' THEN ${table.titleSource} ELSE 'autoTitle' END`,
 				updatedAt,
 			},
 		});
@@ -489,13 +497,14 @@ export async function getKernelConversation(
 	db: DbClient,
 	input: { organizationId: string; conversationId: string },
 ): Promise<KernelConversation | undefined> {
+	const table = coreTable(db, kernelConversations);
 	const [row] = await db
 		.select()
-		.from(kernelConversations)
+		.from(table)
 		.where(
 			and(
-				eq(kernelConversations.organizationId, input.organizationId),
-				eq(kernelConversations.conversationId, input.conversationId),
+				eq(table.organizationId, input.organizationId),
+				eq(table.conversationId, input.conversationId),
 			),
 		)
 		.limit(1);
@@ -517,43 +526,39 @@ export async function listKernelConversationPage(
 		hiddenPrefixes?: readonly string[];
 	},
 ): Promise<KernelConversation[]> {
+	const table = coreTable(db, kernelConversations);
 	const hiddenPrefixes = input.hiddenPrefixes ?? [];
 	const isHidden = (conversationId: string) =>
 		hiddenPrefixes.some((prefix) => conversationId.startsWith(prefix));
 	const cursorCondition = input.cursor
 		? or(
-				lt(kernelConversations.lastMessageAt, input.cursor.lastMessageAt),
+				lt(table.lastMessageAt, input.cursor.lastMessageAt),
 				and(
-					eq(kernelConversations.lastMessageAt, input.cursor.lastMessageAt),
-					lt(kernelConversations.conversationId, input.cursor.conversationId),
+					eq(table.lastMessageAt, input.cursor.lastMessageAt),
+					lt(table.conversationId, input.cursor.conversationId),
 				),
 			)
 		: undefined;
 	const rows = await db
 		.select()
-		.from(kernelConversations)
+		.from(table)
 		.where(
 			and(
-				eq(kernelConversations.organizationId, input.organizationId),
-				isNull(kernelConversations.deletedAt),
-				input.includeArchived
-					? undefined
-					: isNull(kernelConversations.archivedAt),
+				eq(table.organizationId, input.organizationId),
+				isNull(table.deletedAt),
+				input.includeArchived ? undefined : isNull(table.archivedAt),
 				input.workspaceId
-					? eq(kernelConversations.workspaceId, input.workspaceId)
+					? eq(table.workspaceId, input.workspaceId)
 					: undefined,
 				// LIKE has no wildcards to escape here: every prefix is literal
 				// `[a-z-]` plus `:`, so a caller cannot smuggle in `%` or `_`.
 				...hiddenPrefixes.map((prefix) =>
-					notLike(kernelConversations.conversationId, `${prefix}%`),
+					notLike(table.conversationId, `${prefix}%`),
 				),
 				cursorCondition,
 			),
 		)
-		.orderBy(
-			desc(kernelConversations.lastMessageAt),
-			desc(kernelConversations.conversationId),
-		)
+		.orderBy(desc(table.lastMessageAt), desc(table.conversationId))
 		.limit(input.limit);
 	return rows.filter((row) => !row.deletedAt && !isHidden(row.conversationId));
 }
@@ -581,38 +586,41 @@ function archivedConversationFilter(
 	db: DbClient,
 	params: ArchivedKernelConversationPurgeParams,
 ) {
+	const table = coreTable(db, kernelConversations);
+	const events = coreTable(db, kernelRuntimeEvents);
+	const archivedBefore =
+		params.archivedBefore === undefined
+			? undefined
+			: coreStore(db) === "postgres"
+				? sql`COALESCE(${table.archivedAt}, ${table.deletedAt})::timestamptz < ${params.archivedBefore}::timestamptz`
+				: sql`datetime(COALESCE(${table.archivedAt}, ${table.deletedAt})) < datetime(${params.archivedBefore})`;
 	return and(
-		eq(kernelConversations.organizationId, params.organizationId),
+		eq(table.organizationId, params.organizationId),
 		params.afterConversationId === undefined
 			? undefined
-			: gt(kernelConversations.conversationId, params.afterConversationId),
+			: gt(table.conversationId, params.afterConversationId),
 		or(
-			isNotNull(kernelConversations.archivedAt),
+			isNotNull(table.archivedAt),
 			and(
-				isNotNull(kernelConversations.deletedAt),
+				isNotNull(table.deletedAt),
 				or(
-					gt(kernelConversations.messageCount, 0),
-					isNotNull(kernelConversations.title),
+					gt(table.messageCount, 0),
+					isNotNull(table.title),
 					exists(
 						db
-							.select({ id: kernelRuntimeEvents.id })
-							.from(kernelRuntimeEvents)
+							.select({ id: events.id })
+							.from(events)
 							.where(
 								and(
-									eq(kernelRuntimeEvents.organizationId, params.organizationId),
-									eq(
-										kernelRuntimeEvents.conversationId,
-										kernelConversations.conversationId,
-									),
+									eq(events.organizationId, params.organizationId),
+									eq(events.conversationId, table.conversationId),
 								),
 							),
 					),
 				),
 			),
 		),
-		params.archivedBefore === undefined
-			? undefined
-			: sql`datetime(COALESCE(${kernelConversations.archivedAt}, ${kernelConversations.deletedAt})) < datetime(${params.archivedBefore})`,
+		archivedBefore,
 	);
 }
 
@@ -620,15 +628,16 @@ export async function listArchivedKernelConversationPurgeCandidates(
 	db: DbClient,
 	params: ArchivedKernelConversationPurgeParams & { limit: number },
 ): Promise<ArchivedKernelConversationPurgeCandidate[]> {
+	const table = coreTable(db, kernelConversations);
 	return db
 		.select({
-			conversationId: kernelConversations.conversationId,
-			workspaceId: kernelConversations.workspaceId,
-			pinnedAt: kernelConversations.pinnedAt,
+			conversationId: table.conversationId,
+			workspaceId: table.workspaceId,
+			pinnedAt: table.pinnedAt,
 		})
-		.from(kernelConversations)
+		.from(table)
 		.where(archivedConversationFilter(db, params))
-		.orderBy(asc(kernelConversations.conversationId))
+		.orderBy(asc(table.conversationId))
 		.limit(params.limit);
 }
 
@@ -636,9 +645,10 @@ export async function countArchivedKernelConversationPurgeCandidates(
 	db: DbClient,
 	params: ArchivedKernelConversationPurgeParams,
 ): Promise<number> {
+	const table = coreTable(db, kernelConversations);
 	const [row] = await db
 		.select({ total: count() })
-		.from(kernelConversations)
+		.from(table)
 		.where(archivedConversationFilter(db, params));
 	return row?.total ?? 0;
 }
@@ -649,22 +659,18 @@ export async function listKernelConversationIdsWithActiveRuns(
 	params: { organizationId: string; conversationIds: string[] },
 ): Promise<Set<string>> {
 	const found = new Set<string>();
-	for (const chunk of chunkForBoundParams(params.conversationIds, 90)) {
-		const rows = await db
-			.selectDistinct({ conversationId: kernelRuntimeRuns.conversationId })
-			.from(kernelRuntimeRuns)
-			.where(
-				and(
-					eq(kernelRuntimeRuns.organizationId, params.organizationId),
-					inArray(kernelRuntimeRuns.conversationId, chunk),
-					inArray(kernelRuntimeRuns.status, [
-						"queued",
-						"running",
-						"requires_approval",
-					]),
-				),
-			);
-		for (const row of rows) found.add(row.conversationId);
-	}
+	const table = coreTable(db, kernelRuntimeRuns);
+	if (params.conversationIds.length === 0) return found;
+	const rows = await db
+		.selectDistinct({ conversationId: table.conversationId })
+		.from(table)
+		.where(
+			and(
+				eq(table.organizationId, params.organizationId),
+				anyIds(db, table.conversationId, params.conversationIds),
+				inArray(table.status, ["queued", "running", "requires_approval"]),
+			),
+		);
+	for (const row of rows) found.add(row.conversationId);
 	return found;
 }
