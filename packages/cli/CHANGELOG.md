@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.28 (2026-11-26)
+
+### Patch Changes
+
+- `tedix orgs` works again, and so does a runner setting itself up in a second organization. Both read the gateway's current tool search answer instead of failing with "Your gateway does not expose an authorized organization list".
+
 ## 0.37.27 (2026-11-26)
 
 ### Patch Changes
