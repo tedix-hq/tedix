@@ -490,6 +490,143 @@ describe("Home request source adapter", () => {
 			delete config.value.maxReaderAttempts;
 		}
 	});
+	it.each([false, true])(
+		"closes an exhausted legacy reader timer (responseOnly=%s)",
+		async (responseOnly) => {
+			const { context, db } = await fixture("revision-one", responseOnly);
+			const initial = (await getHomeKernelRequest(
+				db,
+				"org-example",
+				"run-one",
+			))!;
+			const snapshot = {
+				...initial.snapshot,
+				state: "verifying" as const,
+				workItemId: "work-one",
+				attemptId: "attempt-one",
+				acceptanceKey: "legacy-acceptance",
+				checks: responseOnly
+					? [{ kind: "home_response" as const }]
+					: initial.snapshot.checks,
+				probeAttempts: config.value.maxProbeAttempts,
+				outcome: "failed" as const,
+				observations: [
+					{
+						checkerVersion: 1 as const,
+						checkIndex: 0,
+						inputDigest: "legacy-check",
+						status: responseOnly ? ("unknown" as const) : ("pass" as const),
+						observedVersion: responseOnly ? null : "revision-one",
+						checkedAt: now,
+						evidenceRefs: [],
+						limitations: null,
+					},
+				],
+			};
+			// The Home reply is missing; its preflight returns unchanged too.
+			await db.update(kernelRuntimeRuns).set({ outputMessageId: null });
+			await db.update(kernelRequests).set({
+				snapshot,
+				nextAction: "restore_request_reader",
+				nextDueAt: now,
+			});
+			expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+				0,
+			);
+			const closed = (await getHomeKernelRequest(
+				db,
+				"org-example",
+				"run-one",
+			))!;
+			expect(closed.snapshot).toEqual({ ...snapshot, state: "cancelled" });
+			expect(closed.nextAction).toBe("reader_recovery_exhausted");
+			expect(closed.nextDueAt).toBeNull();
+			expect(closed.version).toBe(initial.version + 1);
+			expect(
+				(await db.select().from(kernelRequestEvents)).at(-1)!.snapshot,
+			).toEqual(closed.snapshot);
+			expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+				0,
+			);
+			expect(
+				(await getHomeKernelRequest(db, "org-example", "run-one"))!.version,
+			).toBe(closed.version);
+		},
+	);
+	it("keeps unexhausted readers and pending delivery scheduled", async () => {
+		const { context, db } = await fixture();
+		const initial = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		for (const [id, probeAttempts, delivery] of [
+			["reader-pending", 2, null],
+			[
+				"delivery-pending",
+				3,
+				{
+					intentId: "report-one",
+					status: "pending" as const,
+					receiptRef: null,
+				},
+			],
+		] as const) {
+			await db.insert(kernelRequests).values({
+				...initial,
+				id,
+				sourceId: id,
+				sourceKind: "agent_session_request",
+				nextAction: "restore_request_reader",
+				nextDueAt: now,
+				snapshot: {
+					...initial.snapshot,
+					state: "verifying",
+					probeAttempts,
+					delivery,
+				},
+			});
+		}
+		localRecovery.reconcile.mockImplementation(async (_context, row) => row);
+		try {
+			await reconcileDueHomeKernelRequests(context, "org-example");
+			const pending = (await db.select().from(kernelRequests)).filter(
+				(r) => r.sourceKind === "agent_session_request",
+			);
+			expect(pending).toHaveLength(2);
+			expect(
+				pending.every(
+					(r) => r.snapshot.state === "verifying" && r.nextDueAt !== null,
+				),
+			).toBe(true);
+		} finally {
+			localRecovery.reconcile.mockReset();
+		}
+	});
+	it("reconciles a canonical successor before closing an exhausted reader", async () => {
+		const { context, db } = await fixture();
+		const initial = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		await db.update(kernelRequests).set({
+			nextAction: "restore_request_reader",
+			nextDueAt: now,
+			snapshot: {
+				...initial.snapshot,
+				state: "verifying",
+				workItemId: "work-one",
+				attemptId: "previous-attempt",
+				acceptanceKey: "previous-acceptance",
+				probeAttempts: config.value.maxProbeAttempts,
+				outcome: "failed",
+			},
+		});
+		expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+			1,
+		);
+		const final = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		expect(final.snapshot).toMatchObject({
+			state: "learned",
+			attemptId: "attempt-one",
+			outcome: "verified",
+			probeAttempts: 1,
+		});
+		expect(final.nextAction).toBe("closed");
+	});
 	it("recovers overdue requests while leaving future and closed requests untouched", async () => {
 		const { context, db } = await fixture();
 		await db.update(kernelRequests).set({ nextDueAt: now });

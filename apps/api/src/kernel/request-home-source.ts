@@ -453,6 +453,26 @@ async function reconcileDueRequests(
 							).reconcileLocalKernelRequest(context, row, rowPolicy),
 			);
 			if (updated.version !== row.version) recovered++;
+			if (
+				updated.nextDueAt &&
+				updated.nextAction === "restore_request_reader" &&
+				updated.snapshot.state === "verifying" &&
+				!updated.snapshot.delivery &&
+				(updated.snapshot.probeAttempts ?? 0) >= policy.maxProbeAttempts
+			) {
+				// Exhausted probes return unchanged rather than throwing a reader
+				// failure. Reconcile successors first, then stop their stale timers.
+				transitions.push({
+					...updated,
+					expectedVersion: updated.version,
+					eventId: `${updated.id}:${updated.version + 1}`,
+					snapshot: { ...updated.snapshot, state: "cancelled" },
+					nextAction: "reader_recovery_exhausted",
+					nextDueAt: null,
+					now: new Date().toISOString(),
+				});
+				return;
+			}
 			if (updated.nextDueAt && updated.nextDueAt <= new Date().toISOString()) {
 				// Unchanged sources need less polling; transitions reset this interval.
 				const previousRetryMs = Math.max(
