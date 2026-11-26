@@ -168,6 +168,35 @@ it("moves Work to the tool the decision model chose without waiting, from any-lo
 	}
 });
 
+it("reassigns when the last open coordination request expires without changing either request", async () => {
+	const { sqlite, db, input } = fixture();
+	try {
+		const insert = sqlite.prepare(
+			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,created_at,expires_at) VALUES(?,'org-acme','work','coordination','Route work','Choose a runner','user','example-owner',?,?)",
+		);
+		insert.run("earlier", input.unavailableSince, input.unavailableSince);
+		insert.run("latest", input.unavailableSince, now);
+		const requests = sqlite.prepare("SELECT * FROM work_interactions").all();
+		await expect(
+			reassignIdleWork(db, {
+				...input,
+				now: "2026-11-07T21:59:59.999Z",
+				minimumIdleMinutes: 1,
+			}),
+		).rejects.toThrow();
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM work_item_comments").get()?.n,
+		).toBe(0);
+		const moved = await reassignIdleWork(db, input);
+		expect(moved.executorId).toBe("opencode");
+		expect(sqlite.prepare("SELECT * FROM work_interactions").all()).toEqual(
+			requests,
+		);
+	} finally {
+		sqlite.close();
+	}
+});
+
 it.each([
 	"threshold",
 	"version",

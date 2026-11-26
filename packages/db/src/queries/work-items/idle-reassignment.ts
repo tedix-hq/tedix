@@ -122,6 +122,7 @@ export async function reassignIdleWork(
 			AND ${jsonRead(db, workAttempts.metadata, ["dispatchVersion"], "number")} = ${item.version} AND ${workAttempts.outcome} IN ('failed', 'expired')) < 3`,
 		// A status follow-up is not a person waiting; starting an Attempt closes it.
 		sql`NOT EXISTS (SELECT 1 FROM ${workInteractions} WHERE ${workInteractions.orgId} = ${input.orgId} AND ${workInteractions.workItemId} = ${item.id} AND ${workInteractions.status} = 'open'
+			AND (${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt} > ${now})
 			AND COALESCE(${jsonRead(db, workInteractions.metadata, ["source"])}, '') <> ${COMMITMENT_REMINDER_SOURCE})`,
 	);
 	const why =
