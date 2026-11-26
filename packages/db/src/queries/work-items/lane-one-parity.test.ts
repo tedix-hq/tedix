@@ -401,24 +401,20 @@ for (const store of ["d1", "postgres"] as const)
 				threadId = uuid(400),
 				outputId = uuid(600),
 				revisionId = uuid(800);
-			await db
-				.insert(coreTable(db, tedis))
-				.values({
-					id: tediId,
-					organizationId: "orchard",
-					name: "Mailer",
-					slug: "mailer",
-				});
-			await db
-				.insert(coreTable(db, tediEmailThreads))
-				.values({
-					id: threadId,
-					organizationId: "orchard",
-					tediId,
-					subjectNorm: "Review",
-					lastMessageAt: at,
-					updatedAt: at,
-				});
+			await db.insert(coreTable(db, tedis)).values({
+				id: tediId,
+				organizationId: "orchard",
+				name: "Mailer",
+				slug: "mailer",
+			});
+			await db.insert(coreTable(db, tediEmailThreads)).values({
+				id: threadId,
+				organizationId: "orchard",
+				tediId,
+				subjectNorm: "Review",
+				lastMessageAt: at,
+				updatedAt: at,
+			});
 			const message = {
 				threadId,
 				organizationId: "orchard",
@@ -433,27 +429,25 @@ for (const store of ["d1", "postgres"] as const)
 			await db
 				.insert(coreTable(db, tediEmailMessages))
 				.values({ id: "first-message", ...message });
-			await db
-				.insert(coreTable(db, workspaceOutputIndex))
-				.values({
-					id: `${outputId}:1`,
-					organizationId: "orchard",
-					workspaceId: "review-space",
-					outputId,
-					revision: 1,
-					revisionId,
-					isCurrent: 1,
-					outputKind: "document",
-					title: "Review",
-					status: "active",
-					outputCreatedByKind: "user",
-					outputCreatedById: "reader",
-					outputCreatedAt: at,
-					revisionCreatedByKind: "user",
-					revisionCreatedById: "reader",
-					revisionCreatedAt: at,
-					updatedAt: at,
-				});
+			await db.insert(coreTable(db, workspaceOutputIndex)).values({
+				id: `${outputId}:1`,
+				organizationId: "orchard",
+				workspaceId: "review-space",
+				outputId,
+				revision: 1,
+				revisionId,
+				isCurrent: 1,
+				outputKind: "document",
+				title: "Review",
+				status: "active",
+				outputCreatedByKind: "user",
+				outputCreatedById: "reader",
+				outputCreatedAt: at,
+				revisionCreatedByKind: "user",
+				revisionCreatedById: "reader",
+				revisionCreatedAt: at,
+				updatedAt: at,
+			});
 			const requests = Array.from({ length: 150 }, (_, n) => ({
 				status: "open",
 				kind: "question",
