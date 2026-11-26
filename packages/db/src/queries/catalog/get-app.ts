@@ -3,16 +3,18 @@
  * Split from catalog.ts (mechanical move; bodies unchanged).
  */
 
-import { eq, sql } from "drizzle-orm";
-import { apps } from "../../schema/apps";
+import { eq } from "drizzle-orm";
+import { apps as schemaApps } from "../../schema/apps";
 import {
-	appCatalog,
-	appCatalogStoreListings,
+	appCatalog as schemaAppCatalog,
+	appCatalogStoreListings as schemaAppCatalogStoreListings,
 	type CatalogApp,
 	type CatalogStoreListing,
 	type NewCatalogApp,
 	type NewCatalogStoreListing,
 } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
+import { catalogNow } from "./clock";
 import {
 	isTemplatedMcpEndpoint,
 	registrableVendorDomain,
@@ -41,6 +43,7 @@ export async function getCatalogAppBySlug(
 	db: Database,
 	slug: string,
 ): Promise<CatalogApp | null> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const result = await db
 		.select()
 		.from(appCatalog)
@@ -160,6 +163,7 @@ export async function generateUniqueCatalogAppSlug(
 		storeSourceId: options?.storeSourceId,
 		baseUrl: options?.baseUrl,
 	});
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const isFree = async (candidate: string): Promise<boolean> => {
 		const existing = await db
 			.select({ id: appCatalog.id })
@@ -201,6 +205,7 @@ export async function domainQualifiedCatalogSlug(
 	baseSlug: string,
 	website: string | null | undefined,
 ): Promise<string | null> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const domain = registrableVendorDomain(website);
 	if (!domain) return null;
 	const [holder] = await db
@@ -237,12 +242,14 @@ export async function releaseRetiredCatalogSlug(
 	db: Database,
 	slug: string,
 ): Promise<boolean> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const [holder] = await db
 		.select({ id: appCatalog.id, status: appCatalog.status })
 		.from(appCatalog)
 		.where(eq(appCatalog.slug, slug))
 		.limit(1);
 	if (!holder || holder.status !== "DISABLED") return false;
+	const apps = coreTable(db, schemaApps);
 	const [builtFrom] = await db
 		.select({ id: apps.id })
 		.from(apps)
@@ -265,11 +272,12 @@ export async function updateCatalogAppSlug(
 	id: string,
 	slug: string,
 ): Promise<void> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	await db
 		.update(appCatalog)
 		.set({
 			slug,
-			updatedAt: sql`datetime('now')`,
+			updatedAt: catalogNow(db),
 		})
 		.where(eq(appCatalog.id, id));
 }
@@ -279,11 +287,12 @@ export async function updateCatalogAppScanAuth(
 	id: string,
 	encryptedHeaders: string | null,
 ): Promise<void> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	await db
 		.update(appCatalog)
 		.set({
 			scanAuthHeaders: encryptedHeaders,
-			updatedAt: sql`datetime('now')`,
+			updatedAt: catalogNow(db),
 		})
 		.where(eq(appCatalog.id, id));
 }
@@ -298,6 +307,7 @@ export async function updateCatalogAppScanConnection(
 		organizationId: string;
 	},
 ): Promise<void> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	await db
 		.update(appCatalog)
 		.set({
@@ -305,7 +315,7 @@ export async function updateCatalogAppScanConnection(
 			scanConnectionHeader: connection.connectionHeader,
 			scanConnectionTemplate: connection.connectionTemplate,
 			scanOrganizationId: connection.organizationId,
-			updatedAt: sql`datetime('now')`,
+			updatedAt: catalogNow(db),
 		})
 		.where(eq(appCatalog.id, id));
 }
@@ -334,6 +344,8 @@ export async function updateCatalogApp(
 	id: string,
 	data: Partial<NewCatalogApp>,
 ): Promise<CatalogApp | null> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
 	const existing = await getCatalogAppById(db, id);
 	if (!existing) return null;
 
@@ -342,7 +354,7 @@ export async function updateCatalogApp(
 		.set({
 			...data,
 			...(data.status === "SUPPRESSED" ? SUPPRESSED_APP_SCRUB : {}),
-			updatedAt: sql`datetime('now')`,
+			updatedAt: catalogNow(db),
 		})
 		.where(eq(appCatalog.id, id));
 	if (data.status === "SUPPRESSED") {
@@ -365,6 +377,7 @@ export async function updateCatalogStoreListing(
 	id: string,
 	data: Partial<NewCatalogStoreListing>,
 ): Promise<CatalogStoreListing | null> {
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
 	const existing = await db
 		.select()
 		.from(appCatalogStoreListings)
@@ -392,6 +405,7 @@ export async function deleteCatalogApp(
 	db: Database,
 	id: string,
 ): Promise<{ deleted: boolean; name: string | null }> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const existing = await getCatalogAppById(db, id);
 	if (!existing) return { deleted: false, name: null };
 

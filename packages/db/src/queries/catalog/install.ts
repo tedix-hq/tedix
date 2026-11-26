@@ -4,7 +4,8 @@
  */
 
 import { and, eq, isNull } from "drizzle-orm";
-import { apps } from "../../schema/index";
+import { apps as schemaApps } from "../../schema/index";
+import { coreTable } from "../../core-store/client";
 import { aggregateAppLink } from "../aggregate-app-links";
 import { getCatalogAppById } from "./get-app";
 import {
@@ -69,6 +70,7 @@ export async function installFromCatalog(
 	}
 
 	// 2. Find the platform base app linked to this catalog entry
+	const apps = coreTable(db, schemaApps);
 	const baseApps = await db
 		.select()
 		.from(apps)

@@ -21,19 +21,20 @@
 
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { apps } from "../../schema/apps";
+import { apps as schemaApps } from "../../schema/apps";
 import {
-	appCatalog,
-	appCatalogChanges,
-	appCatalogHealthHistory,
-	appCatalogMcpPrompts,
-	appCatalogMcpResources,
-	appCatalogMcpResourceTemplates,
-	appCatalogMcpTools,
-	appCatalogStoreListings,
-	appCatalogToolTests,
-	upstreamDriftReports,
+	appCatalog as schemaAppCatalog,
+	appCatalogChanges as schemaAppCatalogChanges,
+	appCatalogHealthHistory as schemaAppCatalogHealthHistory,
+	appCatalogMcpPrompts as schemaAppCatalogMcpPrompts,
+	appCatalogMcpResources as schemaAppCatalogMcpResources,
+	appCatalogMcpResourceTemplates as schemaAppCatalogMcpResourceTemplates,
+	appCatalogMcpTools as schemaAppCatalogMcpTools,
+	appCatalogStoreListings as schemaAppCatalogStoreListings,
+	appCatalogToolTests as schemaAppCatalogToolTests,
+	upstreamDriftReports as schemaUpstreamDriftReports,
 } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
 import { batchNonEmpty } from "../../utils/batch";
 import { getCatalogAppById } from "./get-app";
 import type { Database } from "./tool-source-policy";
@@ -90,6 +91,21 @@ export async function mergeCatalogApps(
 		throw new Error(`Target catalog app not found: ${intoCatalogAppId}`);
 	}
 
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogChanges = coreTable(db, schemaAppCatalogChanges);
+	const appCatalogHealthHistory = coreTable(db, schemaAppCatalogHealthHistory);
+	const appCatalogMcpPrompts = coreTable(db, schemaAppCatalogMcpPrompts);
+	const appCatalogMcpResources = coreTable(db, schemaAppCatalogMcpResources);
+	const appCatalogMcpResourceTemplates = coreTable(
+		db,
+		schemaAppCatalogMcpResourceTemplates,
+	);
+	const appCatalogMcpTools = coreTable(db, schemaAppCatalogMcpTools);
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
+	const appCatalogToolTests = coreTable(db, schemaAppCatalogToolTests);
+	const upstreamDriftReports = coreTable(db, schemaUpstreamDriftReports);
+	const apps = coreTable(db, schemaApps);
+
 	// Inventory the work before touching anything (also the dry-run report).
 	const listings = await db
 		.select({ id: appCatalogStoreListings.id })
@@ -102,13 +118,13 @@ export async function mergeCatalogApps(
 
 	const countRows = async (
 		table:
-			| typeof appCatalogMcpTools
-			| typeof appCatalogMcpResources
-			| typeof appCatalogMcpResourceTemplates
-			| typeof appCatalogMcpPrompts
-			| typeof appCatalogHealthHistory
-			| typeof appCatalogToolTests
-			| typeof upstreamDriftReports,
+			| typeof schemaAppCatalogMcpTools
+			| typeof schemaAppCatalogMcpResources
+			| typeof schemaAppCatalogMcpResourceTemplates
+			| typeof schemaAppCatalogMcpPrompts
+			| typeof schemaAppCatalogHealthHistory
+			| typeof schemaAppCatalogToolTests
+			| typeof schemaUpstreamDriftReports,
 	): Promise<number> => {
 		const rows = await db
 			.select({ id: table.id })

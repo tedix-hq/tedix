@@ -6,8 +6,9 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import {
 	type UpstreamDriftReport,
-	upstreamDriftReports,
+	upstreamDriftReports as schemaUpstreamDriftReports,
 } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
 import { getAffectedRows } from "../../utils/d1-result";
 import type { Database, ToolDriftReportItem } from "./tool-source-policy";
 
@@ -44,6 +45,7 @@ export async function saveDriftReport(
 	} = opts;
 	const id = crypto.randomUUID();
 	const checkedAt = new Date().toISOString();
+	const upstreamDriftReports = coreTable(db, schemaUpstreamDriftReports);
 
 	// Atomic upsert keyed by catalog_app_id (one report per catalog app).
 	// Replaces previous non-atomic delete-then-insert which produced
@@ -84,6 +86,7 @@ export async function resolveDriftReport(
 	catalogAppId: string,
 	resolvedAt = new Date().toISOString(),
 ): Promise<number> {
+	const upstreamDriftReports = coreTable(db, schemaUpstreamDriftReports);
 	const result = await db
 		.update(upstreamDriftReports)
 		.set({ resolvedAt })
@@ -104,6 +107,7 @@ export async function getLatestDriftReports(
 	db: Database,
 	opts?: { catalogAppId?: string; limit?: number },
 ): Promise<UpstreamDriftReport[]> {
+	const upstreamDriftReports = coreTable(db, schemaUpstreamDriftReports);
 	const conditions = [];
 	if (opts?.catalogAppId) {
 		conditions.push(eq(upstreamDriftReports.catalogAppId, opts.catalogAppId));
@@ -131,6 +135,7 @@ export async function deleteOldDriftReports(
 	const cutoff = new Date();
 	cutoff.setDate(cutoff.getDate() - daysOld);
 	const cutoffStr = cutoff.toISOString();
+	const upstreamDriftReports = coreTable(db, schemaUpstreamDriftReports);
 
 	const result = await db
 		.delete(upstreamDriftReports)

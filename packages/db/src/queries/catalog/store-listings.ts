@@ -5,12 +5,14 @@
 
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
-	appCatalog,
-	appCatalogStoreListings,
+	appCatalog as schemaAppCatalog,
+	appCatalogStoreListings as schemaAppCatalogStoreListings,
 	type CatalogStoreListing,
 	type NewCatalogStoreListing,
 	type Source,
 } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
+import { anyIds } from "../../core-store/dialect";
 import type { Database } from "./tool-source-policy";
 import { batchNonEmpty, chunkForBoundParams } from "../../utils/batch";
 
@@ -26,6 +28,7 @@ export async function getCatalogStoreListingBySourceId(
 	source: Source,
 	sourceAppId: string,
 ): Promise<CatalogStoreListing | null> {
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
 	const result = await db
 		.select()
 		.from(appCatalogStoreListings)
@@ -47,6 +50,7 @@ export async function upsertCatalogStoreListing(
 	db: Database,
 	listing: NewCatalogStoreListing,
 ): Promise<CatalogStoreListing> {
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
 	const result = await db
 		.insert(appCatalogStoreListings)
 		.values(listing)
@@ -88,6 +92,7 @@ export async function getCatalogStoreListings(
 	db: Database,
 	catalogAppId: string,
 ): Promise<CatalogStoreListing[]> {
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
 	return db
 		.select()
 		.from(appCatalogStoreListings)
@@ -99,21 +104,12 @@ export async function listCatalogStoreListingsByAppIds(
 	db: Database,
 	appIds: string[],
 ): Promise<CatalogStoreListing[]> {
-	const rows: CatalogStoreListing[] = [];
-	for (let index = 0; index < appIds.length; index += 50) {
-		rows.push(
-			...(await db
-				.select()
-				.from(appCatalogStoreListings)
-				.where(
-					inArray(
-						appCatalogStoreListings.catalogAppId,
-						appIds.slice(index, index + 50),
-					),
-				)),
-		);
-	}
-	return rows;
+	if (appIds.length === 0) return [];
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
+	return db
+		.select()
+		.from(appCatalogStoreListings)
+		.where(anyIds(db, appCatalogStoreListings.catalogAppId, appIds));
 }
 
 /**
@@ -127,6 +123,8 @@ export async function markCatalogListingsSeen(
 	listings: { source: Source; sourceAppId: string }[],
 	seenAt: string,
 ): Promise<void> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
 	const bySource = new Map<Source, string[]>();
 	for (const listing of listings) {
 		const ids = bySource.get(listing.source) ?? [];
@@ -135,32 +133,30 @@ export async function markCatalogListingsSeen(
 	}
 	const statements = [];
 	for (const [source, ids] of bySource) {
-		// D1 allows 100 bound parameters per statement; the ids appear once.
-		for (const chunk of chunkForBoundParams(ids, 80)) {
-			const seen = and(
-				eq(appCatalogStoreListings.source, source),
-				inArray(appCatalogStoreListings.sourceAppId, chunk),
-			);
-			statements.push(
-				db
-					.update(appCatalogStoreListings)
-					.set({ lastSyncedAt: seenAt })
-					.where(seen),
-				db
-					.update(appCatalog)
-					.set({ lastSyncedAt: seenAt })
-					.where(
-						// bound-params: a subquery, whose only list is the 80-id chunk above
-						inArray(
-							appCatalog.id,
-							db
-								.select({ id: appCatalogStoreListings.catalogAppId })
-								.from(appCatalogStoreListings)
-								.where(seen),
-						),
+		// The id set binds as one array parameter on both stores.
+		const seen = and(
+			eq(appCatalogStoreListings.source, source),
+			anyIds(db, appCatalogStoreListings.sourceAppId, ids),
+		);
+		statements.push(
+			db
+				.update(appCatalogStoreListings)
+				.set({ lastSyncedAt: seenAt })
+				.where(seen),
+			db
+				.update(appCatalog)
+				.set({ lastSyncedAt: seenAt })
+				.where(
+					// bound-params: a subquery, whose only list is the id set above
+					inArray(
+						appCatalog.id,
+						db
+							.select({ id: appCatalogStoreListings.catalogAppId })
+							.from(appCatalogStoreListings)
+							.where(seen),
 					),
-			);
-		}
+				),
+		);
 	}
 	for (const group of chunkForBoundParams(statements, 20))
 		await db.batch(batchNonEmpty(group));

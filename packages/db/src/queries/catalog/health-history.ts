@@ -5,10 +5,11 @@
 
 import { and, count, eq, gte, inArray, sql } from "drizzle-orm";
 import {
-	appCatalogHealthHistory,
+	appCatalogHealthHistory as schemaAppCatalogHealthHistory,
 	type CatalogHealthHistory,
 	type NewCatalogHealthHistory,
 } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
 import type { Database } from "./tool-source-policy";
 
 // =============================================================================
@@ -23,6 +24,7 @@ export async function insertCatalogHealthHistory(
 	record: Omit<NewCatalogHealthHistory, "id">,
 ): Promise<CatalogHealthHistory> {
 	const id = crypto.randomUUID();
+	const appCatalogHealthHistory = coreTable(db, schemaAppCatalogHealthHistory);
 
 	await db.insert(appCatalogHealthHistory).values({
 		id,
@@ -51,6 +53,7 @@ export async function calculateCatalogAppUptime(
 	catalogAppId: string,
 	days: number = 30,
 ): Promise<number | null> {
+	const appCatalogHealthHistory = coreTable(db, schemaAppCatalogHealthHistory);
 	const conditions = [
 		eq(appCatalogHealthHistory.catalogAppId, catalogAppId),
 		inArray(appCatalogHealthHistory.status, [
@@ -77,6 +80,7 @@ export async function calculateCatalogAppUptime(
 		.from(appCatalogHealthHistory)
 		.where(and(...conditions));
 
-	if (!totals || totals.eligibleChecks === 0) return null;
-	return (totals.upChecks / totals.eligibleChecks) * 100;
+	const eligibleChecks = Number(totals?.eligibleChecks ?? 0);
+	if (!totals || eligibleChecks === 0) return null;
+	return (Number(totals.upChecks) / eligibleChecks) * 100;
 }

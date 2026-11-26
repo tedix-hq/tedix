@@ -6,14 +6,16 @@
 import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import {
 	type AppCatalogSyncLog,
-	appCatalog,
-	appCatalogStoreListings,
-	appCatalogSyncLogs,
+	appCatalog as schemaAppCatalog,
+	appCatalogStoreListings as schemaAppCatalogStoreListings,
+	appCatalogSyncLogs as schemaAppCatalogSyncLogs,
 	type NewAppCatalogSyncLog,
 	type Source,
 } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
 import { getAffectedRows } from "../../utils/d1-result";
 import { recordCatalogChange } from "./change-tracking";
+import { catalogNow } from "./clock";
 import type { Database } from "./tool-source-policy";
 
 // =============================================================================
@@ -27,6 +29,7 @@ export async function createAppCatalogSyncLog(
 	db: Database,
 	log: Omit<NewAppCatalogSyncLog, "id">,
 ): Promise<AppCatalogSyncLog> {
+	const appCatalogSyncLogs = coreTable(db, schemaAppCatalogSyncLogs);
 	const id = crypto.randomUUID();
 
 	await db.insert(appCatalogSyncLogs).values({
@@ -53,6 +56,7 @@ export async function updateAppCatalogSyncLog(
 	id: string,
 	update: Partial<Omit<NewAppCatalogSyncLog, "id" | "syncType" | "startedAt">>,
 ): Promise<AppCatalogSyncLog | null> {
+	const appCatalogSyncLogs = coreTable(db, schemaAppCatalogSyncLogs);
 	await db
 		.update(appCatalogSyncLogs)
 		.set(update)
@@ -74,6 +78,7 @@ export async function failRunningAppCatalogSyncLog(
 	error: string,
 	completedAt: string,
 ) {
+	const appCatalogSyncLogs = coreTable(db, schemaAppCatalogSyncLogs);
 	const result = await db
 		.update(appCatalogSyncLogs)
 		.set({ status: "failed", error, completedAt })
@@ -93,6 +98,7 @@ export async function getRecentAppCatalogSyncLogs(
 	db: Database,
 	limit = 10,
 ): Promise<AppCatalogSyncLog[]> {
+	const appCatalogSyncLogs = coreTable(db, schemaAppCatalogSyncLogs);
 	return db
 		.select()
 		.from(appCatalogSyncLogs)
@@ -109,6 +115,7 @@ export async function failStaleAppCatalogSyncLogs(
 	cutoff: string,
 	completedAt: string,
 ): Promise<number> {
+	const appCatalogSyncLogs = coreTable(db, schemaAppCatalogSyncLogs);
 	const result = await db
 		.update(appCatalogSyncLogs)
 		.set({
@@ -171,6 +178,8 @@ export async function markStoreListingsAsRemoved(
 		return 0;
 	}
 
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
 	// Step 1: Get existing source app IDs for this source. Listings a snapshot
 	// feed owns are reconciled only by that feed, never by a registry sync.
 	// A suppressed entry's listing is its re-import key, so it is never removed.
@@ -238,6 +247,8 @@ export async function markStoreListingsAsRemoved(
 export async function disableOrphanedCatalogApps(
 	db: Database,
 ): Promise<number> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
 	// Find apps with no store listings
 	const orphanedApps = await db
 		.select({ id: appCatalog.id })
@@ -268,7 +279,7 @@ export async function disableOrphanedCatalogApps(
 			.update(appCatalog)
 			.set({
 				status: "DISABLED",
-				updatedAt: sql`datetime('now')`,
+				updatedAt: catalogNow(db),
 			})
 			.where(inArray(appCatalog.id, batch));
 
@@ -301,6 +312,7 @@ export async function ensureCatalogSnapshotSyncLog(
 	db: Database,
 	log: NewAppCatalogSyncLog,
 ): Promise<AppCatalogSyncLog> {
+	const appCatalogSyncLogs = coreTable(db, schemaAppCatalogSyncLogs);
 	await db.insert(appCatalogSyncLogs).values(log).onConflictDoNothing();
 	const rows = await db
 		.select()
@@ -320,6 +332,8 @@ export async function markStaleFeedStoreListingsAsRemoved(
 ): Promise<number> {
 	if (currentSourceAppIds.length === 0) return 0;
 
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
 	const existingListings = await db
 		.select({
 			sourceAppId: appCatalogStoreListings.sourceAppId,

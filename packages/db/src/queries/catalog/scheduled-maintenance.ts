@@ -14,11 +14,36 @@ import {
 	not,
 	or,
 	sql,
+	type SQL,
 } from "drizzle-orm";
-import { appCatalog } from "../../schema/catalog";
-import { chunkForBoundParams } from "../../utils/batch";
+import { appCatalog as schemaAppCatalog } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
+import { coreStore, anyIds, jsonRead } from "../../core-store/dialect";
 import { getAffectedRows } from "../../utils/d1-result";
+import { catalogNow } from "./clock";
 import type { Database } from "./tool-source-policy";
+
+/** `healthData.lastCheckedAt` older than `days` days, in each store's clock. */
+function staleHealthCheck(
+	db: Database,
+	appCatalog: typeof schemaAppCatalog,
+	days: number,
+): SQL {
+	return coreStore(db) === "postgres"
+		? sql`(${jsonRead(db, appCatalog.healthData, ["lastCheckedAt"])})::timestamptz < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - ${days} * interval '1 day'`
+		: sql`datetime(json_extract(${appCatalog.healthData}, '$.lastCheckedAt')) < datetime('now', ${`-${days} days`})`;
+}
+
+/** `lastSyncedAt` older than `days` days; both stores store the UTC text form. */
+function staleLastSynced(
+	db: Database,
+	appCatalog: typeof schemaAppCatalog,
+	days: number,
+): SQL {
+	return coreStore(db) === "postgres"
+		? sql`${appCatalog.lastSyncedAt} < to_char((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - ${days} * interval '1 day', 'YYYY-MM-DD HH24:MI:SS')`
+		: sql`${appCatalog.lastSyncedAt} < datetime('now', ${`-${days} days`})`;
+}
 
 // =============================================================================
 // CATALOG MAINTENANCE (Scheduled Handler)
@@ -33,6 +58,7 @@ export async function getStaleUnhealthyAppCount(
 	db: Database,
 	days = 14,
 ): Promise<number> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const row = await db
 		.select({
 			staleCount: sql<number>`COUNT(*)`,
@@ -41,13 +67,13 @@ export async function getStaleUnhealthyAppCount(
 		.where(
 			and(
 				eq(appCatalog.healthStatus, "unhealthy"),
-				sql`datetime(json_extract(${appCatalog.healthData}, '$.lastCheckedAt')) < datetime('now', ${`-${days} days`})`,
+				staleHealthCheck(db, appCatalog, days),
 				eq(appCatalog.isDiscoverable, true),
 			),
 		)
 		.then((rows) => rows[0]);
 
-	return row?.staleCount ?? 0;
+	return Number(row?.staleCount ?? 0);
 }
 
 /**
@@ -59,17 +85,18 @@ export async function autoHideUnhealthyCatalogApps(
 	db: Database,
 	days = 30,
 ): Promise<number> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const result = await db
 		.update(appCatalog)
 		// Visibility flip is a state change, and the sibling policy-timer write in
 		// this same cron block (autoDisableDeadMcpCatalogApps) already bumps. The
 		// selection predicate never reads updatedAt and the write clears its own
 		// guard, so this fires at most once per app.
-		.set({ isDiscoverable: false, updatedAt: sql`datetime('now')` })
+		.set({ isDiscoverable: false, updatedAt: catalogNow(db) })
 		.where(
 			and(
 				eq(appCatalog.healthStatus, "unhealthy"),
-				sql`datetime(json_extract(${appCatalog.healthData}, '$.lastCheckedAt')) < datetime('now', ${`-${days} days`})`,
+				staleHealthCheck(db, appCatalog, days),
 				eq(appCatalog.isDiscoverable, true),
 			),
 		);
@@ -99,6 +126,7 @@ export async function autoDisableDeadMcpCatalogApps(
 	const cutoff = new Date(
 		Date.now() - minLastScanAgeHours * 60 * 60 * 1000,
 	).toISOString();
+	const appCatalog = coreTable(db, schemaAppCatalog);
 
 	const candidates = await db
 		.select({ id: appCatalog.id })
@@ -111,18 +139,18 @@ export async function autoDisableDeadMcpCatalogApps(
 				eq(appCatalog.mcpToolCount, 0),
 				eq(appCatalog.mcpResourceCount, 0),
 				eq(appCatalog.mcpPromptCount, 0),
-				sql`COALESCE(json_extract(${appCatalog.healthData}, '$.consecutiveFailures'), 0) >= ${minConsecutiveFailures}`,
+				sql`COALESCE(${jsonRead(db, appCatalog.healthData, ["consecutiveFailures"], "number")}, 0) >= ${minConsecutiveFailures}`,
 				or(
-					sql`json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') IS NULL`,
-					sql`json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt') < ${cutoff}`,
+					sql`${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} IS NULL`,
+					sql`${jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])} < ${cutoff}`,
 				),
 			),
 		)
 		.orderBy(
 			desc(
-				sql`COALESCE(json_extract(${appCatalog.healthData}, '$.consecutiveFailures'), 0)`,
+				sql`COALESCE(${jsonRead(db, appCatalog.healthData, ["consecutiveFailures"], "number")}, 0)`,
 			),
-			asc(sql`json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt')`),
+			asc(jsonRead(db, appCatalog.mcpMetadata, ["lastScannedAt"])),
 		)
 		.limit(limit);
 
@@ -131,22 +159,17 @@ export async function autoDisableDeadMcpCatalogApps(
 		return { disabled: 0, appIds: [] };
 	}
 
-	// D1 caps bound parameters at 100 per statement; chunk the id IN() list.
-	let disabled = 0;
-	for (const chunk of chunkForBoundParams(appIds, 50)) {
-		const result = await db
-			.update(appCatalog)
-			.set({
-				status: "DISABLED",
-				isDiscoverable: false,
-				updatedAt: sql`datetime('now')`,
-			})
-			.where(inArray(appCatalog.id, chunk));
-		disabled += getAffectedRows(result);
-	}
+	const result = await db
+		.update(appCatalog)
+		.set({
+			status: "DISABLED",
+			isDiscoverable: false,
+			updatedAt: catalogNow(db),
+		})
+		.where(anyIds(db, appCatalog.id, appIds));
 
 	return {
-		disabled,
+		disabled: getAffectedRows(result),
 		appIds,
 	};
 }
@@ -171,15 +194,23 @@ export async function autoDelistStaleCatalogAppsWithStats(
 	options: { keepManual?: boolean; keepAuthGated?: boolean } = {},
 ): Promise<{ delisted: number; skippedProtected: number }> {
 	const { keepManual = true, keepAuthGated = true } = options;
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const postgres = coreStore(db) === "postgres";
+	const listingsTable = postgres
+		? sql`catalog.app_catalog_store_listings`
+		: sql`app_catalog_store_listings`;
+	const authTypeOverlap = postgres
+		? sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${appCatalog.authTypes}) AS auth_type(value) WHERE auth_type.value IN ('OAUTH', 'API_KEY'))`
+		: sql`EXISTS (SELECT 1 FROM json_each(${appCatalog.authTypes}) WHERE json_each.value IN ('OAUTH', 'API_KEY'))`;
 	const protection = or(
 		keepManual
-			? sql`EXISTS (SELECT 1 FROM app_catalog_store_listings WHERE catalog_app_id = ${appCatalog.id} AND source = 'manual')`
+			? sql`EXISTS (SELECT 1 FROM ${listingsTable} WHERE catalog_app_id = ${appCatalog.id} AND source = 'manual')`
 			: undefined,
 		keepAuthGated
 			? or(
 					eq(sql`coalesce(${appCatalog.healthStatus}, '')`, "requires_auth"),
 					and(
-						sql`EXISTS (SELECT 1 FROM json_each(${appCatalog.authTypes}) WHERE json_each.value IN ('OAUTH', 'API_KEY'))`,
+						authTypeOverlap,
 						sql`${appCatalog.scanAuthHeaders} IS NULL`,
 						sql`${appCatalog.scanConnectionId} IS NULL`,
 					),
@@ -188,7 +219,7 @@ export async function autoDelistStaleCatalogAppsWithStats(
 	);
 	const staleEnabled = () =>
 		and(
-			sql`${appCatalog.lastSyncedAt} < datetime('now', ${`-${days} days`})`,
+			staleLastSynced(db, appCatalog, days),
 			eq(appCatalog.status, "ENABLED"),
 		);
 
@@ -199,7 +230,7 @@ export async function autoDelistStaleCatalogAppsWithStats(
 			.from(appCatalog)
 			.where(and(staleEnabled(), protection))
 			.then((rows) => rows[0]);
-		skippedProtected = row?.skipped ?? 0;
+		skippedProtected = Number(row?.skipped ?? 0);
 	}
 
 	const result = await db
@@ -211,7 +242,7 @@ export async function autoDelistStaleCatalogAppsWithStats(
 		.set({
 			status: "DELISTED",
 			isDiscoverable: false,
-			updatedAt: sql`datetime('now')`,
+			updatedAt: catalogNow(db),
 		})
 		.where(and(staleEnabled(), protection ? not(protection) : undefined));
 
@@ -225,6 +256,7 @@ export async function autoDelistStaleCatalogAppsWithStats(
 export async function getCatalogSnapshotStats(
 	db: Database,
 ): Promise<{ total: number; mcpCount: number; enabledCount: number }> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const row = await db
 		.select({
 			total: sql<number>`COUNT(*)`,
@@ -234,7 +266,13 @@ export async function getCatalogSnapshotStats(
 		.from(appCatalog)
 		.then((rows) => rows[0]);
 
-	return row ?? { total: 0, mcpCount: 0, enabledCount: 0 };
+	return row
+		? {
+				total: Number(row.total),
+				mcpCount: Number(row.mcpCount),
+				enabledCount: Number(row.enabledCount),
+			}
+		: { total: 0, mcpCount: 0, enabledCount: 0 };
 }
 
 /**
@@ -251,6 +289,7 @@ export async function listEnabledCatalogAppsForVectorSync(
 		updatedSince?: string;
 	},
 ) {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	return db
 		.select({
 			id: appCatalog.id,

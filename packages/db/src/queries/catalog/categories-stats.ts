@@ -4,26 +4,32 @@
  */
 
 import { mergeCatalogCategoryCounts } from "@tedix/api-contract/utils/catalog-categories";
-import { and, count, desc, eq, gt, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, or, sql, type SQL } from "drizzle-orm";
 import {
-	appCatalog,
-	appCatalogBrowseTotals,
-	appCatalogCategoryTotals,
-	appCatalogStoreListings,
+	appCatalog as schemaAppCatalog,
+	appCatalogBrowseTotals as schemaAppCatalogBrowseTotals,
+	appCatalogCategoryTotals as schemaAppCatalogCategoryTotals,
+	appCatalogStoreListings as schemaAppCatalogStoreListings,
 } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
+import { booleanValue } from "../../core-store/dialect";
 import type { Database } from "./tool-source-policy";
 
+type CatalogTable = typeof schemaAppCatalog;
+
 /** The exact cohort exposed by unauthenticated catalog list endpoints. */
-const publicCatalogCondition = and(
-	eq(appCatalog.isDiscoverable, true),
-	eq(appCatalog.status, "ENABLED"),
-	eq(appCatalog.reviewStatus, "RELEASED"),
-	or(
-		eq(appCatalog.developerType, "TRUSTED_PARTNER"),
-		eq(appCatalog.developerType, "OAI"),
-		eq(appCatalog.developerType, "THIRD_PARTY"),
-	),
-);
+function publicCatalogCondition(appCatalog: CatalogTable): SQL | undefined {
+	return and(
+		eq(appCatalog.isDiscoverable, true),
+		eq(appCatalog.status, "ENABLED"),
+		eq(appCatalog.reviewStatus, "RELEASED"),
+		or(
+			eq(appCatalog.developerType, "TRUSTED_PARTNER"),
+			eq(appCatalog.developerType, "OAI"),
+			eq(appCatalog.developerType, "THIRD_PARTY"),
+		),
+	);
+}
 
 // =============================================================================
 // CATEGORIES AND STATS
@@ -35,6 +41,10 @@ const publicCatalogCondition = and(
 export async function getCatalogCategories(
 	db: Database,
 ): Promise<{ name: string; label: string; count: number }[]> {
+	const appCatalogCategoryTotals = coreTable(
+		db,
+		schemaAppCatalogCategoryTotals,
+	);
 	const result = await db
 		.select({
 			name: appCatalogCategoryTotals.category,
@@ -55,6 +65,7 @@ export async function getCatalogSyncStatus(db: Database): Promise<{
 	appsCount: number;
 	syncSource: string | null;
 }> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const [latestApp, appsCount] = await Promise.all([
 		// Get the most recent sync time
 		db
@@ -89,7 +100,12 @@ export async function getCatalogStats(
 	withWrites: number;
 	sourceBreakdown: { source: string; count: number }[];
 }> {
-	const baseCondition = includeUntrusted ? undefined : publicCatalogCondition;
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogBrowseTotals = coreTable(db, schemaAppCatalogBrowseTotals);
+	const appCatalogStoreListings = coreTable(db, schemaAppCatalogStoreListings);
+	const baseCondition = includeUntrusted
+		? undefined
+		: publicCatalogCondition(appCatalog);
 
 	const [totalResult, capabilityResult] = await db.batch([
 		includeUntrusted
@@ -156,36 +172,39 @@ export async function getCatalogStats(
 		if (page.length === 0) break;
 		cursor = page[0]!.cursor;
 		for (const row of page) {
-			if (row.count > 0) {
+			const rowCount = Number(row.count ?? 0);
+			if (rowCount > 0) {
 				sourceCounts.set(
 					row.source,
-					(sourceCounts.get(row.source) ?? 0) + row.count,
+					(sourceCounts.get(row.source) ?? 0) + rowCount,
 				);
 			}
 		}
 	}
 
 	return {
-		total: totalResult[0]?.count ?? 0,
-		mcp: capabilityResult[0]?.mcp ?? 0,
-		withInteractive: capabilityResult[0]?.withInteractive ?? 0,
-		withWrites: capabilityResult[0]?.withWrites ?? 0,
+		total: Number(totalResult[0]?.count ?? 0),
+		mcp: Number(capabilityResult[0]?.mcp ?? 0),
+		withInteractive: Number(capabilityResult[0]?.withInteractive ?? 0),
+		withWrites: Number(capabilityResult[0]?.withWrites ?? 0),
 		sourceBreakdown: [...sourceCounts]
 			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 			.map(([source, count]) => ({ source, count })),
 	};
 }
 
-/** Compare trigger-maintained totals in one D1 batch snapshot; never hide drift. */
+/** Compare trigger-maintained totals in one batch snapshot; never hide drift. */
 export async function checkCatalogBrowseTotals(db: Database) {
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogBrowseTotals = coreTable(db, schemaAppCatalogBrowseTotals);
 	const [expected, stored] = await db.batch([
 		db
 			.select({
 				total: count(),
-				exploreTotal: sql<number>`coalesce(sum(case when ${appCatalog.exploreShadowed} = 0 then 1 else 0 end), 0)`,
+				exploreTotal: sql<number>`coalesce(sum(case when ${appCatalog.exploreShadowed} = ${booleanValue(db, false)} then 1 else 0 end), 0)`,
 			})
 			.from(appCatalog)
-			.where(publicCatalogCondition),
+			.where(publicCatalogCondition(appCatalog)),
 		db
 			.select({
 				total: appCatalogBrowseTotals.total,
@@ -196,13 +215,17 @@ export async function checkCatalogBrowseTotals(db: Database) {
 	]);
 	const actual = expected[0];
 	if (!actual) throw new Error("Catalog count query returned no row");
+	const expectedTotal = Number(actual.total);
+	const expectedExploreTotal = Number(actual.exploreTotal);
+	const storedTotal = stored[0]?.total ?? null;
+	const storedExploreTotal = stored[0]?.exploreTotal ?? null;
 	return {
-		expectedTotal: actual.total,
-		expectedExploreTotal: actual.exploreTotal,
-		storedTotal: stored[0]?.total ?? null,
-		storedExploreTotal: stored[0]?.exploreTotal ?? null,
+		expectedTotal,
+		expectedExploreTotal,
+		storedTotal,
+		storedExploreTotal,
 		matches:
-			stored[0]?.total === actual.total &&
-			stored[0]?.exploreTotal === actual.exploreTotal,
+			storedTotal === expectedTotal &&
+			storedExploreTotal === expectedExploreTotal,
 	};
 }

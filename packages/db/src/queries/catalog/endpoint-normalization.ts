@@ -4,7 +4,11 @@
  */
 
 import { and, eq, isNotNull, isNull, like, sql } from "drizzle-orm";
-import { appCatalog, type CatalogApp } from "../../schema/catalog";
+import {
+	appCatalog as schemaAppCatalog,
+	type CatalogApp,
+} from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
 import type { Database } from "./tool-source-policy";
 
 // =============================================================================
@@ -68,6 +72,7 @@ export async function getCatalogAppByMcpEndpointHash(
 	db: Database,
 	hash: string,
 ): Promise<CatalogApp | null> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
 	const result = await db
 		.select()
 		.from(appCatalog)
@@ -147,6 +152,7 @@ export async function getCanonicalCatalogAppForConnector(
 	const domain = extractVendorDomain(input.website);
 	const name = normalizeVendorName(input.name);
 	if (!domain || !name) return null;
+	const appCatalog = coreTable(db, schemaAppCatalog);
 
 	// Domain is compared with the same www-stripping applied on both sides so
 	// `www.github.com` and `github.com` match.

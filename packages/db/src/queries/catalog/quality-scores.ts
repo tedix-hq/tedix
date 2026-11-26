@@ -3,9 +3,14 @@
  * Split from catalog.ts (mechanical move; bodies unchanged).
  */
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { appCatalog, appCatalogMcpTools } from "../../schema/catalog";
-import { chunkForBoundParams } from "../../utils/batch";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+import {
+	appCatalog as schemaAppCatalog,
+	appCatalogMcpTools as schemaAppCatalogMcpTools,
+} from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
+import { anyIds, jsonRead } from "../../core-store/dialect";
 import type { Database } from "./tool-source-policy";
 
 // =============================================================================
@@ -171,6 +176,8 @@ export async function calculateAndUpdateScores(
 	db: Database,
 	limit = 50,
 ): Promise<number> {
+	const appCatalog = coreTable(db, schemaAppCatalog);
+	const appCatalogMcpTools = coreTable(db, schemaAppCatalogMcpTools);
 	// Get apps that have been scanned (have tool data)
 	const apps = await db
 		.select({
@@ -200,39 +207,34 @@ export async function calculateAndUpdateScores(
 		)
 		.orderBy(
 			// Prioritize: never scored > oldest scores
-			sql`CASE WHEN json_extract(${appCatalog.scores}, '$.lastCalculatedAt') IS NULL THEN 0 ELSE 1 END`,
-			sql`json_extract(${appCatalog.scores}, '$.lastCalculatedAt')`,
+			sql`CASE WHEN ${jsonRead(db, appCatalog.scores, ["lastCalculatedAt"])} IS NULL THEN 0 ELSE 1 END`,
+			jsonRead(db, appCatalog.scores, ["lastCalculatedAt"]),
 		)
 		.limit(limit);
 
 	if (apps.length === 0) return 0;
 
-	// Batch-fetch all tools for all apps (eliminates N+1), chunked because D1
-	// caps bound parameters at 100 per statement.
-	const selectToolsChunk = (chunk: string[]) =>
-		db
-			.select({
-				catalogAppId: appCatalogMcpTools.catalogAppId,
-				toolName: appCatalogMcpTools.toolName,
-				description: appCatalogMcpTools.description,
-				inputSchema: appCatalogMcpTools.inputSchema,
-				outputSchema: appCatalogMcpTools.outputSchema,
-				annotations: appCatalogMcpTools.annotations,
-			})
-			.from(appCatalogMcpTools)
-			.where(
-				and(
-					inArray(appCatalogMcpTools.catalogAppId, chunk),
-					isNull(appCatalogMcpTools.removedAt),
-				),
-			);
-	const allTools: Awaited<ReturnType<typeof selectToolsChunk>> = [];
-	for (const chunk of chunkForBoundParams(
-		apps.map((a) => a.id),
-		50,
-	)) {
-		allTools.push(...(await selectToolsChunk(chunk)));
-	}
+	// Batch-fetch all tools for all apps (eliminates N+1).
+	const appIds = apps.map((a) => a.id);
+	const allTools =
+		appIds.length === 0
+			? []
+			: await db
+					.select({
+						catalogAppId: appCatalogMcpTools.catalogAppId,
+						toolName: appCatalogMcpTools.toolName,
+						description: appCatalogMcpTools.description,
+						inputSchema: appCatalogMcpTools.inputSchema,
+						outputSchema: appCatalogMcpTools.outputSchema,
+						annotations: appCatalogMcpTools.annotations,
+					})
+					.from(appCatalogMcpTools)
+					.where(
+						and(
+							anyIds(db, appCatalogMcpTools.catalogAppId, appIds),
+							isNull(appCatalogMcpTools.removedAt),
+						),
+					);
 
 	// Group tools by catalogAppId
 	const toolsByAppId = new Map<string, typeof allTools>();
@@ -245,9 +247,7 @@ export async function calculateAndUpdateScores(
 		}
 	}
 
-	let updated = 0;
-
-	for (const app of apps) {
+	const writes = apps.map((app) => {
 		const tools = toolsByAppId.get(app.id) ?? [];
 
 		// Extract values from JSON blobs for calculateScores
@@ -268,7 +268,7 @@ export async function calculateAndUpdateScores(
 
 		const scores = calculateScores(scoreInput, tools);
 
-		await db
+		return db
 			.update(appCatalog)
 			.set({
 				scores: {
@@ -286,9 +286,10 @@ export async function calculateAndUpdateScores(
 				},
 			})
 			.where(eq(appCatalog.id, app.id));
+	});
+	await db.batch(
+		writes as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+	);
 
-		updated++;
-	}
-
-	return updated;
+	return apps.length;
 }

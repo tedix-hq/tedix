@@ -7,10 +7,12 @@ import { lt, type SQL, sql } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
-	appCatalogChanges,
-	appCatalogHealthHistory,
-	appCatalogToolTests,
+	appCatalogChanges as schemaAppCatalogChanges,
+	appCatalogHealthHistory as schemaAppCatalogHealthHistory,
+	appCatalogToolTests as schemaAppCatalogToolTests,
 } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import { skillUsageEvents } from "../../schema/cognitive";
 import { tediCronExecutions } from "../../schema/cron-executions";
 import {
@@ -27,14 +29,10 @@ import { getAffectedRows } from "../../utils/d1-result";
  * Returns number of deleted records.
  */
 export async function deleteOldHealthHistory(db: DbClient, days = 30) {
+	const appCatalogHealthHistory = coreTable(db, schemaAppCatalogHealthHistory);
 	const result = await db
 		.delete(appCatalogHealthHistory)
-		.where(
-			lt(
-				appCatalogHealthHistory.checkedAt,
-				sql`datetime('now', ${`-${days} days`})`,
-			),
-		);
+		.where(lt(appCatalogHealthHistory.checkedAt, dtCutoff(db, days)));
 	return getAffectedRows(result);
 }
 
@@ -43,14 +41,10 @@ export async function deleteOldHealthHistory(db: DbClient, days = 30) {
  * Returns number of deleted records.
  */
 export async function deleteOldToolTests(db: DbClient, days = 30) {
+	const appCatalogToolTests = coreTable(db, schemaAppCatalogToolTests);
 	const result = await db
 		.delete(appCatalogToolTests)
-		.where(
-			lt(
-				appCatalogToolTests.testedAt,
-				sql`datetime('now', ${`-${days} days`})`,
-			),
-		);
+		.where(lt(appCatalogToolTests.testedAt, dtCutoff(db, days)));
 	return getAffectedRows(result);
 }
 
@@ -95,8 +89,10 @@ async function deleteOldRowsBatched(
 
 const isoCutoff = (days: number) =>
 	new Date(Date.now() - days * 86_400_000).toISOString();
-const dtCutoff = (days: number): SQL =>
-	sql`datetime('now', ${`-${days} days`})`;
+const dtCutoff = (db: DbClient, days: number): SQL =>
+	coreStore(db) === "postgres"
+		? sql`to_char((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - ${days} * interval '1 day', 'YYYY-MM-DD HH24:MI:SS')`
+		: sql`datetime('now', ${`-${days} days`})`;
 
 // --- ISO timestamp column (writer stamps toISOString()) -> ISO cutoff ---
 
@@ -183,9 +179,9 @@ export function deleteOldCatalogChanges(
 ) {
 	return deleteOldRowsBatched(
 		db,
-		appCatalogChanges,
-		appCatalogChanges.id,
-		appCatalogChanges.detectedAt,
+		coreTable(db, schemaAppCatalogChanges),
+		coreTable(db, schemaAppCatalogChanges).id,
+		coreTable(db, schemaAppCatalogChanges).detectedAt,
 		isoCutoff(days),
 		batchSize,
 		maxBatches,
@@ -204,7 +200,7 @@ export function deleteOldCronExecutions(db: DbClient, days = 90) {
 		tediCronExecutions,
 		tediCronExecutions.id,
 		tediCronExecutions.createdAt,
-		dtCutoff(days),
+		dtCutoff(db, days),
 	);
 }
 
@@ -220,7 +216,7 @@ export function deleteOldRuntimeSubmissions(db: DbClient, days = 90) {
 		runtimeSubmissions,
 		runtimeSubmissions.id,
 		runtimeSubmissions.createdAt,
-		dtCutoff(days),
+		dtCutoff(db, days),
 	);
 }
 
@@ -235,6 +231,6 @@ export function deleteOldLearningInteractionEvents(db: DbClient, days = 180) {
 		learningInteractionEvents,
 		learningInteractionEvents.id,
 		learningInteractionEvents.createdAt,
-		dtCutoff(days),
+		dtCutoff(db, days),
 	);
 }

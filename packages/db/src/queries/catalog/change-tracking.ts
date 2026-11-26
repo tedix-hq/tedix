@@ -6,9 +6,10 @@
 import { and, desc, eq } from "drizzle-orm";
 import {
 	type AppCatalogChange,
-	appCatalogChanges,
+	appCatalogChanges as schemaAppCatalogChanges,
 	type NewAppCatalogChange,
 } from "../../schema/catalog";
+import { coreTable } from "../../core-store/client";
 import type { Database } from "./tool-source-policy";
 
 // =============================================================================
@@ -19,6 +20,7 @@ export async function recordCatalogChange(
 	db: Database,
 	change: NewAppCatalogChange,
 ) {
+	const appCatalogChanges = coreTable(db, schemaAppCatalogChanges);
 	const rows = await db.insert(appCatalogChanges).values(change).returning();
 	return rows[0];
 }
@@ -31,6 +33,7 @@ export async function recordCatalogChanges(
 	changes: NewAppCatalogChange[],
 ) {
 	if (changes.length === 0) return [];
+	const appCatalogChanges = coreTable(db, schemaAppCatalogChanges);
 	// D1 caps bound parameters at 100/query (not SQLite's 999 default).
 	// appCatalogChanges binds up to 9 columns/row; 50 rows (450 params) was
 	// silently failing every multi-change catalog sync. 10 rows (90 params)
@@ -56,6 +59,7 @@ export async function getCatalogAppChanges(
 	catalogAppId: string,
 	limit = 50,
 ) {
+	const appCatalogChanges = coreTable(db, schemaAppCatalogChanges);
 	return db
 		.select()
 		.from(appCatalogChanges)
@@ -72,6 +76,7 @@ export async function getRecentCatalogChanges(
 	options: { limit?: number; changeType?: string } = {},
 ) {
 	const { limit: lim = 100, changeType } = options;
+	const appCatalogChanges = coreTable(db, schemaAppCatalogChanges);
 
 	const conditions = [];
 	if (changeType) {
