@@ -22,7 +22,7 @@ import {
 	type SweepCard,
 } from "@tedix/api-contract/utils/deck-pipeline";
 import { listLearningInteractions } from "@tedix/db/queries/learning-feedback";
-import { reserveDeckRankingBudget } from "@tedix/db/queries/deck-curator-budget";
+import { reserveDeckRankingSlots } from "@tedix/db/queries/deck-curator-budget";
 import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import { runClef } from "../lib/clef";
 import { cardOriginalBody } from "../services/card-revisions";
@@ -132,6 +132,8 @@ export async function shadowRankDeck(input: {
 	const secondKey = input.learning.deckPipeline.secondKey;
 	const counts = {
 		ranked: 0,
+		attempted: 0,
+		reserved: 0,
 		insufficient: 0,
 		skipped: 0,
 		disabled: 0,
@@ -159,8 +161,19 @@ export async function shadowRankDeck(input: {
 		title: card.subject,
 	}));
 	const deadline = Date.now() + ranker.runTimeoutMs;
+	const candidates: {
+		card: SweepCard;
+		summary: string;
+		examples: DeckRankExample[];
+	}[] = [];
+	const maxCards = Math.min(
+		input.limit,
+		Math.floor(
+			ranker.perRunReservationMicros / ranker.perCardReservationMicros,
+		),
+	);
 	for (const card of input.cards) {
-		if (counts.ranked >= input.limit || Date.now() >= deadline) break;
+		if (candidates.length >= maxCards || Date.now() >= deadline) break;
 		if (card.protected) continue;
 		const current = currentDeckCuration(card.metadata);
 		if (current?.shadow) continue;
@@ -174,16 +187,23 @@ export async function shadowRankDeck(input: {
 			counts.insufficient += 1;
 			continue;
 		}
-		if (
-			!(await reserveDeckRankingBudget(input.db, {
-				organizationId: input.orgId,
-				amountMicros: ranker.perCardReservationMicros,
-				dailyLimitMicros: ranker.dailyReservationMicros,
-			}))
-		) {
-			counts.budget += 1;
-			break;
-		}
+		candidates.push({ card, summary, examples });
+	}
+	const slots =
+		candidates.length && Date.now() < deadline
+			? await reserveDeckRankingSlots(input.db, {
+					organizationId: input.orgId,
+					amountMicros: ranker.perCardReservationMicros,
+					dailyLimitMicros: ranker.dailyReservationMicros,
+					maxCards: candidates.length,
+				})
+			: 0;
+	// Reservations stay charged even if the deadline stops a later inference.
+	counts.reserved = slots;
+	counts.budget = candidates.length - slots;
+	for (const { card, summary, examples } of candidates.slice(0, slots)) {
+		if (Date.now() >= deadline) break;
+		counts.attempted += 1;
 		const text = await runDecisionCardCopyModel(
 			{ env: input.env },
 			JSON.stringify({

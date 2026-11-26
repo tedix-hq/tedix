@@ -543,7 +543,7 @@ export async function sweepOrganizationDeck(
 				for (const [key, value] of Object.entries(notes))
 					if (value)
 						receipt.rankNotes[key] = (receipt.rankNotes[key] ?? 0) + value;
-				rankBudget -= ranked.ranked;
+				rankBudget -= ranked.reserved;
 			}
 			const weekAgo = now.getTime() - WEEK_MS;
 			const notUseful = cancelled.filter(

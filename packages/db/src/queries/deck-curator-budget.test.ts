@@ -4,7 +4,10 @@ import { createDbQueryClient } from "../query-client";
 import { organizations } from "../schema/organizations";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { reserveDeckRankingBudget } from "./deck-curator-budget";
+import {
+	reserveDeckRankingBudget,
+	reserveDeckRankingSlots,
+} from "./deck-curator-budget";
 
 it("atomically caps concurrent reservations, preserves tenant metadata and resets only on a new UTC day", async () => {
 	const sqlite = new DatabaseSync(":memory:");
@@ -64,6 +67,17 @@ it("atomically caps concurrent reservations, preserves tenant metadata and reset
 		);
 		expect(await reserveDeckRankingBudget(db, input)).toBe(true);
 		expect(metadata().deckRankerBudget.reservedMicros).toBe(5000);
+		const slots = await Promise.all(
+			Array.from({ length: 3 }, () =>
+				reserveDeckRankingSlots(db, {
+					...input,
+					amountMicros: 1000,
+					maxCards: 3,
+				}),
+			),
+		);
+		expect(slots).toEqual([3, 2, 0]);
+		expect(metadata().deckRankerBudget.reservedMicros).toBe(10000);
 		sqlite.exec(
 			"UPDATE organizations SET metadata=json_set(metadata,'$.deckRankerBudget.reservedMicros','corrupt') WHERE id='fictional-lighthouse'",
 		);

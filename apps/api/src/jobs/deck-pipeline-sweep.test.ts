@@ -396,6 +396,75 @@ describe("deck pipeline sweep", () => {
 		expect((await status(db, expired)).status).toBe("open");
 	});
 
+	it("bounds failed ranking attempts across recipients and reserves their budget together", async () => {
+		const examples = Array.from({ length: 8 }, (_, index) => ({
+			id: `example-${index}`,
+			cardId: `old-${index}`,
+			title: `Routine status ${index}`,
+			summary: "A status digest with no owner decision.",
+			label: "NOISE",
+			evidenceRef: `learning:${index}`,
+			decidedAt: "2026-10-01T00:00:00.000Z",
+		}));
+		const { db, sqlite } = await fixture({
+			deckCuratorRanker: { enabled: true, perRunReservationMicros: 10000 },
+			deckPipeline: { secondKey: { maxPerRun: 2 } },
+			deckCurators: [
+				{
+					tediId: "33333333-3333-4333-8333-333333333333",
+					recipientId: USER,
+					gadgetId: "44444444-4444-4444-8444-444444444444",
+					enabled: true,
+					examples,
+				},
+				{
+					tediId: "33333333-3333-4333-8333-333333333333",
+					recipientId: "user-2",
+					gadgetId: "44444444-4444-4444-8444-444444444444",
+					enabled: true,
+					examples,
+				},
+			],
+		});
+		try {
+			for (let index = 0; index < 5; index++)
+				await card(db, { subject: `Review status ${index}?` });
+			await db.insert(organizationMembers).values({
+				id: "member-2",
+				organizationId: ORG,
+				userId: "user-2",
+				descopeUserId: "user-2",
+				email: "second@example.com",
+				status: "active",
+			});
+			await card(db, {
+				targetId: "user-2",
+				subject: "Review second recipient status?",
+			});
+			models.qwen.mockResolvedValue(null);
+			const receipt = await sweepOrganizationDeck(
+				db,
+				ORG,
+				now,
+				{} as CloudflareEnv,
+			);
+			expect(models.qwen).toHaveBeenCalledTimes(2);
+			expect(receipt).toMatchObject({
+				ranked: 0,
+				rankNotes: { attempted: 2, modelFailed: 2 },
+			});
+			const [org] = await db
+				.select({ metadata: organizations.metadata })
+				.from(organizations)
+				.where(eq(organizations.id, ORG));
+			expect(org?.metadata).toMatchObject({
+				deckRankerBudget: { reservedMicros: 10000 },
+			});
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	it("logs Qwen's label and the second key in shadow without hiding anything", async () => {
 		const examples = Array.from({ length: 8 }, (_, index) => ({
 			id: `example-${index}`,
