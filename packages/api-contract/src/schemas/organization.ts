@@ -594,7 +594,7 @@ export const OrganizationMetadataSchema = z.object({
 	defaultApprovalMode: ApprovalModeSchema.nullable()
 		.optional()
 		.describe(
-			"Approval mode in workspace chat for a person who has not picked one; each workspace's highest mode still caps it. Null or absent uses the platform default.",
+			"Approval mode for Work starts and the default in workspace chat. Work defaults to auto; stricter modes retain separate approval and purpose checks. Each workspace's highest mode still caps chat.",
 		),
 	readOnlyCommands: ReadOnlyCommandListSchema.nullable()
 		.optional()

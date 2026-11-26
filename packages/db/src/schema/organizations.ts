@@ -163,8 +163,8 @@ export interface OrganizationMetadata {
 	 */
 	readOnlyCommands?: ReadOnlyCommandPattern[] | null;
 	/**
-	 * Workspace chat approval mode for a person who has not picked one; the
-	 * workspace's highest mode caps it. Absent uses the platform default.
+	 * Work start mode (absent defaults to auto), also the workspace chat default.
+	 * The workspace's highest mode caps chat.
 	 */
 	defaultApprovalMode?: ApprovalMode | null;
 	/** Industry vertical (for analytics/recommendations) */

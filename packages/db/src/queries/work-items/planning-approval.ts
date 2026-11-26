@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import { WORK_DELEGATION_DEFAULTS } from "@tedix/api-contract/schemas/lane-execution";
 import { coreTable } from "../../core-store/client";
 import {
 	coreStore,
@@ -47,7 +48,7 @@ export function matchesWorkApprovalVersion(
 	return sql`(${coreTable(db, d1WorkApprovalProposals).workItemVersion} BETWEEN ${planningApprovalVersion(db, item)} AND ${item.version})`;
 }
 
-/** Server-written owner decisions authorize this specification, never later agent edits. */
+/** Auto delegates human-owned Work; stricter modes require a current owner receipt. */
 export function ownerWorkDelegation(
 	db: object,
 	item:
@@ -57,7 +58,15 @@ export function ownerWorkDelegation(
 	now: string,
 ) {
 	// Nest the correlated expression so Drizzle preserves outer-table qualifiers in SELECTs.
-	return sql<boolean>`${sql`(${item.accountableOwnerType}='user' AND EXISTS (
+	return sql<boolean>`${sql`(EXISTS (
+		SELECT 1 FROM organizations delegation_org
+		JOIN organization_members delegation_owner ON delegation_owner.organization_id=delegation_org.id
+		WHERE delegation_org.id=${item.orgId}
+		AND COALESCE(${jsonRead(db, sql`delegation_org.metadata`, ["defaultApprovalMode"])}, ${WORK_DELEGATION_DEFAULTS.approvalMode})='auto'
+		AND (${item.accountableOwnerType}='user' OR ${item.accountableOwnerType} IS NULL)
+		AND (delegation_owner.user_id=${item.accountableOwnerId} OR delegation_owner.descope_user_id=${item.accountableOwnerId})
+		AND delegation_owner.status='active' AND delegation_owner.kind='human'
+	) OR (${item.accountableOwnerType}='user' AND EXISTS (
 		SELECT 1 FROM work_events delegation
 		WHERE delegation.org_id=${item.orgId} AND delegation.work_item_id=${item.id}
 		AND delegation.event_type IN ('work.created', 'work.accepted', 'work.specification_updated')
@@ -76,7 +85,7 @@ export function ownerWorkDelegation(
 				 AND ${jsonRead(db, sql`delegation.payload`, ["ownerStarted"], "boolean")}=${booleanValue(db, true)})
 			 ))
 		)
-	))`}`;
+	)))`}`;
 }
 
 export async function hasOwnerWorkDelegation(
@@ -101,7 +110,7 @@ export async function hasOwnerWorkDelegation(
 	return Boolean(row?.delegated);
 }
 
-/** Legacy owner receipts also require a current owner action, regardless of stored expiry. */
+/** A receipt cannot keep delegation valid after its policy or owner action lapses. */
 export function ownerWorkApprovalIsCurrent(
 	db: object,
 	item: Parameters<typeof ownerWorkDelegation>[1],
@@ -110,13 +119,13 @@ export function ownerWorkApprovalIsCurrent(
 	return sql`(COALESCE(${jsonRead(db, coreTable(db, d1WorkApprovalProposals).proposal, ["source"])}, '')!='owner_delegation' OR ${ownerWorkDelegation(db, item, now)})`;
 }
 
-/** Persist the owner's start approval in the same batch as its versioned lifecycle event. */
+/** Record delegation in the lifecycle or admission batch for D1's start guard. */
 export function ownerWorkApprovalStatements(
 	db: DbQueryClient,
 	item: Pick<WorkItem, "orgId" | "id" | "version" | "riskLevel">,
 	now: string,
 ) {
-	if (item.riskLevel !== "high") return [];
+	if (item.riskLevel !== "high") return [] as const;
 	const workItems = coreTable(db, d1WorkItems);
 	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
 	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
@@ -154,6 +163,13 @@ export function ownerWorkApprovalStatements(
 					eq(workItems.id, item.id),
 					eq(workItems.version, item.version),
 					ownerWorkDelegation(db, workItems, now),
+					sql`NOT EXISTS (
+						SELECT 1 FROM work_approval_proposals existing
+						WHERE existing.org_id=${item.orgId} AND existing.work_item_id=${item.id}
+						AND existing.work_item_version=${item.version} AND existing.action='admission'
+						AND existing.authority_key='risk:high' AND existing.status='approved'
+						AND existing.expires_at>${now}
+					)`,
 				),
 			),
 	);
@@ -175,5 +191,5 @@ export function ownerWorkApprovalStatements(
 			.from(workApprovalProposals)
 			.where(eq(workApprovalProposals.id, id)),
 	);
-	return [proposal, decision];
+	return [proposal, decision] as const;
 }

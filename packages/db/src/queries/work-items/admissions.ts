@@ -14,6 +14,7 @@ import { capApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-acc
 import { WORK_DELEGATION_DEFAULTS } from "@tedix/api-contract/schemas/lane-execution";
 import {
 	hasOwnerWorkDelegation,
+	ownerWorkApprovalStatements,
 	matchesWorkApprovalVersion,
 	ownerWorkApprovalIsCurrent,
 } from "./planning-approval";
@@ -610,6 +611,7 @@ async function evaluate(
 	const missingApproval = evaluateWorkAdmissionApprovals(
 		item,
 		independentApprovals,
+		inheritedAuthority || ownerDelegated,
 	).missingAuthorities[0];
 	if (missingApproval && !inheritedAuthority)
 		return {
@@ -810,7 +812,7 @@ async function evaluate(
 		approval: evaluateWorkAdmissionApprovals(
 			item,
 			independentApprovals,
-			inheritedAuthority,
+			inheritedAuthority || ownerDelegated,
 		),
 		blockedResourceKey: null,
 		budgetBlocked: false,
@@ -929,10 +931,14 @@ export async function evaluateAndRecordWorkAdmission(
 			);
 		}
 	}
-	const { statements } = buildWorkAdmissionStatements(db, p, eligibility);
+	const { statements, admissionResultIndex } = buildWorkAdmissionStatements(
+		db,
+		p,
+		eligibility,
+	);
 	try {
 		const results = await db.batch(statements);
-		const admission = (results[0] as WorkAdmission[])[0];
+		const admission = (results[admissionResultIndex] as WorkAdmission[])[0];
 		if (!admission)
 			throw new WorkAdmissionError(
 				"stale_specification",
@@ -976,7 +982,7 @@ function buildWorkAdmissionStatements(
 	db: DbQueryClient,
 	p: EvaluateWorkAdmissionParams,
 	eligibility: Eligibility,
-): PreparedWorkAdmission {
+): PreparedWorkAdmission & { admissionResultIndex: number } {
 	const workAdmissions = coreTable(db, d1WorkAdmissions);
 	const workEvents = coreTable(db, d1WorkEvents);
 	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
@@ -986,7 +992,10 @@ function buildWorkAdmissionStatements(
 	// Default terms authorize no additional model usage. Owners can allocate it explicitly.
 	const terms: TaskContractTerms = explicitTerms ?? {
 		version: 2,
-		goal: item.acceptanceContract?.doneLooksLike || item.title,
+		goal: [item.title, item.acceptanceContract?.doneLooksLike, item.description]
+			.filter(Boolean)
+			.join("\n\n")
+			.slice(0, 10_000),
 		successCriterion: [{ path: ["completed"], equals: true }],
 		budget: { maxTokens: 0, maxCostUsd: 0 },
 		remainingDepth: Math.max(
@@ -1010,7 +1019,7 @@ function buildWorkAdmissionStatements(
 			Math.min(
 				Date.parse(p.now) + 24 * 60 * 60 * 1000,
 				item.deadline ? Date.parse(item.deadline) : Infinity,
-				item.purposeExceptionExpiresAt
+				item.purposeExceptionExpiresAt && item.purposeExceptionExpiresAt > p.now
 					? Date.parse(item.purposeExceptionExpiresAt)
 					: Infinity,
 			),
@@ -1089,10 +1098,13 @@ function buildWorkAdmissionStatements(
 			)
 			.returning({ id: workBudgetReservations.id }),
 	);
+	const delegationStatements = ownerWorkApprovalStatements(db, item, p.now);
 	return {
 		id: p.id,
 		expiresAt,
+		admissionResultIndex: delegationStatements.length,
 		statements: [
+			...delegationStatements,
 			admissionInsert,
 			db.insert(workEvents).values({
 				id: p.id,

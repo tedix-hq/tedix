@@ -207,10 +207,162 @@ describe("migrated Work factory raw-D1 invariants", () => {
 			sqlite.close();
 		}
 	});
+	it("starts a person's Work in auto and retains purpose and approval checks in strict mode", async () => {
+		for (const mode of [null, "auto", "ask_every_time"] as const) {
+			const sqlite = migrated();
+			try {
+				seedCore(sqlite);
+				seedTedi(sqlite);
+				sqlite
+					.prepare("UPDATE organizations SET metadata=? WHERE id='org'")
+					.run(JSON.stringify(mode ? { defaultApprovalMode: mode } : {}));
+				const db = createDbQueryClient(createD1Facade(sqlite));
+				const now = "2026-08-28T01:00:00.000Z";
+				const strict = mode === "ask_every_time";
+				for (const source of ["person", "chat", "run", "legacy"] as const) {
+					await createWorkItem(db, {
+						id: source,
+						orgId: "org",
+						title: "Review the implementation",
+						description: "Check the delegated change",
+						projectId: "project",
+						accountableOwnerType: "user",
+						accountableOwnerId: "user",
+						riskLevel: "high",
+						createdBy:
+							source === "person" || source === "legacy"
+								? { type: "user", id: "user" }
+								: source === "chat"
+									? { type: "tedi", id: "tedi" }
+									: { type: "external_agent", id: "runner" },
+						...(source === "person"
+							? {
+									workClass: "hygiene",
+									purposeExceptionExpiresAt: "2026-08-21T00:00:00.000Z",
+								}
+							: {}),
+						createdAt: "2026-08-20T00:00:00.000Z",
+					});
+					const item = await acceptWorkItem(db, {
+						orgId: "org",
+						workItemId: source,
+						actor: { type: "user", id: "user" },
+						acceptanceContract: {
+							version: 1,
+							doneLooksLike: "The review is recorded",
+						},
+						acceptedAt: "2026-08-20T01:00:00.000Z",
+					});
+					if (source === "legacy")
+						sqlite.exec(
+							"UPDATE work_items SET accountable_owner_type=NULL WHERE id='legacy'",
+						);
+					// Start directly, before a readiness read can create any receipts.
+					const admission = await prepareWorkAdmission(db, {
+						id: `start-${source}`,
+						orgId: "org",
+						workItemId: source,
+						expectedWorkItemVersion: item.version,
+						expectedAdmissionSpecRevision: item.admissionSpecRevision,
+						executorType: "tedi",
+						executorId: "tedi",
+						leaseTtlMs: 60_000,
+						now,
+					}).catch((error) => {
+						if (!strict) throw error;
+						expect(error).toMatchObject({ rejectionCode: "approval_blocked" });
+						return null;
+					});
+					if (!strict) {
+						expect(admission).not.toBeNull();
+						const { attempt } = await startWorkItemAttempt(db, {
+							orgId: "org",
+							workItemId: source,
+							admissionId: admission!.id,
+							executor: { type: "tedi", id: "tedi" },
+							admission: admission!,
+							expiresAt: admission!.expiresAt,
+							startedAt: now,
+						});
+						const event = sqlite
+							.prepare("SELECT payload FROM work_events WHERE id=?")
+							.get(`start-${source}`);
+						const terms = JSON.parse(event!.payload as string).taskContract;
+						expect(terms.goal).toContain("Check the delegated change");
+						expect(terms.deadline > now).toBe(true);
+						await settleWorkItemAttempt(db, {
+							orgId: "org",
+							workItemId: source,
+							attemptId: attempt.id,
+							executor: { type: "tedi", id: "tedi" },
+							outcome: "succeeded",
+							settledAt: now,
+						});
+					}
+					const readiness = await deriveWorkItemReadiness(db, {
+						orgId: "org",
+						workItemId: source,
+						derivedAt: now,
+					});
+					expect(readiness.state, `${mode}:${source}`).toBe(
+						strict ? "purpose_blocked" : "ready",
+					);
+				}
+				const queued = await listReadyWork(db, {
+					orgId: "org",
+					now,
+					executorType: "tedi",
+					executorId: "tedi",
+				});
+				expect(queued.data.map((row) => row.workItem.id).sort()).toEqual(
+					strict ? [] : ["chat", "legacy", "person", "run"],
+				);
+				const projection = await listWorkItemReadinessProjection(db, {
+					orgId: "org",
+					observedAt: now,
+				});
+				expect(
+					projection.data.every(
+						(row) =>
+							row.readiness.state === (strict ? "purpose_blocked" : "ready"),
+					),
+				).toBe(true);
+				if (!strict) {
+					const item = await updateWorkItemSpecification(db, {
+						orgId: "org",
+						workItemId: "chat",
+						actor: { type: "tedi", id: "tedi" },
+						requiredAuthorities: ["human:consent"],
+						updatedAt: now,
+					});
+					expect(
+						(
+							await evaluateAndRecordWorkAdmission(db, {
+								id: "reserved",
+								orgId: "org",
+								workItemId: item.id,
+								expectedWorkItemVersion: item.version,
+								expectedAdmissionSpecRevision: item.admissionSpecRevision,
+								executorType: "tedi",
+								executorId: "tedi",
+								leaseTtlMs: 60_000,
+								now,
+							})
+						).rejectionCode,
+					).toBe("approval_blocked");
+				}
+			} finally {
+				sqlite.close();
+			}
+		}
+	});
 	it("admits version-bound owner delegation while keeping agent Work and reserved authorities strict", async () => {
 		const sqlite = migrated();
 		try {
 			seedCore(sqlite);
+			sqlite.exec(
+				`UPDATE organizations SET metadata='{"defaultApprovalMode":"ask_every_time"}' WHERE id='org'`,
+			);
 			seedTedi(sqlite);
 			const db = createDbQueryClient(createD1Facade(sqlite));
 			const owner = { type: "user" as const, id: "user" };
@@ -368,6 +520,9 @@ describe("migrated Work factory raw-D1 invariants", () => {
 			const sqlite = migrated();
 			try {
 				seedCore(sqlite);
+				sqlite.exec(
+					`UPDATE organizations SET metadata='{"defaultApprovalMode":"ask_every_time"}' WHERE id='org'`,
+				);
 				seedTedi(sqlite);
 				const db = createDbQueryClient(createD1Facade(sqlite));
 				const now = "2026-08-20T01:00:00.000Z";

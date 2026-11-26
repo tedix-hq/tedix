@@ -1,5 +1,6 @@
 import {
 	hasOwnerWorkDelegation,
+	ownerWorkApprovalStatements,
 	matchesWorkApprovalVersion,
 	ownerWorkApprovalIsCurrent,
 } from "./planning-approval";
@@ -941,8 +942,11 @@ export async function ensureWorkRiskApproval(
 	if (
 		item.riskLevel === "high" &&
 		(await hasOwnerWorkDelegation(db, item, now))
-	)
+	) {
+		const statements = ownerWorkApprovalStatements(db, item, now);
+		if (statements.length) await db.batch(statements);
 		return;
+	}
 	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
 	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const existing = await db

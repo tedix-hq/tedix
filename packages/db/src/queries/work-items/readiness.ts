@@ -186,12 +186,14 @@ function evaluateWorkItemReadiness(
 					(value) => !facts.availableCapabilities!.includes(value),
 				);
 	const approvalEvaluation =
-		facts.approvalReceipts === undefined && !facts.inheritedAuthority
+		facts.approvalReceipts === undefined &&
+		!facts.inheritedAuthority &&
+		!facts.ownerDelegated
 			? undefined
 			: evaluateWorkAdmissionApprovals(
 					item,
 					facts.approvalReceipts ?? [],
-					facts.inheritedAuthority,
+					facts.inheritedAuthority || facts.ownerDelegated,
 				);
 	const missingAuthority = approvalEvaluation?.missingAuthorities.find(
 		(value) => item.requiredAuthorities.includes(value),
