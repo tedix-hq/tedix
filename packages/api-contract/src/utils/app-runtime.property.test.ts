@@ -162,7 +162,9 @@ describe("app runtime permission matrix, exhaustively", () => {
 					{ slot: "unrelated", operations: [...OPERATIONS] },
 				],
 			}).allowed;
-			expect(unrelated).toBe(before);
+			if (unrelated !== before) {
+				assert.equal(unrelated, before, JSON.stringify(input));
+			}
 		}
 	});
 
