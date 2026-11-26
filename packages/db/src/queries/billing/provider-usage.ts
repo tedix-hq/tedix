@@ -5,14 +5,45 @@ import {
 	DYNAMIC_WORKER_COST_USD_MICROS,
 } from "@tedix/api-contract/utils/credit-pricing";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, gte, lt, or, sql } from "drizzle-orm";
+import { and, eq, gte, lt, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import {
+	coreStore,
+	jsonRead,
+	jsonType,
+} from "../../core-store/dialect";
 import {
 	type BillingProviderUsage,
-	billingProviderUsage,
-	billingUsageQuarantines,
+	billingProviderUsage as schemaBillingProviderUsage,
+	billingUsageQuarantines as schemaBillingUsageQuarantines,
 } from "../../schema/billing";
 import { batchNonEmpty } from "../../utils/batch";
+
+const postgres = (db: object) => coreStore(db) === "postgres";
+/** json_type text on D1; #>> text on Postgres. */
+function jgetText(db: object, doc: SQLWrapper, path: readonly string[]): SQL {
+	return jsonRead(db, doc, path, "text");
+}
+function jgetNumber(db: object, doc: SQLWrapper, path: readonly string[]): SQL {
+	return jsonRead(db, doc, path, "number");
+}
+/** json_type normalized to jsonb_typeof vocabulary on both stores. */
+function jtype(db: object, doc: SQLWrapper, path: readonly string[]): SQL {
+	return jsonType(db, doc, path);
+}
+/** json_valid + object guard producing a jsonb/text document on both stores. */
+function jsonDocument(db: object, doc: SQLWrapper): SQL {
+	return postgres(db)
+		? sql`CASE WHEN pg_input_is_valid(${doc}::text, 'jsonb') AND jsonb_typeof(${doc}) = 'object' THEN ${doc} ELSE '{}'::jsonb END`
+		: sql`CASE WHEN json_valid(${doc}) THEN CASE WHEN json_type(${doc}) = 'object' THEN ${doc} ELSE '{}' END ELSE '{}' END`;
+}
+/** SQLite json_type 'integer' excludes reals; Postgres jsonb keeps the literal text. */
+function jinteger(db: object, doc: SQLWrapper, path: readonly string[]): SQL {
+	if (!postgres(db))
+		return sql`json_type(${doc}, '$.${sql.raw(path.join("."))}') = 'integer'`;
+	return sql`(jsonb_typeof(${doc} #> ${`{${path.join(",")}}`}::text[]) = 'number' AND (${doc} #>> ${`{${path.join(",")}}`}::text[]) ~ '^-?[0-9]+$')`;
+}
 
 export async function recordBillingProviderUsage(
 	db: DbClient,
@@ -50,26 +81,25 @@ export async function recordBillingProviderUsage(
 			"gatewayLogId or providerUsageId is required for provider usage",
 		);
 	}
+	const usage = coreTable(db, schemaBillingProviderUsage);
 	const duplicateConditions = [];
 	if (input.gatewayLogId) {
-		duplicateConditions.push(
-			eq(billingProviderUsage.gatewayLogId, input.gatewayLogId),
-		);
+		duplicateConditions.push(eq(usage.gatewayLogId, input.gatewayLogId));
 	}
 	if (input.providerUsageId) {
 		duplicateConditions.push(
-			eq(billingProviderUsage.providerUsageId, input.providerUsageId),
+			eq(usage.providerUsageId, input.providerUsageId),
 		);
 	}
 	const [existing] = await db
 		.select()
-		.from(billingProviderUsage)
+		.from(usage)
 		.where(or(...duplicateConditions))
 		.limit(1);
 	if (existing) return existing;
 
 	const [created] = await db
-		.insert(billingProviderUsage)
+		.insert(usage)
 		.values({
 			id: input.id,
 			organizationId: input.organizationId ?? null,
@@ -95,7 +125,7 @@ export async function recordBillingProviderUsage(
 
 	const [raced] = await db
 		.select()
-		.from(billingProviderUsage)
+		.from(usage)
 		.where(or(...duplicateConditions))
 		.limit(1);
 	if (!raced) throw new Error("Failed to record provider usage");
@@ -107,19 +137,21 @@ export async function recordBillingUsageQuarantines(
 	rows: Array<{
 		gatewayLogId: string;
 		organizationId?: string | null;
-		reason: (typeof billingUsageQuarantines.$inferInsert)["reason"];
+		reason: (typeof schemaBillingUsageQuarantines.$inferInsert)["reason"];
 		sourceSnapshotAt: string;
 		metadata?: Record<string, JsonValue>;
 		createdAt: string;
 	}>,
 ): Promise<number> {
+	const quarantines = coreTable(db, schemaBillingUsageQuarantines);
 	let inserted = 0;
 	// Seven bound values per row; ten stays below D1's 100-variable ceiling.
-	for (let offset = 0; offset < rows.length; offset += 10) {
-		const chunk = rows.slice(offset, offset + 10);
+	const chunkSize = postgres(db) ? 200 : 10;
+	for (let offset = 0; offset < rows.length; offset += chunkSize) {
+		const chunk = rows.slice(offset, offset + chunkSize);
 		if (chunk.length === 0) continue;
 		const created = await db
-			.insert(billingUsageQuarantines)
+			.insert(quarantines)
 			.values(
 				chunk.map((row) => ({
 					id: `gateway:${row.gatewayLogId}`,
@@ -132,7 +164,7 @@ export async function recordBillingUsageQuarantines(
 				})),
 			)
 			.onConflictDoNothing()
-			.returning({ id: billingUsageQuarantines.id });
+			.returning({ id: quarantines.id });
 		inserted += created.length;
 	}
 	return inserted;
@@ -175,35 +207,36 @@ export async function getDailyProviderUnitSpend(
 		now.getTime() - lookbackDays * 24 * 60 * 60 * 1000,
 	);
 	const baselineStart = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000);
+	const usage = coreTable(db, schemaBillingProviderUsage);
 	const orgFilter = options.organizationId
-		? [eq(billingProviderUsage.organizationId, options.organizationId)]
+		? [eq(usage.organizationId, options.organizationId)]
 		: [];
 
 	const [current] = await db
 		.select({
-			micros: sql<number>`COALESCE(SUM(${billingProviderUsage.providerCostMicros}), 0)`,
-			quantity: sql<number>`COALESCE(SUM(${billingProviderUsage.quantity}), 0)`,
+			micros: sql<number>`COALESCE(SUM(${usage.providerCostMicros}), 0)`,
+			quantity: sql<number>`COALESCE(SUM(${usage.quantity}), 0)`,
 		})
-		.from(billingProviderUsage)
+		.from(usage)
 		.where(
 			and(
 				...orgFilter,
-				eq(billingProviderUsage.usageKind, options.usageKind),
-				gte(billingProviderUsage.occurredAt, windowStart.toISOString()),
+				eq(usage.usageKind, options.usageKind),
+				gte(usage.occurredAt, windowStart.toISOString()),
 			),
 		);
 
 	const [baseline] = await db
 		.select({
-			micros: sql<number>`COALESCE(SUM(${billingProviderUsage.providerCostMicros}), 0)`,
+			micros: sql<number>`COALESCE(SUM(${usage.providerCostMicros}), 0)`,
 		})
-		.from(billingProviderUsage)
+		.from(usage)
 		.where(
 			and(
 				...orgFilter,
-				eq(billingProviderUsage.usageKind, options.usageKind),
-				gte(billingProviderUsage.occurredAt, baselineStart.toISOString()),
-				lt(billingProviderUsage.occurredAt, windowStart.toISOString()),
+				eq(usage.usageKind, options.usageKind),
+				gte(usage.occurredAt, baselineStart.toISOString()),
+				lt(usage.occurredAt, windowStart.toISOString()),
 			),
 		);
 
@@ -243,17 +276,18 @@ export async function sumWorkstationComputeMicros(
 	periodStart: string,
 	periodEnd: string,
 ): Promise<{ micros: number; rows: number }> {
+	const usage = coreTable(db, schemaBillingProviderUsage);
 	const [total] = await db
 		.select({
-			micros: sql<number>`COALESCE(SUM(${billingProviderUsage.providerCostMicros}), 0)`,
+			micros: sql<number>`COALESCE(SUM(${usage.providerCostMicros}), 0)`,
 			rows: sql<number>`COUNT(*)`,
 		})
-		.from(billingProviderUsage)
+		.from(usage)
 		.where(
 			and(
-				eq(billingProviderUsage.usageKind, "workstation_compute"),
-				gte(billingProviderUsage.occurredAt, periodStart),
-				lt(billingProviderUsage.occurredAt, periodEnd),
+				eq(usage.usageKind, "workstation_compute"),
+				gte(usage.occurredAt, periodStart),
+				lt(usage.occurredAt, periodEnd),
 			),
 		);
 	return { micros: Number(total?.micros ?? 0), rows: Number(total?.rows ?? 0) };
@@ -278,22 +312,23 @@ export async function listWorkstationComputeForAllocation(
 	db: DbClient,
 	options: { periodStart: string; periodEnd: string; limit: number },
 ): Promise<WorkstationComputeAllocationTarget[]> {
+	const usage = coreTable(db, schemaBillingProviderUsage);
 	const rows = await db
 		.select({
-			id: billingProviderUsage.id,
-			metadata: billingProviderUsage.metadata,
-			organizationId: billingProviderUsage.organizationId,
-			quantity: billingProviderUsage.quantity,
+			id: usage.id,
+			metadata: usage.metadata,
+			organizationId: usage.organizationId,
+			quantity: usage.quantity,
 		})
-		.from(billingProviderUsage)
+		.from(usage)
 		.where(
 			and(
-				eq(billingProviderUsage.usageKind, "workstation_compute"),
-				gte(billingProviderUsage.occurredAt, options.periodStart),
-				lt(billingProviderUsage.occurredAt, options.periodEnd),
+				eq(usage.usageKind, "workstation_compute"),
+				gte(usage.occurredAt, options.periodStart),
+				lt(usage.occurredAt, options.periodEnd),
 			),
 		)
-		.orderBy(billingProviderUsage.id)
+		.orderBy(usage.id)
 		.limit(options.limit);
 	return rows.map((row) => ({
 		id: row.id,
@@ -326,6 +361,7 @@ export async function applyWorkstationComputeCostAllocation(
 	// Each statement binds 4 parameters, far under D1's 100-per-statement cap;
 	// the chunk exists to keep one batch payload bounded on a backlog replay.
 	const CHUNK = 25;
+	const usage = coreTable(db, schemaBillingProviderUsage);
 	let updated = 0;
 	for (let index = 0; index < allocations.length; index += CHUNK) {
 		const chunk = allocations.slice(index, index + CHUNK);
@@ -333,13 +369,13 @@ export async function applyWorkstationComputeCostAllocation(
 			batchNonEmpty(
 				chunk.map((allocation) =>
 					db
-						.update(billingProviderUsage)
+						.update(usage)
 						.set({
 							metadata: allocation.metadata,
 							providerCostMicros: allocation.providerCostMicros,
 							providerCostQuality: "provider_reconciled",
 						})
-						.where(eq(billingProviderUsage.id, allocation.id)),
+						.where(eq(usage.id, allocation.id)),
 				),
 			),
 		);
@@ -362,10 +398,39 @@ export interface WorkstationCostCoverageResult {
 	unproven: { rowCount: number; leaseSeconds: number };
 }
 
+/** instr() 1-based substring position on both stores. */
+function instrText(db: object, haystack: SQLWrapper, needle: string): SQL {
+	return postgres(db)
+		? sql`strpos(${haystack}, ${needle})`
+		: sql`instr(${haystack}, ${needle})`;
+}
+/** trim() with an explicit code-point set on both stores. */
+function trimChars(db: object, value: SQLWrapper, chars: string): SQL {
+	return postgres(db)
+		? sql`btrim(${value}, ${chars})`
+		: sql`trim(${value}, ${chars})`;
+}
+/** julianday() instant comparisons on both stores. */
+function instant(db: object, value: SQLWrapper): SQL {
+	return postgres(db)
+		? sql`CASE WHEN pg_input_is_valid(${value}, 'timestamp with time zone') THEN CASE WHEN ${value} ~ '(Z|[+-][0-9]{2}:[0-9]{2})$' THEN ${value}::timestamptz ELSE ${value}::timestamp AT TIME ZONE 'UTC' END END`
+		: sql`julianday(${value})`;
+}
+const EVIDENCE_TRIM_CHARS = String.fromCodePoint(
+	9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198,
+	8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279,
+);
+
 /** SQLite date parsing alone accepts non-ISO strings. Keep stored allocation
  * evidence closed to explicit timestamp syntax before comparing instants. */
-function allocationTimestamp(column: "allocation_start" | "allocation_end") {
+function allocationTimestamp(
+	db: DbClient,
+	column: "allocation_start" | "allocation_end",
+) {
 	const v = sql.identifier(column);
+	if (postgres(db))
+		return sql`(${v} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$'
+ AND pg_input_is_valid(${v}, 'timestamp with time zone'))`;
 	return sql`(${v} GLOB '????-??-??T??:??:??*'
  AND (substr(${v},1,4) || substr(${v},6,2) || substr(${v},9,2) || substr(${v},12,2) || substr(${v},15,2) || substr(${v},18,2)) NOT GLOB '*[^0-9]*'
  AND date(substr(${v},1,10), '+0 days') = substr(${v},1,10)
@@ -404,7 +469,8 @@ export async function getWorkstationCostCoverage(
 		throw new Error("Invalid workstation coverage window or organization");
 	const periodStart = new Date(start).toISOString(),
 		periodEnd = new Date(end).toISOString();
-	const usage = billingProviderUsage;
+	const pg = postgres(db);
+	const usage = coreTable(db, schemaBillingProviderUsage);
 	const scoped = db.$with("scoped").as(
 		db
 			.select({
@@ -412,10 +478,7 @@ export async function getWorkstationCostCoverage(
 				cost: sql<number>`${usage.providerCostMicros}`.as("cost"),
 				quality: sql<string>`${usage.providerCostQuality}`.as("quality"),
 				occurred: sql<string>`${usage.occurredAt}`.as("occurred"),
-				evidence:
-					sql<string>`CASE WHEN json_valid(${usage.metadata}) THEN CASE WHEN json_type(${usage.metadata}) = 'object' THEN ${usage.metadata} ELSE '{}' END ELSE '{}' END`.as(
-						"evidence",
-					),
+				evidence: jsonDocument(db, usage.metadata).as("evidence"),
 			})
 			.from(usage)
 			.where(
@@ -436,20 +499,25 @@ export async function getWorkstationCostCoverage(
 				occurred: scoped.occurred,
 				evidence: scoped.evidence,
 				chargePeriod:
-					sql<string>`json_extract(${scoped.evidence}, '$.allocation.chargePeriod')`.as(
+					jgetText(db, scoped.evidence, ["allocation", "chargePeriod"]).as(
 						"charge_period",
 					),
 				chargeTotal:
-					sql<number>`json_extract(${scoped.evidence}, '$.allocation.chargeTotalMicros')`.as(
-						"charge_total",
-					),
-				share:
-					sql<number>`json_extract(${scoped.evidence}, '$.allocation.shareBasisPoints')`.as(
-						"share",
-					),
+					jgetNumber(db, scoped.evidence, [
+						"allocation",
+						"chargeTotalMicros",
+					]).as("charge_total"),
+				share: jgetNumber(db, scoped.evidence, [
+					"allocation",
+					"shareBasisPoints",
+				]).as("share"),
 				numericOk:
-					sql<number>`CASE WHEN typeof(${scoped.quantity}) = 'integer' AND ${scoped.quantity} BETWEEN 0 AND 9007199254740991
- AND typeof(${scoped.cost}) = 'integer' AND ${scoped.cost} BETWEEN 0 AND 9007199254740991 THEN 1 ELSE 0 END`.as(
+					sql<number>`CASE WHEN ${pg
+						? sql`pg_typeof(${scoped.quantity}) IN ('smallint','integer','bigint')`
+						: sql`typeof(${scoped.quantity}) = 'integer'`} AND ${scoped.quantity} BETWEEN 0 AND 9007199254740991
+ AND ${pg
+						? sql`pg_typeof(${scoped.cost}) IN ('smallint','integer','bigint')`
+						: sql`typeof(${scoped.cost}) = 'integer'`} AND ${scoped.cost} BETWEEN 0 AND 9007199254740991 THEN 1 ELSE 0 END`.as(
 						"numeric_ok",
 					),
 			})
@@ -468,11 +536,12 @@ export async function getWorkstationCostCoverage(
 				share: fields.share,
 				numericOk: fields.numericOk,
 				allocationStart:
-					sql<string>`substr(${fields.chargePeriod}, 1, instr(${fields.chargePeriod}, '..') - 1)`.as(
-						"allocation_start",
-					),
+					(pg
+						? sql`substr(${fields.chargePeriod}, 1, GREATEST(${instrText(db, fields.chargePeriod, "..")} - 1, 0))`
+						: sql`substr(${fields.chargePeriod}, 1, ${instrText(db, fields.chargePeriod, "..")} - 1)`
+					).as("allocation_start"),
 				allocationEnd:
-					sql<string>`substr(${fields.chargePeriod}, instr(${fields.chargePeriod}, '..') + 2)`.as(
+					sql<string>`substr(${fields.chargePeriod}, ${instrText(db, fields.chargePeriod, "..")} + 2)`.as(
 						"allocation_end",
 					),
 			})
@@ -486,16 +555,16 @@ export async function getWorkstationCostCoverage(
 				cost: p.cost,
 				numericOk: p.numericOk,
 				category: sql<string>`CASE WHEN ${p.quality} = 'provider_reconciled'
- AND json_type(${p.evidence}, '$.pricingStatus') = 'text' AND json_extract(${p.evidence}, '$.pricingStatus') = 'allocated'
- AND json_type(${p.evidence}, '$.allocation') = 'object'
- AND json_extract(${p.evidence}, '$.allocation.basis') = 'workstation_lease_wall_clock_share'
- AND json_type(${p.evidence}, '$.allocation.chargeSourceRef') = 'text' AND length(trim(json_extract(${p.evidence}, '$.allocation.chargeSourceRef'), char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279))) > 0
- AND json_type(${p.evidence}, '$.allocation.chargePeriod') = 'text' AND instr(${p.chargePeriod}, '..') > 0 AND instr(${p.allocationEnd}, '..') = 0
- AND ${allocationTimestamp("allocation_start")} AND ${allocationTimestamp("allocation_end")}
- AND julianday(${p.allocationStart}) < julianday(${p.allocationEnd})
- AND julianday(${p.occurred}) >= julianday(${p.allocationStart}) AND julianday(${p.occurred}) < julianday(${p.allocationEnd})
- AND json_type(${p.evidence}, '$.allocation.chargeTotalMicros') = 'integer' AND ${p.chargeTotal} BETWEEN 0 AND 9007199254740991 AND ${p.cost} <= ${p.chargeTotal}
- AND json_type(${p.evidence}, '$.allocation.shareBasisPoints') = 'integer' AND ${p.share} BETWEEN 0 AND 10000
+ AND ${jtype(db, p.evidence, ["pricingStatus"])} = 'string' AND ${jgetText(db, p.evidence, ["pricingStatus"])} = 'allocated'
+ AND ${jtype(db, p.evidence, ["allocation"])} = 'object'
+ AND ${jgetText(db, p.evidence, ["allocation", "basis"])} = 'workstation_lease_wall_clock_share'
+ AND ${jtype(db, p.evidence, ["allocation", "chargeSourceRef"])} = 'string' AND length(${trimChars(db, jgetText(db, p.evidence, ["allocation", "chargeSourceRef"]), EVIDENCE_TRIM_CHARS)}) > 0
+ AND ${jtype(db, p.evidence, ["allocation", "chargePeriod"])} = 'string' AND ${instrText(db, p.chargePeriod, "..")} > 0 AND ${instrText(db, p.allocationEnd, "..")} = 0
+ AND ${allocationTimestamp(db, "allocation_start")} AND ${allocationTimestamp(db, "allocation_end")}
+ AND ${instant(db, p.allocationStart)} < ${instant(db, p.allocationEnd)}
+ AND ${instant(db, p.occurred)} >= ${instant(db, p.allocationStart)} AND ${instant(db, p.occurred)} < ${instant(db, p.allocationEnd)}
+ AND ${jinteger(db, p.evidence, ["allocation", "chargeTotalMicros"])} AND ${p.chargeTotal} BETWEEN 0 AND 9007199254740991 AND ${p.cost} <= ${p.chargeTotal}
+ AND ${jinteger(db, p.evidence, ["allocation", "shareBasisPoints"])} AND ${p.share} BETWEEN 0 AND 10000
  THEN 'reconciled' WHEN ${p.quality} = 'estimated' THEN 'pending' ELSE 'unproven' END`.as(
 					"category",
 				),
@@ -625,7 +694,8 @@ export async function applyDynamicWorkerCostAllocation(
 	const billedSql = sql`CAST(${billed} AS INTEGER)`;
 	const totalSql = sql`CAST(${input.totalCostMicros} AS INTEGER)`;
 	const unitSql = sql`CAST(${DYNAMIC_WORKER_COST_USD_MICROS} AS INTEGER)`;
-	const usage = billingProviderUsage;
+	const pg = postgres(db);
+	const usage = coreTable(db, schemaBillingProviderUsage);
 	const targets = db.$with("worker_targets").as(
 		db
 			.select({
@@ -646,12 +716,25 @@ export async function applyDynamicWorkerCostAllocation(
 					eq(usage.provider, DYNAMIC_WORKER_PROVIDER),
 					sql`${usage.organizationId} IS NOT NULL`,
 					sql`${usage.quantity} > 0`,
-					sql`json_extract(${usage.metadata}, '$.identity') = 'anonymous'`,
+					sql`${jgetText(db, usage.metadata, ["identity"])} = 'anonymous'`,
 					gte(usage.occurredAt, input.periodStart),
 					lt(usage.occurredAt, input.periodEnd),
 				),
 			),
 	);
+	// SQLite `/` is float division and `%` is fmod; Postgres integer `/` and `%`
+	// truncate, so the share math is spelled out in float8 there. LEAST/GREATEST
+	// replace SQLite's two-argument MIN/MAX.
+	const least = (a: SQLWrapper, b: SQLWrapper) =>
+		pg ? sql`LEAST(${a}, ${b})` : sql`MIN(${a}, ${b})`;
+	const greatest = (a: SQLWrapper, b: SQLWrapper) =>
+		pg ? sql`GREATEST(${a}, ${b})` : sql`MAX(${a}, ${b})`;
+	const shareDiv = (numerator: SQLWrapper, denominator: SQLWrapper) =>
+		pg ? sql`(${numerator})::float8 / ${denominator}` : sql`${numerator} / ${denominator}`;
+	const modulo = (value: SQLWrapper, divisor: SQLWrapper) =>
+		pg
+			? sql`(${value} - trunc((${value}) / (${divisor})) * (${divisor}))`
+			: sql`${value} % ${divisor}`;
 	const totals = db.$with("worker_totals").as(
 		db
 			.select({
@@ -661,7 +744,7 @@ export async function applyDynamicWorkerCostAllocation(
 				cumulative: targets.cumulative,
 				n: targets.n,
 				allocated:
-					sql<number>`CASE WHEN ${billedSql} IS NULL THEN 0 ELSE ${totalSql} * MIN(${targets.n}, ${billedSql}) / ${billedSql} END`.as(
+					sql<number>`CASE WHEN ${billedSql} IS NULL THEN 0 ELSE ${shareDiv(sql`${totalSql} * ${least(targets.n, billedSql)}`, billedSql)} END`.as(
 						"allocated",
 					),
 			})
@@ -674,8 +757,8 @@ export async function applyDynamicWorkerCostAllocation(
 				// Each load unit gets allocated / n; the first allocated % n units
 				// in id order get one extra micro.
 				cost: sql<number>`CASE WHEN ${billedSql} IS NULL THEN ${unitSql} * ${totals.quantity}
-   ELSE ${totals.quantity} * (${totals.allocated} / ${totals.n})
-    + MAX(0, MIN(${totals.cumulative}, ${totals.allocated} % ${totals.n}) - (${totals.cumulative} - ${totals.quantity})) END`.as(
+   ELSE ${totals.quantity} * (${shareDiv(totals.allocated, totals.n)})
+    + ${greatest(sql`0`, sql`${least(totals.cumulative, modulo(totals.allocated, totals.n))} - (${totals.cumulative} - ${totals.quantity})`)} END${pg ? sql`::bigint` : sql``}`.as(
 					"cost",
 				),
 				quality: sql<
@@ -683,9 +766,15 @@ export async function applyDynamicWorkerCostAllocation(
 				>`CASE WHEN ${billedSql} IS NULL THEN 'estimated' ELSE 'provider_reconciled' END`.as(
 					"quality",
 				),
-				evidence: sql<
-					Record<string, JsonValue>
-				>`json_set(${totals.metadata}, '$.pricingStatus', CASE WHEN ${billedSql} IS NULL THEN 'pending' ELSE 'allocated' END, '$.allocation', json_object(
+				evidence: pg
+					? sql<Record<string, JsonValue>>`jsonb_set(jsonb_set(${totals.metadata}, '{pricingStatus}', to_jsonb(CASE WHEN ${billedSql} IS NULL THEN 'pending' ELSE 'allocated' END)), '{allocation}', jsonb_build_object(
+   'basis', 'anonymous_worker_load_share', 'chargePeriod', ${`${input.periodStart}..${input.periodEnd}`},
+   'chargeSourceRef', ${input.evidenceRef}, 'chargeTotalMicros', ${totalSql},
+   'billedQuantity', ${billedSql}, 'recordedQuantity', ${totals.n}
+  ))`.as("evidence")
+					: sql<
+							Record<string, JsonValue>
+						>`json_set(${totals.metadata}, '$.pricingStatus', CASE WHEN ${billedSql} IS NULL THEN 'pending' ELSE 'allocated' END, '$.allocation', json_object(
    'basis', 'anonymous_worker_load_share', 'chargePeriod', ${`${input.periodStart}..${input.periodEnd}`},
    'chargeSourceRef', ${input.evidenceRef}, 'chargeTotalMicros', ${totalSql},
    'billedQuantity', ${billedSql}, 'recordedQuantity', ${totals.n}
@@ -715,20 +804,21 @@ export async function sumDynamicWorkerAllocatedCost(
 	db: DbClient,
 	input: { periodStart: string; periodEnd: string },
 ) {
+	const usage = coreTable(db, schemaBillingProviderUsage);
 	const [row] = await db
 		.select({
-			micros: sql<number>`COALESCE(SUM(${billingProviderUsage.providerCostMicros}), 0)`,
+			micros: sql<number>`COALESCE(SUM(${usage.providerCostMicros}), 0)`,
 			rows: sql<number>`COUNT(*)`,
 		})
-		.from(billingProviderUsage)
+		.from(usage)
 		.where(
 			and(
-				eq(billingProviderUsage.provider, DYNAMIC_WORKER_PROVIDER),
-				eq(billingProviderUsage.providerCostQuality, "provider_reconciled"),
-				sql`${billingProviderUsage.organizationId} IS NOT NULL`,
-				gte(billingProviderUsage.occurredAt, input.periodStart),
-				lt(billingProviderUsage.occurredAt, input.periodEnd),
-				sql`json_extract(${billingProviderUsage.metadata}, '$.allocation.chargePeriod') = ${`${input.periodStart}..${input.periodEnd}`}`,
+				eq(usage.provider, DYNAMIC_WORKER_PROVIDER),
+				eq(usage.providerCostQuality, "provider_reconciled"),
+				sql`${usage.organizationId} IS NOT NULL`,
+				gte(usage.occurredAt, input.periodStart),
+				lt(usage.occurredAt, input.periodEnd),
+				sql`${jgetText(db, usage.metadata, ["allocation", "chargePeriod"])} = ${`${input.periodStart}..${input.periodEnd}`}`,
 			),
 		);
 	return { micros: Number(row?.micros ?? 0), rows: Number(row?.rows ?? 0) };
