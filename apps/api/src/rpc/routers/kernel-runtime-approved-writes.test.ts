@@ -25,6 +25,7 @@ import {
 	type KernelRuntimeRunRow,
 	type WorkItemRow,
 	type WorkAttemptRow,
+	normalizeKernelRuntimeEventInsert,
 	normalizeKernelRuntimeRunInsert,
 	normalizeWorkItemInsert,
 	runningWorkAttempt,
@@ -2536,6 +2537,16 @@ function reusedWorkRecoveryFixture() {
 		},
 	});
 	db.runs.push(home);
+	db.events.push(
+		normalizeKernelRuntimeEventInsert({
+			id: "reused-home-input",
+			organizationId: ORG_ID,
+			conversationId: home.conversationId,
+			runId: home.id,
+			kind: "message.received",
+			payload: { role: "user", content: "Recover existing Work" },
+		}),
+	);
 	const attempt = Object.assign(
 		runningWorkAttempt(work.id, "tedi-cpo", "original-child"),
 		{
@@ -2585,6 +2596,47 @@ function reusedWorkRecoveryFixture() {
 	kernelRuntimeTestHooks.setDelegateRunnerForTest(runner);
 	return { db, work, home, attempt, context, runner };
 }
+
+it("recovers the complete long original request instead of a truncated stored summary", async () => {
+	const f = reusedWorkRecoveryFixture();
+	const original = `LEAD: ${"Implementation scope and constraints. ".repeat(500)}\nFinal acceptance: preserve the independent oracle.`;
+	f.db.events[0]!.payload = { role: "user", content: original };
+	(
+		f.home.metadata!.delegationWorkOrder as Record<string, unknown>
+	).sourceContent = "LEAD…";
+	await retryDelegationWorkItem(f.context, {
+		organizationId: ORG_ID,
+		workItemId: f.work.id,
+	});
+	expect(f.runner).toHaveBeenCalledWith(
+		expect.objectContaining({
+			content: expect.stringContaining(original),
+			metadata: expect.objectContaining({
+				delegationWorkOrder: expect.objectContaining({
+					sourceContent: expect.stringContaining(original),
+				}),
+			}),
+		}),
+	);
+});
+
+it("does not admit or dispatch recovery if the original request is unavailable", async () => {
+	const f = reusedWorkRecoveryFixture();
+	f.db.events.length = 0;
+	(
+		f.home.metadata!.delegationWorkOrder as Record<string, unknown>
+	).sourceContent = "LEAD…";
+	const admissions = vi.mocked(prepareWorkAdmission).mock.calls.length;
+	await expect(
+		retryDelegationWorkItem(f.context, {
+			organizationId: ORG_ID,
+			workItemId: f.work.id,
+		}),
+	).rejects.toThrow(/original request is unavailable/);
+	expect(prepareWorkAdmission).toHaveBeenCalledTimes(admissions);
+	expect(f.runner).not.toHaveBeenCalled();
+	expect(f.db.workAttemptRows).toHaveLength(1);
+});
 
 it.each(["route", "core"] as const)(
 	"recovers NULL-origin canonical Work through %s using its actual failed tedi ledger",

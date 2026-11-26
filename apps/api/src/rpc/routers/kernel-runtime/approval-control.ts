@@ -50,6 +50,7 @@ import { approvedHomePlanStatus } from "../kernel/home-plan";
 import {
 	assignmentIsWriteBearing,
 	renderDelegationWorkOrderMessage,
+	withOriginalDelegationRequest,
 	serializedFanOutChainEdges,
 	shouldSerializeFanOut,
 } from "../kernel/delegation-dispatch";
@@ -1564,7 +1565,7 @@ async function retryKernelRunCore(
 		(typeof existingMetadata.delegatedTediId === "string"
 			? existingMetadata.delegatedTediId
 			: null);
-	const delegationWorkOrder = nonNullRecord(
+	const storedDelegationWorkOrder = nonNullRecord(
 		existingMetadata.delegationWorkOrder,
 	);
 	if (!delegatedTediId) {
@@ -1573,14 +1574,14 @@ async function retryKernelRunCore(
 			`Home run ${existingRun.id} cannot be retried: no delegatedTediId on the failed run`,
 		);
 	}
-	if (!delegationWorkOrder) {
+	if (!storedDelegationWorkOrder) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
 			`Home run ${existingRun.id} cannot be retried: no delegationWorkOrder on the failed run (only delegation runs are retryable)`,
 		);
 	}
 	const workItemId =
-		stringFromPayload(delegationWorkOrder.workItemId) ??
+		stringFromPayload(storedDelegationWorkOrder.workItemId) ??
 		stringFromPayload(existingMetadata.workItemId) ??
 		stringFromPayload(nonNullRecord(existingRun.runtimeMetadata)?.workItemId);
 
@@ -1590,16 +1591,23 @@ async function retryKernelRunCore(
 		childRunId: existingRun.childRunId,
 	});
 
-	// Extract the original source content from the work order (used as the
-	// dispatch message body, same as respondKernelDelegationRecommendationApprovalCore).
-	const sourceContent =
-		(typeof delegationWorkOrder.sourceContent === "string"
-			? delegationWorkOrder.sourceContent
-			: null) ??
-		(typeof existingMetadata.objective === "string"
-			? existingMetadata.objective
-			: null) ??
-		"Retry: please complete the delegated work order.";
+	// A summary is not a recoverable source request. Read the original event
+	// before creating a new run or dispatching a child.
+	const sourceContent = await readKernelUserMessageContent(context, {
+		conversationId: existingRun.conversationId,
+		organizationId,
+		runId: existingRun.id,
+	});
+	if (!sourceContent) {
+		throw createError(
+			ErrorCodes.CONFLICT,
+			`Home run ${existingRun.id} cannot be retried: its original request is unavailable`,
+		);
+	}
+	const delegationWorkOrder = withOriginalDelegationRequest(
+		storedDelegationWorkOrder,
+		sourceContent,
+	);
 	const retriedAt = nowIso();
 	const assistantAt = offsetIso(retriedAt, 1);
 	const completedAt = offsetIso(retriedAt, 2);

@@ -83,7 +83,10 @@ import { homeWorkstationAttachPayload } from "../kernel/workstation-attach";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { insertWorkItemCommentIfAbsent } from "@tedix/db/queries/kernel-runtime-support";
 import { readChildRunStatusesForRunRows } from "../kernel/home-plan";
-import { renderDelegationWorkOrderMessage } from "../kernel/delegation-dispatch";
+import {
+	renderDelegationWorkOrderMessage,
+	withOriginalDelegationRequest,
+} from "../kernel/delegation-dispatch";
 import { requestRunAbort } from "../../../kernel/runtime-submission-bridge";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
@@ -419,9 +422,24 @@ async function retryDelegationWorkItem(
 		childRunId: homeRun.childRunId,
 	});
 	const homeRunMetadata = nonNullRecord(homeRun.metadata) ?? {};
-	const delegationWorkOrder = recoverableDelegationWorkOrder(homeRunMetadata);
+	const storedWorkOrder = recoverableDelegationWorkOrder(homeRunMetadata);
+	const originalRequest = await readKernelUserMessageContent(context, {
+		conversationId: homeRun.conversationId,
+		organizationId,
+		runId: homeRunId,
+	});
+	if (!originalRequest) {
+		throw createError(
+			ErrorCodes.CONFLICT,
+			`Home run ${homeRunId} cannot be retried: its original request is unavailable`,
+		);
+	}
+	const delegationWorkOrder = withOriginalDelegationRequest(
+		storedWorkOrder,
+		originalRequest,
+	);
 	const recoveryExecutionRequirement = ExecutionRequirementSchema.safeParse(
-		delegationWorkOrder?.executionRequirement,
+		delegationWorkOrder.executionRequirement,
 	);
 	if (!recoveryExecutionRequirement.success) {
 		throw createError(
@@ -486,7 +504,10 @@ async function retryDelegationWorkItem(
 
 	// Persist the admitted identity before dispatch can outlive this request.
 	// Readers must follow the new child even if its acknowledgement never returns.
-	const recoveryMetadata = { ...homeRunMetadata };
+	const recoveryMetadata: Record<string, unknown> = {
+		...homeRunMetadata,
+		delegationWorkOrder,
+	};
 	for (const key of [
 		"childRunStatus",
 		"childRunEventCount",
@@ -507,15 +528,7 @@ async function retryDelegationWorkItem(
 	// A run a person started with a tedi they picked is retried inside that
 	// conversation's tedi session, with the person's message as written.
 	const personMessage =
-		homeRunMetadata.pickedByPerson === true
-			? ((await readKernelUserMessageContent(context, {
-					conversationId: homeRun.conversationId,
-					organizationId,
-					runId: homeRunId,
-				})) ??
-				stringFromPayload(delegationWorkOrder?.sourceContent) ??
-				null)
-			: null;
+		homeRunMetadata.pickedByPerson === true ? originalRequest : null;
 	const pickedByPerson = personMessage !== null;
 	const recoveryConversationId = await delegationSessionKeyForDispatch({
 		childRunId: childClientRequestId,

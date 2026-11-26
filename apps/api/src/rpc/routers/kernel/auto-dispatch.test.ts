@@ -119,6 +119,32 @@ ${content}
 		);
 	});
 
+	it("includes the original long request when stored source is truncated", async () => {
+		const content = `${"Long scope. ".repeat(500)}Final acceptance.`;
+		const enqueueChild = vi.fn(async () => ({
+			runId: "child",
+			status: "queued",
+		}));
+		await buildAutoDelegationDispatcher({
+			enqueueChild,
+			predictChildRunId: () => "child",
+		})({
+			...input,
+			content,
+			workOrder: { ...WORK_ORDER, sourceContent: "Long scope…" },
+		});
+		expect(enqueueChild).toHaveBeenCalledWith(
+			expect.objectContaining({
+				content: expect.stringContaining(content),
+				metadata: expect.objectContaining({
+					delegationWorkOrder: expect.objectContaining({
+						sourceContent: expect.stringContaining(content),
+					}),
+				}),
+			}),
+		);
+	});
+
 	it("enqueues the child idempotency-keyed by the client request id, threading the work order", async () => {
 		const enqueueChild = vi.fn(async () => ({
 			runId: "tedi-cpo:mcp:run-1_auto_tedi-cpo",

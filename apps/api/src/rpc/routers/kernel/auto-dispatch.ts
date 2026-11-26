@@ -26,6 +26,7 @@ import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitiv
 import {
 	type DelegationWorkOrder,
 	renderDelegationWorkOrderMessage,
+	withOriginalDelegationRequest,
 } from "./delegation-dispatch";
 import type { HomeDelegationEvidence } from "./index";
 
@@ -150,9 +151,12 @@ export function buildAutoDelegationDispatcher(deps: {
 		// FAIL-SOFT: a malformed/empty work order falls back to `input.content`, so a
 		// regression degrades to exactly today's content (the bare ask). The raw ask
 		// is also preserved as the work order's `sourceContent`, so nothing is lost.
-		const effectiveWorkOrder = input.workItemId
-			? { ...input.workOrder, workItemId: input.workItemId }
-			: input.workOrder;
+		const effectiveWorkOrder = withOriginalDelegationRequest(
+			input.workItemId
+				? { ...input.workOrder, workItemId: input.workItemId }
+				: { ...input.workOrder },
+			input.content,
+		);
 		const childContent = renderDelegationWorkOrderMessage({
 			workOrder: effectiveWorkOrder as unknown as Record<string, unknown>,
 			fallbackContent: input.content,

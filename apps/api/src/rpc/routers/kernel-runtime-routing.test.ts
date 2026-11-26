@@ -38,6 +38,23 @@ function recordOriginalChildStop(
 	runId: string,
 ) {
 	const run = db.runs.find((row) => row.id === runId)!;
+	const order = run.metadata?.delegationWorkOrder as
+		| Record<string, unknown>
+		| undefined;
+	const source =
+		typeof order?.sourceContent === "string"
+			? order.sourceContent
+			: "Original request";
+	db.events.push(
+		normalizeKernelRuntimeEventInsert({
+			id: `input-${runId}`,
+			organizationId: ORG_ID,
+			conversationId: run.conversationId,
+			runId,
+			kind: "message.received",
+			payload: { role: "user", content: source },
+		}),
+	);
 	run.childRunId ??= `child-${runId}`;
 	db.runtimeEvents.push(
 		childRuntimeEvent({
@@ -596,6 +613,15 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 		kernelRuntimeTestHooks.setDelegateRunnerForTest(delegateRunner);
 
 		recordOriginalChildStop(db, failedRunId);
+		const originalRequest = delegationWorkOrder.sourceContent;
+		delegationWorkOrder.sourceContent = "Please run the quarterly…";
+		const originalEvent = db.events.pop()!;
+		await expect(client.retryRun({ runId: failedRunId })).rejects.toThrow(
+			/original request is unavailable/,
+		);
+		expect(delegateRunner).not.toHaveBeenCalled();
+		expect(db.runs).toHaveLength(1);
+		db.events.push(originalEvent);
 		const result = await client.retryRun({ runId: failedRunId });
 
 		// The returned run is a new run (different id from the failed one).
@@ -617,7 +643,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 		// Content should contain the work order framing.
 		expect(typeof dispatchCall?.content).toBe("string");
 		expect(dispatchCall?.content).toContain("RETRY");
-		expect(dispatchCall?.content).toContain(delegationWorkOrder.sourceContent);
+		expect(dispatchCall?.content).toContain(originalRequest);
 		expect(dispatchCall?.content).toContain(
 			"Run the quarterly capacity analysis",
 		);

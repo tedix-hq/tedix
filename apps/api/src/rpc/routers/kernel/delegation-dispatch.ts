@@ -347,6 +347,23 @@ function stringField(
 	return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+// Keep approved execution guidance, but never let an old summary replace the
+// original request. The caller must obtain that request from the Home event.
+export function withOriginalDelegationRequest(
+	workOrder: Record<string, unknown> | null,
+	originalRequest: string,
+): Record<string, unknown> {
+	const stored = stringField(workOrder, "sourceContent");
+	return {
+		...workOrder,
+		sourceContent: stored?.includes(originalRequest)
+			? stored
+			: stored
+				? `${stored}\n\nOriginal request:\n${originalRequest}`
+				: originalRequest,
+	};
+}
+
 function stringListField(
 	record: Record<string, unknown> | null | undefined,
 	key: string,
