@@ -48,6 +48,8 @@ export function registerPoppyAgentRoutes(
 		"/poppy-agent/*",
 		rateLimit((env) => env.API_RATE_LIMITER, byIp, { limit: 60 }),
 	);
+	// authz: public — serves only the tedi's public client metadata document.
 	app.get("/poppy-agent/:slug/client.json", (c) => serveDocument(c, "client"));
+	// authz: public — serves only the tedi's public JWKS.
 	app.get("/poppy-agent/:slug/jwks.json", (c) => serveDocument(c, "jwks"));
 }
