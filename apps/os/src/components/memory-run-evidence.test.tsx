@@ -51,6 +51,7 @@ describe("Memory Health tab", () => {
 			unusedDays: 60,
 			staleDays: 90,
 			orphanWindow: 2000,
+			note: "Unused facts have no recorded retrieval in the last 60 days.",
 			findings: [{ kind: "unused", count: 38, capped: false, samples: [] }],
 			graphLayer: { configured: false },
 		});
