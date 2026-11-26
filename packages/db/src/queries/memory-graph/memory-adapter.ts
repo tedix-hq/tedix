@@ -21,7 +21,24 @@ import {
 } from "../../schema/memory-graph";
 import { normalizeTenantScope, type TenantScope } from "../../tenant-scope";
 
-export type FactChangeRecorder = (fact: MemoryFact) => Promise<void>;
+export interface FactChangeRecorder {
+	(fact: MemoryFact): Promise<void>;
+	/** Remaining daily change slots for this recorder's organization scope. */
+	remaining?(organizationId: string): Promise<number>;
+	/** Atomically reserve up to count daily change slots before a mutation. */
+	reserve?(organizationId: string, count: number): Promise<number>;
+}
+
+/** A background recorder refused a mutation because its daily cap is exhausted. */
+export class FactChangeBudgetExceeded extends Error {
+	readonly code = "FACT_CHANGE_BUDGET_EXCEEDED";
+	constructor(readonly organizationId: string) {
+		super(
+			`Background memory daily change budget exhausted for ${organizationId}`,
+		);
+		this.name = "FactChangeBudgetExceeded";
+	}
+}
 
 /** Evidence-only facts are accepted as evidence, not as instructions. */
 export function factReviewState(

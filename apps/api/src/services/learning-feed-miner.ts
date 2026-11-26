@@ -85,6 +85,7 @@ import {
 	findFactBySourceHash,
 	updateFact,
 } from "@tedix/db/queries/memory-graph/facts";
+import { FactChangeBudgetExceeded } from "@tedix/db/queries/memory-graph/memory-adapter";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import { listWorkActivity } from "@tedix/db/queries/work-items/activity";
 import { AUTO_REPLY_FOLLOW_CLASSES } from "@tedix/db/queries/work-items/reply-drafts";
@@ -778,7 +779,7 @@ async function writeDecisionLessons(
 		});
 		const factId = crypto.randomUUID();
 		const now = new Date().toISOString();
-		await createFact(
+		const created = await createFact(
 			db,
 			{
 				id: factId,
@@ -814,7 +815,11 @@ async function writeDecisionLessons(
 				accessCount: 0,
 			},
 			backgroundOrganizationMemoryRecorder(db, "learning-feed-miner", "create"),
-		);
+		).catch((error: unknown) => {
+			if (error instanceof FactChangeBudgetExceeded) return null;
+			throw error;
+		});
+		if (created === null) continue;
 		result.factsWritten++;
 		for (const old of replaced) {
 			await invalidateFact(

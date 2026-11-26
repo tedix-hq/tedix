@@ -17,6 +17,7 @@ import {
 	createFact,
 	findCurrentFactsByTopicKey,
 } from "@tedix/db/queries/memory-graph/facts";
+import { FactChangeBudgetExceeded } from "@tedix/db/queries/memory-graph/memory-adapter";
 import {
 	decisionLessonEvidence,
 	listArchivedLearningFeedLessons,
@@ -317,7 +318,10 @@ async function learnCardContext(
 			"card-context-feedback",
 			"create",
 		),
-	);
+	).catch((error: unknown) => {
+		if (error instanceof FactChangeBudgetExceeded) return null;
+		throw error;
+	});
 	await putUserConfig(context.db, {
 		...ruleKey,
 		expectedRevision: claim.row.revision,

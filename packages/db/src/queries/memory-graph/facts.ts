@@ -27,7 +27,10 @@ import {
 	memoryFacts,
 	type NewMemoryFact,
 } from "../../schema/memory-graph";
-import type { FactChangeRecorder } from "./memory-adapter";
+import {
+	FactChangeBudgetExceeded,
+	type FactChangeRecorder,
+} from "./memory-adapter";
 import { batchNonEmpty } from "../../utils/batch";
 
 export type {
@@ -99,7 +102,14 @@ export async function createFact(
 	fact: NewMemoryFact & TenantScope,
 	recordChange?: FactChangeRecorder,
 ): Promise<MemoryFact> {
-	fact = { ...fact, ...normalizeTenantScope(fact) };
+	const scope = normalizeTenantScope(fact);
+	fact = { ...fact, ...scope };
+	if (
+		recordChange?.reserve &&
+		(await recordChange.reserve(scope.organizationId, 1)) === 0
+	) {
+		throw new FactChangeBudgetExceeded(scope.organizationId);
+	}
 	const [created] = await db.insert(memoryFacts).values(fact).returning();
 	if (!created) throw new Error(`Failed to create fact: ${fact.id}`);
 	await recordOwnerInstructionEdges(db, created);
@@ -238,13 +248,19 @@ export async function updateFact(
 	factId: string,
 	updates: Partial<NewMemoryFact>,
 	recordChange?: FactChangeRecorder,
-): Promise<void> {
+): Promise<boolean> {
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	if (
 		updates.organizationId !== undefined &&
 		updates.organizationId !== organizationId
 	) {
 		throw new Error("Memory fact organization cannot change");
+	}
+	if (
+		recordChange?.reserve &&
+		(await recordChange.reserve(organizationId, 1)) === 0
+	) {
+		return false;
 	}
 	const mutation = db
 		.update(memoryFacts)
@@ -277,6 +293,7 @@ export async function updateFact(
 		}
 	}
 	for (const fact of changed) await recordChange?.(fact);
+	return recordChange ? changed.length > 0 : true;
 }
 
 export async function recordFactAccess(

@@ -11,9 +11,14 @@ import { guardedCall } from "@tedix/agent-governance/wrap-binding";
 import {
 	OrganizationMemoryAdapter,
 	factReviewState,
+	type FactChangeRecorder,
 	type FactReviewUpdates,
 	type FactMutationUpdates,
 } from "@tedix/db/queries/memory-graph/memory-adapter";
+import {
+	getBackgroundMemoryChangeSlotsRemaining,
+	reserveBackgroundMemoryChangeSlots,
+} from "@tedix/db/queries/background-memory-budget";
 import type { MemoryFact, NewMemoryFact } from "@tedix/db/schema/memory-graph";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { auditActor } from "../rpc/audit-helpers";
@@ -192,13 +197,16 @@ export function organizationMemoryWriter(
 	};
 }
 
+export const BACKGROUND_MEMORY_DAILY_CHANGE_LIMIT = 2_000;
+
 /** Background queries report only their successfully changed rows, never bookkeeping. */
 export function backgroundOrganizationMemoryRecorder(
 	db: DbQueryClient,
 	surface: string,
 	operation: string,
-) {
-	return async (fact: MemoryFact): Promise<void> => {
+	dailyLimit: number = BACKGROUND_MEMORY_DAILY_CHANGE_LIMIT,
+): FactChangeRecorder {
+	const record = async (fact: MemoryFact): Promise<void> => {
 		const adapter = new OrganizationMemoryAdapter(db, {
 			organizationId: fact.organizationId,
 		});
@@ -214,4 +222,26 @@ export function backgroundOrganizationMemoryRecorder(
 			}),
 		);
 	};
+	const remaining = async (organizationId: string): Promise<number> =>
+		getBackgroundMemoryChangeSlotsRemaining(db, {
+			organizationId,
+			dailyLimit,
+		});
+	const reserve = async (
+		organizationId: string,
+		count: number,
+	): Promise<number> => {
+		const result = await reserveBackgroundMemoryChangeSlots(db, {
+			organizationId,
+			maxSlots: count,
+			dailyLimit,
+		});
+		if (result.logCap) {
+			console.warn(
+				`[background-memory] daily change cap reached organizationId=${organizationId} day=${new Date().toISOString().slice(0, 10)} limit=${dailyLimit}`,
+			);
+		}
+		return result.reserved;
+	};
+	return Object.assign(record, { remaining, reserve });
 }

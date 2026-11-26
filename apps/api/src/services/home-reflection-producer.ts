@@ -44,6 +44,7 @@ import {
 	findFactBySourceHash,
 	recordFactVerification,
 } from "@tedix/db/queries/memory-graph/facts";
+import { FactChangeBudgetExceeded } from "@tedix/db/queries/memory-graph/memory-adapter";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
 	buildBrainWriteQualityEnvelope,
@@ -338,7 +339,7 @@ async function writeFact(
 
 	const factId = crypto.randomUUID();
 	const createdAt = new Date().toISOString();
-	await createFact(
+	const created = await createFact(
 		db,
 		{
 			id: factId,
@@ -367,7 +368,11 @@ async function writeFact(
 			"home-reflection-producer",
 			"create",
 		),
-	);
+	).catch((error: unknown) => {
+		if (error instanceof FactChangeBudgetExceeded) return null;
+		throw error;
+	});
+	if (created === null) return false;
 
 	return true;
 }

@@ -57,6 +57,7 @@ import { getOrCreateDomain } from "@tedix/db/queries/memory-graph/domains";
 import { createEdge } from "@tedix/db/queries/memory-graph/edges";
 import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import { createFact, updateFact } from "@tedix/db/queries/memory-graph/facts";
+import { FactChangeBudgetExceeded } from "@tedix/db/queries/memory-graph/memory-adapter";
 import type { LearningInteractionEventRow } from "@tedix/db/schema/learning-feedback";
 import { AUTO_REPLY_FOLLOW_CLASSES } from "@tedix/db/queries/work-items/reply-drafts";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -999,7 +1000,7 @@ export async function writeOwnerLessons(
 		const id = crypto.randomUUID();
 		const now = new Date().toISOString();
 		const sessions = new Set(lesson.rules.flatMap((r) => r.sessions)).size;
-		await createFact(
+		const created = await createFact(
 			db,
 			{
 				id,
@@ -1060,7 +1061,11 @@ export async function writeOwnerLessons(
 				accessCount: 0,
 			},
 			backgroundOrganizationMemoryRecorder(db, "lesson-map-reduce", "create"),
-		);
+		).catch((error: unknown) => {
+			if (error instanceof FactChangeBudgetExceeded) return null;
+			throw error;
+		});
+		if (created === null) continue;
 		newIdByKey.set(lesson.topicKey, id);
 		result.written++;
 	}

@@ -1,11 +1,38 @@
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { refreshConsolidatedForFact } from "./observations";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { memoryFacts } from "../../schema/memory-graph";
 import { getAffectedRows } from "../../utils/d1-result";
 import type { FactChangeRecorder } from "./memory-adapter";
 import { freshReadMarkExists } from "../read-marks";
+
+/**
+ * Admit a bounded set of lifecycle changes before mutating rows. Returns null
+ * when the recorder has no daily budget so the caller keeps its existing path.
+ */
+async function cappedLifecycleFactIds(
+	db: DbClient,
+	organizationId: string,
+	conditions: SQL<unknown>[],
+	recordChange: FactChangeRecorder | undefined,
+): Promise<string[] | null> {
+	if (!recordChange?.reserve) return null;
+	const remaining = recordChange.remaining
+		? await recordChange.remaining(organizationId)
+		: Number.MAX_SAFE_INTEGER;
+	const maxCandidates = Math.max(0, Math.floor(remaining));
+	if (maxCandidates === 0) return [];
+	const candidates = await db
+		.select({ id: memoryFacts.id })
+		.from(memoryFacts)
+		.where(and(...conditions))
+		.orderBy(asc(memoryFacts.createdAt), asc(memoryFacts.id))
+		.limit(maxCandidates);
+	if (candidates.length === 0) return [];
+	const allowed = await recordChange.reserve(organizationId, candidates.length);
+	return candidates.slice(0, allowed).map((row) => row.id);
+}
 
 export async function decayConfidence(
 	db: DbClient,
@@ -133,6 +160,27 @@ export async function archiveLowConfidence(
 	// sorts out of the sample — the check that verifies archival reached Neo4j is
 	// least likely to look at the rows that were just archived.
 	const archivedAt = new Date().toISOString();
+	const cappedIds = await cappedLifecycleFactIds(
+		db,
+		orgId,
+		conditions,
+		recordChange,
+	);
+	if (cappedIds) {
+		if (cappedIds.length === 0) return { count: 0, archivedIds: [] };
+		const rows = await db
+			.update(memoryFacts)
+			.set({ archivedAt, updatedAt: archivedAt })
+			.where(
+				and(
+					...conditions,
+					sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(cappedIds)}))`,
+				),
+			)
+			.returning();
+		for (const fact of rows) await recordChange?.(fact);
+		return { count: rows.length, archivedIds: rows.map((row) => row.id) };
+	}
 	const mutation = db
 		.update(memoryFacts)
 		.set({ archivedAt, updatedAt: archivedAt })
@@ -158,6 +206,12 @@ export async function invalidateFact(
 	recordChange?: FactChangeRecorder,
 ): Promise<void> {
 	const { organizationId } = normalizeTenantScope(tenantScope);
+	if (
+		recordChange?.reserve &&
+		(await recordChange.reserve(organizationId, 1)) === 0
+	) {
+		return;
+	}
 	const now = new Date().toISOString();
 	const mutation = db
 		.update(memoryFacts)
@@ -198,31 +252,49 @@ export async function promoteFromProbation(
 	recordChange?: FactChangeRecorder,
 ): Promise<number> {
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
+	const conditions: SQL<unknown>[] = [
+		eq(memoryFacts.organizationId, orgId),
+		eq(memoryFacts.status, "probation"),
+		isNull(memoryFacts.archivedAt),
+		sql`${memoryFacts.validTo} IS NULL`,
+		sql`${memoryFacts.accessCount} >= ${minAccessCount}`,
+		// The afterTurn bridge writes observation:// facts. Use earns
+		// promotion like any other fact; only an observation the evidence
+		// check found unsupported stays probationary. Malformed metadata
+		// cannot prove it passed, so it also stays.
+		sql`CASE WHEN COALESCE(${memoryFacts.source}, '') LIKE 'observation://%'
+			THEN CASE WHEN json_valid(COALESCE(${memoryFacts.metadata}, '{}'))
+				THEN COALESCE(json_extract(COALESCE(${memoryFacts.metadata}, '{}'), '$.memoryQuality.verdict'), '')
+					NOT IN ('unsupported', 'transient_or_unsupported')
+				ELSE 0 END
+		ELSE 1 END`,
+	];
+	const updatedAt = new Date().toISOString();
+	const cappedIds = await cappedLifecycleFactIds(
+		db,
+		orgId,
+		conditions,
+		recordChange,
+	);
+	if (cappedIds) {
+		if (cappedIds.length === 0) return 0;
+		const rows = await db
+			.update(memoryFacts)
+			.set({ status: "active", updatedAt })
+			.where(
+				and(
+					...conditions,
+					sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(cappedIds)}))`,
+				),
+			)
+			.returning();
+		for (const fact of rows) await recordChange?.(fact);
+		return rows.length;
+	}
 	const mutation = db
 		.update(memoryFacts)
-		.set({
-			status: "active",
-			updatedAt: new Date().toISOString(),
-		})
-		.where(
-			and(
-				eq(memoryFacts.organizationId, orgId),
-				eq(memoryFacts.status, "probation"),
-				isNull(memoryFacts.archivedAt),
-				sql`${memoryFacts.validTo} IS NULL`,
-				sql`${memoryFacts.accessCount} >= ${minAccessCount}`,
-				// The afterTurn bridge writes observation:// facts. Use earns
-				// promotion like any other fact; only an observation the evidence
-				// check found unsupported stays probationary. Malformed metadata
-				// cannot prove it passed, so it also stays.
-				sql`CASE WHEN COALESCE(${memoryFacts.source}, '') LIKE 'observation://%'
-					THEN CASE WHEN json_valid(COALESCE(${memoryFacts.metadata}, '{}'))
-						THEN COALESCE(json_extract(COALESCE(${memoryFacts.metadata}, '{}'), '$.memoryQuality.verdict'), '')
-							NOT IN ('unsupported', 'transient_or_unsupported')
-						ELSE 0 END
-				ELSE 1 END`,
-			),
-		);
+		.set({ status: "active", updatedAt })
+		.where(and(...conditions));
 	if (!recordChange) return getAffectedRows(await mutation);
 	const rows = await mutation.returning();
 	for (const fact of rows) await recordChange(fact);
@@ -251,24 +323,44 @@ export async function expireProbation(
 	// updatedAt — so promoted facts surfaced in freshness-ordered samples and
 	// expired ones did not.
 	const expiredAt = new Date().toISOString();
+	const conditions: SQL<unknown>[] = [
+		eq(memoryFacts.organizationId, orgId),
+		eq(memoryFacts.status, "probation"),
+		isNull(memoryFacts.archivedAt),
+		sql`${memoryFacts.accessCount} = 0`,
+		sql`${memoryFacts.createdAt} < ${cutoff}`,
+		sql`NOT ${freshReadMarkExists({
+			organizationId: orgId,
+			kind: "lesson",
+			rowId: memoryFacts.id,
+			sinceDate: lessonReadCutoff,
+		})}`,
+	];
+	const cappedIds = await cappedLifecycleFactIds(
+		db,
+		orgId,
+		conditions,
+		recordChange,
+	);
+	if (cappedIds) {
+		if (cappedIds.length === 0) return { count: 0, expiredIds: [] };
+		const rows = await db
+			.update(memoryFacts)
+			.set({ archivedAt: expiredAt, updatedAt: expiredAt })
+			.where(
+				and(
+					...conditions,
+					sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(cappedIds)}))`,
+				),
+			)
+			.returning();
+		for (const fact of rows) await recordChange?.(fact);
+		return { count: rows.length, expiredIds: rows.map((row) => row.id) };
+	}
 	const mutation = db
 		.update(memoryFacts)
 		.set({ archivedAt: expiredAt, updatedAt: expiredAt })
-		.where(
-			and(
-				eq(memoryFacts.organizationId, orgId),
-				eq(memoryFacts.status, "probation"),
-				isNull(memoryFacts.archivedAt),
-				sql`${memoryFacts.accessCount} = 0`,
-				sql`${memoryFacts.createdAt} < ${cutoff}`,
-				sql`NOT ${freshReadMarkExists({
-					organizationId: orgId,
-					kind: "lesson",
-					rowId: memoryFacts.id,
-					sinceDate: lessonReadCutoff,
-				})}`,
-			),
-		);
+		.where(and(...conditions));
 	const rows = recordChange
 		? await mutation.returning().then(async (facts) => {
 				for (const fact of facts) await recordChange(fact);

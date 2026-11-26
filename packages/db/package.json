@@ -168,6 +168,7 @@
 		"./queries/graph-projection-read-model": "./src/queries/graph-projection-read-model.ts",
 		"./queries/learning-feedback": "./src/queries/learning-feedback.ts",
 		"./queries/deck-curator-budget": "./src/queries/deck-curator-budget.ts",
+		"./queries/background-memory-budget": "./src/queries/background-memory-budget.ts",
 		"./queries/d1-retention": "./src/queries/d1-retention.ts",
 		"./queries/d1-size": "./src/queries/d1-size.ts",
 		"./queries/history-export": "./src/queries/history-export.ts",
