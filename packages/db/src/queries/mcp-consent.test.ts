@@ -4,6 +4,7 @@ import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { appCatalog } from "../schema/catalog";
 import { apps } from "../schema/apps";
+import { organizationMembers } from "../schema/organization-members";
 import { organizations } from "../schema/organizations";
 import {
 	mcpConsentGrants,
@@ -15,6 +16,9 @@ import { schemaDdl } from "../test/schema-ddl";
 import {
 	MAX_MCP_CONSENT_GRANTS_PER_CLIENT,
 	getMcpConsentGrant,
+	getMcpConsentVerificationState,
+	finalizeMcpConsentGrant,
+	revokeMcpConsentGrant,
 	getMcpConsentResource,
 	listMcpConsentGrants,
 	stageMcpConsentPending,
@@ -41,6 +45,7 @@ function fixture(options: { grants?: boolean } = {}) {
 	if (options.grants !== false) sqlite.exec(schemaDdl(mcpConsentGrants));
 	sqlite.exec(schemaDdl(mcpConsentPending));
 	sqlite.exec(schemaDdl(organizations));
+	sqlite.exec(schemaDdl(organizationMembers));
 	sqlite.exec(schemaDdl(appCatalog));
 	sqlite.exec(schemaDdl(apps));
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
@@ -625,4 +630,98 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 			revision: "old",
 		});
 	});
+});
+
+it("reads live grant, membership and gateway state in two statements, including a due touch, and refuses a removed installation", async () => {
+	const { sqlite, db } = fixture();
+	const key = {
+		descopeUserId: "person",
+		mcpServerId: "resource",
+		clientId: "agent",
+		revision: "install",
+	};
+	await db.insert(organizations).values({
+		id: "org",
+		name: "Example",
+		slug: "example",
+		descopeTenantId: "tenant",
+		metadata: { mcpInboundClientPolicy: { mode: "audit", entries: [] } },
+	});
+	await db.insert(organizationMembers).values({
+		id: "member",
+		organizationId: "org",
+		descopeUserId: key.descopeUserId,
+		email: "person@example.test",
+		status: "active",
+	});
+	await db.insert(apps).values({
+		id: "app",
+		organizationId: "org",
+		name: "Example",
+		slug: "example-unified",
+		metadata: {
+			mcpConfig: {
+				descopeResourceId: key.mcpServerId,
+				authMode: "authenticated",
+				codeMode: true,
+				multiOrgConsent: true,
+			},
+		},
+	});
+	await replaceMcpConsentSelection(db, {
+		...key,
+		appId: "oauth-app",
+		status: "active",
+		selectedTenantIds: ["tenant"],
+		approvedScopes: ["mcp:apps.read"],
+	});
+	const statements: string[] = [];
+	const measured = createDbQueryClient(
+		createD1Facade(sqlite, {
+			maxBoundParams: 100,
+			onPrepare: (query) => statements.push(query),
+		}),
+	);
+	for (const touchDue of [true, false]) {
+		statements.length = 0;
+		const state = await getMcpConsentVerificationState(measured, {
+			...key,
+			selectedTenantIds: ["tenant"],
+		});
+		expect(state?.current).toMatchObject({
+			revision: key.revision,
+			approvedScopes: ["mcp:apps.read"],
+		});
+		expect(state?.pending).toBeNull();
+		expect(state?.memberships).toEqual([
+			{
+				organizationId: "org",
+				descopeTenantId: "tenant",
+				status: "active",
+				inboundClientPolicyJson: JSON.stringify({ mode: "audit", entries: [] }),
+				gatewaySlug: "example-unified",
+			},
+		]);
+		expect(state?.resourceOwner).toEqual({
+			resourceUrl: "https://example-unified.mcp.tedix.dev/mcp",
+			resourceUrlOwners: 1,
+		});
+		expect(state?.touchDue).toBe(touchDue);
+		expect(
+			await finalizeMcpConsentGrant(measured, key, state!.touchDue),
+		).toMatchObject({ revision: key.revision });
+		expect(statements).toHaveLength(2);
+	}
+	await revokeMcpConsentGrant(db, key);
+	statements.length = 0;
+	expect(
+		(
+			await getMcpConsentVerificationState(measured, {
+				...key,
+				selectedTenantIds: ["tenant"],
+			})
+		)?.current,
+	).toBeNull();
+	expect(await finalizeMcpConsentGrant(measured, key, false)).toBeNull();
+	expect(statements).toHaveLength(2);
 });

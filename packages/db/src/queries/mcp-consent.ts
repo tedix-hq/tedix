@@ -5,13 +5,13 @@ import {
 	eq,
 	exists,
 	gt,
-	lt,
 	notExists,
 	or,
 	sql,
 	type SQLWrapper,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { prefixedColumns } from "../utils/select";
 import type { DbQueryClient } from "../query-client";
 import { apps } from "../schema/apps";
 import { organizations } from "../schema/organizations";
@@ -197,15 +197,38 @@ export async function getMcpConsentGrant(
 	db: DbQueryClient,
 	key: McpConsentSelectionKey & { revision: string },
 ): Promise<McpConsentGrantResult | null> {
-	const [grant] = await db
-		.select({
-			appId: mcpConsentGrants.appId,
-			revision: mcpConsentGrants.revision,
-			clientName: mcpConsentGrants.clientName,
-			device: mcpConsentGrants.device,
-			selectedTenantIds: mcpConsentGrants.selectedTenantIds,
-			approvedScopes: mcpConsentGrants.approvedScopes,
-		})
+	const [row] = await buildMcpConsentGrantStatement(db, key);
+	if (!row) return null;
+	const { priority: _priority, ...grant } = row;
+	return grant;
+}
+
+function buildMcpConsentGrantStatement(
+	db: DbQueryClient,
+	key: McpConsentSelectionKey & { revision: string },
+) {
+	const columns = (
+		table: typeof mcpConsentGrants | typeof mcpConsentSelections,
+		priority: number,
+	) => ({
+		priority: sql<number>`${priority}`.as("grant_priority"),
+		appId: sql`${table.appId}`.mapWith(table.appId).as("grant_app_id"),
+		revision: sql`${table.revision}`
+			.mapWith(table.revision)
+			.as("grant_revision"),
+		clientName: sql`${table.clientName}`
+			.mapWith(table.clientName)
+			.as("grant_client_name"),
+		device: sql`${table.device}`.mapWith(table.device).as("grant_device"),
+		selectedTenantIds: sql`${table.selectedTenantIds}`
+			.mapWith(table.selectedTenantIds)
+			.as("grant_selected_tenant_ids"),
+		approvedScopes: sql`${table.approvedScopes}`
+			.mapWith(table.approvedScopes)
+			.as("grant_approved_scopes"),
+	});
+	return db
+		.select(columns(mcpConsentGrants, 0))
 		.from(mcpConsentGrants)
 		.where(
 			and(
@@ -214,29 +237,161 @@ export async function getMcpConsentGrant(
 				grantLiveCondition(),
 			),
 		)
+		.unionAll(
+			db
+				.select(columns(mcpConsentSelections, 1))
+				.from(mcpConsentSelections)
+				.where(
+					and(
+						eq(mcpConsentSelections.descopeUserId, key.descopeUserId),
+						eq(mcpConsentSelections.mcpServerId, key.mcpServerId),
+						eq(mcpConsentSelections.clientId, key.clientId),
+						eq(mcpConsentSelections.revision, key.revision),
+						eq(mcpConsentSelections.status, "active"),
+					),
+				),
+		)
+		.orderBy(sql`grant_priority`)
 		.limit(1);
-	if (grant) return grant;
-	const [legacy] = await db
-		.select({
-			appId: mcpConsentSelections.appId,
-			revision: mcpConsentSelections.revision,
-			clientName: mcpConsentSelections.clientName,
-			device: mcpConsentSelections.device,
-			selectedTenantIds: mcpConsentSelections.selectedTenantIds,
-			approvedScopes: mcpConsentSelections.approvedScopes,
-		})
-		.from(mcpConsentSelections)
+}
+
+/** Recheck revocation, folding an overdue usage stamp into that same statement. */
+export async function finalizeMcpConsentGrant(
+	db: DbQueryClient,
+	key: McpConsentSelectionKey & { revision: string },
+	touchDue: boolean,
+): Promise<McpConsentGrantResult | null> {
+	if (!touchDue) return getMcpConsentGrant(db, key);
+	const [row] = await db
+		.update(mcpConsentGrants)
+		.set({ lastUsedAt: new Date().toISOString() })
 		.where(
 			and(
-				eq(mcpConsentSelections.descopeUserId, key.descopeUserId),
-				eq(mcpConsentSelections.mcpServerId, key.mcpServerId),
-				eq(mcpConsentSelections.clientId, key.clientId),
-				eq(mcpConsentSelections.revision, key.revision),
-				eq(mcpConsentSelections.status, "active"),
+				grantKeyCondition(key),
+				eq(mcpConsentGrants.revision, key.revision),
+				grantLiveCondition(),
 			),
 		)
-		.limit(1);
-	return legacy ?? null;
+		.returning({
+			appId: mcpConsentGrants.appId,
+			revision: mcpConsentGrants.revision,
+			clientName: mcpConsentGrants.clientName,
+			device: mcpConsentGrants.device,
+			selectedTenantIds: mcpConsentGrants.selectedTenantIds,
+			approvedScopes: mcpConsentGrants.approvedScopes,
+		});
+	return row ?? null;
+}
+
+/** One primary snapshot; none of this authorization state is kept between calls. */
+export async function getMcpConsentVerificationState(
+	db: DbQueryClient,
+	input: McpConsentSelectionKey & {
+		revision: string;
+		selectedTenantIds: string[];
+	},
+) {
+	const grant = buildMcpConsentGrantStatement(db, input).as("active_grant");
+	const memberOrg = alias(organizations, "member_org");
+	const gateway = alias(apps, "gateway");
+	const owner = alias(apps, "audience_owner");
+	const audience = (app: typeof apps | typeof owner) =>
+		sql`COALESCE(NULLIF(json_extract(${app.metadata}, '$.mcpConfig.expectedAudience'), ''), 'https://' || COALESCE(${app.customMcpDomain}, ${app.slug} || '.mcp.tedix.dev') || '/mcp')`;
+	type Membership = {
+		organizationId: string;
+		descopeTenantId: string;
+		status: typeof organizationMembers.$inferSelect.status;
+		inboundClientPolicyJson: string | null;
+		gatewaySlug: string | null;
+	};
+	const memberships = sql<string>`(SELECT json_group_array(json_object(
+		'organizationId', ${memberOrg.id}, 'descopeTenantId', ${memberOrg.descopeTenantId},
+		'status', ${organizationMembers.status},
+		'inboundClientPolicyJson', (json_extract(${memberOrg.metadata}, '$.mcpInboundClientPolicy') || ''),
+		'gatewaySlug', (SELECT ${gateway.slug} FROM ${apps} AS "gateway"
+			WHERE ${gateway.organizationId} = ${memberOrg.id}
+			AND json_extract(${gateway.metadata}, '$.mcpConfig.authMode') = 'authenticated'
+			AND json_type(${gateway.metadata}, '$.mcpConfig.codeMode') = 'true'
+			AND (json_array_length(${gateway.metadata}, '$.mcpConfig.aggregateApps') > 0
+				OR json_array_length(${gateway.metadata}, '$.mcpConfig.aggregateTedis') > 0
+				OR substr(${gateway.slug}, -8) = '-unified')
+			ORDER BY (substr(${gateway.slug}, -8) = '-unified') DESC LIMIT 1)
+	)) FROM ${organizations} AS "member_org" INNER JOIN ${organizationMembers}
+		ON ${organizationMembers.organizationId} = ${memberOrg.id}
+		AND ${organizationMembers.descopeUserId} = ${input.descopeUserId}
+		WHERE ${memberOrg.descopeTenantId} IN (SELECT value FROM json_each(${JSON.stringify(input.selectedTenantIds)}))
+		AND json_extract(${memberOrg.metadata}, '$.retiredAt') IS NULL)`.mapWith(
+		(value): Membership[] => JSON.parse(value),
+	);
+	const pending = alias(mcpConsentPending, "pending_grant");
+	const rows = await db
+		.select({
+			resource: {
+				appId: apps.id,
+				slug: apps.slug,
+				organizationId: apps.organizationId,
+				metadata: apps.metadata,
+				descopeTenantId: organizations.descopeTenantId,
+			},
+			resourceUrl: audience(apps).as("resource_url"),
+			resourceUrlOwners:
+				sql<number>`(SELECT count(*) FROM ${apps} AS "audience_owner" INNER JOIN ${organizations} AS "owner_org" ON "owner_org"."id" = ${owner.organizationId} WHERE ${audience(owner)} = ${audience(apps)})`.as(
+					"resource_url_owners",
+				),
+			current: {
+				appId: grant.appId,
+				revision: grant.revision,
+				clientName: grant.clientName,
+				device: grant.device,
+				selectedTenantIds: grant.selectedTenantIds,
+				approvedScopes: grant.approvedScopes,
+			},
+			pending: prefixedColumns(pending, "pending"),
+			memberships: memberships.as("memberships"),
+			touchDue:
+				sql<boolean>`EXISTS (SELECT 1 FROM ${mcpConsentGrants} WHERE ${grantKeyCondition(input)} AND ${mcpConsentGrants.revision} = ${input.revision} AND ${grantLiveCondition()} AND (${mcpConsentGrants.lastUsedAt} IS NULL OR ${mcpConsentGrants.lastUsedAt} < ${new Date(Date.now() - MCP_CONSENT_GRANT_TOUCH_INTERVAL_MS).toISOString()}))`
+					.mapWith(Boolean)
+					.as("touch_due"),
+		})
+		.from(apps)
+		.innerJoin(organizations, eq(organizations.id, apps.organizationId))
+		.leftJoin(grant, sql`1 = 1`)
+		.leftJoin(
+			pending,
+			and(
+				eq(pending.descopeUserId, input.descopeUserId),
+				eq(pending.mcpServerId, input.mcpServerId),
+				eq(pending.clientId, input.clientId),
+				eq(pending.revision, input.revision),
+			),
+		)
+		.where(
+			sql`json_extract(${apps.metadata}, '$.mcpConfig.descopeResourceId') = ${input.mcpServerId}`,
+		)
+		.limit(2);
+	if (rows.length !== 1) return null;
+	const row = rows[0]!;
+	return {
+		...row,
+		current: row.current?.revision ? row.current : null,
+		pending: row.pending?.revision ? row.pending : null,
+		resourceOwner: {
+			resourceUrl: String(row.resourceUrl),
+			resourceUrlOwners: row.resourceUrlOwners,
+		},
+		gateways: new Map(
+			row.memberships.flatMap((member) =>
+				member.gatewaySlug
+					? ([
+							[
+								member.organizationId,
+								{ slug: member.gatewaySlug, customMcpDomain: null },
+							],
+						] as const)
+					: [],
+			),
+		),
+	};
 }
 
 /** Active grants for one key, newest first. */
@@ -261,34 +416,6 @@ export async function countLiveMcpConsentGrants(
 		.from(mcpConsentGrants)
 		.where(and(grantKeyCondition(key), grantLiveCondition()));
 	return Number(row?.count ?? 0);
-}
-
-/**
- * Refresh one installation's last-used stamp. The write is conditional on the
- * stamp being absent or older than the touch interval, so steady traffic
- * costs one cheap update per interval instead of one per request.
- */
-export async function touchMcpConsentGrantLastUsed(
-	db: DbQueryClient,
-	key: McpConsentSelectionKey & { revision: string },
-	nowMs = Date.now(),
-) {
-	const cutoff = new Date(
-		nowMs - MCP_CONSENT_GRANT_TOUCH_INTERVAL_MS,
-	).toISOString();
-	await db
-		.update(mcpConsentGrants)
-		.set({ lastUsedAt: new Date(nowMs).toISOString() })
-		.where(
-			and(
-				grantKeyCondition(key),
-				eq(mcpConsentGrants.revision, key.revision),
-				or(
-					sql`${mcpConsentGrants.lastUsedAt} IS NULL`,
-					lt(mcpConsentGrants.lastUsedAt, cutoff),
-				),
-			),
-		);
 }
 
 /** Every live sign-in one person holds, newest first. */

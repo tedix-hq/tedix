@@ -31,7 +31,6 @@ const mocks = vi.hoisted(() => ({
 	getMcpConsentPending: vi.fn(),
 	stageMcpConsentPending: vi.fn(),
 	promoteMcpConsentPending: vi.fn(),
-	touchMcpConsentGrantLastUsed: vi.fn(async () => undefined),
 	replaceMcpConsentSelection: vi.fn(),
 	getMcpConsentResource: vi.fn(),
 	recordMcpInboundClientAttempt: vi.fn(async () => undefined),
@@ -60,9 +59,40 @@ vi.mock("@tedix/db/queries/mcp-consent", () => ({
 	getMcpConsentSelection: mocks.getMcpConsentSelection,
 	getMcpConsentGrant: mocks.getMcpConsentGrant,
 	getMcpConsentPending: mocks.getMcpConsentPending,
+	getMcpConsentVerificationState: async (
+		db: unknown,
+		key: {
+			mcpServerId: string;
+			descopeUserId: string;
+			selectedTenantIds: string[];
+		},
+	) => {
+		const resource = await mocks.getMcpConsentResource(db, {
+			mcpServerId: key.mcpServerId,
+		});
+		if (!resource) return null;
+		const members = await import("@tedix/db/queries/organization-members");
+		const memberships = await members.getMembershipsByDescopeTenants(
+			db as never,
+			key.selectedTenantIds,
+			key.descopeUserId,
+		);
+		return {
+			resource,
+			current: await mocks.getMcpConsentGrant(db, key),
+			pending: await mocks.getMcpConsentPending(db, key),
+			memberships,
+			gateways: await mocks.getOrganizationAggregatorGateways(
+				db,
+				memberships.map((row) => row.organizationId),
+			),
+			touchDue: false,
+		};
+	},
+	finalizeMcpConsentGrant: (db: unknown, key: unknown) =>
+		mocks.getMcpConsentGrant(db, key),
 	stageMcpConsentPending: mocks.stageMcpConsentPending,
 	promoteMcpConsentPending: mocks.promoteMcpConsentPending,
-	touchMcpConsentGrantLastUsed: mocks.touchMcpConsentGrantLastUsed,
 	replaceMcpConsentSelection: mocks.replaceMcpConsentSelection,
 	getMcpConsentResource: mocks.getMcpConsentResource,
 	recordMcpInboundClientAttempt: mocks.recordMcpInboundClientAttempt,
@@ -1193,9 +1223,12 @@ describe("verifyHumanMcpGrant", () => {
 		mocks.getMcpConsentResource.mockRejectedValueOnce(
 			new Error("schema failure"),
 		);
-		await expect(verifyHumanMcpGrant({} as never, env, input)).rejects.toThrow(
-			"schema failure",
-		);
+		await expect(
+			verifyHumanMcpGrant({} as never, env, input),
+		).resolves.toMatchObject({
+			allowed: false,
+			reason: "provider_unavailable",
+		});
 		expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
 			true,
 		);

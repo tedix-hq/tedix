@@ -1,6 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import { apps } from "@tedix/db/schema/apps";
+import { appCatalog } from "@tedix/db/schema/catalog";
+import { organizations } from "@tedix/db/schema/organizations";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import {
 	replaceMcpConsentSelection,
@@ -145,12 +149,19 @@ function fixture() {
 	onTestFinished(() => views.forEach((view) => view.close()));
 	for (const view of views) {
 		for (const table of [
+			organizations,
+			organizationMembers,
+			appCatalog,
+			apps,
 			auditEvents,
 			mcpConsentGrants,
 			mcpConsentSelections,
 			mcpConsentPending,
 		])
 			view.exec(schemaDdl(table));
+		view.exec(`INSERT INTO organizations (id, name, slug, descope_tenant_id) VALUES ('00000000-0000-4000-8000-000000000001', 'Example', 'example', 'tenant-example');
+		INSERT INTO organization_members (id, organization_id, descope_user_id, email, status) VALUES ('member', '00000000-0000-4000-8000-000000000001', 'user-example', 'person@example.test', 'active');
+		INSERT INTO apps (id, organization_id, name, slug, metadata) VALUES ('resource-example', '00000000-0000-4000-8000-000000000001', 'Example', 'example-unified', '{"mcpConfig":{"multiOrgConsent":true,"descopeResourceId":"server-example","expectedAudience":"https://example.test/mcp","authMode":"authenticated","codeMode":true}}');`);
 	}
 	const [replica, primary] = views.map((view) => createD1Facade(view));
 	const withSession = vi.fn((constraint: string) => {

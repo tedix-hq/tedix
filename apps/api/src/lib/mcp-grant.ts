@@ -34,7 +34,8 @@ import {
 	listMcpConsentSignIns,
 	listMcpConsentSignInsForTenant,
 	revokeMcpConsentGrant,
-	touchMcpConsentGrantLastUsed,
+	getMcpConsentVerificationState,
+	finalizeMcpConsentGrant,
 	MAX_MCP_CONSENT_GRANTS_PER_CLIENT,
 } from "@tedix/db/queries/mcp-consent";
 import type { McpConsentGrantRow } from "@tedix/db/schema/mcp-consent";
@@ -94,6 +95,7 @@ async function registeredResourceScopes(
 	mcpServerId: string,
 	resourceUrl?: string,
 	deadline?: number,
+	resourceOwner?: { resourceUrl: string; resourceUrlOwners: number },
 ): Promise<Set<string> | null> {
 	const server = await loadDescopeMcpServer(
 		{
@@ -114,16 +116,24 @@ async function registeredResourceScopes(
 		return null;
 	const audience = server.audienceWhitelist[0];
 	if (resourceUrl !== undefined && audience !== resourceUrl) return null;
-	const owner = await readGrantState("resource_owner", () =>
-		getMcpConsentResource(db, { resourceUrl: audience }),
-	);
-	if (
-		!owner ||
-		owner.appId !== resource.appId ||
-		owner.organizationId !== resource.organizationId ||
-		owner.metadata?.mcpConfig?.descopeResourceId !== mcpServerId
-	)
-		return null;
+	if (resourceOwner) {
+		if (
+			resourceOwner.resourceUrl !== audience ||
+			resourceOwner.resourceUrlOwners !== 1
+		)
+			return null;
+	} else {
+		const owner = await readGrantState("resource_owner", () =>
+			getMcpConsentResource(db, { resourceUrl: audience }),
+		);
+		if (
+			!owner ||
+			owner.appId !== resource.appId ||
+			owner.organizationId !== resource.organizationId ||
+			owner.metadata?.mcpConfig?.descopeResourceId !== mcpServerId
+		)
+			return null;
+	}
 	const approved = server.approvedScopes;
 	if (!approved || typeof approved !== "object" || Array.isArray(approved))
 		return null;
@@ -565,11 +575,19 @@ async function verifyHumanMcpGrantStages(
 	defer?: (promise: Promise<unknown>) => void,
 ): Promise<HumanMcpGrantDecision> {
 	if (!env.DESCOPE_MANAGEMENT_KEY) return deny("provider_unavailable");
-	const resource = await readGrantState("resource", () =>
-		getMcpConsentResource(db, { mcpServerId: input.mcpServerId }),
-	);
+	const ledger = await readGrantState("snapshot", () =>
+		getMcpConsentVerificationState(db, {
+			descopeUserId: input.descopeUserId,
+			mcpServerId: input.mcpServerId,
+			clientId: input.clientId,
+			revision: input.consentRevision,
+			selectedTenantIds: input.selectedTenantIds,
+		}),
+	).catch(() => undefined);
+	if (ledger === undefined) return deny("provider_unavailable");
+	if (!ledger) return deny("membership_missing");
+	const resource = ledger.resource;
 	if (
-		!resource ||
 		resource.metadata?.mcpConfig?.descopeResourceId !== input.mcpServerId ||
 		(resource.metadata?.mcpConfig?.multiOrgConsent !== true &&
 			(input.selectedTenantIds.length !== 1 ||
@@ -578,56 +596,7 @@ async function verifyHumanMcpGrantStages(
 		return deny("membership_missing");
 	mark("resource");
 
-	const key = {
-		descopeUserId: input.descopeUserId,
-		mcpServerId: input.mcpServerId,
-		clientId: input.clientId,
-	};
-	const grantKey = { ...key, revision: input.consentRevision };
-	// Read the immutable approval before judging provider scopes: even the first
-	// issued JWT may contain more authority than this installation approved.
-	const activeRead = readGrantState("active", () =>
-		getMcpConsentGrant(db, grantKey),
-	);
-	const pendingRead = readGrantState("pending", () =>
-		getMcpConsentPending(db, grantKey),
-	);
-	const ledgerReads = Promise.all([
-		activeRead,
-		pendingRead,
-		readGrantState("memberships", () =>
-			getMembershipsByDescopeTenants(
-				db,
-				input.selectedTenantIds,
-				input.descopeUserId,
-			),
-		).then(async (memberships) => ({
-			memberships,
-			gateways: await readGrantState("gateways", () =>
-				getOrganizationAggregatorGateways(
-					db,
-					memberships.map((row) => row.organizationId),
-				),
-			),
-		})),
-	]).then(
-		([current, pending, membership]) => ({
-			ok: true as const,
-			current,
-			pending,
-			...membership,
-		}),
-		() => ({ ok: false as const }),
-	);
-	let current: Awaited<ReturnType<typeof getMcpConsentGrant>> = null;
-	let pending: Awaited<ReturnType<typeof getMcpConsentPending>> = null;
-	if (input.supportsConsentScopeCeiling) {
-		try {
-			[current, pending] = await Promise.all([activeRead, pendingRead]);
-		} catch {
-			return deny("provider_unavailable");
-		}
-	}
+	const { current, pending } = ledger;
 	const approval =
 		current?.revision === input.consentRevision &&
 		sameCanonicalSet(current.selectedTenantIds, input.selectedTenantIds)
@@ -662,6 +631,7 @@ async function verifyHumanMcpGrantStages(
 			resource,
 			mark,
 			deadline,
+			ledger.resourceOwner,
 		);
 		if ("denied" in loaded) return deny(loaded.denied);
 		facts = loaded.facts;
@@ -679,8 +649,6 @@ async function verifyHumanMcpGrantStages(
 	const appId = facts.appId;
 	const liveTenants = facts.liveTenants;
 
-	const ledger = await ledgerReads;
-	if (!ledger.ok) return deny("provider_unavailable");
 	return judgeLedger(
 		db,
 		input,
@@ -707,6 +675,7 @@ async function loadProviderFacts(
 	resource: NonNullable<Awaited<ReturnType<typeof getMcpConsentResource>>>,
 	mark: (stage: string) => void,
 	deadline: number,
+	resourceOwner?: { resourceUrl: string; resourceUrlOwners: number },
 ): Promise<ProviderFactsResult> {
 	const deny = (
 		reason: Extract<HumanMcpGrantDecision, { allowed: false }>["reason"],
@@ -752,6 +721,7 @@ async function loadProviderFacts(
 									input.mcpServerId,
 									undefined,
 									deadline,
+									resourceOwner,
 								),
 							),
 							measure("client", () =>
@@ -851,6 +821,7 @@ async function judgeLedger(
 		pending: Awaited<ReturnType<typeof getMcpConsentPending>>;
 		memberships: Awaited<ReturnType<typeof getMembershipsByDescopeTenants>>;
 		gateways: Awaited<ReturnType<typeof getOrganizationAggregatorGateways>>;
+		touchDue: boolean;
 	},
 	appId: string,
 	liveTenants: ReadonlySet<string>,
@@ -949,7 +920,7 @@ async function judgeLedger(
 		if (
 			!matchesActive(
 				await readGrantState("finalize", () =>
-					getMcpConsentGrant(db, grantKey),
+					finalizeMcpConsentGrant(db, grantKey, ledger.touchDue && !pending),
 				),
 			)
 		) {
@@ -959,9 +930,6 @@ async function judgeLedger(
 		return deny("provider_unavailable");
 	}
 	mark("finalize");
-	// Every verified call refreshes the installation's last-used stamp; the
-	// write is throttled inside the query so steady traffic stays cheap.
-	await touchMcpConsentGrantLastUsed(db, grantKey).catch(() => {});
 	return {
 		allowed: true,
 		reason: "active",
