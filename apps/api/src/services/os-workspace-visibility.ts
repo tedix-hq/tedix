@@ -1,36 +1,19 @@
-import { readWorkspaceRuntimeRole } from "@tedix/db/queries/os-workspace-access";
+import {
+	listWorkspaceTediBuildIds,
+	readWorkspaceRuntimeRole,
+} from "@tedix/db/queries/os-workspace-access";
 import {
 	getOsWorkspace,
 	isOsWorkspaceVisibleTo,
 	type OsWorkspaceViewer,
 } from "@tedix/db/queries/os-workspaces/workspaces";
-import { listOsWorkspaceIdsLinkingSkill } from "@tedix/db/queries/os-workspaces/resources";
-import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
 import { isOsWorkspaceBuildCollaborator } from "./os-workspace-collaborators";
 import { inspectedWorkspaceId } from "./os-workspace-inspection";
 
-/**
- * Private workspaces belong to one member. The member sees them as:
- * - themselves on a user token (OS, CLI, and MCP/connect calls forwarded with
- *   the member's own bearer). Acting-user headers are never read here;
- * - their own primary tedi on a trusted MCP→API service binding (Home and
- *   kernel turns): the forwarded acting user counts only when it is the human
- *   that tedi is bound to (its owner or its own identity), never an arbitrary
- *   id. `X-Tedix-Acting-User` is read only in withAuth's service-binding
- *   branch, and public ingress strips the service-binding marker;
- * - one of their own personal tedis.
- * A skill run sees one more thing: while a tedi's skill run is running, that
- * run (on the trusted service binding) sees the private workspaces whose
- * "Skills and schedules" resource links its skill, and nothing else of the
- * owner's.
- * An organization owner or admin who recorded an inspection sees one for an
- * hour, through a few named reads only (`os-workspace-inspection.ts`).
- * No other organization role, API key or service principal sees them; this
- * follows the owner-only policy of personal resource delegations.
- */
+/** Human calls retain their verified identity; autonomous tedis use the role graph. */
 const viewers = new WeakMap<BaseContext, Promise<OsWorkspaceViewer>>();
 
 export function resolveOsWorkspaceViewer(
@@ -44,79 +27,72 @@ export function resolveOsWorkspaceViewer(
 	return viewer;
 }
 
-async function computeViewer(context: BaseContext): Promise<OsWorkspaceViewer> {
-	const viewer = await computeMemberViewer(context);
-	const inspected = await inspectedWorkspaceId(context);
-	const workspaceIds = [
-		...(await linkedRunWorkspaceIds(context)),
-		...(inspected ? [inspected] : []),
-	];
-	return workspaceIds.length ? { ...viewer, workspaceIds } : viewer;
-}
-
-/** Workspaces linked to the skill of the caller's own running skill run. */
-async function linkedRunWorkspaceIds(context: BaseContext): Promise<string[]> {
-	const runId = context.headers?.get("X-Tedix-Skill-Run-Id")?.trim();
-	if (
-		!runId ||
-		context.authType !== "service-binding" ||
-		!context.tediId ||
-		!context.organizationId
-	)
-		return [];
-	const run = await getSkillRun(
-		context.db,
-		runId,
-		context.organizationId,
-		context.env.ENVIRONMENT,
-	);
-	if (run?.status !== "running" || run.tediId !== context.tediId) return [];
-	return listOsWorkspaceIdsLinkingSkill(context.db, {
-		organizationId: context.organizationId,
-		skillId: run.skillId,
-	});
-}
-
-async function computeMemberViewer(
+/** Acting-user headers count only on the trusted service binding and for its bound tedi. */
+export async function resolveOsWorkspacePrincipal(
 	context: BaseContext,
-): Promise<OsWorkspaceViewer> {
-	if (context.authType === "user") {
-		return { userIds: context.user?.sub ? [context.user.sub] : [] };
-	}
+): Promise<{ actorKind: "user" | "tedi"; actorId: string } | null> {
+	if (context.authType === "user")
+		return context.user?.sub
+			? { actorKind: "user", actorId: context.user.sub }
+			: null;
 	if (
 		(context.authType !== "service-binding" && context.authType !== "tedi") ||
 		!context.tediId ||
 		!context.organizationId
-	) {
-		return { userIds: [] };
-	}
+	)
+		return null;
 	const tedi = await getTediByIdForOrganization(
 		context.db,
 		context.tediId,
 		context.organizationId,
 	);
-	if (!tedi || tedi.status !== "active") return { userIds: [] };
+	if (!tedi || tedi.status !== "active") return null;
 	const actingUser =
 		context.authType === "service-binding" ? context.descopeUserId : undefined;
 	if (
 		actingUser &&
-		(tedi.ownerUserId === actingUser || tedi.descopeUserId === actingUser)
-	) {
-		return { userIds: [actingUser] };
-	}
-	if (actingUser) return { userIds: [] };
-	if (tedi.scope === "personal" && tedi.ownerUserId) {
-		return { userIds: [tedi.ownerUserId] };
-	}
-	return { userIds: [] };
+		tedi.ownerUserId !== actingUser &&
+		tedi.descopeUserId !== actingUser
+	)
+		return null;
+	if (actingUser && tedi.scope === "organization")
+		return { actorKind: "user", actorId: actingUser };
+	return { actorKind: "tedi", actorId: tedi.id };
+}
+
+async function computeViewer(context: BaseContext): Promise<OsWorkspaceViewer> {
+	const principal = await resolveOsWorkspacePrincipal(context);
+	if (principal?.actorKind === "tedi")
+		return {
+			userIds: [],
+			onlyWorkspaceIds: await listWorkspaceTediBuildIds(
+				context.db,
+				context.organizationId!,
+				principal.actorId,
+			),
+		};
+	if (context.tediId && !principal)
+		return { userIds: [], onlyWorkspaceIds: [] };
+	const viewer = { userIds: principal ? [principal.actorId] : [] };
+	const inspected = await inspectedWorkspaceId(context);
+	return inspected ? { ...viewer, workspaceIds: [inspected] } : viewer;
 }
 
 /** The member the caller acts for, when it is exactly one human. */
 export async function resolveOsWorkspaceOwnerCandidate(
 	context: BaseContext,
 ): Promise<string | null> {
-	const { userIds } = await resolveOsWorkspaceViewer(context);
-	return userIds.length === 1 ? (userIds[0] ?? null) : null;
+	const principal = await resolveOsWorkspacePrincipal(context);
+	if (principal?.actorKind === "user") return principal.actorId;
+	if (principal?.actorKind === "tedi") {
+		const tedi = await getTediByIdForOrganization(
+			context.db,
+			principal.actorId,
+			context.organizationId!,
+		);
+		return tedi?.scope === "personal" ? tedi.ownerUserId : null;
+	}
+	return null;
 }
 
 /**
@@ -131,42 +107,31 @@ export async function assertOsWorkspaceVisible(
 	message = "OS workspace not found",
 	options: { ownerOnly?: boolean } = {},
 ): Promise<void> {
-	// A tedi with its own build role sees the workspace, private ones included.
-	// A tedi without one is judged as before this rule existed: scheduled and
-	// Home-delegated tedis write to organization workspaces that never recorded
-	// a role for them, so refusing a role-less tedi here would lock them out.
-	// (A person calling through a connected client arrives as that person on
-	// their own token, not as a tedi, and never reaches this branch.)
 	if (
-		!options.ownerOnly &&
 		(context.authType === "tedi" || context.authType === "service-binding") &&
-		context.tediId &&
-		workspace.organizationId &&
-		workspace.organizationId === context.organizationId
+		context.tediId
 	) {
-		// A person acting through a tedi gets the tedi's role only when the tedi
-		// is theirs: a personal tedi inherits its owner's access.
-		let bound = true;
-		if (context.authType === "service-binding" && context.descopeUserId) {
-			const tedi = await getTediByIdForOrganization(
-				context.db,
-				context.tediId,
-				workspace.organizationId,
-			);
-			bound =
-				!!tedi &&
-				(tedi.ownerUserId === context.descopeUserId ||
-					tedi.descopeUserId === context.descopeUserId);
-		}
+		const principal = await resolveOsWorkspacePrincipal(context);
 		if (
-			bound &&
-			(await readWorkspaceRuntimeRole(
-				context.db,
-				{ organizationId: workspace.organizationId, workspaceId: workspace.id },
-				{ actorKind: "tedi", actorId: context.tediId },
-			)) === "build"
+			!principal ||
+			!workspace.organizationId ||
+			workspace.organizationId !== context.organizationId
+		)
+			throw createError(ErrorCodes.NOT_FOUND, message);
+		const role = await readWorkspaceRuntimeRole(
+			context.db,
+			{ organizationId: workspace.organizationId, workspaceId: workspace.id },
+			principal,
+		);
+		const ownerId = options.ownerOnly
+			? await resolveOsWorkspaceOwnerCandidate(context)
+			: null;
+		if (
+			role === "build" &&
+			(!options.ownerOnly || (ownerId && workspace.ownerUserId === ownerId))
 		)
 			return;
+		throw createError(ErrorCodes.NOT_FOUND, message);
 	}
 	if (workspace.visibility !== "private") return;
 	if (

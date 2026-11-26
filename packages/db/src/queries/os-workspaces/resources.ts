@@ -299,8 +299,7 @@ export async function listOsWorkspaceIdsLinkingSkill(
 				eq(osWorkspaceResources.providerResourceId, params.skillId),
 				eq(osWorkspaceResources.status, "active"),
 			),
-		)
-		.limit(20);
+		);
 	return [...new Set(rows.map((row) => row.workspaceId))];
 }
 

@@ -45,20 +45,55 @@ const ORG_ROLE: Record<string, OsCollaboratorRole> = {
 	viewer: "use",
 };
 
-/** Fresh human roles and names for Home, in five statements regardless of list size.
- * Uses the same roots and share graph as loadSessionRole, without per-workspace caches.
- */
-export async function readWorkspaceUserAccessMany(
+/** Fresh roles and names for Home, without per-workspace role caches. */
+export function readWorkspaceUserAccessMany(
 	database: DbQueryClient,
 	organizationId: string,
 	userId: string,
 	workspaceIds: readonly string[],
+) {
+	return readWorkspaceAccessMany(
+		database,
+		organizationId,
+		userId,
+		workspaceIds,
+	);
+}
+
+/** Filter before list pagination, using the same graph as direct tedi access. */
+export async function listWorkspaceTediBuildIds(
+	database: DbQueryClient,
+	organizationId: string,
+	tediId: string,
+): Promise<string[]> {
+	const access = await readWorkspaceAccessMany(
+		database,
+		organizationId,
+		tediId,
+		undefined,
+		"tedi",
+	);
+	return [...access].flatMap(([id, row]) => (row.role === "build" ? [id] : []));
+}
+
+async function readWorkspaceAccessMany(
+	database: DbQueryClient,
+	organizationId: string,
+	userId: string,
+	workspaceIds?: readonly string[],
+	actorKind: "user" | "tedi" = "user",
 ): Promise<Map<string, { name: string; role: OsCollaboratorRole | null }>> {
 	const result = new Map<
 		string,
 		{ name: string; role: OsCollaboratorRole | null }
 	>();
-	if (!workspaceIds.length) return result;
+	if (workspaceIds?.length === 0) return result;
+	const tedi =
+		actorKind === "tedi"
+			? await readWorkspaceTedi(database, organizationId, userId)
+			: undefined;
+	if (actorKind === "tedi" && (!tedi || tedi.status !== "active"))
+		return result;
 	const workspaces = coreTable(database, d1OsWorkspaces);
 	const edges = coreTable(database, d1Edges);
 	const links = coreTable(database, d1Links);
@@ -69,7 +104,9 @@ export async function readWorkspaceUserAccessMany(
 			.where(
 				and(
 					eq(workspaces.organizationId, organizationId),
-					anyIds(database, workspaces.id, workspaceIds),
+					workspaceIds
+						? anyIds(database, workspaces.id, workspaceIds)
+						: undefined,
 				),
 			),
 		database
@@ -78,7 +115,9 @@ export async function readWorkspaceUserAccessMany(
 			.where(
 				and(
 					eq(edges.organizationId, organizationId),
-					anyIds(database, edges.workspaceId, workspaceIds),
+					workspaceIds
+						? anyIds(database, edges.workspaceId, workspaceIds)
+						: undefined,
 				),
 			),
 		database
@@ -87,17 +126,20 @@ export async function readWorkspaceUserAccessMany(
 			.where(
 				and(
 					eq(links.organizationId, organizationId),
-					anyIds(database, links.workspaceId, workspaceIds),
+					workspaceIds
+						? anyIds(database, links.workspaceId, workspaceIds)
+						: undefined,
 				),
 			),
 	]);
-	const member = await getMemberAccessByUserId(
-		database,
-		organizationId,
-		userId,
-	);
-	if (member && member.status !== "active") return result;
-	const candidates = new Set([userId]);
+	const ownerId = tedi?.scope === "personal" ? tedi.ownerUserId : null;
+	const memberId = actorKind === "user" ? userId : ownerId;
+	const member = memberId
+		? await getMemberAccessByUserId(database, organizationId, memberId)
+		: undefined;
+	if (actorKind === "user" && member && member.status !== "active")
+		return result;
+	const candidates = new Set([userId, ...(ownerId ? [ownerId] : [])]);
 	for (const edge of edgeRows) {
 		candidates.add(edge.targetUserId);
 		if (edge.sharerUserId) candidates.add(edge.sharerUserId);
@@ -126,8 +168,9 @@ export async function readWorkspaceUserAccessMany(
 							? [[workspace.ownerUserId, "build" as const]]
 							: [],
 					)
-				: orgRoots;
-		const roles = computeEffectiveRoles({
+				: new Map(orgRoots);
+
+		const graph: PermissionGraph = {
 			roots,
 			edges: toGraphEdges(rows),
 			links: rows.links.map((link) => ({
@@ -136,7 +179,19 @@ export async function readWorkspaceUserAccessMany(
 				role: link.role,
 				revoked: link.revokedAt !== null,
 			})),
-		});
+		};
+		let roles = computeEffectiveRoles(graph);
+		if (
+			ownerId &&
+			(!member || member.status === "active") &&
+			!rows.edges.some((edge) => edge.targetUserId === userId)
+		) {
+			const role = roles.get(ownerId);
+			if (role) {
+				roots.set(userId, role);
+				roles = computeEffectiveRoles(graph);
+			}
+		}
 		result.set(workspace.id, {
 			name: workspace.name,
 			role: roles.get(userId) ?? null,

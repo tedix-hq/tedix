@@ -16,7 +16,10 @@ import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
-import { auditEvents } from "@tedix/db/schema/audit-events";
+import {
+	auditEvents,
+	auditDeliveryOutbox,
+} from "@tedix/db/schema/audit-events";
 import { skillRuns, skillWorkflowSources } from "@tedix/db/schema/cognitive";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
@@ -66,6 +69,7 @@ import {
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
 import { getWorkspacePresenceIdentity } from "../../services/os-workspace-collaborators";
+import { ensureWorkspaceTediRole } from "../../services/os-workspace-tedi-role";
 import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
 import type { BaseContext } from "../orpc";
 import { OS_WORKSPACE_INSPECTION_HEADER } from "@tedix/api-contract/schemas/os-workspace-inspections";
@@ -99,6 +103,7 @@ function createEnv(): CloudflareEnv {
 			kernelRuntimeRuns,
 			userConfigs,
 			auditEvents,
+			auditDeliveryOutbox,
 			organizationMembers,
 			osWorkspaceResources,
 			osWorkspaceSummaries,
@@ -466,7 +471,7 @@ describe("private OS workspaces", () => {
 				).rejects.toMatchObject(notFound);
 				expect(
 					(await client.outputs.list({ limit: 50 })).items.map((o) => o.id),
-				).toEqual([teamOutput.id]);
+				).toEqual(publicIngress ? [teamOutput.id] : []);
 			}
 		},
 	);
@@ -1136,30 +1141,53 @@ describe("a scheduled skill run in a private workspace", () => {
 		} as BaseContext);
 	}
 
-	it("sees exactly the linked private workspace while the run is running", async () => {
+	it("uses the linked executor's grant, and revocation wins over a running skill", async () => {
 		const env = createEnv();
-		const { workspace } = await linkedWorkspace(env);
-		const viewer = await runViewer(env, RUN, "shared-org-tedi");
-		expect(viewer).toEqual({ userIds: [], workspaceIds: [workspace.id] });
-		expect(isOsWorkspaceVisibleTo(workspace, viewer)).toBe(true);
+		const { workspace, db } = await linkedWorkspace(env);
 		expect(
-			isOsWorkspaceVisibleTo({ ...workspace, id: "ws-other" }, viewer),
+			isOsWorkspaceVisibleTo(
+				workspace,
+				await runViewer(env, RUN, "shared-org-tedi"),
+			),
 		).toBe(false);
-	});
-
-	it("opens nothing for another tedi, an unknown run or a finished run", async () => {
-		const env = createEnv();
-		const { db } = await linkedWorkspace(env);
-		await expect(runViewer(env, RUN, "kai-primary")).resolves.toEqual({
-			userIds: [OTHER],
+		await ensureWorkspaceTediRole(context(env, OWNER), {
+			organizationId: "org-1",
+			workspaceId: workspace.id,
+			tediId: "shared-org-tedi",
+			note: "Linked skill executor",
 		});
-		await expect(
-			runViewer(env, "run-unknown", "shared-org-tedi"),
-		).resolves.toEqual({ userIds: [] });
+		expect(
+			isOsWorkspaceVisibleTo(
+				workspace,
+				await runViewer(env, RUN, "shared-org-tedi"),
+			),
+		).toBe(true);
 		await db.update(skillRuns).set({ status: "completed" });
-		await expect(runViewer(env, RUN, "shared-org-tedi")).resolves.toEqual({
-			userIds: [],
+		expect(
+			isOsWorkspaceVisibleTo(
+				workspace,
+				await runViewer(env, RUN, "shared-org-tedi"),
+			),
+		).toBe(true);
+		await db.delete(osWorkspaceAccessEdges);
+		expect(
+			isOsWorkspaceVisibleTo(
+				workspace,
+				await runViewer(env, RUN, "shared-org-tedi"),
+			),
+		).toBe(false);
+		await ensureWorkspaceTediRole(context(env, OWNER), {
+			organizationId: "org-1",
+			workspaceId: workspace.id,
+			tediId: "shared-org-tedi",
+			note: "Linked skill executor",
 		});
+		expect(
+			isOsWorkspaceVisibleTo(
+				workspace,
+				await runViewer(env, RUN, "shared-org-tedi"),
+			),
+		).toBe(false);
 	});
 });
 
@@ -1198,7 +1226,7 @@ describe("private workspace viewer", () => {
 				tediId: "robin-primary",
 				descopeUserId: OWNER,
 			} as BaseContext),
-		).resolves.toEqual({ userIds: [OWNER] });
+		).resolves.toEqual({ userIds: [], onlyWorkspaceIds: [] });
 	});
 
 	it("ignores an acting user the bound tedi does not belong to", async () => {
@@ -1211,7 +1239,7 @@ describe("private workspace viewer", () => {
 					tediId,
 					descopeUserId: tediId === "robin-primary" ? OTHER : OWNER,
 				} as BaseContext),
-			).resolves.toEqual({ userIds: [] });
+			).resolves.toEqual({ userIds: [], onlyWorkspaceIds: [] });
 		}
 		await expect(
 			resolveOsWorkspaceViewer({
@@ -1223,7 +1251,7 @@ describe("private workspace viewer", () => {
 		).resolves.toEqual({ userIds: [] });
 	});
 
-	it("is the owner of a personal tedi acting on its own", async () => {
+	it("limits a personal tedi to its graph-filtered workspaces", async () => {
 		await expect(
 			resolveOsWorkspaceViewer({
 				...base(),
@@ -1232,7 +1260,7 @@ describe("private workspace viewer", () => {
 				tediId: "robin-primary",
 				descopeUserId: "tedi-identity-1",
 			} as BaseContext),
-		).resolves.toEqual({ userIds: [OWNER] });
+		).resolves.toEqual({ userIds: [], onlyWorkspaceIds: [] });
 	});
 
 	it("is nobody for API keys and unattributed service calls", async () => {

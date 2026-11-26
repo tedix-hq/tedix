@@ -151,7 +151,10 @@ export function createOsAppRuntimeRouter() {
 			: undefined;
 		void early?.catch(() => {});
 		const access =
-			context.authType === "user"
+			context.authType === "user" ||
+			((context.authType === "tedi" ||
+				context.authType === "service-binding") &&
+				context.tediId)
 				? await requireWorkspaceCollaboratorAccess(
 						context,
 						input.workspaceId,
@@ -261,7 +264,8 @@ export function createOsAppRuntimeRouter() {
 	) {
 		const scope = await resolve(context, input);
 		if (
-			(context.authType === "user" && scope.role !== "build") ||
+			((context.authType === "user" || context.tediId) &&
+				scope.role !== "build") ||
 			!hasRequiredScope(context, "apps:write")
 		)
 			throw createError(

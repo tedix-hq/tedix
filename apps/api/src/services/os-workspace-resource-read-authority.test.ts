@@ -88,6 +88,8 @@ describe("Workspace resource read authority", () => {
 			organizationId: "org-1",
 			descopeUserId: "descope-tedi-1",
 			ownerUserId: "owner-1",
+			status: "active",
+			scope: "personal",
 			retiredAt: null,
 		});
 		// The tedi holds its own builder grant on the Workspace.
@@ -150,12 +152,13 @@ describe("Workspace resource read authority", () => {
 		);
 	});
 
-	it("leaves a tedi with no builder grant to the Workspace's ordinary visibility", async () => {
-		// The Workspace here belongs to the organization, which its tedis can see.
+	it("refuses a tedi with no builder grant before checking provider access", async () => {
 		mocks.workspaceRole.mockResolvedValue(null);
 		await expect(
 			authorizeWorkspaceResourceRead(tediContext, input),
-		).resolves.toMatchObject({ resource: expect.anything() });
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(mocks.resource).not.toHaveBeenCalled();
+		expect(mocks.roles).not.toHaveBeenCalled();
 	});
 
 	it.each([
@@ -203,6 +206,10 @@ describe("Workspace resource read authority", () => {
 			authorizeWorkspaceResourceRead(tediContext, input),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		mocks.tedi.mockResolvedValue({
+			id: "tedi-1",
+			organizationId: "org-1",
+			status: "active",
+			scope: "personal",
 			descopeUserId: "descope-tedi-1",
 			ownerUserId: "owner-1",
 			retiredAt: "2026-09-25T00:00:00Z",

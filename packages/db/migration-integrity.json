@@ -2124,6 +2124,10 @@
 		{
 			"name": "20261126114840_audit_delivery_outbox/migration.sql",
 			"sha256": "48c99ecebe81b3bbc0adadf2a8503c03083ae09734565b2c4e4d63bde8e3c8d5"
+		},
+		{
+			"name": "20261126120924_workspace_executor_roles/migration.sql",
+			"sha256": "dc7c5d162873614d0eba67126b14d557aa3fb49f60eed8ae36c2407bf1247d5e"
 		}
 	]
 }

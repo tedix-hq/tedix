@@ -97,8 +97,8 @@ function createEnv() {
 		INSERT INTO organizations (id, name) VALUES ('org-1', 'Fictional Org');
 		INSERT INTO organization_members (id, organization_id, descope_user_id, email, role, status)
 		VALUES ('m-robin','org-1','member-robin','robin@example.test','member','active');
-		INSERT INTO tedis (id, organization_id, name, slug, display_name)
-		VALUES ('${TEDI}', 'org-1', 'research', 'research', 'Research Tedi');
+		INSERT INTO tedis (id, organization_id, name, slug, display_name, status)
+		VALUES ('${TEDI}', 'org-1', 'research', 'research', 'Research Tedi', 'active');
 		INSERT INTO apps (id, organization_id, name, slug)
 		VALUES ('app-reddit', 'org-1', 'Reddit', 'reddit'),
 		       ('app-tedix', 'org-1', 'Tedix', 'tedix');

@@ -39,22 +39,19 @@ export interface OsWorkspaceScopeParams {
 	workspaceId: string;
 }
 
-/**
- * The member a read is made for. A private workspace is visible only when its
- * `owner_user_id` is one of `userIds`, or when its id is one of
- * `workspaceIds` (a scheduled skill run reaching the workspace its skill is
- * linked to); an empty viewer sees org workspaces only. There is deliberately
- * no role-based bypass.
- */
+/** Human visibility, or the explicit graph-filtered workspace set for a tedi. */
 export interface OsWorkspaceViewer {
 	userIds: readonly string[];
 	workspaceIds?: readonly string[];
+	onlyWorkspaceIds?: readonly string[];
 }
 
 export function isOsWorkspaceVisibleTo(
 	workspace: Pick<OsWorkspaceRow, "id" | "visibility" | "ownerUserId">,
 	viewer: OsWorkspaceViewer,
 ): boolean {
+	if (viewer.onlyWorkspaceIds)
+		return viewer.onlyWorkspaceIds.includes(workspace.id);
 	if (workspace.visibility !== "private") return true;
 	if (viewer.workspaceIds?.includes(workspace.id)) return true;
 	return (
@@ -69,6 +66,12 @@ export function osWorkspaceVisibleToPredicate(
 	db?: DbQueryClient,
 ): SQL {
 	const osWorkspaces = db ? coreTable(db, d1OsWorkspaces) : d1OsWorkspaces;
+	if (viewer.onlyWorkspaceIds)
+		return viewer.onlyWorkspaceIds.length
+			? db
+				? anyIds(db, osWorkspaces.id, viewer.onlyWorkspaceIds)
+				: sql`${osWorkspaces.id} in (select value from json_each(${JSON.stringify(viewer.onlyWorkspaceIds)}))`
+			: sql`0 = 1`;
 	const userIds = [...new Set(viewer.userIds)];
 	const workspaceIds = [...new Set(viewer.workspaceIds ?? [])];
 	return or(
@@ -97,6 +100,13 @@ export function osWorkspaceChildVisibleToPredicate(
 	workspaceIdColumn: Parameters<typeof isNull>[0],
 	viewer: OsWorkspaceViewer,
 ): SQL {
+	if (viewer.onlyWorkspaceIds)
+		return or(
+			isNull(workspaceIdColumn),
+			viewer.onlyWorkspaceIds.length
+				? anyIds(db, workspaceIdColumn as never, viewer.onlyWorkspaceIds)
+				: sql`0 = 1`,
+		) as SQL;
 	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const userIds = [...new Set(viewer.userIds)];
 	const workspaceIds = [...new Set(viewer.workspaceIds ?? [])];

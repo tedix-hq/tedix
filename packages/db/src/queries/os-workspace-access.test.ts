@@ -1,6 +1,8 @@
+import { calendarCoordinatorConfigurations } from "../schema/calendar-coordinator";
+import { projects } from "../schema/projects";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { skillEntries } from "../schema/cognitive";
+import { skillEntries, skillSchedules } from "../schema/cognitive";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { oidcSessions } from "../schema/oidc-sessions";
@@ -22,6 +24,7 @@ import {
 	readWorkspaceRuntimeRole,
 	readWorkspaceSessionRole,
 	readWorkspaceUserAccessMany,
+	listWorkspaceTediBuildIds,
 } from "./os-workspace-access";
 
 const migration = (name: string) =>
@@ -42,6 +45,9 @@ function fixture(visibility: "private" | "org" = "private") {
 			osWorkspaceEvents,
 			tedis,
 			skillEntries,
+			skillSchedules,
+			projects,
+			calendarCoordinatorConfigurations,
 			osWorkspaceResources,
 			organizations,
 			principalIdentities,
@@ -112,6 +118,61 @@ function fixture(visibility: "private" | "org" = "private") {
 }
 
 describe("tedi workspace principals", () => {
+	it.each(["private", "org"] as const)(
+		"filters %s lists using the runtime role, including a personal override",
+		async (visibility) => {
+			const f = fixture(visibility);
+			expect(await listWorkspaceTediBuildIds(f.db, "org", "team")).toEqual([]);
+			await f.grant("team", "build");
+			expect(await listWorkspaceTediBuildIds(f.db, "org", "team")).toEqual([
+				"workspace",
+			]);
+			expect(await listWorkspaceTediBuildIds(f.db, "org", "personal")).toEqual([
+				"workspace",
+			]);
+			await f.grant("personal", "use");
+			expect(await listWorkspaceTediBuildIds(f.db, "org", "personal")).toEqual(
+				[],
+			);
+			f.sqlite.exec("UPDATE tedis SET status = 'paused' WHERE id = 'team'");
+			expect(await listWorkspaceTediBuildIds(f.db, "org", "team")).toEqual([]);
+		},
+	);
+	it.each(["private", "org"] as const)(
+		"backfills configured %s executors without restoring removed grants",
+		async (visibility) => {
+			const f = fixture(visibility);
+			f.sqlite.exec(
+				`INSERT INTO os_workspace_resources (id, organization_id, workspace_id, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id, created_at, updated_at) VALUES ('resource', 'org', 'workspace', 'tedix', 'tenant', 'tedi', 'team', 'Research', 'user', 'owner', '2026-01-01', '2026-01-01');`,
+			);
+			f.sqlite
+				.exec(`INSERT INTO tedis (id, organization_id, name, slug, status, scope) VALUES ('removed', 'org', 'Removed', 'removed', 'active', 'organization');
+    INSERT INTO os_workspace_collaborators (id, organization_id, workspace_id, user_id, principal_kind) VALUES ('prior-invite','org','workspace','removed','tedi');
+    UPDATE os_workspaces SET default_tedi_id = 'removed';`);
+			f.sqlite.exec(migration("20261126120924_workspace_executor_roles"));
+			expect(await f.role("team")).toBe("build");
+			expect(await f.role("removed")).toBeNull();
+			await f.grant("personal", "use");
+			f.sqlite.exec("UPDATE os_workspaces SET default_tedi_id = 'personal'");
+			f.sqlite.exec(migration("20261126120924_workspace_executor_roles"));
+			expect(await f.role("personal")).toBe("use");
+		},
+	);
+
+	it("backfills calendar, factory and scheduled executors from their stored workspace bindings", async () => {
+		const f = fixture("org");
+		f.sqlite.exec(`
+   INSERT INTO tedis (id, organization_id, name, slug, status, scope) VALUES ('calendar','org','Calendar','calendar','active','organization'), ('factory','org','Factory','factory','active','organization');
+   INSERT INTO skill_entries (id, organization_id, tedi_id, title, content) VALUES ('scheduled-skill','org','team','Scheduled','Task'), ('factory-skill','org','factory','Factory','Task');
+   INSERT INTO skill_schedules (id, organization_id, skill_id, tedi_id, cron, params, next_fire_at) VALUES ('schedule','org','scheduled-skill','team','0 7 * * *','{"workspaceId":"workspace"}','2026-11-01');
+   INSERT INTO calendar_coordinator_configurations (id, organization_id, workspace_id, owner_user_id, revision, mode, configuration, ownership_seed, updated_at) VALUES ('calendar-config','org','workspace','owner',1,'active','{"tediId":"calendar"}','seed','2026-11-01');
+   INSERT INTO projects (id, org_id, key, name, metadata, created_at) VALUES ('project','org','FACT','Factory','{"factory":{"workspaceId":"workspace","skillId":"factory-skill"}}','2026-11-01');
+  `);
+		f.sqlite.exec(migration("20261126120924_workspace_executor_roles"));
+		for (const id of ["team", "calendar", "factory"])
+			expect(await f.role(id)).toBe("build");
+	});
+
 	it.each(["private", "org"] as const)(
 		"backfills linked skill executors in a %s workspace",
 		async (visibility) => {

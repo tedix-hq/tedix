@@ -1,5 +1,6 @@
 /** Move a skill and its schedule to another tedi (`skills.move_skill_to_tedi`). */
 
+import { transferWorkspaceSkillTediRoles } from "../../services/os-workspace-tedi-role";
 import type {
 	SkillMoveCheck,
 	SkillMoveToTediResult,
@@ -300,6 +301,12 @@ export const skillsMoveToTedi = authedSkills.moveToTedi
 			rollback: rollback,
 			...(input.reason ? { reason: input.reason } : {}),
 		};
+		await transferWorkspaceSkillTediRoles(context, {
+			organizationId: orgId,
+			skillId: skill.id,
+			fromTediId: skill.tediId,
+			toTediId: target.id,
+		});
 		const moved = await moveSkillToTedi(context.db, {
 			organizationId: orgId,
 			skillId: skill.id,

@@ -3,8 +3,8 @@ import { mergeBlueprintApp } from "../../services/os-blueprint-upgrade";
 import { requireSavableText } from "../../lib/savable-text";
 import { validateAppSource } from "../../services/os-app-validation";
 import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
-import { resolveOsWorkspaceOwnerCandidate } from "../../services/os-workspace-visibility";
-import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
+import { resolveOsWorkspacePrincipal } from "../../services/os-workspace-visibility";
+import { readWorkspaceRuntimeRole } from "@tedix/db/queries/os-workspace-access";
 import { serviceBindingFetch } from "@tedix/api-client/internal";
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
@@ -310,9 +310,13 @@ async function appDraftRole(context: BaseContext, workspaceId: string) {
 		);
 		return access.role;
 	}
-	const callerId = await resolveOsWorkspaceOwnerCandidate(context);
-	return callerId
-		? await readWorkspaceSessionRole(queryDb(context), workspaceId, callerId)
+	const principal = await resolveOsWorkspacePrincipal(context);
+	return principal
+		? readWorkspaceRuntimeRole(
+				queryDb(context),
+				{ organizationId: requireOrgId(context), workspaceId },
+				principal,
+			)
 		: null;
 }
 

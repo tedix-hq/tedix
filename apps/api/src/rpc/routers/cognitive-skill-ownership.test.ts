@@ -15,11 +15,16 @@ const mocks = vi.hoisted(() => ({
 	getSkillSchedule: vi.fn(),
 	listInFlightSkillRuns: vi.fn(),
 	moveSkillToTedi: vi.fn(),
+	transferWorkspaceSkillTediRoles: vi.fn(),
 	getAppsByOrganization: vi.fn(),
 	listActiveSkillPersonalResourceDelegations: vi.fn(),
 	getMemberByUserId: vi.fn(),
 	runTediMcpAccessBatchOnTargets: vi.fn(),
 	getAssignedAppRoles: vi.fn(),
+}));
+
+vi.mock("../../services/os-workspace-tedi-role", () => ({
+	transferWorkspaceSkillTediRoles: mocks.transferWorkspaceSkillTediRoles,
 }));
 
 vi.mock("@tedix/db/queries/cognitive/skill-crud", async (importOriginal) => ({

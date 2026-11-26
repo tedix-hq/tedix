@@ -1509,7 +1509,10 @@ describe("app chat drafts", () => {
 			if (kind === "tedi") {
 				context.authType = "tedi";
 				context.tediId = "tedi-viewer";
-				context.tediScopes = ["apps:write"];
+				context.tediScopes = ["apps:read", "apps:write"];
+				await expect(
+					createRouterClient(f.router, { context }).open(scope),
+				).resolves.toMatchObject({ role: "use" });
 			} else if (kind === "external_agent") {
 				context.externalAgentPrincipalId = "external-1";
 				context.externalAgentSessionId = "session-1";
@@ -1522,7 +1525,7 @@ describe("app chat drafts", () => {
 				evidenceRefs: [],
 			};
 			await expect(caller.accept(decision)).rejects.toMatchObject({
-				code: "FORBIDDEN",
+				code: kind === "tedi" ? "NOT_FOUND" : "FORBIDDEN",
 			});
 			if (kind === "tedi") {
 				await f.db
@@ -1544,7 +1547,9 @@ describe("app chat drafts", () => {
 					...decision,
 					expectedSequence: accepted.proposal.sequence,
 				}),
-			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			).rejects.toMatchObject({
+				code: kind === "tedi" ? "NOT_FOUND" : "FORBIDDEN",
+			});
 			expect(
 				(await f.collaboration.get({ proposalId: proposal.id })).proposal
 					.status,

@@ -231,16 +231,24 @@ describe("workspace collaborators", () => {
 					{ organizationId: "org-1", workspaceId },
 					{ actorId: tediId, actorKind: "tedi" },
 				);
-			// Without a role of its own a tedi keeps what it had before: an
-			// organization workspace stays open to it, a private one stays hidden.
 			const withoutRole = () =>
-				visibility === "private"
-					? expect(
-							assertOsWorkspaceVisible(tediContext, workspace),
-						).rejects.toMatchObject({ code: "NOT_FOUND" })
-					: expect(
-							assertOsWorkspaceVisible(tediContext, workspace),
-						).resolves.toBeUndefined();
+				expect(
+					assertOsWorkspaceVisible(tediContext, workspace),
+				).rejects.toMatchObject({ code: "NOT_FOUND" });
+			const tediWorkspaces = createRouterClient(osWorkspacesContractRouter, {
+				context: {
+					...tediContext,
+					authType: "service-binding",
+					headers: new Headers({
+						"X-Service-Binding": "true",
+						"X-Tedix-Tedi-Id": tediId,
+						"X-Tedix-Tedi-Scopes": "apps:read",
+					}),
+				},
+			});
+			expect(
+				(await tediWorkspaces.workspaces.list({ limit: 50 })).items,
+			).toEqual([]);
 			expect(await role()).toBeNull();
 			await withoutRole();
 			const { collaborator } = await as(env, ROBIN).add({
@@ -254,6 +262,7 @@ describe("workspace collaborators", () => {
 				role: "use",
 			});
 			expect(await role()).toBe("use");
+			await withoutRole();
 			await expect(
 				requireWorkspaceCollaboratorAccess(
 					tediContext,
@@ -263,9 +272,22 @@ describe("workspace collaborators", () => {
 			).resolves.toMatchObject({ role: "use" });
 			await as(env, ROBIN).add({ workspaceId, tediId, role: "build" });
 			expect(await role()).toBe("build");
+			expect(
+				(await tediWorkspaces.workspaces.list({ limit: 1 })).items.map(
+					(row) => row.id,
+				),
+			).toEqual([workspaceId]);
 			await expect(
 				assertOsWorkspaceVisible(tediContext, workspace),
 			).resolves.toBeUndefined();
+			await expect(
+				assertOsWorkspaceVisible(
+					tediContext,
+					workspace,
+					"OS workspace not found",
+					{ ownerOnly: true },
+				),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
 			expect(
 				(await as(env, ROBIN).list({ workspaceId })).collaborators,
 			).toEqual(

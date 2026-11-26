@@ -166,15 +166,16 @@ it("backfills local slots on an existing skill resource without replacing it", a
 	const { osWorkspaces, osWorkspaceResources } =
 		await import("@tedix/db/schema/os-workspaces");
 	const { ensureWorkspaceSkillLink } = await import("./os-workspaces-shared");
-	const { listOsWorkspaceResources, updateOsWorkspaceResourceMetadata } =
+	const { listOsWorkspaceResources } =
 		await import("@tedix/db/queries/os-workspaces/resources");
+	const { updateOsWorkspaceResourceMetadata } =
+		await import("../../services/workspace-resource-storage");
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
 		"CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL); INSERT INTO organizations VALUES ('org-1');",
 	);
 	sqlite.exec(schemaDdl(osWorkspaces, osWorkspaceResources));
-	const store = workspaceOutputFixture(sqlite);
-	store.state.active = false;
+	workspaceOutputFixture(sqlite);
 	const binding = createD1Facade(sqlite);
 	const db = createDbClient(binding);
 	const context = {

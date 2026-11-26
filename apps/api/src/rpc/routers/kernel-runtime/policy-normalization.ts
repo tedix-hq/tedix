@@ -1,3 +1,5 @@
+import { findHomeTurnForKernelRun } from "@tedix/db/queries/os-workspaces/workspaces";
+import { ensureWorkspaceTediRole } from "../../../services/os-workspace-tedi-role";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { firstNonSkillReferenceLine } from "@tedix/api-contract/utils/skill-reference";
@@ -334,6 +336,19 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 	// Keep delayed dispatches and same-owner follow-ups attached to the exact
 	// Home source run rather than exposing a private attachment reader.
 	const homeRunId = stringFromPayload(metadata.homeRunId);
+	if (homeRunId) {
+		const turn = await findHomeTurnForKernelRun(context.db, {
+			organizationId,
+			runId: homeRunId,
+		});
+		if (turn?.workspaceId)
+			await ensureWorkspaceTediRole(context, {
+				organizationId,
+				workspaceId: turn.workspaceId,
+				tediId: delegateToTediId,
+				note: "Workspace delegation",
+			});
+	}
 	const order = nonNullRecord(metadata.delegationWorkOrder);
 	const originalTargets = await resolveDelegationWorkContext(
 		typeof order?.sourceContent === "string" ? order.sourceContent : content,
