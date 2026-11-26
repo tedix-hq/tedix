@@ -17,23 +17,14 @@
  * Per docs/engineering/platform/auth.md and Descope's own MCP Gateway pattern (one MCP server per
  * tenant), the resource server is the canonical enforcement point.
  */
-import { createDbClient, createDbSession } from "@tedix/db/client";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 import { getOrganizationDescopeTenantId } from "@tedix/db/queries/organizations";
 import { getApiClient } from "./api-client";
 import { setBoundedCacheEntry } from "./bounded-cache";
 
-interface D1PreparedStatementLike {
-	bind(...values: unknown[]): D1PreparedStatementLike;
-	first<T = unknown>(): Promise<T | null>;
-}
-
-interface D1DatabaseLike {
-	prepare(query: string): D1PreparedStatementLike;
-}
-
-interface ApiClientFactoryEnv {
+interface ApiClientFactoryEnv extends CoreStoreEnv {
 	API_SERVICE: Fetcher;
-	DB?: D1DatabaseLike;
 }
 
 interface CachedOrgTenant {
@@ -73,23 +64,16 @@ async function getOrgDescopeTenantIdFromD1(
 	orgId: string,
 	env: ApiClientFactoryEnv,
 ): Promise<string | null | undefined> {
-	if (!env.DB) return undefined;
+	const storeReady = isD1CoreStore(env)
+		? Boolean(env.DB)
+		: Boolean(env.CORE_HYPERDRIVE);
+	if (!storeReady) return undefined;
 
 	try {
-		// A replica answers first, so the lookup survives primary stalls. Only
-		// a found tenant id is taken from it: an empty answer is re-read on the
-		// primary, because the caller caches it for the isolate's lifetime.
-		const db = env.DB as D1Database;
-		const replica = await (async () =>
-			getOrganizationDescopeTenantId(
-				createDbSession(db, null, "first-unconstrained").db,
-				orgId,
-			))().catch(() => null);
-		if (replica) return replica;
-		return await getOrganizationDescopeTenantId(createDbClient(db), orgId);
+		return await getOrganizationDescopeTenantId(coreDb(env), orgId);
 	} catch (error) {
 		console.warn(
-			`[MCP TenantMatch] failed to load org ${orgId} from D1:`,
+			`[MCP TenantMatch] failed to load org ${orgId} from the core store:`,
 			error instanceof Error ? error.message : error,
 		);
 		return undefined;

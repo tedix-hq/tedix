@@ -166,7 +166,9 @@ describe("tenant-match", () => {
 		await expect(
 			jwtTenantMatchesApp({ dct: "org_tedix" }, "org_tedix_d1", {
 				...env,
-				DB: createD1Mock({ descopeTenantId: "org_tedix" }),
+				DB: createD1Mock({
+					descopeTenantId: "org_tedix",
+				}) as unknown as D1Database,
 			}),
 		).resolves.toEqual({ ok: true });
 	});

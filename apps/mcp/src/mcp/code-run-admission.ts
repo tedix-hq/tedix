@@ -4,6 +4,8 @@ import { BillingSettlementModeSchema } from "@tedix/api-contract/schemas/runtime
 import { CODE_RUN_CREDITS } from "@tedix/api-contract/utils/credit-pricing";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreStoreReady } from "../lib/core-store";
 import { admitCodeRun } from "@tedix/db/queries/billing/credit-pool";
 import type { ModelAuthoredLoaderCall } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import {
@@ -43,7 +45,7 @@ export function codeRunRefusalMessage(code: string): string {
 
 /** Admit and charge one code run before its dynamic Worker starts. */
 export async function admitCodeModeRun(input: {
-	env: { DB?: D1Database; TEDIX_BILLING_SETTLEMENT_MODE?: string };
+	env: CoreStoreEnv & { TEDIX_BILLING_SETTLEMENT_MODE?: string };
 	organizationId: string | null | undefined;
 	executionId: string;
 	caller: CallerIdentity | undefined;
@@ -61,7 +63,8 @@ export async function admitCodeModeRun(input: {
 	);
 	if (!settlementMode.success) return refuse("billing_settlement_mode_missing");
 	if (settlementMode.data !== "managed") return { allowed: true };
-	if (!organizationId || !input.env.DB) return refuse("billing_not_configured");
+	if (!organizationId || !coreStoreReady(input.env))
+		return refuse("billing_not_configured");
 	const caller = input.caller;
 	const tediId = caller?.authType === "tedi" ? (caller.tediId ?? null) : null;
 	const userId =
@@ -79,8 +82,7 @@ export async function admitCodeModeRun(input: {
 
 /** Charge the organization wallet before the SDK runs; settle returned loader calls even if user code fails. */
 export async function executeMeteredCodeMode<T>(input: {
-	env: {
-		DB?: D1Database;
+	env: CoreStoreEnv & {
 		MCP_SUBSCRIPTIONS?: DurableObjectNamespace;
 		TEDIX_BILLING_SETTLEMENT_MODE?: string;
 	};

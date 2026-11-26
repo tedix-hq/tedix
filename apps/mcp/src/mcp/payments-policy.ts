@@ -1,4 +1,5 @@
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../lib/core-store";
 import { getEffectiveMcpPaymentPolicy } from "@tedix/db/queries/mcp-payments";
 import { getToolById } from "@tedix/db/queries/tools";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -197,7 +198,7 @@ export async function resolveToolPaymentPolicy(params: {
 }): Promise<ResolvedToolPaymentPolicy> {
 	const policy = getToolPaymentPolicy(params.tool);
 	if (!policy) return { kind: "unpriced" };
-	if (!params.agent.env.DB) return { kind: "resolved", policy };
+	if (!coreStoreReady(params.agent.env)) return { kind: "resolved", policy };
 
 	const orgId = paymentOrganizationId(params.agent);
 	if (orgId) {

@@ -1,4 +1,5 @@
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../lib/core-store";
 import {
 	type McpSettlementBudgetGuard,
 	sumSettledMcpPaymentAmount,
@@ -81,7 +82,8 @@ export async function evaluateBudget(params: {
 	if (guardrailViolation && budget.mode === "enforce") {
 		return denial(guardrailViolation);
 	}
-	if (!params.agent.env.DB) return denial("budget_store_unavailable");
+	if (!coreStoreReady(params.agent.env))
+		return denial("budget_store_unavailable");
 
 	const organizationId = paymentOrganizationId(params.agent);
 	if (!organizationId) return denial("missing_organization_id");
@@ -145,7 +147,11 @@ export function buildBudgetGuard(params: {
 	policy: TedixToolPaymentPolicy;
 }): McpSettlementBudgetGuard | undefined {
 	const budget = params.policy.budget;
-	if (!budget?.enabled || budget.mode !== "enforce" || !params.agent.env.DB) {
+	if (
+		!budget?.enabled ||
+		budget.mode !== "enforce" ||
+		!coreStoreReady(params.agent.env)
+	) {
 		return undefined;
 	}
 	return {

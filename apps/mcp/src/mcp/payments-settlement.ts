@@ -1,6 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../lib/core-store";
 import { getMcpPaymentEventByIdForOrg } from "@tedix/db/queries/mcp-payments";
 import {
 	buildPaymentRequiredResult,
@@ -46,7 +47,7 @@ export async function loadFacilitatorReceipt(params: {
 	policy: TedixToolPaymentPolicy;
 }): Promise<Record<string, unknown> | null> {
 	const organizationId = paymentOrganizationId(params.agent);
-	if (!params.agent.env.DB || !organizationId) return null;
+	if (!coreStoreReady(params.agent.env) || !organizationId) return null;
 	const event = await getMcpPaymentEventByIdForOrg(coreDb(params.agent.env), {
 		id: params.receiptId,
 		organizationId,

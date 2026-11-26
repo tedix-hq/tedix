@@ -17,6 +17,7 @@ import {
 	verifyFacilitatorPayment,
 } from "./x402-facilitator";
 import { contentFreeMcpException } from "../log";
+import { coreStoreReady } from "../lib/core-store";
 import {
 	log,
 	getToolPaymentPolicy,
@@ -178,7 +179,7 @@ export async function checkToolPayment(params: {
 	// spend window so a response retry cannot be charged or budgeted twice.
 	if (policy.mode === "facilitator" && typeof proof === "string") {
 		const organizationId = paymentOrganizationId(params.agent);
-		if (!params.agent.env.DB || !organizationId) {
+		if (!coreStoreReady(params.agent.env) || !organizationId) {
 			return rejectForBudget({
 				allowed: false,
 				reason: "durable_receipt_store_unavailable",
@@ -289,7 +290,7 @@ export async function checkToolPayment(params: {
 
 	if (policy.mode === "facilitator" && typeof proof === "string") {
 		const organizationId = paymentOrganizationId(params.agent);
-		if (!params.agent.env.DB || !organizationId) {
+		if (!coreStoreReady(params.agent.env) || !organizationId) {
 			return rejectForBudget({
 				allowed: false,
 				reason: "durable_receipt_store_unavailable",

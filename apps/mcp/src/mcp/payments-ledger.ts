@@ -1,5 +1,6 @@
 import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../lib/core-store";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import {
 	insertMcpPaymentEvent,
@@ -235,7 +236,7 @@ export async function recordPaymentEvent(params: {
 	const eventId = params.eventId ?? crypto.randomUUID();
 	const toolArgsHash = await sha256Hex(stableStringify(params.args));
 
-	if (!params.agent.env.DB)
+	if (!coreStoreReady(params.agent.env))
 		return {
 			eventId,
 			guardRejected: false,
@@ -367,7 +368,7 @@ export async function reservePaymentRequirement(params: {
 	paymentRequestId: string;
 	requirements: X402PaymentRequiredResponse;
 }): Promise<void> {
-	if (!params.agent.env.DB) return;
+	if (!coreStoreReady(params.agent.env)) return;
 	const organizationId = paymentOrganizationId(params.agent);
 	if (!organizationId) return;
 

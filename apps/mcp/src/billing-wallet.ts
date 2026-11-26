@@ -18,7 +18,8 @@ import {
 	DYNAMIC_WORKER_COST_USD_MICROS,
 	aiCreditsForProviderCost,
 } from "@tedix/api-contract/utils/credit-pricing";
-import { createDbClient } from "@tedix/db/client";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 import {
 	type CreditPoolSnapshot,
 	creditRefusalReason,
@@ -129,7 +130,7 @@ export function walletStub(
 /** Runs inside the Durable Object; one instance per organization. */
 export class BillingWallet {
 	readonly #storage: DurableObjectStorage;
-	readonly #env: { DB?: D1Database };
+	readonly #env: CoreStoreEnv;
 	readonly #db: WalletStoreDb;
 	readonly #sessionWork = new Map<
 		string,
@@ -148,7 +149,7 @@ export class BillingWallet {
 	/** Bumped by each flush: a snapshot read before it must not be cached after it. */
 	#flushes = 0;
 
-	constructor(storage: DurableObjectStorage, env: { DB?: D1Database }) {
+	constructor(storage: DurableObjectStorage, env: CoreStoreEnv) {
 		this.#storage = storage;
 		this.#env = env;
 		this.#db = openWalletStore(storage);
@@ -515,6 +516,12 @@ export class BillingWallet {
 		});
 	}
 
+	#storeReady(): boolean {
+		return isD1CoreStore(this.#env)
+			? Boolean(this.#env.DB)
+			: Boolean(this.#env.CORE_HYPERDRIVE);
+	}
+
 	/** The Work Item's credit budgets, cached briefly; none without a Work Item. */
 	async #budgets(
 		input: {
@@ -524,8 +531,8 @@ export class BillingWallet {
 		},
 		nowMs: number,
 	): Promise<{ workItemId: string | null; budgets: WalletBudget[] }> {
-		if (!this.#env.DB) return { workItemId: null, budgets: [] };
-		const db = createDbClient(this.#env.DB);
+		if (!this.#storeReady()) return { workItemId: null, budgets: [] };
+		const db = coreDb(this.#env);
 		let workItemId = input.workItemId ?? null;
 		if (!workItemId && input.agentSessionId) {
 			const known = this.#sessionWork.get(input.agentSessionId);
@@ -584,7 +591,7 @@ export class BillingWallet {
 
 	async alarm(): Promise<void> {
 		const organizationId = this.#storage.kv.get<string>(ORG_KEY);
-		if (!organizationId || !this.#env.DB) return;
+		if (!organizationId || !this.#storeReady()) return;
 		const nowMs = Date.now();
 		const alertsLeft = await this.#deliverAlerts(organizationId, nowMs);
 		// Claim a batch once; a failed flush retries the same flush id, so the
@@ -595,7 +602,7 @@ export class BillingWallet {
 		});
 		if (rows.length > 0) {
 			try {
-				await postWalletFlush(createDbClient(this.#env.DB), {
+				await postWalletFlush(coreDb(this.#env), {
 					organizationId,
 					flushId: rows[0]!.flushId!,
 					groups: flushGroups(rows),
@@ -635,7 +642,7 @@ export class BillingWallet {
 	async #deliverAlerts(organizationId: string, nowMs: number) {
 		const alerts = listUndeliveredWalletBudgetAlerts(this.#db, 20);
 		if (alerts.length === 0) return false;
-		const db = createDbClient(this.#env.DB!);
+		const db = coreDb(this.#env);
 		let left = false;
 		for (const alert of alerts) {
 			try {
@@ -679,11 +686,10 @@ export class BillingWallet {
 		const cached = this.#snapshots.get(key);
 		if (cached && nowMs - cached.fetchedAt < SNAPSHOT_TTL_MS)
 			return cached.snapshot;
-		const DB = this.#env.DB;
-		if (!DB) return null;
+		if (!this.#storeReady()) return null;
 		const flushes = this.#flushes;
 		const snapshot = await this.#once(`snapshot:${flushes}:${key}`, () =>
-			getCreditPoolSnapshot(createDbClient(DB), {
+			getCreditPoolSnapshot(coreDb(this.#env), {
 				organizationId: input.organizationId,
 				now: new Date(nowMs).toISOString(),
 				subject: { tediId: input.tediId, userId: input.userId },
