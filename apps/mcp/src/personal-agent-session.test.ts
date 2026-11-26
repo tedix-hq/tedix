@@ -58,7 +58,16 @@ describe("signed-out MCP Session gate", () => {
 					: {}),
 			});
 			const p = input();
-			expect(await checkSignedOutPersonalAgentSession(p)).toBeNull();
+			const onVerified = vi.fn();
+			expect(
+				await checkSignedOutPersonalAgentSession({ ...p, onVerified }),
+			).toBeNull();
+			if (status === "accepted") {
+				expect(onVerified).toHaveBeenCalledWith({
+					clientId: "https://agent.example/agent.json",
+					sessionId: "private-session",
+				});
+			} else expect(onVerified).not.toHaveBeenCalled();
 			expect(
 				[...p.request.headers.keys()].filter((name) =>
 					name.startsWith("x-tedix-auth-"),

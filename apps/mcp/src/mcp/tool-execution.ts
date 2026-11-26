@@ -376,7 +376,10 @@ export async function executeTool(
 	}
 
 	const startTime = Date.now();
-	const callerFields = buildCallerTelemetryFields(agent.callerIdentity);
+	const callerFields = buildCallerTelemetryFields(
+		agent.callerIdentity,
+		agent.personalAgentSession,
+	);
 	const baseEvent: Partial<McpEvent> = {
 		timestamp: new Date().toISOString(),
 		eventType: "tool_call",

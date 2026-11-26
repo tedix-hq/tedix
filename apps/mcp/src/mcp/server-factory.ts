@@ -678,6 +678,7 @@ export function buildServerContext(
 	connectionAppSlug?: string,
 	loadDiscoveryTool?: ServerContext["loadDiscoveryTool"],
 	codeModeCatalogComplete = false,
+	personalAgentSession?: ServerContext["personalAgentSession"],
 ): ServerContext {
 	const apiClient = getApiClient({
 		serviceFetch: env.API_SERVICE,
@@ -706,6 +707,7 @@ export function buildServerContext(
 		apiOrganizationId: cachedData.organizationId,
 		toolHandler,
 		callerIdentity,
+		personalAgentSession,
 		defaultCallableTedis: cachedData.defaultCallableTedis,
 		traceId: traceId || crypto.randomUUID(),
 		tracestate,
@@ -911,6 +913,7 @@ export async function buildMcpServer(
 	clientAppsSupported = false,
 	loadDiscoveryTool?: ServerContext["loadDiscoveryTool"],
 	codeModeCatalogComplete = false,
+	personalAgentSession?: ServerContext["personalAgentSession"],
 ): Promise<McpServer> {
 	const startTime = Date.now();
 	// Full schemas from earlier gateway calls can exhaust the isolate while
@@ -975,6 +978,7 @@ export async function buildMcpServer(
 		connectionAppSlug,
 		loadDiscoveryTool,
 		codeModeCatalogComplete,
+		personalAgentSession,
 	);
 
 	// Pre-populate loadedTools from cached data.
@@ -1133,7 +1137,7 @@ export async function buildMcpServer(
 		appId: cachedData.app.id,
 		appSlug: cachedData.app.slug,
 		organizationId: cachedData.organizationId,
-		...buildCallerTelemetryFields(callerIdentity),
+		...buildCallerTelemetryFields(callerIdentity, personalAgentSession),
 		traceId: serverCtx.traceId,
 		success: true,
 		durationMs: Date.now() - startTime,

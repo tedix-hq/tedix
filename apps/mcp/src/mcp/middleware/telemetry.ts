@@ -75,7 +75,10 @@ export function wrapToolCallTelemetry(
 	return async (args, extra) => {
 		countToolCall(serverCtx.env, serverCtx.ctx, tool?.toolId ?? toolName);
 		const startTime = Date.now();
-		const callerFields = buildCallerTelemetryFields(serverCtx.callerIdentity);
+		const callerFields = buildCallerTelemetryFields(
+			serverCtx.callerIdentity,
+			serverCtx.personalAgentSession,
+		);
 		const riskMetadata = tool ? toolRiskAuditMetadata(tool) : undefined;
 		let selectedOrganizationId: string | undefined;
 		if (tool?.toolId) {

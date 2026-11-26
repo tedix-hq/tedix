@@ -19,20 +19,27 @@ const sessionFailureStatus = z.enum([
 	"rate_limited",
 ]);
 
+/** Safe attribution returned only over internal service bindings. */
+export const PersonalAgentAttributionSchema = z.object({
+	clientId: z.url({ protocol: /^https$/ }).max(2048),
+	agentId: z.string().min(1).max(512).optional(),
+	sessionId: z
+		.string()
+		.min(1)
+		.max(512)
+		.regex(/^[A-Za-z0-9_-]+$/),
+});
+export type PersonalAgentAttribution = z.infer<
+	typeof PersonalAgentAttributionSchema
+>;
+
 export const PersonalAgentSessionResultSchema = z.discriminatedUnion("status", [
 	z.object({
 		status: z.literal("accepted"),
 		sessionCreated: z.boolean().optional(),
 		// Internal verified claims, never an OAuth principal or account grant.
-		identity: z.object({
-			clientId: z.url({ protocol: /^https$/ }).max(2048),
+		identity: PersonalAgentAttributionSchema.extend({
 			userId: z.string().min(1).max(512),
-			sessionId: z
-				.string()
-				.min(1)
-				.max(512)
-				.regex(/^[A-Za-z0-9_-]+$/),
-			agentId: z.string().min(1).max(512).optional(),
 			version: z.string().regex(/^1\.(0|[1-9][0-9]*)$/),
 		}),
 	}),
@@ -57,6 +64,7 @@ export const PersonalAgentInterfacesResultSchema = z.object({
 		"unavailable",
 	]),
 	sessionCreated: z.boolean().optional(),
+	identity: PersonalAgentAttributionSchema.optional(),
 	excludedTasks: z.array(PersonalAgentExcludedTaskSchema).optional(),
 	feedbackEndpoint: z.url().optional(),
 });

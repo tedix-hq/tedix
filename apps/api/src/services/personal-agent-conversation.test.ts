@@ -257,7 +257,11 @@ describe("signed-out Company Agent service", () => {
 		const closed = await call(`/${parent.conversation_id}/close`, {
 			id: "closeparent",
 		});
-		expect(closed).toEqual({ httpStatus: 202, body: parent });
+		expect(closed).toEqual({
+			httpStatus: 202,
+			body: parent,
+			identity: { clientId: identity.clientId, sessionId: identity.sessionId },
+		});
 		expect(mocks.cancel).toHaveBeenCalledTimes(1);
 		expect((await read(child.conversation_id)).body).toMatchObject({
 			closed: true,

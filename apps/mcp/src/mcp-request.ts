@@ -3,6 +3,7 @@
  * resolution and aggregate runtime-kind hydration. The Worker entry in
  * index.ts routes to it.
  */
+import type { PersonalAgentAttribution } from "@tedix/api-contract/schemas/personal-agent-session";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { hashValue } from "@tedix/agent-governance/hash";
 import { requestPhaseTimings } from "./mcp/phase-timings";
@@ -198,6 +199,7 @@ export async function handleMcpRequest(
 		Boolean((env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS),
 	// Server-owned ingress identity: organization selection must not lift its restrictions.
 	connectionAppSlug = resolvedApp.app.slug,
+	personalAgentSession?: PersonalAgentAttribution,
 ): Promise<Response> {
 	const phaseTimings = requestPhaseTimings(ctx);
 	const catalogStartedAt = performance.now();
@@ -859,6 +861,7 @@ export async function handleMcpRequest(
 					)
 			: undefined,
 		codeModeCatalogComplete,
+		personalAgentSession,
 	);
 	const directoryReadHandler = (
 		server as unknown as {

@@ -48,7 +48,10 @@ function trackResourceRead(
 	agent: ServerContext,
 	metadata: NonNullable<McpEvent["metadata"]>,
 ): void {
-	const callerFields = buildCallerTelemetryFields(agent.callerIdentity);
+	const callerFields = buildCallerTelemetryFields(
+		agent.callerIdentity,
+		agent.personalAgentSession,
+	);
 	const event: McpEvent = {
 		timestamp: new Date().toISOString(),
 		eventType: "resource_read",

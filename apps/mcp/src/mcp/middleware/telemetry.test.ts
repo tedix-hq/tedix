@@ -206,6 +206,32 @@ beforeEach(() => {
 // =============================================================================
 
 describe("telemetry middleware — exactly-one cardinality", () => {
+	it("attributes a signed-out tool call without account authority or payload contents", async () => {
+		const personalAgentSession = {
+			clientId: "https://agent.example",
+			agentId: "agent-example",
+			sessionId: "session-example",
+		};
+		const context = {
+			...makeServerCtx(),
+			callerIdentity: undefined,
+			personalAgentSession,
+		};
+		await wrapToolCallTelemetry("echo", context as never, async () => ({
+			content: [{ type: "text", text: "private-output" }],
+		}))({ msg: "private-input" }, {} as never);
+		const event = trackSpy.mock.calls[0]![1];
+		expect(event.metadata).toEqual({
+			sessionType: "signed_out",
+			client_id: personalAgentSession.clientId,
+			agentId: personalAgentSession.agentId,
+			sid: personalAgentSession.sessionId,
+		});
+		expect(event.userId).toBeUndefined();
+		expect(event.authType).toBeUndefined();
+		expect(auditSpy.mock.calls[0]![1]).toEqual(event);
+		expect(JSON.stringify(event)).not.toMatch(/private-input|private-output/);
+	});
 	it("emits exactly 1 tool_call on success", async () => {
 		const res = await call(
 			postRpc({

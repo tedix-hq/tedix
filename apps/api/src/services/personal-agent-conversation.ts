@@ -17,6 +17,7 @@ import {
 	listWorkInteractionResponses,
 	cancelWorkInteraction,
 } from "@tedix/db/queries/work-items/interactions";
+import { PersonalAgentAttributionSchema } from "@tedix/api-contract/schemas/personal-agent-session";
 import { verifySignedOutPersonalAgentSession } from "./personal-agent-session";
 
 function visitorTranscript(body: JsonValue) {
@@ -252,6 +253,7 @@ export async function personalAgentConversation(
 		// Internal desk metadata never reaches a signed-out client. POST status stays 201/202.
 		if (input.method === "POST" && wait === null)
 			return {
+				identity: PersonalAgentAttributionSchema.parse(session.identity),
 				httpStatus: path ? 202 : 201,
 				body: {
 					conversation_id: conversationId,
@@ -266,6 +268,7 @@ export async function personalAgentConversation(
 		});
 		return {
 			...result.receipt,
+			identity: PersonalAgentAttributionSchema.parse(session.identity),
 			httpStatus:
 				input.method === "POST"
 					? path

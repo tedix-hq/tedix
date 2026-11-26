@@ -51,7 +51,14 @@ it("requires service auth and audits accepted feedback without the report, URL o
 		});
 		expect(interfaces).not.toHaveBeenCalled();
 		context.headers.set("X-Service-Binding", "true");
-		interfaces.mockResolvedValue({ status: "accepted" });
+		interfaces.mockResolvedValue({
+			status: "accepted",
+			identity: {
+				clientId: "https://agent.example",
+				agentId: "agent-example",
+				sessionId: "session-example",
+			},
+		});
 		await client.personalAgentInterfaces(input);
 		for (const status of [
 			"invalid_session",
@@ -71,7 +78,12 @@ it("requires service auth and audits accepted feedback without the report, URL o
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({
 			action: "os.personal_agent_interfaces.received",
-			metadata: { sessionType: "signed_out" },
+			metadata: {
+				sessionType: "signed_out",
+				client_id: "https://agent.example",
+				agentId: "agent-example",
+				sid: "session-example",
+			},
 		});
 		expect(JSON.stringify(rows)).not.toContain("fictional-secret");
 	} finally {
@@ -153,15 +165,20 @@ it("audits a new Session once through the real router without storing request se
 		});
 		expect(JSON.stringify(rows)).not.toContain("fictional-secret");
 		expect(JSON.stringify(rows)).not.toContain("private=");
-		for (const claim of Object.values(identity)) {
-			if (claim !== "1.0") expect(JSON.stringify(rows)).not.toContain(claim);
-		}
+		expect(rows[0]?.metadata).toEqual({
+			source: "service-binding",
+			sessionType: "signed_out",
+			client_id: identity.clientId,
+			agentId: identity.agentId,
+			sid: identity.sessionId,
+		});
+		expect(JSON.stringify(rows)).not.toContain(identity.userId);
 	} finally {
 		sqlite.close();
 	}
 });
 
-it("gates and audits accepted conversation requests without visitor text, identity or Session proof", async () => {
+it("gates and audits accepted conversation requests with attribution but without visitor text or Session proof", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(schemaDdl(auditEvents));
 	const db = createDbClient(createD1Facade(sqlite));
@@ -193,6 +210,11 @@ it("gates and audits accepted conversation requests without visitor text, identi
 		context.headers.set("X-Service-Binding", "true");
 		conversations.mockResolvedValue({
 			httpStatus: 201,
+			identity: {
+				clientId: "https://agent.example",
+				agentId: "agent-example",
+				sessionId: "session-example",
+			},
 			body: { conversation_id: "conversation" },
 		});
 		await client.personalAgentConversation(input);
@@ -212,7 +234,12 @@ it("gates and audits accepted conversation requests without visitor text, identi
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({
 			action: "os.personal_agent_conversation.received",
-			metadata: { sessionType: "signed_out" },
+			metadata: {
+				sessionType: "signed_out",
+				client_id: "https://agent.example",
+				agentId: "agent-example",
+				sid: "session-example",
+			},
 		});
 		expect(JSON.stringify(rows)).not.toContain("fictional-secret");
 	} finally {

@@ -7,6 +7,7 @@ import type {
  * the in-memory adapters must produce the same decision and the same ledger
  * row shape, so a workspace object binding and an MCP tool are governed alike.
  */
+import { GatewayChangeRecordBodySchema } from "@tedix/api-contract/schemas/audit";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createInMemoryAdapters } from "@tedix/agent-governance/in-memory";
 import type {
@@ -179,6 +180,42 @@ function comparable(decision: ComplianceDecision) {
 }
 
 describe("gateway adapters decide like wrapBinding", () => {
+	it("retains verified personal-agent attribution in the stored execution record", async () => {
+		const personalAgentSession = {
+			clientId: "https://agent.example",
+			agentId: "agent-example",
+			sessionId: "session-example",
+		};
+		const agent = {
+			...gatewayContext({}),
+			callerIdentity: undefined,
+			personalAgentSession,
+		};
+		const result = await guardGatewayCall(
+			{
+				agent,
+				tool: gatewayTool(
+					"update_customer",
+					"bounded_write",
+					"single_resource",
+				),
+				annotations: { destructiveHint: false },
+				args: { id: "private-body" },
+			},
+			async () => ({ content: [{ type: "text", text: "ok" }] }),
+		);
+		const stored = await agent.apiClient.audit.getChangeRecord({
+			id: result.record.id,
+		});
+		const record = GatewayChangeRecordBodySchema.parse(stored);
+		expect(record.actor).toEqual({
+			id: "agent-example",
+			kind: "agent",
+			organizationId: "org-1",
+		});
+		expect(record.source.personalAgentSession).toEqual(personalAgentSession);
+		expect(JSON.stringify(record)).not.toContain("private-body");
+	});
 	it("allows a read on both paths", async () => {
 		const gateway = await guardGatewayCall(
 			{

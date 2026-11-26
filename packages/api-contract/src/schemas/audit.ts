@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { PersonalAgentAttributionSchema } from "./personal-agent-session";
 import { JsonValueSchema } from "./common";
 
 // "kernel" = tenant control-plane actor (kernel direct tool calls) —
@@ -121,7 +122,11 @@ export const GatewayChangeRecordBodySchema = z.object({
 		kind: z.string(),
 		organizationId: z.string().optional(),
 	}),
-	source: z.object({ surface: z.string(), traceId: z.string().optional() }),
+	source: z.object({
+		surface: z.string(),
+		traceId: z.string().optional(),
+		personalAgentSession: PersonalAgentAttributionSchema.optional(),
+	}),
 	before: RevisionRefSchema.optional(),
 	after: RevisionRefSchema.optional(),
 	decision: z.object({

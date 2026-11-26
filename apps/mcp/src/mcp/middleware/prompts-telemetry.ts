@@ -56,7 +56,10 @@ export function wrapPromptGetTelemetry(
 			organizationId: serverCtx.app?.organizationId,
 			toolName: promptName,
 			toolInputSize: getJsonSize(args),
-			...buildCallerTelemetryFields(serverCtx.callerIdentity),
+			...buildCallerTelemetryFields(
+				serverCtx.callerIdentity,
+				serverCtx.personalAgentSession,
+			),
 			traceId: serverCtx.traceId,
 		};
 

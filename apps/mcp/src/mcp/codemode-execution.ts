@@ -1,3 +1,4 @@
+import { personalAgentAuditMetadata } from "@tedix/api-contract/utils/personal-agent-attribution";
 import { resolveToolTrustLabel } from "@tedix/mcp-shared/content-sanitize";
 import { catalogProjectionSource } from "./catalog-projection";
 import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
@@ -400,6 +401,9 @@ function emitCodeModeAuthorizationDenied(
 		errorMessage: truncateErrorMessage(error.message),
 		metadata: {
 			...buildCallerAuditMetadata(serverCtx.callerIdentity),
+			...(serverCtx.personalAgentSession
+				? personalAgentAuditMetadata(serverCtx.personalAgentSession)
+				: {}),
 			...toolRiskAuditMetadata(tool),
 			...gateDecisionMetadata("tool_scope", "deny", "insufficient_scope"),
 			namespace,

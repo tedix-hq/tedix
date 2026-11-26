@@ -1,5 +1,6 @@
 import { PersonalAgentDiscoveryConfigSchema } from "@tedix/api-contract/schemas/organization";
 import {
+	PersonalAgentAttributionSchema,
 	PersonalAgentFeedbackSchema,
 	type PersonalAgentInterfacesRequestSchema,
 } from "@tedix/api-contract/schemas/personal-agent-session";
@@ -35,6 +36,7 @@ export async function personalAgentInterfaces(
 	if (session.status !== "accepted") return session;
 	const receipt = {
 		status: session.status,
+		identity: PersonalAgentAttributionSchema.parse(session.identity),
 		...(session.sessionCreated ? { sessionCreated: true } : {}),
 	};
 	if (tasks)

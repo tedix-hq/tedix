@@ -4,6 +4,7 @@ import { invalidateOrgSkillDiscovery } from "./mcp/skill-discovery-cache";
 import { gatewayReadBinding } from "./lib/gateway-read-cache";
 import { requestPhaseTimings } from "./mcp/phase-timings";
 import { toolCallCountStub } from "./tool-call-counts";
+import type { PersonalAgentAttribution } from "@tedix/api-contract/schemas/personal-agent-session";
 import { checkSignedOutPersonalAgentSession } from "./personal-agent-session";
 import { handlePersonalAgentInterfaces } from "./personal-agent-interfaces";
 import { handlePersonalAgentConversations } from "./personal-agent-conversations";
@@ -1560,6 +1561,7 @@ const worker = {
 				});
 			}
 
+			let personalAgentSession: PersonalAgentAttribution | undefined;
 			if (
 				isMcpPath &&
 				!hasAnyAuth &&
@@ -1567,6 +1569,9 @@ const worker = {
 				app.metadata?.mcpConfig?.authMode === "public"
 			) {
 				const sessionError = await checkSignedOutPersonalAgentSession({
+					onVerified: (identity) => {
+						personalAgentSession = identity;
+					},
 					request,
 					appId: app.id,
 					organizationId: app.organizationId,
@@ -1800,6 +1805,9 @@ const worker = {
 							env,
 							ctx,
 							multiOrgSelection,
+							undefined,
+							undefined,
+							personalAgentSession,
 						),
 						resolvedApp,
 						env,

@@ -1,5 +1,8 @@
 import * as z from "zod";
-import { PersonalAgentSessionRequestSchema } from "./personal-agent-session";
+import {
+	PersonalAgentAttributionSchema,
+	PersonalAgentSessionRequestSchema,
+} from "./personal-agent-session";
 
 export const PoppyIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,256}$/);
 const object = z.record(z.string(), z.json());
@@ -28,6 +31,7 @@ export const PersonalAgentConversationRequestSchema =
 		body: z.json().optional(),
 	});
 export const PersonalAgentConversationResultSchema = z.object({
+	identity: PersonalAgentAttributionSchema.optional(),
 	httpStatus: z.number().int().min(200).max(599),
 	body: z.json(),
 });

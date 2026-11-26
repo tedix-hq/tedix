@@ -67,6 +67,10 @@ describe("personal agent interfaces", () => {
 		expect(await personalAgentInterfaces(db, env, input)).toEqual({
 			status: "accepted",
 			sessionCreated: true,
+			identity: {
+				clientId: "https://agent.example/agent.json",
+				sessionId: "private-session",
+			},
 			excludedTasks: config.interfaces.excludedTasks,
 			feedbackEndpoint: `${config.mcpUrl}/poppy/feedback`,
 		});
@@ -91,6 +95,10 @@ describe("personal agent interfaces", () => {
 		expect(await personalAgentInterfaces(db, env, feedback)).toEqual({
 			status: "accepted",
 			sessionCreated: true,
+			identity: {
+				clientId: "https://agent.example/agent.json",
+				sessionId: "private-session",
+			},
 		});
 		expect(mocks.intake).toHaveBeenCalledWith(
 			db,

@@ -66,6 +66,12 @@ export interface Source {
 	surface: string;
 	/** Request, run or trace id for correlation. */
 	traceId?: string;
+	/** Verified personal-agent attribution; supplies no account authority. */
+	personalAgentSession?: {
+		clientId: string;
+		agentId?: string;
+		sessionId: string;
+	};
 }
 
 /** One call about to be made through a binding. */

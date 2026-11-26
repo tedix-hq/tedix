@@ -1,3 +1,7 @@
+import {
+	PersonalAgentAttributionSchema,
+	type PersonalAgentAttribution,
+} from "@tedix/api-contract/schemas/personal-agent-session";
 import { getApiClient } from "./lib/api-client";
 
 /** Session identity never becomes x-tedix-auth-* headers or an OAuth principal. */
@@ -6,6 +10,7 @@ export async function checkSignedOutPersonalAgentSession(input: {
 	appId: string;
 	organizationId: string;
 	env: CloudflareEnv;
+	onVerified?: (identity: PersonalAgentAttribution) => void;
 }): Promise<Response | null> {
 	const { request, env, appId, organizationId } = input;
 	const client = getApiClient({
@@ -24,8 +29,11 @@ export async function checkSignedOutPersonalAgentSession(input: {
 			sessionToken && sessionToken.length > 16384 ? null : sessionToken,
 		version: version && version.length > 32 ? null : version,
 	});
-	if (result.status === "not_configured" || result.status === "accepted")
+	if (result.status === "accepted") {
+		input.onVerified?.(PersonalAgentAttributionSchema.parse(result.identity));
 		return null;
+	}
+	if (result.status === "not_configured") return null;
 	return Response.json(
 		{ error: result.status },
 		{

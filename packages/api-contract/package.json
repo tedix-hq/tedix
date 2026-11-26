@@ -10,6 +10,7 @@
 		"./schemas/hook-context": "./src/schemas/hook-context.ts",
 		"./contracts/rules": "./src/contracts/rules.ts",
 		"./schemas/rules": "./src/schemas/rules.ts",
+		"./utils/personal-agent-attribution": "./src/utils/personal-agent-attribution.ts",
 		"./utils/approval-holds": "./src/utils/approval-holds.ts",
 		"./utils/delegated-approvals": "./src/utils/delegated-approvals.ts",
 		"./schemas/delegated-approvals": "./src/schemas/delegated-approvals.ts",

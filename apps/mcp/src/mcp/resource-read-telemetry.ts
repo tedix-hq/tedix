@@ -12,7 +12,10 @@ export function trackResourceRead(
 	metadata: NonNullable<McpEvent["metadata"]>,
 	toolName?: string,
 ): void {
-	const callerFields = buildCallerTelemetryFields(agent.callerIdentity);
+	const callerFields = buildCallerTelemetryFields(
+		agent.callerIdentity,
+		agent.personalAgentSession,
+	);
 	const event: McpEvent = {
 		timestamp: new Date().toISOString(),
 		eventType: "resource_read",

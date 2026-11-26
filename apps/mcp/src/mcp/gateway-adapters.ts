@@ -86,6 +86,7 @@ type LedgerContext = Partial<
 		| "appSlug"
 		| "app"
 		| "callerIdentity"
+		| "personalAgentSession"
 		| "traceId"
 		| "apiClient"
 	>
@@ -118,11 +119,18 @@ export function describeGatewayCall(
 ): CallDescription {
 	const policy = resolveToolRiskPolicy({ meta: gates.tool.meta ?? null });
 	const identity = gates.agent.callerIdentity;
+	const personalAgent = gates.agent.personalAgentSession;
 	const actor: Actor = {
 		id:
-			identity?.userId ?? identity?.tediId ?? identity?.clientId ?? "anonymous",
-		kind:
-			identity?.authType === "tedi"
+			personalAgent?.agentId ??
+			personalAgent?.clientId ??
+			identity?.userId ??
+			identity?.tediId ??
+			identity?.clientId ??
+			"anonymous",
+		kind: personalAgent
+			? "agent"
+			: identity?.authType === "tedi"
 				? "tedi"
 				: identity?.authType === "service"
 					? "service"
@@ -144,6 +152,7 @@ export function describeGatewayCall(
 		actor,
 		source: {
 			surface: gates.surface ?? "mcp_gateway",
+			...(personalAgent ? { personalAgentSession: personalAgent } : {}),
 			...(gates.agent.traceId ? { traceId: gates.agent.traceId } : {}),
 		},
 		...(policy

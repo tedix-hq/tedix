@@ -1,3 +1,4 @@
+import { personalAgentAuditMetadata } from "@tedix/api-contract/utils/personal-agent-attribution";
 import { resolveWireAnnotations } from "./tool-registration-policy";
 /**
  * Code Mode for Tedix MCP
@@ -587,6 +588,9 @@ export async function registerCodeModeTools(
 					...(errorMsg && { errorMessage: errorMsg.slice(0, 500) }),
 					metadata: {
 						...buildCallerAuditMetadata(serverCtx.callerIdentity),
+						...(serverCtx.personalAgentSession
+							? personalAgentAuditMetadata(serverCtx.personalAgentSession)
+							: {}),
 						...ownerHostAuditMetadata(executionRefs.ownerHostSession),
 						...callerOrganizationMetadata(serverCtx),
 						toolCount: exposedToolCount,

@@ -40,6 +40,7 @@
  * `tedis/runtime.ts` both state "never let audit I/O mask the real outcome".
  */
 
+import { personalAgentAuditMetadata } from "@tedix/api-contract/utils/personal-agent-attribution";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { os as orpc } from "@orpc/server";
 import type { BaseContext } from "./context";
@@ -179,7 +180,7 @@ export const OS_TENANT_AUDIT: OsAuditRegistry = {
 			output.httpStatus < 300
 				? text(input.appId)
 				: [],
-		metadata: () => ({ sessionType: "signed_out" }),
+		metadata: ({ output }) => personalAgentAuditMetadata(output.identity),
 	},
 	personalAgentInterfaces: {
 		action: "os.personal_agent_interfaces.received",
@@ -190,7 +191,7 @@ export const OS_TENANT_AUDIT: OsAuditRegistry = {
 			(input.method === "POST" && output.status === "accepted")
 				? text(input.appId)
 				: [],
-		metadata: () => ({ sessionType: "signed_out" }),
+		metadata: ({ output }) => personalAgentAuditMetadata(output.identity),
 	},
 	personalAgentSession: {
 		action: "os.personal_agent_session.started",
@@ -198,7 +199,7 @@ export const OS_TENANT_AUDIT: OsAuditRegistry = {
 		resourceType: "app",
 		resourceId: ({ input, output }) =>
 			output.sessionCreated === true ? text(input.appId) : [],
-		metadata: () => ({ sessionType: "signed_out" }),
+		metadata: ({ output }) => personalAgentAuditMetadata(output.identity),
 	},
 };
 
