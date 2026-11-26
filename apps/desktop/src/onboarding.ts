@@ -286,7 +286,10 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			}),
 		);
 	}
-	const firstName = app.name.trim().split(/\s+/)[0];
+	// Only a real name: the sign-in may give the email address as the name.
+	const firstName = app.name.includes("@")
+		? ""
+		: app.name.trim().split(/\s+/)[0];
 	const looking = now.setup.looking;
 	return {
 		headline: "Add Tedix to your apps",

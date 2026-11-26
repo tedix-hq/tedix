@@ -168,7 +168,7 @@ export function agentConnectionProblem(input: {
 		grant?.providerStatus === "not_checked"
 	)
 		return {
-			text: "Tedix could not check this sign-in right now.",
+			text: "Tedix couldn’t check this sign-in.",
 			action: "check",
 		};
 	return undefined;

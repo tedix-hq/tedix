@@ -425,7 +425,7 @@ export function toolView(
 							tedixShell.open("claude-connectors"),
 						)
 					: problem.action === "check"
-						? checkAgain()
+						? checkAgain("Try again")
 						: tool.canSignIn
 							? plain(
 									problem.action === "account"
