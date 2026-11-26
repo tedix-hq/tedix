@@ -58,6 +58,7 @@ function retentionVictims(
 		.where(and(conversation, gt(table.expiresAt, input.now)))
 		.as("ranked");
 	return or(
+		// bound-params: IN() over a subquery, so no caller-supplied list is bound.
 		inArray(
 			table.id,
 			db
@@ -65,6 +66,7 @@ function retentionVictims(
 				.from(table)
 				.where(and(conversation, lte(table.expiresAt, input.now))),
 		),
+		// bound-params: IN() over a subquery, so no caller-supplied list is bound.
 		inArray(
 			table.id,
 			db
