@@ -163,6 +163,7 @@ function createExecutionRefs(): CodeModeExecutionRefs {
 		payloadBudgetRefusalRecorded: false,
 		credentialMissingCalls: 0,
 		rpcNamespaces: new Set(),
+		returnedOpaqueByNamespace: new Map(),
 		sideEffectQueue: Promise.resolve(),
 		failureBudget: new IdenticalFailureBudget(),
 		discoverCalls: 0,

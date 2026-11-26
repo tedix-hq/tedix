@@ -271,6 +271,8 @@ type SecretEgressContext = Pick<
 export async function checkSecretEgress(
 	input: Record<string, unknown>,
 	ctx: SecretEgressContext,
+	/** Strings this same tool namespace returned earlier in the Code Mode run. */
+	returnedValues?: ReadonlySet<string>,
 ): Promise<RpcToolResult | null> {
 	if (ctx.secretEgressDecision?.gateDecision === "allow") return null;
 	const config = ctx.config;
@@ -286,8 +288,25 @@ export async function checkSecretEgress(
 	)
 		return null;
 
-	const secretPattern = findSecretValuePattern(input, ctx.toolInputSchema);
-	if (!secretPattern) return null;
+	const secretPattern = findSecretValuePattern(
+		input,
+		ctx.toolInputSchema,
+		returnedValues,
+	);
+	if (!secretPattern) {
+		// Record that a returned reference was admitted so the handler's own
+		// scan of the same call does not deny it again.
+		if (
+			returnedValues?.size &&
+			findSecretValuePattern(input, ctx.toolInputSchema)
+		)
+			ctx.secretEgressDecision = gateDecisionMetadata(
+				"secret_egress",
+				"allow",
+				"returned_by_same_tool",
+			);
+		return null;
+	}
 
 	let mode: "block" | "warn" = "block";
 	const organizationId = ctx.app.organizationId;

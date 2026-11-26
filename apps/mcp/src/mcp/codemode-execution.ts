@@ -86,6 +86,7 @@ import { INPUT_REQUIRED_META_KEY } from "./mrtr";
 import { checkToolPayment, attachPaymentResponseMeta } from "./payments";
 import { settleToolPayment } from "./payments-settlement";
 import { executeTool, preflightSecretEgress } from "./tool-execution";
+import { collectReturnedOpaqueValues } from "./utils/secret-egress-scan";
 import {
 	collectCodeModeCollectionRead,
 	collectCodeModeReadObservation,
@@ -180,6 +181,12 @@ export interface CodeModeExecutionRefs {
 	/** Inner calls that stopped because no credential was on file. */
 	credentialMissingCalls: number;
 	rpcNamespaces: Set<string>;
+	/**
+	 * Opaque strings (product refs, cursors, IDs) each tool namespace returned in
+	 * this execution; the same namespace may be handed them back past the
+	 * secret-egress opaque-token check.
+	 */
+	returnedOpaqueByNamespace: Map<string, Set<string>>;
 	sideEffectQueue: Promise<void>;
 	failureBudget: IdenticalFailureBudget;
 	/** Discovery-option telemetry: how the model actually discovers. */
@@ -590,6 +597,7 @@ export function buildNamespaceGroups(
 					serverCtx,
 					tool,
 					toolArgs,
+					executionRefs.returnedOpaqueByNamespace.get(ns),
 				);
 				if (secretEgress.denial) throw innerToolError(secretEgress.denial);
 				if (
@@ -826,6 +834,12 @@ export function buildNamespaceGroups(
 						paidResult,
 						tool.toolId,
 					);
+					let returnedOpaque = executionRefs.returnedOpaqueByNamespace.get(ns);
+					if (!returnedOpaque) {
+						returnedOpaque = new Set();
+						executionRefs.returnedOpaqueByNamespace.set(ns, returnedOpaque);
+					}
+					collectReturnedOpaqueValues(normalizedResult, returnedOpaque);
 					if (declaredAnnotations?.readOnlyHint === false)
 						actionReceipt = recordFrom(
 							recordFrom(paidResult._meta)?.[ACTION_RECEIPT_META_KEY],

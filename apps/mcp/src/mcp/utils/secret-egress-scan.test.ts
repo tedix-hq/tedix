@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	collectReturnedOpaqueValues,
 	EXEMPT_IDENTIFIER_PATTERNS,
 	findSecretValuePattern,
 } from "./secret-egress-scan";
@@ -323,6 +324,46 @@ describe("findSecretValuePattern", () => {
 			expect(findSecretValuePattern({ value: `${GITHUB_TOKEN}_a_b_c` })).toBe(
 				"GitHub token",
 			);
+		});
+	});
+	describe("references a tool returned earlier in the execution", () => {
+		const PRODUCT_REF =
+			"pr.v1.k1.QmFzZTY0RW5jb2RlZFRva2VuMTIzNDU2Nzg5MEFCQ0RFRkdISUo";
+
+		it("collects only opaque strings, never provider-shaped secrets", () => {
+			const returned = new Set<string>();
+			collectReturnedOpaqueValues(
+				{
+					results: [{ productRef: PRODUCT_REF, name: "Switch 2" }],
+					leaked: GITHUB_TOKEN,
+				},
+				returned,
+			);
+			expect([...returned]).toEqual([PRODUCT_REF]);
+		});
+
+		it("lets the same tool receive its own reference but nothing else", () => {
+			const returned = new Set([PRODUCT_REF]);
+			expect(findSecretValuePattern({ productRef: PRODUCT_REF })).toBe(
+				"long opaque token",
+			);
+			expect(
+				findSecretValuePattern(
+					{ productRef: PRODUCT_REF },
+					undefined,
+					returned,
+				),
+			).toBeNull();
+			expect(
+				findSecretValuePattern({ productRef: OPAQUE_KEY }, undefined, returned),
+			).toBe("long opaque token");
+			expect(
+				findSecretValuePattern(
+					{ productRef: GITHUB_TOKEN },
+					undefined,
+					new Set([GITHUB_TOKEN]),
+				),
+			).toBe("GitHub token");
 		});
 	});
 });

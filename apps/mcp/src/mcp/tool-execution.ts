@@ -134,6 +134,7 @@ export async function preflightSecretEgress(
 	agent: ServerContext,
 	tool: AppTool,
 	args: Record<string, unknown>,
+	returnedValues?: ReadonlySet<string>,
 ) {
 	const context: Pick<
 		ToolExecutionContext<ToolConfig>,
@@ -150,7 +151,7 @@ export async function preflightSecretEgress(
 		publicEgress: tool.publicEgress === true,
 		toolInputSchema: tool.inputSchema,
 	};
-	const denial = await checkSecretEgress(args, context);
+	const denial = await checkSecretEgress(args, context, returnedValues);
 	if (!denial) return { denial: null, decision: context.secretEgressDecision };
 	const data = isRecord(denial.data) ? denial.data : {};
 	const error =

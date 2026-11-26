@@ -250,8 +250,13 @@ function scan(
 	value: unknown,
 	schema: JsonSchema | undefined,
 	role: StringRole,
+	returned: ReadonlySet<string> | undefined,
 ): string | null {
 	if (typeof value === "string") {
+		// A value this same tool returned earlier in the execution is its own
+		// round-trip reference (a product ref, order ID or cursor), not a
+		// credential leaving Tedix. Provider-shaped secrets are still rejected.
+		if (returned?.has(value)) return findHighConfidencePattern(value);
 		// Only an exact schema constraint exempts a structured identifier from
 		// the opaque-token heuristic; a field name alone cannot exempt credentials.
 		const exempt = EXEMPT_IDENTIFIER_PATTERNS.find((pattern) =>
@@ -267,7 +272,12 @@ function scan(
 	if (Array.isArray(value)) {
 		const items = itemSchema(schema);
 		for (const item of value) {
-			const found = scan(item, items, role === "file" ? "file" : "plain");
+			const found = scan(
+				item,
+				items,
+				role === "file" ? "file" : "plain",
+				returned,
+			);
 			if (found) return found;
 		}
 		return null;
@@ -287,7 +297,7 @@ function scan(
 		} else if (CURSOR_KEY_RE.test(key) && childSchema) {
 			childRole = "cursor";
 		}
-		const found = scan(child, childSchema, childRole);
+		const found = scan(child, childSchema, childRole, returned);
 		if (found) return found;
 	}
 	return null;
@@ -302,6 +312,42 @@ function scan(
 export function findSecretValuePattern(
 	value: unknown,
 	inputSchema?: Record<string, unknown>,
+	returnedValues?: ReadonlySet<string>,
 ): string | null {
-	return scan(value, inputSchema, "plain");
+	return scan(value, inputSchema, "plain", returnedValues);
+}
+
+const MAX_RETURNED_VALUES = 2000;
+const MAX_RETURNED_VALUE_CHARS = 4096;
+const MAX_RETURN_WALK_DEPTH = 12;
+
+/**
+ * Collect the strings a tool result contains that the opaque-token check would
+ * flag, so the same tool may be given them back later in one execution. Only
+ * flagged strings are kept: everything else already passes, and the set stays
+ * small. Provider-shaped secrets are never kept.
+ */
+export function collectReturnedOpaqueValues(
+	result: unknown,
+	into: Set<string>,
+	depth = 0,
+): void {
+	if (into.size >= MAX_RETURNED_VALUES || depth > MAX_RETURN_WALK_DEPTH) return;
+	if (typeof result === "string") {
+		if (
+			result.length <= MAX_RETURNED_VALUE_CHARS &&
+			findOpaqueToken(result) &&
+			!findHighConfidencePattern(result)
+		)
+			into.add(result);
+		return;
+	}
+	if (Array.isArray(result)) {
+		for (const item of result)
+			collectReturnedOpaqueValues(item, into, depth + 1);
+		return;
+	}
+	if (!isRecord(result)) return;
+	for (const child of Object.values(result))
+		collectReturnedOpaqueValues(child, into, depth + 1);
 }

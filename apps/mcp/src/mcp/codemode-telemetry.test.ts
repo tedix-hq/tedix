@@ -1762,9 +1762,12 @@ describe("Code Mode tail telemetry", () => {
 			status: 403,
 			retryable: false,
 		});
-		expect(preflightSecretEgressMock).toHaveBeenCalledWith(ctx, read, {
-			body: `safe fake marker ${marker}`,
-		});
+		expect(preflightSecretEgressMock).toHaveBeenCalledWith(
+			ctx,
+			read,
+			{ body: `safe fake marker ${marker}` },
+			undefined,
+		);
 		expect(executeToolMock).not.toHaveBeenCalled();
 	});
 
