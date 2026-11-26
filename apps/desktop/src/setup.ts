@@ -1822,29 +1822,6 @@ export async function setupAction(
 		});
 		return refreshSetup(true);
 	}
-	if (action === "account-sign-in" && tool.accountSignIn && command) {
-		await step(`account:${tool.id}`, async (say) => {
-			// Claude Code wants a terminal for its sign-in; `script` gives it one.
-			const [file, args] =
-				process.platform === "darwin"
-					? [
-							"/usr/bin/script",
-							["-q", "/dev/null", command, ...tool.accountSignIn!],
-						]
-					: [command, tool.accountSignIn!];
-			await must(
-				run(file, args, {
-					onLine: say,
-					onStart: (stop) => {
-						stops[`account:${tool.id}`] = stop;
-					},
-					timeoutMs: 15 * 60_000,
-				}),
-			);
-			return `Signed in to ${tool.name}.`;
-		});
-		return readAgentStatus();
-	}
 	const verify = () =>
 		step(`verify:${tool.id}`, async (say) => {
 			setVerified(tool.id);
@@ -1874,21 +1851,23 @@ export async function setupAction(
 			}
 			return `A Tedix read succeeded inside ${toolName}${account ? `, as ${account}` : ""}.`;
 		});
-	if (action === "verify") {
-		await verify();
-		void readAgentStatus();
-		return;
-	}
-	if (
-		action === "connect" &&
-		tool.signIn &&
-		command &&
-		toolFacts[tool.id]?.signInWorks !== false
-	) {
+	// One Connect carries an app through sign-in and verification: it adds
+	// Tedix when missing, reuses an authorization that still works instead of
+	// asking for consent again, and ends with the host read — no second
+	// click and no separate Check connection.
+	const connectTool = async (): Promise<boolean> => {
+		if (!tool.signIn || !command || toolFacts[tool.id]?.signInWorks === false)
+			return false;
 		const key = `connect:${tool.id}`;
-		if (steps[key]?.working || steps[`verify:${tool.id}`]?.working) return;
+		if (steps[key]?.working || steps[`verify:${tool.id}`]?.working)
+			return false;
 		await step(key, async (say) => {
 			setVerified(tool.id);
+			// A verify that just asked for sign-in must not be skipped by a
+			// connection check that still trusts the old authorization.
+			const verifyWantsSignIn = /sign in/i.test(
+				steps[`verify:${tool.id}`]?.error ?? "",
+			);
 			delete steps[`verify:${tool.id}`];
 			const row = toolRows().find((row) => row.id === tool.id);
 			const version = toolFacts[tool.id]?.version;
@@ -1945,6 +1924,14 @@ export async function setupAction(
 				if (state === "signed-in")
 					return "OpenCode is already signed in to Tedix.";
 			}
+			// An authorization that still works needs no second consent:
+			// verify what is there instead of signing in again.
+			if (
+				!verifyWantsSignIn &&
+				tool.connection &&
+				(await tool.connection(command)) === "signed-in"
+			)
+				return `Tedix is already signed in from ${toolName}.`;
 			say("Finish signing in in your browser…");
 			// Remember this install's sign-ins so a fresh one can replace them.
 			const priorSignIns =
@@ -1984,6 +1971,51 @@ export async function setupAction(
 			return `Signed in to Tedix from ${toolName}.`;
 		});
 		if (steps[key]?.done) await verify();
+		return true;
+	};
+	if (action === "verify") {
+		await verify();
+		void readAgentStatus();
+		return;
+	}
+	if (action === "connect") {
+		if (await connectTool()) return readAgentStatus();
+		return;
+	}
+	if (action === "account-sign-in" && tool.accountSignIn && command) {
+		await step(`account:${tool.id}`, async (say) => {
+			// Claude Code wants a terminal for its sign-in; `script` gives it one.
+			const [file, args] =
+				process.platform === "darwin"
+					? [
+							"/usr/bin/script",
+							["-q", "/dev/null", command, ...tool.accountSignIn!],
+						]
+					: [command, tool.accountSignIn!];
+			await must(
+				run(file, args, {
+					onLine: say,
+					onStart: (stop) => {
+						stops[`account:${tool.id}`] = stop;
+					},
+					timeoutMs: 15 * 60_000,
+				}),
+			);
+			return `Signed in to ${tool.name}.`;
+		});
+		// The app's own sign-in is the first half of Connect: unless the app
+		// is already connected, carry on through install, Tedix sign-in and
+		// the verification read without another click.
+		if (steps[`account:${tool.id}`]?.done) {
+			await readAgentStatus();
+			const row = toolRows().find((item) => item.id === tool.id);
+			const linked =
+				row?.tedix === "added" &&
+				row.enabled &&
+				row.connection === "signed-in" &&
+				row.readVerified;
+			if (!linked) await connectTool();
+		}
 		return readAgentStatus();
 	}
 	if (action === "run-tasks") {

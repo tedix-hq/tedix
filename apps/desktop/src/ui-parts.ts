@@ -315,16 +315,27 @@ export function toolView(
 		};
 	if (tool.tedix === "checking")
 		return { ...base, ready: false, sub: "Checking…" };
-	if (tool.account === "signed-out")
+	if (tool.account === "signed-out") {
+		// Connect carries the app's own sign-in first, then Tedix sign-in and
+		// verification, so one click is enough unless the app is already
+		// connected or this tool cannot sign in to Tedix from here.
+		const linked =
+			tool.tedix === "added" &&
+			tool.enabled &&
+			tool.connection === "signed-in" &&
+			tool.readVerified;
 		return {
 			...base,
 			ready: false,
 			tone: "warn",
 			sub: `Sign in to your ${tool.name} account first.`,
 			action: tool.canSignInAccount
-				? plain(`Sign in to ${tool.name}`, "account-sign-in", "Signing in…")
+				? tool.canSignIn && !linked
+					? plain("Connect", "account-sign-in", "Connecting…")
+					: plain(`Sign in to ${tool.name}`, "account-sign-in", "Signing in…")
 				: undefined,
 		};
+	}
 	if (tool.tedix === "missing")
 		return {
 			...base,
