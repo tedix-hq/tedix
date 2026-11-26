@@ -1,6 +1,5 @@
 import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { isDeepStrictEqual } from "node:util";
 import { configDir } from "./shell";
 
 /** One entry of the CLI's `supervisor-runners.json`, as the switches need it. */
@@ -58,10 +57,9 @@ export function servingRunner(entries: RunnerEntry[]): RunnerEntry | undefined {
 }
 
 /**
- * Changes one field of one runner the way a person would, one line at a time,
- * so unknown fields, key order and the tab formatting stay as the CLI wrote
- * them (`undefined` removes the field). Returns undefined when the result
- * would not be exactly the old content plus that one change.
+ * Changes one field of one runner (`undefined` removes the field) and writes
+ * the file the way the CLI does, with tabs. Unknown fields and key order stay.
+ * Returns undefined when the file is not a runner list or has no such runner.
  */
 export function editRunners(
 	text: string,
@@ -69,36 +67,17 @@ export function editRunners(
 	key: string,
 	value: Json,
 ): string | undefined {
-	const lines = text.split("\n");
-	const starts = lines.flatMap((line, at) => (line === "\t\t{" ? [at] : []));
-	const start = starts[index];
-	if (start === undefined) return undefined;
-	const end = lines.findIndex(
-		(line, at) => at > start && line.startsWith("\t\t}"),
-	);
-	if (end < 0) return undefined;
-	const prefix = `\t\t\t${JSON.stringify(key)}: `;
-	const at = lines.findIndex(
-		(line, i) => i > start && i < end && line.startsWith(prefix),
-	);
-	if (at >= 0 && value !== undefined) {
-		lines[at] =
-			prefix + JSON.stringify(value) + (lines[at]!.endsWith(",") ? "," : "");
-	} else if (at >= 0) {
-		lines.splice(at, 1);
-		if (at === end - 1 && at - 1 > start)
-			lines[at - 1] = lines[at - 1]!.replace(/,$/, "");
-	} else if (value !== undefined) {
-		if (end - 1 > start) lines[end - 1] += ",";
-		lines.splice(end, 0, prefix + JSON.stringify(value));
+	let file: { runners?: unknown };
+	try {
+		file = JSON.parse(text);
+	} catch {
+		return undefined;
 	}
-	const edited = lines.join("\n");
-
-	const expected = parse(text);
-	if (!expected[index]) return undefined;
-	if (value === undefined) delete expected[index][key];
-	else expected[index][key] = value;
-	return isDeepStrictEqual(parse(edited), expected) ? edited : undefined;
+	const runner = Array.isArray(file?.runners) ? file.runners[index] : undefined;
+	if (!runner || typeof runner !== "object") return undefined;
+	if (value === undefined) delete (runner as Record<string, unknown>)[key];
+	else (runner as Record<string, unknown>)[key] = value;
+	return `${JSON.stringify(file, null, "\t")}\n`;
 }
 
 /** Applies one change and replaces the file atomically; throws and leaves it alone otherwise. */

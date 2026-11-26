@@ -2283,6 +2283,7 @@ else if (process.argv.includes("--local-model")) {
 					setRunnerField(index, key, value);
 				} catch (error) {
 					lastOutput = error instanceof Error ? error.message : String(error);
+					log(`runners: ${key} for runner ${index} not saved: ${lastOutput}`);
 					return refresh();
 				}
 				if (key === "enabled") matchOpenAtLogin();
