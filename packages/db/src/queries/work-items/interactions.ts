@@ -1,9 +1,11 @@
-import { coreTable } from "../../core-store/client";
 import {
-	compareTimestampId,
-	mergeLogStoreRows,
-	readLogStores,
-} from "../../utils/log-store";
+	auditWriteTable,
+	auditReadColumns,
+	auditReadTable,
+	readAuditStores,
+} from "../audit-delivery";
+import { coreTable } from "../../core-store/client";
+import { compareTimestampId, mergeLogStoreRows } from "../../utils/log-store";
 import {
 	anyIds,
 	booleanValue,
@@ -89,7 +91,7 @@ import {
 	DecisionEnvelopeSchema,
 	matchesDeckClass,
 } from "@tedix/api-contract/schemas/os-decision-deck";
-import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
+
 import { platformCronCheckpoints as d1PlatformCronCheckpoints } from "../../schema/platform-cron-executions";
 import { organizations as d1Organizations } from "../../schema/organizations";
 import { tedis as d1Tedis } from "../../schema/tedis";
@@ -627,7 +629,7 @@ function clearedInteractionStatements(
 ) {
 	const workItemComments = coreTable(db, d1WorkItemComments);
 	const workInteractions = coreTable(db, d1WorkInteractions);
-	const auditEvents = coreTable(db, d1AuditEvents);
+	const auditEvents = auditWriteTable(db);
 	const receipt = and(
 		eq(workInteractions.orgId, row.orgId),
 		eq(workInteractions.id, row.id),
@@ -916,7 +918,7 @@ export async function respondToWorkInteraction(
 	const workInteractionDeliveries = coreTable(db, d1WorkInteractionDeliveries);
 	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
 	const workInteractions = coreTable(db, d1WorkInteractions);
-	const auditEvents = coreTable(db, d1AuditEvents);
+	const auditEvents = auditWriteTable(db);
 	if (containsCardSecret([p.body, p.metadata]))
 		throw new WorkControlError("INVALID_TRANSITION", CARD_SECRET_MESSAGE);
 	await validateActor(db, p.orgId, p.responder);
@@ -1841,9 +1843,9 @@ async function readInteractionExpiryReceipts(
 	receiptId?: string,
 ) {
 	const read = async (store: DbQueryClient) => {
-		const auditEvents = coreTable(store, d1AuditEvents);
+		const auditEvents = auditReadTable(store);
 		return store
-			.select()
+			.select(auditReadColumns(store))
 			.from(auditEvents)
 			.where(
 				and(
@@ -1855,7 +1857,7 @@ async function readInteractionExpiryReceipts(
 			.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
 			.limit(limit);
 	};
-	const pages = await readLogStores(db, read);
+	const pages = await readAuditStores(db, read);
 	return pages
 		? mergeLogStoreRows(pages, { compare: compareTimestampId("desc"), limit })
 		: read(db);
@@ -1876,7 +1878,7 @@ export async function sweepObsoleteWorkInteractions(
 	const workItemComments = coreTable(db, d1WorkItemComments);
 	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
 	const workInteractions = coreTable(db, d1WorkInteractions);
-	const auditEvents = coreTable(db, d1AuditEvents);
+	const auditEvents = auditWriteTable(db);
 	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
 	const organizations = coreTable(db, d1Organizations);
 	const budget = Math.min(100, Math.max(0, Math.floor(p.limit)));
@@ -2153,11 +2155,15 @@ export async function sweepObsoleteWorkInteractions(
 		.returning({ id: platformCronCheckpoints.scheduleId });
 	const [claimed] = await db.batch([claim, ...statements]);
 	if (!claimed.length) return empty;
-	const receipts = await db
-		.select({ metadata: auditEvents.metadata })
-		.from(auditEvents)
-		// bound-params: at most one fence for each of the ten selected organizations.
-		.where(anyIds(db, auditEvents.id, fences));
+	const readReceipts = async (store: DbQueryClient) => {
+		const table = auditReadTable(store);
+		return store
+			.select({ id: table.id, metadata: table.metadata })
+			.from(table)
+			.where(anyIds(store, table.id, fences));
+	};
+	const pages = await readAuditStores(db, readReceipts);
+	const receipts = pages ? mergeLogStoreRows(pages) : await readReceipts(db);
 	return {
 		observed,
 		candidates,

@@ -63,3 +63,27 @@ export const auditEvents = sqliteTable(
 
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type NewAuditEvent = typeof auditEvents.$inferInsert;
+
+/** Pending delivery only: no secondary indexes or retained delivered rows. */
+export const auditDeliveryOutbox = sqliteTable("audit_delivery_outbox", {
+	id: text("id").primaryKey(),
+	ignoreDuplicates: integer("ignore_duplicates", { mode: "boolean" })
+		.notNull()
+		.default(false),
+	organizationId: text("organization_id").notNull(),
+	actorId: text("actor_id").notNull(),
+	actorType: text("actor_type").notNull(),
+	action: text("action").notNull(),
+	resourceType: text("resource_type").notNull(),
+	resourceId: text("resource_id"),
+	metadata: text("metadata", { mode: "json" }).$type<
+		Record<string, JsonValue>
+	>(),
+	ipAddress: text("ip_address"),
+	userAgent: text("user_agent"),
+	timestamp: integer("timestamp", { mode: "timestamp" }).notNull(),
+	traceId: text("trace_id").generatedAlwaysAs(
+		sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.traceId') END`,
+		{ mode: "virtual" },
+	),
+});

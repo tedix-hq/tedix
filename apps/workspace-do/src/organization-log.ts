@@ -44,6 +44,7 @@ import type {
 	OrganizationLogRead,
 	OrganizationLogRange,
 	OrganizationLogRecord,
+	OrganizationAuditEvent,
 } from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
 import type { WorkspaceEnv } from "./env";
 
@@ -90,6 +91,10 @@ CREATE TABLE IF NOT EXISTS archived_log_ranges (
 	manifest_key TEXT NOT NULL,
 	first_recorded_at TEXT NOT NULL,
 	last_recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit_events (
+	id TEXT PRIMARY KEY,
+	event TEXT NOT NULL
 );
 -- Held appends of the finished cutover from main; emptied when a store went live.
 DROP TABLE IF EXISTS pending_change_records;
@@ -375,6 +380,60 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 		if (!last) return;
 		this.#setMeta("tail_sequence", String(last.sequence));
 		this.#setMeta("tail_chain_hash", last.link);
+	}
+
+	async organizationAuditAppend(
+		organizationId: string,
+		events: OrganizationAuditEvent[],
+		ignoreDuplicateIds: string[] = [],
+	): Promise<OrganizationLogRead<OrganizationAuditEvent[]>> {
+		this.#bind(organizationId);
+		if (events.length > 500)
+			throw new Error("Audit delivery page is too large");
+		const stored = this.ctx.storage.transactionSync(() =>
+			events.map((event) => {
+				if (event.organizationId !== organizationId)
+					throw new Error("Audit organization mismatch");
+				const encoded = JSON.stringify(event);
+				const [prior] = this.#sql
+					.exec<{ event: string }>(
+						"SELECT event FROM audit_events WHERE id = ?",
+						event.id,
+					)
+					.toArray();
+				if (
+					prior &&
+					prior.event !== encoded &&
+					!ignoreDuplicateIds.includes(event.id)
+				)
+					throw new Error(`Audit event collision: ${event.id}`);
+				if (!prior)
+					this.#sql.exec(
+						"INSERT INTO audit_events (id, event) VALUES (?, ?)",
+						event.id,
+						encoded,
+					);
+				return JSON.parse(prior?.event ?? encoded) as OrganizationAuditEvent;
+			}),
+		);
+		return { status: "live", value: stored };
+	}
+
+	async organizationAuditGet(
+		organizationId: string,
+		id: string,
+	): Promise<OrganizationLogRead<OrganizationAuditEvent | null>> {
+		this.#bind(organizationId);
+		const [row] = this.#sql
+			.exec<{ event: string }>(
+				"SELECT event FROM audit_events WHERE id = ?",
+				id,
+			)
+			.toArray();
+		return {
+			status: "live",
+			value: row ? (JSON.parse(row.event) as OrganizationAuditEvent) : null,
+		};
 	}
 
 	async organizationLogAppend(

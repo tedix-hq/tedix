@@ -17,7 +17,11 @@ import {
 	verifyChain,
 } from "@tedix/agent-governance/seal";
 import { GatewayChangeRecordSchema } from "@tedix/api-contract/schemas/audit";
-import type { OrganizationLogRuntime } from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
+import type {
+	OrganizationLogRuntime,
+	OrganizationAuditRuntime,
+	OrganizationAuditEvent,
+} from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 
 const ORG = "org_log_test";
@@ -33,7 +37,9 @@ function store(organizationId = ORG) {
 		bindings.ORGANIZATION_LOG,
 		env,
 		`org:${organizationId}`,
-	) as unknown as OrganizationLogRuntime & DurableObjectStub;
+	) as unknown as OrganizationLogRuntime &
+		OrganizationAuditRuntime &
+		DurableObjectStub;
 }
 
 const id = (n: number) =>
@@ -305,4 +311,65 @@ test("retention keeps the whole day until its archive verifies, then exposes man
 			clock.mockRestore();
 		}
 	});
+});
+
+test("audit delivery is immutable, replayable, atomic and isolated by organization", async () => {
+	const org = "org_audit_delivery";
+	const log = store(org);
+	const event: OrganizationAuditEvent = {
+		id: "audit-1",
+		organizationId: org,
+		actorId: "user-1",
+		actorType: "user",
+		action: "approval.approved",
+		resourceType: "approval_request",
+		resourceId: "request-1",
+		metadata: { policy: "example" },
+		ipAddress: null,
+		userAgent: null,
+		timestamp: 1795651200,
+	};
+	expect(await log.organizationAuditAppend(org, [event])).toEqual({
+		status: "live",
+		value: [event],
+	});
+	expect(await log.organizationAuditAppend(org, [event])).toEqual({
+		status: "live",
+		value: [event],
+	});
+	await runInDurableObject(log, async (instance) => {
+		const own = instance as unknown as OrganizationLogStore;
+		await expect(
+			own.organizationAuditAppend(org, [
+				{ ...event, id: "audit-2" },
+				{ ...event, action: "approval.rejected" },
+			]),
+		).rejects.toThrow("collision");
+	});
+	expect(await log.organizationAuditGet(org, "audit-2")).toEqual({
+		status: "live",
+		value: null,
+	});
+	expect(await log.organizationAuditGet(org, event.id)).toEqual({
+		status: "live",
+		value: event,
+	});
+	await runInDurableObject(log, async (instance) => {
+		const own = instance as unknown as OrganizationLogStore;
+		await expect(
+			own.organizationAuditAppend(org, [
+				{ ...event, organizationId: "another-org" },
+			]),
+		).rejects.toThrow("organization mismatch");
+	});
+	expect(
+		await log.organizationAuditAppend(
+			org,
+			[{ ...event, timestamp: event.timestamp + 1 }],
+			[event.id],
+		),
+	).toEqual({ status: "live", value: [event] });
+	expect(
+		await store("another-org").organizationAuditGet("another-org", event.id),
+	).toEqual({ status: "live", value: null });
 });

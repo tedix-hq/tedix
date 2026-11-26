@@ -11,7 +11,7 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { auditEvents } from "../schema/audit-events";
+import { auditWriteTable } from "./audit-delivery";
 import {
 	type SkillSchedule,
 	skillEntries,
@@ -119,7 +119,7 @@ export async function moveSkillToTedi(
 					sql`exists (select 1 from ${skillEntries} where ${movedSkill})`,
 				),
 			),
-		db.insert(auditEvents).select(
+		db.insert(auditWriteTable(db)).select(
 			db
 				.select({
 					id: sql<string>`${auditEventId}`.as("id"),

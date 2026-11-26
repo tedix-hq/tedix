@@ -1,7 +1,8 @@
+import { withCoreStore } from "../../core-store/scope";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
-import { auditEvents } from "../../schema/audit-events";
+import { auditDeliveryOutbox, auditEvents } from "../../schema/audit-events";
 import {
 	billingAccounts,
 	billingPlanVersions,
@@ -38,6 +39,7 @@ function setup(account = true) {
 			billingPlanVersions,
 			billingUsageReservations,
 			auditEvents,
+			auditDeliveryOutbox,
 			organizationMembers,
 		),
 	);
@@ -112,20 +114,25 @@ describe("complimentary internal plan assignment", () => {
 
 	it("replays without renewing periods or duplicating audit; rejects changed input", async () => {
 		const { db, sqlite } = setup();
-		await assignInternalPlan(db, input, actor, now);
-		const before = await getBillingEntitlement(db, input.organizationId);
-		expect(
-			await assignInternalPlan(db, input, actor, "2026-10-19T12:00:00.000Z"),
-		).toEqual({ alreadyAssigned: true });
-		expect(await getBillingEntitlement(db, input.organizationId)).toEqual(
-			before,
-		);
-		expect(
-			sqlite.prepare("SELECT count(*) AS n FROM audit_events").get(),
-		).toMatchObject({ n: 1 });
-		await expect(
-			assignInternalPlan(db, { ...input, reason: "changed" }, actor, now),
-		).rejects.toThrow(/different input/);
+		await withCoreStore({ DB: db.$client }, async () => {
+			await assignInternalPlan(db, input, actor, now);
+			const before = await getBillingEntitlement(db, input.organizationId);
+			expect(
+				await assignInternalPlan(db, input, actor, "2026-10-19T12:00:00.000Z"),
+			).toEqual({ alreadyAssigned: true });
+			expect(await getBillingEntitlement(db, input.organizationId)).toEqual(
+				before,
+			);
+			expect(
+				sqlite.prepare("SELECT count(*) AS n FROM audit_delivery_outbox").get(),
+			).toMatchObject({ n: 1 });
+			await expect(
+				assignInternalPlan(db, { ...input, reason: "changed" }, actor, now),
+			).rejects.toThrow(/different input/);
+			expect(
+				sqlite.prepare("SELECT count(*) AS n FROM audit_events").get(),
+			).toEqual({ n: 0 });
+		});
 	});
 
 	it.each(["stripe", "invoice", "customer", "subscription"])(

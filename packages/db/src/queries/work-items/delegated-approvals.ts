@@ -1,4 +1,5 @@
-import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
+import { auditWriteTable, readAuditEventById } from "../audit-delivery";
+
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { organizationMembers as d1OrganizationMembers } from "../../schema/organization-members";
 import { tediApprovalRequests as d1TediApprovalRequests } from "../../schema/approvals";
@@ -358,7 +359,7 @@ export async function listDecidedForYou(
 			metadata: workInteractions.metadata,
 			undoneAt: sql<
 				string | null
-			>`(SELECT ${jsonRead(db, sql`a.metadata`, ["undoneAt"], "text")} FROM audit_events a WHERE a.organization_id=${workInteractions.orgId} AND a.id='delegated-undo:interaction:' || ${workInteractions.orgId} || ':' || ${workInteractions.id})`.as(
+			>`coalesce(${jsonRead(db, workInteractions.metadata, ["delegatedApprovalUndoneAt"], "text")}, (SELECT ${jsonRead(db, sql`a.metadata`, ["undoneAt"], "text")} FROM audit_events a WHERE a.organization_id=${workInteractions.orgId} AND a.id='delegated-undo:interaction:' || ${workInteractions.orgId} || ':' || ${workInteractions.id}))`.as(
 				"undone_at",
 			),
 		})
@@ -481,7 +482,7 @@ export async function undoDelegatedApproval(
 	const token = crypto.randomUUID();
 	const workInteractions = coreTable(db, d1WorkInteractions);
 	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
-	const auditEvents = coreTable(db, d1AuditEvents);
+	const auditEvents = auditWriteTable(db);
 	const table =
 		p.source === "interaction" ? workInteractions : tediApprovalRequests;
 	const metadata =
@@ -500,6 +501,8 @@ export async function undoDelegatedApproval(
 		.limit(1);
 	if (!prior) return false;
 	if (typeof prior.metadata.delegatedApprovalUndoneAt === "string") return true;
+	const auditId = `delegated-undo:${p.source}:${p.orgId}:${p.requestId}`;
+	if (await readAuditEventById(db, p.orgId, auditId)) return true;
 	const changed = sql`${jsonRead(db, metadata, ["delegatedApprovalUndoId"], "text")}=${token}`;
 	const undonePayload = {
 		delegatedApprovalUndoneAt: p.now,
@@ -508,9 +511,20 @@ export async function undoDelegatedApproval(
 	const update =
 		p.source === "interaction"
 			? db
-					.select({ id: workInteractions.id })
-					.from(workInteractions)
-					.where(and(fence, eq(workInteractions.status, "resolved")))
+					.update(workInteractions)
+					.set({
+						metadata:
+							coreStore(db) === "postgres"
+								? sql`${metadata} || ${jsonParameter(db, undonePayload)}`
+								: sql`json_set(${metadata},'$.delegatedApprovalUndoneAt',${p.now},'$.delegatedApprovalUndoId',${token})`,
+					})
+					.where(
+						and(
+							fence,
+							eq(workInteractions.status, "resolved"),
+							sql`${interactionJsonType(db, metadata, ["delegatedApprovalUndoneAt"])} IS NULL`,
+						),
+					)
 			: db
 					.update(tediApprovalRequests)
 					.set({
@@ -527,8 +541,6 @@ export async function undoDelegatedApproval(
 							sql`${interactionJsonType(db, metadata, ["delegatedApprovalUndoneAt"])} IS NULL`,
 						),
 					);
-	const auditId = `delegated-undo:${p.source}:${p.orgId}:${p.requestId}`;
-
 	await db.batch([
 		update,
 		db
@@ -567,12 +579,6 @@ export async function undoDelegatedApproval(
 			)
 			.onConflictDoNothing(),
 	]);
-	const [record] = await db
-		.select({ id: auditEvents.id })
-		.from(auditEvents)
-		.where(
-			and(eq(auditEvents.organizationId, p.orgId), eq(auditEvents.id, auditId)),
-		)
-		.limit(1);
+	const record = await readAuditEventById(db, p.orgId, auditId);
 	return Boolean(record);
 }

@@ -1,3 +1,4 @@
+import { auditWriteTable } from "../audit-delivery";
 import {
 	anyIds,
 	jsonRead,
@@ -8,7 +9,7 @@ import {
 } from "../../core-store/dialect";
 import { coreTable } from "../../core-store/client";
 import { withTransientD1ReadRetry } from "../../utils/d1-retry";
-import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
+
 import * as z from "zod";
 import {
 	ExternalAgentWorkManagementGrantSchema,
@@ -329,7 +330,7 @@ export async function setExternalAgentWorkManagement(
 		updatedAt: string;
 	},
 ): Promise<ExternalAgentPrincipal> {
-	const auditEvents = coreTable(db, d1AuditEvents);
+	const auditEvents = auditWriteTable(db);
 	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const predicate = and(
 		eq(externalAgentPrincipals.organizationId, params.organizationId),

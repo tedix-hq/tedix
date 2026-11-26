@@ -1,3 +1,4 @@
+import { auditWriteTable, readAuditEventById } from "../audit-delivery";
 /**
  * The organization credit pool: one monthly pool per organization and billing
  * period, shared by AI use, code runs and service operations.
@@ -40,7 +41,7 @@ import {
 	jsonParameter,
 	jsonRead,
 } from "../../core-store/dialect";
-import { auditEvents as schemaAuditEvents } from "../../schema/audit-events";
+
 import {
 	type BillingAccount,
 	type BillingAccountStatus,
@@ -1244,7 +1245,7 @@ export async function setAccountCredits(
 	)
 		throw new Error("Included credits must be a non-negative integer");
 	const billingAccounts = coreTable(db, schemaBillingAccounts);
-	const auditEvents = coreTable(db, schemaAuditEvents);
+	const auditEvents = auditWriteTable(db);
 	const [current] = await db
 		.select({
 			previous: billingAccounts.includedCreditsOverride,
@@ -1311,11 +1312,7 @@ export async function setAccountCredits(
 			)
 			.onConflictDoNothing(),
 	]);
-	const [saved] = await db
-		.select({ id: auditEvents.id })
-		.from(auditEvents)
-		.where(eq(auditEvents.id, auditId))
-		.limit(1);
+	const saved = await readAuditEventById(db, input.organizationId, auditId);
 	if (!saved)
 		throw new Error(
 			"Billing entitlement changed concurrently; re-read and retry",

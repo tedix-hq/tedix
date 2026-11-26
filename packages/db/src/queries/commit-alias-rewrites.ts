@@ -3,7 +3,7 @@ import type { DbQueryClient } from "../query-client";
 import { gitCommitAliases } from "../schema/git-commit-aliases";
 import { workAttempts, workItems } from "../schema/work-items";
 import { kernelRequests } from "../schema/kernel-requests";
-import { auditEvents } from "../schema/audit-events";
+import { auditWriteTable } from "./audit-delivery";
 
 export async function readCommitAliasReplacements(
 	db: DbQueryClient,
@@ -105,7 +105,7 @@ export async function rewriteCommitAliasBatch(
 					? eq(workItems.repositoryObserver, 1)
 					: undefined,
 		);
-		const audit = db.insert(auditEvents).select(
+		const audit = db.insert(auditWriteTable(db)).select(
 			db
 				.select({
 					id: sql<string>`${crypto.randomUUID()}`.as("id"),

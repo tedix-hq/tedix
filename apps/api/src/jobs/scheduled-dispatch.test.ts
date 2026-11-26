@@ -1,3 +1,6 @@
+vi.mock("@tedix/db/queries/audit-delivery", () => ({
+	drainAuditDeliveryOutbox: vi.fn().mockResolvedValue(0),
+}));
 /**
  * Disabled-mode cron proof: with `TEDIX_FLEET_AUTHORITY_MODE=disabled`, every
  * cron pattern the authority classification calls fleet-commercial must

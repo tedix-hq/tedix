@@ -1,3 +1,4 @@
+import { auditWriteTable } from "../audit-delivery";
 import { coreTable } from "../../core-store/client";
 import {
 	anyIds,
@@ -15,7 +16,7 @@ import {
 } from "@tedix/api-contract/schemas/os-decision-deck";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import type { DbQueryClient } from "../../query-client";
-import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
+
 import {
 	tediEmailMessages as d1TediEmailMessages,
 	tediEmailThreads as d1TediEmailThreads,
@@ -530,7 +531,7 @@ export async function retireDecisionSourceCard(
 		now: string;
 	},
 ) {
-	const auditEvents = coreTable(db, d1AuditEvents);
+	const auditEvents = auditWriteTable(db);
 	const workInteractions = coreTable(db, d1WorkInteractions);
 	const fence = crypto.randomUUID();
 	const [retired] = await db.batch([

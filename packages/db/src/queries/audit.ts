@@ -5,18 +5,21 @@
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, gte, inArray, lte, lt, or } from "drizzle-orm";
-import { getLogStores, type DbClient } from "../client";
+import { anyIds, coreStore, jsonRead } from "../core-store/dialect";
 import { coreTable } from "../core-store/client";
-import { anyIds, jsonRead } from "../core-store/dialect";
+import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
+import {
+	auditReadColumns,
+	auditReadTable,
+	auditWriteTable,
+	readAuditStores,
+} from "./audit-delivery";
+import { auditDeliveryBindings } from "./audit-delivery-context";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { chunkForBoundParams } from "../utils/batch";
 import { MCP_TELEMETRY_ACTIONS } from "../utils/audit-telemetry";
-import {
-	compareTimestampId,
-	mergeLogStoreRows,
-	readLogStores,
-} from "../utils/log-store";
+import { compareTimestampId, mergeLogStoreRows } from "../utils/log-store";
 
 // ============================================================================
 // Types
@@ -85,20 +88,21 @@ export interface SearchAuditEventsOptions {
 /**
  * Insert a single audit event.
  *
- * Execution telemetry, policy approvals and expiry receipts use the logs store.
- * Atomic main-database batches are drained by `moveRoutineAuditEventsToLogs`.
+ * D1 entrypoints queue delivery to the organization store and read projection.
+ * Standalone clients keep their configured local audit store.
  */
 export async function insertAuditEvent(
 	db: DbClient,
 	event: InsertAuditEventParams,
 ): Promise<string> {
-	const target =
-		MCP_TELEMETRY_ACTIONS.has(event.action) ||
-		event.action === "interaction.expiry.run" ||
-		(event.action === "approval.approved" &&
-			(event.actorId === "policy" ||
-				event.metadata?.resolvedBy === "policy" ||
-				event.metadata?.resolverProvenance === "policy"))
+	const target = auditDeliveryBindings(db)
+		? db
+		: MCP_TELEMETRY_ACTIONS.has(event.action) ||
+			  event.action === "interaction.expiry.run" ||
+			  (event.action === "approval.approved" &&
+					(event.actorId === "policy" ||
+						event.metadata?.resolvedBy === "policy" ||
+						event.metadata?.resolverProvenance === "policy"))
 			? (getLogStores(db)?.logs ?? db)
 			: db;
 	// Keep attribution inline: a dictionary lookup must not block the audit write.
@@ -185,8 +189,10 @@ export async function insertMcpAuditEventsBatch(
 ): Promise<void> {
 	if (events.some((event) => !MCP_TELEMETRY_ACTIONS.has(event.action)))
 		throw new Error("Only MCP execution telemetry may use the log batch");
-	const target = getLogStores(db)?.logs ?? db;
-	const table = coreTable(target, auditEvents);
+	const target = auditDeliveryBindings(db)
+		? db
+		: (getLogStores(db)?.logs ?? db);
+	const table = auditWriteTable(target);
 	// Eleven bound columns per row; eight rows stay below D1's 100-param cap.
 	const [first, ...rest] = chunkForBoundParams(events, 8).map((chunk) =>
 		target.insert(table).values(
@@ -338,7 +344,7 @@ export function buildInsertAuditEventStatement(
 ) {
 	const id = event.id ?? crypto.randomUUID();
 	const metadata = compactAuditMetadata(event);
-	const insert = db.insert(coreTable(db, auditEvents)).values({
+	const row = {
 		id,
 		organizationId: event.organizationId,
 		actorId: event.actorId,
@@ -350,7 +356,11 @@ export function buildInsertAuditEventStatement(
 		ipAddress: event.ipAddress ?? null,
 		userAgent: event.userAgent ?? null,
 		timestamp: event.occurredAt ?? new Date(),
-	});
+		...(auditDeliveryBindings(db) && coreStore(db) === "d1"
+			? { ignoreDuplicates: event.ignoreDuplicates ?? false }
+			: {}),
+	};
+	const insert = db.insert(auditWriteTable(db)).values(row);
 	// DO NOTHING, never DO UPDATE: an audit row is evidence, so a redelivery must
 	// not be able to rewrite what was already recorded.
 	return {
@@ -367,7 +377,7 @@ export async function searchAuditEvents(
 	options: SearchAuditEventsOptions,
 ): Promise<{ data: (typeof auditEvents.$inferSelect)[]; total: number }> {
 	const { organizationId, limit = 50, offset = 0 } = options;
-	const pages = await readLogStores(
+	const pages = await readAuditStores(
 		db,
 		(store) =>
 			searchAuditEvents(store, {
@@ -387,6 +397,7 @@ export async function searchAuditEvents(
 		};
 	}
 
+	const auditEvents = auditReadTable(db);
 	const conditions = [eq(auditEvents.organizationId, organizationId)];
 
 	if (options.actorId)
@@ -419,7 +430,7 @@ export async function searchAuditEvents(
 		: whereClause;
 
 	const data = await db
-		.select()
+		.select(auditReadColumns(db))
 		.from(auditEvents)
 		.where(pageWhere)
 		.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
@@ -441,7 +452,7 @@ export async function getAuditEventsByResource(
 	resourceId: string,
 	limit = 100,
 ): Promise<(typeof auditEvents.$inferSelect)[]> {
-	const pages = await readLogStores(db, (store) =>
+	const pages = await readAuditStores(db, (store) =>
 		getAuditEventsByResource(
 			store,
 			organizationId,
@@ -455,8 +466,9 @@ export async function getAuditEventsByResource(
 			compare: compareTimestampId("desc"),
 			limit,
 		});
+	const auditEvents = auditReadTable(db);
 	const rows = await db
-		.select()
+		.select(auditReadColumns(db))
 		.from(auditEvents)
 		.where(
 			and(

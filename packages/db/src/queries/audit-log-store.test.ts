@@ -1,13 +1,26 @@
+import { eq } from "drizzle-orm";
+import { listGovernanceAuditEvents } from "./governance-overview";
+import { listHomeOperatorDecisionAuditEvents } from "./home-reflection";
+import { coreDb, withCoreStore } from "../core-store/scope";
+import { organizations } from "../schema/organizations";
+import { updateOrganization } from "./organizations";
+import {
+	drainAuditDeliveryOutbox,
+	readAuditEventById,
+	readAuditStores,
+	auditReadColumns,
+	auditReadTable,
+} from "./audit-delivery";
+import type { OrganizationAuditEvent } from "./durable-sqlite/organization-log-rpc";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { configureLogStore, createDbClient } from "../client";
-import { auditEvents } from "../schema/audit-events";
+import { auditDeliveryOutbox, auditEvents } from "../schema/audit-events";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { logPartition } from "../schema/logs-db";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { listGovernanceAuditEvents } from "./governance-overview";
-import { listHomeOperatorDecisionAuditEvents } from "./home-reflection";
+
 import {
 	buildInsertAuditEventStatement,
 	getAuditEventsByResource,
@@ -33,7 +46,14 @@ import {
 
 function store() {
 	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(schemaDdl(auditEvents, auditMetadataRefs, logPartition));
+	sqlite.exec(
+		schemaDdl(
+			auditDeliveryOutbox,
+			auditEvents,
+			auditMetadataRefs,
+			logPartition,
+		),
+	);
 	const binding = createD1Facade(sqlite);
 	return { sqlite, binding, db: createDbClient(binding) };
 }
@@ -525,6 +545,165 @@ it("applies the same tied timestamp cursor in both stores before merging", async
 			cursor: { timestamp: "2026-01-01T00:00:00Z", id: "d" },
 		});
 		expect(result.data.map((row) => row.id)).toEqual(["c", "b"]);
+	} finally {
+		main.sqlite.close();
+		logs.sqlite.close();
+	}
+});
+
+it("keeps atomic audit delivery pending until both stores confirm, then drains without main audit writes", async () => {
+	const main = store();
+	const logs = store();
+	main.sqlite.exec(schemaDdl(organizations));
+	await main.db
+		.insert(organizations)
+		.values({ id: event.organizationId, name: "Before", slug: "example" });
+	const delivered = new Map<string, Map<string, OrganizationAuditEvent>>();
+	let unavailable = true;
+	const bindings = {
+		DB: main.binding,
+		LOGS_DB: logs.binding,
+		WORKSPACE_RUNTIME: {
+			async organizationAuditAppend(
+				org: string,
+				events: OrganizationAuditEvent[],
+			) {
+				if (unavailable) throw new Error("Store unavailable");
+				const records =
+					delivered.get(org) ?? new Map<string, OrganizationAuditEvent>();
+				for (const item of events) records.set(item.id, structuredClone(item));
+				delivered.set(org, records);
+				return { status: "live" as const, value: events };
+			},
+		},
+	};
+	try {
+		await withCoreStore(bindings, async () => {
+			const audit = {
+				...event,
+				id: "atomic",
+				action: "approval.approved",
+				occurredAt: new Date("2026-11-26T00:00:00Z"),
+			};
+			main.sqlite.exec(
+				"CREATE TRIGGER fail_outbox BEFORE INSERT ON audit_delivery_outbox BEGIN SELECT RAISE(ABORT,'outbox unavailable'); END",
+			);
+			await expect(
+				updateOrganization(
+					main.db,
+					event.organizationId,
+					{ name: "After" },
+					audit,
+				),
+			).rejects.toThrow();
+			expect(
+				main.sqlite.prepare("SELECT name FROM organizations").get(),
+			).toEqual({ name: "Before" });
+			main.sqlite.exec("DROP TRIGGER fail_outbox");
+			await updateOrganization(
+				main.db,
+				event.organizationId,
+				{ name: "After" },
+				audit,
+			);
+			await insertAuditEvent(main.db, {
+				...event,
+				id: "denied",
+				action: "mcp.access.denied",
+			});
+			await insertAuditEventsBatch(main.db, [
+				{ ...event, id: "batch", organizationId: "org-other" },
+			]);
+			await insertMcpAuditEventsBatch(main.db, [{ ...event, id: "telemetry" }]);
+			expect(
+				await readAuditEventById(main.db, event.organizationId, "atomic"),
+			).toMatchObject({ id: "atomic" });
+			expect(
+				await readAuditEventById(main.db, "org-other", "atomic"),
+			).toBeUndefined();
+			expect(
+				await listGovernanceAuditEvents(main.db, event.organizationId),
+			).toHaveLength(1);
+			expect(
+				await listHomeOperatorDecisionAuditEvents(main.db, {
+					organizationId: event.organizationId,
+					since: new Date(0),
+					actions: [audit.action],
+					limit: 10,
+				}),
+			).toHaveLength(1);
+			await expect(drainAuditDeliveryOutbox(main.db, bindings)).rejects.toThrow(
+				"pending",
+			);
+			expect(
+				main.sqlite
+					.prepare("SELECT count(*) n FROM audit_delivery_outbox")
+					.get(),
+			).toEqual({ n: 4 });
+			unavailable = false;
+			main.sqlite.exec(
+				"CREATE TRIGGER fail_delete BEFORE DELETE ON audit_delivery_outbox BEGIN SELECT RAISE(ABORT,'delete unavailable'); END",
+			);
+			await expect(drainAuditDeliveryOutbox(main.db, bindings)).rejects.toThrow(
+				"pending",
+			);
+			main.sqlite.exec("DROP TRIGGER fail_delete");
+			expect(await drainAuditDeliveryOutbox(main.db, bindings)).toBe(4);
+			await insertAuditEvent(main.db, {
+				...audit,
+				ignoreDuplicates: true,
+				occurredAt: new Date("2026-11-27T00:00:00Z"),
+			});
+			expect(await drainAuditDeliveryOutbox(main.db, bindings)).toBe(1);
+			expect(await drainAuditDeliveryOutbox(main.db, bindings)).toBe(0);
+			expect(delivered.get(event.organizationId)?.size).toBe(3);
+			expect(delivered.get("org-other")?.size).toBe(1);
+			expect(delivered.get(event.organizationId)?.get("atomic")).toMatchObject({
+				actorId: event.actorId,
+				timestamp: 1795651200,
+			});
+			expect(
+				(
+					await searchAuditEvents(main.db, {
+						organizationId: event.organizationId,
+					})
+				).data,
+			).toHaveLength(3);
+			expect(
+				main.sqlite.prepare("SELECT count(*) n FROM audit_events").get(),
+			).toEqual({ n: 0 });
+			expect(
+				main.sqlite
+					.prepare("SELECT count(*) n FROM audit_delivery_outbox")
+					.get(),
+			).toEqual({ n: 0 });
+			expect(
+				logs.sqlite.prepare("SELECT count(*) n FROM audit_events").get(),
+			).toEqual({ n: 4 });
+			await insertAuditEvent(main.db, { ...event, id: "moving" });
+			let moved = false;
+			const duringDelivery = await readAuditStores(main.db, async (store) => {
+				const table = auditReadTable(store);
+				const rows = await store
+					.select(auditReadColumns(store))
+					.from(table)
+					.where(eq(table.id, "moving"));
+				if (!rows.length && !moved) {
+					moved = true;
+					await drainAuditDeliveryOutbox(main.db, bindings);
+				}
+				return rows;
+			});
+			expect(duringDelivery?.flat().some((row) => row.id === "moving")).toBe(
+				true,
+			);
+		});
+		const workflowDb = coreDb(bindings);
+		await insertAuditEvent(workflowDb, { ...event, id: "workflow" });
+		expect(await drainAuditDeliveryOutbox(workflowDb, bindings)).toBe(1);
+		expect(
+			main.sqlite.prepare("SELECT count(*) n FROM audit_events").get(),
+		).toEqual({ n: 0 });
 	} finally {
 		main.sqlite.close();
 		logs.sqlite.close();

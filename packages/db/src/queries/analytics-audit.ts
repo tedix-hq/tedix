@@ -1,3 +1,4 @@
+import { auditReadTable, readAuditStores } from "./audit-delivery";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { type DbClient, getLogStores } from "../client";
 import { coreTable } from "../core-store/client";
@@ -10,12 +11,11 @@ import {
 	likeText,
 	unixTime,
 } from "../core-store/dialect";
-import { auditEvents as d1AuditEvents } from "../schema/audit-events";
+
 import { auditMetadataRefs as d1AuditMetadataRefs } from "../schema/audit-metadata-refs";
 import { isMissingAuditMetadataRefsTable } from "../utils/audit-metadata-refs";
 import { tediRuntimeEvents as d1TediRuntimeEvents } from "../schema/cognitive-runtime";
 import { tediRationaleRecords as d1TediRationaleRecords } from "../schema/rationale-records";
-import { readLogStores } from "../utils/log-store";
 
 function auditWindowTime(db: DbClient, seconds: number) {
 	return coreStore(db) === "postgres"
@@ -114,7 +114,7 @@ async function withAuditMetadataRefs<T>(
 }
 
 function auditExpressions(db: DbClient) {
-	const auditEvents = coreTable(db, d1AuditEvents);
+	const auditEvents = auditReadTable(db);
 	const auditMetadataRefs = coreTable(db, d1AuditMetadataRefs);
 	const auditSubjectUserId = sql<string | null>`coalesce(
 		${jsonRead(db, auditEvents.metadata, ["subjectUserId"])},
@@ -263,7 +263,7 @@ export async function getAnalyticsAppFreshness(
 	countsRow: AnalyticsFreshnessCountsRow | undefined;
 	latestRow: AnalyticsLatestAuditRow | undefined;
 }> {
-	const pages = await readLogStores(
+	const pages = await readAuditStores(
 		db,
 		(store) =>
 			withAuditMetadataRefs((refs) =>
@@ -458,7 +458,7 @@ export async function listRecentAnalyticsAuditActivity(
 ): Promise<AnalyticsAuditActivityRow[]> {
 	const { auditEvents, auditActivityFields, optionalActivityScope } =
 		auditExpressions(db);
-	const pages = await readLogStores(
+	const pages = await readAuditStores(
 		db,
 		(store) => listRecentAnalyticsAuditActivity(store, input),
 		{ order: "logs-first" },
@@ -490,7 +490,7 @@ export async function listAnalyticsTraceActivity(
 ): Promise<AnalyticsAuditActivityRow[]> {
 	const { auditEvents, auditActivityFields, optionalOrganization } =
 		auditExpressions(db);
-	const pages = await readLogStores(
+	const pages = await readAuditStores(
 		db,
 		(store) => listAnalyticsTraceActivity(store, input),
 		{ order: "logs-first" },
@@ -532,7 +532,7 @@ export async function listAnalyticsAuditActivityWindow(
 ): Promise<AnalyticsAuditActivityRow[]> {
 	const { auditEvents, auditActivityFields, optionalActivityScope } =
 		auditExpressions(db);
-	const pages = await readLogStores(
+	const pages = await readAuditStores(
 		db,
 		(store) => listAnalyticsAuditActivityWindow(store, input),
 		{

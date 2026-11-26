@@ -12,14 +12,10 @@
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { tediApprovalRequests } from "../schema/approvals";
-import { auditEvents } from "../schema/audit-events";
+import { auditReadTable, readAuditStores } from "./audit-delivery";
 import { skillEntries } from "../schema/cognitive";
 import { tediCronExecutions } from "../schema/cron-executions";
-import {
-	compareTimestampId,
-	mergeLogStoreRows,
-	readLogStores,
-} from "../utils/log-store";
+import { compareTimestampId, mergeLogStoreRows } from "../utils/log-store";
 
 /** Grouped count keyed by tedi. `tediId: null` = org-scoped rows. */
 export interface TediGovernanceCount {
@@ -153,8 +149,9 @@ export async function listGovernanceAuditEvents(
 	organizationId: string,
 	limit = 10,
 ): Promise<GovernanceAuditEventRow[]> {
-	const read = async (store: DbClient) =>
-		store
+	const read = async (store: DbClient) => {
+		const auditEvents = auditReadTable(store);
+		return store
 			.select({
 				id: auditEvents.id,
 				action: auditEvents.action,
@@ -174,7 +171,8 @@ export async function listGovernanceAuditEvents(
 			)
 			.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
 			.limit(limit);
-	const pages = await readLogStores(db, read);
+	};
+	const pages = await readAuditStores(db, read);
 	const rows = pages
 		? mergeLogStoreRows(pages, { compare: compareTimestampId("desc"), limit })
 		: await read(db);

@@ -1,11 +1,12 @@
-import { and, eq, notExists, sql } from "drizzle-orm";
+import { and, eq, exists, notExists, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import { coreTable } from "../core-store/client";
 import { coreStore, jsonRead, unixTime } from "../core-store/dialect";
 import { auditEvents as schemaAuditEvents } from "../schema/audit-events";
 import { tediRuntimeEvents as schemaTediRuntimeEvents } from "../schema/cognitive-runtime";
-import { insertAuditEvent } from "./audit";
+import { buildInsertAuditEventStatement } from "./audit";
+import { auditWriteTable } from "./audit-delivery";
 
 const ATTEMPT_ACTION = "tedi.runtime.orphan_cleanup_attempt";
 const CONFIRMED_ACTION = "tedi.runtime.orphan_cleanup_confirmed";
@@ -66,6 +67,8 @@ function candidates(
 				sql`${jsonRead(db, e.runtimeMetadata, ["reason"])} = 'runtime_dropped'`,
 				sql`${e.runId} LIKE ${e.tediId} || ':mcp:%'`,
 				terminalEventId ? eq(e.id, terminalEventId) : undefined,
+				sql`coalesce(${jsonRead(db, e.runtimeMetadata, ["orphanCleanupConfirmed"], "boolean")}, false) = false`,
+				sql`coalesce(${jsonRead(db, e.runtimeMetadata, ["orphanCleanupAttemptedAt"], "number")}, 0) <= ${Math.floor((now.getTime() - RETRY_MS) / 1000)}`,
 				notExists(
 					db
 						.select(one)
@@ -108,7 +111,11 @@ function candidates(
 				),
 			),
 		)
-		.orderBy(sql`COALESCE(${lastAttempt}, 0)`, e.createdAt, e.id)
+		.orderBy(
+			sql`COALESCE(${jsonRead(db, e.runtimeMetadata, ["orphanCleanupAttemptedAt"], "number")}, ${lastAttempt}, 0)`,
+			e.createdAt,
+			e.id,
+		)
 		.limit(Math.min(Math.max(limit, 1), 20));
 }
 
@@ -126,10 +133,11 @@ export async function claimOrphanWorkflowCleanup(
 	item: OrphanWorkflowCleanup,
 	now = new Date(),
 ) {
-	const auditEvents = coreTable(db, schemaAuditEvents);
+	const auditEvents = auditWriteTable(db);
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	const id = `orphan-native-attempt:${Math.floor(now.getTime() / RETRY_MS)}:${item.terminalEventId}`;
 	const c = candidates(db, now, item.terminalEventId, 1).as("c");
-	const rows = await db
+	const claim = db
 		.insert(auditEvents)
 		.select(
 			db
@@ -159,6 +167,30 @@ export async function claimOrphanWorkflowCleanup(
 		)
 		.onConflictDoNothing({ target: auditEvents.id })
 		.returning({ id: auditEvents.id });
+	const attemptedAt = Math.floor(now.getTime() / 1000);
+	const [rows] = await db.batch([
+		claim,
+		db
+			.update(tediRuntimeEvents)
+			.set({
+				runtimeMetadata:
+					coreStore(db) === "postgres"
+						? sql`coalesce(${tediRuntimeEvents.runtimeMetadata}, '{}'::jsonb) || jsonb_build_object('orphanCleanupAttemptedAt', ${attemptedAt}::bigint)`
+						: sql`json_set(coalesce(${tediRuntimeEvents.runtimeMetadata}, '{}'), '$.orphanCleanupAttemptedAt', ${attemptedAt})`,
+			})
+			.where(
+				and(
+					eq(tediRuntimeEvents.organizationId, item.organizationId),
+					eq(tediRuntimeEvents.id, item.terminalEventId),
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(auditEvents)
+							.where(eq(auditEvents.id, id)),
+					),
+				),
+			),
+	]);
 	return rows.length === 1;
 }
 
@@ -167,20 +199,37 @@ export async function confirmOrphanWorkflowCleanup(
 	item: OrphanWorkflowCleanup,
 	detail: string,
 ) {
-	await insertAuditEvent(db, {
-		id: receiptId(item.terminalEventId),
-		organizationId: item.organizationId,
-		actorId: "scheduled.orphan-cleanup",
-		actorType: "service",
-		action: CONFIRMED_ACTION,
-		resourceType: RESOURCE,
-		resourceId: item.terminalEventId,
-		ignoreDuplicates: true,
-		metadata: {
-			runId: item.runId,
-			tediId: item.tediId,
-			sealedAt: item.sealedAt,
-			detail,
-		},
-	});
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
+	await db.batch([
+		db
+			.update(tediRuntimeEvents)
+			.set({
+				runtimeMetadata:
+					coreStore(db) === "postgres"
+						? sql`coalesce(${tediRuntimeEvents.runtimeMetadata}, '{}'::jsonb) || '{"orphanCleanupConfirmed":true}'::jsonb`
+						: sql`json_set(coalesce(${tediRuntimeEvents.runtimeMetadata}, '{}'), '$.orphanCleanupConfirmed', json('true'))`,
+			})
+			.where(
+				and(
+					eq(tediRuntimeEvents.organizationId, item.organizationId),
+					eq(tediRuntimeEvents.id, item.terminalEventId),
+				),
+			),
+		buildInsertAuditEventStatement(db, {
+			id: receiptId(item.terminalEventId),
+			organizationId: item.organizationId,
+			actorId: "scheduled.orphan-cleanup",
+			actorType: "service",
+			action: CONFIRMED_ACTION,
+			resourceType: RESOURCE,
+			resourceId: item.terminalEventId,
+			ignoreDuplicates: true,
+			metadata: {
+				runId: item.runId,
+				tediId: item.tediId,
+				sealedAt: item.sealedAt,
+				detail,
+			},
+		}).statement,
+	]);
 }

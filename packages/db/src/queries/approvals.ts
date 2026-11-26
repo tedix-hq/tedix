@@ -46,7 +46,7 @@ import {
 	approvalRequestStoredColumns,
 	tediProvisionalOutcomes,
 } from "../schema/approvals";
-import { auditEvents } from "../schema/audit-events";
+import { auditWriteTable } from "./audit-delivery";
 import { decisionEdges } from "../schema/decision-graph";
 import { tedis } from "../schema/tedis";
 import { tediApprovalDependencyEvents } from "../schema/approval-simulations";
@@ -589,7 +589,7 @@ export async function resolveApprovalRequest(
 				await db.batch([
 					update,
 					...edges,
-					db.insert(auditEvents).select(
+					db.insert(auditWriteTable(db)).select(
 						db
 							.select({
 								id: sql<string>`${decisionId}`.as("id"),

@@ -32,6 +32,8 @@ import type {
 	GatewayChangeRecordRangeParams,
 	OrganizationLogAppendInput,
 	OrganizationLogRuntime,
+	OrganizationAuditRuntime,
+	OrganizationAuditEvent,
 } from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
 import { secureEqual } from "@tedix/worker-kit/request-auth";
 import type { MemoryOwnerScope } from "@tedix/api-contract/schemas/memory-graph";
@@ -77,7 +79,7 @@ function personChatsStub(
 function organizationLog(
 	env: WorkspaceEnv,
 	organizationId: string,
-): OrganizationLogRuntime | undefined {
+): (OrganizationLogRuntime & OrganizationAuditRuntime) | undefined {
 	const namespace = (env as { ORGANIZATION_LOG?: DurableObjectNamespace })
 		.ORGANIZATION_LOG;
 	if (!namespace) return undefined;
@@ -85,18 +87,34 @@ function organizationLog(
 		namespace,
 		env,
 		`org:${organizationId}`,
-	) as unknown as OrganizationLogRuntime;
+	) as unknown as OrganizationLogRuntime & OrganizationAuditRuntime;
 }
 
 export class InternalEntrypoint
 	extends WorkerEntrypoint<WorkspaceEnv>
-	implements OrganizationLogRuntime
+	implements OrganizationLogRuntime, OrganizationAuditRuntime
 {
 	/** Internal service binding only; the operator supplies every provider inventory page. */
 	sweepOwnSchemaVersions(objectIds: string[]) {
 		return sweepWorkspaceSchemaVersions(this.env, objectIds);
 	}
 
+	async organizationAuditAppend(
+		organizationId: string,
+		events: OrganizationAuditEvent[],
+		ignoreDuplicateIds?: string[],
+	) {
+		const log = organizationLog(this.env, organizationId);
+		return log
+			? log.organizationAuditAppend(organizationId, events, ignoreDuplicateIds)
+			: { status: "not_live" as const };
+	}
+	async organizationAuditGet(organizationId: string, id: string) {
+		const log = organizationLog(this.env, organizationId);
+		return log
+			? log.organizationAuditGet(organizationId, id)
+			: { status: "not_live" as const };
+	}
 	async organizationLogAppend(
 		organizationId: string,
 		input: OrganizationLogAppendInput,

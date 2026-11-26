@@ -1,3 +1,4 @@
+import { auditWriteTable } from "../audit-delivery";
 import { coreTable } from "../../core-store/client";
 import {
 	anyIds,
@@ -9,7 +10,7 @@ import { interactionColumns, interactionAuditTime } from "./interaction-store";
 import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { isFactsChangedReview } from "@tedix/api-contract/utils/deck-action-boundary";
 import type { DbQueryClient } from "../../query-client";
-import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
+
 import { workInteractions as d1WorkInteractions } from "../../schema/work-factory";
 
 /** Also follows the original card's Work link for project-filed legacy reviews. */
@@ -30,7 +31,7 @@ export async function retireDecisionReviews(
 		};
 	},
 ) {
-	const auditEvents = coreTable(db, d1AuditEvents);
+	const auditEvents = auditWriteTable(db);
 	const workInteractions = coreTable(db, d1WorkInteractions);
 	const terminal = sql`EXISTS (SELECT 1 FROM work_interactions original
 		WHERE original.org_id=${workInteractions.orgId}

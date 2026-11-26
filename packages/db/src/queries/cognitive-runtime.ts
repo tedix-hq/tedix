@@ -1,3 +1,4 @@
+import { auditDeliveryBindings } from "./audit-delivery-context";
 import type { TediApprovalRequest } from "../schema/approvals";
 import type { KernelRuntimeRun } from "../schema/cognitive-runtime";
 import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
@@ -165,7 +166,7 @@ export async function listTediObservabilityRows(
 		compare: compareCreatedAtId("desc"),
 		limit: rowLimit,
 	});
-	if (stores) {
+	if (stores || auditDeliveryBindings(db)) {
 		// Only main holds `tedis`; establish ownership before reading audit partitions.
 		const [owner] = await db
 			.select({ id: tedis.id })

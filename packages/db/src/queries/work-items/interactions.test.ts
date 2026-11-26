@@ -4,14 +4,15 @@ import {
 	externalAgentPrincipals,
 	externalAgentSessions,
 } from "../../schema/external-agent-identity";
-import { auditEvents } from "../../schema/audit-events";
+import { auditDeliveryOutbox, auditEvents } from "../../schema/audit-events";
 import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
 import { parseKernelGovernancePolicy } from "@tedix/api-contract/utils/approval-policy";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
-import { configureLogStore, createDbClient } from "../../client";
-import { moveRoutineAuditEventsToLogs } from "../audit";
+import { coreDb } from "../../core-store/scope";
+import { drainAuditDeliveryOutbox } from "../audit-delivery";
+import type { OrganizationAuditEvent } from "../durable-sqlite/organization-log-rpc";
 import {
 	policyPacks,
 	runtimeProfiles,
@@ -1166,14 +1167,26 @@ describe("obsolete Work interactions", () => {
 		f.sqlite.exec(
 			"INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status) VALUES ('m','org','human','human','human@example.test','active'),('m2','org','other','other','other@example.test','active')",
 		);
-		await tick(f);
-		await tick(f, 1);
 		const logs = new DatabaseSync(":memory:");
 		logs.exec(schemaDdl(auditEvents));
-		const db = createDbClient(createD1Facade(f.sqlite));
-		configureLogStore(db, { LOGS_DB: createD1Facade(logs) });
+		f.sqlite.exec(schemaDdl(auditDeliveryOutbox));
+		const bindings = {
+			DB: createD1Facade(f.sqlite),
+			LOGS_DB: createD1Facade(logs),
+			WORKSPACE_RUNTIME: {
+				async organizationAuditAppend(
+					_org: string,
+					events: OrganizationAuditEvent[],
+				) {
+					return { status: "live" as const, value: events };
+				},
+			},
+		};
+		const db = coreDb(bindings);
 		f.db = db;
-		expect(await moveRoutineAuditEventsToLogs(db)).toBe(2);
+		await tick(f);
+		await tick(f, 1);
+		expect(await drainAuditDeliveryOutbox(db, bindings)).toBe(2);
 		expect(
 			f.sqlite
 				.prepare(

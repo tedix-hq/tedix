@@ -1,7 +1,8 @@
+import { withCoreStore } from "../core-store/scope";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
-import { auditEvents } from "../schema/audit-events";
+import { auditDeliveryOutbox, auditEvents } from "../schema/audit-events";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
@@ -16,7 +17,7 @@ async function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(schemaDdl(tediRuntimeEvents));
-	sqlite.exec(schemaDdl(auditEvents));
+	sqlite.exec(schemaDdl(auditEvents, auditDeliveryOutbox));
 	const db = createDbClient(createD1Facade(sqlite));
 	const event = {
 		id: "orphan-1",
@@ -36,37 +37,42 @@ async function fixture() {
 }
 it("retries unconfirmed cleanup durably, atomically claims once and never changes the failure", async () => {
 	const { db, sqlite } = await fixture();
-	const [item] = await listPendingOrphanWorkflowCleanups(db, now);
-	if (!item) throw new Error("Expected an orphan cleanup candidate");
-	expect(item).toMatchObject({
-		terminalEventId: "orphan-1",
-		organizationId: "org-1",
-		runId: "tedi-1:mcp:request-1",
+	await withCoreStore({ DB: db.$client }, async () => {
+		const [item] = await listPendingOrphanWorkflowCleanups(db, now);
+		if (!item) throw new Error("Expected an orphan cleanup candidate");
+		expect(item).toMatchObject({
+			terminalEventId: "orphan-1",
+			organizationId: "org-1",
+			runId: "tedi-1:mcp:request-1",
+		});
+		expect(
+			await claimOrphanWorkflowCleanup(
+				db,
+				{ ...item, organizationId: "other-org" },
+				now,
+			),
+		).toBe(false);
+		expect(await claimOrphanWorkflowCleanup(db, item, now)).toBe(true);
+		// Delivery removes the receipt; retry state must stay on the runtime row.
+		sqlite.exec("DELETE FROM audit_delivery_outbox");
+		expect(await claimOrphanWorkflowCleanup(db, item, now)).toBe(false);
+		expect(await listPendingOrphanWorkflowCleanups(db, now)).toHaveLength(0);
+		const later = new Date(now.getTime() + 11 * 60_000);
+		expect(await listPendingOrphanWorkflowCleanups(db, later)).toHaveLength(1);
+		expect(await claimOrphanWorkflowCleanup(db, item, later)).toBe(true);
+		await confirmOrphanWorkflowCleanup(db, item, "terminated");
+		await confirmOrphanWorkflowCleanup(db, item, "terminated");
+		sqlite.exec("DELETE FROM audit_delivery_outbox");
+		expect(
+			await listPendingOrphanWorkflowCleanups(
+				db,
+				new Date(later.getTime() + 20 * 60_000),
+			),
+		).toHaveLength(0);
+		expect(
+			sqlite.prepare("SELECT kind FROM tedi_runtime_events").all(),
+		).toEqual([{ kind: "run.failed" }]);
 	});
-	expect(
-		await claimOrphanWorkflowCleanup(
-			db,
-			{ ...item, organizationId: "other-org" },
-			now,
-		),
-	).toBe(false);
-	expect(await claimOrphanWorkflowCleanup(db, item, now)).toBe(true);
-	expect(await claimOrphanWorkflowCleanup(db, item, now)).toBe(false);
-	expect(await listPendingOrphanWorkflowCleanups(db, now)).toHaveLength(0);
-	const later = new Date(now.getTime() + 11 * 60_000);
-	expect(await listPendingOrphanWorkflowCleanups(db, later)).toHaveLength(1);
-	expect(await claimOrphanWorkflowCleanup(db, item, later)).toBe(true);
-	await confirmOrphanWorkflowCleanup(db, item, "terminated");
-	await confirmOrphanWorkflowCleanup(db, item, "terminated");
-	expect(
-		await listPendingOrphanWorkflowCleanups(
-			db,
-			new Date(later.getTime() + 20 * 60_000),
-		),
-	).toHaveLength(0);
-	expect(sqlite.prepare("SELECT kind FROM tedi_runtime_events").all()).toEqual([
-		{ kind: "run.failed" },
-	]);
 });
 it("excludes unrelated failures and protects later starts and successful/canceled runs in the same tenant", async () => {
 	for (const kind of [

@@ -1,8 +1,9 @@
+import { auditWriteTable, readAuditEventById } from "../audit-delivery";
 import { and, eq, exists, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { coreTable } from "../../core-store/client";
 import { coreStore, jsonParameter, jsonRead } from "../../core-store/dialect";
-import { auditEvents as schemaAuditEvents } from "../../schema/audit-events";
+
 import {
 	billingAccounts as schemaBillingAccounts,
 	billingUsageReservations as schemaBillingUsageReservations,
@@ -28,17 +29,13 @@ export async function assignInternalPlan(
 ) {
 	const auditId = `internal-plan:${input.organizationId}:${input.idempotencyKey}`;
 	const request = JSON.stringify(input);
-	const auditEvents = coreTable(db, schemaAuditEvents);
+	const auditEvents = auditWriteTable(db);
 	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	const billingUsageReservations = coreTable(
 		db,
 		schemaBillingUsageReservations,
 	);
-	const [receipt] = await db
-		.select()
-		.from(auditEvents)
-		.where(eq(auditEvents.id, auditId))
-		.limit(1);
+	const receipt = await readAuditEventById(db, input.organizationId, auditId);
 	if (receipt) {
 		if (receipt.metadata?.request !== request)
 			throw new Error("Plan assignment key reused with different input");
@@ -167,10 +164,7 @@ export async function assignInternalPlan(
 			)
 			.onConflictDoNothing(),
 	]);
-	const [saved] = await db
-		.select({ metadata: auditEvents.metadata })
-		.from(auditEvents)
-		.where(eq(auditEvents.id, auditId));
+	const saved = await readAuditEventById(db, input.organizationId, auditId);
 	if (!saved)
 		throw new Error(
 			"Billing entitlement changed or has in-flight reservations; re-read before assignment",

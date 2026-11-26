@@ -1,9 +1,9 @@
 import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
-import { auditEvents } from "../schema/audit-events";
+import { auditReadTable, readAuditStores } from "./audit-delivery";
 import { kernelWakeQueue } from "../schema/cognitive-runtime";
-import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
+import { mergeLogStoreRows } from "../utils/log-store";
 import { workstationLeases } from "../schema/workstations";
 
 export async function listHomeRunAuditReferences(
@@ -28,10 +28,11 @@ export async function listHomeRunAuditReferences(
 		throw new Error("Home run audit references support at most 96 child runs");
 	}
 	if (input.childRunIds.length === 0) return [];
-	const pages = await readLogStores(db, (store) =>
+	const pages = await readAuditStores(db, (store) =>
 		listHomeRunAuditReferences(store, input),
 	);
 	if (pages) return mergeLogStoreRows(pages, { limit: input.limit });
+	const auditEvents = auditReadTable(db);
 	return db
 		.select({
 			id: auditEvents.id,

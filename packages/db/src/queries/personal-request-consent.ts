@@ -1,6 +1,5 @@
-import { and, eq } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { auditEvents } from "../schema/audit-events";
+import { readAuditEventById } from "./audit-delivery";
 
 /** Request consent is immutable admission evidence, never a caller-supplied claim. */
 export async function getPersonalRequestConsent(
@@ -8,17 +7,12 @@ export async function getPersonalRequestConsent(
 	organizationId: string,
 	runId: string,
 ) {
-	const [row] = await db
-		.select()
-		.from(auditEvents)
-		.where(
-			and(
-				eq(auditEvents.id, `personal-request:${organizationId}:${runId}`),
-				eq(auditEvents.organizationId, organizationId),
-				eq(auditEvents.action, "personal.request.admitted"),
-				eq(auditEvents.actorType, "user"),
-			),
-		)
-		.limit(1);
-	return row;
+	const row = await readAuditEventById(
+		db,
+		organizationId,
+		`personal-request:${organizationId}:${runId}`,
+	);
+	return row?.action === "personal.request.admitted" && row.actorType === "user"
+		? row
+		: undefined;
 }

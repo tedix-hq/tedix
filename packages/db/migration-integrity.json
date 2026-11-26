@@ -2120,6 +2120,10 @@
 		{
 			"name": "20261126102623_retire_unused_work_tables/migration.sql",
 			"sha256": "0d9bc293eb9b7799bf62650729ad4e738a818a818e2e6242e3b8329375a570a1"
+		},
+		{
+			"name": "20261126114840_audit_delivery_outbox/migration.sql",
+			"sha256": "48c99ecebe81b3bbc0adadf2a8503c03083ae09734565b2c4e4d63bde8e3c8d5"
 		}
 	]
 }

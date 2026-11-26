@@ -1,4 +1,25 @@
 import type { GatewayChangeRecordInput } from "@tedix/api-contract/schemas/audit";
+import type { AuditEvent } from "../../schema/audit-events";
+
+/** Plain transport values: audit timestamps retain D1's second precision. */
+export type OrganizationAuditEvent = Omit<
+	AuditEvent,
+	"timestamp" | "traceId"
+> & {
+	timestamp: number;
+};
+
+export interface OrganizationAuditRuntime {
+	organizationAuditAppend(
+		organizationId: string,
+		events: OrganizationAuditEvent[],
+		ignoreDuplicateIds?: string[],
+	): Promise<OrganizationLogRead<OrganizationAuditEvent[]>>;
+	organizationAuditGet(
+		organizationId: string,
+		id: string,
+	): Promise<OrganizationLogRead<OrganizationAuditEvent | null>>;
+}
 
 /**
  * The organization log store's RPC surface, as the workspace runtime's

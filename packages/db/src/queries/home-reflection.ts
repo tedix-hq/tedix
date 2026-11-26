@@ -1,13 +1,13 @@
 import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { auditEvents } from "../schema/audit-events";
+import {
+	auditReadColumns,
+	auditReadTable,
+	readAuditStores,
+} from "./audit-delivery";
 import { kernelRuntimeEvents } from "../schema/cognitive-runtime";
 import { memoryFacts } from "../schema/memory-graph";
-import {
-	compareTimestampId,
-	mergeLogStoreRows,
-	readLogStores,
-} from "../utils/log-store";
+import { compareTimestampId, mergeLogStoreRows } from "../utils/log-store";
 
 export async function hasActiveMemoryFactSource(
 	db: DbClient,
@@ -55,9 +55,10 @@ export async function listHomeOperatorDecisionAuditEvents(
 		limit: number;
 	},
 ) {
-	const read = async (store: DbClient) =>
-		store
-			.select()
+	const read = async (store: DbClient) => {
+		const auditEvents = auditReadTable(store);
+		return store
+			.select(auditReadColumns(store))
 			.from(auditEvents)
 			.where(
 				and(
@@ -70,7 +71,8 @@ export async function listHomeOperatorDecisionAuditEvents(
 			)
 			.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
 			.limit(input.limit);
-	const pages = await readLogStores(db, read, {
+	};
+	const pages = await readAuditStores(db, read, {
 		from: input.since.toISOString(),
 	});
 	return pages

@@ -6,7 +6,7 @@ import {
 	residencyProviderVersions,
 	residencyExecutionReceipts,
 } from "../schema/data-residency";
-import { auditEvents } from "../schema/audit-events";
+import { auditWriteTable } from "./audit-delivery";
 import {
 	ResidencyProviderSchema,
 	type ResidencyProvider,
@@ -102,7 +102,7 @@ export async function setOrganizationResidencyPolicy(
 					.returning({ revision: organizationResidencyPolicies.revision });
 	// The policy row exists whenever the upsert changed it, so it doubles as the
 	// one-row source for an audit insert gated on changes().
-	const audit = db.insert(auditEvents).select(
+	const audit = db.insert(auditWriteTable(db)).select(
 		db
 			.select({
 				id: sql<string>`${crypto.randomUUID()}`.as("id"),

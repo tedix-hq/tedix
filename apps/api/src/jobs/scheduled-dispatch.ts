@@ -4,7 +4,7 @@ import {
 	safeExceptionTopology,
 } from "../lib/safe-log-metadata";
 import type { PlatformCronId } from "./platform-cron-catalog";
-import { MAINTENANCE_TRIGGER, maintenanceIsDue } from "./staggered-maintenance";
+import { maintenanceIsDue } from "./staggered-maintenance";
 
 async function trackPlatformCronPath(
 	env: CloudflareEnv,
@@ -140,6 +140,12 @@ const dispatchScheduled = async (
 		}
 
 		if (cron === "*/2 * * * *") {
+			await trackPlatformCronPath(env, event, "audit-delivery", async () => {
+				const { drainAuditDeliveryOutbox } =
+					await import("@tedix/db/queries/audit-delivery");
+				const { coreDb } = await import("@tedix/db/core-store/scope");
+				return { delivered: await drainAuditDeliveryOutbox(coreDb(env), env) };
+			});
 			await trackPlatformCronPath(env, event, "work-maintenance", async () => {
 				const { runWorkMaintenanceTick } =
 					await import("./work-attempt-lease-sweeper");

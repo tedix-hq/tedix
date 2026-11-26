@@ -1,3 +1,4 @@
+import { anyIds } from "../core-store/dialect";
 /**
  * Read-only inspection of a workspace by an organization owner or admin.
  *
@@ -16,7 +17,12 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { insertAuditEvent } from "./audit";
-import { auditEvents } from "../schema/audit-events";
+import {
+	auditReadColumns,
+	auditReadTable,
+	readAuditStores,
+} from "./audit-delivery";
+import { compareTimestampId, mergeLogStoreRows } from "../utils/log-store";
 import { organizationMembers } from "../schema/organization-members";
 import { osWorkspaces } from "../schema/os-workspaces";
 
@@ -105,21 +111,11 @@ export async function hasActiveOsWorkspaceInspection(
 	if (workspace?.status !== "active") return false;
 	if (!(await isOrganizationInspector(db, scope.organizationId, userId)))
 		return false;
-	const [record] = await db
-		.select({ id: auditEvents.id })
-		.from(auditEvents)
-		.where(
-			and(
-				eq(auditEvents.organizationId, scope.organizationId),
-				eq(auditEvents.resourceType, RESOURCE_TYPE),
-				eq(auditEvents.resourceId, scope.workspaceId),
-				eq(auditEvents.action, OS_WORKSPACE_INSPECTION_ACTION),
-				eq(auditEvents.actorType, "user"),
-				eq(auditEvents.actorId, userId),
-				gte(auditEvents.timestamp, new Date(now - OS_WORKSPACE_INSPECTION_MS)),
-			),
-		)
-		.limit(1);
+	const records = await inspectionEvents(db, scope, 1, {
+		userId,
+		since: new Date(now - OS_WORKSPACE_INSPECTION_MS),
+	});
+	const record = records[0];
 	return Boolean(record);
 }
 
@@ -164,32 +160,66 @@ export async function listOsWorkspaceInspections(
 	scope: { organizationId: string; workspaceId: string },
 	limit = 20,
 ) {
-	return db
+	const events = await inspectionEvents(db, scope, limit);
+	if (!events.length) return [];
+	const members = await db
 		.select({
-			id: auditEvents.id,
-			at: auditEvents.timestamp,
-			inspectorName: sql<
-				string | null
-			>`coalesce(${organizationMembers.name}, ${organizationMembers.email})`.as(
-				"inspector_name",
-			),
+			id: organizationMembers.descopeUserId,
+			name: organizationMembers.name,
+			email: organizationMembers.email,
 		})
-		.from(auditEvents)
-		.leftJoin(
-			organizationMembers,
-			and(
-				eq(organizationMembers.organizationId, auditEvents.organizationId),
-				eq(organizationMembers.descopeUserId, auditEvents.actorId),
-			),
-		)
+		.from(organizationMembers)
 		.where(
 			and(
-				eq(auditEvents.organizationId, scope.organizationId),
-				eq(auditEvents.resourceType, RESOURCE_TYPE),
-				eq(auditEvents.resourceId, scope.workspaceId),
-				eq(auditEvents.action, OS_WORKSPACE_INSPECTION_ACTION),
+				eq(organizationMembers.organizationId, scope.organizationId),
+				anyIds(
+					db,
+					organizationMembers.descopeUserId,
+					events.map((event) => event.actorId),
+				),
 			),
-		)
-		.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
-		.limit(limit);
+		);
+	const names = new Map(
+		members.map((member) => [member.id, member.name ?? member.email]),
+	);
+	return events.map((event) => ({
+		id: event.id,
+		at: event.timestamp,
+		inspectorName: names.get(event.actorId) ?? null,
+	}));
+}
+
+async function inspectionEvents(
+	db: DbQueryClient,
+	scope: { organizationId: string; workspaceId: string },
+	limit: number,
+	filter?: { userId: string; since: Date },
+) {
+	const read = async (store: DbQueryClient) => {
+		const auditEvents = auditReadTable(store);
+		return store
+			.select(auditReadColumns(store))
+			.from(auditEvents)
+			.where(
+				and(
+					eq(auditEvents.organizationId, scope.organizationId),
+					eq(auditEvents.resourceType, RESOURCE_TYPE),
+					eq(auditEvents.resourceId, scope.workspaceId),
+					eq(auditEvents.action, OS_WORKSPACE_INSPECTION_ACTION),
+					filter
+						? and(
+								eq(auditEvents.actorType, "user"),
+								eq(auditEvents.actorId, filter.userId),
+								gte(auditEvents.timestamp, filter.since),
+							)
+						: undefined,
+				),
+			)
+			.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
+			.limit(limit);
+	};
+	const pages = await readAuditStores(db, read);
+	return pages
+		? mergeLogStoreRows(pages, { compare: compareTimestampId("desc"), limit })
+		: read(db);
 }
