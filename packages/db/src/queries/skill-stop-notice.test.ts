@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { createMigratedSqlite } from "../test/migrated-sqlite";
+import { updateSkillEntry } from "./cognitive/skill-crud";
 import {
 	SKILL_STOPPED_SCHEMA,
 	plainSkillStopReason,
@@ -68,8 +69,18 @@ function seed(options: { tediOwner?: string | null } = {}) {
 }
 
 describe("skill stopped notice", () => {
-	it("tells the tedi's owner in Activity when failed runs turn a scheduled skill off", async () => {
-		const { db, failRun, notices, lifecycle } = seed();
+	it("keeps the schedule active and tells the owner in Activity after failed scheduled runs", async () => {
+		const { sqlite, db, failRun, notices, lifecycle } = seed();
+		await updateSkillEntry(
+			db,
+			SKILL,
+			{
+				content: "# Daily research\nUpdated instructions",
+				revision: 2,
+			},
+			{ organizationId: "org" },
+		);
+		expect(lifecycle()).toBe("active");
 		for (const id of ["run-1", "run-2"]) {
 			failRun(id, "Error: The news source returned 401. Sign in again.");
 			await recordSkillRunOutcome(db, id);
@@ -82,7 +93,12 @@ describe("skill stopped notice", () => {
 			"Error: The news source returned 401. Sign in again.\n    at fetchNews (workflow.ts:12)",
 		);
 		await recordSkillRunOutcome(db, "run-3");
-		expect(lifecycle()).toBe("draft");
+		expect(lifecycle()).toBe("active");
+		expect(
+			sqlite
+				.prepare("SELECT enabled FROM skill_schedules WHERE skill_id=?")
+				.get(SKILL),
+		).toMatchObject({ enabled: 1 });
 		const [notice] = notices();
 		expect(notices()).toHaveLength(1);
 		expect(notice).toMatchObject({
@@ -91,8 +107,7 @@ describe("skill stopped notice", () => {
 			project_id: "p-research",
 			work_item_id: null,
 			status: "open",
-			subject:
-				"“Daily research” turned itself off after 3 failed runs in a row",
+			subject: "“Daily research” needs review after 3 failed runs in a row",
 		});
 		expect(notice!.prompt).toContain(
 			"- Last error: The news source returned 401. Sign in again.",
@@ -131,8 +146,7 @@ describe("skill stopped notice", () => {
 			at: row.request.createdAt,
 			projectId: "p-research",
 			needsAction: true,
-			sentence:
-				"“Daily research” turned itself off after 3 failed runs in a row",
+			sentence: "“Daily research” needs review after 3 failed runs in a row",
 			source: `/work/interactions/${notice!.id}`,
 		});
 		expect(entry!.explanation).toContain("What to do next");
@@ -178,7 +192,7 @@ describe("skill stopped notice", () => {
 			failRun(id, "The sheet could not be opened");
 			await recordSkillRunOutcome(db, id);
 		}
-		expect(lifecycle()).toBe("draft");
+		expect(lifecycle()).toBe("active");
 		expect(notices()).toHaveLength(0);
 	});
 

@@ -15,8 +15,8 @@
  *   `crystallizeMuscleFromSkill()` sets it (options.via === "crystallize"),
  *   and that path itself verifies the proven ledger bar, org scope, and a
  *   disposer authority before writing.
- * - Failures gate advancement and demote: SKILL_DEMOTION_CONSECUTIVE_FAILURES
- *   consecutive failures drop `proven → active` and `active → draft`.
+ * - Failures gate advancement. Consecutive failures drop `proven → active`,
+ *   but never turn an active skill back into a draft. Flag it for review instead.
  *   Crystallized skills never auto-demote; failures flag them for review.
  * - Ordinary drafts with zero usage and unpromoted `flow-ephemeral` drafts
  *   inactive for SKILL_DRAFT_TTL_DAYS expire via `sweepExpiredDraftSkills()`.
@@ -345,9 +345,8 @@ export function nextSkillLifecycleState(
 	if (!input.success) {
 		const streak = countConsecutiveRecentFailures(input.recentOutcomes);
 		if (streak >= SKILL_DEMOTION_CONSECUTIVE_FAILURES) {
-			if (current === "proven")
-				return { state: "active", flagForReview: false };
-			if (current === "active") return { state: "draft", flagForReview: false };
+			if (current === "proven") return { state: "active", flagForReview: true };
+			if (current === "active") return { state: "active", flagForReview: true };
 		}
 		return { state: current, flagForReview: false };
 	}

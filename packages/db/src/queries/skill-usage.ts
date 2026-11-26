@@ -181,7 +181,7 @@ async function recordSkillUsageEventInternal(
 		}
 		if (advance.flagForReview && !updated.reviewFlaggedAt) {
 			patch.reviewFlaggedAt = now;
-			patch.reviewFlagReason = `crystallized skill recorded a failure (run ${runId})${
+			patch.reviewFlagReason = `${updated.lifecycleState === "crystallized" ? "crystallized skill recorded a failure" : "skill recorded consecutive failures"} (run ${runId})${
 				input.error ? `: ${input.error.slice(0, 200)}` : ""
 			}`;
 		}
@@ -246,13 +246,13 @@ async function recordSkillUsageEventInternal(
 			) {
 				await insertActivatedSkillSchedule(db, updated);
 			}
-			// Failed runs turned the skill off: tell its owner. The usage
-			// record above already stands, so a notice that cannot be filed
-			// is logged and never fails the recording.
+			// Consecutive failures need attention even though the skill stays on.
+			// A notice failure must not discard the recorded run.
 			if (
 				applied.length > 0 &&
-				patch.lifecycleState === "draft" &&
-				updated.lifecycleState === "active"
+				advance.flagForReview &&
+				updated.lifecycleState !== "crystallized" &&
+				!updated.reviewFlaggedAt
 			) {
 				try {
 					const { raiseSkillStoppedNotice } =

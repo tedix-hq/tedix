@@ -1,11 +1,9 @@
 /**
  * Tell the owner when a scheduled skill stops by itself.
  *
- * A skill that fails several runs in a row is moved back to draft, and the
- * scheduler pauses a schedule whose skill is not turned on. Both used to be
- * silent. Each now puts ONE item in the owner's inbox, the same way the
- * dispatcher and capture health alarms do, so it shows in Activity and
- * Decisions: which skill, why it stopped, and what to do next.
+ * Repeated failures need the owner's attention without turning the skill off.
+ * The scheduler also pauses a schedule whose skill is not turned on. Each puts
+ * one item in the owner's inbox so Activity and Decisions explain what happened.
  *
  * The item goes to the person who owns the skill's tedi, or to the
  * organization owner for a shared tedi. An inbox item needs Work context: the
@@ -27,7 +25,7 @@ import { createWorkInteraction } from "./work-items/interactions";
 export const SKILL_STOPPED_SCHEMA = "tedix.skill-stopped.v1";
 
 export type SkillStopCause =
-	/** Runs failed in a row and the skill went back to draft. */
+	/** Runs failed in a row; the skill remains on and needs review. */
 	| { kind: "failed_runs"; failedRuns: number; lastError: string | null }
 	/** The scheduler found the skill not turned on and paused its schedule. */
 	| { kind: "inactive" };
@@ -78,9 +76,9 @@ export function skillStoppedNoticeText(input: {
 	if (input.cause.kind === "failed_runs") {
 		const runs = `${input.cause.failedRuns} failed run${input.cause.failedRuns === 1 ? "" : "s"} in a row`;
 		return {
-			subject: `${name} turned itself off after ${runs}`,
+			subject: `${name} needs review after ${runs}`,
 			// The error is a list item so the card shows it whole.
-			prompt: `${name} turned itself off after ${runs}, so its scheduled runs have stopped.\n\n- Last error: ${plainSkillStopReason(input.cause.lastError)}\n\n${next}`,
+			prompt: `${name} remains on after ${runs}.\n\n- Last error: ${plainSkillStopReason(input.cause.lastError)}\n\nWhat to do next: [open the skill](/skills/${input.skillId}), investigate the failures, and test the fix.`,
 		};
 	}
 	return {

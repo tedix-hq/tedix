@@ -81,8 +81,8 @@ still apply.
 | State          | Advances when                                                                    | Falls back when                                      |
 | -------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | `draft`        | → `active` for instructions, or after ≥1 verified workflow success for workflows | Zero-usage drafts archive after 14 days              |
-| `active`       | → `proven` after ≥5 verified successes and no unrecovered failure in the last 10 | 3 consecutive failures → `draft`                     |
-| `proven`       | → `crystallized` only via `muscle.crystallize` or operator force                 | 3 consecutive failures → `active`                    |
+| `active`       | → `proven` after ≥5 verified successes and no unrecovered failure in the last 10 | 3 consecutive failures → review flag; stays active   |
+| `proven`       | → `crystallized` only via `muscle.crystallize` or operator force                 | 3 consecutive failures → `active` and review flag    |
 | `crystallized` | —                                                                                | Never auto-demotes; a failure sets `reviewFlaggedAt` |
 | `stale`        | → `active` through the same instruction/workflow gate                            | → `archived`                                         |
 
@@ -97,8 +97,8 @@ still apply.
 - An edit (`improve_skills` with `content` or `files`) bumps `revision` and
   never changes lifecycle. The `skill_schedules` row is keyed by skill id, so
   it fires the new revision. A verified run that activates a draft writes its
-  declared schedule row; an edit of a skill demoted to `draft` by failures
-  keeps the row it already had. New drafts get none.
+  declared schedule row. Repeated failures flag an active skill for review
+  without turning it into a draft. New drafts get no schedule row.
 - Pace layers (`innovation` / `differentiation` / `record`) are derived from
   lifecycle (`paceLayerForLifecycle()`). An agent update to a crystallized
   skill's `content`, `files`, `inputSchema`, or `agentSkillsFormat` fails with

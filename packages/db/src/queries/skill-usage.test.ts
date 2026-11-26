@@ -548,7 +548,7 @@ describe("recordSkillUsageEvent", () => {
 		});
 	});
 
-	it("demotes one state after 3 consecutive failures (proven → active → draft)", async () => {
+	it("demotes proven to active but never disables an active skill after failures", async () => {
 		const { db, insertSkill, skillRow } = fixture();
 		insertSkill({
 			id: "skill-1",
@@ -568,7 +568,7 @@ describe("recordSkillUsageEvent", () => {
 		}
 		expect(skillRow("skill-1").lifecycleState).toBe("active");
 
-		// The streak continues: the next failure drops it again.
+		// The streak continues, but cannot turn the skill off.
 		await recordSkillUsageEvent(db, {
 			organizationId: "org-1",
 			tediId: "tedi-1",
@@ -578,7 +578,11 @@ describe("recordSkillUsageEvent", () => {
 			runId: "fail-3",
 			error: "boom",
 		});
-		expect(skillRow("skill-1").lifecycleState).toBe("draft");
+		expect(skillRow("skill-1")).toMatchObject({
+			lifecycleState: "active",
+			failureCount: 4,
+		});
+		expect(skillRow("skill-1").reviewFlaggedAt).toBeTruthy();
 	});
 
 	it("does not demote a skill for runs the platform refused", async () => {
@@ -605,12 +609,13 @@ describe("recordSkillUsageEvent", () => {
 			failureCount: 3,
 		});
 
-		// The skill's own failures still demote, refusals in between or not.
+		// The skill's own failures flag review, refusals in between or not.
 		await fail("own-0", "boom");
 		await fail("own-1", "boom");
 		expect(skillRow("skill-1").lifecycleState).toBe("active");
 		await fail("own-2", "boom");
-		expect(skillRow("skill-1").lifecycleState).toBe("draft");
+		expect(skillRow("skill-1").lifecycleState).toBe("active");
+		expect(skillRow("skill-1").reviewFlaggedAt).toBeTruthy();
 	});
 
 	it("does not demote a skill when the platform database was overloaded", async () => {
@@ -790,7 +795,8 @@ describe("recordSkillUsageEvent", () => {
 			success: false,
 			runId: "third-direct-failure",
 		});
-		expect(skillRow("skill-1").lifecycleState).toBe("draft");
+		expect(skillRow("skill-1").lifecycleState).toBe("active");
+		expect(skillRow("skill-1").reviewFlaggedAt).toBeTruthy();
 
 		insertSkill({ id: "skill-2", lifecycleState: "active" });
 		for (let index = 0; index < 2; index++) {
@@ -818,6 +824,7 @@ describe("recordSkillUsageEvent", () => {
 			runId: "post-verified-failure",
 		});
 		expect(skillRow("skill-2").lifecycleState).toBe("active");
+		expect(skillRow("skill-2").reviewFlaggedAt).toBeNull();
 	});
 
 	it("returns skill_not_found instead of throwing for unknown or cross-org skills", async () => {

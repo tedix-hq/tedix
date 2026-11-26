@@ -274,9 +274,9 @@ export const skillEntries = sqliteTable(
 		}>(),
 
 		/**
-		 * Record-layer safety valve: crystallized skills never auto-demote on
-		 * failures — instead they get flagged here for human review.
-		 * Set by recordSkillUsageEvent(); cleared manually after review.
+		 * Review flag for repeated failures on active or proven skills and any
+		 * failure on crystallized skills. Set by recordSkillUsageEvent(); cleared
+		 * manually after review.
 		 */
 		reviewFlaggedAt: text("review_flagged_at"),
 		reviewFlagReason: text("review_flag_reason"),

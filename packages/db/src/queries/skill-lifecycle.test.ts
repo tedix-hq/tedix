@@ -339,10 +339,10 @@ describe("nextSkillLifecycleState", () => {
 				verifiedSuccessCount: 7,
 				recentOutcomes: ["failure", "failure", "failure", "success"],
 			}),
-		).toEqual({ state: "active", flagForReview: false });
+		).toEqual({ state: "active", flagForReview: true });
 	});
 
-	it("demotes active → draft after 3 consecutive failures", () => {
+	it("keeps active and flags review after 3 consecutive failures", () => {
 		expect(
 			nextSkillLifecycleState({
 				current: "active",
@@ -351,7 +351,7 @@ describe("nextSkillLifecycleState", () => {
 				verifiedSuccessCount: 2,
 				recentOutcomes: ["failure", "failure", "failure"],
 			}),
-		).toEqual({ state: "draft", flagForReview: false });
+		).toEqual({ state: "active", flagForReview: true });
 	});
 
 	it("does not demote below 3 consecutive failures", () => {
