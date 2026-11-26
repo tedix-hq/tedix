@@ -6,14 +6,14 @@ import { isPathLocked } from "./constraints";
 import { snapshotForTemplate } from "./template-sync";
 import { CmsDeployFailure } from "./deploy-failure";
 
-const declarationSchema = z.object({
+export const themeReleaseDeclarationSchema = z.object({
 	upstreamStarterRevision: z.string().regex(/^[a-f0-9]{40}$/),
 	supportedBlocks: z.record(
 		z.string(),
 		z.array(z.number().int().positive()).min(1),
 	),
 });
-export const themeReleaseSchema = declarationSchema.extend({
+export const themeReleaseSchema = themeReleaseDeclarationSchema.extend({
 	version: z.literal(1),
 	templateSlug: z.string().min(1),
 	lockedTemplateSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -27,9 +27,9 @@ export async function identifyThemeRelease(
 	templateSlug: string,
 	workspace: string,
 ): Promise<ThemeRelease> {
-	let declaration: z.infer<typeof declarationSchema>;
+	let declaration: z.infer<typeof themeReleaseDeclarationSchema>;
 	try {
-		declaration = declarationSchema.parse(
+		declaration = themeReleaseDeclarationSchema.parse(
 			JSON.parse(
 				(await sandbox.readFile(`${workspace}/src/theme-release.json`)).content,
 			),

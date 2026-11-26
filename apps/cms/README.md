@@ -161,6 +161,13 @@ the theme: when adding or removing a renderer, update its declaration in the sam
 source commit. Existing themes must explicitly add a declaration matching their
 own renderers; a deploy does not fill it from today's starter.
 
+Use `commit_theme_artifact_files` with a structured `themeRelease` object
+containing `upstreamStarterRevision` and `supportedBlocks` to add or update the
+declaration. Pass `files: []` for a declaration-only migration, or include other
+editable files to commit them together. Do not also include
+`src/theme-release.json` in `files`. The tool validates the declaration and
+writes its JSON under the same `expectedHead` check as the other file changes.
+
 Deploy stages a release manifest and stores it beside the versioned bundle as
 `theme-release.json`, including the source revision, locked-template snapshot
 SHA-256 and exact `bun.lock` SHA-256. Before upgrading an active site, publication

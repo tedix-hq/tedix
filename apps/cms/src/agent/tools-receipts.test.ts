@@ -1,7 +1,8 @@
 import git from "isomorphic-git";
 import { GitMemoryFs } from "@tedix/worker-kit/git-memory-fs";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { ZodType } from "zod";
+import { toJSONSchema, type ZodType } from "zod";
+import { findSecretValuePattern } from "../../../mcp/src/mcp/utils/secret-egress-scan";
 const mocks = vi.hoisted(() => ({
 	inputSchemas: new Map<string, ZodType>(),
 	outputSchemas: new Map<string, ZodType>(),
@@ -361,6 +362,10 @@ it.each([false, true])(
 			const args = {
 				expectedHead: base,
 				message: "Fix app sitemap",
+				themeRelease: {
+					upstreamStarterRevision: "1234567890abcdef1234567890abcdef12345678",
+					supportedBlocks: { marketing_hero: [1, 2] },
+				},
 				files: [
 					...(deletion
 						? [
@@ -377,6 +382,64 @@ it.each([false, true])(
 			};
 			const input = mocks.inputSchemas.get("commit_theme_artifact_files")!;
 			expect(input.safeParse(args).success).toBe(true);
+			const jsonSchema = toJSONSchema(input, { unrepresentable: "any" });
+			expect(findSecretValuePattern(args, jsonSchema)).toBeNull();
+			expect(input.safeParse({ ...args, files: [] }).success).toBe(true);
+			for (const themeRelease of [
+				{ ...args.themeRelease, upstreamStarterRevision: "invalid" },
+				{ ...args.themeRelease, supportedBlocks: { marketing_hero: [0] } },
+				{ ...args.themeRelease, credential: "unexpected" },
+			])
+				expect(input.safeParse({ ...args, themeRelease }).success).toBe(false);
+			for (const credentials of [
+				{ ...args, message: "Bearer fixture_credential_1234567890" },
+				{
+					...args,
+					files: [
+						{
+							path,
+							content: "token=AbCd0123456789AbCd0123456789AbCd0123456789",
+						},
+					],
+				},
+				{
+					...args,
+					themeRelease: {
+						...args.themeRelease,
+						supportedBlocks: {
+							AbCd0123456789AbCd0123456789AbCd0123456789: [1],
+						},
+					},
+				},
+				{
+					...args,
+					themeRelease: {
+						...args.themeRelease,
+						upstreamStarterRevision: "ghp_" + "123456".repeat(6),
+					},
+				},
+			])
+				expect(findSecretValuePattern(credentials, jsonSchema)).not.toBeNull();
+			expect(
+				findSecretValuePattern(
+					{
+						...args,
+						themeRelease: undefined,
+						files: [
+							{
+								path: "src/theme-release.json",
+								content: JSON.stringify(args.themeRelease),
+							},
+						],
+					},
+					jsonSchema,
+				),
+			).toBe("long opaque token");
+			for (const invalid of [
+				{ ...args, themeRelease: undefined, files: [] },
+				{ ...args, files: [{ path: "src/theme-release.json", delete: true }] },
+			])
+				expect(await commit(invalid)).toMatchObject({ isError: true });
 			for (const file of [
 				{ path },
 				{ path, delete: false },
@@ -403,6 +466,20 @@ it.each([false, true])(
 			expect(JSON.stringify(reply)).not.toContain("fixture-private");
 			const stored = await git.readCommit({ fs, dir, oid: committed });
 			expect(stored.commit.parent).toEqual([base]);
+			expect(
+				JSON.parse(
+					new TextDecoder().decode(
+						(
+							await git.readBlob({
+								fs,
+								dir,
+								oid: committed,
+								filepath: "src/theme-release.json",
+							})
+						).blob,
+					),
+				),
+			).toEqual(args.themeRelease);
 			expect(
 				(await git.readBlob({ fs, dir, oid: committed, filepath: "README.md" }))
 					.oid,
@@ -495,6 +572,29 @@ it.each([false, true])(
 				await expect(commit(args)).rejects.toThrow(
 					"Artifacts tree was not confirmed at commit",
 				);
+			}
+			if (!deletion) {
+				head = base;
+				race = false;
+				expect(
+					(await commit({ ...args, files: [] })).structuredContent,
+				).toMatchObject({
+					result: { committed: true, commit: head },
+				});
+				expect(
+					JSON.parse(
+						new TextDecoder().decode(
+							(
+								await git.readBlob({
+									fs,
+									dir,
+									oid: head,
+									filepath: "src/theme-release.json",
+								})
+							).blob,
+						),
+					),
+				).toEqual(args.themeRelease);
 			}
 			expect(f.artifactCommitSandbox).not.toHaveBeenCalled();
 		} finally {

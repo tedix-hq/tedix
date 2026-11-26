@@ -9,6 +9,7 @@ import {
 	type ThemeArtifactFileChange,
 } from "./theme-artifact-commit";
 import { isPathEditable } from "./constraints";
+import { themeReleaseDeclarationSchema } from "./theme-release";
 import {
 	HOT_THEME_PUBLIC_PATH,
 	hotThemeManifestKey,
@@ -619,6 +620,7 @@ export function registerHotThemeTools(
 			title: "Commit Theme Files to Artifacts",
 			description:
 				"Commit complete editable Astro/CSS file contents to the tenant's existing Artifacts Git main branch. " +
+				"Pass themeRelease as a structured declaration to write src/theme-release.json; use files: [] for a declaration-only migration. " +
 				"Each file supplies either content (including an empty string) or delete: true to remove an editable regular file. Missing files are already deleted. " +
 				"Successful commits report deletedPaths after exact-commit readback. Unrelated tree entries are preserved. " +
 				"The server handles the short-lived Git token; no credential is returned. Pass the current full main commit as expectedHead. " +
@@ -628,6 +630,7 @@ export function registerHotThemeTools(
 				z.object({
 					expectedHead: z.string().regex(/^[a-f0-9]{40}$/),
 					message: z.string().min(1).max(200),
+					themeRelease: themeReleaseDeclarationSchema.strict().optional(),
 					files: z
 						.array(
 							z.union([
@@ -642,7 +645,6 @@ export function registerHotThemeTools(
 									.strict(),
 							]),
 						)
-						.min(1)
 						.max(20),
 				}),
 			),
@@ -651,6 +653,7 @@ export function registerHotThemeTools(
 			expectedHead: string;
 			message: string;
 			files: ThemeArtifactFileChange[];
+			themeRelease?: z.infer<typeof themeReleaseDeclarationSchema>;
 		}) => {
 			if (!ctx.artifacts)
 				return forbidden("CMS Artifacts binding is not configured");
@@ -658,7 +661,21 @@ export function registerHotThemeTools(
 				return forbidden(
 					"Theme commit message must be nonblank and contain no NUL",
 				);
-			const paths = args.files.map((file) => file.path);
+			const files = [...args.files];
+			if (args.themeRelease) {
+				const declaration = themeReleaseDeclarationSchema
+					.strict()
+					.safeParse(args.themeRelease);
+				if (!declaration.success)
+					return forbidden("Theme release declaration is invalid");
+				files.push({
+					path: "src/theme-release.json",
+					content: `${JSON.stringify(declaration.data, null, "\t")}\n`,
+				});
+			}
+			if (files.length < 1 || files.length > 20)
+				return forbidden("Provide between 1 and 20 theme file changes");
+			const paths = files.map((file) => file.path);
 			if (
 				new Set(paths).size !== paths.length ||
 				paths.some((path) => !isPathEditable(path, ctx.templateSlug))
@@ -691,6 +708,7 @@ export function registerHotThemeTools(
 			using repo = await ctx.artifacts.get(themeArtifactRepoName(ctx.orgSlug));
 			const result = await commitThemeArtifactFiles({
 				...args,
+				files,
 				repo,
 				remote: themeArtifactRemote(
 					ctx.artifactsAccountId,
