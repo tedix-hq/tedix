@@ -7520,18 +7520,6 @@
 						],
 						"additionalProperties": false
 					},
-					"executor": {
-						"type": "string",
-						"enum": [
-							"human",
-							"tedi",
-							"codex",
-							"claude-code",
-							"opencode",
-							"devin",
-							"any-local"
-						]
-					},
 					"executorReference": {
 						"type": "object",
 						"properties": {
@@ -9792,18 +9780,6 @@
 						],
 						"additionalProperties": false
 					},
-					"executor": {
-						"type": "string",
-						"enum": [
-							"human",
-							"tedi",
-							"codex",
-							"claude-code",
-							"opencode",
-							"devin",
-							"any-local"
-						]
-					},
 					"executorReference": {
 						"type": "object",
 						"properties": {
@@ -10199,20 +10175,8 @@
 						"required": ["fromExecutor", "unavailableSince", "reason"],
 						"additionalProperties": false
 					},
-					"executor": {
-						"description": "codex or claude-code on accepted Work queues a fresh session that a connected Mac starts and that claims its own Attempt. Owners, admins and the Work's tedi steward may set it.",
-						"type": "string",
-						"enum": [
-							"human",
-							"tedi",
-							"codex",
-							"claude-code",
-							"opencode",
-							"devin",
-							"any-local"
-						]
-					},
 					"executorReference": {
+						"description": "The executor's type and ID. Owners, admins and the Work's tedi steward may set it. External agents codex and claude-code queue a fresh session on accepted Work.",
 						"type": "object",
 						"properties": {
 							"type": {

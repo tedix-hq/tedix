@@ -1302,14 +1302,11 @@ function isPlanningOnlyUpdate(
 	params: Partial<
 		Record<(typeof APPROVED_SPECIFICATION_FIELDS)[number], unknown>
 	> & {
-		executor?: string;
 		executorReference?: WorkExecutorReference;
 		laneDispatch?: LaneDispatchPlan;
 	},
 ): boolean {
-	const executorReference =
-		params.executorReference ??
-		(params.executor ? workExecutorReference(params.executor) : undefined);
+	const executorReference = params.executorReference;
 	return (
 		(params.laneDispatch !== undefined || executorReference !== undefined) &&
 		(executorReference === undefined ||
@@ -1329,7 +1326,6 @@ export async function updateWorkItemSpecification(
 		orgId: string;
 		workItemId: string;
 		actor: WorkActor;
-		executor?: string;
 		executorReference?: WorkExecutorReference;
 		laneDispatch?: LaneDispatchPlan;
 		/** Validated by the caller. */
@@ -1365,9 +1361,7 @@ export async function updateWorkItemSpecification(
 	const storeWorkItems = coreTable(db, workItems);
 	const updatedAt = params.updatedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
-	const requestedExecutor =
-		params.executorReference ??
-		(params.executor ? workExecutorReference(params.executor) : undefined);
+	const requestedExecutor = params.executorReference;
 	const requestedDispatch =
 		params.laneDispatch ??
 		(requestedExecutor

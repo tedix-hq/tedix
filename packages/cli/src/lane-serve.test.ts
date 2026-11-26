@@ -5674,7 +5674,7 @@ describe("dispatcher admission", () => {
 			} else if (answers) {
 				expect(moves).toHaveLength(1);
 				expect(moves[0]!.input).toMatchObject({
-					executor: "opencode",
+					executorReference: { type: "external_agent", id: "opencode" },
 					idleReassignment: {
 						fromExecutor: "codex",
 						reason: "chosen",
@@ -5829,7 +5829,7 @@ describe("dispatcher admission", () => {
 			expect(moves()).toHaveLength(1);
 			expect(moves()[0]!.args).toContain(item().id);
 			expect(moves()[0]!.input).toMatchObject({
-				executor: "claude-code",
+				executorReference: { type: "external_agent", id: "claude-code" },
 				idleReassignment: {
 					fromExecutor: "codex",
 					reason: "unavailable",
@@ -5839,7 +5839,7 @@ describe("dispatcher admission", () => {
 			});
 			// The server's reassignment refuses any key besides these.
 			expect(Object.keys(moves()[0]!.input!).sort()).toEqual([
-				"executor",
+				"executorReference",
 				"expectedWorkItemVersion",
 				"idleReassignment",
 			]);
