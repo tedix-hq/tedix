@@ -7,7 +7,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	operationalContextQueryOptions,
 	workItemDetailQueryOptions,
-	workItemRelationsQueryOptions,
 	workItemAttemptsQueryOptions,
 	workItemEvidenceQueryOptions,
 	workItemEventsQueryOptions,
@@ -920,7 +919,6 @@ describe("Recorded Work outcomes and activity", () => {
 					version: 1,
 				},
 			],
-			projections: [],
 			evidence: [],
 			evidenceNextCursor: null,
 			comments: [

@@ -820,7 +820,6 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workItems/attachCaseWorkItem": "attach_work_case_item",
 	"workItems/detachCaseWorkItem": "detach_work_case_item",
 	"workItems/restoreFiling": "restore_work_filing",
-	"workItems/addCaseDependency": "add_work_case_dependency",
 	"workItems/replaceAdmissionSpecification":
 		"replace_work_admission_specification",
 	"workItems/getAdmissionSpecification": "get_work_admission_specification",
@@ -975,7 +974,6 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"workItems/attachCaseWorkItem": "write",
 	"workItems/detachCaseWorkItem": "write",
 	"workItems/restoreFiling": "write",
-	"workItems/addCaseDependency": "write",
 	"workItems/replaceAdmissionSpecification": "write",
 	"workItems/getAdmissionSpecification": "read",
 	"workItems/grantLaneAttempt": "write",

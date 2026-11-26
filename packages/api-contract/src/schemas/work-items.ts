@@ -1308,25 +1308,6 @@ export const WorkItemRelationTypeSchema = z.enum([
 ]);
 export type WorkItemRelationType = z.infer<typeof WorkItemRelationTypeSchema>;
 
-export const WorkItemProjectionDirectionSchema = z.enum([
-	"source",
-	"projection",
-	"sync",
-]);
-export type WorkItemProjectionDirection = z.infer<
-	typeof WorkItemProjectionDirectionSchema
->;
-
-export const WorkItemProjectionStatusSchema = z.enum([
-	"pending",
-	"synced",
-	"failed",
-	"stale",
-]);
-export type WorkItemProjectionStatus = z.infer<
-	typeof WorkItemProjectionStatusSchema
->;
-
 export const WorkItemCapabilityToolRefSchema = z
 	.object({
 		appSlug: z.string().trim().min(1).max(160),
@@ -1717,16 +1698,6 @@ export const WorkCaseItemSchema = z
 	})
 	.strict();
 
-export const WorkCaseDependencySchema = z
-	.object({
-		id: z.uuid(),
-		orgId: z.uuid(),
-		fromCaseId: z.uuid(),
-		toCaseId: z.uuid(),
-		createdAt: z.iso.datetime(),
-	})
-	.strict();
-
 export const WorkCaseDetailSchema = z
 	.object({
 		workCase: WorkCaseSchema,
@@ -1739,15 +1710,6 @@ export const WorkCaseDetailSchema = z
 					.describe(
 						"Null when the case has no further attached Work Item page.",
 					),
-			})
-			.strict(),
-		dependencies: z
-			.object({
-				data: z.array(WorkCaseDependencySchema),
-				nextCursor: z
-					.uuid()
-					.nullable()
-					.describe("Null when the case has no further dependency page."),
 			})
 			.strict(),
 	})
@@ -1951,26 +1913,6 @@ export const WorkItemCorroborationSchema = z.object({
 	createdAt: z.string(),
 });
 export type WorkItemCorroboration = z.infer<typeof WorkItemCorroborationSchema>;
-
-export const WorkItemProjectionSchema = z.object({
-	id: z.uuid(),
-	workItemId: z.uuid(),
-	orgId: z.uuid(),
-	provider: z.string(),
-	direction: WorkItemProjectionDirectionSchema,
-	status: WorkItemProjectionStatusSchema,
-	externalId: z.string().nullable(),
-	externalUrl: z.string().nullable(),
-	externalProjectId: z.string().nullable(),
-	externalSectionId: z.string().nullable(),
-	lastSyncedAt: z.string().nullable(),
-	lastError: z.string().nullable(),
-	syncCursor: z.string().nullable(),
-	providerState: JsonRecordSchema.nullable(),
-	createdAt: z.string(),
-	updatedAt: z.string().nullable(),
-});
-export type WorkItemProjection = z.infer<typeof WorkItemProjectionSchema>;
 
 export const WorkItemRelationSchema = z.object({
 	id: z.uuid(),
@@ -2595,42 +2537,6 @@ export const ReconcileWorkItemSourcesResultSchema = z.object({
 	}),
 });
 
-export const ListWorkItemProjectionsInputSchema = z.object({
-	projectId: z.uuid().optional(),
-	provider: z.string().max(100).optional(),
-	limit: z.number().int().min(1).max(500).optional(),
-	offset: z.number().int().min(0).optional(),
-});
-export type ListWorkItemProjectionsInput = z.infer<
-	typeof ListWorkItemProjectionsInputSchema
->;
-
-export const OrgWorkItemProjectionSchema = z.object({
-	id: z.string(),
-	workItemId: z.string(),
-	workItemTitle: z.string(),
-	workItemDisposition: WorkItemDispositionSchema,
-	projectId: z.string().nullable(),
-	provider: z.string(),
-	direction: WorkItemProjectionDirectionSchema,
-	syncStatus: WorkItemProjectionStatusSchema,
-	externalId: z.string().nullable(),
-	externalUrl: z.string().nullable(),
-	lastSyncedAt: z.string().nullable(),
-	lastError: z.string().nullable(),
-	createdAt: z.string(),
-});
-
-export const ListWorkItemProjectionsResultSchema = z.object({
-	data: z.array(OrgWorkItemProjectionSchema),
-	pagination: z.object({
-		limit: z.number(),
-		offset: z.number(),
-		total: z.number(),
-		hasMore: z.boolean(),
-	}),
-});
-
 // =============================================================================
 // Activity feed — the org-wide append-only board-event stream (Agents lens +
 // session swimlane). Each event carries its agent session for fleet grouping.
@@ -2968,7 +2874,6 @@ export const GetWorkItemResultSchema = z.object({
 	evidenceNextCursor: WorkFactoryProjectionCursorSchema.nullable().describe(
 		"Null when the exact Work Item evidence ledger has no further bounded page.",
 	),
-	projections: z.array(WorkItemProjectionSchema),
 });
 export type GetWorkItemResult = z.infer<typeof GetWorkItemResultSchema>;
 

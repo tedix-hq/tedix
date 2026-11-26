@@ -161,12 +161,6 @@ export interface TediOperationsDetail {
 		activeRole: { roleName: string; careerStage: string } | null;
 		entrustments: readonly { effectiveStatus: EntrustmentEffectiveStatus }[];
 	};
-	activeTasks: readonly {
-		id: string;
-		title: string;
-		status: string;
-		blocker: string | null;
-	}[];
 	objectives: readonly { id: string; status: string }[];
 	completedObjectives: number;
 	muscleCount: number;
@@ -201,19 +195,12 @@ export function TediAvatar({
 	);
 }
 
-/** How many active tasks render in the detail panel before truncating. */
-export const TASKS_PREVIEW_LIMIT = 5;
-
 export function TediDetailPanel({ detail }: { detail: TediOperationsDetail }) {
 	useOsFormattingPreferences();
 	const activeRole = detail.delegationProfile.activeRole;
 	const entrustments = entrustmentSummary(
 		detail.delegationProfile.entrustments,
 	);
-	const blockedTasks = detail.activeTasks.filter(
-		(task) => task.blocker !== null,
-	).length;
-	const shownTasks = detail.activeTasks.slice(0, TASKS_PREVIEW_LIMIT);
 	const pulse = detail.pulse;
 	return (
 		<Surface className="grid gap-3 px-4 py-3 sm:ml-12">
@@ -237,42 +224,10 @@ export function TediDetailPanel({ detail }: { detail: TediOperationsDetail }) {
 					Workload
 				</Text>
 				<Text as="span" role="label" className="text-kumo-default">
-					{formatCount(detail.activeTasks.length)}{" "}
-					{detail.activeTasks.length === 1 ? "active task" : "active tasks"}
-					{blockedTasks > 0 ? ` · ${formatCount(blockedTasks)} blocked` : ""}
-					{" · "}
 					{formatCount(detail.objectives.length)} current{" "}
 					{detail.objectives.length === 1 ? "objective" : "objectives"} ·{" "}
 					{formatCount(detail.completedObjectives)} completed
 				</Text>
-				{shownTasks.length > 0 && (
-					<ul className="m-0 grid list-none gap-0.5 p-0">
-						{shownTasks.map((task) => (
-							<Text
-								key={task.id}
-								as="li"
-								role="label"
-								tone="secondary"
-								className="break-words"
-							>
-								<span className="text-kumo-default">{task.title}</span> ·{" "}
-								{humanize(task.status)}
-								{task.blocker ? (
-									<span className="text-kumo-danger">
-										{" "}
-										· blocked: {task.blocker}
-									</span>
-								) : null}
-							</Text>
-						))}
-					</ul>
-				)}
-				{detail.activeTasks.length > TASKS_PREVIEW_LIMIT && (
-					<Text as="span" role="label" tone="secondary">
-						+{formatCount(detail.activeTasks.length - TASKS_PREVIEW_LIMIT)} more
-						active tasks
-					</Text>
-				)}
 			</div>
 
 			<div className="grid gap-1">

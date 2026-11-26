@@ -12,10 +12,7 @@ import { getFlywheelPulse } from "@tedix/db/queries/flywheel/pulse";
 import { getLatestGrowthSnapshot } from "@tedix/db/queries/growth-snapshots";
 import { listOptimizationSignals } from "@tedix/db/queries/memory-graph/optimization-signals";
 import { listRationaleRecords } from "@tedix/db/queries/rationale-records";
-import {
-	getActiveTasks,
-	listObjectives,
-} from "@tedix/db/queries/tedi-objectives";
+import { listObjectives } from "@tedix/db/queries/tedi-objectives";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import {
 	AUTHZ,
@@ -83,7 +80,6 @@ export const listOperationsSummariesProcedure =
 					const [
 						delegationProfile,
 						pulse,
-						activeTasks,
 						activeObjectives,
 						completedObjectives,
 						growthSnapshot,
@@ -100,7 +96,6 @@ export const listOperationsSummariesProcedure =
 							now: new Date().toISOString(),
 						}),
 						getFlywheelPulse(context.db, access),
-						getActiveTasks(context.db, tedi.id),
 						listObjectives(context.db, {
 							orgId,
 							tediId: tedi.id,
@@ -165,12 +160,6 @@ export const listOperationsSummariesProcedure =
 							decisionsLast24h: pulse.decisionsLast24h,
 							factsLearnedLast24h: pulse.factsLast24h,
 						},
-						activeTasks: activeTasks.map((task) => ({
-							id: task.id,
-							title: task.title,
-							status: task.status,
-							blocker: task.blocker,
-						})),
 						objectives: activeObjectives.data.map((objective) => ({
 							id: objective.id,
 							status: objective.status,

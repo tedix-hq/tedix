@@ -66,7 +66,6 @@ CREATE TABLE work_item_relations (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, fro
 CREATE UNIQUE INDEX uniq_work_item_relation ON work_item_relations(from_work_item_id,to_work_item_id,relation_type);
 CREATE TABLE work_item_corroborations (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, session_id TEXT, evidence_ref TEXT NOT NULL, stance TEXT NOT NULL DEFAULT 'corroborates', body TEXT NOT NULL, occurred_at TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE UNIQUE INDEX uniq_work_item_corroboration_principal ON work_item_corroborations(org_id,work_item_id,principal_type,principal_id);
-CREATE TABLE work_item_projections (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, provider TEXT NOT NULL, direction TEXT NOT NULL DEFAULT 'projection', status TEXT NOT NULL DEFAULT 'pending', external_id TEXT, external_url TEXT, external_project_id TEXT, external_section_id TEXT, last_synced_at TEXT, last_error TEXT, sync_cursor TEXT, provider_state TEXT DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT);
 CREATE TABLE work_attempts (id TEXT PRIMARY KEY, admission_id TEXT, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, executor_type TEXT NOT NULL, executor_id TEXT NOT NULL, executor_session_id TEXT, external_session_key TEXT, run_id TEXT, runtime_state TEXT NOT NULL, outcome TEXT, attempt_number INTEGER NOT NULL, started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL, expires_at TEXT, finished_at TEXT, summary TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE work_evidence (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, attempt_id TEXT, claim_key TEXT NOT NULL, kind TEXT NOT NULL, uri TEXT NOT NULL, digest TEXT, media_type TEXT, label TEXT, submitted_by_type TEXT NOT NULL, submitted_by_id TEXT NOT NULL, submitted_by_session_id TEXT, disposition TEXT NOT NULL DEFAULT 'pending', reviewed_by_type TEXT, reviewed_by_id TEXT, reviewed_by_session_id TEXT, review_reason TEXT, submitted_at TEXT NOT NULL, reviewed_at TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE work_events (project_id TEXT, objective_id TEXT, sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL);
@@ -481,7 +480,6 @@ describe("Work Item router canonical specification reads and writes", () => {
 		expect(read.epics).toEqual([]);
 		expect(read.evidence).toEqual([]);
 		expect(read.evidenceNextCursor).toBeNull();
-		expect(read.projections).toEqual([]);
 	});
 	it("returns Work Items without the generated index columns", async () => {
 		// MCP checks a tool result against the contract's output schema with no
@@ -699,50 +697,6 @@ describe("Work Item router canonical specification reads and writes", () => {
 		expect(
 			new Set([...first.data, ...second.data].map((item) => item.id)).size,
 		).toBe(ancient);
-	});
-	it("pages projections in SQL past the old offset+limit prefetch", async () => {
-		// The read used to fetch `offset + limit` rows and slice the page out of
-		// them, so a deep page's cost grew linearly with its offset. 260 rows share
-		// one created_at, so ordering rests entirely on the id tie-break.
-		const SCALE = 260;
-		const itemId = "55555555-5555-4555-8555-555555555555";
-		seed({ id: itemId, title: "Projected" });
-		const insert = sqlite.prepare(
-			"INSERT INTO work_item_projections (id,work_item_id,org_id,provider,created_at) VALUES (?,?,?,'github','2026-08-20T00:00:00.000Z')",
-		);
-		for (let index = 0; index < SCALE; index += 1) {
-			insert.run(`proj-${index.toString().padStart(5, "0")}`, itemId, ORG_ID);
-		}
-
-		const deep = await client().listProjections({ limit: 10, offset: 250 });
-		expect(deep.pagination).toEqual({
-			limit: 10,
-			offset: 250,
-			total: SCALE,
-			hasMore: false,
-		});
-		expect(deep.data.map((row) => row.id)).toEqual([
-			"proj-00009",
-			"proj-00008",
-			"proj-00007",
-			"proj-00006",
-			"proj-00005",
-			"proj-00004",
-			"proj-00003",
-			"proj-00002",
-			"proj-00001",
-			"proj-00000",
-		]);
-
-		// Offset pages are disjoint and exhaustive, never repeating a row.
-		const seen: string[] = [];
-		for (let offset = 0; offset < SCALE; offset += 100) {
-			const page = await client().listProjections({ limit: 100, offset });
-			seen.push(...page.data.map((row) => row.id));
-			expect(page.pagination.hasMore).toBe(offset + page.data.length < SCALE);
-		}
-		expect(seen).toHaveLength(SCALE);
-		expect(new Set(seen).size).toBe(SCALE);
 	});
 	it("updates specification fields without changing disposition", async () => {
 		const created = await client().create({ ...PURPOSE, title: "Draft" });

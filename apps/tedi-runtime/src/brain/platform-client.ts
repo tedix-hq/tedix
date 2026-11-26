@@ -126,19 +126,6 @@ export interface WorkApprovalDecisionForContext {
 	decision: Record<string, unknown>;
 }
 
-export interface WorkItemProjectionForContext {
-	id: string;
-	workItemId: string;
-	provider: string;
-	status: "pending" | "synced" | "failed" | "stale";
-	externalId?: string | null;
-	externalUrl?: string | null;
-	externalProjectId?: string | null;
-	externalSectionId?: string | null;
-	lastSyncedAt?: string | null;
-	lastError?: string | null;
-}
-
 export interface SkillSearchEntry {
 	id: string;
 	title: string;
@@ -435,13 +422,7 @@ export interface PlatformClient {
 		kind?: string;
 		origin?: string;
 	}): Promise<{ entry?: { id?: string } }>;
-	createTask(params: { title: string; kind?: string }): Promise<{ id: string }>;
-	updateTask(params: {
-		taskId: string;
-		title?: string;
-		status?: string;
-		result?: string;
-	}): Promise<unknown>;
+
 	createWorkItem(params: {
 		title: string;
 		description?: string;
@@ -585,18 +566,7 @@ export interface PlatformClient {
 		runId: string;
 		linkedWorkItemId: string;
 	}): Promise<WorkItemForContext>;
-	upsertWorkItemProjection(params: {
-		workItemId: string;
-		provider: string;
-		status: "pending" | "synced" | "failed" | "stale";
-		externalId?: string;
-		externalUrl?: string;
-		externalProjectId?: string;
-		externalSectionId?: string;
-		lastSyncedAt?: string;
-		lastError?: string | null;
-		providerState?: Record<string, unknown>;
-	}): Promise<WorkItemProjectionForContext>;
+
 	recordRuntimeEvent(event: TediRuntimeEvent): Promise<unknown>;
 	recordArtifact(input: RecordArtifactInput): Promise<unknown>;
 	getArtifact(params: {
@@ -1021,20 +991,6 @@ export class HttpPlatformClient implements PlatformClient {
 		return { successes, failures };
 	}
 
-	async createTask(params: {
-		title: string;
-		kind?: string;
-	}): Promise<{ id: string }> {
-		if (!this.organizationId)
-			throw new Error("organizationId required for createTask");
-		return this.rpc("tediObjectives", "createTask", {
-			tediId: this.tediId,
-			orgId: this.organizationId,
-			title: params.title,
-			kind: params.kind || "general",
-		});
-	}
-
 	async createWorkItem(params: {
 		title: string;
 		description?: string;
@@ -1367,46 +1323,6 @@ export class HttpPlatformClient implements PlatformClient {
 		linkedWorkItemId: string;
 	}): Promise<WorkItemForContext> {
 		return this.rpc("workItems", "closeoutDelegated", params);
-	}
-
-	async upsertWorkItemProjection(params: {
-		workItemId: string;
-		provider: string;
-		status: "pending" | "synced" | "failed" | "stale";
-		externalId?: string;
-		externalUrl?: string;
-		externalProjectId?: string;
-		externalSectionId?: string;
-		lastSyncedAt?: string;
-		lastError?: string | null;
-		providerState?: Record<string, unknown>;
-	}): Promise<WorkItemProjectionForContext> {
-		return this.rpc("workItems", "upsertProjection", {
-			id: params.workItemId,
-			provider: params.provider,
-			direction: "projection",
-			status: params.status,
-			externalId: params.externalId,
-			externalUrl: params.externalUrl,
-			externalProjectId: params.externalProjectId,
-			externalSectionId: params.externalSectionId,
-			lastSyncedAt: params.lastSyncedAt,
-			lastError: params.lastError,
-			providerState: params.providerState,
-		});
-	}
-
-	async updateTask(params: {
-		taskId: string;
-		title?: string;
-		status?: string;
-		result?: string;
-	}): Promise<unknown> {
-		return this.rpc("tediObjectives", "updateTask", {
-			id: params.taskId,
-			status: params.status,
-			result: params.result,
-		});
 	}
 
 	async muscleRegister(params: {

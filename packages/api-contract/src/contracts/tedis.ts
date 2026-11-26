@@ -114,13 +114,6 @@ export const EmbeddedConversationCapabilityTargetSchema =
 		conversationId: z.string().regex(/^embed:[A-Za-z0-9_-]{32}$/),
 	});
 
-const TediOperationsTaskSchema = z.object({
-	id: z.string(),
-	title: z.string(),
-	status: z.string(),
-	blocker: z.string().nullable(),
-});
-
 const TediOperationsObjectiveSchema = z.object({
 	id: z.string(),
 	status: z.string(),
@@ -171,7 +164,6 @@ export const TediOperationsSummarySchema = z.object({
 	tediId: z.string(),
 	delegationProfile: DelegationProfileSchema,
 	pulse: TediOperationsPulseSchema,
-	activeTasks: z.array(TediOperationsTaskSchema),
 	objectives: z.array(TediOperationsObjectiveSchema),
 	growthMetrics: GrowthSnapshotMetricsSchema.nullable(),
 	crons: z.array(CronExecutionSchema),

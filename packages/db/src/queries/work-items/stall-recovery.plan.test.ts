@@ -9,7 +9,6 @@ import {
 	osGadgetExecutions,
 	osWorkspaceProjects,
 } from "../../schema/os-workspaces";
-import { tediTasks } from "../../schema/tedi-objectives";
 import {
 	CONTINUITY_SCOPE_BATCH_SIZE,
 	CONTINUITY_SCOPES_PER_STATEMENT,
@@ -233,12 +232,7 @@ function fixture(productionLikeStatistics: boolean) {
 	// (p-15 and p-16, then p-21), so it is not a scope of its own.
 	sqlite.exec(
 		`INSERT INTO tedi_objectives(id,org_id,tedi_id,title,created_at) VALUES ('o-shared','${ORG}','river','Shared objective','${CREATED}');
-		 UPDATE projects SET objective_id = 'o-shared' WHERE org_id = '${ORG}' AND id IN ('p-15','p-16','p-21');
-		 INSERT INTO tedi_tasks(id,org_id,tedi_id,objective_id,title,created_at,updated_at) VALUES
-			('t-1','${ORG}','river','o-shared','Example','2026-11-01T00:00:00.000Z','2026-11-17T09:00:00.000Z'),
-			('t-2','${ORG}','river','o-shared','Example','2026-11-02T00:00:00.000Z',NULL),
-			('t-3','${ORG}','river','o-small','Example','2026-11-18T10:00:00.000Z',NULL),
-			('t-4','${OTHER_ORG}','river','o-shared','Example','2026-12-24T00:00:00.000Z',NULL);`,
+		 UPDATE projects SET objective_id = 'o-shared' WHERE org_id = '${ORG}' AND id IN ('p-15','p-16','p-21');`,
 	);
 	// Shapes of the size the main database had in November 2026: tens of
 	// thousands of Work Items and Attempts, a few hundred scopes.
@@ -294,7 +288,7 @@ function fixture(productionLikeStatistics: boolean) {
 	return { sqlite, db, statements, bound };
 }
 
-/** The statement that reads sessions, gadget executions and tedi tasks. */
+/** The statement that reads sessions and gadget executions. */
 const isHistory = (query: string) => query.includes("os_gadget_executions");
 
 function explain(sqlite: DatabaseSync, query: string) {
@@ -332,15 +326,8 @@ function expected(sqlite: DatabaseSync, scope: ContinuityScope) {
 		 JOIN os_gadget_executions g ON g.organization_id = p.organization_id AND g.workspace_id = p.workspace_id
 		 WHERE p.organization_id = ? AND p.project_id = ? AND p.status = 'active' AND g.runtime_environment = 'production' AND 'project' = '${scope.kind}'`,
 	);
-	const { tasks } = one(
-		`SELECT max(coalesce(k.updated_at, k.created_at)) AS tasks FROM tedi_tasks k WHERE k.org_id = ?1 AND k.objective_id = ${
-			scope.kind === "project"
-				? "(SELECT objective_id FROM projects WHERE org_id = ?1 AND id = ?2)"
-				: "?2"
-		}`,
-	);
 	// Every fixture timestamp is the same ISO text shape, so text order is time order.
-	const lastActivityAt = [CREATED, attempts, runs, sessions, gadgets, tasks]
+	const lastActivityAt = [CREATED, attempts, runs, sessions, gadgets]
 		.filter((value): value is string => typeof value === "string")
 		.sort()
 		.at(-1);
@@ -357,10 +344,7 @@ function expected(sqlite: DatabaseSync, scope: ContinuityScope) {
  */
 function latestByTime(sqlite: DatabaseSync, scope: ContinuityScope) {
 	const column = scope.kind === "project" ? "project_id" : "objective_id";
-	const objective =
-		scope.kind === "project"
-			? "(SELECT objective_id FROM projects WHERE org_id = ?1 AND id = ?2)"
-			: "?2";
+
 	const { latest } = sqlite
 		.prepare(
 			`SELECT strftime('%Y-%m-%dT%H:%M:%fZ', max(julianday(at))) AS latest FROM (
@@ -372,8 +356,7 @@ function latestByTime(sqlite: DatabaseSync, scope: ContinuityScope) {
 			 UNION ALL SELECT last_event_at FROM work_agent_sessions WHERE organization_id = ?1 AND project_id = ?2 AND 'project' = '${scope.kind}'
 			 UNION ALL SELECT coalesce(g.completed_at, g.created_at) FROM os_workspace_projects p
 				JOIN os_gadget_executions g ON g.organization_id = p.organization_id AND g.workspace_id = p.workspace_id
-				WHERE p.organization_id = ?1 AND p.project_id = ?2 AND p.status = 'active' AND g.runtime_environment = 'production' AND 'project' = '${scope.kind}'
-			 UNION ALL SELECT coalesce(k.updated_at, k.created_at) FROM tedi_tasks k WHERE k.org_id = ?1 AND k.objective_id = ${objective})`,
+				WHERE p.organization_id = ?1 AND p.project_id = ?2 AND p.status = 'active' AND g.runtime_environment = 'production' AND 'project' = '${scope.kind}')`,
 		)
 		.get(scope.orgId, scope.id, CREATED) as { latest: string };
 	return latest;
@@ -441,9 +424,7 @@ describe.each([
 			failedCount: 0,
 			lastActivityAt: CREATED,
 		});
-		// Gadget executions reach every project linked to the workspace, and
-		// tedi tasks every project of the objective, in whichever statement of
-		// the page the project sits.
+		// Gadget executions reach every project linked to the workspace.
 		for (const key of ["project:p-07", "project:p-09", "project:p-20"])
 			expect(byKey.get(key)!.lastActivityAt, key).toBe(
 				"2026-11-14T12:00:00.000Z",
@@ -453,11 +434,9 @@ describe.each([
 		);
 		expect(byKey.get("project:p-13")!.lastActivityAt).toBe(CREATED);
 		for (const key of ["project:p-15", "project:p-16", "project:p-21"])
-			expect(byKey.get(key)!.lastActivityAt, key).toBe(
-				"2026-11-17T09:00:00.000Z",
-			);
+			expect(byKey.get(key)!.lastActivityAt, key).toBe(CREATED);
 		expect(byKey.get("objective:o-small")!.lastActivityAt).toBe(
-			"2026-11-18T10:00:00.000Z",
+			"2026-10-01T05:00:00.000Z",
 		);
 		// 25 scopes in three statements of at most 10, then one statement per
 		// further slice: p-03 three, p-04 two (the second finds nothing left),
@@ -529,8 +508,6 @@ describe.each([
 			"USING COVERING INDEX idx_work_agent_sessions_org_project_last_event (organization_id=? AND project_id=?";
 		const executions =
 			"USING COVERING INDEX idx_os_gadget_executions_org_workspace_environment_latest (organization_id=? AND workspace_id=? AND runtime_environment=?";
-		const tasks =
-			"USING COVERING INDEX idx_tasks_org_objective_latest (org_id=? AND objective_id=?";
 		expect(
 			history.filter((line) => /^SEARCH (?:l|g|o|k|n)(?:_top)? /.test(line)),
 		).toEqual(
@@ -538,8 +515,6 @@ describe.each([
 				["l", sessions, "last_event_at", ""],
 				["g", executions, "completed_at", ""],
 				["o", executions, "created_at", " AND completed_at=?"],
-				["k", tasks, "updated_at", ""],
-				["n", tasks, "created_at", " AND updated_at=?"],
 			].flatMap(([name, index, column, extra]) =>
 				Array.from({ length: 2 }, () => [
 					`SEARCH ${name} ${index}${extra} AND ${column}>? AND ${column}<?)`,
@@ -559,7 +534,7 @@ describe.each([
 		);
 	});
 
-	it("reads a shared workspace and a shared objective once per page", async () => {
+	it("reads a shared workspace once per page", async () => {
 		const { sqlite, db, statements, bound } = fixture(productionLike);
 		await listAll(db, ORG);
 		const shared: string[] = [];
@@ -587,16 +562,8 @@ describe.each([
 			"project:p-12 ws-shared",
 			"project:p-20 ws-shared",
 		]);
-		// ...but the executions of ws-shared and the tasks of o-shared are
-		// aggregated by the first statement that meets them and by no later one.
-		// o-big has no tasks; it is read once and returns a row with no activity.
-		expect(shared.sort()).toEqual([
-			"objective o-big",
-			"objective o-shared",
-			"objective o-small",
-			"workspace ws-own",
-			"workspace ws-shared",
-		]);
+		// Each workspace is aggregated by the first statement that meets it.
+		expect(shared.sort()).toEqual(["workspace ws-own", "workspace ws-shared"]);
 	});
 });
 
@@ -643,12 +610,7 @@ describe("continuity inventory results", () => {
 		try {
 			sqlite.exec("PRAGMA foreign_keys = OFF");
 			sqlite.exec(
-				schemaDdl(
-					workAgentSessions,
-					osWorkspaceProjects,
-					osGadgetExecutions,
-					tediTasks,
-				),
+				schemaDdl(workAgentSessions, osWorkspaceProjects, osGadgetExecutions),
 			);
 			sqlite.exec(`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<203000)
 				INSERT INTO work_agent_sessions(id,organization_id,user_id,harness,session_key,project_id,state,state_since,created_at,updated_at,last_event_at)
@@ -721,13 +683,7 @@ describe("continuity inventory results", () => {
 				('e-open-old','${ORG}','ws-own','gadget-example','running','[]','{}','user','ada','production','2026-11-15T06:00:00.000Z',NULL),
 				('e-done-sql','${ORG}','ws-shared','gadget-example','completed','[]','{}','user','ada','production','2026-11-14 01:00:00','2026-11-14 12:30:00'),
 				('e-started-late','${ORG}','ws-shared','gadget-example','completed','[]','{}','user','ada','production','2026-12-20T00:00:00.000Z','2026-11-13T00:00:00.000Z'),
-				('e-no-environment','${ORG}','ws-shared','gadget-example','completed','[]','{}','user','ada',NULL,'2026-12-21T00:00:00.000Z',NULL);
-			 INSERT INTO tedi_tasks(id,org_id,tedi_id,objective_id,title,created_at,updated_at) VALUES
-				('t-sql','${ORG}','river','o-shared','Example','2026-11-01 00:00:00','2026-11-17 09:30:00'),
-				('t-new','${ORG}','river','o-small','Example','2026-11-18 10:30:00',NULL),
-				('t-created-late','${ORG}','river','o-small','Example','2026-12-19T00:00:00.000Z','2026-11-03T00:00:00.000Z'),
-				('t-only','${ORG}','river','o-big','Example','2026-11-19 00:00:00',NULL),
-				('t-ad-hoc','${ORG}','river',NULL,'Example','2026-12-22T00:00:00.000Z',NULL);`,
+				('e-no-environment','${ORG}','ws-shared','gadget-example','completed','[]','{}','user','ada',NULL,'2026-12-21T00:00:00.000Z',NULL);`,
 		);
 		const scopes = await listAll(db, ORG);
 		expect(scopes).toHaveLength(25);
@@ -750,14 +706,12 @@ describe("continuity inventory results", () => {
 		expect(byKey.get("project:p-07")!.lastActivityAt).toBe(
 			"2026-11-14T12:30:00.000Z",
 		);
-		expect(byKey.get("project:p-15")!.lastActivityAt).toBe(
-			"2026-11-17T09:30:00.000Z",
-		);
+		expect(byKey.get("project:p-15")!.lastActivityAt).toBe(CREATED);
 		expect(byKey.get("objective:o-small")!.lastActivityAt).toBe(
-			"2026-11-18T10:30:00.000Z",
+			"2026-10-01T05:00:00.000Z",
 		);
 		expect(byKey.get("objective:o-big")!.lastActivityAt).toBe(
-			"2026-11-19T00:00:00.000Z",
+			"2026-11-12T10:00:00.000Z",
 		);
 	});
 });

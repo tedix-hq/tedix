@@ -11,7 +11,6 @@ import {
 } from "../os-workspaces/executions";
 import { hasLiveGadgetStateFence } from "../os-workspaces/gadget-state";
 import { listProjectPortfolio } from "../projects";
-import { getActiveTasks, listTasks } from "../tedi-objectives";
 import {
 	getWorkAgentSession,
 	listTediLaneSources,
@@ -25,25 +24,24 @@ import { readWorkMapSnapshot } from "./map";
 import { listContinuityScopes } from "./stall-recovery";
 
 /**
- * The three indexes the stalled-work inventory reads its latest activity from
+ * The two indexes the stalled-work inventory reads its latest activity from
  * are partial on a condition that is true for every row, so SQLite offers them
  * only to a statement that states that condition, and only the inventory does.
  * This file runs the other statements on those tables and compares each plan
- * with the plan it has in a database without the three indexes.
+ * with the plan it has in a database without the two indexes.
  */
 const NEW_INDEXES = [
 	"idx_work_agent_sessions_org_project_last_event",
 	"idx_os_gadget_executions_org_workspace_environment_latest",
-	"idx_tasks_org_objective_latest",
 ];
-const TABLES = /work_agent_sessions|os_gadget_executions|tedi_tasks/;
+const TABLES = /work_agent_sessions|os_gadget_executions/;
 const ORG = "fictional-orchard";
 const NOW = "2026-11-17T12:00:00.000Z";
 const SINCE = "2026-11-10T12:00:00.000Z";
 
 /**
  * Shapes of the size the main database had in November 2026: tens of
- * thousands of sessions and executions, fewer tasks. A new index has no
+ * thousands of sessions and executions. A new index has no
  * statistics row until the database is analyzed again, so none is given one.
  */
 const PRODUCTION_LIKE_STATISTICS = `ANALYZE;
@@ -58,8 +56,6 @@ const PRODUCTION_LIKE_STATISTICS = `ANALYZE;
 		('os_gadget_executions','os_gadget_executions_org_workspace_environment_idx','20000 400 60 60'),
 		('os_gadget_executions','os_gadget_executions_org_idx','20000 400'),
 		('os_gadget_executions','os_gadget_executions_gadget_idx','20000 40 1'),
-		('tedi_tasks','idx_tasks_objective','5000 25'),
-		('tedi_tasks','idx_tasks_tedi_status','5000 50 10'),
 		('work_items','uniq_work_items_org_id','50000 500 1'),
 		('work_items','idx_work_items_project','50000 400'),
 		('work_attempts','uniq_work_attempt_number','80000 800 2 1'),
@@ -81,7 +77,7 @@ function explain(sqlite: DatabaseSync, query: string) {
 		.map((row) => String(row.detail));
 }
 
-/** Every statement the other readers and writers of the three tables run. */
+/** Every statement the other readers and writers of the two tables run. */
 async function otherStatements() {
 	const statements: string[] = [];
 	const sqlite = createMigratedSqlite({ foreignKeys: false });
@@ -159,12 +155,6 @@ async function otherStatements() {
 	});
 	await listCommitmentChanges(db, SINCE, NOW, "production");
 
-	await listTasks(db, { orgId: ORG });
-	await listTasks(db, { orgId: ORG, objectiveId: "o-1" });
-	await listTasks(db, { objectiveId: "o-1", status: "pending" });
-	await listTasks(db, { tediId: "river", objectiveId: "o-1" });
-	await getActiveTasks(db, "river");
-
 	// The inventory's own history statement is the one meant to change.
 	await listContinuityScopes(db, "", ORG);
 	const history = statements.filter((query) => query.includes('"l_top"'));
@@ -185,16 +175,12 @@ describe.each([
 	{ statistics: "no statistics", productionLike: false },
 	{ statistics: "production-like statistics", productionLike: true },
 ])("stalled-work history indexes with $statistics", ({ productionLike }) => {
-	it("leave every other statement on the three tables on its plan", async () => {
+	it("leave every other statement on the two tables on its plan", async () => {
 		const { history, others } = await otherStatements();
 		expect(history).toHaveLength(1);
-		// Sessions, executions and tasks are each read and written here.
+		// Sessions and executions are each read and written here.
 		expect(others.length).toBeGreaterThanOrEqual(20);
-		for (const table of [
-			"work_agent_sessions",
-			"os_gadget_executions",
-			"tedi_tasks",
-		])
+		for (const table of ["work_agent_sessions", "os_gadget_executions"])
 			expect(
 				others.filter((query) => query.includes(table)).length,
 				table,
@@ -221,10 +207,7 @@ describe.each([
 				('lane-unbound','${ORG}','ada','codex','unbound',NULL,'working','${NOW}','');
 			 INSERT INTO os_gadget_executions(id,organization_id,workspace_id,gadget_id,status,granted_capabilities,policy_decision,created_by_kind,created_by_id,runtime_environment,completed_at) VALUES
 				('e-default','${ORG}','ws-1','g-1','running','[]','{}','user','ada','production',NULL),
-				('e-no-environment','${ORG}','ws-1','g-1','completed','[]','{}','user','ada',NULL,'${NOW}');
-			 INSERT INTO tedi_tasks(id,org_id,tedi_id,objective_id,title,created_at,updated_at) VALUES
-				('t-objective','${ORG}','river','o-1','Example','${NOW}',NULL),
-				('t-ad-hoc','${ORG}','river',NULL,'Example','','${NOW}');`,
+				('e-no-environment','${ORG}','ws-1','g-1','completed','[]','{}','user','ada',NULL,'${NOW}');`,
 		);
 		for (const [table, index, condition, scope] of [
 			[
@@ -238,12 +221,6 @@ describe.each([
 				"idx_os_gadget_executions_org_workspace_environment_latest",
 				"+created_at >= ''",
 				"organization_id = ? AND workspace_id = ? AND runtime_environment = ?",
-			],
-			[
-				"tedi_tasks",
-				"idx_tasks_org_objective_latest",
-				"+created_at >= ''",
-				"org_id = ? AND objective_id = ?",
 			],
 		] as const) {
 			const count = (query: string) =>

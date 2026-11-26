@@ -855,7 +855,7 @@ describe("Work factory cursor navigation", () => {
 			workInteractionsQueryOptions(stable, "audit").queryKey,
 			workResourcePoolsQueryOptions(stable.id).queryKey,
 			workBudgetEnvelopesQueryOptions(stable.id).queryKey,
-			workCaseDetailQueryOptions(stable.id, stable.id, stable.id).queryKey,
+			workCaseDetailQueryOptions(stable.id, stable.id).queryKey,
 			workItemAttemptsQueryOptions(stable.id, stable).queryKey,
 			workItemEvidenceQueryOptions(stable.id, stable).queryKey,
 		];

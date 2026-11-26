@@ -100,7 +100,6 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
 	add_comment: "workItems/addComment",
-	add_work_case_dependency: "workItems/addCaseDependency",
 	attach_work_case_item: "workItems/attachCaseWorkItem",
 	authorize_owned_channel: "workItems/authorizeOwnedChannel",
 	authorize_personal_cli_release: "workItems/authorizePersonalCliRelease",

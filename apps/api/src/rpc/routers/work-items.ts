@@ -27,14 +27,12 @@ import {
 	getWorkGraphHealthRoute,
 	listActivityRoute,
 	attachWorkItemSourceRoute,
-	listProjectionsRoute,
 	listWorkItemSourcesRoute,
 	reconcileWorkItemSourcesRoute,
 	listCorroborationsProcedure,
 	listRelationsRoute,
 	listRoute,
 	runWorkGraphStewardRoute,
-	upsertProjectionProcedure,
 } from "./work-items/coordination-git";
 import { createProcedure } from "./work-items/creation-reads";
 import { addCommentProcedure } from "./work-items/lifecycle-marketing";
@@ -87,7 +85,6 @@ import {
 	listRecoveryProjectionProcedure,
 } from "./work-items/factory-projections";
 import {
-	addCaseDependencyProcedure,
 	attachCaseWorkItemProcedure,
 	detachCaseWorkItemProcedure,
 	createCaseProcedure,
@@ -134,7 +131,7 @@ export const workItemsContractRouter = workItemsOs.router({
 	moveCase: moveCaseProcedure,
 	attachCaseWorkItem: attachCaseWorkItemProcedure,
 	detachCaseWorkItem: detachCaseWorkItemProcedure,
-	addCaseDependency: addCaseDependencyProcedure,
+
 	getById: getByIdRoute,
 	getMany: getManyProcedure,
 	getWorkGraphHealth: getWorkGraphHealthRoute,
@@ -146,7 +143,7 @@ export const workItemsContractRouter = workItemsOs.router({
 	listAttemptProjection: listAttemptProjectionProcedure,
 	listRecoveryProjection: listRecoveryProjectionProcedure,
 	attachWorkItemSource: attachWorkItemSourceRoute,
-	listProjections: listProjectionsRoute,
+
 	listWorkItemSources: listWorkItemSourcesRoute,
 	reconcileWorkItemSources: reconcileWorkItemSourcesRoute,
 	updateSpecification: updateSpecificationProcedure,
@@ -198,5 +195,4 @@ export const workItemsContractRouter = workItemsOs.router({
 	previewEvidence: previewEvidenceProcedure,
 	listEvents: listEventsProcedure,
 	wait: waitProcedure,
-	upsertProjection: upsertProjectionProcedure,
 });

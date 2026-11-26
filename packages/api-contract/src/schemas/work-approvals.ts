@@ -1,10 +1,5 @@
 import * as z from "zod";
-import {
-	AgentRequestActionSchema,
-	AgentRequestExecutionSchema,
-	AgentRequestProposalSchema,
-	agentRequestAction,
-} from "./agent-requests";
+
 import { BoundedJsonObjectSchema } from "./bounded-json";
 import { ServedObjectiveSchema } from "./organization-purpose";
 import {
@@ -40,7 +35,7 @@ export const WorkApprovalProposalSchema = z.strictObject({
 		.max(100)
 		.regex(/^[a-z][a-z0-9_.]*$/),
 	proposal: BoundedJsonObjectSchema,
-	execution: AgentRequestExecutionSchema.nullable().optional(),
+
 	authorityKey: z
 		.string()
 		.trim()
@@ -98,41 +93,20 @@ export const WorkApprovalInboxRowSchema = z.strictObject({
 	),
 });
 
-export const CreateWorkApprovalProposalInputSchema = z
-	.strictObject({
-		workItemId: z.uuid(),
-		workItemVersion: z.number().int().positive(),
-		action: z
-			.enum(["admission", "acceptance", ...AgentRequestActionSchema.options])
-			.default("admission"),
-		acceptanceContract: WorkItemAcceptanceContractSchema.extend({
-			doneLooksLike: z.string().trim().min(1).max(2_000),
-		}).optional(),
-		proposal: WorkApprovalProposalSchema.shape.proposal,
-		authorityKey: WorkApprovalProposalSchema.shape.authorityKey,
-		approverType: WorkApprovalProposalSchema.shape.approverType,
-		approverId: WorkApprovalProposalSchema.shape.approverId,
-		requestRationale: WorkApprovalProposalSchema.shape.requestRationale,
-		expiresAt: z.iso.datetime(),
-	})
-	.superRefine((input, context) => {
-		if (!AgentRequestActionSchema.safeParse(input.action).success) return;
-		const parsed = AgentRequestProposalSchema.safeParse(input.proposal);
-		if (
-			!parsed.success ||
-			agentRequestAction(parsed.data) !== input.action ||
-			input.authorityKey !== input.action ||
-			input.approverType !== "user" ||
-			input.acceptanceContract
-		) {
-			context.addIssue({
-				code: "custom",
-				message:
-					"Agent requests require a matching typed proposal and authority, a user approver and no acceptance contract",
-				path: ["proposal"],
-			});
-		}
-	});
+export const CreateWorkApprovalProposalInputSchema = z.strictObject({
+	workItemId: z.uuid(),
+	workItemVersion: z.number().int().positive(),
+	action: z.enum(["admission", "acceptance"]).default("admission"),
+	acceptanceContract: WorkItemAcceptanceContractSchema.extend({
+		doneLooksLike: z.string().trim().min(1).max(2_000),
+	}).optional(),
+	proposal: WorkApprovalProposalSchema.shape.proposal,
+	authorityKey: WorkApprovalProposalSchema.shape.authorityKey,
+	approverType: WorkApprovalProposalSchema.shape.approverType,
+	approverId: WorkApprovalProposalSchema.shape.approverId,
+	requestRationale: WorkApprovalProposalSchema.shape.requestRationale,
+	expiresAt: z.iso.datetime(),
+});
 
 export const DecideWorkApprovalProposalInputSchema = z.strictObject({
 	proposalId: z.uuid(),

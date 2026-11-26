@@ -8,62 +8,8 @@ import type { DbClient } from "@tedix/db/client";
 import { countRationaleRunToolEvents } from "@tedix/db/queries/rationale-records";
 import {
 	getObjectiveById,
-	listTasks,
 	updateObjective,
-	updateTask,
 } from "@tedix/db/queries/tedi-objectives";
-import type { ObjectiveStatus } from "@tedix/db/schema/tedi-objectives";
-
-/**
- * Cascade-complete child tasks when a parent objective is completed or failed.
- * - Objective completed → pending/in_progress tasks become "completed"
- * - Objective failed → pending/in_progress tasks become "abandoned"
- */
-export async function cascadeCompleteChildTasks(
-	db: DbClient,
-	objectiveId: string,
-	objectiveStatus: Extract<ObjectiveStatus, "completed" | "failed">,
-): Promise<number> {
-	const now = new Date().toISOString();
-	const targetTaskStatus =
-		objectiveStatus === "completed" ? "completed" : "abandoned";
-	const resultMessage =
-		objectiveStatus === "completed"
-			? "Auto-completed: parent objective completed"
-			: "Auto-abandoned: parent objective failed";
-
-	let closed = 0;
-	let offset = 0;
-	const PAGE = 200;
-
-	for (;;) {
-		const { data: tasks } = await listTasks(db, {
-			objectiveId,
-			limit: PAGE,
-			offset,
-		});
-
-		const toClose = tasks.filter(
-			(t) => t.status === "pending" || t.status === "in_progress",
-		);
-
-		for (const task of toClose) {
-			await updateTask(db, task.id, {
-				status: targetTaskStatus,
-				result: resultMessage,
-				updatedAt: now,
-				completedAt: now,
-			});
-		}
-
-		closed += toClose.length;
-
-		if (tasks.length < PAGE) break;
-		offset += PAGE;
-	}
-
-	return closed;
-}
 
 // =============================================================================
 // Gate Graduation — Autonomy promotion logic

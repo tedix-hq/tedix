@@ -52,15 +52,11 @@ import {
 	type WorkItemClass,
 	type WorkItemKind,
 	type WorkItemPriority,
-	type WorkItemProjection,
-	type WorkItemProjectionDirection,
-	type WorkItemProjectionStatus,
 	type WorkItemRiskLevel,
 	workAttempts,
 	workEvents,
 	workItemComments,
 	workItemOrgCounts,
-	workItemProjections,
 	workItemRelations,
 	workItems,
 	workItemStoredColumns,
@@ -747,159 +743,6 @@ export async function getGoalLoopWorkItemSnapshot(
 			row.outstandingId ? [row.outstandingId] : [],
 		),
 	};
-}
-
-export interface UpsertWorkItemProjectionParams {
-	id: string;
-	workItemId: string;
-	orgId: string;
-	provider: string;
-	direction?: WorkItemProjectionDirection;
-	status?: WorkItemProjectionStatus;
-	externalId?: string | null;
-	externalUrl?: string | null;
-	externalProjectId?: string | null;
-	externalSectionId?: string | null;
-	lastSyncedAt?: string | null;
-	lastError?: string | null;
-	syncCursor?: string | null;
-	providerState?: Record<string, JsonValue>;
-	createdAt: string;
-	updatedAt?: string | null;
-}
-
-export async function upsertWorkItemProjection(
-	db: DbQueryClient,
-	params: UpsertWorkItemProjectionParams,
-): Promise<WorkItemProjection> {
-	const storeWorkItemProjections = coreTable(db, workItemProjections);
-	return (
-		await db
-			.insert(storeWorkItemProjections)
-			.values({
-				...params,
-				direction: params.direction ?? "projection",
-				status: params.status ?? "pending",
-			})
-			.onConflictDoUpdate({
-				target: [
-					storeWorkItemProjections.workItemId,
-					storeWorkItemProjections.provider,
-				],
-				set: {
-					direction: params.direction,
-					status: params.status,
-					externalId: params.externalId,
-					externalUrl: params.externalUrl,
-					externalProjectId: params.externalProjectId,
-					externalSectionId: params.externalSectionId,
-					lastSyncedAt: params.lastSyncedAt,
-					lastError: params.lastError,
-					syncCursor: params.syncCursor,
-					providerState: params.providerState,
-					updatedAt: params.updatedAt,
-				},
-			})
-			.returning()
-	)[0]!;
-}
-
-export async function listWorkItemProjections(
-	db: DbQueryClient,
-	workItemId: string,
-): Promise<WorkItemProjection[]> {
-	const storeWorkItemProjections = coreTable(db, workItemProjections);
-	return db
-		.select()
-		.from(storeWorkItemProjections)
-		.where(eq(storeWorkItemProjections.workItemId, workItemId));
-}
-
-export interface OrgProjectionRow {
-	id: string;
-	workItemId: string;
-	workItemTitle: string;
-	workItemStatus: WorkItem["disposition"];
-	projectId: string | null;
-	provider: string;
-	direction: WorkItemProjectionDirection;
-	syncStatus: WorkItemProjectionStatus;
-	externalId: string | null;
-	externalUrl: string | null;
-	lastSyncedAt: string | null;
-	lastError: string | null;
-	createdAt: string;
-}
-
-export async function listOrgWorkItemProjections(
-	db: DbQueryClient,
-	params: {
-		orgId: string;
-		provider?: string;
-		projectId?: string;
-		limit?: number;
-		offset?: number;
-	},
-): Promise<{ data: OrgProjectionRow[]; total: number }> {
-	const storeWorkItems = coreTable(db, workItems);
-	const storeWorkItemProjections = coreTable(db, workItemProjections);
-	const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
-	const offset = Math.max(params.offset ?? 0, 0);
-	const where = and(
-		eq(storeWorkItemProjections.orgId, params.orgId),
-		params.provider
-			? eq(storeWorkItemProjections.provider, params.provider)
-			: undefined,
-		params.projectId
-			? eq(storeWorkItems.projectId, params.projectId)
-			: undefined,
-	);
-	const rows = await db
-		.select({
-			id: storeWorkItemProjections.id,
-			workItemId: storeWorkItemProjections.workItemId,
-			workItemTitle: storeWorkItems.title,
-			workItemStatus: storeWorkItems.disposition,
-			projectId: storeWorkItems.projectId,
-			provider: storeWorkItemProjections.provider,
-			direction: storeWorkItemProjections.direction,
-			syncStatus: storeWorkItemProjections.status,
-			externalId: storeWorkItemProjections.externalId,
-			externalUrl: storeWorkItemProjections.externalUrl,
-			lastSyncedAt: storeWorkItemProjections.lastSyncedAt,
-			lastError: storeWorkItemProjections.lastError,
-			createdAt: storeWorkItemProjections.createdAt,
-		})
-		.from(storeWorkItemProjections)
-		.innerJoin(
-			storeWorkItems,
-			and(
-				eq(storeWorkItems.id, storeWorkItemProjections.workItemId),
-				eq(storeWorkItems.orgId, storeWorkItemProjections.orgId),
-			),
-		)
-		.where(where)
-		// `id` is a deterministic tie-break: without it two projections sharing a
-		// `created_at` order arbitrarily per statement, so an OFFSET page could
-		// repeat or skip rows.
-		.orderBy(
-			desc(storeWorkItemProjections.createdAt),
-			desc(storeWorkItemProjections.id),
-		)
-		.limit(limit)
-		.offset(offset);
-	const [counted] = await db
-		.select({ total: sql<number>`count(*)` })
-		.from(storeWorkItemProjections)
-		.innerJoin(
-			storeWorkItems,
-			and(
-				eq(storeWorkItems.id, storeWorkItemProjections.workItemId),
-				eq(storeWorkItems.orgId, storeWorkItemProjections.orgId),
-			),
-		)
-		.where(where);
-	return { data: rows, total: Number(counted?.total ?? 0) };
 }
 
 import { acceptanceRefusal, missingForAcceptance } from "./acceptance-rule";

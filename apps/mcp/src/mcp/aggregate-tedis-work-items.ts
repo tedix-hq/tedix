@@ -13,13 +13,6 @@ import {
 
 const WORK_ITEM_AUTHOR_TYPE_ENUM = ["user", "tedi", "system"];
 const WORK_ITEM_RELATION_TYPE_ENUM = ["blocks", "duplicates", "references"];
-const WORK_ITEM_PROJECTION_DIRECTION_ENUM = ["source", "projection", "sync"];
-const WORK_ITEM_PROJECTION_STATUS_ENUM = [
-	"pending",
-	"synced",
-	"failed",
-	"stale",
-];
 
 const WORK_ITEMS_LIST_SCHEMA: ToolInputJsonSchema = zodToToolInputJsonSchema(
 	procedureInputSchema(workItemsContract.list),
@@ -125,26 +118,6 @@ const WORK_ITEM_RELATION_SCHEMA: ToolInputJsonSchema = {
 		metadata: { type: "object", additionalProperties: true },
 	},
 	required: ["id", "toWorkItemId", "relationType"],
-	additionalProperties: false,
-};
-
-const WORK_ITEM_PROJECTION_SCHEMA: ToolInputJsonSchema = {
-	type: "object",
-	properties: {
-		id: { type: "string", format: "uuid" },
-		provider: { type: "string" },
-		direction: { type: "string", enum: WORK_ITEM_PROJECTION_DIRECTION_ENUM },
-		status: { type: "string", enum: WORK_ITEM_PROJECTION_STATUS_ENUM },
-		externalId: { type: "string" },
-		externalUrl: { type: "string" },
-		externalProjectId: { type: "string" },
-		externalSectionId: { type: "string" },
-		lastSyncedAt: { type: "string" },
-		lastError: { anyOf: [{ type: "string" }, { type: "null" }] },
-		syncCursor: { type: "string" },
-		providerState: { type: "object", additionalProperties: true },
-	},
-	required: ["id", "provider"],
 	additionalProperties: false,
 };
 
@@ -453,14 +426,5 @@ export const WORK_ITEM_TOOLS: TediToolSpec[] = [
 		inputSchema: WORK_ITEM_RELATION_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "workItems/addRelation",
-	},
-	{
-		name: "work_item_upsert_projection",
-		remoteName: "work_item_upsert_projection",
-		description:
-			"Attach or update an external task/project-management provider reference for a Work Item.",
-		inputSchema: WORK_ITEM_PROJECTION_SCHEMA,
-		annotations: MUTATING,
-		rpcEndpoint: "workItems/upsertProjection",
 	},
 ];

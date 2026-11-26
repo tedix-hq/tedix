@@ -6,7 +6,7 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { projects } from "@tedix/db/schema/projects";
 import { platformCronCheckpoints } from "@tedix/db/schema/platform-cron-executions";
 import { tedis } from "@tedix/db/schema/tedis";
-import { tediObjectives, tediTasks } from "@tedix/db/schema/tedi-objectives";
+import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
 import { workItems, workAttempts } from "@tedix/db/schema/work-items";
 import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
 import { skillRuns } from "@tedix/db/schema/cognitive";
@@ -53,7 +53,6 @@ function fixture({ configured = true } = {}) {
 			platformCronCheckpoints,
 			tedis,
 			tediObjectives,
-			tediTasks,
 			workItems,
 			workAttempts,
 			workAgentSessions,
@@ -623,7 +622,7 @@ describe("autonomous stall recovery", () => {
 		expect((await scope()).policy).toBeNull();
 		sqlite.exec(`INSERT INTO tedi_objectives(id,org_id,tedi_id,title,status,created_at) VALUES ('mission','fictional-orchard','river','Fictional mission','active','${createdAt}');
    UPDATE projects SET objective_id='mission' WHERE id='orchard';
-   INSERT INTO tedi_tasks(id,org_id,tedi_id,objective_id,title,created_at,updated_at) VALUES ('task','fictional-orchard','river','mission','Example work','2026-10-17 13:00:00','2026-10-17 13:00:00');`);
+   INSERT INTO work_agent_sessions(id,organization_id,user_id,harness,session_key,project_id,state,state_since,last_event_at,created_at,updated_at) VALUES ('session','fictional-orchard','ada','codex','current','orchard','working','2026-10-17 13:00:00','2026-10-17 13:00:00','2026-10-17 13:00:00','2026-10-17 13:00:00');`);
 		expect((await scope()).lastActivityAt).toBe("2026-10-17T13:00:00.000Z");
 		expect(
 			(await assessContinuity(db, await scope(), Date.parse(now))).idle,

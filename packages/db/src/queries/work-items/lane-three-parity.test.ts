@@ -9,7 +9,6 @@ import { listWorkActivity } from "./activity";
 import { workAgentSessions } from "../../schema/work-agent-sessions";
 import {
 	createWorkCase,
-	addWorkCaseDependency,
 	listWorkCases,
 	linkWorkItemToCase,
 	detachWorkItemFromCase,
@@ -39,7 +38,6 @@ import { tedis } from "../../schema/tedis";
 import {
 	workItems,
 	workAttempts,
-	workItemOrgCounts,
 	workItemComments,
 	workEvents,
 	workItemRelations,
@@ -50,7 +48,6 @@ import {
 	workResourceRequirements,
 	workCases,
 	workCaseItems,
-	workCaseDependencies,
 } from "../../schema/work-factory";
 import {
 	createWorkItem,
@@ -65,8 +62,6 @@ import {
 	listWorkItemsPage,
 	getGoalLoopWorkItemSnapshot,
 	listOpenWorkItemsAcrossProjects,
-	upsertWorkItemProjection,
-	listOrgWorkItemProjections,
 } from "./crud";
 import { listOrgWorkAttempts, listOrgWorkRecovery } from "./projections";
 
@@ -253,21 +248,6 @@ for (const store of ["d1", "postgres"] as const)
 					})
 				).total,
 			).toBe(0);
-			await upsertWorkItemProjection(db, {
-				id: "projection",
-				orgId: "orchard",
-				workItemId: "task",
-				provider: "fixture",
-				providerState: { revision: 1 },
-				createdAt: at,
-			});
-			expect(await listOrgWorkItemProjections(db, { orgId: "river" })).toEqual({
-				data: [],
-				total: 0,
-			});
-			expect(
-				(await listOrgWorkItemProjections(db, { orgId: "orchard" })).total,
-			).toBe(1);
 			const items = coreTable(db, workItems);
 			await db
 				.update(items)
@@ -310,12 +290,10 @@ for (const store of ["d1", "postgres"] as const)
 			]);
 		});
 
-		it("keeps case closure, retained links and cycle checks atomic with Work counts", async () => {
+		it("keeps case closure and retained Work links", async () => {
 			const cases = coreTable(db, workCases),
 				links = coreTable(db, workCaseItems),
-				dependencies = coreTable(db, workCaseDependencies),
-				items = coreTable(db, workItems),
-				counts = coreTable(db, workItemOrgCounts);
+				items = coreTable(db, workItems);
 			const row = (id: string) => ({
 				id,
 				orgId: "orchard",
@@ -359,36 +337,6 @@ for (const store of ["d1", "postgres"] as const)
 					.set({ stage: "closed", closedAt: at, version: 2 })
 					.where(eq(cases.id, "first")),
 			).rejects.toThrow();
-			await addWorkCaseDependency(db, {
-				id: "forward",
-				orgId: "orchard",
-				prerequisiteCaseId: "first",
-				dependentCaseId: "second",
-				now: at,
-			});
-			await expect(
-				db.batch([
-					db.insert(items).values({
-						id: "rollback",
-						orgId: "orchard",
-						title: "Must roll back",
-						admissionSpecRevision: "spec-rollback",
-						createdAt: at,
-					}),
-					db.insert(dependencies).values({
-						id: "cycle",
-						orgId: "orchard",
-						prerequisiteCaseId: "second",
-						dependentCaseId: "first",
-						createdAt: at,
-					}),
-				]),
-			).rejects.toThrow();
-			expect(await getWorkItemById(db, "rollback", "orchard")).toBeNull();
-			expect(
-				(await db.select().from(counts).where(eq(counts.orgId, "orchard")))[0]
-					?.total,
-			).toBe(2);
 			await db
 				.update(items)
 				.set({ disposition: "completed", completedAt: at, version: 2 })
@@ -404,9 +352,6 @@ for (const store of ["d1", "postgres"] as const)
 			).toMatchObject({ stage: "closed", version: 2 });
 			await expect(
 				db.delete(links).where(eq(links.id, "link")),
-			).rejects.toThrow();
-			await expect(
-				db.delete(dependencies).where(eq(dependencies.id, "forward")),
 			).rejects.toThrow();
 			await expect(
 				db.insert(links).values({

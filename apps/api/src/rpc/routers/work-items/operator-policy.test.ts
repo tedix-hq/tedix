@@ -2,11 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { GetWorkItemResultSchema } from "@tedix/api-contract/schemas/work-items";
 import { createDbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
-import {
-	workEvents,
-	workEvidence,
-	workItemProjections,
-} from "@tedix/db/schema/work-items";
+import { workEvents, workEvidence } from "@tedix/db/schema/work-items";
 import { workInteractions } from "@tedix/db/schema/work-factory";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -57,7 +53,6 @@ async function fixture() {
 				workEvents,
 				workInteractions,
 				workEvidence,
-				workItemProjections,
 			),
 	);
 	sqlite.exec(`INSERT INTO organizations(id,name,slug) VALUES('org','Org','org');

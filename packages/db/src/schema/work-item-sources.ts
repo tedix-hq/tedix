@@ -4,23 +4,7 @@
  * Answers "what external material does this engagement touch": the Notion pages,
  * Gmail threads, and Drive files a project or work item is actually built from.
  *
- * This is deliberately NOT `work_item_projections`. That table is a 1:1
- * task mirror (UNIQUE(work_item_id, provider)) with sync-cursor machinery for
- * keeping one item aligned with one external task. Source attachment is
- * many-per-owner and needs no cursor — conflating them is what forced the
- * unique index to fight the use case.
- *
- * Federation over ingestion still holds: this table stores *identity* (uri,
- * external id, content hash), never source CONTENT. Content is read live at
- * query time. The hash exists only so a reconciliation sweep can tell "changed"
- * from "unchanged" from "gone" without copying anything.
- *
- * Deletion is a tombstone, not a DELETE — a source that disappears upstream is
- * evidence, and hard-deleting it would erase the record that we ever worked
- * from it. This matches the memory-entity contract, where mentions are
- * immutable and corrections create new rows.
- *
- * D1 is canonical. Fresh CREATE TABLE, so real FKs are safe here.
+ * Source attachments are many-per-owner and need no sync cursor.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";

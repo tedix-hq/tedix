@@ -97,10 +97,7 @@ export const tenancyRelations = defineRelationsPart(schema, (r) => ({
 			from: r.organizations.id,
 			to: r.tediObjectives.orgId,
 		}),
-		tediTasks: r.many.tediTasks({
-			from: r.organizations.id,
-			to: r.tediTasks.orgId,
-		}),
+
 		tediPlugins: r.many.tediPlugins({
 			from: r.organizations.id,
 			to: r.tediPlugins.authorOrgId,
@@ -161,10 +158,7 @@ export const tenancyRelations = defineRelationsPart(schema, (r) => ({
 			from: r.organizations.id,
 			to: r.workEvents.orgId,
 		}),
-		workItemProjections: r.many.workItemProjections({
-			from: r.organizations.id,
-			to: r.workItemProjections.orgId,
-		}),
+
 		docsSites: r.many.docsSites({
 			from: r.organizations.slug,
 			to: r.docsSites.orgSlug,

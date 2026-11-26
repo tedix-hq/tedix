@@ -1,18 +1,15 @@
 import {
-	addWorkCaseDependency,
 	reopenWorkCase,
 	moveWorkCase,
 	createWorkCase,
 	detachWorkItemFromCase,
 	getWorkCase,
 	linkWorkItemToCase,
-	listWorkCaseDependencies,
 	listWorkCaseItems,
 	listWorkCases,
 	updateWorkCase,
 } from "@tedix/db/queries/work-items/cases";
 import {
-	WorkCaseDependencySchema,
 	WorkCaseItemSchema,
 	WorkCaseSchema,
 } from "@tedix/api-contract/schemas/work-items";
@@ -85,18 +82,6 @@ function caseItemOutput(
 	});
 }
 
-function caseDependencyOutput(
-	row: Awaited<ReturnType<typeof listWorkCaseDependencies>>["data"][number],
-) {
-	return WorkCaseDependencySchema.parse({
-		id: row.id,
-		orgId: row.orgId,
-		fromCaseId: row.prerequisiteCaseId,
-		toCaseId: row.dependentCaseId,
-		createdAt: row.createdAt,
-	});
-}
-
 export const createCaseProcedure = caseWriteOs.createCase.handler(
 	async ({ input, context }) => {
 		const orgId = requireOrgId(context);
@@ -156,29 +141,17 @@ export const getCaseProcedure = caseReadOs.getCase.handler(
 				orgId,
 				caseId: input.caseId,
 			});
-			const [items, dependencies] = await Promise.all([
-				listWorkCaseItems(context.db, {
-					orgId,
-					caseId: workCase.id,
-					cursor: input.itemCursor,
-					limit: input.itemLimit,
-				}),
-				listWorkCaseDependencies(context.db, {
-					orgId,
-					caseId: workCase.id,
-					cursor: input.dependencyCursor,
-					limit: input.dependencyLimit,
-				}),
-			]);
+			const items = await listWorkCaseItems(context.db, {
+				orgId,
+				caseId: workCase.id,
+				cursor: input.itemCursor,
+				limit: input.itemLimit,
+			});
 			return {
 				workCase: caseOutput(workCase),
 				items: {
 					data: items.data.map(caseItemOutput),
 					nextCursor: items.nextCursor,
-				},
-				dependencies: {
-					data: dependencies.data.map(caseDependencyOutput),
-					nextCursor: dependencies.nextCursor,
 				},
 			};
 		} catch (error) {
@@ -283,23 +256,3 @@ export const detachCaseWorkItemProcedure =
 			rethrowCaseError(error);
 		}
 	});
-
-export const addCaseDependencyProcedure = caseWriteOs.addCaseDependency.handler(
-	async ({ input, context }) => {
-		const orgId = requireOrgId(context);
-		await verifiedWorkFactoryMutator(context, orgId);
-		try {
-			return caseDependencyOutput(
-				await addWorkCaseDependency(context.db, {
-					id: crypto.randomUUID(),
-					orgId,
-					prerequisiteCaseId: input.fromCaseId,
-					dependentCaseId: input.toCaseId,
-					now: new Date().toISOString(),
-				}),
-			);
-		} catch (error) {
-			rethrowCaseError(error);
-		}
-	},
-);

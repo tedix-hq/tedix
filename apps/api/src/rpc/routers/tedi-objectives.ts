@@ -1,6 +1,6 @@
 /**
- * Tedi Objectives & Tasks Router
- * Mission directives and execution log
+ * Tedi Objectives Router
+ * Mission directives
  *
  * REST Endpoints:
  * POST   /tedi-objectives                        - Create objective (authenticated + org scoped)
@@ -8,14 +8,8 @@
  * GET    /tedi-objectives/{id}                   - Get objective (authenticated + org scoped)
  * PATCH  /tedi-objectives/{id}                   - Update objective (authenticated + org scoped)
  * DELETE /tedi-objectives/{id}                   - Delete objective (authenticated + org scoped)
- * POST   /tedi-objectives/tasks                  - Create task (authenticated + org scoped)
- * GET    /tedi-objectives/tasks                  - List tasks (authenticated + org scoped)
- * PATCH  /tedi-objectives/tasks/{id}             - Update task (authenticated + org scoped)
- * DELETE /tedi-objectives/tasks/{id}             - Delete task (authenticated + org scoped)
- * GET    /tedi-objectives/tasks/active/{tediId}  - Get active tasks (authenticated + org scoped)
  */
 
-import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement } from "@orpc/server";
 import {
 	DEFAULT_STANDING_OBJECTIVE_GATE_CONFIG,
@@ -24,20 +18,14 @@ import {
 import { getPurposeCharterById } from "@tedix/db/queries/organization-purpose";
 import {
 	createObjective,
-	createTask,
 	deleteObjective,
-	deleteTask,
-	getActiveTasks,
 	getObjectiveById,
-	getTaskById,
 	listObjectives,
-	listTasks,
 	updateObjective,
-	updateTask,
 } from "@tedix/db/queries/tedi-objectives";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { toJsonRecord } from "@tedix/db/utils/json";
-import { cascadeCompleteChildTasks } from "../../services/mission-os";
+
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -89,23 +77,6 @@ async function assertObjectiveAccess(
 	}
 
 	return objective;
-}
-
-async function assertTaskAccess(
-	context: BaseContext,
-	taskId: string,
-): Promise<NonNullable<Awaited<ReturnType<typeof getTaskById>>>> {
-	const task = await getTaskById(context.db, taskId);
-	if (!task) {
-		throw createError(ErrorCodes.NOT_FOUND, "Task not found");
-	}
-
-	const orgId = requireOrgId(context);
-	if (task.orgId !== orgId) {
-		throw createError(ErrorCodes.FORBIDDEN, "Access denied to this task");
-	}
-
-	return task;
 }
 
 async function assertTediAccess(
@@ -276,16 +247,6 @@ const updateProcedure = authOs.update
 			throw createError(ErrorCodes.BAD_REQUEST, "Failed to update objective");
 		}
 
-		if (input.status === "completed" || input.status === "failed") {
-			try {
-				await cascadeCompleteChildTasks(context.db, input.id, input.status);
-			} catch (err) {
-				console.error(`[Objectives] cascade failed for ${input.id}`, {
-					exception: safeExceptionTopology(err),
-				});
-			}
-		}
-
 		return updated;
 	});
 
@@ -298,134 +259,10 @@ const deleteProcedure = authOs.delete
 		return { success: true as const, deletedId: input.id };
 	});
 
-const createTaskProcedure = authOs.createTask
-	.use(AUTHZ.objectiveWrite)
-	.handler(async ({ input, context }) => {
-		const id = crypto.randomUUID();
-		const access = await assertTediAccess(context, input.tediId, input.orgId);
-
-		if (input.objectiveId) {
-			const objective = await assertObjectiveAccess(context, input.objectiveId);
-			if (objective.tediId !== access.tediId) {
-				throw createError(
-					ErrorCodes.FORBIDDEN,
-					"Objective does not belong to this tedi",
-				);
-			}
-		}
-
-		const task = await createTask(context.db, {
-			id,
-			tediId: access.tediId,
-			orgId: access.orgId,
-			objectiveId: input.objectiveId,
-			title: input.title,
-			kind: input.kind,
-			blocker: input.blocker,
-			evidence: input.evidence,
-			toolingUsed: input.toolingUsed,
-			estimatedCost: optionalJsonRecord(input.estimatedCost),
-			createdAt: new Date().toISOString(),
-		});
-
-		return task;
-	});
-
-const listTasksProcedure = authOs.listTasks
-	.use(AUTHZ.objectiveRead)
-	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
-
-		if (input?.tediId) {
-			await assertTediAccess(context, input.tediId, orgId);
-		}
-
-		const limit = input?.limit ?? 50;
-		const offset = input?.offset ?? 0;
-
-		const { data, total } = await listTasks(context.db, {
-			orgId: orgId ?? undefined,
-			tediId: input?.tediId,
-			objectiveId: input?.objectiveId,
-			status: input?.status,
-			kind: input?.kind,
-			limit,
-			offset,
-		});
-
-		return {
-			data,
-			pagination: {
-				limit,
-				offset,
-				total,
-				hasMore: offset + limit < total,
-			},
-		};
-	});
-
-const updateTaskProcedure = authOs.updateTask
-	.use(AUTHZ.objectiveWrite)
-	.handler(async ({ input, context }) => {
-		await assertTaskAccess(context, input.id);
-
-		const now = new Date().toISOString();
-		const completedAt =
-			input.status === "completed" ||
-			input.status === "failed" ||
-			input.status === "abandoned"
-				? now
-				: undefined;
-
-		const updated = await updateTask(context.db, input.id, {
-			objectiveId: input.objectiveId,
-			kind: input.kind,
-			status: input.status,
-			blocker: input.blocker,
-			evidence: input.evidence,
-			toolingUsed: input.toolingUsed,
-			estimatedCost: optionalJsonRecord(input.estimatedCost),
-			result: input.result,
-			actualCost: optionalJsonRecord(input.actualCost),
-			failCount: input.failCount,
-			updatedAt: now,
-			completedAt,
-		});
-
-		if (!updated) {
-			throw createError(ErrorCodes.BAD_REQUEST, "Failed to update task");
-		}
-
-		return updated;
-	});
-
-const deleteTaskProcedure = authOs.deleteTask
-	.use(AUTHZ.objectiveWrite)
-	.handler(async ({ input, context }) => {
-		await assertTaskAccess(context, input.id);
-
-		await deleteTask(context.db, input.id);
-		return { success: true as const, deletedId: input.id };
-	});
-
-const getActiveTasksProcedure = authOs.getActiveTasks
-	.use(AUTHZ.objectiveRead)
-	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
-		await assertTediAccess(context, input.tediId, orgId);
-		const data = await getActiveTasks(context.db, input.tediId);
-		return { data };
-	});
-
 export const tediObjectivesContractRouter = objectivesOs.router({
 	create: createProcedure,
 	list: skipOutputValidation(listProcedure),
 	getById: skipOutputValidation(getByIdProcedure),
 	update: updateProcedure,
 	delete: deleteProcedure,
-	createTask: createTaskProcedure,
-	listTasks: skipOutputValidation(listTasksProcedure),
-	updateTask: updateTaskProcedure,
-	deleteTask: deleteTaskProcedure,
-	getActiveTasks: skipOutputValidation(getActiveTasksProcedure),
 });

@@ -1,13 +1,13 @@
 /**
- * Tedi Objectives & Tasks Query Helpers
- * CRUD operations for tedi_objectives and tedi_tasks tables
+ * Tedi Objectives Query Helpers
+ * CRUD operations for tedi_objectives
  *
  * Used by the tedi-objectives router and Tedix OS UI.
  */
 
 import { DEFAULT_STANDING_OBJECTIVE_GATE_CONFIG } from "@tedix/api-contract/contracts/tedi-objectives";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, getColumns, inArray } from "drizzle-orm";
+import { and, desc, eq, getColumns } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import {
@@ -18,12 +18,8 @@ import {
 	type ObjectiveRiskLevel,
 	type ObjectiveStatus,
 	type ObjectiveType,
-	type TaskKind,
-	type TaskStatus,
 	type TediObjective,
-	type TediTask,
 	tediObjectives,
-	tediTasks,
 } from "../schema/tedi-objectives";
 
 // The column remains in storage until its historical values can be reviewed.
@@ -75,49 +71,6 @@ export interface UpdateObjectiveParams {
 	gateConfig?: Record<string, JsonValue>;
 	budgetConfig?: Record<string, JsonValue>;
 	progress?: Record<string, JsonValue>;
-	updatedAt: string;
-	completedAt?: string;
-}
-
-// ============================================================================
-// Types — Tasks
-// ============================================================================
-
-export interface CreateTaskParams {
-	id: string;
-	tediId: string;
-	orgId: string;
-	objectiveId?: string;
-	title: string;
-	kind?: TaskKind;
-	blocker?: string;
-	evidence?: string[];
-	toolingUsed?: string[];
-	estimatedCost?: Record<string, JsonValue>;
-	createdAt: string;
-}
-
-export interface ListTasksOptions {
-	orgId?: string;
-	tediId?: string;
-	objectiveId?: string;
-	status?: TaskStatus;
-	kind?: TaskKind;
-	limit?: number;
-	offset?: number;
-}
-
-export interface UpdateTaskParams {
-	objectiveId?: string | null;
-	kind?: TaskKind;
-	status?: TaskStatus;
-	blocker?: string;
-	evidence?: string[];
-	toolingUsed?: string[];
-	estimatedCost?: Record<string, JsonValue>;
-	result?: string;
-	actualCost?: Record<string, JsonValue>;
-	failCount?: number;
 	updatedAt: string;
 	completedAt?: string;
 }
@@ -314,134 +267,4 @@ export async function deleteObjective(
 		.where(eq(tediObjectives.id, id))
 		.returning(objectiveColumns);
 	return results.length > 0;
-}
-
-// ============================================================================
-// Tasks — Read
-// ============================================================================
-
-export async function listTasks(
-	db: DbClient,
-	options: ListTasksOptions,
-): Promise<{ data: TediTask[]; total: number }> {
-	const { limit = 50, offset = 0 } = options;
-
-	const conditions: ReturnType<typeof eq>[] = [];
-	if (options.orgId) {
-		conditions.push(eq(tediTasks.orgId, options.orgId));
-	}
-	if (options.tediId) {
-		conditions.push(eq(tediTasks.tediId, options.tediId));
-	}
-	if (options.objectiveId) {
-		conditions.push(eq(tediTasks.objectiveId, options.objectiveId));
-	}
-	if (options.status) {
-		conditions.push(eq(tediTasks.status, options.status));
-	}
-	if (options.kind) {
-		conditions.push(eq(tediTasks.kind, options.kind));
-	}
-
-	const whereClause = and(...conditions);
-
-	const data = await db
-		.select()
-		.from(tediTasks)
-		.where(whereClause)
-		.orderBy(desc(tediTasks.createdAt))
-		.limit(limit)
-		.offset(offset);
-
-	const total = await db.$count(tediTasks, whereClause);
-
-	return { data, total };
-}
-
-export async function getTaskById(
-	db: DbClient,
-	id: string,
-): Promise<TediTask | undefined> {
-	const results = await db.select().from(tediTasks).where(eq(tediTasks.id, id));
-	return results[0];
-}
-
-export async function getActiveTasks(
-	db: DbClient,
-	tediId: string,
-): Promise<TediTask[]> {
-	return db
-		.select()
-		.from(tediTasks)
-		.where(
-			and(
-				eq(tediTasks.tediId, tediId),
-				inArray(tediTasks.status, ["pending", "in_progress"]),
-			),
-		)
-		.orderBy(desc(tediTasks.createdAt));
-}
-
-// ============================================================================
-// Tasks — Write
-// ============================================================================
-
-export async function createTask(
-	db: DbClient,
-	data: CreateTaskParams,
-): Promise<TediTask> {
-	const results = await db
-		.insert(tediTasks)
-		.values({
-			id: data.id,
-			tediId: data.tediId,
-			orgId: data.orgId,
-			objectiveId: data.objectiveId ?? null,
-			title: data.title,
-			kind: data.kind ?? "general",
-			status: "pending",
-			blocker: data.blocker ?? null,
-			evidence: data.evidence ?? [],
-			toolingUsed: data.toolingUsed ?? [],
-			estimatedCost: data.estimatedCost ?? {},
-			actualCost: {},
-			createdAt: data.createdAt,
-		})
-		.returning();
-	return results[0]!;
-}
-
-export async function deleteTask(db: DbClient, id: string): Promise<boolean> {
-	const results = await db
-		.delete(tediTasks)
-		.where(eq(tediTasks.id, id))
-		.returning();
-	return results.length > 0;
-}
-
-export async function updateTask(
-	db: DbClient,
-	id: string,
-	params: UpdateTaskParams,
-): Promise<TediTask | undefined> {
-	const set: Record<string, unknown> = { updatedAt: params.updatedAt };
-	if (params.objectiveId !== undefined) set.objectiveId = params.objectiveId;
-	if (params.kind !== undefined) set.kind = params.kind;
-	if (params.status !== undefined) set.status = params.status;
-	if (params.blocker !== undefined) set.blocker = params.blocker;
-	if (params.evidence !== undefined) set.evidence = params.evidence;
-	if (params.toolingUsed !== undefined) set.toolingUsed = params.toolingUsed;
-	if (params.estimatedCost !== undefined)
-		set.estimatedCost = params.estimatedCost;
-	if (params.result !== undefined) set.result = params.result;
-	if (params.actualCost !== undefined) set.actualCost = params.actualCost;
-	if (params.failCount !== undefined) set.failCount = params.failCount;
-	if (params.completedAt !== undefined) set.completedAt = params.completedAt;
-
-	const results = await db
-		.update(tediTasks)
-		.set(set)
-		.where(eq(tediTasks.id, id))
-		.returning();
-	return results[0];
 }

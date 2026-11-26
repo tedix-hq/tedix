@@ -210,23 +210,6 @@ export const WORK_ITEM_DISPATCH_STATE_VALUES = ["held", "ready"] as const;
 export type WorkItemDispatchState =
 	(typeof WORK_ITEM_DISPATCH_STATE_VALUES)[number];
 
-export const WORK_ITEM_PROJECTION_DIRECTION_VALUES = [
-	"source",
-	"projection",
-	"sync",
-] as const;
-export type WorkItemProjectionDirection =
-	(typeof WORK_ITEM_PROJECTION_DIRECTION_VALUES)[number];
-
-export const WORK_ITEM_PROJECTION_STATUS_VALUES = [
-	"pending",
-	"synced",
-	"failed",
-	"stale",
-] as const;
-export type WorkItemProjectionStatus =
-	(typeof WORK_ITEM_PROJECTION_STATUS_VALUES)[number];
-
 /**
  * A repository observation that is still open. This is the WHERE of
  * `idx_work_items_open_repository_observation_columns` and of the maintenance sweeps
@@ -972,53 +955,6 @@ export const workEvents = sqliteTable(
 
 export type WorkEvent = typeof workEvents.$inferSelect;
 export type NewWorkEvent = typeof workEvents.$inferInsert;
-
-export const workItemProjections = sqliteTable(
-	"work_item_projections",
-	{
-		id: text("id").primaryKey(),
-		workItemId: text("work_item_id")
-			.notNull()
-			.references(() => workItems.id, { onDelete: "cascade" }),
-		orgId: text("org_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		provider: text("provider").notNull(),
-		direction: text("direction", {
-			enum: WORK_ITEM_PROJECTION_DIRECTION_VALUES,
-		})
-			.notNull()
-			.default("projection"),
-		status: text("status", { enum: WORK_ITEM_PROJECTION_STATUS_VALUES })
-			.notNull()
-			.default("pending"),
-		externalId: text("external_id"),
-		externalUrl: text("external_url"),
-		externalProjectId: text("external_project_id"),
-		externalSectionId: text("external_section_id"),
-		lastSyncedAt: text("last_synced_at"),
-		lastError: text("last_error"),
-		syncCursor: text("sync_cursor"),
-		providerState: text("provider_state", { mode: "json" })
-			.$type<Record<string, JsonValue>>()
-			.default({}),
-		createdAt: text("created_at").notNull(),
-		updatedAt: text("updated_at"),
-	},
-	(table) => [
-		index("idx_work_item_projections_org_provider").on(
-			table.orgId,
-			table.provider,
-		),
-		uniqueIndex("uniq_work_item_projection_provider").on(
-			table.workItemId,
-			table.provider,
-		),
-	],
-);
-
-export type WorkItemProjection = typeof workItemProjections.$inferSelect;
-export type NewWorkItemProjection = typeof workItemProjections.$inferInsert;
 
 /**
  * RETIRED SYSTEM-AUTHORED CORROBORATION OF ONE EVIDENCE ROW.

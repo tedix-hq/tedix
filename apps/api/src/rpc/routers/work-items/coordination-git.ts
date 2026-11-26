@@ -7,7 +7,6 @@ import {
 	addWorkItemCorroboration,
 	listWorkItemCorroborations,
 } from "@tedix/db/queries/work-items/comments";
-import { upsertWorkItemProjection } from "@tedix/db/queries/work-items/crud";
 import {
 	setWorkItemParent,
 	removeWorkItemRelation,
@@ -26,7 +25,6 @@ import {
 	listActivityProcedure,
 	listProcedure,
 	attachWorkItemSourceProcedure,
-	listProjectionsProcedure,
 	listWorkItemSourcesProcedure,
 	reconcileWorkItemSourcesProcedure,
 	listRelationsProcedure,
@@ -199,32 +197,6 @@ export const addRelationProcedure = authOs.addRelation.handler(
 	},
 );
 
-export const upsertProjectionProcedure = authOs.upsertProjection.handler(
-	async ({ input, context }) => {
-		const workItem = await assertWorkItemAccess(context, input.id);
-		return upsertWorkItemProjection(context.db, {
-			id: crypto.randomUUID(),
-			workItemId: input.id,
-			orgId: workItem.orgId,
-			provider: input.provider,
-			direction: input.direction,
-			status: input.status,
-			externalId: input.externalId,
-			externalUrl: input.externalUrl,
-			externalProjectId: input.externalProjectId,
-			externalSectionId: input.externalSectionId,
-			lastSyncedAt: input.lastSyncedAt,
-			lastError: input.lastError,
-			syncCursor: input.syncCursor,
-			providerState:
-				input.providerState === undefined
-					? undefined
-					: toJsonRecord(input.providerState),
-			createdAt: new Date().toISOString(),
-		});
-	},
-);
-
 export const listRoute = skipOutputValidation(listProcedure);
 
 export const getByIdRoute = skipOutputValidation(getByIdProcedure);
@@ -242,10 +214,6 @@ export const getOrgGraphHealthRoute = skipOutputValidation(
 );
 
 export const listRelationsRoute = skipOutputValidation(listRelationsProcedure);
-
-export const listProjectionsRoute = skipOutputValidation(
-	listProjectionsProcedure,
-);
 
 export const attachWorkItemSourceRoute = skipOutputValidation(
 	attachWorkItemSourceProcedure,

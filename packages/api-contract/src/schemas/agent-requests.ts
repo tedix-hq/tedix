@@ -73,11 +73,3 @@ export function agentRequestAction(proposal: AgentRequestProposal) {
 			? "resource.grant"
 			: "agent.create";
 }
-
-export const AgentRequestExecutionSchema = z.strictObject({
-	status: z.enum(["pending", "running", "succeeded", "failed"]),
-	resourceId: z.string().optional(),
-	completedAt: z.iso.datetime().optional(),
-	message: z.string().max(500).optional(),
-});
-export type AgentRequestExecution = z.infer<typeof AgentRequestExecutionSchema>;

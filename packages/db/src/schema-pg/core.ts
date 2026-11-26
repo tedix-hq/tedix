@@ -11161,53 +11161,7 @@ export const tediSessionStates = pgTable(
 			.onUpdate("no action"),
 	],
 );
-export const tediTasks = pgTable(
-	"tedi_tasks",
-	{
-		id: text("id").primaryKey(),
-		objectiveId: text("objective_id"),
-		tediId: text("tedi_id").notNull(),
-		orgId: text("org_id").notNull(),
-		title: text("title").notNull(),
-		kind: text("kind").notNull().default("general"),
-		status: text("status").notNull().default("pending"),
-		blocker: text("blocker"),
-		evidence: jsonb("evidence").default([]),
-		toolingUsed: jsonb("tooling_used").default([]),
-		estimatedCost: jsonb("estimated_cost").default({}),
-		result: text("result"),
-		actualCost: jsonb("actual_cost").default({}),
-		failCount: bigint("fail_count", { mode: "number" }).notNull().default(0),
-		createdAt: text("created_at").notNull(),
-		updatedAt: text("updated_at"),
-		completedAt: text("completed_at"),
-	},
-	(t) => [
-		index("idx_tasks_objective").on(t["objectiveId"]),
-		index("idx_tasks_tedi_status").on(t["tediId"], t["status"]),
-		foreignKey({
-			name: "tedi_tasks_objective_id_tedi_objectives_id_fk",
-			columns: [t["objectiveId"]],
-			foreignColumns: [referencedColumn("tedi_objectives", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "tedi_tasks_tedi_id_tedis_id_fk",
-			columns: [t["tediId"]],
-			foreignColumns: [referencedColumn("tedis", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "tedi_tasks_org_id_organizations_id_fk",
-			columns: [t["orgId"]],
-			foreignColumns: [referencedColumn("organizations", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-	],
-);
+
 export const tediUsageEvents = pgTable(
 	"tedi_usage_events",
 	{
@@ -12247,30 +12201,7 @@ export const workApprovalDecisions = pgTable(
 			.onUpdate("no action"),
 	],
 );
-export const workApprovalExecutions = pgTable(
-	"work_approval_executions",
-	{
-		proposalId: text("proposal_id").primaryKey(),
-		orgId: text("org_id").notNull(),
-		execution: jsonb("execution").notNull(),
-	},
-	(t) => [
-		foreignKey({
-			name: "work_approval_executions_proposal_id_work_approval_proposals_id_fk",
-			columns: [t["proposalId"]],
-			foreignColumns: [referencedColumn("work_approval_proposals", "id")],
-		})
-			.onDelete("restrict")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "work_approval_executions_org_id_organizations_id_fk",
-			columns: [t["orgId"]],
-			foreignColumns: [referencedColumn("organizations", "id")],
-		})
-			.onDelete("restrict")
-			.onUpdate("no action"),
-	],
-);
+
 export const workApprovalProposals = pgTable(
 	"work_approval_proposals",
 	{
@@ -12545,51 +12476,7 @@ export const workBudgetReservations = pgTable(
 			.onUpdate("no action"),
 	],
 );
-export const workCaseDependencies = pgTable(
-	"work_case_dependencies",
-	{
-		id: text("id").primaryKey(),
-		orgId: text("org_id").notNull(),
-		prerequisiteCaseId: text("prerequisite_case_id").notNull(),
-		dependentCaseId: text("dependent_case_id").notNull(),
-		createdAt: text("created_at").notNull(),
-	},
-	(t) => [
-		uniqueIndex("uniq_work_case_dependency").on(
-			t["orgId"],
-			t["prerequisiteCaseId"],
-			t["dependentCaseId"],
-		),
-		index("idx_work_case_dependency_to").on(t["orgId"], t["dependentCaseId"]),
-		foreignKey({
-			name: "work_case_dependencies_org_id_organizations_id_fk",
-			columns: [t["orgId"]],
-			foreignColumns: [referencedColumn("organizations", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "fk_work_case_dependency_from",
-			columns: [t["orgId"], t["prerequisiteCaseId"]],
-			foreignColumns: [
-				referencedColumn("work_cases", "org_id"),
-				referencedColumn("work_cases", "id"),
-			],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "fk_work_case_dependency_to",
-			columns: [t["orgId"], t["dependentCaseId"]],
-			foreignColumns: [
-				referencedColumn("work_cases", "org_id"),
-				referencedColumn("work_cases", "id"),
-			],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-	],
-);
+
 export const workCaseItems = pgTable(
 	"work_case_items",
 	{
@@ -13352,51 +13239,7 @@ export const workItemOrgCounts = pgTable(
 			.onUpdate("no action"),
 	],
 );
-export const workItemProjections = pgTable(
-	"work_item_projections",
-	{
-		id: text("id").primaryKey(),
-		workItemId: text("work_item_id").notNull(),
-		orgId: text("org_id").notNull(),
-		provider: text("provider").notNull(),
-		direction: text("direction").notNull().default("projection"),
-		status: text("status").notNull().default("pending"),
-		externalId: text("external_id"),
-		externalUrl: text("external_url"),
-		externalProjectId: text("external_project_id"),
-		externalSectionId: text("external_section_id"),
-		lastSyncedAt: text("last_synced_at"),
-		lastError: text("last_error"),
-		syncCursor: text("sync_cursor"),
-		providerState: jsonb("provider_state").default({}),
-		createdAt: text("created_at").notNull(),
-		updatedAt: text("updated_at"),
-	},
-	(t) => [
-		index("idx_work_item_projections_org_provider").on(
-			t["orgId"],
-			t["provider"],
-		),
-		uniqueIndex("uniq_work_item_projection_provider").on(
-			t["workItemId"],
-			t["provider"],
-		),
-		foreignKey({
-			name: "work_item_projections_work_item_id_work_items_id_fk",
-			columns: [t["workItemId"]],
-			foreignColumns: [referencedColumn("work_items", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "work_item_projections_org_id_organizations_id_fk",
-			columns: [t["orgId"]],
-			foreignColumns: [referencedColumn("organizations", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-	],
-);
+
 export const workItemRelations = pgTable(
 	"work_item_relations",
 	{
@@ -15988,7 +15831,6 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(tediRuntimeSnapshots), tediRuntimeSnapshots],
 	[getTableName(tediSecrets), tediSecrets],
 	[getTableName(tediSessionStates), tediSessionStates],
-	[getTableName(tediTasks), tediTasks],
 	[getTableName(tediUsageEvents), tediUsageEvents],
 	[getTableName(tedis), tedis],
 	[
@@ -16034,14 +15876,12 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(workAdmissions), workAdmissions],
 	[getTableName(workAgentSessions), workAgentSessions],
 	[getTableName(workApprovalDecisions), workApprovalDecisions],
-	[getTableName(workApprovalExecutions), workApprovalExecutions],
 	[getTableName(workApprovalProposals), workApprovalProposals],
 	[getTableName(workAttemptMessages), workAttemptMessages],
 	[getTableName(workAttemptSteps), workAttemptSteps],
 	[getTableName(workAttempts), workAttempts],
 	[getTableName(workBudgetEnvelopes), workBudgetEnvelopes],
 	[getTableName(workBudgetReservations), workBudgetReservations],
-	[getTableName(workCaseDependencies), workCaseDependencies],
 	[getTableName(workCaseItems), workCaseItems],
 	[getTableName(workCases), workCases],
 	[getTableName(workEvents), workEvents],
@@ -16064,7 +15904,6 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(workItemComments), workItemComments],
 	[getTableName(workItemCorroborations), workItemCorroborations],
 	[getTableName(workItemOrgCounts), workItemOrgCounts],
-	[getTableName(workItemProjections), workItemProjections],
 	[getTableName(workItemRelations), workItemRelations],
 	[getTableName(workItemSources), workItemSources],
 	[getTableName(workItems), workItems],

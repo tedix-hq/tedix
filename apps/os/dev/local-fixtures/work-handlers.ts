@@ -45,7 +45,7 @@ import {
 	localSnoozes,
 	localStewardRoutes,
 } from "./office";
-import { LOCAL_CASE_EDGES, LOCAL_CASE_ITEMS, localCases } from "./policies";
+import { LOCAL_CASE_ITEMS, localCases } from "./policies";
 import { TEDIS } from "./tedis";
 import {
 	localProject,
@@ -306,13 +306,6 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 				data: LOCAL_CASE_ITEMS.filter((row) => row.caseId === input.caseId),
 				nextCursor: null,
 			},
-			dependencies: {
-				data: LOCAL_CASE_EDGES.filter(
-					(row) =>
-						row.fromCaseId === input.caseId || row.toCaseId === input.caseId,
-				),
-				nextCursor: null,
-			},
 		};
 	},
 	"workItems/attachCaseWorkItem": (input: {
@@ -331,20 +324,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 		LOCAL_CASE_ITEMS.push(row);
 		return row;
 	},
-	"workItems/addCaseDependency": (input: {
-		fromCaseId: string;
-		toCaseId: string;
-	}) => {
-		const row = {
-			id: fid("b4", LOCAL_CASE_EDGES.length + 1),
-			orgId: ORG_ID,
-			fromCaseId: input.fromCaseId,
-			toCaseId: input.toCaseId,
-			createdAt: new Date().toISOString(),
-		};
-		LOCAL_CASE_EDGES.push(row);
-		return row;
-	},
+
 	"machines/list": () => ({
 		machines: [
 			{
@@ -846,7 +826,6 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 			comments: [],
 			evidence: [],
 			evidenceNextCursor: null,
-			projections: [],
 		};
 	},
 	"workItems/getReadiness": (input: { id: string }) => ({

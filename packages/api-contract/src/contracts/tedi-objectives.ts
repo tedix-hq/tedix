@@ -1,13 +1,12 @@
 import "@orpc/openapi/extensions/route";
 /**
- * Tedi Objectives & Tasks Contract
- * oRPC contract for mission directives and execution log
+ * Tedi Objectives Contract
+ * oRPC contract for mission directives
  *
  * Objectives are human-set mission directives — NOT a project manager.
- * Tasks are a thin execution log for explainability (like Claude Code's task list).
  *
  * Used by: Tedix OS Activity, tedi Workers (via service binding),
- * MCP tools (create_objective, update_task, etc.)
+ * MCP objective tools
  */
 
 import { oc } from "@orpc/contract";
@@ -31,25 +30,6 @@ const ObjectiveStatusSchema = z.enum([
 	"failed",
 ]);
 const ObjectiveRiskLevelSchema = z.enum(["low", "medium", "high", "critical"]);
-const TaskStatusSchema = z.enum([
-	"pending",
-	"in_progress",
-	"completed",
-	"failed",
-	"blocked",
-	"abandoned",
-]);
-const TaskKindSchema = z.enum([
-	"general",
-	"inspect",
-	"change",
-	"validate",
-	"deploy",
-	"verify",
-	"cleanup",
-	"research",
-	"communicate",
-]);
 
 // =============================================================================
 // GATE CONFIG — Autonomy graduation model
@@ -194,28 +174,6 @@ const ObjectiveBudgetConfigInputSchema = z
 		"Run limits such as maxTokens, maxTimeMs and maxActions. Money limits are objective credit budgets (put_work_budget_envelope), which the organization wallet enforces.",
 	);
 
-export const TaskSchema = z.object({
-	id: z.string(),
-	objectiveId: z.string().nullable(),
-	tediId: z.string(),
-	orgId: z.string(),
-	title: z.string(),
-	kind: TaskKindSchema,
-	status: TaskStatusSchema,
-	blocker: z.string().nullable(),
-	evidence: z.array(z.string()).nullable(),
-	toolingUsed: z.array(z.string()).nullable(),
-	estimatedCost: z.record(z.string(), JsonValueSchema).nullable(),
-	result: z.string().nullable(),
-	actualCost: z.record(z.string(), JsonValueSchema).nullable(),
-	failCount: z.number(),
-	createdAt: z.string(),
-	updatedAt: z.string().nullable(),
-	completedAt: z.string().nullable(),
-});
-
-export type Task = z.infer<typeof TaskSchema>;
-
 // =============================================================================
 // CONTRACT
 // =============================================================================
@@ -323,109 +281,6 @@ export const tediObjectivesContract = oc
 			})
 			.input(z.object({ id: z.uuid() }))
 			.output(z.object({ success: z.literal(true), deletedId: z.string() })),
-
-		createTask: oc
-			.route({
-				method: "POST",
-				path: "/tasks",
-				summary: "Create task",
-				description:
-					"Log a remediation or execution task for a tedi. Available to authenticated operators and internal tedis.",
-				tags: ["tedi-objectives"],
-				successStatus: 201,
-			})
-			.input(
-				z.object({
-					tediId: z.uuid(),
-					orgId: z.uuid(),
-					objectiveId: z.uuid().optional(),
-					title: z.string().min(1).max(500),
-					kind: TaskKindSchema.default("general"),
-					blocker: z.string().max(5000).optional(),
-					evidence: z.array(z.string()).optional(),
-					toolingUsed: z.array(z.string()).optional(),
-					estimatedCost: z.record(z.string(), z.unknown()).optional(),
-				}),
-			)
-			.output(TaskSchema),
-
-		listTasks: oc
-			.route({
-				method: "GET",
-				path: "/tasks",
-				summary: "List tasks",
-				description:
-					"List tasks with optional filters. Powers the execution log view.",
-			})
-			.input(
-				z
-					.object({
-						tediId: z.uuid().optional(),
-						objectiveId: z.uuid().optional(),
-						status: TaskStatusSchema.optional(),
-						kind: TaskKindSchema.optional(),
-					})
-					.extend(PaginationSchema.shape)
-					.strict()
-					.optional(),
-			)
-			.output(
-				z.object({
-					data: z.array(TaskSchema),
-					pagination: PaginationMetaSchema,
-				}),
-			),
-
-		updateTask: oc
-			.route({
-				method: "PATCH",
-				path: "/tasks/{id}",
-				summary: "Update task",
-				description:
-					"Update task status and result. Called by tedi during execution.",
-				tags: ["tedi-objectives", "internal"],
-			})
-			.input(
-				z.object({
-					id: z.uuid(),
-					objectiveId: z.uuid().nullable().optional(),
-					kind: TaskKindSchema.optional(),
-					status: TaskStatusSchema.optional(),
-					blocker: z.string().max(5000).optional(),
-					evidence: z.array(z.string()).optional(),
-					toolingUsed: z.array(z.string()).optional(),
-					estimatedCost: z.record(z.string(), z.unknown()).optional(),
-					result: z.string().max(5000).optional(),
-					actualCost: z.record(z.string(), z.unknown()).optional(),
-					failCount: z.number().min(0).optional(),
-				}),
-			)
-			.output(TaskSchema),
-
-		deleteTask: oc
-			.route({
-				method: "DELETE",
-				path: "/tasks/{id}",
-				summary: "Delete task",
-				tags: ["tedi-objectives", "internal"],
-			})
-			.input(z.object({ id: z.uuid() }))
-			.output(z.object({ success: z.literal(true), deletedId: z.string() })),
-
-		getActiveTasks: oc
-			.route({
-				method: "GET",
-				path: "/tasks/active/{tediId}",
-				summary: "Get active tasks",
-				description:
-					"Get what the tedi is currently working on — in_progress and pending tasks.",
-			})
-			.input(z.object({ tediId: z.uuid() }))
-			.output(
-				z.object({
-					data: z.array(TaskSchema),
-				}),
-			),
 	});
 
 export type TediObjectivesContract = typeof tediObjectivesContract;

@@ -13,7 +13,7 @@ import type {
 	KeptCardHunk,
 	CardRevision,
 } from "@tedix/api-contract/schemas/card-revisions";
-import type { AgentRequestExecution } from "@tedix/api-contract/schemas/agent-requests";
+
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkProposal } from "@tedix/api-contract/schemas/work-interactions";
@@ -31,7 +31,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { organizations } from "./organizations";
 import { projects } from "./projects";
-import { workAttempts, workItems } from "./work-items";
+import { workItems } from "./work-items";
 
 export const WORK_CASE_STAGE_VALUES = [
 	"investigating",
@@ -176,41 +176,6 @@ export const workCases = sqliteTable(
 	],
 );
 
-export const workCaseDependencies = sqliteTable(
-	"work_case_dependencies",
-	{
-		id: text("id").primaryKey(),
-		orgId: text("org_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		prerequisiteCaseId: text("prerequisite_case_id").notNull(),
-		dependentCaseId: text("dependent_case_id").notNull(),
-		createdAt: text("created_at").notNull(),
-	},
-	(table) => [
-		foreignKey({
-			name: "fk_work_case_dependency_from",
-			columns: [table.orgId, table.prerequisiteCaseId],
-			foreignColumns: [workCases.orgId, workCases.id],
-		}).onDelete("cascade"),
-		foreignKey({
-			name: "fk_work_case_dependency_to",
-			columns: [table.orgId, table.dependentCaseId],
-			foreignColumns: [workCases.orgId, workCases.id],
-		}).onDelete("cascade"),
-		uniqueIndex("uniq_work_case_dependency").on(
-			table.orgId,
-			table.prerequisiteCaseId,
-			table.dependentCaseId,
-		),
-		index("idx_work_case_dependency_to").on(table.orgId, table.dependentCaseId),
-		check(
-			"chk_work_case_dependency_not_self",
-			sql`${table.prerequisiteCaseId} <> ${table.dependentCaseId}`,
-		),
-	],
-);
-
 export const workCaseItems = sqliteTable(
 	"work_case_items",
 	{
@@ -345,19 +310,6 @@ export const workApprovalProposals = sqliteTable(
 		),
 	],
 );
-
-/** Execution receipts are separate so approval scope and decisions remain immutable. */
-export const workApprovalExecutions = sqliteTable("work_approval_executions", {
-	proposalId: text("proposal_id")
-		.primaryKey()
-		.references(() => workApprovalProposals.id, { onDelete: "restrict" }),
-	orgId: text("org_id")
-		.notNull()
-		.references(() => organizations.id, { onDelete: "restrict" }),
-	execution: text("execution", { mode: "json" })
-		.$type<AgentRequestExecution>()
-		.notNull(),
-});
 
 export const workApprovalDecisions = sqliteTable(
 	"work_approval_decisions",
@@ -1125,7 +1077,7 @@ export const workBudgetReservations = sqliteTable(
 
 export type WorkCase = typeof workCases.$inferSelect;
 export type NewWorkCase = typeof workCases.$inferInsert;
-export type WorkCaseDependency = typeof workCaseDependencies.$inferSelect;
+
 export type WorkCaseItem = typeof workCaseItems.$inferSelect;
 export type WorkProjectHealthJudgment =
 	typeof workProjectHealthJudgments.$inferSelect;

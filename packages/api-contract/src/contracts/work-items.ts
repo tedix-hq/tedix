@@ -98,8 +98,6 @@ import {
 	ListWorkRecoveryProjectionResultSchema,
 	AttachWorkItemSourceInputSchema,
 	AttachWorkItemSourceResultSchema,
-	ListWorkItemProjectionsInputSchema,
-	ListWorkItemProjectionsResultSchema,
 	ListWorkItemSourcesInputSchema,
 	ListWorkItemSourcesResultSchema,
 	ReconcileWorkItemSourcesInputSchema,
@@ -129,7 +127,6 @@ import {
 	WorkBudgetEnvelopeSchema,
 	WorkResourcePoolProjectionSchema,
 	WorkBudgetEnvelopeProjectionSchema,
-	WorkCaseDependencySchema,
 	WorkCaseDetailSchema,
 	WorkCaseItemSchema,
 	WorkCaseKindSchema,
@@ -156,9 +153,6 @@ import {
 	WorkItemRiskLevelSchema,
 	WorkItemReadinessSchema,
 	WorkItemReadinessProjectionSchema,
-	WorkItemProjectionDirectionSchema,
-	WorkItemProjectionSchema,
-	WorkItemProjectionStatusSchema,
 	WorkItemRelationSchema,
 	WorkItemRelationTypeSchema,
 	WorkItemSchema,
@@ -531,13 +525,6 @@ export const workItemsContract = oc
 								"Opaque attachment cursor; omit to read the first bounded item page.",
 							),
 						itemLimit: z.number().int().min(1).max(100).default(50),
-						dependencyCursor: z
-							.uuid()
-							.optional()
-							.describe(
-								"Opaque dependency cursor; omit to read the first bounded dependency page.",
-							),
-						dependencyLimit: z.number().int().min(1).max(100).default(50),
 					})
 					.strict(),
 			)
@@ -671,16 +658,6 @@ export const workItemsContract = oc
 			)
 			.output(WorkCaseItemSchema),
 
-		addCaseDependency: oc
-			.route({
-				method: "POST",
-				path: "/cases/dependencies",
-				summary: "Add epic dependency",
-				successStatus: 201,
-			})
-			.input(z.object({ fromCaseId: z.uuid(), toCaseId: z.uuid() }).strict())
-			.output(WorkCaseDependencySchema),
-
 		getById: oc
 			.route({
 				method: "GET",
@@ -742,15 +719,6 @@ export const workItemsContract = oc
 			})
 			.input(ListWorkItemRelationsInputSchema)
 			.output(ListWorkItemRelationsResultSchema),
-
-		listProjections: oc
-			.route({
-				method: "GET",
-				path: "/projections",
-				summary: "List external-source links across the board",
-			})
-			.input(ListWorkItemProjectionsInputSchema)
-			.output(ListWorkItemProjectionsResultSchema),
 
 		attachWorkItemSource: oc
 			.route({
@@ -1800,30 +1768,6 @@ export const workItemsContract = oc
 					nextSequence: z.number().int().positive().nullable(),
 				}),
 			),
-
-		upsertProjection: oc
-			.route({
-				method: "PUT",
-				path: "/{id}/projections/{provider}",
-				summary: "Upsert Work Item projection",
-			})
-			.input(
-				z.object({
-					id: z.uuid(),
-					provider: z.string().min(1).max(100),
-					direction: WorkItemProjectionDirectionSchema.default("projection"),
-					status: WorkItemProjectionStatusSchema.default("pending"),
-					externalId: z.string().max(500).optional(),
-					externalUrl: z.string().max(2000).optional(),
-					externalProjectId: z.string().max(500).optional(),
-					externalSectionId: z.string().max(500).optional(),
-					lastSyncedAt: z.string().max(100).optional(),
-					lastError: z.string().max(5000).nullable().optional(),
-					syncCursor: z.string().max(1000).optional(),
-					providerState: JsonRecordSchema.optional(),
-				}),
-			)
-			.output(WorkItemProjectionSchema),
 	});
 
 export type WorkItemsContract = typeof workItemsContract;

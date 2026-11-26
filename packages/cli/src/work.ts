@@ -321,9 +321,9 @@ Factory controls (--input accepts inline JSON or @path):
   agent-turn-triage · agent-reply-label · agent-reply-draft-request · agent-session-report · choose-tool
   dispatch-reassign · dispatch-hold · dispatch-idle-list · dispatch-list · dispatch-get · dispatch-attempts
   epics [--all] [--project <id>] [--limit <n>] [--json] (open epics; --all includes closed)
-  epic-get · epic-create · epic-stage · epic-close · epic-attach · epic-dependency-add
+  epic-get · epic-create · epic-stage · epic-close · epic-attach
     Legacy epic verbs: case-list · case-get · case-create · case-stage · case-close · case-attach
-    · case-dependency-add (the API calls epics cases).
+    (the API calls epics cases).
     epic-create kind: delivery (a feature or other result due by a date) · investigation · incident
     · customer · opportunity · legal · operations · other
   dispatcher-health-list · dispatcher-health-record · runner-rules

@@ -108,10 +108,7 @@ export const tediRelations = defineRelationsPart(schema, (r) => ({
 			from: r.tedis.id,
 			to: r.tediObjectives.tediId,
 		}),
-		tasks: r.many.tediTasks({
-			from: r.tedis.id,
-			to: r.tediTasks.tediId,
-		}),
+
 		ledProjects: r.many.projects({
 			from: r.tedis.id,
 			to: r.projects.leadTediId,

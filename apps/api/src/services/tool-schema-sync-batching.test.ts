@@ -237,7 +237,6 @@ describe("plan-wide tool id resolution", () => {
 	it("pins the work-factory projection to exact verb-first ids and mutation kinds", () => {
 		const expected = {
 			"workItems/createCase": ["create_work_case", "write"],
-			"workItems/addCaseDependency": ["add_work_case_dependency", "write"],
 			"workApprovals/propose": ["propose_work_approval", "write"],
 			"workApprovals/decide": ["decide_work_approval", "write"],
 			"workApprovals/listInbox": ["list_work_approvals", "read"],

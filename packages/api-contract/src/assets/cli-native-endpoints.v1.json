@@ -34,7 +34,6 @@
 		"workInteractions/recordDraftDelivery",
 		"workInteractions/respond",
 		"workItems/accept",
-		"workItems/addCaseDependency",
 		"workItems/addComment",
 		"workItems/appendAttemptSteps",
 		"workItems/attachCaseWorkItem",

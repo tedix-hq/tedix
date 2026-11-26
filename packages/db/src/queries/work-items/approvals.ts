@@ -3,12 +3,7 @@ import {
 	matchesWorkApprovalVersion,
 	ownerWorkApprovalIsCurrent,
 } from "./planning-approval";
-import {
-	AgentRequestActionSchema,
-	AgentRequestProposalSchema,
-	agentRequestAction,
-	type AgentRequestExecution,
-} from "@tedix/api-contract/schemas/agent-requests";
+
 import { chunkForBoundParams } from "../../utils/batch";
 import { organizations as d1Organizations } from "../../schema/organizations";
 import { organizationMembers as d1OrganizationMembers } from "../../schema/organization-members";
@@ -33,12 +28,7 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { coreTable } from "../../core-store/client";
-import {
-	anyIds,
-	coreStore,
-	jsonParameter,
-	jsonRead,
-} from "../../core-store/dialect";
+import { anyIds, coreStore, jsonParameter } from "../../core-store/dialect";
 import { prefixedColumns } from "../../utils/select";
 import {
 	workItems as d1WorkItems,
@@ -47,7 +37,6 @@ import {
 } from "../../schema/work-items";
 import {
 	workApprovalDecisions as d1WorkApprovalDecisions,
-	workApprovalExecutions as d1WorkApprovalExecutions,
 	workApprovalProposals as d1WorkApprovalProposals,
 	type WorkApprovalDecision,
 	type WorkApprovalProposal,
@@ -200,86 +189,10 @@ function routineAcceptanceContract(
 	};
 }
 
-async function requireAgentRequestApprover(
-	db: DbQueryClient,
-	input: {
-		orgId: string;
-		approverType: string;
-		approverId: string;
-		authorityKey: string;
-		action: string;
-		proposal: Record<string, JsonValue>;
-	},
-) {
-	const parsed = AgentRequestProposalSchema.safeParse(input.proposal);
-	if (
-		!parsed.success ||
-		agentRequestAction(parsed.data) !== input.action ||
-		input.authorityKey !== input.action ||
-		input.approverType !== "user"
-	)
-		throw new WorkControlError(
-			"NOT_ELIGIBLE",
-			"Agent requests require a matching typed proposal and user approver",
-		);
-	const organizations = coreTable(db, d1Organizations);
-	const organizationMembers = coreTable(db, d1OrganizationMembers);
-	const [organization] = await db
-		.select({ metadata: organizations.metadata })
-		.from(organizations)
-		.where(eq(organizations.id, input.orgId))
-		.limit(1);
-	if (organization?.metadata?.agentRequestApprovals?.approver !== "org_admin")
-		throw new WorkControlError(
-			"NOT_ELIGIBLE",
-			"Agent request approval policy has not been enabled by the organization owner",
-		);
-	const members = await db
-		.select({
-			userId: organizationMembers.userId,
-			role: organizationMembers.role,
-		})
-		.from(organizationMembers)
-		.where(
-			and(
-				eq(organizationMembers.organizationId, input.orgId),
-				eq(organizationMembers.status, "active"),
-				eq(organizationMembers.kind, "human"),
-				anyIds(db, organizationMembers.userId, [
-					input.approverId,
-					parsed.data.ownerUserId,
-				]),
-			),
-		);
-	if (
-		!members.some(
-			(member) =>
-				member.userId === input.approverId &&
-				["owner", "admin"].includes(member.role),
-		)
-	)
-		throw new WorkControlError(
-			"INVALID_PRINCIPAL",
-			"Agent request approver must be an active organization owner or admin",
-		);
-	if (
-		!members.some(
-			(member) =>
-				member.userId === parsed.data.ownerUserId &&
-				["owner", "admin", "member"].includes(member.role),
-		)
-	)
-		throw new WorkControlError(
-			"INVALID_PRINCIPAL",
-			"Agent request owner must be an active organization member",
-		);
-	return parsed.data;
-}
-
 export async function proposeWorkApproval(
 	db: DbQueryClient,
 	p: ProposeWorkApprovalParams,
-): Promise<WorkApprovalProposal & { execution: AgentRequestExecution | null }> {
+): Promise<WorkApprovalProposal> {
 	const item = await requireWorkItem(db, p.orgId, p.workItemId);
 	if (item.version !== p.workItemVersion)
 		throw new WorkControlError(
@@ -287,15 +200,11 @@ export async function proposeWorkApproval(
 			"Approval proposal Work Item version is stale",
 		);
 	const action = p.action ?? WORK_ADMISSION_APPROVAL_ACTION;
-	const agentRequest = AgentRequestActionSchema.safeParse(action).success;
-	if (agentRequest) {
-		await requireAgentRequestApprover(db, { ...p, action });
-		if (["completed", "cancelled"].includes(item.disposition))
-			throw new WorkControlError(
-				"NOT_ELIGIBLE",
-				"Agent requests require open Work",
-			);
-	}
+	if (action !== "admission" && action !== "acceptance")
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Unsupported Work approval action",
+		);
 	const contract =
 		action === "acceptance"
 			? routineAcceptanceContract(item, p, p.acceptanceContract)
@@ -353,7 +262,6 @@ export async function proposeWorkApproval(
 	// One pending proposal per scope (uniq_work_approval_pending_scope). Name
 	// the live one instead of surfacing the index violation as a server error.
 	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
-	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
 	const requireNoPendingScope = async () => {
 		const [pending] = await db
 			.select({
@@ -433,17 +341,7 @@ export async function proposeWorkApproval(
 		.returning();
 	let rows;
 	try {
-		[, rows] = agentRequest
-			? await db.batch([
-					expire,
-					insert,
-					db.insert(workApprovalExecutions).values({
-						proposalId: p.id,
-						orgId: p.orgId,
-						execution: { status: "pending" },
-					}),
-				])
-			: await db.batch([expire, insert]);
+		[, rows] = await db.batch([expire, insert]);
 	} catch (error) {
 		// A concurrent proposal won the pending slot between check and insert.
 		await requireNoPendingScope();
@@ -465,10 +363,7 @@ export async function proposeWorkApproval(
 			},
 			item,
 		);
-	return {
-		...rows[0]!,
-		execution: agentRequest ? { status: "pending" } : null,
-	};
+	return rows[0]!;
 }
 
 export interface DecideWorkApprovalParams {
@@ -536,12 +431,6 @@ export async function decideWorkApproval(
 			"INVALID_PRINCIPAL",
 			"Requester cannot decide its own proposal",
 		);
-	const agentRequest = AgentRequestActionSchema.safeParse(
-		proposal.action,
-	).success;
-	const agentProposal = agentRequest
-		? await requireAgentRequestApprover(db, proposal)
-		: undefined;
 	const contract =
 		proposal.action === "acceptance" && p.decision === "approved"
 			? routineAcceptanceContract(
@@ -580,12 +469,6 @@ export async function decideWorkApproval(
 						sql`${workApprovalProposals.expiresAt}>${p.now}`,
 						proposal.action === "admission" && p.decision === "approved"
 							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion})`
-							: undefined,
-						agentProposal
-							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition} NOT IN ('completed', 'cancelled'))
-							 AND EXISTS (SELECT 1 FROM ${organizationMembers} WHERE ${organizationMembers.organizationId}=${p.orgId} AND ${organizationMembers.userId}=${p.deciderId} AND ${organizationMembers.status}='active' AND ${organizationMembers.kind}='human' AND ${organizationMembers.role} IN ('owner','admin'))
-							 AND EXISTS (SELECT 1 FROM ${organizationMembers} WHERE ${organizationMembers.organizationId}=${p.orgId} AND ${organizationMembers.userId}=${agentProposal.ownerUserId} AND ${organizationMembers.status}='active' AND ${organizationMembers.kind}='human' AND ${organizationMembers.role} IN ('owner','admin','member'))
-							 AND EXISTS (SELECT 1 FROM ${organizations} WHERE ${organizations.id}=${p.orgId} AND ${jsonRead(db, organizations.metadata, ["agentRequestApprovals", "approver"], "text")}='org_admin')`
 							: undefined,
 						contract
 							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition}='proposed')`
@@ -673,22 +556,13 @@ export async function getWorkApprovalProposal(
 	p: { orgId: string; proposalId: string },
 ) {
 	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
-	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
 	return (
 		(
 			await db
 				.select({
 					...getColumns(workApprovalProposals),
-					execution: workApprovalExecutions.execution,
 				})
 				.from(workApprovalProposals)
-				.leftJoin(
-					workApprovalExecutions,
-					and(
-						eq(workApprovalExecutions.proposalId, workApprovalProposals.id),
-						eq(workApprovalExecutions.orgId, workApprovalProposals.orgId),
-					),
-				)
 				.where(
 					and(
 						eq(workApprovalProposals.orgId, p.orgId),
@@ -698,53 +572,6 @@ export async function getWorkApprovalProposal(
 				.limit(1)
 		)[0] ?? null
 	);
-}
-/** A durable claim prevents a repeated decision from repeating external effects. */
-export async function claimAgentRequestExecution(
-	db: DbQueryClient,
-	input: { orgId: string; proposalId: string; decisionId: string },
-) {
-	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
-	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
-	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
-	const workItems = coreTable(db, d1WorkItems);
-	const organizations = coreTable(db, d1Organizations);
-	const rows = await db
-		.update(workApprovalExecutions)
-		.set({ execution: { status: "running" } })
-		.where(
-			and(
-				eq(workApprovalExecutions.orgId, input.orgId),
-				eq(workApprovalExecutions.proposalId, input.proposalId),
-				sql`${jsonRead(db, workApprovalExecutions.execution, ["status"], "text")} = 'pending'`,
-				sql`EXISTS (SELECT 1 FROM ${workApprovalProposals} p JOIN ${workApprovalDecisions} d ON d.proposal_id=p.id WHERE p.org_id=${input.orgId} AND p.id=${input.proposalId} AND p.status='approved' AND p.action IN ('agent.create','agent.connect','resource.grant') AND d.id=${input.decisionId} AND d.decision='approved'
-				 AND EXISTS (SELECT 1 FROM ${organizations} o WHERE o.id=p.org_id AND ${jsonRead(db, sql`o.metadata`, ["agentRequestApprovals", "approver"], "text")}='org_admin')
-				 AND EXISTS (SELECT 1 FROM ${workItems} wi WHERE wi.org_id=p.org_id AND wi.id=p.work_item_id AND wi.version=p.work_item_version AND wi.disposition NOT IN ('completed','cancelled')))`,
-			),
-		)
-		.returning();
-	return rows[0] ? getWorkApprovalProposal(db, input) : null;
-}
-
-export async function finishAgentRequestExecution(
-	db: DbQueryClient,
-	input: {
-		orgId: string;
-		proposalId: string;
-		execution: AgentRequestExecution & { status: "succeeded" | "failed" };
-	},
-) {
-	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
-	await db
-		.update(workApprovalExecutions)
-		.set({ execution: input.execution })
-		.where(
-			and(
-				eq(workApprovalExecutions.orgId, input.orgId),
-				eq(workApprovalExecutions.proposalId, input.proposalId),
-				sql`${jsonRead(db, workApprovalExecutions.execution, ["status"], "text")} = 'running'`,
-			),
-		);
 }
 
 /** Task memory needs state only, with the same newest-100 window per Work. */
@@ -863,7 +690,6 @@ export async function listWorkApprovalInbox(
 	},
 ) {
 	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
-	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
 	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
 	const workItems = coreTable(db, d1WorkItems);
 	const asApprover = p.party
@@ -892,7 +718,6 @@ export async function listWorkApprovalInbox(
 	const limit = Math.min(p.limit ?? 50, 200);
 	const rows = await db
 		.select({
-			execution: workApprovalExecutions.execution,
 			proposal: prefixedColumns(
 				workApprovalProposals,
 				"work_approval_proposal",
@@ -905,13 +730,6 @@ export async function listWorkApprovalInbox(
 			workItem: prefixedColumns(workItems, "work_approval_item"),
 		})
 		.from(workApprovalProposals)
-		.leftJoin(
-			workApprovalExecutions,
-			and(
-				eq(workApprovalExecutions.proposalId, workApprovalProposals.id),
-				eq(workApprovalExecutions.orgId, workApprovalProposals.orgId),
-			),
-		)
 		.innerJoin(
 			workItems,
 			and(
@@ -953,7 +771,6 @@ export async function listWorkApprovalInbox(
 	// acceptance-contract shape, which the strict read contract rejects.
 	const data = rows.slice(0, limit).map((row) => ({
 		...row,
-		proposal: { ...row.proposal, execution: row.execution },
 		workItem: normalizeWorkItemRow(row.workItem),
 	}));
 	const last = data.at(-1);

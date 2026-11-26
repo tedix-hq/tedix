@@ -2116,6 +2116,10 @@
 		{
 			"name": "20261126101840_restore_cost_rollup_stale_call_triggers/migration.sql",
 			"sha256": "b7de6b725bc9b40f9c393b6b2aec58c9cccf7ea52322faf1fd17c30104014f92"
+		},
+		{
+			"name": "20261126102623_retire_unused_work_tables/migration.sql",
+			"sha256": "0d9bc293eb9b7799bf62650729ad4e738a818a818e2e6242e3b8329375a570a1"
 		}
 	]
 }

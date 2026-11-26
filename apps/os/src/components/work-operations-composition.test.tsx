@@ -935,13 +935,6 @@ describe("Work case detail", () => {
 			],
 			nextCursor: null,
 		},
-		dependencies: {
-			data: [
-				{ id: "edge-1", fromCaseId: "case-1", toCaseId: OTHER_STREAM },
-				{ id: "edge-2", fromCaseId: OTHER_STREAM, toCaseId: "case-1" },
-			],
-			nextCursor: null,
-		},
 	});
 
 	it("picks tasks and epics by title and never shows raw ids", async () => {
@@ -961,7 +954,7 @@ describe("Work case detail", () => {
 		// No typed-id fields remain; both actions start disabled until a pick.
 		expect(page.host.querySelector('input[placeholder*="UUID"]')).toBeNull();
 		expect(page.host.textContent).not.toContain("Work Item id");
-		for (const label of ["Add Work Item", "Add dependency"]) {
+		for (const label of ["Add Work Item"]) {
 			const button = [...page.host.querySelectorAll("button")].find(
 				(candidate) => candidate.textContent?.trim() === label,
 			);
@@ -970,31 +963,17 @@ describe("Work case detail", () => {
 		expect(
 			page.host.querySelector('[aria-label="Choose a Work Item"]'),
 		).not.toBeNull();
-		expect(
-			page.host.querySelector('[aria-label="Choose an epic"]'),
-		).not.toBeNull();
 		// Lists name tasks and epics by title.
 		const task = page.host.querySelector("[data-case-task]")!;
 		expect(task.textContent).toBe(
 			"Refund the March orders — Customers wait on it",
 		);
-		const edges = [...page.host.querySelectorAll("[data-case-dependency]")].map(
-			(edge) => edge.textContent,
-		);
-		expect(edges).toEqual([
-			"Supplier audit waits for this one",
-			"This one waits for Supplier audit",
-		]);
 		expect(page.host.textContent).not.toContain(TASK);
 		expect(page.host.textContent).not.toContain(OTHER_STREAM);
 		await page.submit("Add Work Item");
-		await page.submit("Add dependency");
 		expect(
 			api.calls.filter((call) =>
-				[
-					"workItems.attachCaseWorkItem",
-					"workItems.addCaseDependency",
-				].includes(call.path),
+				["workItems.attachCaseWorkItem"].includes(call.path),
 			),
 		).toEqual([]);
 	});

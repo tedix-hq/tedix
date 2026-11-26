@@ -940,15 +940,12 @@ export const goalEpicListQueryOptions = () =>
 export const workCaseDetailQueryOptions = (
 	caseId: string,
 	itemCursor?: string,
-	dependencyCursor?: string,
 ) =>
 	osQuery.workItems.getCase.queryOptions({
 		input: {
 			caseId,
 			itemLimit: 50,
-			dependencyLimit: 50,
 			...(itemCursor ? { itemCursor } : {}),
-			...(dependencyCursor ? { dependencyCursor } : {}),
 		},
 	});
 

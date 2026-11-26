@@ -613,18 +613,10 @@ function useTaskTitles(ids: readonly string[]) {
 export function WorkCasePage({ caseId }: { caseId: string }) {
 	const client = useQueryClient();
 	const itemPaging = useCursorPaging<string>();
-	const dependencyPaging = useCursorPaging<string>();
-	const detailOptions = workCaseDetailQueryOptions(
-		caseId,
-		itemPaging.cursor,
-		dependencyPaging.cursor,
-	);
+	const detailOptions = workCaseDetailQueryOptions(caseId, itemPaging.cursor);
 	const query = useQuery(detailOptions);
 	const projects = useProjectNames();
-	const streams = useQuery(workCaseListQueryOptions());
-	const streamTitles = new Map(
-		(streams.data?.data ?? []).map((row) => [row.id, row.title]),
-	);
+
 	const attachedIds = (query.data?.items.data ?? []).map(
 		(item) => item.workItemId,
 	);
@@ -633,7 +625,6 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 	const [taskId, setTaskId] = useState("");
 	const [taskLabel, setTaskLabel] = useState("");
 	const [rationale, setRationale] = useState("");
-	const [dependentId, setDependentId] = useState("");
 	const taskOptions = useTaskOptions(
 		query.data?.workCase.projectId ?? null,
 		taskSearch,
@@ -690,18 +681,6 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 			await refresh();
 		},
 	});
-	const dependency = useMutation({
-		mutationFn: () =>
-			osApi.workItems.addCaseDependency({
-				fromCaseId: caseId,
-				toCaseId: dependentId,
-			}),
-		onSuccess: async () => {
-			setDependentId("");
-			dependencyPaging.reset();
-			await refresh();
-		},
-	});
 	if (query.isPending)
 		return (
 			<Page width="lg">
@@ -722,10 +701,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 			</Page>
 		);
 	const record = query.data.workCase;
-	const streamOptions = (streams.data?.data ?? [])
-		.filter((row) => row.id !== caseId)
-		.map((row) => ({ value: row.id, label: row.title }));
-	const streamName = (id: string) => streamTitles.get(id) ?? "Another epic";
+
 	return (
 		<Page width="lg">
 			<PageBack render={<Link href="/work/cases" />}>All epics</PageBack>
@@ -823,38 +799,6 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 						</form>
 					</CardContent>
 				</Card>
-				<Card>
-					<CardHeader>
-						<CardTitle>Add a dependency</CardTitle>
-						<CardDescription>
-							Pick the epic that has to wait until this one is done.
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<form
-							className="grid gap-3"
-							data-add-dependency-form
-							onSubmit={(event) => {
-								event.preventDefault();
-								if (dependentId && !dependency.isPending) dependency.mutate();
-							}}
-						>
-							<OperationPicker
-								label="Choose an epic"
-								options={streamOptions}
-								value={dependentId}
-								onSelect={setDependentId}
-							/>
-							<Button
-								type="submit"
-								disabled={!dependentId || dependency.isPending}
-							>
-								{dependency.isPending ? "Adding…" : "Add dependency"}
-							</Button>
-							<MutationError error={dependency.error} />
-						</form>
-					</CardContent>
-				</Card>
 			</div>
 			<SectionCollection
 				title={`Work Items (${query.data.items.data.length})`}
@@ -882,42 +826,6 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 								{item.rationale ? ` — ${item.rationale}` : ""}
 							</Text>
 						))
-					: undefined}
-			</SectionCollection>
-			<SectionCollection
-				title={`Dependencies (${query.data.dependencies.data.length})`}
-				description="Epics that must finish before others can go ahead."
-				empty="No dependencies."
-				footer={
-					<PageControls
-						hasPrevious={dependencyPaging.hasPrevious}
-						hasNext={Boolean(query.data.dependencies.nextCursor)}
-						onPrevious={dependencyPaging.reset}
-						onBack={dependencyPaging.previous}
-						onNext={() => {
-							if (query.data.dependencies.nextCursor)
-								dependencyPaging.next(query.data.dependencies.nextCursor);
-						}}
-					/>
-				}
-			>
-				{query.data.dependencies.data.length
-					? query.data.dependencies.data.map((edge) => {
-							const waiting = edge.fromCaseId === caseId;
-							const other = waiting ? edge.toCaseId : edge.fromCaseId;
-							const link = (
-								<Link href={`/work/cases/${other}`}>{streamName(other)}</Link>
-							);
-							return (
-								<Text as="li" role="body" key={edge.id} data-case-dependency>
-									{waiting ? (
-										<>{link} waits for this one</>
-									) : (
-										<>This one waits for {link}</>
-									)}
-								</Text>
-							);
-						})
 					: undefined}
 			</SectionCollection>
 		</Page>

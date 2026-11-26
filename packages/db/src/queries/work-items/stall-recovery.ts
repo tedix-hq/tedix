@@ -36,10 +36,7 @@ import {
 	osWorkspaceProjects as d1OsWorkspaceProjects,
 } from "../../schema/os-workspaces";
 import { platformCronCheckpoints as d1PlatformCronCheckpoints } from "../../schema/platform-cron-executions";
-import {
-	anyTediTask,
-	tediTasks as d1TediTasks,
-} from "../../schema/tedi-objectives";
+
 import {
 	anyWorkAgentSessionReport,
 	workAgentSessions as d1WorkAgentSessions,
@@ -248,7 +245,7 @@ function readContinuityScopeSlice(
 
 /** Latest activity that does not hang off Work Items, in the inventory's timestamp text. */
 interface ContinuityHistoryRow {
-	source: "session" | "link" | "workspace" | "objective";
+	source: "session" | "link" | "workspace";
 	/** Scope key, on `session` and `link` rows. */
 	key: string | null;
 	orgId: string | null;
@@ -334,11 +331,9 @@ function latestInIndex<
 }
 
 /**
- * Agent sessions, gadget executions and tedi tasks of a few scopes, in a
- * statement apart from their Work. A workspace linked to several projects, or
- * an objective several projects share, is read once: `seenWorkspaces` and
- * `seenObjectives` name the ones an earlier statement of the same page already
- * read; this statement skips them.
+ * Agent sessions and gadget executions of a few scopes, in a statement
+ * apart from their Work. A workspace linked to several projects is read once: `seenWorkspaces` names the ones an earlier statement of the
+ * same page already read; this statement skips them.
  *
  * Only the latest activity is wanted, so each history is read from the end of
  * an index that ends in its timestamp (see `latestInIndex`), not row by row.
@@ -351,11 +346,9 @@ function readContinuityHistory(
 	scopes: ContinuityScopeSlice[],
 	environment: string,
 	seenWorkspaces: ContinuityHistorySeen,
-	seenObjectives: ContinuityHistorySeen,
 ): Promise<ContinuityHistoryRow[]> {
 	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
-	const tediTasks = coreTable(db, d1TediTasks);
 	const workAgentSessions = coreTable(db, d1WorkAgentSessions);
 	const page = JSON.stringify(
 		scopes.map((scope) => [
@@ -374,9 +367,6 @@ function readContinuityHistory(
 	const orgId = sql<string>`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[1]')` : sql`s.value ->> 1`}`;
 	const isProject = sql`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[2]')` : sql`s.value ->> 2`} = 'project'`;
 	const id = sql<string>`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[3]')` : sql`s.value ->> 3`}`;
-	const objectiveId = sql<
-		string | null
-	>`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[4]')` : sql`s.value ->> 4`}`;
 	const unseen = (owners: ContinuityHistorySeen, org: SQL, owner: SQL) =>
 		coreStore(db) === "d1"
 			? sql`NOT EXISTS (SELECT 1 FROM json_each(${`[${[...owners.keys()].join(",")}]`}) AS v
@@ -409,19 +399,6 @@ function readContinuityHistory(
 			),
 		)
 		.as("u");
-	const objectives = db
-		.selectDistinct({
-			orgId: orgId.as("orgId"),
-			objectiveId: objectiveId.as("objectiveId"),
-		})
-		.from(scopePage())
-		.where(
-			and(
-				sql`${objectiveId} IS NOT NULL`,
-				unseen(seenObjectives, orgId, objectiveId),
-			),
-		)
-		.as("q");
 
 	// An execution counts at its completion, or at its start while it has none.
 	const ofWorkspace = (g: typeof osGadgetExecutions) =>
@@ -430,14 +407,7 @@ function readContinuityHistory(
 			eq(g.workspaceId, workspaces.workspaceId),
 			eq(g.runtimeEnvironment, environment),
 		);
-	// A task counts at its last update, or at its creation while it has none.
-	const ofObjective = (k: typeof tediTasks) =>
-		and(
-			eq(k.orgId, objectives.orgId),
-			eq(k.objectiveId, objectives.objectiveId),
-		);
-
-	// Every scope, workspace and objective read returns a row; one with no
+	// Every scope and workspace read returns a row; one with no
 	// history has no activity in it.
 	return db
 		.select({
@@ -502,31 +472,6 @@ function readContinuityHistory(
 					).as("startedActivity"),
 				})
 				.from(workspaces),
-		)
-		.unionAll(
-			db
-				.select({
-					source: sql<ContinuityHistoryRow["source"]>`'objective'`.as("source"),
-					key: none().as("key"),
-					orgId: sql<string | null>`${objectives.orgId}`.as("orgId"),
-					id: sql<string | null>`${objectives.objectiveId}`.as("id"),
-					activity: timestamp(
-						latestInIndex(
-							db,
-							tediTasks,
-							"k",
-							"updatedAt",
-							anyTediTask,
-							ofObjective,
-						),
-					).as("activity"),
-					startedActivity: timestamp(
-						latestInIndex(db, tediTasks, "n", "createdAt", anyTediTask, (n) =>
-							and(ofObjective(n), isNull(n.updatedAt)),
-						),
-					).as("startedActivity"),
-				})
-				.from(objectives),
 		);
 }
 
@@ -554,7 +499,6 @@ export async function listContinuityScopes(
 ): Promise<ContinuityScope[]> {
 	const scopes: ContinuityScope[] = [];
 	const workspaceActivity: ContinuityHistorySeen = new Map();
-	const objectiveActivity: ContinuityHistorySeen = new Map();
 	let cursor = after;
 	while (scopes.length < CONTINUITY_SCOPE_BATCH_SIZE) {
 		const scopeLimit = Math.min(
@@ -583,21 +527,17 @@ export async function listContinuityScopes(
 			slices,
 			environment,
 			workspaceActivity,
-			objectiveActivity,
 		)) {
 			if (row.source === "session") note(row.key!, row.activity);
 			else if (row.source === "link")
 				links.push({ key: row.key!, owner: historyOwner(row.orgId!, row.id!) });
 			else
-				(row.source === "workspace"
-					? workspaceActivity
-					: objectiveActivity
-				).set(
+				workspaceActivity.set(
 					historyOwner(row.orgId!, row.id!),
 					laterActivity(row.activity, row.startedActivity),
 				);
 		}
-		// A workspace or objective is not read again for this page, whether or
+		// A workspace is not read again for this page, whether or
 		// not it had history.
 		for (const { key, owner } of links) {
 			if (!workspaceActivity.has(owner)) workspaceActivity.set(owner, null);
@@ -634,12 +574,7 @@ export async function listContinuityScopes(
 				pending = more.filter((scope) => scope.workEnd !== null);
 			}
 		}
-		for (const { workEnd, objectiveId, ...scope } of slices) {
-			if (objectiveId !== null) {
-				const owner = historyOwner(scope.orgId, objectiveId);
-				if (!objectiveActivity.has(owner)) objectiveActivity.set(owner, null);
-				note(scope.key, objectiveActivity.get(owner)!);
-			}
+		for (const { workEnd, objectiveId: _objectiveId, ...scope } of slices) {
 			for (const activity of history.get(scope.key) ?? [])
 				if (activity !== null && activity > scope.lastActivityAt)
 					scope.lastActivityAt = activity;
@@ -741,7 +676,6 @@ export async function readStallRecoveryPage(
 	const completed = new Set(complete.map((scope) => scope.key));
 	const pending = slices.filter((scope) => !completed.has(scope.key));
 	const workspaces: ContinuityHistorySeen = new Map();
-	const objectives: ContinuityHistorySeen = new Map();
 	const sessions = new Map<string, string | null>();
 	const links: Array<{ key: string; owner: string }> = [];
 	if (complete.length) {
@@ -750,13 +684,12 @@ export async function readStallRecoveryPage(
 			complete,
 			environment,
 			workspaces,
-			objectives,
 		)) {
 			if (row.source === "session") sessions.set(row.key!, row.activity);
 			else if (row.source === "link")
 				links.push({ key: row.key!, owner: historyOwner(row.orgId!, row.id!) });
 			else
-				(row.source === "workspace" ? workspaces : objectives).set(
+				workspaces.set(
 					historyOwner(row.orgId!, row.id!),
 					laterActivity(row.activity, row.startedActivity),
 				);
@@ -772,16 +705,11 @@ export async function readStallRecoveryPage(
 			),
 		);
 	const scopes = complete.map(
-		({ workEnd: _workEnd, objectiveId, ...scope }) => ({
+		({ workEnd: _workEnd, objectiveId: _objectiveId, ...scope }) => ({
 			...scope,
 			lastActivityAt: laterActivity(
 				scope.lastActivityAt,
-				laterActivity(
-					activity.get(scope.key) ?? null,
-					objectiveId === null
-						? null
-						: (objectives.get(historyOwner(scope.orgId, objectiveId)) ?? null),
-				),
+				activity.get(scope.key) ?? null,
 			)!,
 		}),
 	);

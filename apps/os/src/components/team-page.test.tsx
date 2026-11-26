@@ -41,7 +41,6 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 import {
 	entrustmentSummary,
 	roleHint,
-	TASKS_PREVIEW_LIMIT,
 	TeamEmpty,
 	TediAvatar,
 	TediDetailLink,
@@ -97,20 +96,6 @@ const baseDetail: TediOperationsDetail = {
 			{ effectiveStatus: "restricted" },
 		],
 	},
-	activeTasks: [
-		{
-			id: "t1",
-			title: "Ship the deploy gate",
-			status: "in_progress",
-			blocker: null,
-		},
-		{
-			id: "t2",
-			title: "Fix cron drift",
-			status: "blocked",
-			blocker: "Waiting on approval",
-		},
-	],
 	objectives: [{ id: "o1", status: "active" }],
 	completedObjectives: 4,
 	muscleCount: 12,
@@ -310,10 +295,7 @@ describe("TediDetailPanel", () => {
 		const html = renderToStaticMarkup(<TediDetailPanel detail={baseDetail} />);
 		expect(html).toContain("Engineering Lead · Operator");
 		expect(html).toContain("2 active · 1 restricted entrustments");
-		expect(html).toContain("2 active tasks · 1 blocked");
 		expect(html).toContain("1 current objective · 4 completed");
-		expect(html).toContain("Ship the deploy gate");
-		expect(html).toContain("blocked: Waiting on approval");
 		expect(html).toContain(
 			"7 decisions · 3 facts learned in the last 24h · 12 muscle memories",
 		);
@@ -331,24 +313,6 @@ describe("TediDetailPanel", () => {
 		);
 		expect(html).toContain("No active role");
 		expect(html).toContain("No entrustments — observe-only");
-	});
-
-	it("truncates the task list past the preview limit", () => {
-		const manyTasks = Array.from(
-			{ length: TASKS_PREVIEW_LIMIT + 2 },
-			(_, i) => ({
-				id: `task-${i}`,
-				title: `Task ${i}`,
-				status: "in_progress",
-				blocker: null,
-			}),
-		);
-		const html = renderToStaticMarkup(
-			<TediDetailPanel detail={{ ...baseDetail, activeTasks: manyTasks }} />,
-		);
-		expect(html).toContain(`Task ${TASKS_PREVIEW_LIMIT - 1}`);
-		expect(html).not.toContain(`Task ${TASKS_PREVIEW_LIMIT}<`);
-		expect(html).toContain("+2 more active tasks");
 	});
 
 	it("surfaces the approval-fatigue signal when present", () => {

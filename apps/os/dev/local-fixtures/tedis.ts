@@ -289,14 +289,6 @@ export const operationsSummary = (
 		decisionsLast24h: 6,
 		factsLearnedLast24h: 3,
 	},
-	activeTasks: [
-		{
-			id: nextIdStable(tediId, 1),
-			title: taskTitle,
-			status: "in_progress",
-			blocker: null,
-		},
-	],
 	objectives: [
 		{ id: nextIdStable(tediId, 2), status: "active", gateConfig: null },
 	],

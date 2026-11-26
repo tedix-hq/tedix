@@ -54,10 +54,7 @@ export const workItemRelations = defineRelationsPart(schema, (r) => ({
 			from: r.tediObjectives.orgId,
 			to: r.organizations.id,
 		}),
-		tasks: r.many.tediTasks({
-			from: r.tediObjectives.id,
-			to: r.tediTasks.objectiveId,
-		}),
+
 		workItems: r.many.workItems({
 			from: r.tediObjectives.id,
 			to: r.workItems.objectiveId,
@@ -65,21 +62,6 @@ export const workItemRelations = defineRelationsPart(schema, (r) => ({
 		projects: r.many.projects({
 			from: r.tediObjectives.id,
 			to: r.projects.objectiveId,
-		}),
-	},
-
-	tediTasks: {
-		objective: r.one.tediObjectives({
-			from: r.tediTasks.objectiveId,
-			to: r.tediObjectives.id,
-		}),
-		tedi: r.one.tedis({
-			from: r.tediTasks.tediId,
-			to: r.tedis.id,
-		}),
-		organization: r.one.organizations({
-			from: r.tediTasks.orgId,
-			to: r.organizations.id,
 		}),
 	},
 
@@ -154,10 +136,6 @@ export const workItemRelations = defineRelationsPart(schema, (r) => ({
 			from: r.workItems.id,
 			to: r.workEvents.workItemId,
 		}),
-		projections: r.many.workItemProjections({
-			from: r.workItems.id,
-			to: r.workItemProjections.workItemId,
-		}),
 	},
 
 	workItemComments: {
@@ -230,17 +208,6 @@ export const workItemRelations = defineRelationsPart(schema, (r) => ({
 		attempt: r.one.workAttempts({
 			from: r.workEvents.attemptId,
 			to: r.workAttempts.id,
-		}),
-	},
-
-	workItemProjections: {
-		organization: r.one.organizations({
-			from: r.workItemProjections.orgId,
-			to: r.organizations.id,
-		}),
-		workItem: r.one.workItems({
-			from: r.workItemProjections.workItemId,
-			to: r.workItems.id,
 		}),
 	},
 }));

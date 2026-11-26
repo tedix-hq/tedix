@@ -1,12 +1,11 @@
 import { coreTable } from "../../core-store/client";
-import { anyIds } from "../../core-store/dialect";
+
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { workItems as d1WorkItems } from "../../schema/work-items";
 import { prefixedColumns } from "../../utils/select";
 import {
-	workCaseDependencies as d1WorkCaseDependencies,
 	workCaseItems as d1WorkCaseItems,
 	workCases as d1WorkCases,
 	type WorkCase,
@@ -320,83 +319,6 @@ export async function listWorkCasesForWorkItem(
 	return rows.map((row) => row.workCase);
 }
 
-export async function addWorkCaseDependency(
-	db: DbQueryClient,
-	p: {
-		id: string;
-		orgId: string;
-		prerequisiteCaseId: string;
-		dependentCaseId: string;
-		now: string;
-	},
-) {
-	const workCaseDependencies = coreTable(db, d1WorkCaseDependencies);
-	const workCases = coreTable(db, d1WorkCases);
-	if (p.prerequisiteCaseId === p.dependentCaseId)
-		throw new WorkControlError("CONFLICT", "Case cannot depend on itself");
-	const cases = await db
-		.select({ id: workCases.id })
-		.from(workCases)
-		.where(
-			and(
-				eq(workCases.orgId, p.orgId),
-				anyIds(db, workCases.id, [p.prerequisiteCaseId, p.dependentCaseId]),
-			),
-		);
-	for (const id of [p.prerequisiteCaseId, p.dependentCaseId])
-		if (!cases.some((row) => row.id === id))
-			throw new WorkControlError("NOT_FOUND", `Case ${id} was not found`);
-	const edges = await db
-		.select({
-			from: workCaseDependencies.prerequisiteCaseId,
-			to: workCaseDependencies.dependentCaseId,
-		})
-		.from(workCaseDependencies)
-		.where(eq(workCaseDependencies.orgId, p.orgId))
-		.limit(10_000);
-	const seen = new Set([p.dependentCaseId]);
-	const queue = [p.dependentCaseId];
-	while (queue.length) {
-		const node = queue.shift()!;
-		for (const edge of edges)
-			if (edge.from === node && !seen.has(edge.to)) {
-				if (edge.to === p.prerequisiteCaseId)
-					throw new WorkControlError(
-						"CONFLICT",
-						"Case dependency would create a cycle",
-					);
-				seen.add(edge.to);
-				queue.push(edge.to);
-			}
-	}
-	return (
-		await db
-			.insert(workCaseDependencies)
-			.values({ ...p, createdAt: p.now })
-			.returning()
-	)[0]!;
-}
-export async function listWorkCaseDependencies(
-	db: DbQueryClient,
-	p: { orgId: string; caseId: string; cursor?: string; limit?: number },
-) {
-	const workCaseDependencies = coreTable(db, d1WorkCaseDependencies);
-	const limit = Math.min(p.limit ?? 100, 500);
-	const rows = await db
-		.select()
-		.from(workCaseDependencies)
-		.where(
-			and(
-				eq(workCaseDependencies.orgId, p.orgId),
-				sql`(${workCaseDependencies.prerequisiteCaseId}=${p.caseId} OR ${workCaseDependencies.dependentCaseId}=${p.caseId})`,
-				p.cursor ? gt(workCaseDependencies.id, p.cursor) : undefined,
-			),
-		)
-		.orderBy(asc(workCaseDependencies.id))
-		.limit(limit + 1);
-	const data = rows.slice(0, limit);
-	return { data, nextCursor: rows.length > limit ? data.at(-1)!.id : null };
-}
 export async function linkWorkItemToCase(
 	db: DbQueryClient,
 	p: {

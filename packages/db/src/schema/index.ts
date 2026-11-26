@@ -255,12 +255,7 @@ export type {
 } from "./tedi-growth-snapshots";
 export * from "./tedi-growth-snapshots";
 // Tedi objectives and tasks (mission directives + execution log)
-export type {
-	NewTediObjective,
-	NewTediTask,
-	TediObjective,
-	TediTask,
-} from "./tedi-objectives";
+export type { NewTediObjective, TediObjective } from "./tedi-objectives";
 export * from "./tedi-objectives";
 // What a tedi keeps for itself: core memory and named notes, versioned
 export type {

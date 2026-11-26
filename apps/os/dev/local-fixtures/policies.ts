@@ -47,13 +47,6 @@ export const LOCAL_CASE_ITEMS: Array<{
 	rationale: string | null;
 	discoveredAt: string;
 }> = [];
-export const LOCAL_CASE_EDGES: Array<{
-	id: string;
-	orgId: string;
-	fromCaseId: string;
-	toCaseId: string;
-	createdAt: string;
-}> = [];
 
 // Offline examples only: these rows do not authorize or contact a provider.
 export const LOCAL_POLICY_UUID = "00000000-0000-4000-8000-000000000001";

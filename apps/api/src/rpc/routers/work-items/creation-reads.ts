@@ -47,8 +47,6 @@ import { listWorkItemComments } from "@tedix/db/queries/work-items/comments";
 import {
 	createWorkItem,
 	getWorkItemsByIds,
-	listOrgWorkItemProjections,
-	listWorkItemProjections,
 	listWorkItemsPage,
 } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemEvidence } from "@tedix/db/queries/work-items/evidence";
@@ -453,23 +451,21 @@ export const getByIdProcedure = authOs.getById.handler(
 			id = matches.data[0]!.id;
 		}
 		const workItem = await assertWorkItemAccess(context, id);
-		const [comments, evidencePage, projections, project, epics] =
-			await Promise.all([
-				listWorkItemComments(context.db, id),
-				listWorkItemEvidence(context.db, {
-					orgId: workItem.orgId,
-					workItemId: id,
-					limit: 100,
-				}),
-				listWorkItemProjections(context.db, id),
-				workItem.projectId
-					? getProjectById(context.db, workItem.projectId)
-					: undefined,
-				listWorkCasesForWorkItem(context.db, {
-					orgId: workItem.orgId,
-					workItemId: id,
-				}),
-			]);
+		const [comments, evidencePage, project, epics] = await Promise.all([
+			listWorkItemComments(context.db, id),
+			listWorkItemEvidence(context.db, {
+				orgId: workItem.orgId,
+				workItemId: id,
+				limit: 100,
+			}),
+			workItem.projectId
+				? getProjectById(context.db, workItem.projectId)
+				: undefined,
+			listWorkCasesForWorkItem(context.db, {
+				orgId: workItem.orgId,
+				workItemId: id,
+			}),
+		]);
 		return {
 			workItem,
 			canComplete: await canShowWorkItemCompletion(
@@ -498,7 +494,6 @@ export const getByIdProcedure = authOs.getById.handler(
 						id: evidencePage.nextCursor.id,
 					}
 				: null,
-			projections,
 		};
 	},
 );
@@ -676,38 +671,6 @@ export const reconcileWorkItemSourcesProcedure =
 			freshness,
 		};
 	});
-
-export const listProjectionsProcedure = authOs.listProjections.handler(
-	async ({ input, context }) => {
-		const orgId = requireOrgId(context);
-		const limit = input.limit ?? 100;
-		const offset = input.offset ?? 0;
-		// The page is a real SQL LIMIT/OFFSET over the same predicate `total`
-		// counts. This used to fetch `offset + limit` rows and slice, so the cost
-		// of a page grew linearly with its offset and every row before the page
-		// was serialized out of D1 only to be discarded.
-		const { data: rows, total } = await listOrgWorkItemProjections(context.db, {
-			orgId,
-			projectId: input.projectId,
-			provider: input.provider,
-			limit,
-			offset,
-		});
-		const data = rows.map(({ workItemStatus, ...row }) => ({
-			...row,
-			workItemDisposition: workItemStatus,
-		}));
-		return {
-			data,
-			pagination: {
-				limit,
-				offset,
-				total,
-				hasMore: offset + data.length < total,
-			},
-		};
-	},
-);
 
 export const listActivityProcedure = authOs.listActivity.handler(
 	async ({ input, context }) => {
