@@ -11,7 +11,6 @@ import {
 	isTransientD1ReadError,
 } from "@tedix/db/utils/d1-retry";
 import type { OutputBodyBucket } from "./os-output-revision-body-store";
-import { workspaceOwnsDocuments } from "./workspace-document-owner";
 
 /**
  * Thins editor auto-save revisions out of file history.
@@ -233,7 +232,7 @@ export async function runOutputRevisionThinningTick(input: {
 							workspaceId: candidate.workspaceId,
 						}
 					: null;
-				if (!scope || !(await workspaceOwnsDocuments(scope, input.runtime))) {
+				if (!scope) {
 					for (const row of group) pending.delete(row.rowid);
 					continue;
 				}

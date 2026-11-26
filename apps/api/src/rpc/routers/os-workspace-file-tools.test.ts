@@ -330,19 +330,6 @@ describe("move_os_output refusals", () => {
 		return { from, to, outputId: created.output.id };
 	}
 
-	/** One workspace's store answers that it does not keep its own files yet. */
-	function storeNotReady(workspaceId: string) {
-		const store = runtime();
-		const query = store.outputQuery.bind(store);
-		vi.spyOn(store, "outputQuery").mockImplementation(((
-			scope: Parameters<typeof query>[0],
-			request: Parameters<typeof query>[1],
-		) =>
-			request.op === "authority" && scope.workspaceId === workspaceId
-				? Promise.resolve("shared")
-				: query(scope, request)) as typeof store.outputQuery);
-	}
-
 	async function expectStillIn(outputId: string, workspaceId: string) {
 		const read = await c.org1.outputs.get({ outputId });
 		expect(read.output.workspaceId).toBe(workspaceId);
@@ -362,35 +349,6 @@ describe("move_os_output refusals", () => {
 					"The target workspace was not found, or you cannot open it. The file was not moved.",
 			});
 		await expectStillIn(outputId, from.id);
-	});
-
-	it("says the target's file storage is not ready instead of reporting a move in progress", async () => {
-		const { from, to, outputId } = await fileInDrafts();
-		storeNotReady(to.id);
-		const transfer = vi.spyOn(runtime(), "transferOutput");
-		await expect(
-			c.org1.outputs.move({ outputId, workspaceId: to.id }),
-		).rejects.toMatchObject({
-			code: "SERVICE_UNAVAILABLE",
-			message:
-				"The target workspace's file storage is not set up yet, so it cannot take files. The file was not moved.",
-		});
-		expect(transfer).not.toHaveBeenCalled();
-		await expectStillIn(outputId, from.id);
-	});
-
-	it("says the file's own workspace storage is not ready", async () => {
-		const { from, to, outputId } = await fileInDrafts();
-		storeNotReady(from.id);
-		const transfer = vi.spyOn(runtime(), "transferOutput");
-		await expect(
-			c.org1.outputs.move({ outputId, workspaceId: to.id }),
-		).rejects.toMatchObject({
-			code: "SERVICE_UNAVAILABLE",
-			message:
-				"The workspace this file is in does not keep its own files yet, so the file cannot be moved out of it. The file was not moved.",
-		});
-		expect(transfer).not.toHaveBeenCalled();
 	});
 
 	it("reports a move in progress only when the store says one is", async () => {

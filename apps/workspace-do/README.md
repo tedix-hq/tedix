@@ -239,9 +239,9 @@ routing and policy checks.
 
 The object extends the tenant store from `@tedix/db/tenant-store/store`:
 its own SQLite with the workspace's output rows (bodies stay in R2 by
-digest) and the memory tables. The store is initialized with the workspace's
-directory row when the workspace is created; until then output reads, writes
-and resource listings are refused. Apps and Work items are read from the core
+digest) and the memory tables. The store initializes from the workspace's
+directory row on first document or resource use if creation did not initialize
+it. A missing directory row is refused. Apps and Work items are read from the core
 database. Chat lists, turn reads and socket replay use only the native chat
 tables; `kernel_*` rows copied in by the November 2026 move are kept only
 until their conversation is deleted.

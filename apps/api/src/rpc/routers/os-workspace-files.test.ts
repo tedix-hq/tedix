@@ -370,7 +370,7 @@ describe("workspace file uploads", () => {
 		});
 		expect(listWorkspaceResourceSummaries(f.tenant, scope)).toEqual([]);
 	});
-	it("refuses a document on an inactive object while allowing resource-only confirmation", async () => {
+	it("preserves document and resource rows when the store is unavailable", async () => {
 		const f = fixture();
 		const { ticket, receipts } = await f.upload();
 		f.state.active = false;
@@ -380,17 +380,17 @@ describe("workspace file uploads", () => {
 			parts: receipts,
 		};
 		await expect(f.confirm({ ...input, document: true })).rejects.toThrow(
-			"activated workspace object",
+			"store is unavailable",
 		);
 		expect(
 			f.sqlite.prepare("SELECT count(*) AS n FROM os_workspace_resources").get()
 				?.n,
 		).toBe(0);
-		await f.confirm(input);
+		await expect(f.confirm(input)).rejects.toThrow("store is unavailable");
 		expect(
 			f.sqlite.prepare("SELECT count(*) AS n FROM os_workspace_resources").get()
 				?.n,
-		).toBe(1);
+		).toBe(0);
 		expect(
 			f.objectSql.prepare("SELECT count(*) AS n FROM os_outputs").get()?.n,
 		).toBe(0);

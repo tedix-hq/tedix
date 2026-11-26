@@ -1023,39 +1023,39 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		);
 	}
 
+	async #initializeOutputs(scope: WorkspaceScope): Promise<void> {
+		if (this.#ownsOutputs()) return;
+		await this.#serializeOutput(async () => {
+			if (this.#ownsOutputs()) return;
+			const workspace = await getOsWorkspace(
+				createDbQueryClient(this.env.DB),
+				scope,
+			);
+			if (!workspace) throw new Error("Workspace directory is missing");
+			this.ctx.storage.transactionSync(() => {
+				initializeWorkspaceDirectory(this.db as TenantStoreDb, workspace);
+				this.#store.put("output-authority", "object");
+			});
+		});
+	}
+
 	async outputQuery<K extends OutputQuery["op"]>(
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
 	): Promise<OutputQueryResult<K>> {
 		this.bindScope(scope);
+		await this.#initializeOutputs(scope);
 		const operation = query as OutputQuery;
 		if (operation.op === "purge")
 			return this.#serializeOutput(async () => {
-				if (!this.#ownsOutputs())
-					throw new Error("Workspace does not own these documents");
 				this.ctx.storage.transactionSync(() => {
 					purgeWorkspaceDocuments(this.db as TenantStoreDb, scope);
 				});
 				return undefined as OutputQueryResult<K>;
 			});
-		if (operation.op === "initialize")
-			return this.#serializeOutput(async () => {
-				if (this.#ownsOutputs()) return "object" as OutputQueryResult<K>;
-				const workspace = await getOsWorkspace(
-					createDbQueryClient(this.env.DB),
-					scope,
-				);
-				if (!workspace) throw new Error("Workspace directory is missing");
-				this.ctx.storage.transactionSync(() => {
-					initializeWorkspaceDirectory(this.db as TenantStoreDb, workspace);
-					this.#store.put("output-authority", "object");
-				});
-				return "object" as OutputQueryResult<K>;
-			});
+		if (operation.op === "initialize") return "object" as OutputQueryResult<K>;
 		if (operation.op === "placementPlan")
 			return this.#serializeOutput(async () => {
-				if (!this.#ownsOutputs())
-					throw new Error("Document placement requires an object owner");
 				const key = `document-placement:${operation.planId}`;
 				const previous = this.#store.get<DocumentTransfer[]>(key) ?? [];
 				if (
@@ -1076,18 +1076,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				this.#store.put(key, documents);
 				return documents as OutputQueryResult<K>;
 			});
-		if (operation.op === "authority")
-			return (
-				this.#ownsOutputs() ? "object" : "shared"
-			) as OutputQueryResult<K>;
 		if (operation.op === "resources")
 			return this.#serializeOutput(async () => {
-				if (!this.#ownsOutputs())
-					throw new Error("Workspace does not own these resources");
 				return executeOutputQuery(this.db as TenantStoreDb, scope, query);
 			});
-		if (operation.op === "thin" && !this.#ownsOutputs())
-			throw new Error("Workspace does not own these outputs");
 		if (operation.op === "snapshot" || operation.op === "import")
 			throw new Error("Use the output transfer RPC");
 		let outputId =
@@ -1123,10 +1115,6 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (excerptRevisionId)
 			this.#store.put(`output-excerpt:${excerptRevisionId}`, excerpt);
 		const write = async () => {
-			if (operation.op === "mergeProposal" && !this.#ownsOutputs())
-				throw new Error(
-					"Collaboration output merges require an activated workspace object",
-				);
 			const authorizedQuery: OutputQuery =
 				operation.op === "thin"
 					? {
@@ -1143,7 +1131,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				scope,
 				authorizedQuery,
 			);
-			if (operation.op === "revise" && this.#ownsOutputs()) {
+			if (operation.op === "revise") {
 				const revised = result as OutputQueryResult<"revise">;
 				if (revised.ok)
 					return { ...revised, projectionQueued: true } as OutputQueryResult<K>;
@@ -1219,11 +1207,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		transfer: DocumentTransfer,
 	): Promise<DocumentTransferPackage> {
 		this.bindScope(scope);
+		await this.#initializeOutputs(scope);
 		return this.#serializeOutput(async () => {
-			if (!this.#ownsOutputs())
-				throw new Error(
-					"Document transfer requires activated workspace objects",
-				);
 			if (
 				!transfer.transferId.trim() ||
 				transfer.sourceWorkspaceId !== scope.workspaceId ||
@@ -1311,11 +1296,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		payload: DocumentTransferPackage,
 	) {
 		this.bindScope(scope);
+		await this.#initializeOutputs(scope);
 		return this.#serializeOutput(async () => {
-			if (!this.#ownsOutputs())
-				throw new Error(
-					"Document transfer requires activated workspace objects",
-				);
 			const { transfer, snapshot, batches } = payload;
 			if (
 				transfer.targetWorkspaceId !== scope.workspaceId ||
@@ -1365,8 +1347,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		transfer: DocumentTransfer,
 	) {
 		this.bindScope(scope);
-		if (!this.#ownsOutputs())
-			throw new Error("Document transfer requires activated workspace objects");
+		await this.#initializeOutputs(scope);
 		const saved = this.#store.get<DocumentTransferReceipt>(
 			`document-transfer-import:${transfer.transferId}`,
 		);
@@ -1386,8 +1367,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		transfer: DocumentTransfer,
 	) {
 		this.bindScope(scope);
-		if (!this.#ownsOutputs())
-			throw new Error("Document transfer requires activated workspace objects");
+		await this.#initializeOutputs(scope);
 		const saved = this.#store.get<DocumentTransferPackage>(
 			`document-transfer:${transfer.transferId}`,
 		);
@@ -1471,6 +1451,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		targetWorkspaceId: string,
 	): Promise<OutputTransferResult> {
 		this.bindScope(scope);
+		await this.#initializeOutputs(scope);
 		if (scope.workspaceId === targetWorkspaceId) {
 			const output = await executeOutputQuery(this.db as TenantStoreDb, scope, {
 				op: "get",
@@ -4750,8 +4731,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	protected async projectOutput(scope: WorkspaceScope, outputId: string) {
 		const core = createDbQueryClient(this.env.DB);
-		if ((await this.outputQuery(scope, { op: "authority" })) === "shared")
-			return;
+		await this.#initializeOutputs(scope);
 		const row = await executeOutputQuery(this.db as TenantStoreDb, scope, {
 			op: "get",
 			outputId,
@@ -5233,10 +5213,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			},
 			validateAppSource: (files, date) =>
 				validateWorkspaceAppSource(this.env.LOADER, files, date),
-			assertWorkspaceAuthority: async () => {
-				if (!this.#ownsOutputs())
-					throw new Error("Workspace output activation is required");
-			},
+			assertWorkspaceAuthority: () => this.#initializeOutputs(scope),
 			commitOutput: (outputId, write) =>
 				this.#commitOutput(scope, outputId, write),
 			// Saves through the API notify there; the agent's saves land here.

@@ -101,16 +101,6 @@ async function fixture(moved = true) {
 			bound: typeof scope,
 			query: OutputQuery<K>,
 		) => {
-			if (query.op === "authority")
-				return (
-					tenant
-						.select({ id: osWorkspaces.id })
-						.from(osWorkspaces)
-						.where(eq(osWorkspaces.id, bound.workspaceId))
-						.get()
-						? "object"
-						: "shared"
-				) as OutputQueryResult<K>;
 			return executeOutputQuery(tenant, bound, query);
 		},
 		refreshOutputProjection: async (bound, outputId) => {
@@ -219,9 +209,6 @@ describe("workspace output storage authority", () => {
 			),
 		).toEqual([output.title]);
 		await settled();
-		expect(query.mock.calls.some(([, query]) => query.op === "authority")).toBe(
-			false,
-		);
 		expect(
 			await storage.getOsOutput(core, {
 				...params,
@@ -319,89 +306,46 @@ describe("workspace output storage authority", () => {
 			);
 	});
 
-	it.each(["directory-only", "full"])(
-		"reads only the object and refuses writes for a %s staged import",
-		async (stage) => {
-			const { core, coreSql, tenant, output, revision } = await fixture(true);
-			await d1Outputs.createOsOutput(core, scope, output, revision);
-			if (stage === "full")
-				await executeOutputQuery(tenant, scope, {
-					op: "create",
-					output: { ...output, title: "Staged copy" },
-					revision,
-				});
-			const runtime = config.env.WORKSPACE_RUNTIME!;
-			const query = vi
-				.spyOn(runtime, "outputQuery")
-				.mockImplementation(
-					async <K extends OutputOperation>(
-						_bound: typeof scope,
-						query: OutputQuery<K>,
-					) => {
-						if (query.op === "authority")
-							return "shared" as OutputQueryResult<K>;
-						return executeOutputQuery(tenant, _bound, query);
-					},
-				);
-			expect(
-				(await storage.listOsOutputs(core, scope, viewer)).map(
-					(row) => row.title,
-				),
-			).toEqual(stage === "full" ? ["Staged copy"] : []);
-			await settled();
-			expect(
-				(
-					await storage.getOsOutput(core, {
-						organizationId: scope.organizationId,
-						outputId: output.id,
-					})
-				)?.title,
-			).toBe(stage === "full" ? "Staged copy" : undefined);
+	it.each(["missing-runtime", "missing-location"])(
+		"refuses writes with %s without changing shared rows",
+		async (state) => {
+			const { core, tenant, output, revision } = await fixture(false);
+			const created = await d1Outputs.createOsOutput(
+				core,
+				scope,
+				output,
+				revision,
+			);
+			if (state === "missing-runtime") delete config.env.WORKSPACE_RUNTIME;
 			const params = {
 				organizationId: scope.organizationId,
 				outputId: output.id,
 			};
-			const writes = [
-				() => storage.createOsOutput(core, scope, output, revision),
+			const writes: Array<() => Promise<unknown>> = [
 				() =>
 					storage.createOsOutputRevision(core, {
 						...revision,
-						id: "browser-r2",
+						id: "revision-2",
 						expectedRevision: 1,
 					}),
 				() => storage.updateOsOutput(core, params, { title: "Changed" }),
 				() => storage.deleteOsOutput(core, params),
 			];
+			if (state === "missing-runtime")
+				writes.push(() =>
+					storage.createOsOutput(core, scope, output, revision),
+				);
 			for (const write of writes)
 				await expect(write()).rejects.toThrow(
-					"Workspace output writes require an activated workspace object",
+					state === "missing-runtime"
+						? "Workspace output runtime is unavailable"
+						: "Workspace output location is missing",
 				);
-			expect(await storage.moveOsOutput(core, output, "target")).toEqual({
-				ok: false,
-				reason: "source_not_ready",
-			});
-			expect(
-				(await d1Outputs.getOsOutput(core, params))?.currentRevisionId,
-			).toBe(revision.id);
-			expect((await d1Outputs.getOsOutput(core, params))?.title).toBe(
-				output.title,
+			expect(await d1Outputs.getOsOutput(core, params)).toEqual(created.output);
+			expect(await core.select().from(osOutputRevisions)).toHaveLength(1);
+			expect(await executeOutputQuery(tenant, scope, { op: "list" })).toEqual(
+				[],
 			);
-			expect(
-				coreSql
-					.prepare(
-						"SELECT count(*) AS n FROM os_output_revisions WHERE organization_id = ? AND output_id = ?",
-					)
-					.get(params.organizationId, params.outputId)?.n,
-			).toBe(1);
-			expect(
-				(
-					await executeOutputQuery(tenant, scope, {
-						op: "get",
-						outputId: output.id,
-					})
-				)?.currentRevisionId,
-			).toBe(stage === "full" ? revision.id : undefined);
-			expect(query.mock.calls.length).toBeGreaterThan(0);
 		},
 	);
 
@@ -511,104 +455,6 @@ describe("workspace output storage authority", () => {
 			)?.id,
 		).toBe(revision.id);
 	});
-	it.each(["shared", "missing-runtime", "missing-location"])(
-		"refuses all writes with %s without changing shared rows",
-		async (state) => {
-			const { core, tenant, output, revision } = await fixture(false);
-			const created = await d1Outputs.createOsOutput(
-				core,
-				scope,
-				output,
-				revision,
-			);
-			if (state !== "missing-location")
-				await publishOutputProjection(core, created.output, created.revision);
-			const runtime = config.env.WORKSPACE_RUNTIME!;
-			const query = vi.spyOn(runtime, "outputQuery");
-			const transfer = vi.spyOn(runtime, "transferOutput");
-			if (state === "missing-runtime") delete config.env.WORKSPACE_RUNTIME;
-			const params = {
-				organizationId: scope.organizationId,
-				outputId: output.id,
-			};
-			const writes = [
-				() =>
-					storage.createOsOutput(
-						core,
-						scope,
-						{ ...output, id: "new-output" },
-						{ ...revision, id: "new-revision", outputId: "new-output" },
-					),
-				() =>
-					storage.createOsOutputRevision(core, {
-						...revision,
-						id: "revision-2",
-						expectedRevision: 1,
-					}),
-				() => storage.updateOsOutput(core, params, { title: "Changed" }),
-				() => storage.deleteOsOutput(core, params),
-			];
-			for (const write of writes)
-				await expect(write()).rejects.toThrow(
-					state === "missing-runtime"
-						? "Workspace output runtime is unavailable"
-						: "Workspace output writes require an activated workspace object",
-				);
-			const move = storage.moveOsOutput(core, created.output, "target");
-			if (state === "missing-runtime")
-				await expect(move).rejects.toThrow(
-					"Workspace output runtime is unavailable",
-				);
-			else
-				expect(await move).toEqual({ ok: false, reason: "source_not_ready" });
-			expect(await d1Outputs.getOsOutput(core, params)).toEqual(created.output);
-			expect(await core.select().from(osOutputs)).toHaveLength(1);
-			expect(await core.select().from(osOutputRevisions)).toHaveLength(1);
-			expect(await executeOutputQuery(tenant, scope, { op: "list" })).toEqual(
-				[],
-			);
-			expect(
-				query.mock.calls.every(([, request]) => request.op === "authority"),
-			).toBe(true);
-			expect(transfer).not.toHaveBeenCalled();
-		},
-	);
-
-	it.each([false, true])(
-		"refuses an inactive move destination (shared rows: %s)",
-		async (sharedRows) => {
-			const { core, output, revision } = await fixture();
-			const created = await storage.createOsOutput(
-				core,
-				scope,
-				output,
-				revision,
-			);
-			if (sharedRows)
-				await d1Outputs.createOsOutput(
-					core,
-					{ ...scope, workspaceId: "target" },
-					{ ...output, id: "target-output", workspaceId: "target" },
-					{ ...revision, id: "target-revision", outputId: "target-output" },
-				);
-			const transfer = vi.spyOn(
-				config.env.WORKSPACE_RUNTIME!,
-				"transferOutput",
-			);
-			expect(
-				await storage.moveOsOutput(core, created.output, "target"),
-			).toEqual({ ok: false, reason: "target_not_ready" });
-			expect(transfer).not.toHaveBeenCalled();
-			expect(
-				(
-					await storage.getOsOutput(core, {
-						organizationId: scope.organizationId,
-						outputId: output.id,
-					})
-				)?.workspaceId,
-			).toBe(scope.workspaceId);
-		},
-	);
 
 	it("refuses create and move without a workspace", async () => {
 		const { core, output, revision } = await fixture();
@@ -619,9 +465,7 @@ describe("workspace output storage authority", () => {
 				{ ...output, workspaceId: null },
 				revision,
 			),
-		).rejects.toThrow(
-			"Workspace output writes require an activated workspace object",
-		);
+		).rejects.toThrow("Workspace output requires a workspace");
 		const created = await d1Outputs.createOsOutput(
 			core,
 			{ organizationId: scope.organizationId },
@@ -1220,27 +1064,6 @@ describe("object-first collaboration merge", () => {
 				outputId: f.output.id,
 			}),
 		).toHaveLength(2);
-		expect((await getOsCollaborationProposal(f.core, f.params))?.status).toBe(
-			"accepted",
-		);
-	});
-
-	it("refuses a workspace without object authority", async () => {
-		const f = await collaborationFixture(false);
-		await d1Outputs.createOsOutput(f.core, scope, f.output, f.revision);
-		await expect(
-			mergeOsCollaborationProposal(
-				f.core,
-				f.params,
-				storage.commitCollaborationOutput,
-			),
-		).rejects.toThrow("activated workspace object");
-		expect(
-			await executeOutputQuery(f.tenant, scope, {
-				op: "history",
-				outputId: f.output.id,
-			}),
-		).toHaveLength(1);
 		expect((await getOsCollaborationProposal(f.core, f.params))?.status).toBe(
 			"accepted",
 		);

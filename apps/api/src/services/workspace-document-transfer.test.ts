@@ -101,7 +101,6 @@ async function fixture(crash = "") {
 		imported: false,
 		removed: false,
 		crash,
-		inactive: "",
 		calls: [] as string[],
 	};
 	const fail = (step: string) => {
@@ -111,9 +110,6 @@ async function fixture(crash = "") {
 		}
 	};
 	const runtime: DocumentTransferRuntime = {
-		outputQuery: vi.fn(async (scope) =>
-			scope.workspaceId === state.inactive ? "shared" : "object",
-		) as DocumentTransferRuntime["outputQuery"],
 		prepareDocumentTransfer: vi.fn(async () => {
 			state.calls.push("prepare");
 			fail("prepare");
@@ -197,20 +193,6 @@ it("stops at a destination conflict without moving the index or removing the sou
 		"source",
 	);
 });
-
-it.each(["source", "target"])(
-	"refuses a not-yet-activated %s before preparation",
-	async (inactive) => {
-		const f = await fixture();
-		f.state.inactive = inactive;
-		await expect(f.run()).rejects.toThrow(
-			"requires activated workspace objects",
-		);
-		expect(f.runtime.prepareDocumentTransfer).not.toHaveBeenCalled();
-		expect(f.runtime.importDocumentTransfer).not.toHaveBeenCalled();
-		expect(f.runtime.removeDocumentTransfer).not.toHaveBeenCalled();
-	},
-);
 
 it("keeps the source when index history conflicts with the pinned transfer", async () => {
 	const f = await fixture();

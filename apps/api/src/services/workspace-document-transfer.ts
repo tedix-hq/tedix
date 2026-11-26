@@ -5,7 +5,6 @@ import type {
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { repointDocumentTransferIndex } from "@tedix/db/queries/workspace-feed/document-transfer";
-import { workspaceOwnsDocuments } from "./workspace-document-owner";
 
 /** Preparation primitive; callers authorize both workspaces before invoking it. */
 export async function transferWorkspaceDocument(
@@ -19,9 +18,6 @@ export async function transferWorkspaceDocument(
 	if (!runtime) throw new Error("Workspace output runtime is unavailable");
 	const source = { organizationId, workspaceId: transfer.sourceWorkspaceId };
 	const target = { organizationId, workspaceId: transfer.targetWorkspaceId };
-	for (const scope of [source, target])
-		if (!(await workspaceOwnsDocuments(scope, runtime)))
-			throw new Error("Document transfer requires activated workspace objects");
 	const payload = await runtime.prepareDocumentTransfer(source, transfer);
 	if (!payload.completed) {
 		await runtime.importDocumentTransfer(target, payload);

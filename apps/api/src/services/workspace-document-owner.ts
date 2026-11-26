@@ -2,10 +2,7 @@ import { env } from "cloudflare:workers";
 import type { WorkspaceOutputRuntime } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type { NewOsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
-import {
-	createOsWorkspace,
-	getOsWorkspaceByName,
-} from "@tedix/db/queries/os-workspaces/workspaces";
+import { createOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 
 export function workspaceDocumentRuntime(): WorkspaceOutputRuntime {
 	const runtime = (
@@ -25,7 +22,7 @@ export async function initializeWorkspaceDocumentOwner(workspace: {
 	);
 }
 
-/** Commit the directory first; callers cannot write documents until initialization succeeds. */
+/** Commit the directory first so a failed initialization can recover on document use. */
 export async function createInitializedWorkspace<
 	T extends
 		| { organizationId: string; id: string }
@@ -44,39 +41,5 @@ export async function createWorkspaceDocumentOwner(
 	db: DbQueryClient,
 	input: NewOsWorkspaceRow & { organizationId: string },
 ) {
-	return createInitializedWorkspace(async () => {
-		let row;
-		try {
-			row = await createOsWorkspace(db, input);
-		} catch (error) {
-			const existing = await getOsWorkspaceByName(db, input);
-			if (
-				!existing ||
-				existing.createdById !== input.createdById ||
-				existing.createdByKind !== input.createdByKind ||
-				existing.visibility !== (input.visibility ?? "org") ||
-				existing.ownerUserId !== (input.ownerUserId ?? null)
-			)
-				throw error;
-			if (
-				await workspaceOwnsDocuments({
-					organizationId: existing.organizationId,
-					workspaceId: existing.id,
-				})
-			)
-				throw error;
-			row = existing;
-		}
-		return row;
-	});
-}
-
-export async function workspaceOwnsDocuments(
-	scope: { organizationId: string; workspaceId: string },
-	runtime: Pick<
-		WorkspaceOutputRuntime,
-		"outputQuery"
-	> = workspaceDocumentRuntime(),
-) {
-	return (await runtime.outputQuery(scope, { op: "authority" })) === "object";
+	return createInitializedWorkspace(() => createOsWorkspace(db, input));
 }

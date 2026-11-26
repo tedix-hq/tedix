@@ -50,22 +50,20 @@ function createFixture(options: { failRead?: () => Error | null } = {}) {
 	);
 	const runtime: Pick<WorkspaceOutputRuntime, "outputQuery"> = {
 		outputQuery: (async (scope, query) =>
-			query.op === "authority"
-				? "object"
-				: executeOutputQuery(
-						tenant,
-						scope,
-						query.op === "thin"
-							? {
-									...query,
-									revisionIds: await unreferencedObjectOutputRevisions(
-										db,
-										{ ...scope, outputId: query.outputId },
-										query.revisionIds,
-									),
-								}
-							: query,
-					)) as WorkspaceOutputRuntime["outputQuery"],
+			executeOutputQuery(
+				tenant,
+				scope,
+				query.op === "thin"
+					? {
+							...query,
+							revisionIds: await unreferencedObjectOutputRevisions(
+								db,
+								{ ...scope, outputId: query.outputId },
+								query.revisionIds,
+							),
+						}
+					: query,
+			)) as WorkspaceOutputRuntime["outputQuery"],
 	};
 	const facade = createD1Facade(sqlite);
 	const d1 = options.failRead

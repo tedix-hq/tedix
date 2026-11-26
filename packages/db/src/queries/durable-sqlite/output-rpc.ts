@@ -51,13 +51,11 @@ export interface DocumentTransferRuntime {
 		scope: OsWorkspaceScopeParams,
 		transfer: DocumentTransfer,
 	): Promise<void>;
-	outputQuery: WorkspaceOutputRuntime["outputQuery"];
 }
 
 export interface OutputQueryInputs {
 	resources: { query: ResourceQuery };
 	purge: unknown;
-	authority: unknown;
 	initialize: unknown;
 	placementPlan: { planId: string; documents: DocumentTransfer[] };
 	snapshot: { outputId: string };
@@ -94,7 +92,6 @@ export interface OutputQueryInputs {
 export interface OutputQueryResults {
 	resources: ResourceQueryResult;
 	purge: void;
-	authority: "object" | "shared";
 	initialize: "object";
 	placementPlan: DocumentTransfer[];
 	snapshot: Awaited<ReturnType<typeof outputs.snapshotOutput>>;
@@ -183,7 +180,6 @@ async function execute(
 			return executeWorkspaceResourceQuery(db, scope, query.query);
 		case "placementPlan":
 		case "initialize":
-		case "authority":
 			throw new Error("Workspace authority requires the shared inventory");
 		case "snapshot":
 			if (!(await owned(query.outputId))) return undefined;

@@ -30,7 +30,6 @@ import {
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import { outputLibraryRowsFromIndex } from "./os-output-library";
 import { deleteOutputAssets } from "./os-output-assets";
-import { workspaceOwnsDocuments } from "./workspace-document-owner";
 
 type OutputScope = TenantScope & { outputId: string };
 type CreateOutputArgs = [
@@ -69,16 +68,6 @@ async function refreshCommittedOutput(
 function runtime(): WorkspaceOutputRuntime | undefined {
 	return (env as unknown as { WORKSPACE_RUNTIME?: WorkspaceOutputRuntime })
 		.WORKSPACE_RUNTIME;
-}
-
-async function location(
-	db: DbQueryClient,
-	organizationId: string,
-	outputId: string,
-) {
-	const scope = await readLocation(db, organizationId, outputId);
-	if (!scope) return undefined;
-	return (await workspaceOwnsDocuments(scope, runtime()!)) ? scope : undefined;
 }
 
 function readRuntime(): WorkspaceOutputRuntime {
@@ -124,14 +113,9 @@ export async function getOsOutput(
 	return row;
 }
 
-/**
- * Why a file was not moved. The store answers `not_found` and `conflict` (a
- * move of this file is in progress); the two `not_ready` reasons are decided
- * here, before the store is asked to start anything.
- */
 export type MoveOsOutputResult =
 	| OutputTransferResult
-	| { ok: false; reason: "source_not_ready" | "target_not_ready" };
+	| { ok: false; reason: "source_not_ready" };
 
 export async function moveOsOutput(
 	_db: DbQueryClient,
@@ -140,20 +124,7 @@ export async function moveOsOutput(
 ): Promise<MoveOsOutputResult> {
 	const store = readRuntime();
 	const { organizationId, workspaceId } = output;
-	if (
-		!workspaceId ||
-		!(await workspaceOwnsDocuments({ organizationId, workspaceId }, store))
-	)
-		return { ok: false, reason: "source_not_ready" };
-	// A store that does not keep its own files yet cannot take one. Asking
-	// first keeps the file from waiting on a move that cannot finish.
-	if (
-		!(await workspaceOwnsDocuments(
-			{ organizationId, workspaceId: targetWorkspaceId },
-			store,
-		))
-	)
-		return { ok: false, reason: "target_not_ready" };
+	if (!workspaceId) return { ok: false, reason: "source_not_ready" };
 	return store.transferOutput(
 		{ organizationId, workspaceId },
 		output.id,
@@ -304,21 +275,12 @@ export async function listOsOutputRevisions(
 	return rows;
 }
 
-export async function requireWorkspaceOutputAuthority(scope: {
+export function requireWorkspaceOutputScope(scope: {
 	organizationId: string;
 	workspaceId?: string | null;
 }) {
-	const store = readRuntime();
-	if (
-		!scope.workspaceId ||
-		!(await workspaceOwnsDocuments(
-			{ organizationId: scope.organizationId, workspaceId: scope.workspaceId },
-			store,
-		))
-	)
-		throw new Error(
-			"Workspace output writes require an activated workspace object",
-		);
+	if (!scope.workspaceId)
+		throw new Error("Workspace output requires a workspace");
 	return {
 		organizationId: scope.organizationId,
 		workspaceId: scope.workspaceId,
@@ -328,7 +290,7 @@ export async function requireWorkspaceOutputAuthority(scope: {
 export async function createOsOutput(...args: CreateOutputArgs) {
 	const [, scope, output, revision, excerpt] = args;
 	const store = readRuntime();
-	const bound = await requireWorkspaceOutputAuthority({
+	const bound = requireWorkspaceOutputScope({
 		organizationId: scope.organizationId,
 		workspaceId: output.workspaceId,
 	});
@@ -345,7 +307,7 @@ export async function createOsOutput(...args: CreateOutputArgs) {
 /** Concurrent upload confirmations must preserve the document and any later edits. */
 export async function ensureOsOutput(...args: CreateOutputArgs) {
 	const [, scope, output] = args;
-	const bound = await requireWorkspaceOutputAuthority({
+	const bound = requireWorkspaceOutputScope({
 		organizationId: scope.organizationId,
 		workspaceId: output.workspaceId,
 	});
@@ -372,11 +334,7 @@ export async function createOsOutputRevision(
 	const store = readRuntime();
 	const scope = await readLocation(db, params.organizationId, params.outputId);
 	lap?.("commitLocationMs");
-	if (!scope || !(await workspaceOwnsDocuments(scope, store)))
-		throw new Error(
-			"Workspace output writes require an activated workspace object",
-		);
-	lap?.("commitAuthorityMs");
+	if (!scope) throw new Error("Workspace output location is missing");
 	if (!params.bodyR2Key || !params.contentSha256 || params.contentBytes == null)
 		throw new Error("Workspace output revision requires its stored R2 body");
 	const result = await store.outputQuery(scope, {
@@ -405,15 +363,12 @@ export async function updateOsOutput(
 	...args: [db: DbQueryClient, params: OutputScope, patch: UpdateOsOutputPatch]
 ) {
 	const store = readRuntime();
-	const scope = await location(
+	const scope = await readLocation(
 		args[0],
 		args[1].organizationId,
 		args[1].outputId,
 	);
-	if (!scope)
-		throw new Error(
-			"Workspace output writes require an activated workspace object",
-		);
+	if (!scope) throw new Error("Workspace output location is missing");
 	return store.outputQuery(scope, {
 		op: "update",
 		outputId: args[1].outputId,
@@ -446,11 +401,8 @@ export async function deleteOsOutput(
 ) {
 	const [db, params] = args;
 	const store = readRuntime();
-	const scope = await location(db, params.organizationId, params.outputId);
-	if (!scope)
-		throw new Error(
-			"Workspace output writes require an activated workspace object",
-		);
+	const scope = await readLocation(db, params.organizationId, params.outputId);
+	if (!scope) throw new Error("Workspace output location is missing");
 	const removed = await store.outputQuery(scope, {
 		op: "delete",
 		outputId: params.outputId,
@@ -471,7 +423,7 @@ export async function deleteOsOutput(
 export async function commitCollaborationOutput(
 	params: CommitCollaborationOutputParams,
 ) {
-	const scope = await requireWorkspaceOutputAuthority(params.proposal);
+	const scope = requireWorkspaceOutputScope(params.proposal);
 	const result = await readRuntime().outputQuery(scope, {
 		op: "mergeProposal",
 		...params,

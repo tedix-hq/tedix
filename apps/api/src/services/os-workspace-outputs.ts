@@ -4,7 +4,6 @@ import { confirmWorkspaceFileResource } from "./workspace-resource-storage";
 import {
 	createInitializedWorkspace,
 	workspaceDocumentRuntime,
-	workspaceOwnsDocuments,
 } from "./workspace-document-owner";
 import * as outputs from "./workspace-output-storage";
 import { ORPCError } from "@orpc/server";
@@ -176,7 +175,7 @@ export async function confirmOsWorkspaceFile(
 					resource.workspaceId !== output.workspaceId))
 		)
 			throw new Error("Output revision scope mismatch");
-		const scope = await outputs.requireWorkspaceOutputAuthority(output);
+		const scope = outputs.requireWorkspaceOutputScope(output);
 		const { body } = await storeRevisionBody(bucket, revision);
 		await outputs.ensureOsOutput(db, scope, output, {
 			...revision,
@@ -233,8 +232,7 @@ export async function instantiateOsBlueprint(
 	const workspace = await createInitializedWorkspace(() =>
 		prepareOsBlueprintWorkspace(db, params.workspace),
 	);
-	if (pairs.length) await outputs.requireWorkspaceOutputAuthority(scope);
-	if (params.resources?.length && (await workspaceOwnsDocuments(scope))) {
+	if (params.resources?.length) {
 		for (const resource of params.resources)
 			await workspaceDocumentRuntime().outputQuery(scope, {
 				op: "resources",
@@ -499,7 +497,6 @@ export async function mergeOsCollaborationProposal(
 		proposal.sequence !== params.expectedSequence
 	)
 		return mergeProposal(db, params);
-	await outputs.requireWorkspaceOutputAuthority(proposal);
 	const { content, body } = await storeRevisionBody(bucket, {
 		organizationId: proposal.organizationId,
 		outputId: proposal.documentId,

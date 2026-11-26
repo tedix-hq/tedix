@@ -663,12 +663,7 @@ function moveRefusal(
 		case "source_not_ready":
 			return createError(
 				ErrorCodes.SERVICE_UNAVAILABLE,
-				"The workspace this file is in does not keep its own files yet, so the file cannot be moved out of it. The file was not moved.",
-			);
-		case "target_not_ready":
-			return createError(
-				ErrorCodes.SERVICE_UNAVAILABLE,
-				"The target workspace's file storage is not set up yet, so it cannot take files. The file was not moved.",
+				"The file has no workspace, so it cannot be moved.",
 			);
 	}
 }

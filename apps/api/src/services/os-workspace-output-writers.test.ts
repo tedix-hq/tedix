@@ -146,18 +146,16 @@ describe.each(["file", "blueprint", "provisioning"])(
 			});
 		});
 
-		it("refuses an inactive object before writing bodies or provisioning", async () => {
+		it("keeps document rows unchanged when the store is unavailable", async () => {
 			const f = fixture();
 			f.state.active = false;
 			await expect(write(path, f)).rejects.toThrow(
-				path === "file"
-					? "activated workspace object"
-					: "Workspace store is unavailable",
+				"Workspace store is unavailable",
 			);
 			expect(f.sqlite.prepare("SELECT id FROM os_workspaces").all()).toEqual(
 				path === "file" ? [] : [{ id: workspace.id }],
 			);
-			expect(f.bucket.put).not.toHaveBeenCalled();
+			if (path !== "file") expect(f.bucket.put).not.toHaveBeenCalled();
 			for (const table of ["os_outputs", "os_output_revisions"])
 				expect(
 					f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n,

@@ -14,14 +14,11 @@ Read `README.md` first. Rules that are easy to break:
   `staticPromptPrefix()`; anything that varies goes in the suffix. Do not
   put the time, the user or the tedi into the prefix.
 - Workspace rows are read through `@tedix/db/queries/durable-sqlite/*` over
-  `this.db`. Imports stage rows without changing output authority. Only the
-  separate migration activation operation makes a staged workspace authoritative.
-  Pre-protocol owners and object-only transfer destinations keep their authority.
-  Browser and agent reads and writes use that same
-  owner, without a per-output fallback. An index row is location metadata,
-  not proof of object authority. Agent output and resource bindings require
-  activation and never fall back to D1. Core rows (apps, Work, tedis)
-  use the `DB` binding. The object never reads another workspace's rows.
+  `this.db`. The first document or resource operation initializes the store
+  from its shared workspace directory row; a missing row fails closed.
+  Browser and agent operations use the workspace store without falling back
+  to D1. Core rows (apps, Work, tedis) use the `DB` binding. The object never
+  reads another workspace's rows.
 - Use `test:unit` for pure behavior and `test:workers` for Durable Object
   authority, workspace isolation, or storage behavior. Use the workspace
   runner so workerd and its fixture load correctly.

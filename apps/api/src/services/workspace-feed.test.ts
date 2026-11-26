@@ -38,9 +38,6 @@ it.each(["uninitialized", "no runtime", "initialized"])(
 		});
 		if (mode === "initialized")
 			await store.runtime.outputQuery(scope, { op: "initialize" });
-		expect(await store.runtime.outputQuery(scope, { op: "authority" })).toBe(
-			mode === "initialized" ? "object" : "shared",
-		);
 		if (mode === "no runtime")
 			delete (env as unknown as { WORKSPACE_RUNTIME?: unknown })
 				.WORKSPACE_RUNTIME;

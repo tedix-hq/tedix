@@ -713,7 +713,6 @@ describe("WorkspaceDO", () => {
 		};
 		await ws.outputQuery(scope, { op: "initialize" });
 		await ws.outputQuery(scope, { op: "create", output, revision });
-		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
 		await ws.failNextProjection(scope);
 		await ws.outputQuery(scope, {
 			op: "create",
@@ -7351,8 +7350,6 @@ test("moves object-owned outputs with every revision, resumes lost replies, and 
 	await seedWorkspaceRows([source, target]);
 	const from = workspace(source),
 		to = workspace(target);
-	await from.outputQuery(source, { op: "initialize" });
-	await to.outputQuery(target, { op: "initialize" });
 	const outputId = crypto.randomUUID(),
 		revisionId = crypto.randomUUID();
 	const body = await storeOutputBody(
@@ -9625,7 +9622,7 @@ test("workspace recovery cannot target a normal workspace object", async () => {
 });
 
 describe("empty document owners", () => {
-	test("refuses files before initialization, then initializes once and survives eviction", async () => {
+	test("initializes on first use and survives eviction", async () => {
 		await seedCore();
 		const empty = { ...scope, workspaceId: "empty-owner" };
 		await createDbQueryClient(testEnv.DB).insert(osWorkspaces).values({
@@ -9636,14 +9633,9 @@ describe("empty document owners", () => {
 			createdById: "u1",
 		});
 		const ws = workspace(empty);
-		expect(await ws.outputQuery(empty, { op: "authority" })).toBe("shared");
-		await expect(() => ws.outputQuery(empty, { op: "purge" })).rejects.toThrow(
-			"does not own",
-		);
-		expect(await ws.outputQuery(empty, { op: "initialize" })).toBe("object");
+		expect(await ws.outputQuery(empty, { op: "list" })).toEqual([]);
 		await evictDurableObject(ws);
 		expect(await ws.outputQuery(empty, { op: "initialize" })).toBe("object");
-		expect(await ws.outputQuery(empty, { op: "authority" })).toBe("object");
 		expect(await ws.outputQuery(empty, { op: "list" })).toEqual([]);
 	});
 });
@@ -9745,13 +9737,10 @@ test("requires EU placement and routes initialization through that namespace", a
 });
 
 describe("workspace index ownership", () => {
-	test("an initialized empty owner writes and projects its first document", async () => {
+	test("first creation requires a directory row, initializes the store and survives eviction", async () => {
 		await seedCore();
 		const fresh = { ...scope, workspaceId: crypto.randomUUID() };
-		await seedWorkspaceRows([fresh]);
 		const ws = workspace(fresh);
-		expect(await ws.outputQuery(fresh, { op: "authority" })).toBe("shared");
-		await ws.outputQuery(fresh, { op: "initialize" });
 		const outputId = crypto.randomUUID(),
 			revisionId = crypto.randomUUID();
 		const body = await storeOutputBody(
@@ -9759,7 +9748,7 @@ describe("workspace index ownership", () => {
 			fresh.organizationId,
 			'{"kind":"document","blocks":[]}',
 		);
-		await ws.outputQuery(fresh, {
+		const create = {
 			op: "create",
 			output: {
 				id: outputId,
@@ -9781,7 +9770,16 @@ describe("workspace index ownership", () => {
 				createdByKind: "user",
 				createdById: "u1",
 			},
-		});
+		} as const;
+		await expect(() => ws.outputQuery(fresh, create)).rejects.toThrow(
+			"Workspace directory is missing",
+		);
+		await seedWorkspaceRows([fresh]);
+		await ws.outputQuery(fresh, create);
+		await evictDurableObject(ws);
+		expect((await ws.outputQuery(fresh, { op: "get", outputId }))?.id).toBe(
+			outputId,
+		);
 		await ws.refreshOutputProjection(fresh, outputId);
 		expect(
 			await getWorkspaceOutputIndexCurrent(createDbQueryClient(testEnv.DB), {
@@ -9864,7 +9862,6 @@ test("purges object documents, revisions and resources in one retryable RPC", as
 	});
 	await ws.outputQuery(purgeScope, { op: "purge" });
 	await ws.outputQuery(purgeScope, { op: "purge" });
-	expect(await ws.outputQuery(purgeScope, { op: "authority" })).toBe("object");
 	expect(await ws.outputQuery(purgeScope, { op: "list" })).toEqual([]);
 	expect(
 		await ws.outputQuery(purgeScope, { op: "history", outputId: "out-doc" }),
@@ -9879,7 +9876,6 @@ test("purges object documents, revisions and resources in one retryable RPC", as
 		}),
 	).toBeUndefined();
 	await evictDurableObject(ws);
-	expect(await ws.outputQuery(purgeScope, { op: "authority" })).toBe("object");
 	await ws.outputQuery(purgeScope, { op: "purge" });
 	expect(await ws.outputQuery(purgeScope, { op: "list" })).toEqual([]);
 });

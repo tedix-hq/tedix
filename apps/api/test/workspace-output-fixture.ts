@@ -67,11 +67,22 @@ export function workspaceOutputFixture(
 					)
 					.get(scope.organizationId, scope.workspaceId),
 			));
+	const initialize = async (scope: {
+		organizationId: string;
+		workspaceId: string;
+	}) => {
+		if (!state.active) throw new Error("Workspace store is unavailable");
+		if (await owns(scope)) return;
+		const workspace = await getOsWorkspace(core, scope);
+		if (!workspace) throw new Error("Workspace directory is missing");
+		initializeWorkspaceDirectory(tenant, workspace);
+	};
 	const plans = new Map<string, DocumentTransfer[]>();
 	const excerpts = new Map<string, string>();
 	const transfers = new Map<string, DocumentTransferPackage>();
 	const runtime: WorkspaceOutputRuntime & DocumentTransferRuntime = {
 		async prepareDocumentTransfer(scope, transfer) {
+			await initialize(scope);
 			const key = `${scope.organizationId}:${transfer.transferId}`;
 			const saved = transfers.get(key);
 			if (saved) {
@@ -111,6 +122,7 @@ export function workspaceOutputFixture(
 			return payload;
 		},
 		async importDocumentTransfer(scope, payload) {
+			await initialize(scope);
 			if (
 				scope.organizationId !== payload.snapshot.output.organizationId ||
 				scope.workspaceId !== payload.transfer.targetWorkspaceId ||
@@ -172,20 +184,15 @@ export function workspaceOutputFixture(
 			objectSql
 				.prepare("INSERT OR IGNORE INTO organizations VALUES (?)")
 				.run(scope.organizationId);
-			if (query.op === "initialize") {
-				if (!state.active) throw new Error("Workspace store is unavailable");
+			if (!state.active) throw new Error("Workspace store is unavailable");
+			if (query.op === "initialize" || !(await owns(scope))) {
 				const workspace = await getOsWorkspace(core, scope);
 				if (!workspace) throw new Error("Workspace directory is missing");
 				initializeWorkspaceDirectory(tenant, workspace);
-				return "object" as OutputQueryResult<typeof query.op>;
 			}
-			if (query.op === "authority")
-				return ((await owns(scope)) ? "object" : "shared") as OutputQueryResult<
-					typeof query.op
-				>;
+			if (query.op === "initialize")
+				return "object" as OutputQueryResult<typeof query.op>;
 			if (query.op === "placementPlan") {
-				if (!(await owns(scope)))
-					throw new Error("Document placement requires an object owner");
 				const key = `${scope.organizationId}:${scope.workspaceId}:${query.planId}`;
 				const documents = [...(plans.get(key) ?? [])];
 				for (const document of query.documents) {
@@ -200,15 +207,7 @@ export function workspaceOutputFixture(
 				plans.set(key, documents);
 				return documents as OutputQueryResult<typeof query.op>;
 			}
-			if (
-				options.uninitialized &&
-				query.op === "create" &&
-				!(await owns(scope))
-			)
-				throw new Error("Workspace does not own these outputs");
 			if (query.op === "resources") {
-				if (!(await owns(scope)))
-					throw new Error("Workspace does not own these resources");
 				// Older fixtures model an already initialized owner without its directory row.
 				if (!options.uninitialized) {
 					const workspace = await getOsWorkspace(core, scope);

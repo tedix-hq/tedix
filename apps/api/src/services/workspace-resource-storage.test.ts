@@ -81,8 +81,7 @@ describe.each([true, false])(
 						"SELECT name, status, metadata, connection_scope FROM os_workspace_resources",
 					)
 					.get();
-				if (owned) expect(local).toEqual(shared);
-				else expect(local).toBeUndefined();
+				expect(local).toEqual(shared);
 			};
 			check();
 			row = (await storage.renameOsWorkspaceResource(f.db, {
@@ -133,9 +132,7 @@ describe.each([true, false])(
 			}))!;
 			expect(row.status).toBe("active");
 			check();
-			expect(listWorkspaceResourceSummaries(f.tenant, scope)).toHaveLength(
-				owned ? 1 : 0,
-			);
+			expect(listWorkspaceResourceSummaries(f.tenant, scope)).toHaveLength(1);
 		});
 		it("confirms the same file concurrently without duplicate resources", async () => {
 			const f = await fixture(owned);
@@ -150,9 +147,7 @@ describe.each([true, false])(
 				f.sqlite.prepare("SELECT count(*) n FROM os_workspace_resources").get()
 					?.n,
 			).toBe(1);
-			expect(listWorkspaceResourceSummaries(f.tenant, scope)).toHaveLength(
-				owned ? 1 : 0,
-			);
+			expect(listWorkspaceResourceSummaries(f.tenant, scope)).toHaveLength(1);
 		});
 	},
 );
@@ -249,7 +244,7 @@ it.each([true, false])(
 		const local = f.objectSql
 			.prepare("SELECT metadata FROM os_workspace_resources")
 			.get();
-		expect(local).toEqual(owned ? shared : undefined);
+		expect(local).toEqual(shared);
 	},
 );
 

@@ -10,7 +10,7 @@ const config = vi.hoisted(() => ({
 }));
 vi.mock("cloudflare:workers", () => ({ env: config.env }));
 afterEach(() => vi.resetAllMocks());
-it("leaves a failed initialization retryable with the same core destination", async () => {
+it("commits the directory before initialization and preserves duplicate-name rejection", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF;");
 	sqlite.exec(schemaDdl(osWorkspaces));
@@ -27,7 +27,6 @@ it("leaves a failed initialization retryable with the same core destination", as
 			expect((await db.select().from(osWorkspaces))[0]?.id).toBe(
 				scope.workspaceId,
 			);
-			if (query.op === "authority") return "shared";
 			throw new Error("initializer unavailable");
 		},
 	);
@@ -35,15 +34,9 @@ it("leaves a failed initialization retryable with the same core destination", as
 		"initializer unavailable",
 	);
 	expect(await db.select().from(osWorkspaces)).toHaveLength(1);
-	config.env.WORKSPACE_RUNTIME.outputQuery.mockImplementation(
-		async (_scope, query) => (query.op === "authority" ? "shared" : "object"),
-	);
-	expect(
-		await createWorkspaceDocumentOwner(db, { ...input, id: "retry" }),
-	).toMatchObject({ id: "new" });
-	expect(await db.select().from(osWorkspaces)).toHaveLength(1);
 	await expect(
-		createWorkspaceDocumentOwner(db, { ...input, createdById: "other" }),
+		createWorkspaceDocumentOwner(db, { ...input, id: "retry" }),
 	).rejects.toThrow();
+	expect(await db.select().from(osWorkspaces)).toHaveLength(1);
 	sqlite.close();
 });

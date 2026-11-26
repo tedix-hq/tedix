@@ -279,14 +279,16 @@ it("organization deletion retries serially across private owners and leaves othe
 	).toEqual(["foreign"]);
 });
 
-it("organization cleanup leaves shared authority data and index untouched", async () => {
+it("organization cleanup preserves documents and index when the store is unavailable", async () => {
 	const f = fixture();
 	await f.seed("shared");
 	f.state.active = false;
 	const query = vi.spyOn(f.runtime, "outputQuery");
-	await deleteOrganizationWorkspaceDocuments(f.db, "org-1");
+	await expect(
+		deleteOrganizationWorkspaceDocuments(f.db, "org-1"),
+	).rejects.toThrow("store is unavailable");
 	expect(query.mock.calls.map(([, operation]) => operation.op)).toEqual([
-		"authority",
+		"purge",
 	]);
 	expect(f.ids("os_outputs")).toEqual(["doc-shared"]);
 	expect(await f.db.select().from(workspaceOutputIndex)).toHaveLength(1);

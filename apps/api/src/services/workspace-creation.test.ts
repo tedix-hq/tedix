@@ -117,19 +117,12 @@ async function firstWrite(
 	);
 }
 
-it("starts shared and permits the first write after ordinary workspace creation", async () => {
+it("recovers the first write from a directory row and refuses a missing directory", async () => {
 	const f = fixture();
-	const scope = { organizationId: row.organizationId, workspaceId: row.id };
-	expect(await f.runtime.outputQuery(scope, { op: "authority" })).toBe(
-		"shared",
-	);
 	await expect(firstWrite(f.db, row.id)).rejects.toThrow(
-		"activated workspace object",
+		"directory is missing",
 	);
-	await expect(
-		f.runtime.outputQuery(scope, { op: "initialize" }),
-	).rejects.toThrow("directory is missing");
-	await createWorkspaceDocumentOwner(f.db, row);
+	await f.db.insert(osWorkspaces).values(row);
 	expect((await firstWrite(f.db, row.id)).output.workspaceId).toBe(row.id);
 });
 
