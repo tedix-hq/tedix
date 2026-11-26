@@ -198,6 +198,7 @@ function holdFace(
 	kind: z.infer<typeof holdRequest>["laneBlocker"]["kind"],
 	agent: string,
 	task: string,
+	reason?: string,
 ): HoldFace {
 	if (kind === "accountable_owner")
 		return {
@@ -225,13 +226,14 @@ function holdFace(
 		};
 	return {
 		version: 2,
-		title: `What should happen with ${task}?`,
+		title: `Restart ${task}?`,
 		context: "No agent works on this task until someone answers.",
-		story: `${agent} stopped starting this task. It waits until you answer.`,
-		whyMe: "Only a person can restart it, hand it over or close it.",
+		story: reason
+			? `${agent} paused the task. ${reason}`
+			: `${agent} stopped starting this task. It waits until you answer.`,
+		whyMe: "You choose what happens next.",
 		body: `${agent} starts the task again on its next check.`,
-		recommendation:
-			"Try again if the cause was a one-off; otherwise edit the task.",
+		recommendation: "Try again if the cause was temporary.",
 		effectStatus: "known",
 	};
 }
@@ -244,6 +246,7 @@ function holdFace(
  */
 export function laneHoldFace(request: {
 	subject: string;
+	prompt?: string;
 	workItemId?: string | null;
 	metadata: Record<string, unknown>;
 }): HoldFace | null {
@@ -259,9 +262,23 @@ export function laneHoldFace(request: {
 	)
 		return null;
 	const name = /"(.+)"/.exec(request.subject)?.[1]?.trim();
-	const named = name ? holdFace(kind, AGENTS[executor], `"${name}"`) : null;
-	// A task name the card rules refuse (too long, an identifier) gives way.
-	return named && !checkDecisionCardCopy(named).length
+	const shortName =
+		name && (name.length > 50 ? `${name.slice(0, 49).trim()}…` : name);
+	const reason = request.prompt
+		?.match(/stopped working on ".+?"\.\s*([^\n]+)/)?.[1]
+		?.replace(/\bruns\b/gi, "tries")
+		.replace(/\brun\b/gi, "try")
+		.replace(/\bexpired\b/gi, "timed out")
+		.trim();
+	const named = shortName
+		? holdFace(kind, AGENTS[executor], `"${shortName}"`)
+		: holdFace(kind, AGENTS[executor], "this task");
+	const explained = reason
+		? holdFace(kind, AGENTS[executor], `"${shortName ?? "this task"}"`, reason)
+		: null;
+	if (explained && !checkDecisionCardCopy(explained).length) return explained;
+	// Unsafe source text stays in Details; the card still needs valid copy.
+	return !checkDecisionCardCopy(named).length
 		? named
 		: holdFace(kind, AGENTS[executor], "this task");
 }

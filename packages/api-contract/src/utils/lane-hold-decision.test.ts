@@ -220,10 +220,9 @@ it("recommends in the summary what the card's own answers recommend", () => {
 
 it("keeps the summary valid when the task's name breaks the card copy rules", () => {
 	for (const title of [
-		// Words a card never shows, a raw identifier, and a name too long for one line.
+		// Words a card never shows and a raw identifier.
 		"Fix the workflow session kernel",
 		"Deploy 0123456789abcdef now",
-		"A very long task name that goes on and on and on well past what one short card line can hold",
 	]) {
 		const face = laneHoldFace(
 			request(
@@ -233,7 +232,7 @@ it("keeps the summary valid when the task's name breaks the card copy rules", ()
 			),
 		)!;
 		expect(checkDecisionCardCopy(face)).toEqual([]);
-		expect(face.title).toBe("What should happen with this task?");
+		expect(face.title).toBe("Restart this task?");
 	}
 });
 
@@ -280,4 +279,27 @@ it("writes no fixed summary for any other request", () => {
 			workItemId: null,
 		}),
 	).toBeNull();
+});
+
+it("names a long task and explains the stop before offering restart choices", () => {
+	const filed = request(
+		"execution_hold",
+		'Codex stopped working on "Restore the shared customer report after the nightly import". Three runs failed or expired on this version of the task.\n\nThe task stays accepted.',
+		'What should happen with "Restore the shared customer report after the nightly import"?',
+	);
+	const face = laneHoldFace(filed)!;
+	expect(face.title).toBe(
+		'Restart "Restore the shared customer report after the nigh…"?',
+	);
+	expect(face.story).toContain(
+		"Three tries failed or timed out on this version of the task.",
+	);
+	expect(checkDecisionCardCopy(face)).toEqual([]);
+	expect(DecisionCardPresentationSchema.safeParse(face).success).toBe(true);
+	expect(laneHoldDecision(filed)!.options.map(({ id }) => id)).toEqual([
+		"retry",
+		"hand-over",
+		"close",
+		"later",
+	]);
 });
