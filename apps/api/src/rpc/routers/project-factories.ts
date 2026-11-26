@@ -376,9 +376,14 @@ async function controlFactory(
 		action === "archived"
 			? await listSkillUsers(context.db, { orgId, skillId: skill.id })
 			: [];
-	const ownFactories = users.filter(
-		(user) => user.kind === "factory" && user.factorySlug === lane.slug,
-	);
+	// Every factory user here is bound to this lane's skill. Older bindings
+	// carry no slug, so a single binding is this factory; with several, only
+	// an exact slug match is, and anything ambiguous still refuses.
+	const factoryUsers = users.filter((user) => user.kind === "factory");
+	const ownFactories =
+		factoryUsers.length === 1
+			? factoryUsers
+			: factoryUsers.filter((user) => user.factorySlug === lane.slug);
 	await client.improve(
 		action === "archived"
 			? {

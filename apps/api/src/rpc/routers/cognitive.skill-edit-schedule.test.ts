@@ -557,6 +557,7 @@ describe("archive persistence through skill actions", () => {
 		{ action: "archiveMany", legacy: false },
 		{ action: "archiveFactoryPaused", legacy: false },
 		{ action: "archiveFactoryActive", legacy: false },
+		{ action: "archiveFactoryUnslugged", legacy: false },
 		{ action: "archiveFactoryShared", legacy: false },
 		{ action: "archiveFactoryRunner", legacy: false },
 	])(
@@ -607,7 +608,10 @@ describe("archive persistence through skill actions", () => {
 						name: "Nightly ingest",
 						createdAt: new Date().toISOString(),
 						metadata: {
-							factory: { slug: "nightly-ingest", skillId: "skill-1" },
+							factory:
+								action === "archiveFactoryUnslugged"
+									? { skillId: "skill-1" }
+									: { slug: "nightly-ingest", skillId: "skill-1" },
 						},
 					};
 					await h.context.db.insert(projects).values(project);
