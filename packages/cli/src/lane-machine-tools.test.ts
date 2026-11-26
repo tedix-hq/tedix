@@ -21,6 +21,7 @@ import { dispatchRequestsDirectory } from "./lane-dispatch-wake";
 import { refusedMachineCommand } from "./lane-machine-refused";
 import {
 	adoptMachineWorkspace,
+	machineWorkspaceFolder,
 	releaseMachineWorkspace,
 	runShellCommand,
 } from "./lane-machine-workspaces";
@@ -509,6 +510,40 @@ test("linked workspaces edit the lane checkout and release only the link", async
 	expect(await releaseMachineWorkspace(configDir, released)).toBe(true);
 	expect(existsSync(registration(released))).toBe(false);
 	expect(readFileSync(join(repo, path), "utf8")).toBe("result");
+});
+
+test("an adopted workspace stops answering when its checkout is gone", async () => {
+	const root = mkdtempSync(join(tmpdir(), "tedix-machine-lane-gone-"));
+	roots.push(root);
+	const checkout = join(root, "run");
+	const configDir = join(root, "config");
+	mkdirSync(checkout);
+	const workspace = await adoptMachineWorkspace(configDir, checkout);
+	const registration = join(configDir, "machine-workspaces", workspace);
+	expect(await machineWorkspaceFolder(configDir, workspace)).toBe(
+		join(registration, "repo"),
+	);
+	const handlers = machineToolHandlers({
+		checkout: root,
+		configDir,
+		write: true,
+	});
+	expect(
+		await answerMachineToolCall(handlers, "run_command", {
+			workspace,
+			command: "pwd",
+		}),
+	).toMatchObject({ ok: true });
+	rmSync(checkout, { recursive: true, force: true });
+	await expect(machineWorkspaceFolder(configDir, workspace)).rejects.toThrow(
+		`No open workspace ${workspace}`,
+	);
+	expect(
+		await answerMachineToolCall(handlers, "run_command", {
+			workspace,
+			command: "pwd",
+		}),
+	).toMatchObject({ ok: false });
 });
 
 test("a tedi reads the owner's folders but never credential locations or anything outside the home folder", async () => {

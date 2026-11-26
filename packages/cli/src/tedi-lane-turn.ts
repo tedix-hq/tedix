@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
@@ -8,6 +10,8 @@ import { resolveCodeResult } from "./code-result";
 import { fileDiscoveryCache } from "./discovery-cache";
 import { TedixHomeClient } from "./home-client";
 import { tediSlugSchema } from "./lane-routing";
+import { machineWriteUnavailable } from "./lane-machine-tools";
+import { machineWorkspaceFolder } from "./lane-machine-workspaces";
 import { parseOptions } from "./options";
 import { resolveOrganizationTarget } from "./organization-target";
 
@@ -44,6 +48,16 @@ export async function runTediLaneTurn(scope: string[], args: string[]) {
 		throw new Error(
 			"tedi-turn needs a workspace and one explicitly selected organization",
 		);
+	// A turn is not sent until the workspace it names answers: the machine
+	// tools must be serving and the adopted checkout must still resolve.
+	const configDir = process.env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix");
+	const unserved = machineWriteUnavailable(process.env, {
+		workspace,
+		organization,
+	});
+	if (unserved)
+		throw new Error(`The machine workspace is not serving: ${unserved}`);
+	await machineWorkspaceFolder(configDir, values.get("--workspace")!);
 	const { auth, loginError } = await resolveStoredLoginAuth(workspace, {
 		consentPrompt: false,
 	});

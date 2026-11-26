@@ -81,6 +81,23 @@ export async function releaseMachineWorkspace(configDir: string, id: string) {
 	return true;
 }
 
+/**
+ * The folder a workspace id resolves to, or a throw when its registration or
+ * checkout is gone. A lane checks this before it starts a tedi turn: the turn
+ * is not sent until the workspace it names can answer.
+ */
+export async function machineWorkspaceFolder(
+	configDir: string,
+	id: string,
+): Promise<string> {
+	const repo = join(configDir, "machine-workspaces", id, "repo");
+	if (!(await stat(repo).catch(() => undefined))?.isDirectory())
+		throw new Error(
+			`No open workspace ${id} on this machine; open one with open_workspace`,
+		);
+	return repo;
+}
+
 export interface MachineWorkspaces {
 	handlers: Record<WriteToolName, Handler>;
 	/** The folder of an open workspace; throws when there is none. */
@@ -109,11 +126,7 @@ export function machineWorkspaces(options: {
 		});
 
 	async function folder(id: string): Promise<string> {
-		const repo = join(root, id, "repo");
-		if (!(await stat(repo).catch(() => undefined))?.isDirectory())
-			throw new Error(
-				`No open workspace ${id} on this machine; open one with open_workspace`,
-			);
+		const repo = await machineWorkspaceFolder(options.configDir, id);
 		// The folder's time says when the workspace was last used.
 		const now = new Date();
 		await utimes(join(root, id), now, now).catch(() => {});
