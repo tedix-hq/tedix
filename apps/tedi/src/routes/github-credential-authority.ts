@@ -5,6 +5,7 @@ import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/at
 import { getWorkstationLeaseBundle } from "@tedix/db/queries/workstations";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { Hono } from "hono";
+import { coreStoreReady } from "../core-store";
 import type { AppEnv } from "../types";
 
 const LIVE_LEASE_STATUSES = new Set([
@@ -74,7 +75,7 @@ githubCredentialAuthority.post(
 				{ authorized: false, reason: "service_binding_required" },
 				401,
 			);
-		if (!c.env.DB)
+		if (!coreStoreReady(c.env))
 			return c.json({ authorized: false, reason: "database_unavailable" }, 503);
 
 		let input: AuthorityRequest;

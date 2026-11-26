@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
+	fakeDb: {},
 	getAttempt: vi.fn(),
 	getLease: vi.fn(),
 	getOrganization: vi.fn(),
 	getTedi: vi.fn(),
 }));
 
-vi.mock("@tedix/db/client", () => ({ createDbClient: () => "db" }));
+vi.mock("@tedix/db/client", () => ({
+	createDbClient: () => mocks.fakeDb,
+}));
 vi.mock("@tedix/db/queries/organizations", () => ({
 	getOrganizationById: mocks.getOrganization,
 }));
@@ -99,7 +102,7 @@ describe("GitHub credential authority", () => {
 			installationId: 987,
 			repositoryId: 123,
 		});
-		expect(mocks.getAttempt).toHaveBeenCalledWith("db", {
+		expect(mocks.getAttempt).toHaveBeenCalledWith(mocks.fakeDb, {
 			attemptId: "attempt_test",
 			executor: { id: "tedi_test", type: "tedi" },
 			orgId: "org_test",

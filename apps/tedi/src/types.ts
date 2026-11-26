@@ -73,6 +73,11 @@ export interface TediEnv {
 	DEFAULT_TEDI_SLUG?: string;
 
 	TEDI_RUNTIME_SERVICE?: Fetcher;
+
+	// Core store bindings (Postgres lane): CORE_STORE=postgres swaps DB for
+	// CORE_HYPERDRIVE; all core access goes through coreDb(env).
+	CORE_STORE?: "d1" | "postgres";
+	CORE_HYPERDRIVE?: Pick<Hyperdrive, "connectionString">;
 }
 
 /**

@@ -58,7 +58,7 @@ describe("resolveTedi", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		invalidateResolveCache();
-		mocks.createDbClient.mockReturnValue("db");
+		mocks.createDbClient.mockReturnValue({});
 		mocks.getAllTediSecrets.mockResolvedValue([]);
 		mocks.getRuntimeProfileById.mockResolvedValue(null);
 		// A tedi with null control-plane FKs resolves the published system
@@ -74,7 +74,7 @@ describe("resolveTedi", () => {
 			.mockResolvedValueOnce(buildTedi({ status: "paused" }));
 
 		const first = await resolveTedi(
-			{} as D1Database,
+			{ DB: {} as D1Database },
 			hostname,
 			"production",
 			undefined,
@@ -83,7 +83,7 @@ describe("resolveTedi", () => {
 			{},
 		);
 		const second = await resolveTedi(
-			{} as D1Database,
+			{ DB: {} as D1Database },
 			hostname,
 			"production",
 			undefined,
@@ -114,7 +114,7 @@ describe("resolveTedi", () => {
 			mocks.getRuntimeProfileById.mockResolvedValue({ config: {} });
 			const resolve = () =>
 				resolveTedi(
-					{} as D1Database,
+					{ DB: {} as D1Database },
 					"tedi-1.tedi.tedix.dev",
 					"production",
 					undefined,
@@ -146,7 +146,7 @@ describe("resolveTedi", () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		const failure = await resolveTedi(
-			{} as D1Database,
+			{ DB: {} as D1Database },
 			"cto.tedi.tedix.dev",
 			"production",
 			"master-key",
@@ -187,7 +187,7 @@ describe("resolveTedi", () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
 			const config = await resolveTedi(
-				{} as D1Database,
+				{ DB: {} as D1Database },
 				"cto.tedi.tedix.dev",
 				"production",
 				undefined,
@@ -231,7 +231,7 @@ describe("resolveTedi", () => {
 		);
 
 		const config = await resolveTedi(
-			{} as D1Database,
+			{ DB: {} as D1Database },
 			"cto.tedi.tedix.dev",
 			"production",
 			undefined,
@@ -258,7 +258,7 @@ describe("resolveTedi", () => {
 		});
 
 		const config = await resolveTedi(
-			{} as D1Database,
+			{ DB: {} as D1Database },
 			"cto.tedi.tedix.dev",
 			"production",
 			undefined,

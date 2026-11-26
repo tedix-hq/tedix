@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
+	fakeDb: {},
 	getAuthority: vi.fn(),
 	getAttempt: vi.fn(),
 	inspect: vi.fn(),
 }));
 
-vi.mock("@tedix/db/client", () => ({ createDbClient: () => "db" }));
+vi.mock("@tedix/db/client", () => ({
+	createDbClient: () => mocks.fakeDb,
+}));
 vi.mock("@tedix/db/queries/workstations", () => ({
 	getWorkstationInspectionAuthority: mocks.getAuthority,
 }));
@@ -103,7 +106,7 @@ describe("workstation repository inspection authority", () => {
 		const response = await inspectRepositoryRoute(context(request()));
 		expect(response.status).toBe(409);
 		expect(mocks.getAttempt).toHaveBeenCalledWith(
-			"db",
+			mocks.fakeDb,
 			expect.objectContaining({
 				orgId: "org-1",
 				workItemId: "work-1",

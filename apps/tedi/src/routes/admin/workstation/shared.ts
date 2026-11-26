@@ -41,6 +41,7 @@ import type {
 	WorkstationSessionSelection,
 } from "./types";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../../../core-store";
 
 export function isWorkstationRequest(
 	method: string,
@@ -104,7 +105,7 @@ export async function assertCheckoutAuthority(
 	c: Context<AppEnv>,
 	requireLead = false,
 ): Promise<void> {
-	if (!c.env.DB) return;
+	if (!coreStoreReady(c.env)) return;
 	const selection = c.get("workstationRuntimeSelection");
 	const config = c.get("tediConfig");
 	const bundle = selection?.leaseId

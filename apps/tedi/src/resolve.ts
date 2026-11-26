@@ -8,7 +8,9 @@
  * Custom: ai.acme.com → CNAME → subdomain
  */
 
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { type DbClient } from "@tedix/db/client";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	getRuntimeProfileById,
 	getSystemDefaultRuntimeProfile,
@@ -406,7 +408,7 @@ async function tediToConfig(
  * Decrypts secrets from tedi_secrets table for runtime materialization.
  */
 export async function resolveTedi(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	hostname: string,
 	environment: string,
 	masterKey?: string,
@@ -430,7 +432,7 @@ export async function resolveTedi(
 		TWILIO_AUTH_TOKEN?: string;
 	},
 ): Promise<TediConfig | null> {
-	const db = createDbClient(d1);
+	const db = coreDb(env);
 	const platformDomain = getPlatformDomain(environment);
 
 	const tedi = await lookupTediByHostname(db, hostname, platformDomain);

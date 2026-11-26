@@ -13,6 +13,7 @@ import {
 import { workstationEgressPolicySummary } from "../../../runtime/workstation-egress";
 import { WORKSTATION_DIR } from "../../../workstation/paths";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../../../core-store";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import type { Context } from "hono";
 import { upsertWorkstationLeaseBundle } from "../../../workstation/persistence";
@@ -295,7 +296,7 @@ export async function persistentWorkstationEnvelope(
 		sessionKind,
 		input,
 	);
-	if (!c.env.DB) {
+	if (!coreStoreReady(c.env)) {
 		return {
 			...envelope,
 			workstationPersistence: { status: "skipped" },
@@ -378,7 +379,7 @@ export async function persistWorkstationBodyGeneration(
 	const generationId =
 		generation?.generationId ?? tediConfig.secrets?.TEDIX_BODY_GENERATION_ID;
 	if (!(generationId && generation?.tokenHash)) return;
-	if (typeof c.env.DB?.prepare !== "function") return;
+	if (!coreStoreReady(c.env)) return;
 	const runtimeSelection = c.get("workstationRuntimeSelection") ?? null;
 	const leaseGenerationStatus =
 		status === "ready" ? "ready" : status === "blocked" ? "failed" : "starting";
@@ -412,7 +413,7 @@ export async function persistWorkstationBodyInstance(
 	leaseId: string,
 ): Promise<void> {
 	const instance = c.get("workstationBodyInstance");
-	if (!(instance && c.env.DB)) return;
+	if (!(instance && coreStoreReady(c.env))) return;
 	try {
 		await recordWorkstationLeaseBodyInstance(coreDb(c.env), {
 			instanceId: instance.id,

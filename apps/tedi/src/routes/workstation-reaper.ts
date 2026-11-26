@@ -21,6 +21,7 @@ import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
+import { coreStoreReady } from "../core-store";
 
 /**
  * Bounded per call. Each reap is a Durable Object round trip that tears a
@@ -44,7 +45,7 @@ workstationReaper.post("/internal/workstation/reap", async (c) => {
 	if (!isServiceBinding(c.req.raw.headers)) {
 		return c.json({ ok: false, error: "Service binding required" }, 401);
 	}
-	if (!c.env.DB) {
+	if (!coreStoreReady(c.env)) {
 		return c.json({ ok: false, error: "Database is not bound" }, 503);
 	}
 	const namespace = c.env.TEDI_WORKSTATION_RUNTIME_SANDBOX;

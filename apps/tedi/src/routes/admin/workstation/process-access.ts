@@ -42,6 +42,7 @@ import {
 	markWorkstationBodyStatus,
 } from "./envelope";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../../../core-store";
 
 export const log = createTediLogger("tedi.workstation.process");
 const MIN_ASYNC_PROCESS_TIMEOUT_MS = 1_000;
@@ -318,7 +319,7 @@ export async function workstationProcessAccessForRequest(
 			participantTediId: context.participantTediId,
 		};
 	}
-	if (!c.env.DB) {
+	if (!coreStoreReady(c.env)) {
 		return {
 			ok: false,
 			error: "workstation lease access requires DB persistence",

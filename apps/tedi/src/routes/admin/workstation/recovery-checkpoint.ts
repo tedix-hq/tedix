@@ -1,4 +1,5 @@
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../../../core-store";
 import { createCommitResolver } from "@tedix/db/queries/git-commit-aliases";
 import type { Context } from "hono";
 import type { AppEnv } from "../../../types";
@@ -187,17 +188,17 @@ export async function recoveryCheckpointOperation(
 			status: "failed",
 			error: "Checkpoint requires exact lease authority",
 		};
-	const bundle = c.env.DB
+	const bundle = coreStoreReady(c.env)
 		? await getWorkstationLeaseBundle(coreDb(c.env), selection.leaseId)
 		: null;
-	if (c.env.DB && !bundle)
+	if (coreStoreReady(c.env) && !bundle)
 		return {
 			status: "failed",
 			error: "Checkpoint lease authority unavailable",
 		};
 	const assertAuthority = async () => {
 		await assertCheckoutAuthority(c, !!closingLeaseId);
-		if (!c.env.DB || !bundle) return;
+		if (!coreStoreReady(c.env) || !bundle) return;
 		const current = await getWorkstationLeaseBundle(
 			coreDb(c.env),
 			selection.leaseId!,
@@ -269,7 +270,9 @@ export async function recoveryCheckpointOperation(
 				};
 			return { status: "clean", reason: "no-checkpoint-needed" };
 		}
-		const resolver = c.env.DB ? createCommitResolver(coreDb(c.env)) : undefined;
+		const resolver = coreStoreReady(c.env)
+			? createCommitResolver(coreDb(c.env))
+			: undefined;
 		return await run({
 			preparedStartSha: resolver
 				? await resolver.canonicalCommit(original.startSha)

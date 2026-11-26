@@ -16,6 +16,7 @@ import {
 } from "@tedix/api-contract/schemas/workstation";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "./core-store";
 import { updateTediLastHeartbeat } from "@tedix/db/queries/tedis";
 import { durableObjectIdFromName } from "@tedix/worker-kit/durable-objects";
 import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
@@ -147,7 +148,7 @@ async function explicitWorkstationRuntimeSelection(
 			selection: defaultWorkstationRuntimeSelection(tediConfig, executionKey),
 		};
 	}
-	if (!c.env.DB) {
+	if (!coreStoreReady(c.env)) {
 		return {
 			ok: false,
 			error: "workstation lease selection requires DB persistence",
@@ -274,7 +275,7 @@ app.use("*", async (c, next) => {
 
 	// Resolve tedi from hostname (supports subdomains + custom domains)
 	const tediConfig = await resolveTedi(
-		c.env.DB,
+		c.env,
 		host,
 		c.env.ENVIRONMENT,
 		c.env.SECRETS_MASTER_KEY,

@@ -56,6 +56,7 @@ import {
 	workstationSessionLockedInvocation,
 } from "./locks";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../../../core-store";
 
 export function processContextFromBody(
 	c: Context<AppEnv>,
@@ -495,7 +496,7 @@ export async function workstationSessionSelectionForRequest(
 	// an implicit selection rebuilt a blank envelope and erased the lease's Work
 	// Item/run/trace correlation on every reuse.
 	if (!requestedLeaseId) return base;
-	if (!c.env.DB) {
+	if (!coreStoreReady(c.env)) {
 		return {
 			ok: false,
 			error: "workstation lease selection requires DB persistence",

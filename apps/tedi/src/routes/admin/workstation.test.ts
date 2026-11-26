@@ -52,15 +52,19 @@ const sandboxDestroyMocks = vi.hoisted(() => ({
 	destroySandboxWithTimeout: vi.fn(),
 }));
 
-const dbMocks = vi.hoisted(() => ({
-	createDbClient: vi.fn(() => "db-client"),
-	getWorkstationLeaseBundle: vi.fn(),
-	upsertWorkstationLeaseBundle: vi.fn(
-		async (_db: unknown, bundle: unknown) => bundle,
-	),
-	joinWorkstationLease: vi.fn(),
-	releaseWorkstationLease: vi.fn(),
-}));
+const dbMocks = vi.hoisted(() => {
+	const fakeDb = {};
+	return {
+		fakeDb,
+		createDbClient: vi.fn(() => fakeDb),
+		getWorkstationLeaseBundle: vi.fn(),
+		upsertWorkstationLeaseBundle: vi.fn(
+			async (_db: unknown, bundle: unknown) => bundle,
+		),
+		joinWorkstationLease: vi.fn(),
+		releaseWorkstationLease: vi.fn(),
+	};
+});
 const authorityMocks = vi.hoisted(() => ({
 	bindWorkstationLeaseRepositoryAuthority: vi.fn(),
 	getAuthoritativeWorkItemAttempt: vi.fn(),
@@ -1303,7 +1307,7 @@ describe("repository inspection authority capture", () => {
 		expect(
 			authorityMocks.bindWorkstationLeaseRepositoryAuthority,
 		).toHaveBeenCalledWith(
-			"db-client",
+			dbMocks.fakeDb,
 			expect.objectContaining({
 				attemptId: "attempt-1",
 				generationId: "generation-1",
@@ -1890,7 +1894,7 @@ describe("workstation release route", () => {
 
 		expect(response.status).toBe(200);
 		expect(dbMocks.releaseWorkstationLease).toHaveBeenCalledWith(
-			"db-client",
+			dbMocks.fakeDb,
 			bundle.workstationLease.id,
 			{
 				expectedOrganizationId: "org_tedix",
@@ -2180,7 +2184,7 @@ describe("workstation join route", () => {
 
 		expect(response.status).toBe(200);
 		expect(dbMocks.joinWorkstationLease).toHaveBeenCalledWith(
-			"db-client",
+			dbMocks.fakeDb,
 			"wl_general_org-tedix_cto",
 			[
 				{

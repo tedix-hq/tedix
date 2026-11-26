@@ -1,4 +1,5 @@
 import { coreDb } from "@tedix/db/core-store/scope";
+import { coreStoreReady } from "../../../core-store";
 import { canonicalCommit } from "@tedix/db/queries/git-commit-aliases";
 import { startCheckoutOperation } from "../../../workstation/checkout-lock";
 import { WorkstationBootstrapReadinessSchema } from "@tedix/api-contract/schemas/workstation";
@@ -139,7 +140,7 @@ async function applyRepoTreePreflight(
 			session?.leaseBundle?.workstationLease,
 		);
 		const originalPreflight =
-			original?.startSha && c.env.DB
+			original?.startSha && coreStoreReady(c.env)
 				? {
 						...original,
 						startSha: await canonicalCommit(coreDb(c.env), original.startSha),
@@ -390,7 +391,7 @@ export async function readWorkstationStatus(c: Context<AppEnv>) {
 			workstationErrorStatus(selectedSession.status),
 		);
 	}
-	if (!c.env.DB) {
+	if (!coreStoreReady(c.env)) {
 		return c.json(
 			{ ok: false, error: "workstation persistence is not configured" },
 			503,
@@ -467,7 +468,7 @@ export async function joinWorkstation(c: Context<AppEnv>) {
 			400,
 		);
 	}
-	if (!c.env.DB) {
+	if (!coreStoreReady(c.env)) {
 		return c.json({
 			ok: false,
 			leaseId,
@@ -574,7 +575,7 @@ export async function releaseWorkstation(c: Context<AppEnv>) {
 	if (!leaseId) {
 		return c.json({ ok: false, error: "leaseId is required" }, 400);
 	}
-	if (!c.env.DB) {
+	if (!coreStoreReady(c.env)) {
 		return c.json(
 			{
 				error: "workstation persistence is not configured (DB unbound)",
