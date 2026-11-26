@@ -9453,6 +9453,9 @@ export const tediApprovalExecutionReceipts = pgTable(
 export const tediApprovalRequests = pgTable(
 	"tedi_approval_requests",
 	{
+		sequence: bigint("sequence", {
+			mode: "number",
+		}).generatedByDefaultAsIdentity(),
 		id: text("id").primaryKey(),
 		tediId: text("tedi_id").notNull(),
 		orgId: text("org_id").notNull(),
@@ -12178,6 +12181,9 @@ export const workAgentSessions = pgTable(
 export const workApprovalDecisions = pgTable(
 	"work_approval_decisions",
 	{
+		sequence: bigint("sequence", {
+			mode: "number",
+		}).generatedByDefaultAsIdentity(),
 		id: text("id").primaryKey(),
 		proposalId: text("proposal_id").notNull(),
 		resolvedProposalVersion: bigint("resolved_proposal_version", {

@@ -1,6 +1,8 @@
 import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
 import { and, asc, eq, gt, isNotNull } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
 import type { DbClient } from "../client";
 import { projects as d1Projects } from "../schema/projects";
 import { workItemSources as d1WorkItemSources } from "../schema/work-item-sources";
@@ -356,6 +358,10 @@ export function getProjectionExpertise(db: DbClient, input: EntityInput) {
 export function getProjectionEdge(db: DbClient, input: EntityInput) {
 	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const memoryEdges = coreTable(db, d1MemoryEdges);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	const sourceFact = alias(memoryFacts, "projection_edge_source");
 	const targetFact = alias(memoryFacts, "projection_edge_target");
 	return first(

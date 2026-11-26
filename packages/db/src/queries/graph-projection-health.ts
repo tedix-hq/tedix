@@ -19,7 +19,8 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
 import type { DbClient } from "../client";
 import {
 	capabilityLinks as d1CapabilityLinks,
@@ -379,6 +380,10 @@ export async function getGraphProjectionCanonicalEdgeSample(
 		1,
 		Math.min(GRAPH_PROJECTION_MAX_SAMPLE_LIMIT, requestedLimit),
 	);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	const sourceFact = alias(memoryFacts, "projection_health_source_fact");
 	const targetFact = alias(memoryFacts, "projection_health_target_fact");
 

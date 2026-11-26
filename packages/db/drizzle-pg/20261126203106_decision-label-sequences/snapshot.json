@@ -1,0 +1,91 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "7c4e1b9a-2d5f-4a8e-b3c6-9f0e1d2a3b4c",
+	"prevIds": ["2f16e3bb-85a1-4a72-8e42-8268c18363f5"],
+	"footprints": [
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"tedi_approval_requests",
+				"sequence"
+			],
+			"writes": [
+				"s|col|public.tedi_approval_requests.sequence",
+				"n|col|public.tedi_approval_requests.sequence",
+				"e|col|public.tedi_approval_requests.sequence"
+			],
+			"reads": ["n|tbl|public.tedi_approval_requests", "n|sch|public"]
+		},
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"work_approval_decisions",
+				"sequence"
+			],
+			"writes": [
+				"s|col|public.work_approval_decisions.sequence",
+				"n|col|public.work_approval_decisions.sequence",
+				"e|col|public.work_approval_decisions.sequence"
+			],
+			"reads": ["n|tbl|public.work_approval_decisions", "n|sch|public"]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "tedi_approval_requests",
+				"name": "sequence",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": {
+					"type": "byDefault",
+					"name": "tedi_approval_requests_sequence_seq",
+					"increment": "1",
+					"startWith": "1",
+					"minValue": "1",
+					"maxValue": "9223372036854775807",
+					"cache": 1,
+					"cycle": false
+				},
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_approval_decisions",
+				"name": "sequence",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": {
+					"type": "byDefault",
+					"name": "work_approval_decisions_sequence_seq",
+					"increment": "1",
+					"startWith": "1",
+					"minValue": "1",
+					"maxValue": "9223372036854775807",
+					"cache": 1,
+					"cycle": false
+				},
+				"entityType": "columns"
+			}
+		}
+	]
+}

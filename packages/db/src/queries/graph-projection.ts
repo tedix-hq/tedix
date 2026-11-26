@@ -23,7 +23,8 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
 import type { DbClient } from "../client";
 import { getAffectedRows } from "../utils/d1-result";
 import {
@@ -995,6 +996,9 @@ export async function hydrateCanonicalGraphProjectionRows(
 	const result: Array<Record<string, unknown> | null> = events.map(() => null);
 	if (!input.length) return result;
 	const postgres = coreStore(db) === "postgres";
+	const alias = postgres
+		? (pgAlias as unknown as typeof sqliteAlias)
+		: sqliteAlias;
 	const document = JSON.stringify(input);
 	const inputs = db.$with("hydration_input").as(
 		db
@@ -1175,6 +1179,10 @@ export async function readGraphEdgeBackfillPage(
 	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const memoryEdges = coreTable(db, d1MemoryEdges);
 	const limit = boundedLimit(options?.limit ?? GRAPH_PROJECTION_BATCH_SIZE);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	const sourceFact = alias(memoryFacts, "graph_projection_source_fact");
 	const targetFact = alias(memoryFacts, "graph_projection_target_fact");
 	const rows = await db

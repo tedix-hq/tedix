@@ -2,7 +2,9 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DecisionGraphNode } from "@tedix/api-contract/schemas/decision-graph";
 import { agentDecisionReviewIds } from "@tedix/api-contract/utils/agent-decision-journal";
 import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, getColumns, inArray, isNotNull } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { learningInteractionEvents } from "../schema/learning-feedback";
 import { memoryEntities } from "../schema/memory-entities";
@@ -92,12 +94,15 @@ export async function recordPersistedCardCreationEdges(
 	cardId: string,
 ) {
 	try {
+		const interactions = coreTable(db, workInteractions);
 		const [card] = await db
-			.select(workInteractionStoredColumns)
-			.from(workInteractions)
-			.where(
-				and(eq(workInteractions.orgId, orgId), eq(workInteractions.id, cardId)),
+			.select(
+				coreStore(db) === "d1"
+					? workInteractionStoredColumns
+					: getColumns(interactions),
 			)
+			.from(interactions)
+			.where(and(eq(interactions.orgId, orgId), eq(interactions.id, cardId)))
 			.limit(1);
 		if (card) await recordCardCreationEdges(db, card);
 	} catch {
@@ -111,26 +116,32 @@ export async function recordPersistedCardResolutionEdges(
 	responseId: string,
 ) {
 	try {
+		const responses = coreTable(db, workInteractionResponses);
+		const interactions = coreTable(db, workInteractions);
 		const [response] = await db
 			.select()
-			.from(workInteractionResponses)
+			.from(responses)
 			.where(
 				and(
-					eq(workInteractionResponses.orgId, orgId),
-					eq(workInteractionResponses.id, responseId),
-					eq(workInteractionResponses.resolvesRequest, true),
+					eq(responses.orgId, orgId),
+					eq(responses.id, responseId),
+					eq(responses.resolvesRequest, true),
 				),
 			)
 			.limit(1);
 		if (!response) return;
 		const [card] = await db
-			.select(workInteractionStoredColumns)
-			.from(workInteractions)
+			.select(
+				coreStore(db) === "d1"
+					? workInteractionStoredColumns
+					: getColumns(interactions),
+			)
+			.from(interactions)
 			.where(
 				and(
-					eq(workInteractions.orgId, orgId),
-					eq(workInteractions.id, response.interactionId),
-					eq(workInteractions.targetType, "user"),
+					eq(interactions.orgId, orgId),
+					eq(interactions.id, response.interactionId),
+					eq(interactions.targetType, "user"),
 				),
 			)
 			.limit(1);
@@ -225,15 +236,13 @@ export async function recordCardCreationEdges(
 	if (card.targetType !== "user" || card.kind === "coordination") return;
 	if (!work && card.workItemId) {
 		try {
+			const items = coreTable(db, workItems);
 			[work] = await db
-				.select(workItemStoredColumns)
-				.from(workItems)
-				.where(
-					and(
-						eq(workItems.orgId, card.orgId),
-						eq(workItems.id, card.workItemId),
-					),
+				.select(
+					coreStore(db) === "d1" ? workItemStoredColumns : getColumns(items),
 				)
+				.from(items)
+				.where(and(eq(items.orgId, card.orgId), eq(items.id, card.workItemId)))
 				.limit(1);
 		} catch {
 			skipped("deck_creation_work");
@@ -283,6 +292,9 @@ export async function recordCardCreationEdges(
 		// One sequential D1 round trip: a bounded, index-ordered candidate
 		// window plus the metadata id list per table. The secrets reads select
 		// metadata only, never encryptedValue or hint.
+		const entities = coreTable(db, memoryEntities);
+		const members = coreTable(db, organizationMembers);
+		const secrets = coreTable(db, organizationSecrets);
 		const [
 			entityWindow,
 			memberWindow,
@@ -293,81 +305,78 @@ export async function recordCardCreationEdges(
 		] = await db.batch([
 			db
 				.select({
-					id: memoryEntities.id,
-					name: memoryEntities.displayName,
-					type: memoryEntities.entityType,
+					id: entities.id,
+					name: entities.displayName,
+					type: entities.entityType,
 				})
-				.from(memoryEntities)
+				.from(entities)
 				.where(
 					and(
-						eq(memoryEntities.organizationId, card.orgId),
-						eq(memoryEntities.status, "active"),
+						eq(entities.organizationId, card.orgId),
+						eq(entities.status, "active"),
 					),
 				)
-				.orderBy(memoryEntities.id)
+				.orderBy(entities.id)
 				.limit(CARD_NAME_SCAN_LIMIT + 1),
 			db
 				.select({
-					id: organizationMembers.userId,
-					name: organizationMembers.name,
+					id: members.userId,
+					name: members.name,
 				})
-				.from(organizationMembers)
+				.from(members)
 				.where(
 					and(
-						eq(organizationMembers.organizationId, card.orgId),
-						eq(organizationMembers.status, "active"),
-						isNotNull(organizationMembers.userId),
+						eq(members.organizationId, card.orgId),
+						eq(members.status, "active"),
+						isNotNull(members.userId),
 					),
 				)
-				.orderBy(organizationMembers.userId)
+				.orderBy(members.userId)
 				.limit(CARD_NAME_SCAN_LIMIT + 1),
 			db
-				.select({ id: organizationSecrets.id, name: organizationSecrets.name })
-				.from(organizationSecrets)
-				.where(eq(organizationSecrets.organizationId, card.orgId))
-				.orderBy(organizationSecrets.name)
+				.select({ id: secrets.id, name: secrets.name })
+				.from(secrets)
+				.where(eq(secrets.organizationId, card.orgId))
+				.orderBy(secrets.name)
 				.limit(CARD_NAME_SCAN_LIMIT + 1),
 			db
 				.select({
-					id: memoryEntities.id,
-					name: memoryEntities.displayName,
-					type: memoryEntities.entityType,
+					id: entities.id,
+					name: entities.displayName,
+					type: entities.entityType,
 				})
-				.from(memoryEntities)
+				.from(entities)
 				.where(
 					and(
-						eq(memoryEntities.organizationId, card.orgId),
-						eq(memoryEntities.status, "active"),
-						inArray(memoryEntities.id, ids),
+						eq(entities.organizationId, card.orgId),
+						eq(entities.status, "active"),
+						inArray(entities.id, ids),
 					),
 				)
-				.orderBy(memoryEntities.id)
+				.orderBy(entities.id)
 				.limit(CARD_NAME_MATCH_LIMIT),
 			db
 				.select({
-					id: organizationMembers.userId,
-					name: organizationMembers.name,
+					id: members.userId,
+					name: members.name,
 				})
-				.from(organizationMembers)
+				.from(members)
 				.where(
 					and(
-						eq(organizationMembers.organizationId, card.orgId),
-						eq(organizationMembers.status, "active"),
-						inArray(organizationMembers.userId, ids),
+						eq(members.organizationId, card.orgId),
+						eq(members.status, "active"),
+						inArray(members.userId, ids),
 					),
 				)
-				.orderBy(organizationMembers.userId)
+				.orderBy(members.userId)
 				.limit(CARD_NAME_MATCH_LIMIT),
 			db
-				.select({ id: organizationSecrets.id, name: organizationSecrets.name })
-				.from(organizationSecrets)
+				.select({ id: secrets.id, name: secrets.name })
+				.from(secrets)
 				.where(
-					and(
-						eq(organizationSecrets.organizationId, card.orgId),
-						inArray(organizationSecrets.id, ids),
-					),
+					and(eq(secrets.organizationId, card.orgId), inArray(secrets.id, ids)),
 				)
-				.orderBy(organizationSecrets.id)
+				.orderBy(secrets.id)
 				.limit(CARD_NAME_MATCH_LIMIT),
 		]);
 		const involved: { node: DecisionGraphNode; name: string }[] = [];
@@ -446,12 +455,11 @@ export async function recordDecisionResolutionEdges(
 	];
 	try {
 		if (p.workItemId) {
+			const items = coreTable(db, workItems);
 			const [work] = await db
-				.select({ id: workItems.id })
-				.from(workItems)
-				.where(
-					and(eq(workItems.orgId, p.orgId), eq(workItems.id, p.workItemId)),
-				)
+				.select({ id: items.id })
+				.from(items)
+				.where(and(eq(items.orgId, p.orgId), eq(items.id, p.workItemId)))
 				.limit(1);
 			if (work)
 				edges.push({
@@ -492,28 +500,30 @@ export async function recordOwnerInstructionEdges(
 		const subjects = new Map<string, DecisionGraphNode>();
 		let occurredAt = fact.createdAt ?? undefined;
 		let referencedSubjects = 0;
+		const items = coreTable(db, workItems);
+		const interactions = coreTable(db, workInteractions);
+		const learningEvents = coreTable(db, learningInteractionEvents);
+		const comments = coreTable(db, workItemComments);
 		const addWork = async (id: string) => {
 			const [work] = await db
-				.select({ id: workItems.id })
-				.from(workItems)
-				.where(
-					and(eq(workItems.orgId, fact.organizationId), eq(workItems.id, id)),
-				)
+				.select({ id: items.id })
+				.from(items)
+				.where(and(eq(items.orgId, fact.organizationId), eq(items.id, id)))
 				.limit(1);
 			if (work) subjects.set(`work:${id}`, { kind: "work_item", id });
 		};
 		const addCard = async (id: string) => {
 			const [card] = await db
 				.select({
-					id: workInteractions.id,
-					workItemId: workInteractions.workItemId,
+					id: interactions.id,
+					workItemId: interactions.workItemId,
 				})
-				.from(workInteractions)
+				.from(interactions)
 				.where(
 					and(
-						eq(workInteractions.orgId, fact.organizationId),
-						eq(workInteractions.id, id),
-						eq(workInteractions.targetType, "user"),
+						eq(interactions.orgId, fact.organizationId),
+						eq(interactions.id, id),
+						eq(interactions.targetType, "user"),
 					),
 				)
 				.limit(1);
@@ -524,26 +534,23 @@ export async function recordOwnerInstructionEdges(
 		if (ids.length) {
 			const events = await db
 				.select({
-					targetId: learningInteractionEvents.targetId,
-					targetType: learningInteractionEvents.targetType,
-					metadata: learningInteractionEvents.metadata,
-					occurredAt: learningInteractionEvents.occurredAt,
+					targetId: learningEvents.targetId,
+					targetType: learningEvents.targetType,
+					metadata: learningEvents.metadata,
+					occurredAt: learningEvents.occurredAt,
 				})
-				.from(learningInteractionEvents)
+				.from(learningEvents)
 				.where(
 					and(
-						eq(learningInteractionEvents.organizationId, fact.organizationId),
-						eq(learningInteractionEvents.actorType, "user"),
+						eq(learningEvents.organizationId, fact.organizationId),
+						eq(learningEvents.actorType, "user"),
 						typeof feed.ownerUserId === "string"
-							? eq(learningInteractionEvents.actorId, feed.ownerUserId)
+							? eq(learningEvents.actorId, feed.ownerUserId)
 							: undefined,
-						inArray(learningInteractionEvents.id, ids),
+						inArray(learningEvents.id, ids),
 					),
 				)
-				.orderBy(
-					learningInteractionEvents.occurredAt,
-					learningInteractionEvents.id,
-				)
+				.orderBy(learningEvents.occurredAt, learningEvents.id)
 				.limit(50);
 			for (const event of events) {
 				occurredAt = event.occurredAt;
@@ -574,15 +581,15 @@ export async function recordOwnerInstructionEdges(
 		if (commentId) {
 			const [comment] = await db
 				.select({
-					workItemId: workItemComments.workItemId,
-					createdAt: workItemComments.createdAt,
+					workItemId: comments.workItemId,
+					createdAt: comments.createdAt,
 				})
-				.from(workItemComments)
+				.from(comments)
 				.where(
 					and(
-						eq(workItemComments.orgId, fact.organizationId),
-						eq(workItemComments.id, commentId),
-						eq(workItemComments.authorType, "user"),
+						eq(comments.orgId, fact.organizationId),
+						eq(comments.id, commentId),
+						eq(comments.authorType, "user"),
 					),
 				)
 				.limit(1);

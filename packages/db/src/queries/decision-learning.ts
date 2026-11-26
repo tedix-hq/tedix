@@ -2,7 +2,26 @@ import { advancePlatformCronCheckpoint } from "./platform-cron-executions";
 import type { WorkInteraction } from "../schema/work-factory";
 import type { TediApprovalRequest } from "../schema/approvals";
 import type { WorkItem } from "../schema/work-items";
-import { and, asc, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	getColumns,
+	gt,
+	gte,
+	inArray,
+	lte,
+	sql,
+	type SQL,
+} from "drizzle-orm";
+import { coreTable } from "../core-store/client";
+import {
+	booleanValue,
+	coreStore,
+	jsonRead,
+	jsonWrite,
+} from "../core-store/dialect";
 import {
 	decisionExposures,
 	decisionOutcomeLabels,
@@ -34,10 +53,11 @@ export async function getDecisionLearningConfig(
 	db: DbQueryClient,
 	organizationId: string,
 ) {
+	const orgs = coreTable(db, organizations);
 	const [row] = await db
-		.select({ metadata: organizations.metadata })
-		.from(organizations)
-		.where(eq(organizations.id, organizationId))
+		.select({ metadata: orgs.metadata })
+		.from(orgs)
+		.where(eq(orgs.id, organizationId))
 		.limit(1);
 	return DecisionLearningConfigSchema.parse(
 		row?.metadata?.decisionLearning ?? {},
@@ -49,12 +69,13 @@ export async function setDecisionLearningConfig(
 	config: DecisionLearningConfig,
 ) {
 	const parsed = DecisionLearningConfigSchema.parse(config);
+	const orgs = coreTable(db, organizations);
 	await db
-		.update(organizations)
+		.update(orgs)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.decisionLearning', json(${JSON.stringify(parsed)}))`,
+			metadata: jsonWrite(db, orgs.metadata, ["decisionLearning"], parsed),
 		})
-		.where(eq(organizations.id, organizationId));
+		.where(eq(orgs.id, organizationId));
 	return parsed;
 }
 
@@ -71,32 +92,37 @@ export async function listDecisionInstrumentationSources(
 	const interactions: WorkInteraction[] = [];
 	const proposals: (typeof workApprovalProposals.$inferSelect)[] = [];
 	const approvals: TediApprovalRequest[] = [];
+	const postgres = coreStore(db) === "postgres";
+	const cards = coreTable(db, workInteractions);
+	const proposalRows = coreTable(db, workApprovalProposals);
+	const approvalRows = coreTable(db, tediApprovalRequests);
+	const itemsTable = coreTable(db, workItems);
 	for (let offset = 0; offset < p.cardIds.length; offset += 50) {
 		const ids = p.cardIds.slice(offset, offset + 50);
 		interactions.push(
 			...(await db
-				.select(workInteractionStoredColumns)
-				.from(workInteractions)
+				.select(postgres ? getColumns(cards) : workInteractionStoredColumns)
+				.from(cards)
 				.where(
 					and(
-						eq(workInteractions.orgId, p.organizationId),
-						eq(workInteractions.targetType, "user"),
-						eq(workInteractions.targetId, p.actorId),
-						inArray(workInteractions.id, ids),
+						eq(cards.orgId, p.organizationId),
+						eq(cards.targetType, "user"),
+						eq(cards.targetId, p.actorId),
+						inArray(cards.id, ids),
 					),
 				)),
 		);
 		proposals.push(
 			...(await db
 				.select()
-				.from(workApprovalProposals)
+				.from(proposalRows)
 				.where(
 					and(
-						eq(workApprovalProposals.orgId, p.organizationId),
-						eq(workApprovalProposals.approverType, "user"),
-						eq(workApprovalProposals.approverId, p.actorId),
+						eq(proposalRows.orgId, p.organizationId),
+						eq(proposalRows.approverType, "user"),
+						eq(proposalRows.approverId, p.actorId),
 						inArray(
-							workApprovalProposals.id,
+							proposalRows.id,
 							ids
 								.filter((id) => id.startsWith("work-approval:"))
 								.map((id) => id.slice(14)),
@@ -107,13 +133,15 @@ export async function listDecisionInstrumentationSources(
 		if (p.mayReadApprovals)
 			approvals.push(
 				...(await db
-					.select(approvalRequestStoredColumns)
-					.from(tediApprovalRequests)
+					.select(
+						postgres ? getColumns(approvalRows) : approvalRequestStoredColumns,
+					)
+					.from(approvalRows)
 					.where(
 						and(
-							eq(tediApprovalRequests.orgId, p.organizationId),
+							eq(approvalRows.orgId, p.organizationId),
 							inArray(
-								tediApprovalRequests.id,
+								approvalRows.id,
 								ids
 									.filter((id) => id.startsWith("approval:"))
 									.map((id) => id.slice(9)),
@@ -134,12 +162,12 @@ export async function listDecisionInstrumentationSources(
 	)) {
 		items.push(
 			...(await db
-				.select(workItemStoredColumns)
-				.from(workItems)
+				.select(postgres ? getColumns(itemsTable) : workItemStoredColumns)
+				.from(itemsTable)
 				.where(
 					and(
-						eq(workItems.orgId, p.organizationId),
-						inArray(workItems.id, ids),
+						eq(itemsTable.orgId, p.organizationId),
+						inArray(itemsTable.id, ids),
 					),
 				)),
 		);
@@ -151,15 +179,16 @@ export async function insertDecisionExposure(
 	db: DbQueryClient,
 	row: typeof decisionExposures.$inferInsert,
 ) {
-	await db.insert(decisionExposures).values(row).onConflictDoNothing();
+	const exposures = coreTable(db, decisionExposures);
+	await db.insert(exposures).values(row).onConflictDoNothing();
 	return db
 		.select()
-		.from(decisionExposures)
+		.from(exposures)
 		.where(
 			and(
-				eq(decisionExposures.organizationId, row.organizationId),
-				eq(decisionExposures.actorId, row.actorId),
-				eq(decisionExposures.id, row.id),
+				eq(exposures.organizationId, row.organizationId),
+				eq(exposures.actorId, row.actorId),
+				eq(exposures.id, row.id),
 			),
 		)
 		.limit(1);
@@ -176,40 +205,41 @@ export async function listDecisionInstrumentation(
 		limit: number;
 	},
 ) {
+	const exposures = coreTable(db, decisionExposures);
+	const labels = coreTable(db, decisionOutcomeLabels);
 	const scope = and(
 		// This tautology offers the ordered index only to the list, preserving
 		// receipt lookups through the narrower tenant/person/card index.
-		sql`+${decisionExposures.occurredAt} >= ''`,
-		eq(decisionExposures.organizationId, p.organizationId),
-		eq(decisionExposures.actorId, p.actorId),
-		gt(decisionExposures.expiresAt, p.now),
-		p.cardId ? eq(decisionExposures.cardId, p.cardId) : undefined,
-		p.classId ? eq(decisionExposures.classId, p.classId) : undefined,
+		coreStore(db) === "d1"
+			? sql`+${exposures.occurredAt} >= ''`
+			: sql`${exposures.occurredAt} >= ''`,
+		eq(exposures.organizationId, p.organizationId),
+		eq(exposures.actorId, p.actorId),
+		gt(exposures.expiresAt, p.now),
+		p.cardId ? eq(exposures.cardId, p.cardId) : undefined,
+		p.classId ? eq(exposures.classId, p.classId) : undefined,
 	);
-	const exposures = await db
+	const exposureRows = await db
 		.select()
-		.from(decisionExposures)
+		.from(exposures)
 		.where(scope)
-		.orderBy(desc(decisionExposures.occurredAt), asc(decisionExposures.id))
+		.orderBy(desc(exposures.occurredAt), asc(exposures.id))
 		.limit(p.limit);
-	const labels = await db
+	const labelRows = await db
 		.select()
-		.from(decisionOutcomeLabels)
+		.from(labels)
 		.where(
 			and(
-				eq(decisionOutcomeLabels.organizationId, p.organizationId),
-				eq(decisionOutcomeLabels.actorId, p.actorId),
-				gt(decisionOutcomeLabels.expiresAt, p.now),
-				p.cardId ? eq(decisionOutcomeLabels.cardId, p.cardId) : undefined,
-				p.classId ? eq(decisionOutcomeLabels.classId, p.classId) : undefined,
+				eq(labels.organizationId, p.organizationId),
+				eq(labels.actorId, p.actorId),
+				gt(labels.expiresAt, p.now),
+				p.cardId ? eq(labels.cardId, p.cardId) : undefined,
+				p.classId ? eq(labels.classId, p.classId) : undefined,
 			),
 		)
-		.orderBy(
-			desc(decisionOutcomeLabels.observedAt),
-			asc(decisionOutcomeLabels.id),
-		)
+		.orderBy(desc(labels.observedAt), asc(labels.id))
 		.limit(p.limit * 3);
-	return { exposures, labels };
+	return { exposures: exposureRows, labels: labelRows };
 }
 
 const LABEL_SCAN_CHECKPOINT = "decision-outcome-labeller:";
@@ -220,12 +250,11 @@ export async function getDecisionLabelScanCheckpoint(
 	db: DbQueryClient,
 	source: DecisionLabelScanSource | `${DecisionLabelScanSource}:sweep`,
 ) {
+	const checkpoints = coreTable(db, platformCronCheckpoints);
 	const [row] = await db
-		.select({ through: platformCronCheckpoints.through })
-		.from(platformCronCheckpoints)
-		.where(
-			eq(platformCronCheckpoints.scheduleId, LABEL_SCAN_CHECKPOINT + source),
-		)
+		.select({ through: checkpoints.through })
+		.from(checkpoints)
+		.where(eq(checkpoints.scheduleId, LABEL_SCAN_CHECKPOINT + source))
 		.limit(1);
 	return row?.through ?? null;
 }
@@ -264,22 +293,35 @@ export async function beginDecisionLabelSweep(
 		Date.parse(at) - Date.parse(state.completedAt) < 86_400_000
 	)
 		return null;
+	const responses = coreTable(db, workInteractionResponses);
+	const decisions = coreTable(db, workApprovalDecisions);
+	const requests = coreTable(db, tediApprovalRequests);
+	// D1 uses rowids; Postgres uses the identity sequence column.
+	const postgres = coreStore(db) === "postgres";
+	const position = (
+		table:
+			| typeof workInteractionResponses
+			| typeof workApprovalDecisions
+			| typeof tediApprovalRequests,
+	) => (postgres ? sql`${table}.sequence` : sql`${table}.rowid`);
+	const headOf = (
+		table:
+			| typeof workInteractionResponses
+			| typeof workApprovalDecisions
+			| typeof tediApprovalRequests,
+	) =>
+		db
+			.select({
+				rowid: sql<number>`coalesce(max(${position(table)}), 0)`
+					.mapWith(Number)
+					.as("rowid"),
+			})
+			.from(table);
 	const heads =
 		source === "responses"
-			? await db
-					.select({ rowid: sql<number>`coalesce(max(rowid), 0)`.as("rowid") })
-					.from(workInteractionResponses)
-			: await db
-					.select({ rowid: sql<number>`coalesce(max(rowid), 0)`.as("rowid") })
-					.from(workApprovalDecisions)
-					.unionAll(
-						db
-							.select({
-								rowid: sql<number>`coalesce(max(rowid), 0)`.as("rowid"),
-							})
-							.from(tediApprovalRequests),
-					);
-	const head = Math.max(0, ...heads.map((row) => row.rowid));
+			? await headOf(responses)
+			: await headOf(decisions).unionAll(headOf(requests));
+	const head = Math.max(0, ...heads.map((row) => Number(row.rowid)));
 	const afterRowid =
 		state.completedAt || state.afterRowid > head ? 0 : state.afterRowid;
 	return {
@@ -316,48 +358,58 @@ export async function finishDecisionLabelSweep(
 	);
 }
 
-const unlabelledResponseColumns = {
-	exposureId: sql<string>`${decisionExposures.id}`.as("exposure_id"),
-	organizationId: decisionExposures.organizationId,
-	actorId: decisionExposures.actorId,
-	cardId: decisionExposures.cardId,
-	classId: decisionExposures.classId,
-	expiresAt: decisionExposures.expiresAt,
-	responseId: sql`${workInteractionResponses.id}`
-		.mapWith(workInteractionResponses.id)
-		.as("response_id"),
-	respondedAt: sql`${workInteractionResponses.respondedAt}`
-		.mapWith(workInteractionResponses.respondedAt)
-		.as("responded_at"),
-	metadata: sql`${workInteractionResponses.metadata}`
-		.mapWith(workInteractionResponses.metadata)
-		.as("metadata"),
-	responseKind: sql`${workInteractionResponses.responseKind}`
-		.mapWith(workInteractionResponses.responseKind)
-		.as("response_kind"),
-};
-const unlabelledResponseOrder = [
-	asc(workInteractionResponses.respondedAt),
-	asc(workInteractionResponses.id),
-	desc(decisionExposures.occurredAt),
-	desc(decisionExposures.id),
-];
+function unlabelledResponseColumns(db: DbQueryClient) {
+	const exposures = coreTable(db, decisionExposures);
+	const responses = coreTable(db, workInteractionResponses);
+	return {
+		exposureId: sql<string>`${exposures.id}`.as("exposure_id"),
+		organizationId: exposures.organizationId,
+		actorId: exposures.actorId,
+		cardId: exposures.cardId,
+		classId: exposures.classId,
+		expiresAt: exposures.expiresAt,
+		responseId: sql`${responses.id}`.mapWith(responses.id).as("response_id"),
+		respondedAt: sql`${responses.respondedAt}`
+			.mapWith(responses.respondedAt)
+			.as("responded_at"),
+		metadata: sql`${responses.metadata}`
+			.mapWith(responses.metadata)
+			.as("metadata"),
+		responseKind: sql`${responses.responseKind}`
+			.mapWith(responses.responseKind)
+			.as("response_kind"),
+	};
+}
+function unlabelledResponseOrder(db: DbQueryClient) {
+	const exposures = coreTable(db, decisionExposures);
+	const responses = coreTable(db, workInteractionResponses);
+	return [
+		asc(responses.respondedAt),
+		asc(responses.id),
+		desc(exposures.occurredAt),
+		desc(exposures.id),
+	];
+}
 /** The exposure a response answers: same tenant, person, card and request version, shown first. */
-function responseAnswersExposure() {
+function responseAnswersExposure(db: DbQueryClient) {
+	const exposures = coreTable(db, decisionExposures);
+	const responses = coreTable(db, workInteractionResponses);
 	return and(
-		eq(workInteractionResponses.orgId, decisionExposures.organizationId),
-		eq(workInteractionResponses.interactionId, decisionExposures.cardId),
-		eq(workInteractionResponses.responderId, decisionExposures.actorId),
-		eq(workInteractionResponses.responderType, "user"),
-		sql`${workInteractionResponses.respondedAt} >= ${decisionExposures.occurredAt}`,
+		eq(responses.orgId, exposures.organizationId),
+		eq(responses.interactionId, exposures.cardId),
+		eq(responses.responderId, exposures.actorId),
+		eq(responses.responderType, "user"),
+		sql`${responses.respondedAt} >= ${exposures.occurredAt}`,
 		// The response stores the post-save version; the exposure saw the prior request.
-		sql`json_extract(${decisionExposures.context},'$.sourceVersion') + 1 = ${workInteractionResponses.resolvedRequestVersion}`,
+		sql`${jsonRead(db, exposures.context, ["sourceVersion"], "number")} + 1 = ${responses.resolvedRequestVersion}`,
 	);
 }
-function unlabelledUnexpiredResponse(now: string) {
+function unlabelledUnexpiredResponse(db: DbQueryClient, now: string) {
+	const exposures = coreTable(db, decisionExposures);
+	const responses = coreTable(db, workInteractionResponses);
 	return and(
-		gt(decisionExposures.expiresAt, now),
-		sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${decisionExposures.organizationId} AND l.actor_id=${decisionExposures.actorId} AND l.id=(${decisionExposures.organizationId} || ':' || ${workInteractionResponses.id} || ':immediate'))`,
+		gt(exposures.expiresAt, now),
+		sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${exposures.organizationId} AND l.actor_id=${exposures.actorId} AND l.id=(${exposures.organizationId} || ':' || ${responses.id} || ':immediate'))`,
 	);
 }
 
@@ -379,45 +431,50 @@ export async function listUnlabelledDecisionResponses(
 	respondedFrom: string | null = null,
 	range?: DecisionReceiptRange,
 ) {
+	const postgres = coreStore(db) === "postgres";
+	const exposures = coreTable(db, decisionExposures);
+	const responses = coreTable(db, workInteractionResponses);
+	// D1 uses rowids; Postgres uses the identity sequence column.
+	const position = postgres
+		? sql`${responses}.sequence`
+		: sql`${responses}.rowid`;
 	if (respondedFrom === null && !range)
 		return db
-			.select(unlabelledResponseColumns)
-			.from(decisionExposures)
-			.innerJoin(workInteractionResponses, responseAnswersExposure())
-			.where(unlabelledUnexpiredResponse(now))
-			.orderBy(...unlabelledResponseOrder)
+			.select(unlabelledResponseColumns(db))
+			.from(exposures)
+			.innerJoin(responses, responseAnswersExposure(db))
+			.where(unlabelledUnexpiredResponse(db, now))
+			.orderBy(...unlabelledResponseOrder(db))
 			.limit(limit);
 	// CROSS JOIN fixes the loop order: the recent responses drive the exposure
 	// lookup. Pin the time index too: live statistics can prefer scanning the
 	// tenant/card index to satisfy the join, even with a recent-time predicate.
 	return db
-		.select(unlabelledResponseColumns)
+		.select(unlabelledResponseColumns(db))
 		.from(
-			range
-				? workInteractionResponses
-				: sql`${workInteractionResponses} INDEXED BY idx_work_interaction_responses_time`,
+			postgres
+				? responses
+				: range
+					? responses
+					: sql`${responses} INDEXED BY idx_work_interaction_responses_time`,
 		)
-		.crossJoin(decisionExposures)
+		.crossJoin(exposures)
 		.where(
 			and(
 				respondedFrom === null
 					? undefined
-					: gte(workInteractionResponses.respondedAt, respondedFrom),
+					: gte(responses.respondedAt, respondedFrom),
 				range
-					? sql`${workInteractionResponses}.rowid > ${range.afterRowid} AND ${workInteractionResponses}.rowid <= ${range.throughRowid}`
+					? sql`${position} > ${range.afterRowid} AND ${position} <= ${range.throughRowid}`
 					: undefined,
-				responseAnswersExposure(),
-				unlabelledUnexpiredResponse(now),
+				responseAnswersExposure(db),
+				unlabelledUnexpiredResponse(db, now),
 			),
 		)
 		.orderBy(
 			...(range
-				? [
-						asc(sql`${workInteractionResponses}.rowid`),
-						desc(decisionExposures.occurredAt),
-						desc(decisionExposures.id),
-					]
-				: unlabelledResponseOrder),
+				? [asc(position), desc(exposures.occurredAt), desc(exposures.id)]
+				: unlabelledResponseOrder(db)),
 		)
 		.limit(limit);
 }
@@ -439,92 +496,102 @@ export async function listUnlabelledDecisionApprovals(
 	decidedFrom: string | null = null,
 	range?: DecisionReceiptRange,
 ) {
+	const postgres = coreStore(db) === "postgres";
+	const exposures = coreTable(db, decisionExposures);
+	const decisions = coreTable(db, workApprovalDecisions);
+	const proposals = coreTable(db, workApprovalProposals);
+	const requests = coreTable(db, tediApprovalRequests);
+	// D1 uses rowids; Postgres uses the identity sequence column.
+	const decisionPosition = postgres
+		? sql`${decisions}.sequence`
+		: sql`${decisions}.rowid`;
+	const requestPosition = postgres
+		? sql`${requests}.sequence`
+		: sql`${requests}.rowid`;
 	const work = await db
 		.select({
-			exposureId: sql<string>`${decisionExposures.id}`.as("exposure_id"),
-			organizationId: decisionExposures.organizationId,
-			actorId: decisionExposures.actorId,
-			cardId: decisionExposures.cardId,
-			classId: decisionExposures.classId,
-			expiresAt: decisionExposures.expiresAt,
-			receiptId: workApprovalDecisions.id,
-			decidedAt: workApprovalDecisions.decidedAt,
-			decision: workApprovalDecisions.decision,
+			exposureId: sql<string>`${exposures.id}`.as("exposure_id"),
+			organizationId: exposures.organizationId,
+			actorId: exposures.actorId,
+			cardId: exposures.cardId,
+			classId: exposures.classId,
+			expiresAt: exposures.expiresAt,
+			receiptId: decisions.id,
+			decidedAt: decisions.decidedAt,
+			decision: decisions.decision,
 		})
 		// CROSS JOIN fixes the loop order: decisions in time order, each one's
 		// proposal by id, then the exposures of that tenant, person and card.
 		// The card id is derived from the proposal id, so starting from the
 		// exposures would walk the tenant's proposals once per exposure.
-		.from(workApprovalDecisions)
-		.crossJoin(workApprovalProposals)
-		.crossJoin(decisionExposures)
+		.from(decisions)
+		.crossJoin(proposals)
+		.crossJoin(exposures)
 		.where(
 			and(
 				decidedFrom === null
 					? undefined
-					: gte(workApprovalDecisions.decidedAt, decidedFrom),
+					: gte(decisions.decidedAt, decidedFrom),
 				range
-					? sql`${workApprovalDecisions}.rowid > ${range.afterRowid} AND ${workApprovalDecisions}.rowid <= ${range.throughRowid}`
+					? sql`${decisionPosition} > ${range.afterRowid} AND ${decisionPosition} <= ${range.throughRowid}`
 					: undefined,
-				eq(workApprovalDecisions.proposalId, workApprovalProposals.id),
-				eq(workApprovalDecisions.deciderType, "user"),
-				eq(workApprovalProposals.orgId, decisionExposures.organizationId),
-				eq(workApprovalDecisions.deciderId, decisionExposures.actorId),
-				sql`${decisionExposures.cardId} = ('work-approval:' || ${workApprovalProposals.id})`,
-				sql`${workApprovalDecisions.decidedAt}>=${decisionExposures.occurredAt}`,
-				gt(decisionExposures.expiresAt, now),
-				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${decisionExposures.organizationId} AND l.id=(${decisionExposures.organizationId} || ':' || ${workApprovalDecisions.id} || ':immediate'))`,
+				eq(decisions.proposalId, proposals.id),
+				eq(decisions.deciderType, "user"),
+				eq(proposals.orgId, exposures.organizationId),
+				eq(decisions.deciderId, exposures.actorId),
+				sql`${exposures.cardId} = ('work-approval:' || ${proposals.id})`,
+				sql`${decisions.decidedAt}>=${exposures.occurredAt}`,
+				gt(exposures.expiresAt, now),
+				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${exposures.organizationId} AND l.id=(${exposures.organizationId} || ':' || ${decisions.id} || ':immediate'))`,
 			),
 		)
-		.orderBy(
-			range
-				? asc(sql`${workApprovalDecisions}.rowid`)
-				: asc(workApprovalDecisions.decidedAt),
-		)
+		.orderBy(range ? asc(decisionPosition) : asc(decisions.decidedAt))
 		.limit(limit);
 	const tedi = await db
 		.select({
-			exposureId: sql<string>`${decisionExposures.id}`.as("exposure_id"),
-			organizationId: decisionExposures.organizationId,
-			actorId: decisionExposures.actorId,
-			cardId: decisionExposures.cardId,
-			classId: decisionExposures.classId,
-			expiresAt: decisionExposures.expiresAt,
-			receiptId: tediApprovalRequests.id,
-			decidedAt: tediApprovalRequests.resolvedAt,
-			decision: tediApprovalRequests.status,
+			exposureId: sql<string>`${exposures.id}`.as("exposure_id"),
+			organizationId: exposures.organizationId,
+			actorId: exposures.actorId,
+			cardId: exposures.cardId,
+			classId: exposures.classId,
+			expiresAt: exposures.expiresAt,
+			receiptId: requests.id,
+			decidedAt: requests.resolvedAt,
+			decision: requests.status,
 		})
 		// Keep approvals outermost so each receipt probes the exposure's
 		// org/actor/card index instead of rescanning approvals per exposure.
-		.from(tediApprovalRequests)
-		.crossJoin(decisionExposures)
+		.from(requests)
+		.crossJoin(exposures)
 		.where(
 			and(
 				decidedFrom === null
 					? undefined
-					: gte(tediApprovalRequests.resolvedAt, decidedFrom),
+					: gte(requests.resolvedAt, decidedFrom),
 				range
-					? sql`${tediApprovalRequests}.rowid > ${range.afterRowid} AND ${tediApprovalRequests}.rowid <= ${range.throughRowid}`
+					? sql`${requestPosition} > ${range.afterRowid} AND ${requestPosition} <= ${range.throughRowid}`
 					: undefined,
 				// Correlate the index lookup so SQLite cannot build a Bloom filter
 				// by reading every exposure before examining recent approvals.
-				sql`${decisionExposures}.rowid IN (
-					SELECT rowid FROM decision_exposures candidates
-					WHERE candidates.organization_id = ${tediApprovalRequests.orgId}
-					AND candidates.actor_id = ${tediApprovalRequests.resolvedBy}
-					AND candidates.card_id = ('approval:' || ${tediApprovalRequests.id})
-				)`,
-				inArray(tediApprovalRequests.status, ["approved", "rejected"]),
-				sql`${tediApprovalRequests.resolvedAt}>=${decisionExposures.occurredAt}`,
-				gt(decisionExposures.expiresAt, now),
-				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${decisionExposures.organizationId} AND l.id=(${decisionExposures.organizationId} || ':' || ${tediApprovalRequests.id} || ':immediate'))`,
+				postgres
+					? and(
+							eq(exposures.organizationId, requests.orgId),
+							eq(exposures.actorId, requests.resolvedBy),
+							sql`${exposures.cardId} = ('approval:' || ${requests.id})`,
+						)
+					: sql`${exposures}.rowid IN (
+						SELECT rowid FROM decision_exposures candidates
+						WHERE candidates.organization_id = ${requests.orgId}
+						AND candidates.actor_id = ${requests.resolvedBy}
+						AND candidates.card_id = ('approval:' || ${requests.id})
+					)`,
+				inArray(requests.status, ["approved", "rejected"]),
+				sql`${requests.resolvedAt}>=${exposures.occurredAt}`,
+				gt(exposures.expiresAt, now),
+				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${exposures.organizationId} AND l.id=(${exposures.organizationId} || ':' || ${requests.id} || ':immediate'))`,
 			),
 		)
-		.orderBy(
-			range
-				? asc(sql`${tediApprovalRequests}.rowid`)
-				: asc(tediApprovalRequests.resolvedAt),
-		)
+		.orderBy(range ? asc(requestPosition) : asc(requests.resolvedAt))
 		.limit(limit);
 	return [...work, ...tedi];
 }
@@ -533,11 +600,12 @@ export async function insertDecisionOutcomeLabel(
 	db: DbQueryClient,
 	row: typeof decisionOutcomeLabels.$inferInsert,
 ) {
+	const labels = coreTable(db, decisionOutcomeLabels);
 	const inserted = await db
-		.insert(decisionOutcomeLabels)
+		.insert(labels)
 		.values(row)
 		.onConflictDoNothing()
-		.returning({ id: decisionOutcomeLabels.id });
+		.returning({ id: labels.id });
 	return inserted.length > 0;
 }
 export async function listDueDecisionLabels(
@@ -547,23 +615,31 @@ export async function listDueDecisionLabels(
 	limit = 50,
 ) {
 	const milliseconds = window === "day_1" ? 86400000 : 604800000;
+	const labels = coreTable(db, decisionOutcomeLabels);
 	return db
 		.select()
-		.from(decisionOutcomeLabels)
+		.from(labels)
 		.where(
 			and(
-				eq(decisionOutcomeLabels.window, "immediate"),
+				eq(labels.window, "immediate"),
 				lte(
-					decisionOutcomeLabels.dueAt,
+					labels.dueAt,
 					new Date(Date.parse(now) - milliseconds).toISOString(),
 				),
-				gt(decisionOutcomeLabels.expiresAt, now),
-				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.id = (${decisionOutcomeLabels.id} || ':' || ${window}))`,
+				gt(labels.expiresAt, now),
+				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.id = (${labels.id} || ':' || ${window}))`,
 			),
 		)
-		.orderBy(asc(decisionOutcomeLabels.dueAt), asc(decisionOutcomeLabels.id))
+		.orderBy(asc(labels.dueAt), asc(labels.id))
 		.limit(limit);
 }
+/** Text timestamps hold both `YYYY-MM-DD HH:MM:SS` and ISO forms; normalize like SQLite datetime(). */
+function decisionTimestamp(db: DbQueryClient, value: SQL) {
+	return coreStore(db) === "postgres"
+		? sql`CASE WHEN pg_input_is_valid(${value}, 'timestamp with time zone') THEN date_trunc('second', CASE WHEN ${value} ~ '(Z|z|[+-][0-9]{2}:?[0-9]{2})$' THEN ${value}::timestamptz ELSE ${value}::timestamp AT TIME ZONE 'UTC' END) END`
+		: sql`datetime(${value})`;
+}
+
 export async function getDecisionLabelEvidence(
 	db: DbQueryClient,
 	p: {
@@ -576,96 +652,105 @@ export async function getDecisionLabelEvidence(
 		until: string;
 	},
 ) {
-	const exposures = await db
-		.select({ snapshot: decisionExposures.snapshot })
-		.from(decisionExposures)
+	const exposures = coreTable(db, decisionExposures);
+	const exposureRows = await db
+		.select({ snapshot: exposures.snapshot })
+		.from(exposures)
 		.where(
 			and(
-				eq(decisionExposures.organizationId, p.organizationId),
-				eq(decisionExposures.actorId, p.actorId),
-				eq(decisionExposures.cardId, p.cardId),
-				eq(decisionExposures.id, p.exposureId),
-				sql`${decisionExposures.occurredAt}<=${p.decidedAt}`,
+				eq(exposures.organizationId, p.organizationId),
+				eq(exposures.actorId, p.actorId),
+				eq(exposures.cardId, p.cardId),
+				eq(exposures.id, p.exposureId),
+				sql`${exposures.occurredAt}<=${p.decidedAt}`,
 			),
 		)
-		.orderBy(desc(decisionExposures.occurredAt))
+		.orderBy(desc(exposures.occurredAt))
 		.limit(1);
-	const workItemId = exposures[0]?.snapshot.workItemId;
+	const workItemId = exposureRows[0]?.snapshot.workItemId;
+	const items = coreTable(db, workItems);
 	const work = workItemId
 		? await db
 				.select({
-					id: workItems.id,
-					disposition: workItems.disposition,
-					completedAt: workItems.completedAt,
+					id: items.id,
+					disposition: items.disposition,
+					completedAt: items.completedAt,
 				})
-				.from(workItems)
-				.where(
-					and(
-						eq(workItems.orgId, p.organizationId),
-						eq(workItems.id, workItemId),
-					),
-				)
+				.from(items)
+				.where(and(eq(items.orgId, p.organizationId), eq(items.id, workItemId)))
 				.limit(1)
 		: [];
-	const events = await db
+	const events = coreTable(db, learningInteractionEvents);
+	const facts = coreTable(db, memoryFacts);
+	const interactions = coreTable(db, workInteractions);
+	const evidenceIds =
+		coreStore(db) === "postgres"
+			? sql`jsonb_array_elements_text(${jsonRead(db, facts.metadata, ["learningFeed", "evidenceEventIds"], "json")})`
+			: sql`json_each(json_extract(${facts.metadata}, '$.learningFeed.evidenceEventIds'))`;
+	const eventRows = await db
 		.select({
-			id: learningInteractionEvents.id,
-			eventKind: learningInteractionEvents.eventKind,
-			metadata: learningInteractionEvents.metadata,
+			id: events.id,
+			eventKind: events.eventKind,
+			metadata: events.metadata,
 		})
-		.from(learningInteractionEvents)
+		.from(events)
 		.where(
 			and(
-				eq(learningInteractionEvents.organizationId, p.organizationId),
-				sql`(${learningInteractionEvents.scopeKind} <> 'personal' OR ${learningInteractionEvents.scopeId}=${p.actorId})`,
-				sql`${learningInteractionEvents.occurredAt}>${p.decidedAt}`,
-				lte(learningInteractionEvents.occurredAt, p.until),
-				sql`(${learningInteractionEvents.targetId}=${p.cardId} OR ${learningInteractionEvents.targetId}=${workItemId ?? p.cardId} OR (${p.cardId} LIKE 'approval:%' AND ${learningInteractionEvents.targetId}=substr(${p.cardId},10)) OR json_extract(${learningInteractionEvents.metadata},'$.correctsEventId') IN (SELECT id FROM learning_interaction_events le WHERE le.organization_id=${p.organizationId} AND le.client_event_id=('decision-capture:' || ${p.receiptId})))`,
-				sql`json_extract(${learningInteractionEvents.metadata},'$.serverObserved')=1`,
+				eq(events.organizationId, p.organizationId),
+				sql`(${events.scopeKind} <> 'personal' OR ${events.scopeId}=${p.actorId})`,
+				sql`${events.occurredAt}>${p.decidedAt}`,
+				lte(events.occurredAt, p.until),
+				sql`(${events.targetId}=${p.cardId} OR ${events.targetId}=${workItemId ?? p.cardId} OR (${p.cardId} LIKE 'approval:%' AND ${events.targetId}=substr(${p.cardId},10)) OR ${jsonRead(db, events.metadata, ["correctsEventId"])} IN (SELECT id FROM learning_interaction_events le WHERE le.organization_id=${p.organizationId} AND le.client_event_id=('decision-capture:' || ${p.receiptId})))`,
+				sql`${jsonRead(db, events.metadata, ["serverObserved"], "boolean")} = ${booleanValue(db, true)}`,
 			),
 		)
 		.limit(50);
-	const lessons = await db
-		.select({ id: memoryFacts.id })
-		.from(memoryFacts)
+	const lessonRows = await db
+		.select({ id: facts.id })
+		.from(facts)
 		.where(
 			and(
-				eq(memoryFacts.organizationId, p.organizationId),
-				sql`(json_extract(${memoryFacts.metadata},'$.learningFeed.ownerUserId')=${p.actorId} OR (${memoryFacts.tediId} IS NULL AND (coalesce(${memoryFacts.visibility},'private')<>'private' OR json_extract(${memoryFacts.metadata},'$.learningFeed.ownerUserId') IS NULL)))`,
-				sql`datetime(${memoryFacts.createdAt})>datetime(${p.decidedAt})`,
-				sql`datetime(${memoryFacts.createdAt})<=datetime(${p.until})`,
-				sql`EXISTS (SELECT 1 FROM json_each(json_extract(${memoryFacts.metadata},'$.learningFeed.evidenceEventIds')) e WHERE e.value IN (SELECT le.id FROM learning_interaction_events le WHERE le.organization_id=${p.organizationId} AND le.target_id=${p.cardId}))`,
+				eq(facts.organizationId, p.organizationId),
+				sql`(${jsonRead(db, facts.metadata, ["learningFeed", "ownerUserId"])}=${p.actorId} OR (${facts.tediId} IS NULL AND (coalesce(${facts.visibility},'private')<>'private' OR ${jsonRead(db, facts.metadata, ["learningFeed", "ownerUserId"])} IS NULL)))`,
+				sql`${decisionTimestamp(db, sql`${facts.createdAt}`)}>${decisionTimestamp(db, sql`${p.decidedAt}`)}`,
+				sql`${decisionTimestamp(db, sql`${facts.createdAt}`)}<=${decisionTimestamp(db, sql`${p.until}`)}`,
+				sql`EXISTS (SELECT 1 FROM ${evidenceIds} e WHERE e.value IN (SELECT le.id FROM learning_interaction_events le WHERE le.organization_id=${p.organizationId} AND le.target_id=${p.cardId}))`,
 			),
 		)
 		.limit(50);
 	const followUps = workItemId
 		? await db
-				.select({ id: workInteractions.id })
-				.from(workInteractions)
+				.select({ id: interactions.id })
+				.from(interactions)
 				.where(
 					and(
-						eq(workInteractions.orgId, p.organizationId),
-						eq(workInteractions.targetId, p.actorId),
-						eq(workInteractions.targetType, "user"),
-						eq(workInteractions.workItemId, workItemId),
-						sql`${workInteractions.createdAt}>${p.decidedAt}`,
-						lte(workInteractions.createdAt, p.until),
+						eq(interactions.orgId, p.organizationId),
+						eq(interactions.targetId, p.actorId),
+						eq(interactions.targetType, "user"),
+						eq(interactions.workItemId, workItemId),
+						sql`${interactions.createdAt}>${p.decidedAt}`,
+						lte(interactions.createdAt, p.until),
 					),
 				)
 				.limit(50)
 		: [];
-	return { work: work[0] ?? null, events, lessons, followUps };
+	return {
+		work: work[0] ?? null,
+		events: eventRows,
+		lessons: lessonRows,
+		followUps,
+	};
 }
 
 export async function pruneDecisionInstrumentation(
 	db: DbQueryClient,
 	now: string,
 ) {
+	const labels = coreTable(db, decisionOutcomeLabels);
+	const exposures = coreTable(db, decisionExposures);
 	await db.batch([
-		db
-			.delete(decisionOutcomeLabels)
-			.where(lte(decisionOutcomeLabels.expiresAt, now)),
-		db.delete(decisionExposures).where(lte(decisionExposures.expiresAt, now)),
+		db.delete(labels).where(lte(labels.expiresAt, now)),
+		db.delete(exposures).where(lte(exposures.expiresAt, now)),
 	]);
 }
 
@@ -679,38 +764,40 @@ export async function getDecisionDeferralTime(
 		before: string;
 	},
 ) {
-	const events = await db
-		.select({ at: learningInteractionEvents.occurredAt })
-		.from(learningInteractionEvents)
+	const events = coreTable(db, learningInteractionEvents);
+	const eventRows = await db
+		.select({ at: events.occurredAt })
+		.from(events)
 		.where(
 			and(
-				eq(learningInteractionEvents.organizationId, p.organizationId),
-				eq(learningInteractionEvents.actorId, p.actorId),
-				eq(learningInteractionEvents.targetId, p.cardId),
-				eq(learningInteractionEvents.scopeKind, "personal"),
-				eq(learningInteractionEvents.scopeId, p.actorId),
-				sql`json_extract(${learningInteractionEvents.metadata},'$.decisionChoice')='later'`,
-				lte(learningInteractionEvents.occurredAt, p.before),
+				eq(events.organizationId, p.organizationId),
+				eq(events.actorId, p.actorId),
+				eq(events.targetId, p.cardId),
+				eq(events.scopeKind, "personal"),
+				eq(events.scopeId, p.actorId),
+				sql`${jsonRead(db, events.metadata, ["decisionChoice"])}='later'`,
+				lte(events.occurredAt, p.before),
 			),
 		)
-		.orderBy(asc(learningInteractionEvents.occurredAt))
+		.orderBy(asc(events.occurredAt))
 		.limit(1);
-	const responses = await db
-		.select({ at: workInteractionResponses.respondedAt })
-		.from(workInteractionResponses)
+	const responses = coreTable(db, workInteractionResponses);
+	const responseRows = await db
+		.select({ at: responses.respondedAt })
+		.from(responses)
 		.where(
 			and(
-				eq(workInteractionResponses.orgId, p.organizationId),
-				eq(workInteractionResponses.interactionId, p.cardId),
-				eq(workInteractionResponses.responderId, p.actorId),
-				eq(workInteractionResponses.responderType, "user"),
-				sql`json_extract(${workInteractionResponses.metadata},'$.decisionChoice')='later'`,
-				sql`${workInteractionResponses.respondedAt}<${p.before}`,
+				eq(responses.orgId, p.organizationId),
+				eq(responses.interactionId, p.cardId),
+				eq(responses.responderId, p.actorId),
+				eq(responses.responderType, "user"),
+				sql`${jsonRead(db, responses.metadata, ["decisionChoice"])}='later'`,
+				sql`${responses.respondedAt}<${p.before}`,
 			),
 		)
-		.orderBy(asc(workInteractionResponses.respondedAt))
+		.orderBy(asc(responses.respondedAt))
 		.limit(1);
-	return [...events, ...responses].map((r) => r.at).sort()[0] ?? null;
+	return [...eventRows, ...responseRows].map((r) => r.at).sort()[0] ?? null;
 }
 
 /** Skip/Later is an authenticated browser report, separately identified from an action receipt. */
@@ -719,43 +806,39 @@ export async function listUnlabelledDecisionDeferrals(
 	now: string,
 	limit = 50,
 ) {
+	const events = coreTable(db, learningInteractionEvents);
+	const exposures = coreTable(db, decisionExposures);
 	// CROSS JOIN fixes SQLite's loop order: scan feedback once, then look up
 	// exposures by org/actor/card instead of rescanning a user's feedback for
 	// every exposure. The output limit alone does not bound that join work.
 	return db
 		.select({
-			exposureId: sql<string>`${decisionExposures.id}`.as("exposure_id"),
-			organizationId: decisionExposures.organizationId,
-			actorId: decisionExposures.actorId,
-			cardId: decisionExposures.cardId,
-			classId: decisionExposures.classId,
-			expiresAt: decisionExposures.expiresAt,
-			eventId: learningInteractionEvents.id,
-			occurredAt: learningInteractionEvents.occurredAt,
+			exposureId: sql<string>`${exposures.id}`.as("exposure_id"),
+			organizationId: exposures.organizationId,
+			actorId: exposures.actorId,
+			cardId: exposures.cardId,
+			classId: exposures.classId,
+			expiresAt: exposures.expiresAt,
+			eventId: events.id,
+			occurredAt: events.occurredAt,
 		})
-		.from(learningInteractionEvents)
-		.crossJoin(decisionExposures)
+		.from(events)
+		.crossJoin(exposures)
 		.where(
 			and(
-				eq(
-					learningInteractionEvents.organizationId,
-					decisionExposures.organizationId,
-				),
-				eq(learningInteractionEvents.actorId, decisionExposures.actorId),
-				eq(learningInteractionEvents.scopeKind, "personal"),
-				eq(learningInteractionEvents.scopeId, decisionExposures.actorId),
-				eq(learningInteractionEvents.targetId, decisionExposures.cardId),
-				eq(learningInteractionEvents.surface, "decision_deck"),
-				sql`json_extract(${learningInteractionEvents.metadata},'$.decisionChoice')='later'`,
-				sql`${learningInteractionEvents.occurredAt}>=${decisionExposures.occurredAt}`,
-				gt(decisionExposures.expiresAt, now),
-				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.id=(${learningInteractionEvents.organizationId} || ':' || ${learningInteractionEvents.id} || ':immediate'))`,
+				eq(events.organizationId, exposures.organizationId),
+				eq(events.actorId, exposures.actorId),
+				eq(events.scopeKind, "personal"),
+				eq(events.scopeId, exposures.actorId),
+				eq(events.targetId, exposures.cardId),
+				eq(events.surface, "decision_deck"),
+				sql`${jsonRead(db, events.metadata, ["decisionChoice"])}='later'`,
+				sql`${events.occurredAt}>=${exposures.occurredAt}`,
+				gt(exposures.expiresAt, now),
+				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.id=(${events.organizationId} || ':' || ${events.id} || ':immediate'))`,
 			),
 		)
-		.orderBy(
-			asc(learningInteractionEvents.occurredAt),
-			desc(decisionExposures.occurredAt),
-		)
+		.orderBy(asc(events.occurredAt), desc(exposures.occurredAt))
 		.limit(limit);
 }
 
@@ -763,14 +846,15 @@ export async function getDecisionExposure(
 	db: DbQueryClient,
 	p: { organizationId: string; actorId: string; id: string },
 ) {
+	const exposures = coreTable(db, decisionExposures);
 	const [row] = await db
 		.select()
-		.from(decisionExposures)
+		.from(exposures)
 		.where(
 			and(
-				eq(decisionExposures.organizationId, p.organizationId),
-				eq(decisionExposures.actorId, p.actorId),
-				eq(decisionExposures.id, p.id),
+				eq(exposures.organizationId, p.organizationId),
+				eq(exposures.actorId, p.actorId),
+				eq(exposures.id, p.id),
 			),
 		)
 		.limit(1);

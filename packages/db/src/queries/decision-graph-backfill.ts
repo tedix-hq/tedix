@@ -10,7 +10,10 @@ import {
 	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreTable } from "../core-store/client";
+import { booleanValue, coreStore, jsonRead } from "../core-store/dialect";
 import {
 	DECISION_GRAPH_BACKFILL_PHASES,
 	DecisionGraphBackfillCursorSchema,
@@ -90,8 +93,14 @@ export async function planDecisionGraphBackfillPage(
 	const org = organizationId;
 	const after = cursor.afterId;
 	// Each statement selects unique output names and binds at most nine values.
-	const c = alias(workInteractions, "c");
-	const w = alias(workItems, "w");
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
+	const interactions = coreTable(db, workInteractions);
+	const items = coreTable(db, workItems);
+	const c = alias(interactions, "c");
+	const w = alias(items, "w");
 	const queries = {
 		cards: () =>
 			db
@@ -102,7 +111,7 @@ export async function planDecisionGraphBackfillPage(
 						subjectId: c.id,
 						targetId: w.id,
 						extraId: sql`CASE WHEN ${c.targetType}='user' THEN ${c.targetId} END`,
-						data: sql`CASE WHEN ${c.status}='cancelled' THEN ${c.metadata} END`,
+						data: sql`CASE WHEN ${c.status}='cancelled' THEN ${coreStore(db) === "postgres" ? sql`${c.metadata}::text` : c.metadata} END`,
 					}),
 				)
 				.from(c)
@@ -111,7 +120,7 @@ export async function planDecisionGraphBackfillPage(
 				.orderBy(c.id)
 				.limit(limit),
 		responses: () => {
-			const r = workInteractionResponses;
+			const r = coreTable(db, workInteractionResponses);
 			return db
 				.select(
 					sourceFields({
@@ -128,7 +137,7 @@ export async function planDecisionGraphBackfillPage(
 					and(
 						eq(r.orgId, org),
 						gt(r.id, after),
-						sql`${r.resolvesRequest}=1`,
+						sql`${r.resolvesRequest}=${booleanValue(db, true)}`,
 						eq(c.status, "resolved"),
 						eq(r.resolvedRequestVersion, c.version),
 					),
@@ -137,8 +146,8 @@ export async function planDecisionGraphBackfillPage(
 				.limit(limit);
 		},
 		approvals: () => {
-			const d = workApprovalDecisions;
-			const p = workApprovalProposals;
+			const d = coreTable(db, workApprovalDecisions);
+			const p = coreTable(db, workApprovalProposals);
 			return db
 				.select(
 					sourceFields({
@@ -162,7 +171,7 @@ export async function planDecisionGraphBackfillPage(
 				.limit(limit);
 		},
 		tedi_approvals: () => {
-			const a = tediApprovalRequests;
+			const a = coreTable(db, tediApprovalRequests);
 			return db
 				.select(
 					sourceFields({
@@ -176,7 +185,7 @@ export async function planDecisionGraphBackfillPage(
 				.leftJoin(
 					w,
 					and(
-						sql`${w.id}=json_extract(${a.payload},'$.workItemId')`,
+						sql`${w.id}=${jsonRead(db, a.payload, ["workItemId"])}`,
 						eq(w.orgId, a.orgId),
 					),
 				)
@@ -192,7 +201,7 @@ export async function planDecisionGraphBackfillPage(
 				.limit(limit);
 		},
 		decisions: () => {
-			const d = tediRationaleRecords;
+			const d = coreTable(db, tediRationaleRecords);
 			return db
 				.select(sourceFields({ id: d.id, at: d.createdAt, subjectId: w.id }))
 				.from(d)
@@ -223,9 +232,9 @@ export async function planDecisionGraphBackfillPage(
 				.orderBy(w.id)
 				.limit(limit),
 		relations: () => {
-			const r = workItemRelations;
-			const a = alias(workItems, "a");
-			const b = alias(workItems, "b");
+			const r = coreTable(db, workItemRelations);
+			const a = alias(items, "a");
+			const b = alias(items, "b");
 			return db
 				.select(
 					sourceFields({
@@ -245,7 +254,7 @@ export async function planDecisionGraphBackfillPage(
 				.limit(limit);
 		},
 		comments: () => {
-			const comment = alias(workItemComments, "c");
+			const comment = alias(coreTable(db, workItemComments), "c");
 			return db
 				.select(
 					sourceFields({
@@ -265,8 +274,8 @@ export async function planDecisionGraphBackfillPage(
 				.limit(limit);
 		},
 		instructions: () => {
-			const f = alias(memoryFacts, "f");
-			const comment = alias(workItemComments, "c");
+			const f = alias(coreTable(db, memoryFacts), "f");
+			const comment = alias(coreTable(db, workItemComments), "c");
 			return db
 				.select(
 					sourceFields({
@@ -281,7 +290,7 @@ export async function planDecisionGraphBackfillPage(
 					comment,
 					and(
 						eq(comment.orgId, f.organizationId),
-						sql`${comment.id}=coalesce(json_extract(${f.metadata},'$.workCommentId'),
+						sql`${comment.id}=coalesce(${jsonRead(db, f.metadata, ["workCommentId"])},
      CASE WHEN substr(${f.source},1,length('work-comment://'))='work-comment://'
       THEN substr(${f.source},length('work-comment://')+1)
       WHEN substr(${f.source},1,length('work-comment:'))='work-comment:'
@@ -292,7 +301,7 @@ export async function planDecisionGraphBackfillPage(
 					w,
 					and(
 						eq(w.orgId, f.organizationId),
-						sql`${w.id}=coalesce(json_extract(${f.metadata},'$.workItemId'), CASE WHEN ${comment.authorType}='user' THEN ${comment.workItemId} END)`,
+						sql`${w.id}=coalesce(${jsonRead(db, f.metadata, ["workItemId"])}, CASE WHEN ${comment.authorType}='user' THEN ${comment.workItemId} END)`,
 					),
 				)
 				.where(
@@ -311,9 +320,13 @@ export async function planDecisionGraphBackfillPage(
 				.limit(limit);
 		},
 		evidence: () => {
-			const e = workEvidence;
-			const target = alias(workItems, "target");
-			const o = workspaceOutputIndex;
+			const e = coreTable(db, workEvidence);
+			const target = alias(items, "target");
+			const o = coreTable(db, workspaceOutputIndex);
+			const position =
+				coreStore(db) === "postgres"
+					? (expr: SQLWrapper) => sql`strpos(${expr}, '/')`
+					: (expr: SQLWrapper) => sql`instr(${expr}, '/')`;
 			const targetId = sql`coalesce(${target.id},${o.outputId})`;
 			return db
 				.select(
@@ -341,8 +354,8 @@ export async function planDecisionGraphBackfillPage(
 						eq(o.organizationId, e.orgId),
 						eq(o.isCurrent, 1),
 						sql`substr(${e.uri},1,9)='output://'`,
-						sql`${o.outputId}=CASE WHEN instr(substr(${e.uri},10),'/')>0
-     THEN substr(${e.uri},10,instr(substr(${e.uri},10),'/')-1) ELSE substr(${e.uri},10) END`,
+						sql`${o.outputId}=CASE WHEN ${position(sql`substr(${e.uri},10)`)}>0
+     THEN substr(${e.uri},10,${position(sql`substr(${e.uri},10)`)}-1) ELSE substr(${e.uri},10) END`,
 					),
 				)
 				.where(
@@ -393,13 +406,10 @@ export async function planDecisionGraphBackfillPage(
 		ids.length
 			? (
 					await db
-						.select({ id: workInteractions.id })
-						.from(workInteractions)
+						.select({ id: interactions.id })
+						.from(interactions)
 						.where(
-							and(
-								eq(workInteractions.orgId, org),
-								inArray(workInteractions.id, ids),
-							),
+							and(eq(interactions.orgId, org), inArray(interactions.id, ids)),
 						)
 						.limit(50)
 				).map((r) => r.id)
@@ -559,10 +569,11 @@ export async function getDecisionGraphBackfillCheckpoint(
 	db: DbQueryClient,
 	key: string,
 ) {
+	const checkpoints = coreTable(db, platformCronCheckpoints);
 	const [row] = await db
 		.select()
-		.from(platformCronCheckpoints)
-		.where(eq(platformCronCheckpoints.scheduleId, CHECKPOINT + key))
+		.from(checkpoints)
+		.where(eq(checkpoints.scheduleId, CHECKPOINT + key))
 		.limit(1);
 	return row?.through ?? null;
 }
@@ -584,11 +595,12 @@ export async function nextDecisionGraphBackfillOrganization(
 	db: DbQueryClient,
 	afterId: string,
 ) {
+	const orgs = coreTable(db, organizations);
 	const [row] = await db
-		.select({ id: organizations.id })
-		.from(organizations)
-		.where(gt(organizations.id, afterId))
-		.orderBy(asc(organizations.id))
+		.select({ id: orgs.id })
+		.from(orgs)
+		.where(gt(orgs.id, afterId))
+		.orderBy(asc(orgs.id))
 		.limit(1);
 	return row?.id ?? null;
 }
