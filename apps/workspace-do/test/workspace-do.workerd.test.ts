@@ -345,11 +345,18 @@ async function seedCore() {
 	]);
 }
 
-/** A store moved in November 2026: it owns its files but has not yet taken its resources. */
-async function markMovedOwner(ws: Stub) {
-	await runInDurableObject(ws, (_instance, state) => {
-		state.storage.kv.put("output-authority", "object");
-	});
+/**
+ * A store that already took its directory: it owns its files and holds the
+ * workspace row and the resources the shared database still projects.
+ */
+async function adoptStoreDirectory(ws: Stub, workspaceScope: WorkspaceScope) {
+	await ws.outputQuery(workspaceScope, { op: "initialize" });
+	const { results } = await testEnv.DB.prepare(
+		"SELECT * FROM os_workspace_resources WHERE organization_id = ? AND workspace_id = ?",
+	)
+		.bind(workspaceScope.organizationId, workspaceScope.workspaceId)
+		.all<Record<string, string | number | null>>();
+	await insertRows(ws, { table: "os_workspace_resources", rows: results });
 }
 
 async function seedWorkspaceRows(scopes: WorkspaceScope[]) {
@@ -2826,16 +2833,9 @@ describe("WorkspaceDO", () => {
 			),
 		]);
 		const ws = workspace(sources);
-		await markMovedOwner(ws);
 		const id = (name: string) => `${sources.workspaceId}-${name}`;
-		// The object takes the workspace's earlier sources on its first source read.
-		await ws.outputQuery(sources, {
-			op: "resources",
-			query: {
-				operation: "get",
-				params: { ...sources, resourceId: id("file") },
-			},
-		});
+		// The store already holds the workspace's earlier sources.
+		await adoptStoreDirectory(ws, sources);
 		const ASK = `export default async (env) => {
 			const listed = await env.resources.list();
 			const ask = (resourceId, reason) => env.resources.requestConnection({ resourceId, reason });
@@ -3009,11 +3009,7 @@ describe("WorkspaceDO", () => {
 		const ws = workspace(own);
 		const approvalId = crypto.randomUUID();
 		const denyId = crypto.randomUUID();
-		await markMovedOwner(ws);
-		await ws.outputQuery(own, {
-			op: "resources",
-			query: { operation: "get", params: { ...own, resourceId: resource.id } },
-		});
+		await adoptStoreDirectory(ws, own);
 		await ws.scriptAccountReads(own, [
 			{ status: "ok", result: { count: 42 } },
 			{

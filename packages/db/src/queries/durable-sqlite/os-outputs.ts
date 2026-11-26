@@ -4,7 +4,6 @@ import { and, desc, eq, getColumns, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import type { CommitCollaborationOutputParams } from "../os-workspaces/collaboration";
 import {
-	type OsWorkspaceResourceRow,
 	type OsWorkspaceRow,
 	osWorkspaces,
 	osWorkspaceResources,
@@ -35,35 +34,6 @@ export function initializeWorkspaceDirectory(
 	workspace: OsWorkspaceRow,
 ) {
 	db.insert(osWorkspaces).values(workspace).onConflictDoNothing().run();
-}
-
-/**
- * Bring a store up to date with the shared database's record of its
- * workspace: the workspace row, and each resource the store lacks or holds
- * in an older state. Resources were written only to the shared database
- * until they moved here, so a store that took its files by claim, or was
- * imported earlier, starts without them.
- */
-export function adoptWorkspaceDirectory(
-	db: TenantStoreDb,
-	workspace: OsWorkspaceRow,
-	resources: OsWorkspaceResourceRow[],
-) {
-	initializeWorkspaceDirectory(db, workspace);
-	for (const row of resources) {
-		const held = db
-			.select({ updatedAt: osWorkspaceResources.updatedAt })
-			.from(osWorkspaceResources)
-			.where(eq(osWorkspaceResources.id, row.id))
-			.get();
-		if (!held)
-			db.insert(osWorkspaceResources).values(row).onConflictDoNothing().run();
-		else if (held.updatedAt < row.updatedAt)
-			db.update(osWorkspaceResources)
-				.set(row)
-				.where(eq(osWorkspaceResources.id, row.id))
-				.run();
-	}
 }
 
 export interface OsOutputScopeParams {
