@@ -2,9 +2,11 @@
 
 import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import { createDbQueryClient, type DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import { getD1BindingKey } from "../../slow-query";
 import {
-	providerModelRateVersions,
+	providerModelRateVersions as schemaProviderModelRateVersions,
 	type NewProviderModelRateVersionRow,
 } from "../../schema/provider-model-rates";
 import { getAffectedRows } from "../../utils/d1-result";
@@ -34,6 +36,13 @@ export async function publishProviderModelRate(
 			(!Number.isSafeInteger(tokenMax) || tokenMax <= tokenMin))
 	)
 		return null;
+	const providerModelRateVersions = coreTable(
+		db,
+		schemaProviderModelRateVersions,
+	);
+	const isNot =
+		coreStore(db) === "postgres" ? sql`IS DISTINCT FROM` : sql`IS NOT`;
+	const is = coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`;
 	// Raw: a FROM-less conditional INSERT ... SELECT ... WHERE NOT EXISTS; Drizzle cannot build it.
 	const result = await db.run(sql`INSERT INTO provider_model_rate_versions (
   id, provider, model_id, deployment_scope, input_token_min, input_token_max, effective_from,
@@ -46,7 +55,7 @@ export async function publishProviderModelRate(
  AND NOT EXISTS (
    SELECT 1 FROM provider_model_rate_versions AS existing
    WHERE existing.provider = ${input.provider} AND existing.model_id = ${input.modelId} AND existing.deployment_scope = ${input.deploymentScope}
-    AND (existing.id IS NOT ${prior})
+    AND (existing.id ${isNot} ${prior})
     AND (existing.input_token_max IS NULL OR existing.input_token_max > ${tokenMin})
     AND (${tokenMax} IS NULL OR existing.input_token_min < ${tokenMax})
     AND NOT EXISTS (SELECT 1 FROM provider_model_rate_versions AS correction WHERE correction.supersedes_rate_version_id = existing.id AND correction.effective_from <= ${from})
@@ -55,7 +64,7 @@ export async function publishProviderModelRate(
    SELECT 1 FROM provider_model_rate_versions AS original
    WHERE original.id = ${prior} AND original.provider = ${input.provider} AND original.model_id = ${input.modelId}
     AND original.deployment_scope = ${input.deploymentScope} AND original.input_token_min = ${tokenMin}
-    AND (original.input_token_max IS ${tokenMax})
+    AND (original.input_token_max ${is} ${tokenMax})
     AND (original.effective_from = ${from}
       OR (${from} > ${published} AND ${from} > original.effective_from))
     AND NOT EXISTS (SELECT 1 FROM provider_model_rate_versions AS correction WHERE correction.supersedes_rate_version_id = original.id)
@@ -79,6 +88,10 @@ export async function listProviderModelRates(
 		limit?: number;
 	} = {},
 ) {
+	const providerModelRateVersions = coreTable(
+		db,
+		schemaProviderModelRateVersions,
+	);
 	return db
 		.select()
 		.from(providerModelRateVersions)
@@ -114,6 +127,10 @@ export async function findProviderModelRates(
 	const inputTokens = input.inputTokens ?? 0;
 	if (!Number.isSafeInteger(inputTokens) || inputTokens < 0) return [];
 	const occurredAt = new Date(input.occurredAt).toISOString();
+	const providerModelRateVersions = coreTable(
+		db,
+		schemaProviderModelRateVersions,
+	);
 	return db
 		.select()
 		.from(providerModelRateVersions)
@@ -156,7 +173,7 @@ export function createProviderModelRateLookup(db: DbQueryClient) {
 				expiresAt: Date.now() + 60_000,
 				rows: db
 					.select()
-					.from(providerModelRateVersions)
+					.from(coreTable(db, schemaProviderModelRateVersions))
 					.then((rows) => rows),
 			};
 			rateSnapshots.set(key, snapshot);
@@ -259,6 +276,10 @@ export async function listEffectiveProviderModelRates(
 		occurredAt: string;
 	},
 ) {
+	const providerModelRateVersions = coreTable(
+		db,
+		schemaProviderModelRateVersions,
+	);
 	return db
 		.select()
 		.from(providerModelRateVersions)

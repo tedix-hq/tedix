@@ -1,13 +1,14 @@
 /** D1-owned effective inference-admission policies. */
 
 import type { AiGatewayAdmissionPolicy } from "@tedix/api-contract/schemas/tedi";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
 import {
-	billingAccounts,
-	billingInferencePolicies,
+	billingAccounts as schemaBillingAccounts,
+	billingInferencePolicies as schemaBillingInferencePolicies,
 } from "../../schema/billing";
-import { tedis } from "../../schema/tedis";
+import { tedis as schemaTedis } from "../../schema/tedis";
 
 export interface EffectiveInferencePolicies {
 	organization: AiGatewayAdmissionPolicy;
@@ -25,8 +26,12 @@ export interface UpsertTediInferencePolicyParams {
 export async function upsertTediInferencePolicy(
 	db: DbClient,
 	params: UpsertTediInferencePolicyParams,
-): Promise<typeof billingInferencePolicies.$inferSelect> {
+): Promise<typeof schemaBillingInferencePolicies.$inferSelect> {
 	const now = new Date().toISOString();
+	const billingInferencePolicies = coreTable(
+		db,
+		schemaBillingInferencePolicies,
+	);
 	const values = {
 		id: crypto.randomUUID(),
 		organizationId: params.organizationId,
@@ -49,7 +54,7 @@ export async function upsertTediInferencePolicy(
 			],
 			set: {
 				allowedModelTiers: values.allowedModelTiers,
-				updatedAt: sql`CURRENT_TIMESTAMP`,
+				updatedAt: now,
 			},
 		});
 
@@ -69,7 +74,7 @@ export async function upsertTediInferencePolicy(
 }
 
 function policyFromRow(
-	row: typeof billingInferencePolicies.$inferSelect | undefined,
+	row: InferencePolicyRow | undefined,
 ): AiGatewayAdmissionPolicy | undefined {
 	if (!row) return undefined;
 	return {
@@ -79,7 +84,7 @@ function policyFromRow(
 	};
 }
 
-type InferencePolicyRow = typeof billingInferencePolicies.$inferSelect;
+type InferencePolicyRow = typeof schemaBillingInferencePolicies.$inferSelect;
 
 /** The explicit policy row for one scope, as a composable statement. */
 export function inferencePolicyQuery(
@@ -88,6 +93,10 @@ export function inferencePolicyQuery(
 	scope: "organization" | "tedi",
 	subjectKey: string,
 ) {
+	const billingInferencePolicies = coreTable(
+		db,
+		schemaBillingInferencePolicies,
+	);
 	return db
 		.select()
 		.from(billingInferencePolicies)
@@ -107,6 +116,7 @@ export function tediOwnershipQuery(
 	organizationId: string,
 	tediId: string,
 ) {
+	const tedis = coreTable(db, schemaTedis);
 	return db
 		.select({ id: tedis.id })
 		.from(tedis)
@@ -134,6 +144,7 @@ export async function getEffectiveInferencePolicies(
 	organizationId: string,
 	tediId?: string | null,
 ): Promise<EffectiveInferencePolicies | null> {
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	const [account] = await db
 		.select({ organizationId: billingAccounts.organizationId })
 		.from(billingAccounts)

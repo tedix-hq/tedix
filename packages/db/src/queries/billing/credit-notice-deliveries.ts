@@ -33,18 +33,20 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { chunkForBoundParams } from "../../utils/batch";
+import { coreTable } from "../../core-store/client";
+import { anyIds, jsonRead } from "../../core-store/dialect";
 import {
 	type BillingCreditNoticeDelivery,
 	type CreditNoticeDeliveryChannel,
 	CREDIT_NOTICE_DELIVERY_CHANNELS,
-	billingAccounts,
-	billingCreditNoticeDeliveries,
-	billingCreditNotices,
+	billingAccounts as schemaBillingAccounts,
+	billingCreditNoticeDeliveries as schemaBillingCreditNoticeDeliveries,
+	billingCreditNotices as schemaBillingCreditNotices,
 } from "../../schema/billing";
-import { organizationMembers } from "../../schema/organization-members";
-import { organizations } from "../../schema/organizations";
-import { projects } from "../../schema/projects";
-import { chunkForBoundParams } from "../../utils/batch";
+import { organizationMembers as schemaOrganizationMembers } from "../../schema/organization-members";
+import { organizations as schemaOrganizations } from "../../schema/organizations";
+import { projects as schemaProjects } from "../../schema/projects";
 import {
 	createWorkInteraction,
 	getWorkInteraction,
@@ -80,6 +82,7 @@ export async function listCreditNoticeRecipients(
 	db: DbQueryClient,
 	organizationId: string,
 ): Promise<Array<{ userId: string; email: string }>> {
+	const organizationMembers = coreTable(db, schemaOrganizationMembers);
 	const rows = await db
 		.select({
 			userId: organizationMembers.userId,
@@ -123,6 +126,12 @@ export async function planCreditNoticeDeliveries(
 	db: DbQueryClient,
 	input: { now: string; limit?: number },
 ): Promise<PlanCreditNoticeDeliveriesResult> {
+	const billingCreditNotices = coreTable(db, schemaBillingCreditNotices);
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
+	const billingCreditNoticeDeliveries = coreTable(
+		db,
+		schemaBillingCreditNoticeDeliveries,
+	);
 	const notices = await db
 		.select({
 			organizationId: billingCreditNotices.organizationId,
@@ -213,7 +222,10 @@ export interface ClaimedCreditNoticeDelivery extends BillingCreditNoticeDelivery
 }
 
 /** Rows that may be (re)sent now: pending, failed, or a lapsed lease. */
-function claimable(now: string) {
+function claimable(
+	billingCreditNoticeDeliveries: typeof schemaBillingCreditNoticeDeliveries,
+	now: string,
+) {
 	return and(
 		inArray(billingCreditNoticeDeliveries.status, [
 			"pending",
@@ -237,6 +249,11 @@ export async function claimCreditNoticeDeliveries(
 	db: DbQueryClient,
 	input: { now: string; leaseExpiresAt: string; limit: number },
 ): Promise<{ claimed: ClaimedCreditNoticeDelivery[]; expired: number }> {
+	const billingCreditNoticeDeliveries = coreTable(
+		db,
+		schemaBillingCreditNoticeDeliveries,
+	);
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
 	const expired = await db
 		.update(billingCreditNoticeDeliveries)
 		.set({ status: "expired", leaseExpiresAt: null, updatedAt: input.now })
@@ -265,7 +282,7 @@ export async function claimCreditNoticeDeliveries(
 	const candidates = await db
 		.select({ id: billingCreditNoticeDeliveries.id })
 		.from(billingCreditNoticeDeliveries)
-		.where(claimable(input.now))
+		.where(claimable(billingCreditNoticeDeliveries, input.now))
 		.orderBy(asc(billingCreditNoticeDeliveries.createdAt))
 		.limit(input.limit);
 	const leased: BillingCreditNoticeDelivery[] = [];
@@ -284,7 +301,7 @@ export async function claimCreditNoticeDeliveries(
 				.where(
 					and(
 						inArray(billingCreditNoticeDeliveries.id, chunk),
-						claimable(input.now),
+						claimable(billingCreditNoticeDeliveries, input.now),
 					),
 				)
 				.returning()),
@@ -297,6 +314,7 @@ export async function claimCreditNoticeDeliveries(
 		string,
 		{ organizationName: string | null; periodStart: string; periodEnd: string }
 	>();
+	const organizations = coreTable(db, schemaOrganizations);
 	for (const chunk of chunkForBoundParams(orgIds, 50)) {
 		const rows = await db
 			.select({
@@ -310,7 +328,7 @@ export async function claimCreditNoticeDeliveries(
 				organizations,
 				eq(organizations.id, billingAccounts.organizationId),
 			)
-			.where(inArray(billingAccounts.organizationId, chunk));
+			.where(anyIds(db, billingAccounts.organizationId, chunk));
 		for (const row of rows) context.set(row.organizationId, row);
 	}
 	const claimed: ClaimedCreditNoticeDelivery[] = [];
@@ -335,6 +353,10 @@ export async function markCreditNoticeDeliverySent(
 	db: DbQueryClient,
 	input: { id: string; deliveryRef: string | null; now: string },
 ): Promise<void> {
+	const billingCreditNoticeDeliveries = coreTable(
+		db,
+		schemaBillingCreditNoticeDeliveries,
+	);
 	await db
 		.update(billingCreditNoticeDeliveries)
 		.set({
@@ -364,6 +386,10 @@ export async function markCreditNoticeDeliveryFailed(
 	},
 ): Promise<void> {
 	const maxAttempts = input.maxAttempts ?? CREDIT_NOTICE_DELIVERY_MAX_ATTEMPTS;
+	const billingCreditNoticeDeliveries = coreTable(
+		db,
+		schemaBillingCreditNoticeDeliveries,
+	);
 	await db
 		.update(billingCreditNoticeDeliveries)
 		.set({
@@ -399,6 +425,7 @@ export async function noticeProjectId(
 	db: DbQueryClient,
 	organizationId: string,
 ): Promise<string | null> {
+	const projects = coreTable(db, schemaProjects);
 	const [project] = await db
 		.select({ id: projects.id })
 		.from(projects)
@@ -407,7 +434,7 @@ export async function noticeProjectId(
 				eq(projects.orgId, organizationId),
 				eq(projects.status, "active"),
 				// The private agent-review project is not a place for owner notices.
-				sql`json_extract(${projects.metadata}, '$.agentReviewTriage') IS NULL`,
+				sql`${jsonRead(db, projects.metadata, ["agentReviewTriage"])} IS NULL`,
 			),
 		)
 		.orderBy(asc(projects.createdAt), asc(projects.id))
