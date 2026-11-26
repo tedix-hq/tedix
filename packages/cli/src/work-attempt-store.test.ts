@@ -12,7 +12,7 @@ const KEY = {
 };
 
 describe("work attempt store", () => {
-	test("persists and fences attempt ids by actor and session", () => {
+	test("persists attempt ids by actor and session", () => {
 		const dir = mkdtempSync(join(tmpdir(), "tedix-work-attempts-"));
 		const store = createFileWorkAttemptStore({ configDir: dir });
 		store.set(KEY, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
@@ -26,7 +26,7 @@ describe("work attempt store", () => {
 		);
 	});
 
-	test("writes private capability state", () => {
+	test("writes private attempt state", () => {
 		const dir = mkdtempSync(join(tmpdir(), "tedix-work-attempt-mode-"));
 		const store = createFileWorkAttemptStore({ configDir: dir });
 		store.set(KEY, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");

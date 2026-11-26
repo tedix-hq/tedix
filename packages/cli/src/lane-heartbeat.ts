@@ -5,7 +5,6 @@ import { CliReadError } from "./hooks/hook-io";
 import { TedixHomeClient, type TedixHomeClientOptions } from "./home-client";
 import { fileNativeBootstrapCache } from "./native-bootstrap-cache";
 import { recordSessionScope } from "./session-scope";
-import { createFileWorkAttemptStore } from "./work-attempt-store";
 import { RunStepsUnavailableError } from "./lane-steps";
 import { isHeartbeatCredentialRejected } from "./work-lifecycle";
 import { boardCall, nativeCommands } from "./work-native";
@@ -22,7 +21,6 @@ const heartbeatTimeoutMs = 45_000;
 
 type LaneGatewayDeps = {
 	auth: typeof resolveExternalAgentAuth;
-	attemptStore: ReturnType<typeof createFileWorkAttemptStore>;
 	fetch?: TedixHomeClientOptions["fetch"];
 };
 
@@ -87,32 +85,11 @@ function laneGateway(
 		return { connection, ctx };
 	}
 
-	/** Refuses once the cached Attempt differs from the one the run holds. */
-	function checkFence(
-		receipt: LeaseReceipt,
-		attemptId: string,
-		session: string,
-		what: string,
-	) {
-		const cached = deps.attemptStore.get({
-			workspace,
-			actor: "credential",
-			agentSession: session,
-			workItemId: receipt.itemId,
-		});
-		if (cached !== attemptId)
-			throw new CliReadError(
-				`${what} stopped: the cached Attempt differs from the dispatcher fence.`,
-				"STALE_ATTEMPT",
-			);
-	}
-
-	return { workspace, organization, open, checkFence };
+	return { workspace, organization, open };
 }
 
 const defaultGatewayDeps = (): LaneGatewayDeps => ({
 	auth: resolveExternalAgentAuth,
-	attemptStore: createFileWorkAttemptStore(),
 });
 
 export function createLaneHeartbeat(
@@ -131,9 +108,6 @@ export function createLaneHeartbeat(
 	) {
 		const deadlineAt = Date.now() + heartbeatTimeoutMs;
 		const id = receipt.itemId;
-		const checkFence = () =>
-			gateway.checkFence(receipt, attemptId, session, "Heartbeat");
-		checkFence();
 		const { connection, ctx } = await gateway.open(
 			receipt,
 			session,
@@ -141,13 +115,11 @@ export function createLaneHeartbeat(
 			deadlineAt,
 		);
 		const { auth } = connection;
-		const touch = () => {
-			checkFence();
-			return boardCall(ctx, "work.heartbeat_work_item_attempt", {
+		const touch = () =>
+			boardCall(ctx, "work.heartbeat_work_item_attempt", {
 				id,
 				attemptId,
 			});
-		};
 		let result = await touch();
 		if (
 			result.error &&
@@ -229,7 +201,6 @@ export function createLaneStepSender(
 		const { attemptId, session, executorKey } = receipt;
 		if (!attemptId || !session || !executorKey)
 			throw new Error("Run steps require an admitted Attempt and executor");
-		gateway.checkFence(receipt, attemptId, session, "Run steps");
 		const { connection, ctx } = await gateway.open(
 			receipt,
 			session,

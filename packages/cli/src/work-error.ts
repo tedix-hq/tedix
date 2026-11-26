@@ -28,7 +28,11 @@ export function workErrorDetails(error: BoardError, id?: string) {
 		];
 	} else if (!id) {
 		nextCommands = ["tedix work --help"];
-	} else if (/stale_attempt|invalid_lease|attempt_expired/i.test(reason)) {
+	} else if (
+		/stale_attempt|invalid_lease|attempt_expired|attempt_not_cached/i.test(
+			reason,
+		)
+	) {
 		nextCommands = [`tedix work context ${id}`, `tedix work start ${id}`];
 	} else {
 		nextCommands = [`tedix work readiness ${id}`, `tedix work context ${id}`];

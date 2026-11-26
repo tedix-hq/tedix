@@ -337,7 +337,8 @@ evaluation_required) from graphTruncated (ranking only).
 Cluster receipts group ranked ready Work into sequential, resource-compatible waves;
 they remain advisory and every start re-evaluates admission.
 
-An attempt id is a local capability fence scoped to workspace, actor, session, and Work Item.
+An attempt id is a local lookup pointer scoped to workspace, actor, session, and Work Item;
+the server is the only judge of a stale Attempt.
 Settled means done: complete carries no evidence count and no review requirement, and a wrong
 claim is corrected with the confirm verb when noticed rather than prevented by pre-proof
 (decisions/minimal-gates-over-pre-proof.md).
@@ -346,7 +347,7 @@ Heartbeat --watch [seconds] keeps renewing only the original Attempt, about
 every 30 s, for a horizon of 900 seconds by default (maximum 3600); the number
 is the total run time, not the interval. Rate limits, timeouts and 5xx errors
 retry while the confirmed lease lasts. It stops, printing why, on any other
-error, cache replacement, process exit, or the horizon. It does not settle,
+error, process exit, or the horizon. It does not settle,
 complete, or restart work. JSON output is NDJSON.
 
 Exit codes: 0 success · 2 conflict, stale attempt, rejected evidence, or board error.

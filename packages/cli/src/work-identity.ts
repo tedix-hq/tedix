@@ -90,9 +90,8 @@ export function missingAttemptResult(workItemId: string): BoardResult {
 	return {
 		value: undefined,
 		error: {
-			code: "STALE_ATTEMPT",
-			status: 409,
-			message: `No active attempt is cached for ${workItemId}. Start an attempt in this workspace before heartbeating, settling, or submitting evidence.`,
+			code: "ATTEMPT_NOT_CACHED",
+			message: `No attempt id is cached for ${workItemId}. Start an attempt in this workspace before heartbeating, settling, or submitting evidence.`,
 		},
 	};
 }

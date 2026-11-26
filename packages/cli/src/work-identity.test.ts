@@ -104,7 +104,7 @@ describe("work identity primitives", () => {
 		);
 	});
 
-	test("builds attempt keys, reads cached attempts, and reports a stale attempt", () => {
+	test("builds attempt keys, reads cached attempts, and reports a missing attempt", () => {
 		clearIdentityEnv();
 		process.env.TEDIX_AGENT_SESSION = "codex:test-session";
 		const ctx = context({ work: { as: "team" } });
@@ -121,8 +121,7 @@ describe("work identity primitives", () => {
 		expect(missingAttemptResult(WORK_ID)).toEqual({
 			value: undefined,
 			error: {
-				code: "STALE_ATTEMPT",
-				status: 409,
+				code: "ATTEMPT_NOT_CACHED",
 				message: expect.stringContaining(WORK_ID),
 			},
 		});

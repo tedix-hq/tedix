@@ -3817,7 +3817,6 @@ export class LaneDispatcher {
 		args: string[],
 		session?: string,
 		executorKey?: string,
-		attemptId?: string,
 	): Promise<T> {
 		args = args.map((value, index) =>
 			args[index - 1] === "--note" ? value.slice(0, 2000) : value,
@@ -3827,7 +3826,6 @@ export class LaneDispatcher {
 			TEDIX_CLI_COMPONENT: "dispatcher",
 			...(session ? { TEDIX_AGENT_SESSION: session } : {}),
 			...(executorKey ? { TEDIX_EXTERNAL_AGENT: executorKey } : {}),
-			...(attemptId ? { TEDIX_CLI_EXPECTED_ATTEMPT_ID: attemptId } : {}),
 		};
 		// Explicit MCP credentials outrank the agent selector in resolveAuth.
 		// Attempt calls must use the admitted executor, never an owner's override.
@@ -4328,7 +4326,6 @@ export class LaneDispatcher {
 						],
 						row.session,
 						row.executorKey,
-						row.attemptId,
 					);
 					attempt.outcome = "failed";
 				}
@@ -9800,7 +9797,6 @@ ${message.body}`,
 					],
 					receipt.session,
 					receipt.executorKey,
-					attempt.id,
 				);
 				attempt.outcome = "failed";
 				receipt.note = note;

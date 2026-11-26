@@ -290,7 +290,6 @@ function fixture({
 				{
 					TEDIX_AGENT_SESSION: receipt.session,
 					TEDIX_EXTERNAL_AGENT: receipt.executorKey,
-					TEDIX_CLI_EXPECTED_ATTEMPT_ID: receipt.attemptId,
 				},
 			),
 		createStepSender: () => async (receipt, steps, applied) => {
@@ -1903,7 +1902,6 @@ describe("dispatcher admission", () => {
 				{
 					TEDIX_AGENT_SESSION: receipt.session,
 					TEDIX_EXTERNAL_AGENT: receipt.executorKey,
-					TEDIX_CLI_EXPECTED_ATTEMPT_ID: receipt.attemptId,
 				},
 			);
 		};
