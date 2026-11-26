@@ -1,3 +1,4 @@
+import { backgroundOrganizationMemoryRecorder } from "./organization-memory-binding";
 import { readDraftPreferences } from "./decision-learning";
 import { OutboundStateSchema } from "@tedix/api-contract/schemas/outbound";
 import type { DbClient } from "@tedix/db/client";
@@ -222,16 +223,22 @@ export async function reconcileTaskMemory(
 			)
 			.join("\n");
 		if (content === fact.content) continue;
-		await updateFact(db, { organizationId: orgId }, fact.id, {
-			content,
-			summary: content,
-			lastVerifiedAt: checkedAt,
-			metadata: {
-				...fact.metadata,
-				originalContent: fact.metadata?.originalContent ?? fact.content,
-				verifyBeforeUse: true,
-				correctedAt: checkedAt,
+		await updateFact(
+			db,
+			{ organizationId: orgId },
+			fact.id,
+			{
+				content,
+				summary: content,
+				lastVerifiedAt: checkedAt,
+				metadata: {
+					...fact.metadata,
+					originalContent: fact.metadata?.originalContent ?? fact.content,
+					verifyBeforeUse: true,
+					correctedAt: checkedAt,
+				},
 			},
-		});
+			backgroundOrganizationMemoryRecorder(db, "task-memory-state", "update"),
+		);
 	}
 }

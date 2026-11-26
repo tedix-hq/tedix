@@ -498,6 +498,7 @@ describe("mineLearningFeed", () => {
 			{ organizationId: "org-1" },
 			"fact-old",
 			expect.stringContaining("Superseded by"),
+			expect.any(Function),
 		);
 		expect(updateFact).toHaveBeenCalledWith(
 			db,
@@ -506,6 +507,7 @@ describe("mineLearningFeed", () => {
 			{
 				reviewStatus: "superseded",
 			},
+			expect.any(Function),
 		);
 		expect(vi.mocked(createEdge).mock.calls[0]![2]).toMatchObject({
 			targetFactId: "fact-old",
@@ -676,6 +678,7 @@ describe("mineLearningFeed", () => {
 			{ organizationId: "org-1" },
 			"held-old",
 			expect.stringContaining("Superseded"),
+			expect.any(Function),
 		);
 		expect(vi.mocked(createFact).mock.calls[0]?.[1].metadata).toMatchObject({
 			learningFeed: {
@@ -739,6 +742,7 @@ describe("mineLearningFeed", () => {
 			{
 				archivedAt: now.toISOString(),
 			},
+			expect.any(Function),
 		);
 	});
 

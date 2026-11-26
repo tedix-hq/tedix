@@ -1,3 +1,4 @@
+import { backgroundOrganizationMemoryRecorder } from "./organization-memory-binding";
 /**
  * Do delivered lessons reduce repeated corrections?
  *
@@ -430,21 +431,31 @@ export async function retireIneffectiveLessons(
 				...stats,
 			};
 			if (action === "archive") {
-				await updateFact(db, { organizationId: orgId }, fact.id, {
-					archivedAt: now.toISOString(),
-					metadata: toJsonRecord({
-						...meta,
-						learningFeed: {
-							...feed,
-							effectiveness,
-							// Settled: its decisions and rules are not learned again.
-							retired: {
-								at: now.toISOString(),
-								reason: `Corrections on its subject were no lower with it than without it in ${strikes} weeks`,
+				await updateFact(
+					db,
+					{ organizationId: orgId },
+					fact.id,
+					{
+						archivedAt: now.toISOString(),
+						metadata: toJsonRecord({
+							...meta,
+							learningFeed: {
+								...feed,
+								effectiveness,
+								// Settled: its decisions and rules are not learned again.
+								retired: {
+									at: now.toISOString(),
+									reason: `Corrections on its subject were no lower with it than without it in ${strikes} weeks`,
+								},
 							},
-						},
-					}),
-				});
+						}),
+					},
+					backgroundOrganizationMemoryRecorder(
+						db,
+						"lesson-effectiveness",
+						"update",
+					),
+				);
 				result.archived++;
 			} else {
 				await updateFact(db, { organizationId: orgId }, fact.id, {

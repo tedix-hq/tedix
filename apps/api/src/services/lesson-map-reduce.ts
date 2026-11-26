@@ -1,3 +1,4 @@
+import { backgroundOrganizationMemoryRecorder } from "./organization-memory-binding";
 import { listRuleMiningGuards } from "@tedix/db/queries/memory-graph/rules";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { organizationModelEnv } from "./unrouted-model-egress";
@@ -998,64 +999,68 @@ export async function writeOwnerLessons(
 		const id = crypto.randomUUID();
 		const now = new Date().toISOString();
 		const sessions = new Set(lesson.rules.flatMap((r) => r.sessions)).size;
-		await createFact(db, {
-			id,
-			organizationId: input.orgId,
-			tediId: null,
-			domainId: domain.id,
-			content: lesson.content,
-			summary: clip(lesson.rules[0]!.rule, 100),
-			factType: "preference",
-			confidence: Math.min(0.9, 0.5 + sessions / 100),
-			priority: lesson.standing ? "core" : "active",
-			// Active at once; context only, never authority.
-			status: "active",
-			reviewStatus: "confirmed",
-			usePolicy: "requires_user_confirmation",
-			lastVerifiedAt: now,
-			memoryScope: "org",
-			visibility: "private",
-			topicKey: lesson.topicKey,
-			validFrom: now,
-			validTo: null,
-			archivedAt: null,
-			source: `learning-feed:map-reduce:${input.orgId}:${input.ownerUserId}`,
-			sourceSessionId: null,
-			sourceUrl: null,
-			sourceHash: null,
-			metadata: toJsonRecord({
-				producer: "learning-feed",
-				sourceKind: "brain-reflection",
-				expectedUse: lesson.standing
-					? "Deliver the user's standing preferences to every one of their agent sessions"
-					: "Deliver the user's rules for this subject to their agent sessions in this scope",
-				confidenceReason: `Stated in ${sessions} of the user's sessions; replaced by the next distillation`,
-				learningFeed: {
-					version: 1,
-					kind: "decision",
-					scope: lesson.scope,
-					evidenceEventIds: [
-						...new Set(lesson.rules.flatMap((r) => r.eventIds)),
-					].slice(0, 200),
-					learnedFromUserIds: [input.ownerUserId],
-					ownerUserId: input.ownerUserId,
-					autoConfirmed: true,
-					evidence,
-					signalCounts: {},
-					lastEventAt: lesson.rules
-						.map((r) => r.newestAt)
-						.sort()
-						.at(-1),
-					distilled: DISTILL_VERSION,
-					...(lesson.standing ? { hoisted: true } : {}),
-					subject: lesson.scope.topic,
-					// Everything an incremental pass needs to merge the rule again.
-					...feedOf(lesson),
-					mapReduce: { ...input.signature, complete: input.complete },
-				},
-			}),
-			accessCount: 0,
-		});
+		await createFact(
+			db,
+			{
+				id,
+				organizationId: input.orgId,
+				tediId: null,
+				domainId: domain.id,
+				content: lesson.content,
+				summary: clip(lesson.rules[0]!.rule, 100),
+				factType: "preference",
+				confidence: Math.min(0.9, 0.5 + sessions / 100),
+				priority: lesson.standing ? "core" : "active",
+				// Active at once; context only, never authority.
+				status: "active",
+				reviewStatus: "confirmed",
+				usePolicy: "requires_user_confirmation",
+				lastVerifiedAt: now,
+				memoryScope: "org",
+				visibility: "private",
+				topicKey: lesson.topicKey,
+				validFrom: now,
+				validTo: null,
+				archivedAt: null,
+				source: `learning-feed:map-reduce:${input.orgId}:${input.ownerUserId}`,
+				sourceSessionId: null,
+				sourceUrl: null,
+				sourceHash: null,
+				metadata: toJsonRecord({
+					producer: "learning-feed",
+					sourceKind: "brain-reflection",
+					expectedUse: lesson.standing
+						? "Deliver the user's standing preferences to every one of their agent sessions"
+						: "Deliver the user's rules for this subject to their agent sessions in this scope",
+					confidenceReason: `Stated in ${sessions} of the user's sessions; replaced by the next distillation`,
+					learningFeed: {
+						version: 1,
+						kind: "decision",
+						scope: lesson.scope,
+						evidenceEventIds: [
+							...new Set(lesson.rules.flatMap((r) => r.eventIds)),
+						].slice(0, 200),
+						learnedFromUserIds: [input.ownerUserId],
+						ownerUserId: input.ownerUserId,
+						autoConfirmed: true,
+						evidence,
+						signalCounts: {},
+						lastEventAt: lesson.rules
+							.map((r) => r.newestAt)
+							.sort()
+							.at(-1),
+						distilled: DISTILL_VERSION,
+						...(lesson.standing ? { hoisted: true } : {}),
+						subject: lesson.scope.topic,
+						// Everything an incremental pass needs to merge the rule again.
+						...feedOf(lesson),
+						mapReduce: { ...input.signature, complete: input.complete },
+					},
+				}),
+				accessCount: 0,
+			},
+			backgroundOrganizationMemoryRecorder(db, "lesson-map-reduce", "create"),
+		);
 		newIdByKey.set(lesson.topicKey, id);
 		result.written++;
 	}
@@ -1069,10 +1074,21 @@ export async function writeOwnerLessons(
 			successor
 				? `Superseded by ${successor} for topic ${old.topicKey}`
 				: "Superseded by the person's distilled subject lessons",
+			backgroundOrganizationMemoryRecorder(
+				db,
+				"lesson-map-reduce",
+				"invalidate",
+			),
 		);
-		await updateFact(db, { organizationId: input.orgId }, old.id, {
-			reviewStatus: "superseded",
-		});
+		await updateFact(
+			db,
+			{ organizationId: input.orgId },
+			old.id,
+			{
+				reviewStatus: "superseded",
+			},
+			backgroundOrganizationMemoryRecorder(db, "lesson-map-reduce", "update"),
+		);
 		if (successor)
 			await createEdge(
 				db,

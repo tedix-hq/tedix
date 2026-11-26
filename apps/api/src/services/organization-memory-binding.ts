@@ -191,3 +191,27 @@ export function organizationMemoryWriter(
 		},
 	};
 }
+
+/** Background queries report only their successfully changed rows, never bookkeeping. */
+export function backgroundOrganizationMemoryRecorder(
+	db: DbQueryClient,
+	surface: string,
+	operation: string,
+) {
+	return async (fact: MemoryFact): Promise<void> => {
+		const adapter = new OrganizationMemoryAdapter(db, {
+			organizationId: fact.organizationId,
+		});
+		await recordOrganizationMemoryChange(
+			db,
+			fact,
+			{ id: surface, kind: "system", organizationId: fact.organizationId },
+			{ surface },
+			operation,
+			{ factId: fact.id },
+			async (provenance) => ({
+				revision: await adapter.recordChange(fact, provenance),
+			}),
+		);
+	};
+}

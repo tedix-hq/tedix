@@ -4,6 +4,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { memoryFacts } from "../../schema/memory-graph";
 import { getAffectedRows } from "../../utils/d1-result";
+import type { FactChangeRecorder } from "./memory-adapter";
 import { freshReadMarkExists } from "../read-marks";
 
 export async function decayConfidence(
@@ -103,6 +104,7 @@ export async function archiveLowConfidence(
 	tenantScope: TenantScope,
 	threshold: number = 0.2,
 	options?: { tediId?: string; domainId?: string; factIds?: string[] },
+	recordChange?: FactChangeRecorder,
 ): Promise<{ count: number; archivedIds: string[] }> {
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (options?.factIds?.length === 0) return { count: 0, archivedIds: [] };
@@ -131,11 +133,16 @@ export async function archiveLowConfidence(
 	// sorts out of the sample — the check that verifies archival reached Neo4j is
 	// least likely to look at the rows that were just archived.
 	const archivedAt = new Date().toISOString();
-	const rows = await db
+	const mutation = db
 		.update(memoryFacts)
 		.set({ archivedAt, updatedAt: archivedAt })
-		.where(and(...conditions))
-		.returning({ id: memoryFacts.id });
+		.where(and(...conditions));
+	const rows = recordChange
+		? await mutation.returning().then(async (facts) => {
+				for (const fact of facts) await recordChange(fact);
+				return facts.map(({ id }) => ({ id }));
+			})
+		: await mutation.returning({ id: memoryFacts.id });
 	return { count: rows.length, archivedIds: rows.map((r) => r.id) };
 }
 
@@ -148,10 +155,11 @@ export async function invalidateFact(
 	tenantScope: TenantScope,
 	factId: string,
 	reason?: string,
+	recordChange?: FactChangeRecorder,
 ): Promise<void> {
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
-	await db
+	const mutation = db
 		.update(memoryFacts)
 		.set({
 			validTo: now,
@@ -166,6 +174,9 @@ export async function invalidateFact(
 				eq(memoryFacts.id, factId),
 			),
 		);
+	const changed = recordChange
+		? await mutation.returning()
+		: (await mutation, []);
 	const [fact] = await db
 		.select({ orgId: memoryFacts.organizationId })
 		.from(memoryFacts)
@@ -176,6 +187,7 @@ export async function invalidateFact(
 			),
 		);
 	if (fact) await refreshConsolidatedForFact(db, tenantScope, factId);
+	for (const row of changed) await recordChange?.(row);
 }
 
 /** Promote retrieved probation facts unless the evidence check rejected them. */
@@ -183,9 +195,10 @@ export async function promoteFromProbation(
 	db: DbClient,
 	tenantScope: TenantScope,
 	minAccessCount: number = 1,
+	recordChange?: FactChangeRecorder,
 ): Promise<number> {
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
-	const result = await db
+	const mutation = db
 		.update(memoryFacts)
 		.set({
 			status: "active",
@@ -210,7 +223,10 @@ export async function promoteFromProbation(
 				ELSE 1 END`,
 			),
 		);
-	return getAffectedRows(result);
+	if (!recordChange) return getAffectedRows(await mutation);
+	const rows = await mutation.returning();
+	for (const fact of rows) await recordChange(fact);
+	return rows.length;
 }
 
 /**
@@ -220,6 +236,7 @@ export async function expireProbation(
 	db: DbClient,
 	tenantScope: TenantScope,
 	maxAgeDays: number = 7,
+	recordChange?: FactChangeRecorder,
 ): Promise<{ count: number; expiredIds: string[] }> {
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const cutoff = new Date(
@@ -234,7 +251,7 @@ export async function expireProbation(
 	// updatedAt — so promoted facts surfaced in freshness-ordered samples and
 	// expired ones did not.
 	const expiredAt = new Date().toISOString();
-	const rows = await db
+	const mutation = db
 		.update(memoryFacts)
 		.set({ archivedAt: expiredAt, updatedAt: expiredAt })
 		.where(
@@ -251,8 +268,13 @@ export async function expireProbation(
 					sinceDate: lessonReadCutoff,
 				})}`,
 			),
-		)
-		.returning({ id: memoryFacts.id });
+		);
+	const rows = recordChange
+		? await mutation.returning().then(async (facts) => {
+				for (const fact of facts) await recordChange(fact);
+				return facts.map(({ id }) => ({ id }));
+			})
+		: await mutation.returning({ id: memoryFacts.id });
 	return { count: rows.length, expiredIds: rows.map((r) => r.id) };
 }
 

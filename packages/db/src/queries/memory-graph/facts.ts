@@ -27,6 +27,7 @@ import {
 	memoryFacts,
 	type NewMemoryFact,
 } from "../../schema/memory-graph";
+import type { FactChangeRecorder } from "./memory-adapter";
 import { batchNonEmpty } from "../../utils/batch";
 
 export type {
@@ -96,11 +97,13 @@ export async function findCurrentFactsByTopicKey(
 export async function createFact(
 	db: DbClient,
 	fact: NewMemoryFact & TenantScope,
+	recordChange?: FactChangeRecorder,
 ): Promise<MemoryFact> {
 	fact = { ...fact, ...normalizeTenantScope(fact) };
 	const [created] = await db.insert(memoryFacts).values(fact).returning();
 	if (!created) throw new Error(`Failed to create fact: ${fact.id}`);
 	await recordOwnerInstructionEdges(db, created);
+	await recordChange?.(created);
 	return created;
 }
 
@@ -234,6 +237,7 @@ export async function updateFact(
 	tenantScope: TenantScope,
 	factId: string,
 	updates: Partial<NewMemoryFact>,
+	recordChange?: FactChangeRecorder,
 ): Promise<void> {
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	if (
@@ -242,7 +246,7 @@ export async function updateFact(
 	) {
 		throw new Error("Memory fact organization cannot change");
 	}
-	await db
+	const mutation = db
 		.update(memoryFacts)
 		.set({ ...updates, updatedAt: new Date().toISOString() })
 		.where(
@@ -251,6 +255,9 @@ export async function updateFact(
 				eq(memoryFacts.id, factId),
 			),
 		);
+	const changed = recordChange
+		? await mutation.returning()
+		: (await mutation, []);
 	if (
 		updates.content !== undefined ||
 		updates.validTo !== undefined ||
@@ -269,6 +276,7 @@ export async function updateFact(
 			await refreshConsolidatedForFact(db, tenantScope, factId);
 		}
 	}
+	for (const fact of changed) await recordChange?.(fact);
 }
 
 export async function recordFactAccess(

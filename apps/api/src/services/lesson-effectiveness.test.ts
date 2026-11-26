@@ -26,6 +26,7 @@ import {
 	weekStart,
 } from "./lesson-effectiveness";
 import { isReplaceableLesson } from "./learning-feed-miner";
+import { installOrganizationLogFixture } from "../../test/organization-log-fixture";
 
 const ORG = "00000000-0000-4000-8000-0000000000aa";
 const USER = "user-a";
@@ -287,6 +288,7 @@ describe("summarizeLessonEffectiveness", () => {
 describe("retireIneffectiveLessons", () => {
 	it("decays a learned lesson that does not help, then archives it, never a written one", async () => {
 		const { db, sqlite } = setup();
+		const store = installOrganizationLogFixture();
 		insertFact(sqlite, "fact-mined", KEY, {
 			learningFeed: {
 				autoConfirmed: true,
@@ -332,6 +334,7 @@ describe("retireIneffectiveLessons", () => {
 			now: new Date("2026-10-15T12:00:00Z"),
 		});
 		expect(confidence().confidence).toBeCloseTo(0.512);
+		expect(store.records(ORG)).toEqual([]);
 		const third = await retireIneffectiveLessons(db, {
 			orgId: ORG,
 			now: new Date("2026-10-22T12:00:00Z"),
@@ -342,6 +345,22 @@ describe("retireIneffectiveLessons", () => {
 			.prepare("SELECT metadata FROM memory_facts WHERE id = 'fact-mined'")
 			.get() as { metadata: string };
 		const meta = JSON.parse(mined.metadata);
+		const records = store.records(ORG);
+		expect(records).toHaveLength(1);
+		expect(records[0]).toMatchObject({
+			resource: "memory:organization:fact-mined",
+			actor: {
+				kind: "system",
+				id: "lesson-effectiveness",
+				organizationId: ORG,
+			},
+			source: { surface: "lesson-effectiveness" },
+			outcome: "applied",
+			after: { revisionId: meta.memoryAdapterRevisions[0].revisionId },
+		});
+		expect(meta.memoryAdapterRevisions[0].provenance.changeRecordId).toBe(
+			records[0]!.id,
+		);
 		expect(meta.learningFeed.retired).toBeTruthy();
 		// A retired lesson is settled: the distiller never learns it again.
 		expect(

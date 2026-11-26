@@ -1,3 +1,4 @@
+import { backgroundOrganizationMemoryRecorder } from "../services/organization-memory-binding";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { consolidateMemory } from "@tedix/db/queries/memory-graph/observations";
@@ -16,7 +17,7 @@ import { organizationModelEnv } from "../services/unrouted-model-egress";
  * 8. Generate a reflection summary
  *
  * Triggered by:
- * - Periodic cron (every 8 hours per org)
+ * - Nightly organization enrichment (04:10 UTC)
  * - Manual via memory_reflect MCP tool
  * - Event-driven after N new facts
  */
@@ -490,6 +491,12 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 					db,
 					{ organizationId: organizationId },
 					0.15,
+					undefined,
+					backgroundOrganizationMemoryRecorder(
+						db,
+						"memory-reflection-workflow:archiveLowConfidence",
+						"archive",
+					),
 				);
 			},
 		);
@@ -499,7 +506,16 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			"promote-probation",
 			{ retries: { limit: 2, delay: "2 seconds" }, timeout: "30 seconds" },
 			async () => {
-				return promoteFromProbation(db, { organizationId: organizationId }, 1);
+				return promoteFromProbation(
+					db,
+					{ organizationId: organizationId },
+					1,
+					backgroundOrganizationMemoryRecorder(
+						db,
+						"memory-reflection-workflow:promoteFromProbation",
+						"promote",
+					),
+				);
 			},
 		);
 
@@ -508,7 +524,16 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			"expire-probation",
 			{ retries: { limit: 2, delay: "2 seconds" }, timeout: "30 seconds" },
 			async () => {
-				return expireProbation(db, { organizationId: organizationId }, 7);
+				return expireProbation(
+					db,
+					{ organizationId: organizationId },
+					7,
+					backgroundOrganizationMemoryRecorder(
+						db,
+						"memory-reflection-workflow:expireProbation",
+						"expire",
+					),
+				);
 			},
 		);
 

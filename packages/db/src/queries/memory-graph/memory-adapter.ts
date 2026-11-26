@@ -21,6 +21,8 @@ import {
 } from "../../schema/memory-graph";
 import { normalizeTenantScope, type TenantScope } from "../../tenant-scope";
 
+export type FactChangeRecorder = (fact: MemoryFact) => Promise<void>;
+
 /** Evidence-only facts are accepted as evidence, not as instructions. */
 export function factReviewState(
 	status: MemoryFact["reviewStatus"],
@@ -250,6 +252,31 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 		const created = (await this.fact(fact.id))!;
 		await recordOwnerInstructionEdges(this.db, created);
 		return { fact: created, revision };
+	}
+	/** Capture an existing writer's result without changing its fields or timestamps. */
+	async recordChange(
+		fact: MemoryFact,
+		provenance: MemoryProvenance,
+	): Promise<MemoryRevision> {
+		if (fact.organizationId !== this.organizationId)
+			throw new Error("Memory fact does not match the organization");
+		const revisions = structuredClone(
+			(fact.metadata?.memoryAdapterRevisions ??
+				[]) as unknown as MemoryRevision[],
+		);
+		const revision: MemoryRevision = {
+			key: fact.id,
+			revisionId: JSON.stringify([fact.id, crypto.randomUUID()]),
+			revision: revisions.length + 1,
+			value: fact.content,
+			hash: await hashValue(fact.content),
+			writtenAt: fact.updatedAt ?? fact.createdAt ?? new Date().toISOString(),
+			provenance,
+			review: factReviewState(fact.reviewStatus),
+		};
+		revisions.push(revision);
+		await this.save(fact, revisions);
+		return revision;
 	}
 	/** Fact changes keep lifecycle fields and the revision in the same CAS write. */
 	async write(

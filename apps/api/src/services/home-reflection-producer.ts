@@ -1,3 +1,4 @@
+import { backgroundOrganizationMemoryRecorder } from "./organization-memory-binding";
 /**
  * Home Conversation Brain Observer
  *
@@ -337,28 +338,36 @@ async function writeFact(
 
 	const factId = crypto.randomUUID();
 	const createdAt = new Date().toISOString();
-	await createFact(db, {
-		id: factId,
-		organizationId: orgId,
-		tediId: fact.tediId ?? null,
-		domainId: domain.id,
-		content: fact.content,
-		summary: fact.content.slice(0, 100),
-		factType: "decision",
-		confidence: writeQuality.confidenceApplied,
-		validTo: null,
-		archivedAt: null,
-		priority: writeQuality.priorityApplied,
-		status: "probation",
-		validFrom: createdAt,
-		source: sourceUri,
-		sourceSessionId: null,
-		sourceUrl: null,
-		sourceHash: hash,
-		metadata: toJsonRecord(mergedMeta),
-		visibility,
-		accessCount: 0,
-	});
+	await createFact(
+		db,
+		{
+			id: factId,
+			organizationId: orgId,
+			tediId: fact.tediId ?? null,
+			domainId: domain.id,
+			content: fact.content,
+			summary: fact.content.slice(0, 100),
+			factType: "decision",
+			confidence: writeQuality.confidenceApplied,
+			validTo: null,
+			archivedAt: null,
+			priority: writeQuality.priorityApplied,
+			status: "probation",
+			validFrom: createdAt,
+			source: sourceUri,
+			sourceSessionId: null,
+			sourceUrl: null,
+			sourceHash: hash,
+			metadata: toJsonRecord(mergedMeta),
+			visibility,
+			accessCount: 0,
+		},
+		backgroundOrganizationMemoryRecorder(
+			db,
+			"home-reflection-producer",
+			"create",
+		),
+	);
 
 	return true;
 }

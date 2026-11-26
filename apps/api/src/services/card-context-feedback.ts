@@ -1,3 +1,4 @@
+import { backgroundOrganizationMemoryRecorder } from "./organization-memory-binding";
 import policy from "@tedix/api-contract/assets/card-context.v1.json";
 import {
 	canAskCardContext,
@@ -289,26 +290,34 @@ async function learnCardContext(
 		{ organizationId: organizationId },
 		"operations",
 	);
-	await createFact(context.db, {
-		id: crypto.randomUUID(),
-		organizationId,
-		domainId: domain.id,
-		tediId: null,
-		content,
-		summary: content.slice(0, 100),
-		factType: "preference",
-		confidence: quality.confidenceApplied,
-		priority: quality.priorityApplied,
-		status: "active",
-		reviewStatus: "confirmed",
-		usePolicy: "requires_user_confirmation",
-		memoryScope: "org",
-		visibility: "private",
-		topicKey,
-		source,
-		sourceHash,
-		metadata: toJsonRecord(mergeBrainWriteMetadata(metadata, quality)),
-	});
+	await createFact(
+		context.db,
+		{
+			id: crypto.randomUUID(),
+			organizationId,
+			domainId: domain.id,
+			tediId: null,
+			content,
+			summary: content.slice(0, 100),
+			factType: "preference",
+			confidence: quality.confidenceApplied,
+			priority: quality.priorityApplied,
+			status: "active",
+			reviewStatus: "confirmed",
+			usePolicy: "requires_user_confirmation",
+			memoryScope: "org",
+			visibility: "private",
+			topicKey,
+			source,
+			sourceHash,
+			metadata: toJsonRecord(mergeBrainWriteMetadata(metadata, quality)),
+		},
+		backgroundOrganizationMemoryRecorder(
+			context.db,
+			"card-context-feedback",
+			"create",
+		),
+	);
 	await putUserConfig(context.db, {
 		...ruleKey,
 		expectedRevision: claim.row.revision,

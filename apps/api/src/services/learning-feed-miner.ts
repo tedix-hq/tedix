@@ -1,3 +1,4 @@
+import { backgroundOrganizationMemoryRecorder } from "./organization-memory-binding";
 /**
  * Learning feed miner: one deterministic step of MemoryReflectionWorkflow,
  * also run on demand (`mine_agent_session_lessons`).
@@ -677,6 +678,11 @@ async function writeDecisionLessons(
 					{ organizationId: orgId },
 					old.id,
 					`No lasting rule in the decisions for topic ${topicKey}`,
+					backgroundOrganizationMemoryRecorder(
+						db,
+						"learning-feed-miner",
+						"invalidate",
+					),
 				);
 			continue;
 		}
@@ -772,39 +778,43 @@ async function writeDecisionLessons(
 		});
 		const factId = crypto.randomUUID();
 		const now = new Date().toISOString();
-		await createFact(db, {
-			id: factId,
-			organizationId: orgId,
-			tediId,
-			domainId: domain.id,
-			content: lesson.content,
-			summary: clip(
-				lesson.content.split("\n")[1]?.slice(2) ?? lesson.content,
-				100,
-			),
-			factType: strong ? "preference" : "decision",
-			confidence: quality.confidenceApplied,
-			priority: quality.priorityApplied,
-			// Active at once; context only, never authority (see header).
-			status: "active",
-			reviewStatus: "confirmed",
-			usePolicy: "requires_user_confirmation",
-			lastVerifiedAt: now,
-			// Personal (one user's decisions) or tedi-owned until a reviewer
-			// widens it; org-wide only for events without a personal scope.
-			memoryScope: tediId ? "tedi" : "org",
-			visibility: tediId || ownerUserId ? "private" : "org",
-			topicKey,
-			validFrom: now,
-			validTo: null,
-			archivedAt: null,
-			source,
-			sourceSessionId: null,
-			sourceUrl: null,
-			sourceHash,
-			metadata: toJsonRecord(mergeBrainWriteMetadata(metadata, quality)),
-			accessCount: 0,
-		});
+		await createFact(
+			db,
+			{
+				id: factId,
+				organizationId: orgId,
+				tediId,
+				domainId: domain.id,
+				content: lesson.content,
+				summary: clip(
+					lesson.content.split("\n")[1]?.slice(2) ?? lesson.content,
+					100,
+				),
+				factType: strong ? "preference" : "decision",
+				confidence: quality.confidenceApplied,
+				priority: quality.priorityApplied,
+				// Active at once; context only, never authority (see header).
+				status: "active",
+				reviewStatus: "confirmed",
+				usePolicy: "requires_user_confirmation",
+				lastVerifiedAt: now,
+				// Personal (one user's decisions) or tedi-owned until a reviewer
+				// widens it; org-wide only for events without a personal scope.
+				memoryScope: tediId ? "tedi" : "org",
+				visibility: tediId || ownerUserId ? "private" : "org",
+				topicKey,
+				validFrom: now,
+				validTo: null,
+				archivedAt: null,
+				source,
+				sourceSessionId: null,
+				sourceUrl: null,
+				sourceHash,
+				metadata: toJsonRecord(mergeBrainWriteMetadata(metadata, quality)),
+				accessCount: 0,
+			},
+			backgroundOrganizationMemoryRecorder(db, "learning-feed-miner", "create"),
+		);
 		result.factsWritten++;
 		for (const old of replaced) {
 			await invalidateFact(
@@ -812,10 +822,25 @@ async function writeDecisionLessons(
 				{ organizationId: orgId },
 				old.id,
 				`Superseded by ${factId} for topic ${topicKey}`,
+				backgroundOrganizationMemoryRecorder(
+					db,
+					"learning-feed-miner",
+					"invalidate",
+				),
 			);
-			await updateFact(db, { organizationId: orgId }, old.id, {
-				reviewStatus: "superseded",
-			});
+			await updateFact(
+				db,
+				{ organizationId: orgId },
+				old.id,
+				{
+					reviewStatus: "superseded",
+				},
+				backgroundOrganizationMemoryRecorder(
+					db,
+					"learning-feed-miner",
+					"update",
+				),
+			);
 			await createEdge(
 				db,
 				{ organizationId: orgId },
@@ -865,9 +890,15 @@ async function archiveStaleLessons(
 		if (!isReplaceableLesson(fact)) continue;
 		const lastReadOn = readMarks.get(fact.id);
 		if (lastReadOn && lastReadOn >= readCutoff) continue;
-		await updateFact(db, { organizationId: orgId }, fact.id, {
-			archivedAt: now.toISOString(),
-		});
+		await updateFact(
+			db,
+			{ organizationId: orgId },
+			fact.id,
+			{
+				archivedAt: now.toISOString(),
+			},
+			backgroundOrganizationMemoryRecorder(db, "learning-feed-miner", "update"),
+		);
 		result.factsArchived++;
 	}
 }

@@ -161,6 +161,7 @@ it("corrects old transient state from live work while preserving durable prefere
 			content: expect.stringContaining("completed"),
 			metadata: expect.objectContaining({ verifyBeforeUse: true }),
 		}),
+		expect.any(Function),
 	);
 });
 
