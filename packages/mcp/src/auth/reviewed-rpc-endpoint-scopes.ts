@@ -38,6 +38,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"personalAgentInbound/value": "mcp:apps.write",
 	"personalAgentInbound/list": "mcp:apps.write",
 	"personalAgentInbound/revoke": "mcp:apps.write",
+	"poppyAgent/get": "mcp:tedis.read",
+	"poppyAgent/setEnabled": "mcp:tedis.write",
 	"runtimeEntitlements/checkModelEgress": "platform:admin",
 	// Tedi-only: the native runtime tool calls it over the service binding.
 	"webSearch/search": "platform:admin",
