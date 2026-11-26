@@ -12,6 +12,9 @@ import {
 	osWorkspaceShareLinks,
 } from "../../schema/os-collaborators";
 import {
+	osBlueprints,
+	osBlueprintRevisions,
+	osCollaborationProposals,
 	osGadgetCode,
 	osGadgetCodeBlobs,
 	osGadgetRevisions,
@@ -22,6 +25,26 @@ import {
 	osWorkspaces,
 } from "../../schema/os-workspaces";
 import { workspaceOutputIndex } from "../../schema/workspace-feed";
+import {
+	findWorkspaceOutputEditor,
+	findWorkspaceOutputResource,
+	installWorkspaceApp,
+	linkWorkspaceOutputEditor,
+	publishWorkspaceAppTemplate,
+} from "./install-app";
+import {
+	instantiateOsBlueprint,
+	prepareOsBlueprintWorkspace,
+} from "./instantiate";
+import { applyOsBlueprintUpgrade } from "./upgrade";
+import {
+	createOsCollaborationProposal,
+	decideOsCollaborationProposal,
+	getOsCollaborationProposal,
+	listOsIdsWithCollaborationProposals,
+	mergeOsCollaborationProposal,
+	updateOsCollaborationProposalPreview,
+} from "./collaboration";
 import { userConfigs } from "../../schema/user-configs";
 import { createD1Facade } from "../../test/d1-facade";
 import { createPGliteFacade } from "../../test/pglite-facade";
@@ -85,6 +108,9 @@ for (const store of ["d1", "postgres"] as const) {
 					osGadgetRevisions,
 					osGadgetCode,
 					osGadgetCodeBlobs,
+					osBlueprints,
+					osBlueprintRevisions,
+					osCollaborationProposals,
 				])
 					for (const ddl of tableDdl(table)) sqlite.exec(ddl);
 				db = createDbQueryClient(
@@ -463,6 +489,482 @@ for (const store of ["d1", "postgres"] as const) {
 			).toMatchObject({ status: "withdrawn", withdrawnAt: withdrawal.now });
 		});
 
+		it("preserves attested draft release pins and commits proposal, revision and code together", async () => {
+			const base = {
+				organizationId: "org",
+				createdByKind: "user" as const,
+				createdById: "owner",
+			};
+			const gadgets = coreTable(db, osGadgets);
+			const revisions = coreTable(db, osGadgetRevisions);
+			await createOsWorkspace(db, {
+				...base,
+				id: "collab-workspace",
+				name: "Collaboration",
+			});
+			await db.insert(gadgets).values({
+				...base,
+				id: "collab-app",
+				workspaceId: "collab-workspace",
+				name: "App",
+				currentRevisionId: "collab-base",
+			});
+			await db.insert(revisions).values({
+				...base,
+				id: "collab-base",
+				gadgetId: "collab-app",
+				revision: 1,
+				manifest: "{}",
+			});
+			const content = {
+				manifest: { entry: "tedix:runtime/v1", config: { triggers: [] } },
+				files: { "server.js": "雪" },
+				sourceBlueprintRevisionId: "attested-release",
+			};
+			await createOsCollaborationProposal(db, {
+				...base,
+				id: "collab-proposal",
+				workspaceId: "collab-workspace",
+				documentType: "gadget",
+				documentId: "collab-app",
+				baseRevisionId: "collab-base",
+				baseRevision: 1,
+				sourceKind: "user",
+				sourceId: "owner",
+				sourceAttestationVersion: 1,
+				content: JSON.stringify(content),
+			});
+			const scope = { organizationId: "org", proposalId: "collab-proposal" };
+			expect(
+				await getOsCollaborationProposal(db, {
+					...scope,
+					organizationId: "other",
+				}),
+			).toBeUndefined();
+			const update = {
+				...scope,
+				expectedSequence: 0,
+				sourceKind: "user" as const,
+				sourceId: "owner",
+				content: JSON.stringify({
+					...content,
+					sourceBlueprintRevisionId: "forged",
+				}),
+			};
+			const preview = await updateOsCollaborationProposalPreview(db, update);
+			expect(JSON.parse(preview!.content).sourceBlueprintRevisionId).toBe(
+				"attested-release",
+			);
+			expect(
+				await updateOsCollaborationProposalPreview(db, update),
+			).toBeUndefined();
+			expect(
+				await listOsIdsWithCollaborationProposals(db, {
+					organizationId: "org",
+					by: "workspace",
+					ids: [
+						...Array.from({ length: 300 }, (_, index) => `absent-${index}`),
+						"collab-workspace",
+					],
+				}),
+			).toEqual(new Set(["collab-workspace"]));
+			expect(
+				await decideOsCollaborationProposal(db, {
+					...scope,
+					expectedSequence: 1,
+					decision: "accepted",
+					rationale: "Review",
+					evidenceRefs: "[]",
+					decidedByKind: "user",
+					decidedById: "owner",
+				}),
+			).toMatchObject({ status: "accepted" });
+			const merge = {
+				...scope,
+				expectedSequence: 1,
+				revisionId: "collab-merged",
+				rationale: "Merge",
+				evidenceRefs: "[]",
+				mergedByKind: "user" as const,
+				mergedById: "owner",
+			};
+			expect(await mergeOsCollaborationProposal(db, merge)).toMatchObject({
+				ok: true,
+				proposal: { status: "merged", resultRevisionId: "collab-merged" },
+				revision: { revision: 2 },
+			});
+			expect(
+				(
+					await db.select().from(gadgets).where(eq(gadgets.id, "collab-app"))
+				)[0],
+			).toMatchObject({
+				currentRevisionId: "collab-merged",
+				hasRuntimeTriggers: true,
+			});
+			const code = coreTable(db, osGadgetCode);
+			expect(
+				await db
+					.select()
+					.from(code)
+					.where(eq(code.revisionId, "collab-merged")),
+			).toHaveLength(1);
+			expect(
+				await mergeOsCollaborationProposal(db, {
+					...merge,
+					revisionId: "collab-retry",
+				}),
+			).toEqual({ ok: false, reason: "proposal_conflict" });
+			await createOsCollaborationProposal(db, {
+				...base,
+				id: "collab-stale",
+				workspaceId: "collab-workspace",
+				documentType: "gadget",
+				documentId: "collab-app",
+				baseRevisionId: "collab-base",
+				baseRevision: 1,
+				status: "accepted",
+				sourceKind: "user",
+				sourceId: "owner",
+				content: "{}",
+			});
+			expect(
+				await mergeOsCollaborationProposal(db, {
+					...merge,
+					proposalId: "collab-stale",
+					expectedSequence: 0,
+					revisionId: "collab-stale-rev",
+				}),
+			).toEqual({ ok: false, reason: "revision_conflict" });
+			expect(
+				await db
+					.select()
+					.from(revisions)
+					.where(eq(revisions.id, "collab-stale-rev")),
+			).toEqual([]);
+		});
+
+		it("installs atomically, keeps newer template pins on replay and fences editor metadata", async () => {
+			const base = {
+				organizationId: "org",
+				createdByKind: "user" as const,
+				createdById: "owner",
+			};
+			await createOsWorkspace(db, {
+				...base,
+				id: "install-workspace",
+				name: "Install",
+			});
+			const definition = (version: number) =>
+				JSON.stringify({
+					gadgets: [
+						{
+							manifest: { config: { settings: { blueprintVersion: version } } },
+						},
+					],
+				});
+			const params = {
+				templateVersion: 1,
+				blueprint: {
+					...base,
+					id: "install-blueprint",
+					name: "Install",
+					currentRevisionId: "install-bp-1",
+				},
+				blueprintRevision: {
+					...base,
+					id: "install-bp-1",
+					blueprintId: "install-blueprint",
+					definition: definition(1),
+				},
+				gadget: {
+					...base,
+					id: "install-app",
+					workspaceId: "install-workspace",
+					name: "Editor",
+					currentRevisionId: "install-rev",
+					sourceBlueprintRevisionId: "install-bp-1",
+				},
+				revision: {
+					...base,
+					id: "install-rev",
+					gadgetId: "install-app",
+					revision: 1,
+					manifest:
+						'{"entry":"tedix:runtime/v1","config":{"triggers":[],"settings":{"slot":"doc"}}}',
+				},
+				code: {
+					organizationId: "org",
+					revisionId: "install-rev",
+					gadgetId: "install-app",
+					files: '{"server.js":"雪"}',
+					codeLength: 1,
+				},
+				resource: {
+					...base,
+					id: "install-resource",
+					workspaceId: "install-workspace",
+					slot: "doc",
+					providerId: "tedix",
+					connectionScope: "tenant" as const,
+					resourceType: "output",
+					providerResourceId: "install-output",
+					name: "Doc",
+					metadata: '{"retained":true}',
+				},
+			};
+			await installWorkspaceApp(db, params);
+			await installWorkspaceApp(db, params);
+			await publishWorkspaceAppTemplate(db, {
+				...params,
+				templateVersion: 2,
+				blueprintRevision: {
+					...params.blueprintRevision,
+					id: "install-bp-2",
+					definition: definition(2),
+				},
+			});
+			await publishWorkspaceAppTemplate(db, params);
+			expect(
+				(
+					await db
+						.select()
+						.from(coreTable(db, osBlueprints))
+						.where(eq(coreTable(db, osBlueprints).id, "install-blueprint"))
+				)[0]?.currentRevisionId,
+			).toBe("install-bp-2");
+			const scope = {
+				organizationId: "org",
+				workspaceId: "install-workspace",
+				blueprintId: "install-blueprint",
+				slot: "doc",
+			};
+			expect(await findWorkspaceOutputEditor(db, scope)).toMatchObject({
+				id: "install-app",
+				sourceBlueprintRevisionId: "install-bp-1",
+				hasRuntimeTriggers: true,
+			});
+			expect(
+				await findWorkspaceOutputEditor(db, {
+					...scope,
+					organizationId: "other",
+				}),
+			).toBeUndefined();
+			const link = {
+				...scope,
+				resourceId: "install-resource",
+				outputId: "install-output",
+				expectedSlot: "doc",
+				expectedGadgetRevisionId: "stale",
+				gadgetId: "install-app",
+				kind: "document",
+				now: at,
+			};
+			expect(await linkWorkspaceOutputEditor(db, link)).toBeUndefined();
+			expect(
+				await linkWorkspaceOutputEditor(db, {
+					...link,
+					expectedGadgetRevisionId: "install-rev",
+				}),
+			).toEqual({ id: "install-resource" });
+			const resource = await findWorkspaceOutputResource(db, link);
+			expect(JSON.parse(resource!.metadata)).toEqual({
+				retained: true,
+				gadgetId: "install-app",
+				kind: "document",
+			});
+			await expect(
+				installWorkspaceApp(db, {
+					...params,
+					blueprint: {
+						...params.blueprint,
+						id: "rollback-blueprint",
+						name: "Rollback",
+					},
+					blueprintRevision: {
+						...params.blueprintRevision,
+						id: "rollback-bp",
+						blueprintId: "rollback-blueprint",
+					},
+					gadget: {
+						...params.gadget,
+						id: "rollback-app",
+						name: "Rollback",
+						currentRevisionId: "rollback-rev",
+					},
+					revision: {
+						...params.revision,
+						id: "rollback-rev",
+						gadgetId: "rollback-app",
+					},
+					code: {
+						...params.code,
+						revisionId: "rollback-rev",
+						gadgetId: "rollback-app",
+					},
+					resource: {
+						...params.resource,
+						id: "rollback-resource",
+						providerResourceId: "rollback-output",
+					},
+				}),
+			).rejects.toThrow();
+			expect(
+				await db
+					.select()
+					.from(coreTable(db, osBlueprints))
+					.where(eq(coreTable(db, osBlueprints).id, "rollback-blueprint")),
+			).toEqual([]);
+			expect(
+				await db
+					.select()
+					.from(coreTable(db, osGadgets))
+					.where(eq(coreTable(db, osGadgets).id, "rollback-app")),
+			).toEqual([]);
+		});
+
+		it("materializes chunked apps atomically and makes a stale upgrade write nothing", async () => {
+			const base = {
+				organizationId: "org",
+				createdByKind: "user" as const,
+				createdById: "owner",
+			};
+			const input = {
+				workspace: {
+					...base,
+					id: "materialized",
+					name: "Materialized",
+					sourceBlueprintRevisionId: "pin-1",
+					sourceBlueprintRevisionNumber: 1,
+				},
+				gadgets: Array.from({ length: 13 }, (_, index) => ({
+					...base,
+					id: `materialized-${index}`,
+					workspaceId: "materialized",
+					name: `App ${index}`,
+					currentRevisionId: `materialized-rev-${index}`,
+				})),
+				revisions: Array.from({ length: 13 }, (_, index) => ({
+					...base,
+					id: `materialized-rev-${index}`,
+					gadgetId: `materialized-${index}`,
+					revision: 1,
+					manifest: "{}",
+				})),
+			};
+			const prepared = await prepareOsBlueprintWorkspace(db, input.workspace);
+			await expect(
+				prepareOsBlueprintWorkspace(db, {
+					...input.workspace,
+					sourceBlueprintRevisionId: "wrong",
+				}),
+			).rejects.toThrow("conflicts");
+			const result = await instantiateOsBlueprint(db, input, prepared);
+			expect(result.gadgets).toHaveLength(13);
+			expect(result.revisions).toHaveLength(13);
+			const plan = {
+				organizationId: "org",
+				workspaceId: "materialized",
+				expectedRevisionId: "pin-1",
+				expectedRevisionNumber: 1,
+				expectedInstantiationPreflight: null,
+				nextRevisionId: "pin-2",
+				nextRevisionNumber: 2,
+				nextInstantiationPreflight: "{}",
+				blueprintDecision: "{}",
+				now: at,
+				added: [
+					{
+						gadget: {
+							...base,
+							id: "upgrade-added",
+							workspaceId: "materialized",
+							name: "Added",
+							currentRevisionId: "upgrade-added-rev",
+						},
+						revision: {
+							...base,
+							id: "upgrade-added-rev",
+							gadgetId: "upgrade-added",
+							revision: 1,
+							manifest: '{"entry":"tedix:runtime/v1","config":{"triggers":[]}}',
+						},
+					},
+				],
+				synced: [
+					{
+						gadgetId: "materialized-0",
+						append: {
+							revisionId: "upgrade-sync-rev",
+							manifest: "{}",
+							createdByKind: "user" as const,
+							createdById: "owner",
+						},
+					},
+				],
+				archivedGadgetIds: ["materialized-1"],
+			};
+			expect(await applyOsBlueprintUpgrade(db, plan)).toMatchObject({
+				ok: true,
+				workspace: {
+					sourceBlueprintRevisionId: "pin-2",
+					previousBlueprintRevisionId: "pin-1",
+				},
+				addedGadgets: [{ hasRuntimeTriggers: true }],
+				appendedRevisions: [{ revision: 2 }],
+			});
+			const snapshot = async () =>
+				Promise.all([
+					db
+						.select()
+						.from(coreTable(db, osGadgets))
+						.orderBy(coreTable(db, osGadgets).id),
+					db
+						.select()
+						.from(coreTable(db, osGadgetRevisions))
+						.orderBy(coreTable(db, osGadgetRevisions).id),
+					db
+						.select()
+						.from(coreTable(db, osWorkspaces))
+						.orderBy(coreTable(db, osWorkspaces).id),
+				]);
+			const before = await snapshot();
+			expect(await applyOsBlueprintUpgrade(db, plan)).toEqual({
+				ok: false,
+				reason: "pin_moved",
+			});
+			expect(await snapshot()).toEqual(before);
+			await expect(
+				instantiateOsBlueprint(db, {
+					...input,
+					workspace: {
+						...input.workspace,
+						id: "failed-materialized",
+						name: "Failed",
+					},
+					gadgets: [
+						{
+							...input.gadgets[0]!,
+							id: "failed-app",
+							workspaceId: "failed-materialized",
+						},
+					],
+					revisions: [
+						{
+							...input.revisions[0]!,
+							id: "failed-rev",
+							gadgetId: "missing-app",
+						},
+					],
+				}),
+			).rejects.toThrow();
+			expect(
+				await db
+					.select()
+					.from(coreTable(db, osWorkspaces))
+					.where(eq(coreTable(db, osWorkspaces).id, "failed-materialized")),
+			).toEqual([]);
+		});
+
 		it("guards code writes on their revision and rolls back blobs on a later pointer failure", async () => {
 			await db.insert(coreTable(db, osGadgets)).values({
 				id: "gadget",
@@ -490,6 +992,9 @@ for (const store of ["d1", "postgres"] as const) {
 				createdAt: at,
 				revisionId: "revision",
 			};
+			const beforeBlobs = await db
+				.select()
+				.from(coreTable(db, osGadgetCodeBlobs));
 			await db.batch(
 				buildOsGadgetRevisionCodeStatements(db, {
 					...params,
@@ -497,10 +1002,14 @@ for (const store of ["d1", "postgres"] as const) {
 				}),
 			);
 			expect(await db.select().from(coreTable(db, osGadgetCodeBlobs))).toEqual(
-				[],
+				beforeBlobs,
 			);
 			await db.batch(buildOsGadgetRevisionCodeStatements(db, params));
-			const [code] = await db.select().from(coreTable(db, osGadgetCode));
+			const codeTable = coreTable(db, osGadgetCode);
+			const [code] = await db
+				.select()
+				.from(codeTable)
+				.where(eq(codeTable.revisionId, params.revisionId));
 			expect(code).toMatchObject({
 				revisionId: "revision",
 				files: "",

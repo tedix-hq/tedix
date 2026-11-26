@@ -9,6 +9,7 @@ import {
 } from "./provisioning";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
 import { chunkForBoundParams } from "../../utils/batch";
 import {
 	buildEnsureOsGadgetCodeBlobStatement,
@@ -27,13 +28,13 @@ import {
 	type OsGadgetRow,
 	type OsWorkspaceRow,
 	type OsWorkspaceResourceRow,
-	osGadgetCode,
-	osBlueprintRevisions,
-	osBlueprints,
-	osGadgetRevisions,
-	osGadgets,
-	osWorkspaces,
-	osWorkspaceResources,
+	osGadgetCode as d1OsGadgetCode,
+	osBlueprintRevisions as d1OsBlueprintRevisions,
+	osBlueprints as d1OsBlueprints,
+	osGadgetRevisions as d1OsGadgetRevisions,
+	osGadgets as d1OsGadgets,
+	osWorkspaces as d1OsWorkspaces,
+	osWorkspaceResources as d1OsWorkspaceResources,
 } from "../../schema/os-workspaces";
 import {
 	type osOutputs,
@@ -64,7 +65,7 @@ export interface InstantiateOsBlueprintParams {
 	resources?: NewOsWorkspaceResourceRow[];
 	outputs?: (typeof osOutputs.$inferInsert)[];
 	outputRevisions?: (typeof osOutputRevisions.$inferInsert)[];
-	code?: (typeof osGadgetCode.$inferInsert)[];
+	code?: (typeof d1OsGadgetCode.$inferInsert)[];
 	provisioning?: BlueprintProvisioningRows;
 }
 
@@ -94,6 +95,7 @@ export async function prepareOsBlueprintWorkspace(
 	db: DbQueryClient,
 	input: NewOsWorkspaceRow,
 ) {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	await db
 		.insert(osWorkspaces)
 		.values(input)
@@ -144,6 +146,13 @@ export async function instantiateOsBlueprint(
 	params: InstantiateOsBlueprintParams,
 	preparedWorkspace?: OsWorkspaceRow,
 ): Promise<InstantiateOsBlueprintResult> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
+	const osBlueprints = coreTable(db, d1OsBlueprints);
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
+	const osGadgets = coreTable(db, d1OsGadgets);
+	const osGadgetRevisions = coreTable(db, d1OsGadgetRevisions);
+	const osGadgetCode = coreTable(db, d1OsGadgetCode);
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	if (params.outputs?.length || params.outputRevisions?.length)
 		throw new Error(
 			"Blueprint document writes require the workspace object service",

@@ -1,14 +1,16 @@
 import { osGadgetHasWorkNavigation } from "./gadget-navigation";
 import { and, desc, eq, getColumns, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead, jsonWrite } from "../../core-store/dialect";
 import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
 import {
-	osBlueprints,
-	osBlueprintRevisions,
-	osGadgets,
-	osGadgetRevisions,
-	osGadgetCode,
-	osWorkspaceResources,
+	osBlueprints as d1OsBlueprints,
+	osBlueprintRevisions as d1OsBlueprintRevisions,
+	osGadgets as d1OsGadgets,
+	osGadgetRevisions as d1OsGadgetRevisions,
+	osGadgetCode as d1OsGadgetCode,
+	osWorkspaceResources as d1OsWorkspaceResources,
 } from "../../schema/os-workspaces";
 import {
 	buildEnsureOsGadgetCodeBlobStatement,
@@ -19,6 +21,7 @@ export async function findWorkspaceOutputResource(
 	db: DbQueryClient,
 	scope: { organizationId: string; workspaceId: string; outputId: string },
 ) {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const [row] = await db
 		.select()
 		.from(osWorkspaceResources)
@@ -37,13 +40,16 @@ export async function findWorkspaceOutputResource(
 }
 
 export interface InstallWorkspaceAppParams {
-	blueprint: typeof osBlueprints.$inferInsert;
-	blueprintRevision: Omit<typeof osBlueprintRevisions.$inferInsert, "revision">;
+	blueprint: typeof d1OsBlueprints.$inferInsert;
+	blueprintRevision: Omit<
+		typeof d1OsBlueprintRevisions.$inferInsert,
+		"revision"
+	>;
 	templateVersion: number;
-	gadget: typeof osGadgets.$inferInsert;
-	revision: typeof osGadgetRevisions.$inferInsert;
-	code: typeof osGadgetCode.$inferInsert;
-	resource?: typeof osWorkspaceResources.$inferInsert;
+	gadget: typeof d1OsGadgets.$inferInsert;
+	revision: typeof d1OsGadgetRevisions.$inferInsert;
+	code: typeof d1OsGadgetCode.$inferInsert;
+	resource?: typeof d1OsWorkspaceResources.$inferInsert;
 }
 
 type WorkspaceAppTemplate = Pick<
@@ -52,15 +58,41 @@ type WorkspaceAppTemplate = Pick<
 >;
 
 function templateStatements(db: DbQueryClient, params: WorkspaceAppTemplate) {
+	const osBlueprints = coreTable(db, d1OsBlueprints);
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
 	const revision = params.blueprintRevision;
 	const sequence = sql<number>`coalesce((select max(${osBlueprintRevisions.revision}) from ${osBlueprintRevisions} where ${osBlueprintRevisions.blueprintId} = ${revision.blueprintId}), 0) + 1`;
 	// Bundled versions and user-authored revisions share history, not a sequence.
-	const priorBundleVersion = sql<number>`coalesce((select max(case when json_type(${osBlueprintRevisions.definition}, '$.gadgets[0].manifest.config.settings.blueprintVersion') = 'integer' then json_extract(${osBlueprintRevisions.definition}, '$.gadgets[0].manifest.config.settings.blueprintVersion') else 1 end) from ${osBlueprintRevisions} where ${osBlueprintRevisions.organizationId} = ${revision.organizationId} and ${osBlueprintRevisions.blueprintId} = ${revision.blueprintId} and ${osBlueprintRevisions.id} <> ${revision.id}), 0)`;
+	const bundledVersion =
+		coreStore(db) === "postgres"
+			? sql`case when jsonb_typeof(${osBlueprintRevisions.definition}::jsonb #> '{gadgets,0,manifest,config,settings,blueprintVersion}') = 'number'
+			and (${osBlueprintRevisions.definition}::jsonb #>> '{gadgets,0,manifest,config,settings,blueprintVersion}') ~ '^-?[0-9]+$'
+			then (${osBlueprintRevisions.definition}::jsonb #>> '{gadgets,0,manifest,config,settings,blueprintVersion}')::numeric else 1 end`
+			: sql`case when json_type(${osBlueprintRevisions.definition}, '$.gadgets[0].manifest.config.settings.blueprintVersion') = 'integer' then json_extract(${osBlueprintRevisions.definition}, '$.gadgets[0].manifest.config.settings.blueprintVersion') else 1 end`;
+	const priorBundleVersion = sql<number>`coalesce((select max(${bundledVersion}) from ${osBlueprintRevisions} where ${osBlueprintRevisions.organizationId} = ${revision.organizationId} and ${osBlueprintRevisions.blueprintId} = ${revision.blueprintId} and ${osBlueprintRevisions.id} <> ${revision.id}), 0)`;
+	const lockQuery = db
+		.select({ id: osBlueprints.id })
+		.from(osBlueprints)
+		.where(
+			and(
+				eq(osBlueprints.id, revision.blueprintId),
+				eq(osBlueprints.organizationId, revision.organizationId),
+			),
+		);
 	return [
 		db
 			.insert(osBlueprints)
 			.values(params.blueprint)
 			.onConflictDoNothing({ target: osBlueprints.id }),
+		...(coreStore(db) === "postgres"
+			? [
+					(
+						lockQuery as typeof lockQuery & {
+							for(strength: "update"): typeof lockQuery;
+						}
+					).for("update"),
+				]
+			: []),
 		db
 			.insert(osBlueprintRevisions)
 			.select(
@@ -135,10 +167,22 @@ export async function linkWorkspaceOutputEditor(
 		now: string;
 	},
 ) {
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
+	const osGadgets = coreTable(db, d1OsGadgets);
 	const [row] = await db
 		.update(osWorkspaceResources)
 		.set({
-			metadata: sql`json_set(coalesce(${osWorkspaceResources.metadata}, '{}'), '$.gadgetId', ${params.gadgetId}, '$.kind', ${params.kind})`,
+			metadata: jsonWrite(
+				db,
+				jsonWrite(
+					db,
+					sql`${osWorkspaceResources.metadata}${coreStore(db) === "postgres" ? sql`::jsonb` : sql``}`,
+					["gadgetId"],
+					params.gadgetId,
+				),
+				["kind"],
+				params.kind,
+			),
 			updatedAt: params.now,
 		})
 		.where(
@@ -168,6 +212,9 @@ export async function findWorkspaceOutputEditor(
 		slot: string;
 	},
 ) {
+	const osGadgets = coreTable(db, d1OsGadgets);
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
+	const osGadgetRevisions = coreTable(db, d1OsGadgetRevisions);
 	const [row] = await db
 		.select(getColumns(osGadgets))
 		.from(osGadgets)
@@ -184,7 +231,7 @@ export async function findWorkspaceOutputEditor(
 				eq(osGadgets.organizationId, scope.organizationId),
 				eq(osGadgets.workspaceId, scope.workspaceId),
 				eq(osBlueprintRevisions.blueprintId, scope.blueprintId),
-				sql`json_extract(${osGadgetRevisions.manifest}, '$.config.settings.slot') = ${scope.slot}`,
+				sql`${jsonRead(db, sql`${osGadgetRevisions.manifest}${coreStore(db) === "postgres" ? sql`::jsonb` : sql``}`, ["config", "settings", "slot"])} = ${scope.slot}`,
 			),
 		)
 		.orderBy(desc(osGadgets.updatedAt), osGadgets.id)
@@ -197,6 +244,10 @@ export async function installWorkspaceApp(
 	db: DbQueryClient,
 	params: InstallWorkspaceAppParams,
 ) {
+	const osGadgets = coreTable(db, d1OsGadgets);
+	const osGadgetRevisions = coreTable(db, d1OsGadgetRevisions);
+	const osGadgetCode = coreTable(db, d1OsGadgetCode);
+	const osWorkspaceResources = coreTable(db, d1OsWorkspaceResources);
 	const { blob, code } = await splitOsGadgetCodeRow(params.code);
 	await db.batch([
 		...templateStatements(db, params),

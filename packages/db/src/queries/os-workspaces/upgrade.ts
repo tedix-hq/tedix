@@ -2,6 +2,8 @@ import { osGadgetHasWorkNavigation } from "./gadget-navigation";
 import { and, eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { booleanValue, coreStore } from "../../core-store/dialect";
 import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
 import {
 	type NewOsGadgetRevisionRow,
@@ -9,9 +11,9 @@ import {
 	type OsGadgetRevisionRow,
 	type OsGadgetRow,
 	type OsWorkspaceRow,
-	osGadgetRevisions,
-	osGadgets,
-	osWorkspaces,
+	osGadgetRevisions as d1OsGadgetRevisions,
+	osGadgets as d1OsGadgets,
+	osWorkspaces as d1OsWorkspaces,
 } from "../../schema/os-workspaces";
 
 /**
@@ -97,6 +99,9 @@ export async function applyOsBlueprintUpgrade(
 	db: DbQueryClient,
 	params: ApplyOsBlueprintUpgradeParams,
 ): Promise<ApplyOsBlueprintUpgradeResult> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
+	const osGadgets = coreTable(db, d1OsGadgets);
+	const osGadgetRevisions = coreTable(db, d1OsGadgetRevisions);
 	// The one predicate every statement in the batch hangs off: this workspace,
 	// in this organization, still pinned where the plan was computed.
 	const pinnedWorkspace = and(
@@ -132,14 +137,14 @@ export async function applyOsBlueprintUpgrade(
 							currentRevisionId: sql<
 								string | null
 							>`${gadget.currentRevisionId ?? null}`.as("current_revision_id"),
-							hasWorkNavigation:
-								sql<boolean>`${osGadgetHasWorkNavigation(revision.manifest) ? 1 : 0}`.as(
-									"has_work_navigation",
-								),
-							hasRuntimeTriggers:
-								sql<boolean>`${osGadgetHasRuntimeTriggers(revision.manifest) ? 1 : 0}`.as(
-									"has_runtime_triggers",
-								),
+							hasWorkNavigation: booleanValue(
+								db,
+								osGadgetHasWorkNavigation(revision.manifest),
+							).as("has_work_navigation"),
+							hasRuntimeTriggers: booleanValue(
+								db,
+								osGadgetHasRuntimeTriggers(revision.manifest),
+							).as("has_runtime_triggers"),
 							sourceBlueprintRevisionId: sql<
 								string | null
 							>`${gadget.sourceBlueprintRevisionId ?? null}`.as(
@@ -303,9 +308,43 @@ export async function applyOsBlueprintUpgrade(
 			.returning() as unknown as BatchItem<"sqlite">,
 	);
 
-	const results = (await db.batch(
-		statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
-	)) as unknown[][];
+	// Serialize pin changes and gadget revision writers inside the same batch.
+	const locks =
+		coreStore(db) === "postgres"
+			? [
+					db
+						.select({ id: osWorkspaces.id })
+						.from(osWorkspaces)
+						.where(
+							and(
+								eq(osWorkspaces.id, params.workspaceId),
+								eq(osWorkspaces.organizationId, params.organizationId),
+							),
+						),
+					db
+						.select({ id: osGadgets.id })
+						.from(osGadgets)
+						.where(
+							and(
+								eq(osGadgets.workspaceId, params.workspaceId),
+								eq(osGadgets.organizationId, params.organizationId),
+							),
+						)
+						.orderBy(osGadgets.id),
+				].map((query) =>
+					(
+						query as typeof query & {
+							for(strength: "update"): typeof query;
+						}
+					).for("update"),
+				)
+			: [];
+	const results = (
+		(await db.batch([...locks, ...statements] as [
+			BatchItem<"sqlite">,
+			...BatchItem<"sqlite">[],
+		])) as unknown[][]
+	).slice(locks.length);
 	const workspace = (results[results.length - 1] as OsWorkspaceRow[])[0];
 	if (!workspace) {
 		// The fence was false, so nothing above it wrote either.
@@ -347,6 +386,7 @@ export async function recordOsWorkspaceBlueprintDecision(
 	db: DbQueryClient,
 	params: RecordOsWorkspaceBlueprintDecisionParams,
 ): Promise<OsWorkspaceRow | undefined> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const [row] = await db
 		.update(osWorkspaces)
 		.set({

@@ -16,28 +16,30 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { anyIds, coreStore } from "../../core-store/dialect";
 import {
 	type NewOsCollaborationProposalRow,
 	type OsCollaborationProposalRow,
 	type OsGadgetRevisionRow,
-	osCollaborationProposals,
-	osGadgetRevisions,
-	osGadgetCode,
-	osGadgetCodeBlobs,
-	osGadgetExecutions,
-	osGadgets,
-	osBlueprintRevisions,
-	osWorkspaces,
+	osCollaborationProposals as d1OsCollaborationProposals,
+	osGadgetRevisions as d1OsGadgetRevisions,
+	osGadgetCode as d1OsGadgetCode,
+	osGadgetCodeBlobs as d1OsGadgetCodeBlobs,
+	osGadgetExecutions as d1OsGadgetExecutions,
+	osGadgets as d1OsGadgets,
+	osBlueprintRevisions as d1OsBlueprintRevisions,
+	osWorkspaces as d1OsWorkspaces,
 } from "../../schema/os-workspaces";
 import { type OsOutputRevisionRow } from "../../tenant-store/outputs-schema";
 import { normalizeStoredJsonText } from "../../utils/json";
 import { announceOsWorkspaceChange } from "../os-workspace-events";
 import { getOsGadgetRevision } from "./gadgets";
 import { osGadgetHasRuntimeTriggers } from "./gadget-triggers";
-import { workspaceOutputIndex } from "../../schema/workspace-feed";
+import { workspaceOutputIndex as d1WorkspaceOutputIndex } from "../../schema/workspace-feed";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
-import { chunkForBoundParams } from "../../utils/batch";
 import {
 	buildOsGadgetRevisionCodeStatements,
 	osGadgetCodeSha256,
@@ -62,6 +64,7 @@ async function createOsCollaborationProposalUnannounced(
 	db: DbQueryClient,
 	proposal: NewOsCollaborationProposalRow,
 ): Promise<OsCollaborationProposalRow> {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
 	const [row] = await db
 		.insert(osCollaborationProposals)
 		.values(proposal)
@@ -89,6 +92,7 @@ export async function getOsCollaborationProposal(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope,
 ): Promise<OsCollaborationProposalRow | undefined> {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
 	const [row] = await db
 		.select()
 		.from(osCollaborationProposals)
@@ -107,6 +111,7 @@ export async function listOsCollaborationProposals(
 	organizationId: string,
 	options: ListOsCollaborationProposalsOptions = {},
 ): Promise<OsCollaborationProposalRow[]> {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
 	const conditions = [
 		eq(osCollaborationProposals.organizationId, organizationId),
 	];
@@ -154,43 +159,40 @@ export async function listOsIdsWithCollaborationProposals(
 	db: DbQueryClient,
 	params: { organizationId: string; by: "workspace" | "output"; ids: string[] },
 ): Promise<Set<string>> {
-	const found = new Set<string>();
-	for (const chunk of chunkForBoundParams(params.ids, 90)) {
-		const rows =
-			params.by === "workspace"
-				? await db
-						.selectDistinct({ id: osCollaborationProposals.workspaceId })
-						.from(osCollaborationProposals)
-						.where(
-							and(
-								eq(
-									osCollaborationProposals.organizationId,
-									params.organizationId,
-								),
-								inArray(osCollaborationProposals.workspaceId, chunk),
-							),
-						)
-				: await db
-						.selectDistinct({ id: osCollaborationProposals.documentId })
-						.from(osCollaborationProposals)
-						.where(
-							and(
-								eq(
-									osCollaborationProposals.organizationId,
-									params.organizationId,
-								),
-								eq(osCollaborationProposals.documentType, "output"),
-								inArray(osCollaborationProposals.documentId, chunk),
-							),
-						);
-		for (const row of rows) if (row.id) found.add(row.id);
-	}
-	return found;
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
+	const column =
+		params.by === "workspace"
+			? osCollaborationProposals.workspaceId
+			: osCollaborationProposals.documentId;
+	const rows = await db
+		.selectDistinct({ id: column })
+		.from(osCollaborationProposals)
+		.where(
+			and(
+				eq(osCollaborationProposals.organizationId, params.organizationId),
+				params.by === "output"
+					? eq(osCollaborationProposals.documentType, "output")
+					: undefined,
+				anyIds(db, column, params.ids),
+			),
+		);
+	return new Set(rows.map((row) => row.id));
 }
 
 // Editing or rebasing a blueprint draft must retain its server-recorded release,
 // and an edit can never add one.
-function appDraftPreviewContent(content: string) {
+function appDraftPreviewContent(db: DbQueryClient, content: string) {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
+	if (coreStore(db) === "postgres") {
+		return sql<string>`case when pg_input_is_valid(${content}, 'jsonb') then
+			case when pg_input_is_valid(${osCollaborationProposals.content}, 'jsonb') then
+				case when jsonb_typeof(${osCollaborationProposals.content}::jsonb -> 'sourceBlueprintRevisionId') = 'string'
+					then jsonb_set(${content}::jsonb, '{sourceBlueprintRevisionId}',
+						${osCollaborationProposals.content}::jsonb -> 'sourceBlueprintRevisionId')::text
+					else (${content}::jsonb - 'sourceBlueprintRevisionId')::text end
+				else (${content}::jsonb - 'sourceBlueprintRevisionId')::text end
+			else ${content} end`;
+	}
 	return sql<string>`case
 		when json_valid(${osCollaborationProposals.content}) and
 			json_type(${osCollaborationProposals.content}, '$.sourceBlueprintRevisionId') = 'text'
@@ -210,10 +212,11 @@ async function updateOsCollaborationProposalPreviewUnannounced(
 		sourceId: string;
 	},
 ): Promise<OsCollaborationProposalRow | undefined> {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
 	const [row] = await db
 		.update(osCollaborationProposals)
 		.set({
-			content: appDraftPreviewContent(params.content),
+			content: appDraftPreviewContent(db, params.content),
 			sequence: sql`${osCollaborationProposals.sequence} + 1`,
 			updatedAt: new Date().toISOString(),
 		})
@@ -264,10 +267,11 @@ async function rebaseOsAppDraftUnannounced(
 		content: string;
 	},
 ): Promise<OsCollaborationProposalRow | undefined> {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
 	const [row] = await db
 		.update(osCollaborationProposals)
 		.set({
-			content: appDraftPreviewContent(params.content),
+			content: appDraftPreviewContent(db, params.content),
 			baseRevisionId: params.baseRevisionId,
 			baseRevision: params.baseRevision,
 			status: "open",
@@ -326,6 +330,9 @@ async function rebaseStaleAppProposal(
 	  >
 	| StaleProposalResult
 > {
+	const osGadgetRevisions = coreTable(db, d1OsGadgetRevisions);
+	const osGadgetCode = coreTable(db, d1OsGadgetCode);
+	const osGadgetCodeBlobs = coreTable(db, d1OsGadgetCodeBlobs);
 	const stale = { reason: "stale_base" } as const;
 	const current = await getOsGadgetRevision(db, {
 		organizationId: proposal.organizationId,
@@ -433,6 +440,8 @@ async function decideOsCollaborationProposalUnannounced(
 		decidedById: string;
 	},
 ): Promise<OsCollaborationProposalRow | StaleProposalResult | undefined> {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
+	const osGadgets = coreTable(db, d1OsGadgets);
 	let acceptance:
 		| Pick<
 				OsCollaborationProposalRow,
@@ -625,6 +634,13 @@ async function mergeOsCollaborationProposalUnannounced(
 	},
 	commitOutput?: CommitCollaborationOutput,
 ): Promise<MergeOsCollaborationProposalResult> {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
+	const osGadgets = coreTable(db, d1OsGadgets);
+	const osGadgetRevisions = coreTable(db, d1OsGadgetRevisions);
+	const osBlueprintRevisions = coreTable(db, d1OsBlueprintRevisions);
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const proposal = await getOsCollaborationProposal(db, params);
 	if (
 		!proposal ||
@@ -651,6 +667,20 @@ async function mergeOsCollaborationProposalUnannounced(
 		const sourceBlueprintRevisionId = draft?.success
 			? draft.data.sourceBlueprintRevisionId
 			: undefined;
+		const revisionWritten =
+			coreStore(db) === "postgres"
+				? sql`exists (select 1 from ${osGadgetRevisions}
+				where ${osGadgetRevisions.id} = ${params.revisionId}
+				and ${osGadgetRevisions.organizationId} = ${params.organizationId}
+				and ${osGadgetRevisions.gadgetId} = ${proposal.documentId})`
+				: sql`changes() = 1`;
+		const pointerAdvanced =
+			coreStore(db) === "postgres"
+				? sql`exists (select 1 from ${osGadgets}
+				where ${osGadgets.id} = ${proposal.documentId}
+				and ${osGadgets.organizationId} = ${params.organizationId}
+				and ${osGadgets.currentRevisionId} = ${params.revisionId})`
+				: sql`changes() = 1`;
 		// The pin only moves forward: accepting an older release's draft still
 		// applies its files (the merge is fenced on the app's current revision)
 		// but leaves the app on the newer release it already follows.
@@ -726,7 +756,7 @@ async function mergeOsCollaborationProposalUnannounced(
 					eq(osGadgets.id, proposal.documentId),
 					eq(osGadgets.organizationId, params.organizationId),
 					eq(osGadgets.currentRevisionId, proposal.baseRevisionId),
-					sql`changes() = 1`,
+					revisionWritten,
 				),
 			);
 		const settle = db
@@ -742,7 +772,7 @@ async function mergeOsCollaborationProposalUnannounced(
 				resultRevision: proposal.baseRevision + 1,
 				updatedAt: now,
 			})
-			.where(and(proposalFence, sql`changes() = 1`))
+			.where(and(proposalFence, pointerAdvanced))
 			.returning();
 		// The code statements select from the revision just written, so they land
 		// only when the fenced revision insert did: one batch, no half-recorded app.
@@ -754,14 +784,49 @@ async function mergeOsCollaborationProposalUnannounced(
 					createdAt: now,
 				})
 			: null;
-		const [revisionRows, , proposalRows] = codeStatements
-			? await db.batch([
-					insertRevision,
-					advancePointer,
-					settle,
-					...codeStatements,
-				])
-			: await db.batch([insertRevision, advancePointer, settle]);
+		const locks =
+			coreStore(db) === "postgres"
+				? [
+						db
+							.select({ id: osGadgets.id })
+							.from(osGadgets)
+							.where(
+								and(
+									eq(osGadgets.id, proposal.documentId),
+									eq(osGadgets.organizationId, params.organizationId),
+								),
+							),
+						db
+							.select({ id: osCollaborationProposals.id })
+							.from(osCollaborationProposals)
+							.where(
+								and(
+									eq(osCollaborationProposals.id, proposal.id),
+									eq(
+										osCollaborationProposals.organizationId,
+										params.organizationId,
+									),
+								),
+							),
+					].map((query) =>
+						(
+							query as typeof query & {
+								for(strength: "update"): typeof query;
+							}
+						).for("update"),
+					)
+				: [];
+		const results = await db.batch([
+			...locks,
+			insertRevision,
+			advancePointer,
+			settle,
+			...(codeStatements ?? []),
+		] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+		const revisionRows = results[locks.length] as OsGadgetRevisionRow[];
+		const proposalRows = results[
+			locks.length + 2
+		] as OsCollaborationProposalRow[];
 		const revision = revisionRows[0];
 		const mergedProposal = proposalRows[0];
 		return revision && mergedProposal
@@ -918,6 +983,7 @@ export async function countOsAppDraftsFromElsewhere(
 		conversationId?: string;
 	},
 ): Promise<number> {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
 	const [row] = await db
 		.select({ count: count() })
 		.from(osCollaborationProposals)
@@ -979,6 +1045,7 @@ export async function proposeOsAppFileEdits(
 	},
 	validate: (content: OsAppDraftContent) => Promise<void>,
 ) {
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
 	const pending = await getOsAppEditDraft(db, input);
 	if (
 		pending &&
