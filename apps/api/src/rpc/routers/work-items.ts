@@ -18,6 +18,8 @@ import {
  * Capability handlers and shared policy live in ./work-items/.
  */
 import {
+	setParentProcedure,
+	removeRelationProcedure,
 	addRelationProcedure,
 	corroborateProcedure,
 	getByIdRoute,
@@ -168,6 +170,8 @@ export const workItemsContractRouter = workItemsOs.router({
 	addComment: addCommentProcedure,
 	corroborate: corroborateProcedure,
 	listCorroborations: listCorroborationsProcedure,
+	setParent: setParentProcedure,
+	removeRelation: removeRelationProcedure,
 	addRelation: addRelationProcedure,
 	authorizePersonalCliRelease: authorizePersonalCliReleaseProcedure,
 	startAttempt: startAttemptProcedure,

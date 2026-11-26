@@ -220,6 +220,8 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	submit_work_item_evidence: "workItems/submitEvidence",
 	update_work_case: "workItems/updateCase",
 	update_work_item_specification: "workItems/updateSpecification",
+	set_work_item_parent: "workItems/setParent",
+	remove_work_relation: "workItems/removeRelation",
 };
 
 function nativeOptions(ctx: NativeToolContext) {

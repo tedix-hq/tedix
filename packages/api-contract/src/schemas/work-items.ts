@@ -3066,3 +3066,15 @@ export const GetAgentScorecardResultSchema = z.object({
 		}),
 	),
 });
+
+export const SetWorkItemParentInputSchema = z.object({
+	id: z.uuid(),
+	parentWorkItemId: z.uuid().nullable(),
+	expectedWorkItemVersion: z.number().int().positive().optional(),
+});
+
+export const RemoveWorkRelationInputSchema = z.object({
+	workItemId: z.uuid(),
+	relatedWorkItemId: z.uuid(),
+	kind: WorkItemRelationTypeSchema,
+});

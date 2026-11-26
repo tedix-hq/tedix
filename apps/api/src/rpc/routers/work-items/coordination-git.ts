@@ -8,10 +8,17 @@ import {
 	listWorkItemCorroborations,
 } from "@tedix/db/queries/work-items/comments";
 import { upsertWorkItemProjection } from "@tedix/db/queries/work-items/crud";
-import { addWorkItemRelation } from "@tedix/db/queries/work-items/relations";
+import {
+	setWorkItemParent,
+	removeWorkItemRelation,
+	addWorkItemRelation,
+} from "@tedix/db/queries/work-items/relations";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { ErrorCodes, createError, skipOutputValidation } from "../../orpc";
-import { corroborationPrincipal } from "../work-items-principal";
+import {
+	verifiedActiveWorkActor,
+	corroborationPrincipal,
+} from "../work-items-principal";
 import {
 	getByIdProcedure,
 	getOrgGraphHealthProcedure,
@@ -27,6 +34,8 @@ import {
 } from "./creation-reads";
 import {
 	assertWorkItemAccess,
+	requireOwnerAdminWorkItemAuthor,
+	rethrowWorkItemWriteError,
 	authOs,
 	rethrowWorkControlError,
 } from "./policy-helpers";
@@ -109,6 +118,61 @@ export const listCorroborationsProcedure = authOs.listCorroborations.handler(
 	async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
 		return listWorkItemCorroborations(context.db, workItem.id);
+	},
+);
+
+async function relationActor(
+	context: Parameters<typeof verifiedActiveWorkActor>[0],
+	items: Awaited<ReturnType<typeof assertWorkItemAccess>>[],
+) {
+	const actor = await verifiedActiveWorkActor(context, items[0]!.orgId);
+	if (
+		items.some(
+			(item) => item.stewardType === actor.type && item.stewardId === actor.id,
+		)
+	)
+		return actor;
+	await requireOwnerAdminWorkItemAuthor(
+		context,
+		items[0]!.orgId,
+		"Changing Work hierarchy or relations",
+	);
+	return actor;
+}
+
+export const setParentProcedure = authOs.setParent.handler(
+	async ({ input, context }) => {
+		const item = await assertWorkItemAccess(context, input.id);
+		const actor = await relationActor(context, [item]);
+		if (input.parentWorkItemId)
+			await assertWorkItemAccess(context, input.parentWorkItemId);
+		try {
+			return await setWorkItemParent(context.db, {
+				orgId: item.orgId,
+				workItemId: item.id,
+				parentWorkItemId: input.parentWorkItemId,
+				expectedWorkItemVersion: input.expectedWorkItemVersion ?? item.version,
+				actor,
+			});
+		} catch (error) {
+			rethrowWorkItemWriteError(error);
+		}
+	},
+);
+
+export const removeRelationProcedure = authOs.removeRelation.handler(
+	async ({ input, context }) => {
+		const item = await assertWorkItemAccess(context, input.workItemId);
+		const related = await assertWorkItemAccess(
+			context,
+			input.relatedWorkItemId,
+		);
+		const actor = await relationActor(context, [item, related]);
+		return removeWorkItemRelation(context.db, {
+			...input,
+			orgId: item.orgId,
+			actor,
+		});
 	},
 );
 

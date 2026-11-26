@@ -55,6 +55,8 @@ import {
 	workTrailers,
 	workCancel,
 	workMove,
+	workParent,
+	workUnrelate,
 	workNotBefore,
 } from "./work-lifecycle";
 import {
@@ -251,6 +253,8 @@ Lifecycle:
               [--commit <sha> ...]
   complete <id>
   cancel <id> [--reason <summary>]
+  parent <id> <parent|none>
+  unrelate <id> <related> --kind <kind>
   move <id> --project <id>   (owner/admin; objective Work takes that project's objective)
   not-before <id> <time|clear>   (start date, UTC: 2026-12-01 or 2026-12-01T09:00:00Z;
               runners are not handed the Work before it and readiness reports not_before)
@@ -281,8 +285,8 @@ Checkpoint: checkpoint (read selected chat Work and bounded open requests addres
 Collaboration: comment <id> [text] [--body|--message|--text <text>]
                confirm <id> --evidence <ref> [--contradicts]
 
-Choose the parent before creating. --project files the item under a portfolio
-project and inherits its goal (--objective). For example:
+Use parent <id> <parent|none> to change or clear a parent later.
+--project files the item under a portfolio project and inherits its goal (--objective). For example:
   tedix work create "<title>" --kind coding --project <project-id>
 --parent <work-id> links create/delegate to existing Work and inherits its project.
 An explicit --project must match the parent. Parent access is checked in the selected organization.
@@ -387,6 +391,8 @@ const VERBS: Record<string, VerbHandler> = {
 	complete: (ctx, id) => workComplete(ctx, id),
 	cancel: (ctx, id) => workCancel(ctx, id),
 	move: (ctx, id) => workMove(ctx, id),
+	parent: (ctx, id, text) => workParent(ctx, id, text),
+	unrelate: (ctx, id, text) => workUnrelate(ctx, id, text),
 	"not-before": (ctx, id, text) => workNotBefore(ctx, id, text),
 	delegate: (ctx, id, text) => workDelegate(ctx, text ? `${id} ${text}` : id),
 	context: (ctx, id) => workContext(ctx, id),

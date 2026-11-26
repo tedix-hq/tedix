@@ -154,6 +154,8 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	submit_work_item_evidence: "workItems/submitEvidence",
 	update_work_case: "workItems/updateCase",
 	update_work_item_specification: "workItems/updateSpecification",
+	set_work_item_parent: "workItems/setParent",
+	remove_work_relation: "workItems/removeRelation",
 };
 function nativeDescriptorFixture(callable: string) {
 	const tool = callable.slice(callable.indexOf(".") + 1);
@@ -1305,6 +1307,22 @@ describe("canonical work lifecycle", () => {
 				runWork(`move ${ITEM}`, makeContext({ project: bad }).ctx),
 			).rejects.toThrow("--project <project UUID>");
 		expect(workUsage()).toContain("move <id> --project <id>");
+	});
+
+	test("changes parents and removes relations through native Work tools", async () => {
+		const parent = makeContext();
+		expect(await runWork(`parent ${ITEM} ${ATTEMPT}`, parent.ctx)).toBe(0);
+		expect(parent.sources[0]).toContain("work.set_work_item_parent");
+		expect(parent.sources[0]).toContain(`"parentWorkItemId":"${ATTEMPT}"`);
+		const cleared = makeContext();
+		expect(await runWork(`parent ${ITEM} none`, cleared.ctx)).toBe(0);
+		expect(cleared.sources[0]).toContain('"parentWorkItemId":null');
+		const removed = makeContext({ kind: "blocks" });
+		expect(await runWork(`unrelate ${ITEM} ${ATTEMPT}`, removed.ctx)).toBe(0);
+		expect(removed.sources[0]).toContain("work.remove_work_relation");
+		expect(removed.sources[0]).toContain(
+			`"relatedWorkItemId":"${ATTEMPT}","kind":"blocks"`,
+		);
 	});
 
 	test("sets and clears the start date runners wait for", async () => {
@@ -4503,6 +4521,8 @@ describe("native dispatcher coverage", () => {
 			handoff: { work: { host: "codex" } },
 			comment: { args: `${ITEM} An observed result` },
 			"not-before": { args: `${ITEM} 2026-12-01` },
+			parent: { args: `${ITEM} none` },
+			unrelate: { args: `${ITEM} ${ATTEMPT}`, work: { kind: "blocks" } },
 			"authorize-release": {
 				work: {
 					input: JSON.stringify({

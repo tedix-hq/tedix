@@ -717,6 +717,52 @@ export async function workTrailers(
 	return 0;
 }
 
+export async function workParent(
+	ctx: WorkContext,
+	id: string,
+	parent: string,
+): Promise<number> {
+	if (!id || !parent.trim() || parent.trim().includes(" "))
+		throw new Error("work parent requires <id> <parent|none>");
+	mutationCallable(ctx.work.as?.trim(), "work.set_work_item_parent");
+	id = await resolveWorkItemId(ctx, id);
+	const parentWorkItemId =
+		parent.trim() === "none"
+			? null
+			: await resolveWorkItemId(ctx, parent.trim());
+	const call = await boardCall(ctx, "work.set_work_item_parent", {
+		id,
+		parentWorkItemId,
+	});
+	if (call.error) return fail(ctx, call.error, call.error.message);
+	return ok(ctx, call.value, () =>
+		console.log(`Set parent of ${id} to ${parentWorkItemId ?? "none"}.`),
+	);
+}
+
+export async function workUnrelate(
+	ctx: WorkContext,
+	id: string,
+	related: string,
+): Promise<number> {
+	if (!id || !related.trim() || related.trim().includes(" ") || !ctx.work.kind)
+		throw new Error("work unrelate requires <id> <related> --kind <kind>");
+	mutationCallable(ctx.work.as?.trim(), "work.remove_work_relation");
+	id = await resolveWorkItemId(ctx, id);
+	const relatedWorkItemId = await resolveWorkItemId(ctx, related.trim());
+	const call = await boardCall(ctx, "work.remove_work_relation", {
+		workItemId: id,
+		relatedWorkItemId,
+		kind: ctx.work.kind,
+	});
+	if (call.error) return fail(ctx, call.error, call.error.message);
+	return ok(ctx, call.value, () =>
+		console.log(
+			`Removed ${ctx.work.kind} relation from ${id} to ${relatedWorkItemId}.`,
+		),
+	);
+}
+
 export async function workMove(ctx: WorkContext, id: string): Promise<number> {
 	if (!id) throw new Error("work move requires a work item id");
 	const project = ctx.work.project?.trim();

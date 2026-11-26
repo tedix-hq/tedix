@@ -1,4 +1,8 @@
 import {
+	SetWorkItemParentInputSchema,
+	RemoveWorkRelationInputSchema,
+} from "../schemas/work-items";
+import {
 	GetAgentScorecardInputSchema,
 	GetAgentScorecardResultSchema,
 } from "../schemas/work-items";
@@ -1400,6 +1404,24 @@ export const workItemsContract = oc
 			})
 			.input(z.object({ id: z.uuid() }))
 			.output(z.array(WorkItemCorroborationSchema)),
+
+		setParent: oc
+			.route({
+				method: "POST",
+				path: "/{id}/parent",
+				summary: "Set or clear a Work Item parent",
+			})
+			.input(SetWorkItemParentInputSchema)
+			.output(WorkItemSchema),
+
+		removeRelation: oc
+			.route({
+				method: "DELETE",
+				path: "/{workItemId}/relations",
+				summary: "Remove a Work Item relation",
+			})
+			.input(RemoveWorkRelationInputSchema)
+			.output(z.object({ removed: z.boolean() })),
 
 		addRelation: oc
 			.route({
