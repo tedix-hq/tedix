@@ -2088,6 +2088,10 @@
 		{
 			"name": "20261126005858_owned_channel_publisher_tedi_id/migration.sql",
 			"sha256": "c51a77bb12d82158032a3f1840be395326e463a84257584ba91bae1ede55897c"
+		},
+		{
+			"name": "20261126071201_unknown_cost_basis_default/migration.sql",
+			"sha256": "d2510f551d84bfbe5f9732890e4e1baf4528ebf8085720d2f1050152acafb12d"
 		}
 	]
 }

@@ -1,0 +1,32 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "196104a9-460c-48a3-abcb-c38e1a09fac0",
+	"prevIds": [
+		"6f2a91c4-8d3e-4b7a-a1c5-9e0d2f4b6a8c",
+		"3f8c2a1e-9b4d-4e7a-a6c5-2d1f0e8b9a77"
+	],
+	"footprints": [
+		{
+			"statementType": "alter_column",
+			"statementTarget": ["column", "public", "tedi_call_costs", "cost_basis"],
+			"writes": ["s|colprop|public.tedi_call_costs.cost_basis.default"],
+			"reads": [
+				"n|tbl|public.tedi_call_costs",
+				"n|sch|public",
+				"n|col|public.tedi_call_costs.cost_basis"
+			],
+			"sqlHash": "112f8aca452dcee3"
+		}
+	],
+	"deltas": [
+		{
+			"op": "alter",
+			"key": "columns\u0000[\"public\",\"tedi_call_costs\",\"cost_basis\"]",
+			"set": {
+				"default": "'unknown'"
+			}
+		}
+	]
+}

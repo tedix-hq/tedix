@@ -689,7 +689,7 @@ export const tediCallCosts = sqliteTable(
 			],
 		})
 			.notNull()
-			.default("legacy_estimate"),
+			.default("unknown"),
 		costReason: text("cost_reason"),
 
 		// Always 1 — one gateway log row = one call, not a session-delta bucket.

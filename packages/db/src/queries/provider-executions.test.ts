@@ -220,10 +220,58 @@ describe("immutable provider execution admission", () => {
 for (const boundary of [
 	"20260920072429_provider_execution_cost_provenance",
 	"20260923094659_jev_provider_execution",
+	"20261126071201_unknown_cost_basis_default",
 ])
 	createMigratedSqlite({ beforeMigration: boundary }).close();
 
 describe("populated canonical cost migration", () => {
+	it("defaults new costs to unknown while preserving stored costs and attribution", () => {
+		const target = "20261126071201_unknown_cost_basis_default";
+		const sqlite = createMigratedSqlite({ beforeMigration: target });
+		sqlite.exec(
+			"INSERT INTO tedi_call_costs(id,gateway_log_id,gateway_id,snapshot_at,model,estimated_cost_usd) VALUES ('historical','historical','gateway','2026-09-20','model',0.123456789)",
+		);
+		const before = sqlite.prepare("SELECT * FROM tedi_call_costs").all();
+		expect(before[0]!.cost_basis).toBe("legacy_estimate");
+		const trigger = sqlite
+			.prepare(
+				"SELECT sql FROM sqlite_master WHERE type='trigger' AND name='require_org_id_for_attributed_calls'",
+			)
+			.get();
+		sqlite.exec("BEGIN");
+		sqlite.exec(
+			readFileSync(
+				new URL(`../../drizzle/${target}/migration.sql`, import.meta.url),
+				"utf8",
+			),
+		);
+		sqlite.exec("COMMIT");
+		expect(sqlite.prepare("SELECT * FROM tedi_call_costs").all()).toEqual(
+			before,
+		);
+		sqlite.exec(
+			"INSERT INTO tedi_call_costs(id,gateway_log_id,gateway_id,snapshot_at,model) VALUES ('new','new','gateway','2026-11-26','model')",
+		);
+		expect(
+			sqlite
+				.prepare("SELECT cost_basis FROM tedi_call_costs WHERE id='new'")
+				.get(),
+		).toEqual({ cost_basis: "unknown" });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT sql FROM sqlite_master WHERE type='trigger' AND name='require_org_id_for_attributed_calls'",
+				)
+				.get(),
+		).toEqual(trigger);
+		expect(() =>
+			sqlite.exec(
+				"INSERT INTO tedi_call_costs(id,gateway_log_id,gateway_id,snapshot_at,model,session_type) VALUES ('invalid','invalid','gateway','2026-11-26','model','kernel')",
+			),
+		).toThrow("org_id is required");
+		expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+	});
+
 	it("preserves historical values, attribution and the org guard trigger", () => {
 		const directory = new URL("../../drizzle/", import.meta.url);
 		const target = "20260920072429_provider_execution_cost_provenance";

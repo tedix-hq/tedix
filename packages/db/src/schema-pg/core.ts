@@ -9706,7 +9706,7 @@ export const tediCallCosts = pgTable(
 		callDurationMs: doublePrecision("call_duration_ms"),
 		rawReportedCostUsd: doublePrecision("raw_reported_cost_usd"),
 		rateVersionId: text("provider_rate_version_id"),
-		costBasis: text("cost_basis").notNull().default("legacy_estimate"),
+		costBasis: text("cost_basis").notNull().default("unknown"),
 		costReason: text("cost_reason"),
 		sessionCount: bigint("session_count", { mode: "number" })
 			.notNull()
