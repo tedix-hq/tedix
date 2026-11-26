@@ -1,4 +1,4 @@
-import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import { sql, type SQL, type SQLWrapper, type Table } from "drizzle-orm";
 
 export type CoreStore = "d1" | "postgres";
 const stores = new WeakMap<object, CoreStore>();
@@ -7,6 +7,13 @@ export function registerCoreStore(db: object, store: CoreStore): void {
 }
 export function coreStore(db: object): CoreStore {
 	return stores.get(db) ?? "d1";
+}
+
+/** Tables using this selector must have an identity sequence on Postgres. */
+export function insertionSequence(db: object, table: Table): SQL<number> {
+	return coreStore(db) === "postgres"
+		? sql<number>`${table}.sequence`
+		: sql<number>`${table}.rowid`;
 }
 
 /** Literal paths retain SQLite expression-index matching; only data values are bound. */

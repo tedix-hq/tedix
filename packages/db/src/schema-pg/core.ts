@@ -20,7 +20,10 @@ export const catalogSchema = pgSchema("catalog");
 export const agentSessionEvents = pgTable(
 	"agent_session_events",
 	{
-		id: text("id").primaryKey(),
+		sequence: bigint("sequence", { mode: "number" })
+			.generatedByDefaultAsIdentity()
+			.primaryKey(),
+		id: text("id").notNull().unique(),
 		organizationId: text("organization_id").notNull(),
 		userId: text("user_id").notNull(),
 		harness: text("harness").notNull(),
@@ -52,6 +55,11 @@ export const agentSessionEvents = pgTable(
 			t["organizationId"],
 			t["userId"],
 			t["sourceKey"],
+		),
+		index("idx_agent_session_events_org_user_sequence").on(
+			t["organizationId"],
+			t["userId"],
+			t["sequence"],
 		),
 		index("idx_agent_session_events_org_user_status").on(
 			t["organizationId"],

@@ -143,7 +143,9 @@ export type AgentSessionEventStatus =
 export const agentSessionEvents = sqliteTable(
 	"agent_session_events",
 	{
-		id: text("id").primaryKey(),
+		/** Insertion watermark, independent of source time and processing updates. */
+		sequence: integer("sequence").primaryKey({ autoIncrement: true }),
+		id: text("id").notNull().unique(),
 		organizationId: text("organization_id")
 			.notNull()
 			.references(() => organizations.id, { onDelete: "cascade" }),
@@ -192,6 +194,11 @@ export const agentSessionEvents = sqliteTable(
 			table.organizationId,
 			table.userId,
 			table.sourceKey,
+		),
+		index("idx_agent_session_events_org_user_sequence").on(
+			table.organizationId,
+			table.userId,
+			table.sequence,
 		),
 		index("idx_agent_session_events_org_user_status").on(
 			table.organizationId,

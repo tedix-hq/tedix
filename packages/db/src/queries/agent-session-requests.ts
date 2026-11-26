@@ -23,6 +23,8 @@ import {
 	sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../core-store/client";
+import { booleanValue, insertionSequence } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { chunkForBoundParams } from "../utils/batch";
 import {
@@ -263,6 +265,7 @@ export async function recordAgentSessionEvents(
 	db: DbQueryClient,
 	params: RecordAgentSessionEventsParams,
 ): Promise<number> {
+	const events = coreTable(db, agentSessionEvents);
 	const rows = await Promise.all(
 		params.events.map(async (event) => ({
 			id: crypto.randomUUID(),
@@ -291,16 +294,12 @@ export async function recordAgentSessionEvents(
 	// At most 19 bound parameters per row: five rows stay under D1's 100.
 	for (const chunk of chunkForBoundParams(rows, ROWS_PER_INSERT)) {
 		const result = await db
-			.insert(agentSessionEvents)
+			.insert(events)
 			.values(chunk)
 			.onConflictDoNothing({
-				target: [
-					agentSessionEvents.organizationId,
-					agentSessionEvents.userId,
-					agentSessionEvents.sourceKey,
-				],
+				target: [events.organizationId, events.userId, events.sourceKey],
 			})
-			.returning({ id: agentSessionEvents.id });
+			.returning({ id: events.id });
 		inserted += result.length;
 	}
 	return inserted;
@@ -1326,39 +1325,40 @@ export async function listAgentSessionActivity(
 		limit?: number;
 	},
 ) {
+	const events = coreTable(db, agentSessionEvents);
 	const limit = Math.min(100, Math.max(1, input.limit ?? 50));
 	const data = await db
 		.select({
-			id: agentSessionEvents.id,
-			harness: agentSessionEvents.harness,
-			sessionKey: agentSessionEvents.sessionKey,
-			repository: agentSessionEvents.repository,
-			kind: agentSessionEvents.kind,
-			sourceAt: agentSessionEvents.sourceAt,
-			body: agentSessionEvents.body,
-			bodyR2Key: agentSessionEvents.bodyR2Key,
-			activity: agentSessionEvents.activity,
+			id: events.id,
+			harness: events.harness,
+			sessionKey: events.sessionKey,
+			repository: events.repository,
+			kind: events.kind,
+			sourceAt: events.sourceAt,
+			body: events.body,
+			bodyR2Key: events.bodyR2Key,
+			activity: events.activity,
 		})
-		.from(agentSessionEvents)
+		.from(events)
 		.where(
 			and(
-				eq(agentSessionEvents.organizationId, input.organizationId),
-				eq(agentSessionEvents.userId, input.userId),
-				gt(agentSessionEvents.sourceAt, input.since),
-				lte(agentSessionEvents.sourceAt, input.until),
-				sql`rowid <= ${input.snapshotId}`,
+				eq(events.organizationId, input.organizationId),
+				eq(events.userId, input.userId),
+				gt(events.sourceAt, input.since),
+				lte(events.sourceAt, input.until),
+				lte(insertionSequence(db, events), input.snapshotId),
 				input.cursor
 					? or(
-							lt(agentSessionEvents.sourceAt, input.cursor.sourceAt),
+							lt(events.sourceAt, input.cursor.sourceAt),
 							and(
-								eq(agentSessionEvents.sourceAt, input.cursor.sourceAt),
-								lt(agentSessionEvents.id, input.cursor.id),
+								eq(events.sourceAt, input.cursor.sourceAt),
+								lt(events.id, input.cursor.id),
 							),
 						)
 					: undefined,
 			),
 		)
-		.orderBy(desc(agentSessionEvents.sourceAt), desc(agentSessionEvents.id))
+		.orderBy(desc(events.sourceAt), desc(events.id))
 		.limit(limit + 1);
 	const hasMore = data.length > limit;
 	const rows = hasMore ? data.slice(0, limit) : data;
@@ -1387,24 +1387,25 @@ export async function listAgentSessionActivityCoverage(
 		snapshotId: number;
 	},
 ) {
-	const sourceDay = sql<string>`substr(${agentSessionEvents.sourceAt}, 1, 10)`;
+	const events = coreTable(db, agentSessionEvents);
+	const sourceDay = sql<string>`substr(${events.sourceAt}, 1, 10)`;
 	return db
 		.select({
 			date: sourceDay.as("source_day"),
 			eventCount: sql<number>`count(*)`.mapWith(Number).as("event_count"),
 			activityDigestCount:
-				sql<number>`sum(case when ${agentSessionEvents.activity} is not null or ${agentSessionEvents.hasActivity} = 1 then 1 else 0 end)`
+				sql<number>`sum(case when ${events.activity} is not null or ${events.hasActivity} = ${booleanValue(db, true)} then 1 else 0 end)`
 					.mapWith(Number)
 					.as("activity_digest_count"),
 		})
-		.from(agentSessionEvents)
+		.from(events)
 		.where(
 			and(
-				eq(agentSessionEvents.organizationId, input.organizationId),
-				eq(agentSessionEvents.userId, input.userId),
-				gt(agentSessionEvents.sourceAt, input.since),
-				lte(agentSessionEvents.sourceAt, input.until),
-				sql`rowid <= ${input.snapshotId}`,
+				eq(events.organizationId, input.organizationId),
+				eq(events.userId, input.userId),
+				gt(events.sourceAt, input.since),
+				lte(events.sourceAt, input.until),
+				lte(insertionSequence(db, events), input.snapshotId),
 			),
 		)
 		.groupBy(sourceDay)
@@ -1416,15 +1417,19 @@ export async function getAgentSessionActivitySnapshot(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner,
 ) {
+	const events = coreTable(db, agentSessionEvents);
 	const [row] = await db
 		.select({
-			snapshotId: sql<number>`coalesce(max(rowid), 0)`.mapWith(Number),
+			snapshotId:
+				sql<number>`coalesce(max(${insertionSequence(db, events)}), 0)`.mapWith(
+					Number,
+				),
 		})
-		.from(agentSessionEvents)
+		.from(events)
 		.where(
 			and(
-				eq(agentSessionEvents.organizationId, owner.organizationId),
-				eq(agentSessionEvents.userId, owner.userId),
+				eq(events.organizationId, owner.organizationId),
+				eq(events.userId, owner.userId),
 			),
 		);
 	return row?.snapshotId ?? 0;

@@ -1,6 +1,13 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vite-plus/test";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { eq, sql } from "drizzle-orm";
+import { describe, expect, it, onTestFinished } from "vite-plus/test";
+import { coreTable } from "../core-store/client";
+import { organizations } from "../schema/organizations";
+import { createMigratedSqlite } from "../test/migrated-sqlite";
+import { createPGliteFacade } from "../test/pglite-facade";
 import { createDbQueryClient } from "../query-client";
 import {
 	agentSessionRequests,
@@ -698,18 +705,160 @@ it("recovers original prompts without later goals or another owner's events", as
 	).toEqual([]);
 });
 
-it("scopes and paginates activity to its owner and organization with daily coverage", async () => {
-	const db = fixture();
-	for (const [organizationId, userId, sourceAt, sourceKey, activity] of [
-		[ORG, USER, T0, "old"],
-		[ORG, USER, T1, "own"],
-		[ORG, USER, T1, "own-same-time", "second digest"],
-		[ORG, OTHER_USER, T1, "other-user"],
-		["other-org", USER, T1, "other-org"],
-	] as const)
+for (const store of ["d1", "postgres"] as const)
+	it(`scopes and paginates ${store} activity across late backfills with daily coverage`, async () => {
+		let db: ReturnType<typeof fixture>;
+		if (store === "d1") {
+			db = createDbQueryClient(createD1Facade(createMigratedSqlite()));
+		} else {
+			const fixture = await createPGliteFacade();
+			db = fixture.db;
+			onTestFinished(fixture.close);
+			for (const migration of readMigrationFiles({
+				migrationsFolder: fileURLToPath(
+					new URL("../../drizzle-pg", import.meta.url),
+				),
+			}))
+				for (const ddl of migration.sql) await fixture.engine.exec(ddl);
+		}
+		await db
+			.insert(coreTable(db, organizations))
+			.values([ORG, "other-org"].map((id) => ({ id, name: id, slug: id })));
+		const events = coreTable(db, agentSessionEvents);
+		expect(
+			await getAgentSessionActivitySnapshot(db, {
+				organizationId: ORG,
+				userId: USER,
+			}),
+		).toBe(0);
+		for (const [organizationId, userId, sourceAt, sourceKey, activity] of [
+			[ORG, USER, T0, "old"],
+			[ORG, USER, T1, "own"],
+			[ORG, USER, T1, "own-same-time", "second digest"],
+			[ORG, OTHER_USER, T1, "other-user"],
+			["other-org", USER, T1, "other-org"],
+		] as const)
+			await recordAgentSessionEvents(db, {
+				organizationId,
+				userId,
+				now: T1,
+				events: [
+					{
+						kind: "turn",
+						harness: "codex",
+						sessionKey: "chat",
+						repository: null,
+						sourceAt,
+						sourceKey,
+						body: sourceKey,
+						activity: activity ?? null,
+					},
+				],
+			});
+		const snapshotId = await getAgentSessionActivitySnapshot(db, {
+			organizationId: ORG,
+			userId: USER,
+		});
+		const first = await listAgentSessionActivity(db, {
+			organizationId: ORG,
+			userId: USER,
+			since: "2026-10-06T00:00:00.000Z",
+			until: T1,
+			snapshotId,
+			limit: 1,
+		});
+		expect(first.data).toHaveLength(1);
+		expect(first.data[0]).not.toHaveProperty("userId");
+		expect(first.nextCursor).not.toBeNull();
 		await recordAgentSessionEvents(db, {
-			organizationId,
-			userId,
+			organizationId: ORG,
+			userId: USER,
+			now: "2026-10-06T10:10:00Z",
+			events: [
+				{
+					kind: "turn",
+					harness: "codex",
+					sessionKey: "chat",
+					repository: null,
+					sourceAt: "2026-10-06T10:04:30Z",
+					sourceKey: "late-backfill",
+					body: "late-backfill",
+					activity: null,
+				},
+			],
+		});
+		const second = await listAgentSessionActivity(db, {
+			organizationId: ORG,
+			userId: USER,
+			since: "2026-10-06T00:00:00.000Z",
+			until: T1,
+			snapshotId,
+			cursor: first.nextCursor!,
+			limit: 2,
+		});
+		expect(
+			[...first.data, ...second.data].map((row) => row.body).sort(),
+		).toEqual(["old", "own", "own-same-time"]);
+		expect(second.nextCursor).toBeNull();
+		await db
+			.update(events)
+			.set({ activity: null, status: "processed" })
+			.where(eq(events.sourceKey, "own-same-time"));
+		const freshSnapshotId = await getAgentSessionActivitySnapshot(db, {
+			organizationId: ORG,
+			userId: USER,
+		});
+		expect(
+			await listAgentSessionActivity(db, {
+				organizationId: ORG,
+				userId: USER,
+				since: "2026-10-06T00:00:00Z",
+				until: T1,
+				snapshotId: freshSnapshotId,
+				limit: 10,
+			}),
+		).toMatchObject({
+			data: expect.arrayContaining([
+				expect.objectContaining({
+					body: "late-backfill",
+					sourceAt: "2026-10-06T10:04:30.000Z",
+				}),
+			]),
+		});
+		expect(
+			await listAgentSessionActivityCoverage(db, {
+				organizationId: ORG,
+				userId: USER,
+				since: "2026-10-05T00:00:00.000Z",
+				until: "2026-10-07T00:00:00.000Z",
+				snapshotId,
+			}),
+		).toEqual([{ date: "2026-10-06", eventCount: 3, activityDigestCount: 1 }]);
+		expect(
+			await listAgentSessionActivityCoverage(db, {
+				organizationId: ORG,
+				userId: USER,
+				since: "2026-10-05T00:00:00.000Z",
+				until: "2026-10-07T00:00:00.000Z",
+				snapshotId: freshSnapshotId,
+			}),
+		).toEqual([{ date: "2026-10-06", eventCount: 4, activityDigestCount: 1 }]);
+		await expect(
+			db
+				.update(events)
+				.set({ sequence: sql`${events.sequence} + 100` })
+				.where(eq(events.sourceKey, "late-backfill")),
+		).rejects.toThrow();
+		expect(
+			await getAgentSessionActivitySnapshot(db, {
+				organizationId: ORG,
+				userId: USER,
+			}),
+		).toBe(freshSnapshotId);
+		await db.delete(events).where(eq(events.sourceKey, "late-backfill"));
+		await recordAgentSessionEvents(db, {
+			organizationId: ORG,
+			userId: USER,
 			now: T1,
 			events: [
 				{
@@ -717,98 +866,42 @@ it("scopes and paginates activity to its owner and organization with daily cover
 					harness: "codex",
 					sessionKey: "chat",
 					repository: null,
-					sourceAt,
-					sourceKey,
-					body: sourceKey,
-					activity: activity ?? null,
+					sourceAt: T0,
+					sourceKey: "after-deletion",
+					body: "after-deletion",
+					activity: null,
 				},
 			],
 		});
-	const snapshotId = await getAgentSessionActivitySnapshot(db, {
-		organizationId: ORG,
-		userId: USER,
-	});
-	const first = await listAgentSessionActivity(db, {
-		organizationId: ORG,
-		userId: USER,
-		since: "2026-10-06T00:00:00.000Z",
-		until: T1,
-		snapshotId,
-		limit: 1,
-	});
-	expect(first.data).toHaveLength(1);
-	expect(first.data[0]).not.toHaveProperty("userId");
-	expect(first.nextCursor).not.toBeNull();
-	await recordAgentSessionEvents(db, {
-		organizationId: ORG,
-		userId: USER,
-		now: "2026-10-06T10:10:00Z",
-		events: [
-			{
-				kind: "turn",
-				harness: "codex",
-				sessionKey: "chat",
-				repository: null,
-				sourceAt: "2026-10-06T10:04:30Z",
-				sourceKey: "late-backfill",
-				body: "late-backfill",
-				activity: null,
-			},
-		],
-	});
-	const second = await listAgentSessionActivity(db, {
-		organizationId: ORG,
-		userId: USER,
-		since: "2026-10-06T00:00:00.000Z",
-		until: T1,
-		snapshotId,
-		cursor: first.nextCursor!,
-		limit: 2,
-	});
-	expect([...first.data, ...second.data].map((row) => row.body).sort()).toEqual(
-		["old", "own", "own-same-time"],
-	);
-	expect(second.nextCursor).toBeNull();
-	const freshSnapshotId = await getAgentSessionActivitySnapshot(db, {
-		organizationId: ORG,
-		userId: USER,
-	});
-	expect(
-		await listAgentSessionActivity(db, {
-			organizationId: ORG,
-			userId: USER,
-			since: "2026-10-06T00:00:00Z",
-			until: T1,
-			snapshotId: freshSnapshotId,
-			limit: 10,
-		}),
-	).toMatchObject({
-		data: expect.arrayContaining([
-			expect.objectContaining({
-				body: "late-backfill",
-				sourceAt: "2026-10-06T10:04:30.000Z",
+		expect(
+			await getAgentSessionActivitySnapshot(db, {
+				organizationId: ORG,
+				userId: USER,
 			}),
-		]),
+		).toBeGreaterThan(freshSnapshotId);
+		expect(
+			(
+				await listAgentSessionActivity(db, {
+					organizationId: ORG,
+					userId: USER,
+					since: "2026-10-05T00:00:00.000Z",
+					until: T1,
+					snapshotId: freshSnapshotId,
+				})
+			).data
+				.map((row) => row.body)
+				.sort(),
+		).toEqual(["old", "own", "own-same-time"]);
+		expect(
+			await listAgentSessionActivity(db, {
+				organizationId: ORG,
+				userId: USER,
+				since: T1,
+				until: "2026-10-07T00:00:00.000Z",
+				snapshotId,
+			}),
+		).toEqual({ data: [], nextCursor: null });
 	});
-	expect(
-		await listAgentSessionActivityCoverage(db, {
-			organizationId: ORG,
-			userId: USER,
-			since: "2026-10-05T00:00:00.000Z",
-			until: "2026-10-07T00:00:00.000Z",
-			snapshotId,
-		}),
-	).toEqual([{ date: "2026-10-06", eventCount: 3, activityDigestCount: 1 }]);
-	expect(
-		await listAgentSessionActivity(db, {
-			organizationId: ORG,
-			userId: USER,
-			since: T1,
-			until: "2026-10-07T00:00:00.000Z",
-			snapshotId,
-		}),
-	).toEqual({ data: [], nextCursor: null });
-});
 
 for (const requestCount of [0, 1])
 	it(`rebuilds a failed owner session atomically with ${requestCount} derived rows`, async () => {
@@ -1194,4 +1287,38 @@ it("bounds recursive seeks by owner and session and predecessor reads by source 
 	const owners = plan(queries[2]!);
 	expect(owners).toContain("organization_id=? AND user_id>?");
 	sqlite.close();
+});
+
+it("preserves sparse D1 insertion watermarks during the sequence migration", () => {
+	const migration = new URL(
+		"../../drizzle/20261126222945_agent-session-event-sequence/migration.sql",
+		import.meta.url,
+	);
+	const sqlite = createMigratedSqlite({
+		beforeMigration: "20261126222945_agent-session-event-sequence",
+	});
+	sqlite.exec(
+		"INSERT INTO organizations (id, name, slug) VALUES ('org-sequence', 'Sequence', 'sequence')",
+	);
+	const insert = sqlite.prepare(
+		"INSERT INTO agent_session_events (rowid, id, organization_id, user_id, harness, session_key, kind, body, source_at, source_key, status) VALUES (?, ?, 'org-sequence', 'user', 'codex', 'chat', 'turn', 'body', '2026-11-20T00:00:00.000Z', ?, 'pending')",
+	);
+	insert.run(41, "first", "first");
+	insert.run(93, "second", "second");
+	sqlite.exec(readFileSync(migration, "utf8"));
+	expect(
+		sqlite
+			.prepare(
+				"SELECT id, sequence FROM agent_session_events ORDER BY sequence",
+			)
+			.all(),
+	).toEqual([
+		{ id: "first", sequence: 41 },
+		{ id: "second", sequence: 93 },
+	]);
+	expect(() =>
+		sqlite.exec(
+			"UPDATE agent_session_events SET rowid = 10 WHERE id = 'first'",
+		),
+	).toThrow("immutable");
 });

@@ -2144,6 +2144,10 @@
 		{
 			"name": "20261126220545_call_costs_reservation_health_split/migration.sql",
 			"sha256": "f2869189638f2ed6f3338bdfa41dc9563f155436fb46a70ca85f1b7543a89633"
+		},
+		{
+			"name": "20261126222945_agent-session-event-sequence/migration.sql",
+			"sha256": "a0d0f6fc5607deac3be22e31ecaa516376bef19faecfc75a9823345a4708cd31"
 		}
 	]
 }
