@@ -47,7 +47,7 @@ function fixture(options: { grants?: boolean } = {}) {
 	sqlite.exec(schemaDdl(organizations));
 	sqlite.exec(schemaDdl(organizationMembers));
 	sqlite.exec(schemaDdl(appCatalog));
-	sqlite.exec(schemaDdl(apps));
+	sqlite.exec(schemaDdl({ expressionIndexes: true }, apps));
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 
@@ -711,6 +711,15 @@ it("reads live grant, membership and gateway state in two statements, including 
 			await finalizeMcpConsentGrant(measured, key, state!.touchDue),
 		).toMatchObject({ revision: key.revision });
 		expect(statements).toHaveLength(2);
+		// The grant check must resolve the resource and its audience owners
+		// through the apps expression indexes, not scan every app row.
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${statements[0]}`)
+			.all() as { detail: string }[];
+		const planText = plan.map((row) => row.detail).join("\n");
+		expect(planText).toContain("idx_app_mcp_descope_resource");
+		expect(planText).toContain("idx_app_mcp_audience");
+		expect(planText).not.toMatch(/SCAN (apps|audience_owner|owner_org)/);
 	}
 	await revokeMcpConsentGrant(db, key);
 	statements.length = 0;

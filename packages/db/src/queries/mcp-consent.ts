@@ -81,6 +81,23 @@ function grantKeyCondition(key: McpConsentSelectionKey) {
 	);
 }
 
+// These fragments must stay textually identical to the idx_app_mcp_audience
+// and idx_app_mcp_descope_resource index expressions on apps so SQLite
+// resolves them through the indexes instead of scanning every app row.
+interface AppAudienceColumns {
+	metadata: SQLWrapper;
+	customMcpDomain: SQLWrapper;
+	slug: SQLWrapper;
+}
+
+function appAudience(app: AppAudienceColumns) {
+	return sql`COALESCE(NULLIF(CASE WHEN json_valid(${app.metadata}) THEN json_extract(${app.metadata}, '$.mcpConfig.expectedAudience') END, ''), 'https://' || COALESCE(${app.customMcpDomain}, ${app.slug} || '.mcp.tedix.dev') || '/mcp')`;
+}
+
+function appDescopeResourceId(app: { metadata: SQLWrapper }) {
+	return sql`CASE WHEN json_valid(${app.metadata}) THEN json_extract(${app.metadata}, '$.mcpConfig.descopeResourceId') END`;
+}
+
 /**
  * One D1 batch swaps the latest revision and replaces every grant for the key:
  * a revocation removes all of them, an active replacement leaves only itself.
@@ -295,8 +312,6 @@ export async function getMcpConsentVerificationState(
 	const memberOrg = alias(organizations, "member_org");
 	const gateway = alias(apps, "gateway");
 	const owner = alias(apps, "audience_owner");
-	const audience = (app: typeof apps | typeof owner) =>
-		sql`COALESCE(NULLIF(json_extract(${app.metadata}, '$.mcpConfig.expectedAudience'), ''), 'https://' || COALESCE(${app.customMcpDomain}, ${app.slug} || '.mcp.tedix.dev') || '/mcp')`;
 	type Membership = {
 		organizationId: string;
 		descopeTenantId: string;
@@ -333,9 +348,9 @@ export async function getMcpConsentVerificationState(
 				metadata: apps.metadata,
 				descopeTenantId: organizations.descopeTenantId,
 			},
-			resourceUrl: audience(apps).as("resource_url"),
+			resourceUrl: appAudience(apps).as("resource_url"),
 			resourceUrlOwners:
-				sql<number>`(SELECT count(*) FROM ${apps} AS "audience_owner" INNER JOIN ${organizations} AS "owner_org" ON "owner_org"."id" = ${owner.organizationId} WHERE ${audience(owner)} = ${audience(apps)})`.as(
+				sql<number>`(SELECT count(*) FROM ${apps} AS "audience_owner" INNER JOIN ${organizations} AS "owner_org" ON "owner_org"."id" = ${owner.organizationId} WHERE ${appAudience(owner)} = ${appAudience(apps)})`.as(
 					"resource_url_owners",
 				),
 			current: {
@@ -365,9 +380,7 @@ export async function getMcpConsentVerificationState(
 				eq(pending.revision, input.revision),
 			),
 		)
-		.where(
-			sql`json_extract(${apps.metadata}, '$.mcpConfig.descopeResourceId') = ${input.mcpServerId}`,
-		)
+		.where(sql`${appDescopeResourceId(apps)} = ${input.mcpServerId}`)
 		.limit(2);
 	if (rows.length !== 1) return null;
 	const row = rows[0]!;
@@ -589,8 +602,8 @@ export async function getMcpConsentResource(
 		.innerJoin(organizations, eq(apps.organizationId, organizations.id))
 		.where(
 			"mcpServerId" in resource
-				? sql`json_extract(${apps.metadata}, '$.mcpConfig.descopeResourceId') = ${resource.mcpServerId}`
-				: sql`COALESCE(NULLIF(json_extract(${apps.metadata}, '$.mcpConfig.expectedAudience'), ''), 'https://' || COALESCE(${apps.customMcpDomain}, ${apps.slug} || '.mcp.tedix.dev') || '/mcp') = ${resource.resourceUrl}`,
+				? sql`${appDescopeResourceId(apps)} = ${resource.mcpServerId}`
+				: sql`${appAudience(apps)} = ${resource.resourceUrl}`,
 		)
 		.limit(2);
 	return rows.length === 1 ? rows[0]! : null;

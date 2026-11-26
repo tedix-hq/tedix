@@ -182,6 +182,19 @@ export const apps = sqliteTable(
 		index("idx_app_source").on(table.sourceAppId),
 		// Index for catalog linkage queries
 		index("idx_app_catalog").on(table.catalogAppId),
+		// Resolved MCP audience URI (expectedAudience override or derived
+		// https://<domain|slug>.mcp.tedix.dev/mcp). Consent owner and resource
+		// lookups match on it; the expression must stay identical to the
+		// audience() fragment in queries/mcp-consent.ts for the index to apply.
+		index("idx_app_mcp_audience").on(
+			sql`COALESCE(NULLIF(CASE WHEN json_valid(${table.metadata}) THEN json_extract(${table.metadata}, '$.mcpConfig.expectedAudience') END, ''), 'https://' || COALESCE(${table.customMcpDomain}, ${table.slug} || '.mcp.tedix.dev') || '/mcp')`,
+		),
+		// Descope resource id inside mcpConfig; consent resource resolution
+		// matches on it. Must match the guarded json_extract in
+		// queries/mcp-consent.ts.
+		index("idx_app_mcp_descope_resource").on(
+			sql`CASE WHEN json_valid(${table.metadata}) THEN json_extract(${table.metadata}, '$.mcpConfig.descopeResourceId') END`,
+		),
 		// NOTE: No index on computed `vertical` until Drizzle/D1 supports it reliably.
 	],
 );

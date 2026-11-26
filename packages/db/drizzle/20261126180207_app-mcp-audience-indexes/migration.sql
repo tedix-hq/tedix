@@ -1,0 +1,2 @@
+CREATE INDEX `idx_app_mcp_audience` ON `apps` (COALESCE(NULLIF(CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.mcpConfig.expectedAudience') END, ''), 'https://' || COALESCE("custom_mcp_domain", "slug" || '.mcp.tedix.dev') || '/mcp'));--> statement-breakpoint
+CREATE INDEX `idx_app_mcp_descope_resource` ON `apps` (CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.mcpConfig.descopeResourceId') END);
