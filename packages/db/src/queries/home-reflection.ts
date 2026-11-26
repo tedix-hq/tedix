@@ -1,5 +1,7 @@
 import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { jsonRead } from "../core-store/dialect";
 import {
 	auditReadColumns,
 	auditReadTable,
@@ -13,14 +15,15 @@ export async function hasActiveMemoryFactSource(
 	db: DbClient,
 	input: { organizationId: string; source: string },
 ): Promise<boolean> {
+	const table = coreTable(db, memoryFacts);
 	const [row] = await db
-		.select({ id: memoryFacts.id })
-		.from(memoryFacts)
+		.select({ id: table.id })
+		.from(table)
 		.where(
 			and(
-				eq(memoryFacts.organizationId, input.organizationId),
-				eq(memoryFacts.source, input.source),
-				isNull(memoryFacts.archivedAt),
+				eq(table.organizationId, input.organizationId),
+				eq(table.source, input.source),
+				isNull(table.archivedAt),
 			),
 		)
 		.limit(1);
@@ -31,18 +34,19 @@ export async function listHomePlanDecisionEvents(
 	db: DbClient,
 	input: { organizationId: string; since: string; limit: number },
 ) {
+	const table = coreTable(db, kernelRuntimeEvents);
 	return db
 		.select()
-		.from(kernelRuntimeEvents)
+		.from(table)
 		.where(
 			and(
-				eq(kernelRuntimeEvents.organizationId, input.organizationId),
-				eq(kernelRuntimeEvents.kind, "decision.recorded"),
-				gte(kernelRuntimeEvents.createdAt, input.since),
-				sql`json_extract(${kernelRuntimeEvents.payload}, '$.action') IN ('home.plan.approved', 'home.plan.rejected')`,
+				eq(table.organizationId, input.organizationId),
+				eq(table.kind, "decision.recorded"),
+				gte(table.createdAt, input.since),
+				sql`${jsonRead(db, table.payload, ["action"])} IN ('home.plan.approved', 'home.plan.rejected')`,
 			),
 		)
-		.orderBy(desc(kernelRuntimeEvents.createdAt))
+		.orderBy(desc(table.createdAt))
 		.limit(input.limit);
 }
 

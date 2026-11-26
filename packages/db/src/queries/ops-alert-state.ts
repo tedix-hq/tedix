@@ -4,23 +4,22 @@
  * apps/api/src/lib/health-digest.ts.
  */
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { anyIds } from "../core-store/dialect";
 import {
 	type NewOpsAlertStateRow,
 	type OpsAlertStateRow,
 	opsAlertState,
 } from "../schema/ops-alert-state";
-import { chunkForBoundParams } from "../utils/batch";
 
 /** All currently-open (firing) alert conditions. */
 export async function listOpenAlertStates(
 	db: DbClient,
 ): Promise<OpsAlertStateRow[]> {
-	return db
-		.select()
-		.from(opsAlertState)
-		.where(eq(opsAlertState.status, "open"));
+	const table = coreTable(db, opsAlertState);
+	return db.select().from(table).where(eq(table.status, "open"));
 }
 
 /** Read one deterministic condition, including its most recent resolved row. */
@@ -28,10 +27,11 @@ export async function getAlertState(
 	db: DbClient,
 	conditionKey: string,
 ): Promise<OpsAlertStateRow | null> {
+	const table = coreTable(db, opsAlertState);
 	const [row] = await db
 		.select()
-		.from(opsAlertState)
-		.where(eq(opsAlertState.conditionKey, conditionKey))
+		.from(table)
+		.where(eq(table.conditionKey, conditionKey))
 		.limit(1);
 	return row ?? null;
 }
@@ -47,11 +47,12 @@ export async function recordAlertState(
 	db: DbClient,
 	row: NewOpsAlertStateRow,
 ): Promise<void> {
+	const table = coreTable(db, opsAlertState);
 	await db
-		.insert(opsAlertState)
+		.insert(table)
 		.values(row)
 		.onConflictDoUpdate({
-			target: opsAlertState.conditionKey,
+			target: table.conditionKey,
 			set: {
 				severity: row.severity,
 				metricBucket: row.metricBucket ?? "0",
@@ -73,20 +74,18 @@ export async function markAlertsResolved(
 	resolvedAtIso: string,
 ): Promise<void> {
 	if (conditionKeys.length === 0) return;
-	// D1 caps bound parameters at 100 per statement; chunk the key IN() list.
-	for (const chunk of chunkForBoundParams([...new Set(conditionKeys)], 50)) {
-		await db
-			.update(opsAlertState)
-			.set({
-				status: "resolved",
-				lastSeenAt: resolvedAtIso,
-				updatedAt: sql`(CURRENT_TIMESTAMP)`,
-			})
-			.where(
-				and(
-					eq(opsAlertState.status, "open"),
-					inArray(opsAlertState.conditionKey, chunk),
-				),
-			);
-	}
+	const table = coreTable(db, opsAlertState);
+	await db
+		.update(table)
+		.set({
+			status: "resolved",
+			lastSeenAt: resolvedAtIso,
+			updatedAt: sql`(CURRENT_TIMESTAMP)`,
+		})
+		.where(
+			and(
+				eq(table.status, "open"),
+				anyIds(db, table.conditionKey, [...new Set(conditionKeys)]),
+			),
+		);
 }

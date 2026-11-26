@@ -11,6 +11,7 @@
 
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
 import { tediApprovalRequests } from "../schema/approvals";
 import { auditReadTable, readAuditStores } from "./audit-delivery";
 import { skillEntries } from "../schema/cognitive";
@@ -31,19 +32,15 @@ export async function countPendingApprovalsByTedi(
 	db: DbClient,
 	organizationId: string,
 ): Promise<TediGovernanceCount[]> {
+	const table = coreTable(db, tediApprovalRequests);
 	const rows = await db
 		.select({
-			tediId: tediApprovalRequests.tediId,
+			tediId: table.tediId,
 			count: sql<number>`count(*)`,
 		})
-		.from(tediApprovalRequests)
-		.where(
-			and(
-				eq(tediApprovalRequests.orgId, organizationId),
-				eq(tediApprovalRequests.status, "pending"),
-			),
-		)
-		.groupBy(tediApprovalRequests.tediId);
+		.from(table)
+		.where(and(eq(table.orgId, organizationId), eq(table.status, "pending")))
+		.groupBy(table.tediId);
 	return rows.map((row) => ({ tediId: row.tediId, count: Number(row.count) }));
 }
 
@@ -57,20 +54,21 @@ export async function countReviewFlaggedSkillsByTedi(
 	db: DbClient,
 	organizationId: string,
 ): Promise<TediGovernanceCount[]> {
+	const table = coreTable(db, skillEntries);
 	const rows = await db
 		.select({
-			tediId: skillEntries.tediId,
+			tediId: table.tediId,
 			count: sql<number>`count(*)`,
 		})
-		.from(skillEntries)
+		.from(table)
 		.where(
 			and(
-				eq(skillEntries.organizationId, organizationId),
-				isNotNull(skillEntries.reviewFlaggedAt),
-				sql`coalesce(${skillEntries.lifecycleState}, 'draft') <> 'archived'`,
+				eq(table.organizationId, organizationId),
+				isNotNull(table.reviewFlaggedAt),
+				sql`coalesce(${table.lifecycleState}, 'draft') <> 'archived'`,
 			),
 		)
-		.groupBy(skillEntries.tediId);
+		.groupBy(table.tediId);
 	return rows.map((row) => ({ tediId: row.tediId, count: Number(row.count) }));
 }
 
@@ -90,21 +88,17 @@ export async function summarizeCronExecutionsByTedi(
 	organizationId: string,
 	sinceIso: string,
 ): Promise<TediCronExecutionSummary[]> {
+	const table = coreTable(db, tediCronExecutions);
 	const rows = await db
 		.select({
-			tediId: tediCronExecutions.tediId,
+			tediId: table.tediId,
 			fires: sql<number>`count(*)`,
-			failures: sql<number>`sum(case when ${tediCronExecutions.status} = 'failure' then 1 else 0 end)`,
-			lastFireAt: sql<string | null>`max(${tediCronExecutions.startedAt})`,
+			failures: sql<number>`sum(case when ${table.status} = 'failure' then 1 else 0 end)`,
+			lastFireAt: sql<string | null>`max(${table.startedAt})`,
 		})
-		.from(tediCronExecutions)
-		.where(
-			and(
-				eq(tediCronExecutions.orgId, organizationId),
-				gte(tediCronExecutions.startedAt, sinceIso),
-			),
-		)
-		.groupBy(tediCronExecutions.tediId);
+		.from(table)
+		.where(and(eq(table.orgId, organizationId), gte(table.startedAt, sinceIso)))
+		.groupBy(table.tediId);
 	return rows.map((row) => ({
 		tediId: row.tediId,
 		fires: Number(row.fires),
