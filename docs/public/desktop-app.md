@@ -26,14 +26,37 @@ no terminal is needed.
 Not sure which one? Open the Apple menu, choose **About This Mac**, and look
 at **Chip**.
 
+**First-open warning:** this beta is not signed with an Apple Developer ID
+or notarized by Apple. macOS blocks the first open because it cannot verify
+Tedix is free of malware. You must explicitly allow Tedix in **System
+Settings → Privacy & Security**. Only do this if you trust the download from
+the links above; allowing it does not mean Apple has checked it for malware.
+
 ## Set it up
 
 1. Open the downloaded file and move **Tedix** to your Applications folder.
-2. Open Tedix and choose **Try a demo** to explore a sample on your Mac, or
+2. Open **Tedix** from Applications. If macOS blocks it, dismiss the alert
+   without moving Tedix to the Trash. Depending on your macOS version and
+   security settings, the alert may say Apple could not verify Tedix is free
+   of malware, the developer cannot be verified, or Tedix was not downloaded
+   from the App Store.
+3. Open **System Settings → Privacy & Security**, scroll down to **Security**,
+   and choose **Open Anyway** beside the message about Tedix. Confirm
+   **Open** in the next warning and enter your Mac administrator password
+   when asked. If **Open Anyway** is missing, try opening Tedix again, then
+   return to Privacy & Security. If your Mac is managed by your organization
+   and does not allow this, ask its administrator.
+4. In Tedix, choose **Try a demo** to explore a sample on your Mac, or
    **Sign in** to use your Tedix account. Finish signing in in your browser
    and return to Tedix.
-3. Choose **Open Tedix**, or choose **Connect an app** to add Tedix to an app
+5. Choose **Open Tedix**, or choose **Connect an app** to add Tedix to an app
    you already use. Tedix opens a sign-in page when the app needs one.
+
+macOS remembers this exception for the app, so later opens do not normally
+need these steps. Do not disable your Mac's security checks or override an
+alert that says the app is damaged or will damage your computer. See
+[Apple's guide to safely opening apps](https://support.apple.com/en-us/102445)
+for more about these warnings.
 
 You can connect an app later in **Settings → Agents**. To start over with an
 app, switch off its **Use for tasks**, choose the trash icon on its row, then
