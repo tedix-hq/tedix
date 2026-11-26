@@ -447,17 +447,15 @@ it("appends to the newest open Ship alert within its tenant and failure scope", 
 			"2026-10-17T12:00:00Z",
 		],
 	] as const)
-		await db
-			.insert(workItems)
-			.values({
-				id,
-				orgId,
-				projectId: event.projectId,
-				title: id,
-				admissionSpecRevision: crypto.randomUUID(),
-				metadata,
-				createdAt,
-			});
+		await db.insert(workItems).values({
+			id,
+			orgId,
+			projectId: event.projectId,
+			title: id,
+			admissionSpecRevision: crypto.randomUUID(),
+			metadata,
+			createdAt,
+		});
 	expect(
 		(
 			await createRepositoryObservation(db, {
