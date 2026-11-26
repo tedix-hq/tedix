@@ -236,7 +236,9 @@ function screenFor(id: StepId, now: PanelState): Screen {
 								"span",
 								"controls",
 								view.ready && done("Connected"),
-								openAgentApp(now, named),
+								// A connected app can still have a step left, such as
+								// adding or allowing hooks: show it beside Connected.
+								(view.ready && view.action) || openAgentApp(now, named),
 							)
 						: view.action,
 				working: view.working,
