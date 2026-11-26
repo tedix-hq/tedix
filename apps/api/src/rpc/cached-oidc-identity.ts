@@ -1,3 +1,4 @@
+import { isD1CoreStore } from "@tedix/db/core-store/scope";
 import { createDbSession } from "@tedix/db/client";
 import { readAuthContextCacheVersion } from "@tedix/db/queries/auth-context-cache";
 import { resolveOidcSessionContext } from "@tedix/db/queries/oidc-sessions";
@@ -11,7 +12,9 @@ export async function resolveCachedOidcIdentity(
 	const now = () => Math.floor(Date.now() / 1000);
 	if (typeof caches === "undefined" || context.env.ENVIRONMENT !== "production")
 		return resolveOidcSessionContext(context.db, credentialDigest, now());
-	const primary = createDbSession(context.env.DB, undefined, "first-primary");
+	const primary = isD1CoreStore(context.env)
+		? createDbSession(context.env.DB, undefined, "first-primary")
+		: { db: context.db };
 	try {
 		const result = await readCachedIdentity({
 			cache: await caches.open("tedix-auth-identity-v1"),
@@ -29,7 +32,7 @@ export async function resolveCachedOidcIdentity(
 		);
 		return result.value;
 	} finally {
-		if (context.dbMetrics) {
+		if (context.dbMetrics && "metrics" in primary) {
 			context.dbMetrics.queries += primary.metrics.queries;
 			context.dbMetrics.rowsRead += primary.metrics.rowsRead;
 			context.dbMetrics.rowsWritten += primary.metrics.rowsWritten;

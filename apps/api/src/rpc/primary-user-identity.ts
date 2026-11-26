@@ -1,3 +1,4 @@
+import { isD1CoreStore } from "@tedix/db/core-store/scope";
 import { createDbSession } from "@tedix/db/client";
 import { resolveUserTenantIdentityContext } from "@tedix/db/queries/principal-identities";
 import type { BaseContext } from "./context";
@@ -6,7 +7,7 @@ export async function resolvePrimaryUserIdentity(
 	context: BaseContext,
 	input: Parameters<typeof resolveUserTenantIdentityContext>[1],
 ) {
-	if (context.env.ENVIRONMENT !== "production")
+	if (!isD1CoreStore(context.env) || context.env.ENVIRONMENT !== "production")
 		return resolveUserTenantIdentityContext(context.db, input);
 	// Authorization must see current membership, regardless of read routing or caller bookmarks.
 	// Identity and review policy share one batch; a fenced cache adds serialized primary reads.

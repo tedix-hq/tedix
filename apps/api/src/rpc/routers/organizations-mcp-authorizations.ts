@@ -1,6 +1,7 @@
 /** Human MCP authorizations, multi-org consent and CLI workspace bootstrap procedures. */
 import { osAudit } from "../os-audit";
 import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 import { createDbSession } from "@tedix/db/client";
 import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
 import {
@@ -401,7 +402,11 @@ export const revokeMcpInstallationContract =
 		.use(osAudit(ORGANIZATION_SETTINGS_AUDIT))
 		.handler(async ({ input, context }) => {
 			try {
-				const primary = createDbSession(context.env.DB, null, "first-primary");
+				const primary = {
+					db: isD1CoreStore(context.env)
+						? createDbSession(context.env.DB, null, "first-primary").db
+						: coreDb(context.env),
+				};
 				return await revokeMcpInstallation(primary.db, context.env, input);
 			} catch {
 				throw createError(
@@ -420,7 +425,11 @@ export const verifyHumanMcpGrantContract =
 			// after the response; the decision never waits on them.
 			const options = { defer: context.waitUntil };
 			// A replica may still allow an installation just removed on the primary.
-			const primary = createDbSession(context.env.DB, null, "first-primary");
+			const primary = {
+				db: isD1CoreStore(context.env)
+					? createDbSession(context.env.DB, null, "first-primary").db
+					: coreDb(context.env),
+			};
 			return verifyHumanMcpGrant(primary.db, context.env, input, options);
 		});
 

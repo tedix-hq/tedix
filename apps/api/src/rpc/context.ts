@@ -23,6 +23,7 @@
  * `orpc.ts` re-exports both symbols, so existing call sites are unaffected.
  */
 
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 import { getServiceBindingPrincipal } from "../service-principal";
 
 // Type-only: erased at compile time, so it costs the eager graph nothing.
@@ -286,11 +287,11 @@ export function createContext(
 	const context: BaseContext = {
 		env,
 		get db() {
-			return getSession().db;
+			return isD1CoreStore(env) ? getSession().db : coreDb(env);
 		},
 		dbBookmark: () => session?.getBookmark() ?? null,
 		get dbMetrics() {
-			return getSession().metrics;
+			return isD1CoreStore(env) ? getSession().metrics : undefined;
 		},
 		serverTiming: [],
 		headers: request.headers,
