@@ -1,7 +1,19 @@
-import { and, asc, eq, gte, lt, lte, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	gte,
+	lt,
+	lte,
+	sql,
+	type SQL,
+	type SQLWrapper,
+} from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { billingCostRollups } from "../../schema/billing-cost-rollups";
-import { tediCallCosts, tedis } from "../../schema/tedis";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
+import { billingCostRollups as schemaBillingCostRollups } from "../../schema/billing-cost-rollups";
+import { tediCallCosts, tedis as schemaTedis } from "../../schema/tedis";
 import {
 	effectiveCallCostsRelation,
 	providerCostEvidenceProjection,
@@ -43,7 +55,20 @@ const effectiveKnownCostUsd = sql<number | null>`CASE
 		AND ${tediCallCosts.estimatedCostUsd} <= 1.7976931348623157e308
 		THEN ${tediCallCosts.estimatedCostUsd}
 	END`;
-const latestCallKey = sql`max(${tediCallCosts.snapshotAt} || char(31) || ${tediCallCosts.id})`;
+/** SQLite `iif`; Postgres spells it CASE WHEN. */
+function iff(
+	db: DbQueryClient,
+	condition: SQLWrapper,
+	yes: SQLWrapper,
+	no: SQLWrapper,
+): SQL {
+	return coreStore(db) === "postgres"
+		? sql`CASE WHEN ${condition} THEN ${yes} ELSE ${no} END`
+		: sql`iif(${condition}, ${yes}, ${no})`;
+}
+function latestCallKey(db: DbQueryClient) {
+	return sql`max(${tediCallCosts.snapshotAt} || ${coreStore(db) === "postgres" ? sql`chr(31)` : sql`char(31)`} || ${tediCallCosts.id})`;
+}
 
 /**
  * Replace one closed UTC day's rollup rows for an organization in a single D1
@@ -62,11 +87,19 @@ export async function rebuildCostRollupDay(
 	if (day >= today) throw new Error(`Cost rollup day ${day} is not closed`);
 	const nextDay = nextUtcDay(day);
 	const computedAt = now.toISOString();
-	const effective = effectiveCallCostsRelation();
+	const postgres = coreStore(db) === "postgres";
+	const rollups = coreTable(db, schemaBillingCostRollups);
+	const effective = effectiveCallCostsRelation(undefined, db);
 
-	const replace = db.insert(billingCostRollups).select(
+	const replace = db.insert(rollups).select(
 		db
 			.select({
+				// Postgres billing_cost_rollups.id has no default; D1 rowids autoincrement.
+				...(postgres
+					? {
+							id: sql<number>`nextval('billing_cost_rollups_id_seq')`.as("id"),
+						}
+					: {}),
 				organizationId: sql<string>`${organizationId}`.as("organization_id"),
 				day: sql<string>`${day}`.as("day"),
 				tediId: tediCallCosts.tediId,
@@ -104,7 +137,7 @@ export async function rebuildCostRollupDay(
 					"priced_call_count",
 				),
 				unpricedTokens:
-					sql<number>`sum(iif(${effectiveKnownCostUsd} IS NULL, ${tediCallCosts.totalTokens}, 0))`.as(
+					sql<number>`sum(${iff(db, sql`${effectiveKnownCostUsd} IS NULL`, tediCallCosts.totalTokens, sql`0`)})`.as(
 						"unpriced_tokens",
 					),
 				reviewedCallCount:
@@ -112,11 +145,11 @@ export async function rebuildCostRollupDay(
 						"reviewed_call_count",
 					),
 				reviewedTokens:
-					sql<number>`sum(iif(${providerCostEvidenceProjection} IS NULL, 0, ${tediCallCosts.totalTokens}))`.as(
+					sql<number>`sum(${iff(db, sql`${providerCostEvidenceProjection} IS NULL`, sql`0`, tediCallCosts.totalTokens)})`.as(
 						"reviewed_tokens",
 					),
 				reviewedCostMicros:
-					sql<number>`sum(iif(${providerCostEvidenceProjection} IS NULL, 0, ${reviewedCostMicros}))`.as(
+					sql<number>`sum(${iff(db, sql`${providerCostEvidenceProjection} IS NULL`, sql`0`, reviewedCostMicros)})`.as(
 						"reviewed_cost_micros",
 					),
 				retiredCallCount: sql<number>`sum(${sourceRetiredProjection})`.as(
@@ -126,10 +159,10 @@ export async function rebuildCostRollupDay(
 					"latest_snapshot_at",
 				),
 				latestCallId:
-					sql<string>`substr(${latestCallKey}, length(max(${tediCallCosts.snapshotAt})) + 2)`.as(
+					sql<string>`substr(${latestCallKey(db)}, length(max(${tediCallCosts.snapshotAt})) + 2)`.as(
 						"latest_call_id",
 					),
-				stale: sql<boolean>`0`.as("stale"),
+				stale: (postgres ? sql<boolean>`false` : sql<number>`0`).as("stale"),
 				computedAt: sql<string>`${computedAt}`.as("computed_at"),
 			})
 			.from(effective)
@@ -155,12 +188,9 @@ export async function rebuildCostRollupDay(
 	);
 	await db.batch([
 		db
-			.delete(billingCostRollups)
+			.delete(rollups)
 			.where(
-				and(
-					eq(billingCostRollups.organizationId, organizationId),
-					eq(billingCostRollups.day, day),
-				),
+				and(eq(rollups.organizationId, organizationId), eq(rollups.day, day)),
 			),
 		replace,
 	]);
@@ -175,48 +205,50 @@ export async function listCostRollups(
 ) {
 	requireDay(fromDay, "fromDay");
 	requireDay(toDay, "toDay");
+	const rollups = coreTable(db, schemaBillingCostRollups);
+	const tedis = coreTable(db, schemaTedis);
 	return db
 		.select({
-			day: billingCostRollups.day,
-			tediId: billingCostRollups.tediId,
+			day: rollups.day,
+			tediId: rollups.tediId,
 			tediName: tedis.name,
 			tediSlug: tedis.slug,
-			sessionType: billingCostRollups.sessionType,
-			source: billingCostRollups.source,
-			model: billingCostRollups.model,
-			provider: billingCostRollups.provider,
-			providerResource: billingCostRollups.providerResource,
-			providerBaseUrl: billingCostRollups.providerBaseUrl,
-			deployment: billingCostRollups.deployment,
-			costBasis: billingCostRollups.costBasis,
-			success: billingCostRollups.success,
-			inputTokens: billingCostRollups.inputTokens,
-			outputTokens: billingCostRollups.outputTokens,
-			cacheReadTokens: billingCostRollups.cacheReadTokens,
-			cacheWriteTokens: billingCostRollups.cacheWriteTokens,
-			totalTokens: billingCostRollups.totalTokens,
-			estimatedCostUsd: billingCostRollups.estimatedCostUsd,
-			callCount: billingCostRollups.callCount,
-			pricedCallCount: billingCostRollups.pricedCallCount,
-			unpricedTokens: billingCostRollups.unpricedTokens,
-			reviewedCallCount: billingCostRollups.reviewedCallCount,
-			reviewedTokens: billingCostRollups.reviewedTokens,
-			reviewedCostMicros: billingCostRollups.reviewedCostMicros,
-			retiredCallCount: billingCostRollups.retiredCallCount,
-			latestSnapshotAt: billingCostRollups.latestSnapshotAt,
-			latestCallId: billingCostRollups.latestCallId,
+			sessionType: rollups.sessionType,
+			source: rollups.source,
+			model: rollups.model,
+			provider: rollups.provider,
+			providerResource: rollups.providerResource,
+			providerBaseUrl: rollups.providerBaseUrl,
+			deployment: rollups.deployment,
+			costBasis: rollups.costBasis,
+			success: rollups.success,
+			inputTokens: rollups.inputTokens,
+			outputTokens: rollups.outputTokens,
+			cacheReadTokens: rollups.cacheReadTokens,
+			cacheWriteTokens: rollups.cacheWriteTokens,
+			totalTokens: rollups.totalTokens,
+			estimatedCostUsd: rollups.estimatedCostUsd,
+			callCount: rollups.callCount,
+			pricedCallCount: rollups.pricedCallCount,
+			unpricedTokens: rollups.unpricedTokens,
+			reviewedCallCount: rollups.reviewedCallCount,
+			reviewedTokens: rollups.reviewedTokens,
+			reviewedCostMicros: rollups.reviewedCostMicros,
+			retiredCallCount: rollups.retiredCallCount,
+			latestSnapshotAt: rollups.latestSnapshotAt,
+			latestCallId: rollups.latestCallId,
 		})
-		.from(billingCostRollups)
-		.leftJoin(tedis, eq(billingCostRollups.tediId, tedis.id))
+		.from(rollups)
+		.leftJoin(tedis, eq(rollups.tediId, tedis.id))
 		.where(
 			and(
-				eq(billingCostRollups.organizationId, organizationId),
-				gte(billingCostRollups.day, fromDay),
-				lte(billingCostRollups.day, toDay),
-				eq(billingCostRollups.stale, false),
+				eq(rollups.organizationId, organizationId),
+				gte(rollups.day, fromDay),
+				lte(rollups.day, toDay),
+				eq(rollups.stale, false),
 			),
 		)
-		.orderBy(asc(billingCostRollups.day), asc(billingCostRollups.id));
+		.orderBy(asc(rollups.day), asc(rollups.id));
 }
 
 export type CostRollupResult = Awaited<
@@ -237,8 +269,30 @@ export async function listCostRollupDaysToBuild(
 	const lookbackDays = Math.max(1, Math.floor(options.lookbackDays ?? 35));
 	const boundedLimit = Math.max(0, Math.floor(limit));
 	if (boundedLimit === 0) return [];
+	const postgres = coreStore(db) === "postgres";
 	// Raw: the day series is a recursive CTE, which Drizzle builders cannot express.
-	return db.all<{ organizationId: string; day: string }>(sql`
+	return db.all<{ organizationId: string; day: string }>(
+		postgres
+			? sql`
+		WITH RECURSIVE days(day) AS (
+			SELECT ((${today})::date - 1)::text
+			UNION ALL SELECT (day::date - 1)::text FROM days
+			WHERE day > ((${today})::date - ${lookbackDays}::int)::text
+		)
+		SELECT o.id AS "organizationId", days.day AS day
+		FROM organizations o CROSS JOIN days
+		WHERE EXISTS (
+			SELECT 1 FROM tedi_call_costs c
+			WHERE c.org_id = o.id AND c.snapshot_at >= days.day
+				AND c.snapshot_at < (days.day::date + 1)::text
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM billing_cost_rollups r
+			WHERE r.organization_id = o.id AND r.day = days.day AND r.stale = false
+		)
+		ORDER BY days.day DESC, o.id
+		LIMIT ${boundedLimit}`
+			: sql`
 		WITH RECURSIVE days(day) AS (
 			SELECT date(${today}, '-1 day')
 			UNION ALL SELECT date(day, '-1 day') FROM days
@@ -256,5 +310,6 @@ export async function listCostRollupDaysToBuild(
 			WHERE r.organization_id = o.id AND r.day = days.day AND r.stale = 0
 		)
 		ORDER BY days.day DESC, o.id
-		LIMIT ${boundedLimit}`);
+		LIMIT ${boundedLimit}`,
+	);
 }

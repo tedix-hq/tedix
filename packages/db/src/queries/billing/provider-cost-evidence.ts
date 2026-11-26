@@ -1,10 +1,12 @@
-import { and, eq, getColumns, sql, Subquery } from "drizzle-orm";
+import { and, eq, getColumns, getTableName, sql, Subquery } from "drizzle-orm";
 import { QueryBuilder } from "drizzle-orm/sqlite-core";
 import {
 	ProviderCostEvidenceProjectionSchema,
 	type ProviderCostEvidenceProjection,
 } from "@tedix/api-contract/schemas/provider-cost-evidence";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import { coreStore, pgTextArray } from "../../core-store/dialect";
 import { readLogStores, mergeLogStoreRows } from "../../utils/log-store";
 import { getProviderExecutionsByIds } from "../provider-executions";
 import {
@@ -29,6 +31,68 @@ import {
 
 export type ProviderCostEvidenceRow = typeof evidence.$inferSelect;
 export type NewProviderCostEvidenceRow = typeof evidence.$inferInsert;
+
+/** Cast target for a JSON-extracted value, matching the physical column type. */
+function pgCast(sqlType: string | null | undefined): string | null {
+	switch (sqlType) {
+		case "bigint":
+		case "integer":
+		case "smallint":
+			return "bigint";
+		case "double precision":
+		case "real":
+			return "double precision";
+		case "numeric":
+			return "numeric";
+		case "boolean":
+			return "boolean";
+		case "json":
+		case "jsonb":
+			return "jsonb";
+		case "timestamp with time zone":
+			return "timestamptz";
+		case "timestamp without time zone":
+			return "timestamp";
+		default:
+			return null;
+	}
+}
+
+type CoreTable = Parameters<typeof getTableName>[0];
+
+/** `getSQLType()` of the Postgres column behind a SQLite schema table. */
+function pgColumnType(
+	db: object,
+	table: CoreTable,
+	key: string,
+): string | null {
+	const columns = getColumns(coreTable(db, table)) as Record<
+		string,
+		{ getSQLType?: () => string }
+	>;
+	return columns[key]?.getSQLType?.() ?? null;
+}
+
+/** `value` extracted from a JSON document, typed for Postgres when `table` is given. */
+function snapshotValue(
+	db: object | undefined,
+	document: ReturnType<typeof sql>,
+	table: CoreTable | undefined,
+	key: string,
+	asJson = false,
+) {
+	if (db !== undefined && coreStore(db) === "postgres") {
+		const read = asJson
+			? sql`${document} -> ${sql.raw(`'${key}'`)}`
+			: sql`${document} ->> ${sql.raw(`'${key}'`)}`;
+		const cast =
+			asJson || table === undefined
+				? null
+				: pgCast(pgColumnType(db, table, key));
+		return cast ? sql`(${read})::${sql.raw(cast)}` : read;
+	}
+	return sql`json_extract(${document}, ${sql.raw(`'$.${key}'`)})`;
+}
 export type EffectiveTediCallCost = typeof tediCallCosts.$inferSelect & {
 	providerCostEvidence: ProviderCostEvidenceProjection | null;
 	sourceRetired: boolean;
@@ -58,7 +122,9 @@ export function normalizeEffectiveCallCost<
 /** One row per original call, including retained snapshots whose source was deleted. */
 export function effectiveCallCostsRelation(
 	archivedRows?: readonly (typeof tediCallCosts.$inferSelect)[],
+	db?: object,
 ) {
+	const postgres = db !== undefined && coreStore(db) === "postgres";
 	const columns = Object.entries(getColumns(tediCallCosts));
 	const original = sql.join(
 		columns.map(
@@ -67,13 +133,14 @@ export function effectiveCallCostsRelation(
 		),
 		sql`, `,
 	);
+	const document = sql`leaf.original_source_snapshot`;
 	// Raw: literal JSON paths keep this relation inside D1's 100-parameter limit
 	// wherever it is embedded; the CTE + UNION ALL is exposed as a shadowing
 	// Subquery that the builders cannot construct with these output names.
 	const retired = sql.join(
 		columns.map(
 			([key, c]) =>
-				sql`json_extract(leaf.original_source_snapshot, ${sql.raw(`'$.${key}'`)}) AS ${sql.identifier(c.name)}`,
+				sql`${snapshotValue(db, document, tediCallCosts, key)} AS ${sql.identifier(c.name)}`,
 		),
 		sql`, `,
 	);
@@ -82,35 +149,41 @@ export function effectiveCallCostsRelation(
 	const archiveSource =
 		archivedRows === undefined
 			? null
-			: new QueryBuilder()
-					.select(
-						Object.fromEntries(
-							columns.map(([key, c]) => [
-								c.name,
-								sql`json_extract(value, ${`$.${key}`})`.as(c.name),
-							]),
+			: postgres
+				? sql`(SELECT ${sql.join(
+						columns.map(
+							([key, c]) =>
+								sql`${snapshotValue(db, sql`value`, tediCallCosts, key)} AS ${sql.identifier(c.name)}`,
 						),
-					)
-					.from(sql`json_each(${JSON.stringify(archivedRows)})`);
+						sql`, `,
+					)} FROM jsonb_array_elements(${JSON.stringify(archivedRows)}::jsonb) AS archived(value))`
+				: new QueryBuilder()
+						.select(
+							Object.fromEntries(
+								columns.map(([key, c]) => [
+									c.name,
+									sql`json_extract(value, ${`$.${key}`})`.as(c.name),
+								]),
+							),
+						)
+						.from(sql`json_each(${JSON.stringify(archivedRows)})`);
 	const source =
 		archiveSource === null
 			? sql`tedi_call_costs`
 			: sql`(${archiveSource.getSQL()})`;
+	const snapshotField = (key: string) =>
+		snapshotValue(db, document, undefined, key, true);
+	const evidenceJson = postgres
+		? sql`(jsonb_build_object('versionId',leaf.id,'pricingBasis',leaf.pricing_basis,'providerEstimatedCostMicros',leaf.provider_estimated_cost_micros,'basisFactsDigest',leaf.basis_facts_digest,'sourceSnapshotDigest',leaf.original_source_digest,'effectiveCostBasis','reviewed_provider_estimate','originalCostBasis',${snapshotField("costBasis")},'originalCostReason',${snapshotField("costReason")},'originalDataQuality',${snapshotField("dataQuality")},'originalEstimatedCostUsd',${snapshotField("estimatedCostUsd")}))::text`
+		: sql`json_object('versionId',leaf.id,'pricingBasis',leaf.pricing_basis,'providerEstimatedCostMicros',leaf.provider_estimated_cost_micros,'basisFactsDigest',leaf.basis_facts_digest,'sourceSnapshotDigest',leaf.original_source_digest,'effectiveCostBasis','reviewed_provider_estimate','originalCostBasis',${snapshotField("costBasis")},'originalCostReason',${snapshotField("costReason")},'originalDataQuality',${snapshotField("dataQuality")},'originalEstimatedCostUsd',${snapshotField("estimatedCostUsd")})`;
 	const query = sql`WITH leaf AS (SELECT version.* FROM billing_provider_cost_evidence_versions version WHERE NOT EXISTS
 	(SELECT 1 FROM billing_provider_cost_evidence_versions child WHERE child.supersedes_evidence_version_id = version.id))
 	SELECT ${original}, leaf.provider_estimated_cost_micros AS reviewed_cost_micros,
-	CASE WHEN leaf.id IS NULL THEN NULL ELSE json_object('versionId',leaf.id,'pricingBasis',leaf.pricing_basis,
-	'providerEstimatedCostMicros',leaf.provider_estimated_cost_micros,'basisFactsDigest',leaf.basis_facts_digest,
-	'sourceSnapshotDigest',leaf.original_source_digest,'effectiveCostBasis','reviewed_provider_estimate',
-	'originalCostBasis',json_extract(leaf.original_source_snapshot,'$.costBasis'), 'originalCostReason',json_extract(leaf.original_source_snapshot,'$.costReason'),
-	'originalDataQuality',json_extract(leaf.original_source_snapshot,'$.dataQuality'),'originalEstimatedCostUsd',json_extract(leaf.original_source_snapshot,'$.estimatedCostUsd')) END AS provider_cost_evidence, 0 AS source_retired
+	CASE WHEN leaf.id IS NULL THEN NULL ELSE ${evidenceJson} END AS provider_cost_evidence, 0 AS source_retired
 	FROM ${source} original LEFT JOIN leaf ON leaf.original_org_id = original.org_id AND leaf.source_call_id = original.id
 	AND leaf.source_gateway_id = original.gateway_id AND leaf.gateway_log_id = original.gateway_log_id
 	UNION ALL SELECT ${retired}, leaf.provider_estimated_cost_micros AS reviewed_cost_micros,
-	json_object('versionId',leaf.id,'pricingBasis',leaf.pricing_basis,'providerEstimatedCostMicros',leaf.provider_estimated_cost_micros,
-	'basisFactsDigest',leaf.basis_facts_digest,'sourceSnapshotDigest',leaf.original_source_digest,'effectiveCostBasis','reviewed_provider_estimate',
-	'originalCostBasis',json_extract(leaf.original_source_snapshot,'$.costBasis'),'originalCostReason',json_extract(leaf.original_source_snapshot,'$.costReason'),
-	'originalDataQuality',json_extract(leaf.original_source_snapshot,'$.dataQuality'),'originalEstimatedCostUsd',json_extract(leaf.original_source_snapshot,'$.estimatedCostUsd')) AS provider_cost_evidence, 1 AS source_retired
+	${evidenceJson} AS provider_cost_evidence, 1 AS source_retired
 	FROM leaf WHERE ${Number(archivedRows === undefined)} = 1
 	AND NOT EXISTS (SELECT 1 FROM tedi_call_costs original WHERE original.id = leaf.source_call_id)`;
 	return new Subquery(
@@ -137,15 +210,16 @@ export async function getProviderCostEvidenceSource(
 	organizationId: string,
 	sourceCallId: string,
 ) {
+	const tediCallCostsTable = coreTable(db, tediCallCosts);
 	return (
 		(
 			await db
 				.select()
-				.from(tediCallCosts)
+				.from(tediCallCostsTable)
 				.where(
 					and(
-						eq(tediCallCosts.orgId, organizationId),
-						eq(tediCallCosts.id, sourceCallId),
+						eq(tediCallCostsTable.orgId, organizationId),
+						eq(tediCallCostsTable.id, sourceCallId),
 					),
 				)
 				.limit(1)
@@ -159,22 +233,21 @@ export async function getProviderCostEvidenceApproval(
 	proposalId: string,
 	decisionId: string,
 ) {
+	const proposals = coreTable(db, workApprovalProposals);
+	const decisions = coreTable(db, workApprovalDecisions);
 	const rows = await db
 		.select({
-			proposal: workApprovalProposals,
-			decision: workApprovalDecisions,
-			rawProposal: sql<string>`CAST(${workApprovalProposals.proposal} AS TEXT)`,
+			proposal: proposals,
+			decision: decisions,
+			rawProposal: sql<string>`CAST(${proposals.proposal} AS TEXT)`,
 		})
-		.from(workApprovalProposals)
-		.innerJoin(
-			workApprovalDecisions,
-			eq(workApprovalDecisions.proposalId, workApprovalProposals.id),
-		)
+		.from(proposals)
+		.innerJoin(decisions, eq(decisions.proposalId, proposals.id))
 		.where(
 			and(
-				eq(workApprovalProposals.orgId, organizationId),
-				eq(workApprovalProposals.id, proposalId),
-				eq(workApprovalDecisions.id, decisionId),
+				eq(proposals.orgId, organizationId),
+				eq(proposals.id, proposalId),
+				eq(decisions.id, decisionId),
 			),
 		)
 		.limit(1);
@@ -186,32 +259,37 @@ export async function getProviderCostEvidenceAuthorityBundle(
 	workId: string,
 	attemptId: string | null,
 ) {
+	const items = coreTable(db, workItems);
+	const attemptsTable = coreTable(db, workAttempts);
+	const requirementsTable = coreTable(db, workResourceRequirements);
+	const admissionsTable = coreTable(db, workAdmissions);
+	const reservationsTable = coreTable(db, workResourceReservations);
 	const [work, attempts, requirements] = await Promise.all([
 		db
 			.select(workItemStoredColumns)
-			.from(workItems)
-			.where(and(eq(workItems.orgId, organizationId), eq(workItems.id, workId)))
+			.from(items)
+			.where(and(eq(items.orgId, organizationId), eq(items.id, workId)))
 			.limit(1),
 		attemptId
 			? db
 					.select()
-					.from(workAttempts)
+					.from(attemptsTable)
 					.where(
 						and(
-							eq(workAttempts.orgId, organizationId),
-							eq(workAttempts.workItemId, workId),
-							eq(workAttempts.id, attemptId),
+							eq(attemptsTable.orgId, organizationId),
+							eq(attemptsTable.workItemId, workId),
+							eq(attemptsTable.id, attemptId),
 						),
 					)
 					.limit(1)
 			: [],
 		db
 			.select()
-			.from(workResourceRequirements)
+			.from(requirementsTable)
 			.where(
 				and(
-					eq(workResourceRequirements.orgId, organizationId),
-					eq(workResourceRequirements.workItemId, workId),
+					eq(requirementsTable.orgId, organizationId),
+					eq(requirementsTable.workItemId, workId),
 				),
 			),
 	]);
@@ -220,21 +298,21 @@ export async function getProviderCostEvidenceAuthorityBundle(
 		? await Promise.all([
 				db
 					.select()
-					.from(workAdmissions)
+					.from(admissionsTable)
 					.where(
 						and(
-							eq(workAdmissions.orgId, organizationId),
-							eq(workAdmissions.id, attempt.admissionId),
+							eq(admissionsTable.orgId, organizationId),
+							eq(admissionsTable.id, attempt.admissionId),
 						),
 					)
 					.limit(1),
 				db
 					.select()
-					.from(workResourceReservations)
+					.from(reservationsTable)
 					.where(
 						and(
-							eq(workResourceReservations.orgId, organizationId),
-							eq(workResourceReservations.admissionId, attempt.admissionId),
+							eq(reservationsTable.orgId, organizationId),
+							eq(reservationsTable.admissionId, attempt.admissionId),
 						),
 					),
 			])
@@ -252,15 +330,16 @@ export async function getProviderCostEvidenceByIdempotency(
 	organizationId: string,
 	idempotencyDigest: string,
 ) {
+	const versions = coreTable(db, evidence);
 	return (
 		(
 			await db
 				.select()
-				.from(evidence)
+				.from(versions)
 				.where(
 					and(
-						eq(evidence.originalOrgId, organizationId),
-						eq(evidence.idempotencyDigest, idempotencyDigest),
+						eq(versions.originalOrgId, organizationId),
+						eq(versions.idempotencyDigest, idempotencyDigest),
 					),
 				)
 				.limit(1)
@@ -272,16 +351,17 @@ export async function getProviderCostEvidenceCurrent(
 	organizationId: string,
 	sourceCallId: string,
 ) {
+	const versions = coreTable(db, evidence);
 	return (
 		(
 			await db
 				.select()
-				.from(evidence)
+				.from(versions)
 				.where(
 					and(
-						eq(evidence.originalOrgId, organizationId),
-						eq(evidence.sourceCallId, sourceCallId),
-						sql`NOT EXISTS (SELECT 1 FROM billing_provider_cost_evidence_versions child WHERE child.supersedes_evidence_version_id = ${evidence.id})`,
+						eq(versions.originalOrgId, organizationId),
+						eq(versions.sourceCallId, sourceCallId),
+						sql`NOT EXISTS (SELECT 1 FROM billing_provider_cost_evidence_versions child WHERE child.supersedes_evidence_version_id = ${versions.id})`,
 					),
 				)
 				.limit(1)
@@ -296,20 +376,24 @@ export async function getProviderCostEvidenceRelationships(
 		source.executionId
 			? getProviderExecutionsByIds(db, [source.executionId])
 			: [],
-		source.billingReservationId
-			? db
-					.select()
-					.from(billingUsageReservations)
-					.where(eq(billingUsageReservations.id, source.billingReservationId))
-					.limit(1)
-			: [],
+		(() => {
+			if (!source.billingReservationId) return [];
+			const reservations = coreTable(db, billingUsageReservations);
+			return db
+				.select()
+				.from(reservations)
+				.where(eq(reservations.id, source.billingReservationId))
+				.limit(1);
+		})(),
 		(async () => {
-			const read = (store: DbClient) =>
-				store
+			const read = (store: DbClient) => {
+				const quarantines = coreTable(store, billingUsageQuarantines);
+				return store
 					.select()
-					.from(billingUsageQuarantines)
-					.where(eq(billingUsageQuarantines.gatewayLogId, source.gatewayLogId))
+					.from(quarantines)
+					.where(eq(quarantines.gatewayLogId, source.gatewayLogId))
 					.limit(1);
+			};
 			const pages = await readLogStores(db, read);
 			return pages ? mergeLogStoreRows(pages) : read(db);
 		})(),
@@ -381,13 +465,37 @@ export function buildAppendProviderCostEvidenceStatement(
 		externalSessionKey: p.externalSessionKey,
 		requestDeadlineAt: p.requestDeadlineAt,
 	});
+	const postgres = coreStore(db) === "postgres";
+	const document = postgres ? sql`payload.value::jsonb` : sql`payload.value`;
 	// Paths are generated solely from static schema property names. One JSON bind
 	// avoids exceeding D1's 100-parameter limit while retaining every raw fence.
 	const j = (path: string) => {
 		if (!/^\$\.[A-Za-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)*$/.test(path))
 			throw new Error("Invalid internal snapshot path");
-		return sql`json_extract(payload.value, ${sql.raw(`'${path}'`)})`;
+		if (!postgres)
+			return sql`json_extract(payload.value, ${sql.raw(`'${path}'`)})`;
+		return sql`(${document} #>> ${pgTextArray(path.slice(2).split("."))}::text[])`;
 	};
+	/** `j(path)` cast to a physical type, for typed columns and INSERT values. */
+	const jCast = (path: string, type: string) =>
+		postgres ? sql`(${j(path)})::${sql.raw(type)}` : j(path);
+	const jColumn = (path: string, table: CoreTable, key: string) => {
+		if (!postgres) return j(path);
+		const type = pgCast(pgColumnType(db, table, key));
+		return type ? sql`(${j(path)})::${sql.raw(type)}` : j(path);
+	};
+	/** SQLite `IS` is NULL-safe equality; Postgres spells it IS NOT DISTINCT FROM. */
+	const nullSafeEq = (
+		left: ReturnType<typeof sql>,
+		right: ReturnType<typeof sql>,
+	) =>
+		postgres
+			? sql`${left} IS NOT DISTINCT FROM ${right}`
+			: sql`${left} IS ${right}`;
+	const afterNow = (value: ReturnType<typeof sql>) =>
+		postgres
+			? sql`CASE WHEN pg_input_is_valid(${value}, 'timestamp with time zone') THEN CASE WHEN ${value} ~ '(Z|[+-][0-9]{2}:[0-9]{2})$' THEN ${value}::timestamptz ELSE ${value}::timestamp AT TIME ZONE 'UTC' END END > now()`
+			: sql`julianday(${value}) > julianday('now')`;
 	const relationship = (
 		table:
 			| typeof providerExecutionAttempts
@@ -399,9 +507,11 @@ export function buildAppendProviderCostEvidenceStatement(
 		sourceColumn: string,
 	) => {
 		const fence = sql.join(
-			Object.entries(getColumns(table)).map(
-				([key, column]) =>
-					sql`${sql.identifier(alias)}.${sql.identifier(column.name)} IS ${j(`$.${snapshot}.${key}`)}`,
+			Object.entries(getColumns(table)).map(([key, column]) =>
+				nullSafeEq(
+					sql`${sql.identifier(alias)}.${sql.identifier(column.name)}`,
+					jColumn(`$.${snapshot}.${key}`, table, key),
+				),
 			),
 			sql` AND `,
 		);
@@ -412,9 +522,11 @@ export function buildAppendProviderCostEvidenceStatement(
 		return sql`((${j(`$.${snapshot}`)} IS NULL AND ${absent}) OR EXISTS (SELECT 1 FROM ${table} ${sql.identifier(alias)} WHERE ${sql.identifier(alias)}.${sql.identifier(idColumn)} = source.${sql.identifier(sourceColumn)} AND ${fence}))`;
 	};
 	const sourceFence = sql.join(
-		Object.entries(sourceColumns).map(
-			([key, column]) =>
-				sql`source.${sql.identifier(column.name)} IS ${j(`$.source.${key}`)}`,
+		Object.entries(sourceColumns).map(([key, column]) =>
+			nullSafeEq(
+				sql`source.${sql.identifier(column.name)}`,
+				jColumn(`$.source.${key}`, tediCallCosts, key),
+			),
 		),
 		sql` AND `,
 	);
@@ -425,12 +537,18 @@ export function buildAppendProviderCostEvidenceStatement(
 		sql`, `,
 	);
 	const values = sql.join(
-		Object.keys(columns).map((key) => j(`$.row.${key}`)),
+		Object.keys(columns).map((key) => jColumn(`$.row.${key}`, evidence, key)),
 		sql`, `,
 	);
+	const requiredAuthority = postgres
+		? sql`jsonb_array_elements_text(work.required_authorities) AS required_authority(value)`
+		: sql`json_each(work.required_authorities) required_authority`;
+	const proposalMatch = postgres
+		? sql`proposal.proposal = ${jCast("$.rawProposal", "jsonb")}`
+		: sql`proposal.proposal = ${j("$.rawProposal")}`;
 	return db.run(sql`WITH payload(value) AS (SELECT ${payload})
 	INSERT INTO billing_provider_cost_evidence_versions (${names}) SELECT ${values} FROM payload
-	WHERE ${j("$.row.createdByActorType")} = 'external_agent' AND julianday(${j("$.requestDeadlineAt")}) > julianday('now') AND julianday(${j("$.row.financialManifestSnapshot.expiresAt")}) > julianday('now') AND EXISTS (SELECT 1 FROM tedi_call_costs source WHERE ${sourceFence}
+	WHERE ${j("$.row.createdByActorType")} = 'external_agent' AND ${afterNow(j("$.requestDeadlineAt"))} AND ${afterNow(j("$.row.financialManifestSnapshot.expiresAt"))} AND EXISTS (SELECT 1 FROM tedi_call_costs source WHERE ${sourceFence}
 	AND source.org_id = ${j("$.row.originalOrgId")} AND source.id = ${j("$.row.sourceCallId")}
 	AND source.gateway_id = ${j("$.row.sourceGatewayId")} AND source.gateway_log_id = ${j("$.row.gatewayLogId")}
 	AND ${relationship(providerExecutionAttempts, "execution", "execution", "id", "provider_execution_id")}
@@ -451,29 +569,29 @@ export function buildAppendProviderCostEvidenceStatement(
 	JOIN external_agent_sessions session ON session.id = attempt.executor_session_id AND session.principal_id = principal.id AND session.organization_id = work.org_id
 	JOIN external_agent_mcp_credentials credential ON credential.session_id = session.id AND credential.principal_id = principal.id AND credential.organization_id = work.org_id
 	WHERE work.id = ${j("$.row.financialWorkId")} AND work.org_id = ${j("$.row.originalOrgId")} AND work.disposition = 'accepted'
-	AND work.version = ${j("$.row.financialWorkVersion")} AND work.admission_spec_revision = ${j("$.row.financialSpecRevision")}
+	AND work.version = ${jColumn("$.row.financialWorkVersion", evidence, "financialWorkVersion")} AND work.admission_spec_revision = ${j("$.row.financialSpecRevision")}
 	AND proposal.id = ${j("$.row.approvalProposalId")} AND proposal.work_item_version = work.version AND proposal.status = 'approved'
-	AND proposal.version = ${j("$.proposalVersion")} AND proposal.proposal = ${j("$.rawProposal")}
+	AND proposal.version = ${jCast("$.proposalVersion", "bigint")} AND ${proposalMatch}
 	AND proposal.action = 'billing.recordProviderCostEvidence' AND proposal.authority_key = ${j("$.authorityKey")}
-	AND EXISTS (SELECT 1 FROM json_each(work.required_authorities) required_authority WHERE required_authority.value = proposal.authority_key)
+	AND EXISTS (SELECT 1 FROM ${requiredAuthority} WHERE required_authority.value = proposal.authority_key)
 	AND proposal.approver_type = ${j("$.approverType")} AND proposal.approver_id = ${j("$.approverId")}
 	AND decision.id = ${j("$.row.approvalDecisionId")} AND decision.decision = 'approved'
 	AND decision.resolved_proposal_version = proposal.version AND decision.decider_type = proposal.approver_type AND decision.decider_id = proposal.approver_id
-	AND julianday(proposal.expires_at) > julianday('now')
+	AND ${afterNow(sql`proposal.expires_at`)}
 	AND attempt.id = ${j("$.row.attemptId")} AND attempt.admission_id = ${j("$.row.admissionId")}
-	AND attempt.runtime_state = 'running' AND attempt.outcome IS NULL AND attempt.finished_at IS NULL AND julianday(attempt.expires_at) > julianday('now')
+	AND attempt.runtime_state = 'running' AND attempt.outcome IS NULL AND attempt.finished_at IS NULL AND ${afterNow(sql`attempt.expires_at`)}
 	AND attempt.executor_type = 'external_agent' AND attempt.executor_id = ${j("$.row.createdByActorId")}
 	AND attempt.executor_session_id = ${j("$.row.createdBySessionId")} AND attempt.external_session_key = ${j("$.externalSessionKey")}
 	AND admission.decision = 'admitted' AND admission.work_item_version = work.version AND admission.admission_spec_revision = work.admission_spec_revision
 	AND admission.executor_type = attempt.executor_type AND admission.executor_id = attempt.executor_id
 	AND admission.executor_session_id = attempt.executor_session_id AND admission.external_session_key = attempt.external_session_key
-	AND julianday(admission.expires_at) > julianday('now') AND principal.status = 'active' AND session.status = 'active' AND session.ended_at IS NULL
+	AND ${afterNow(sql`admission.expires_at`)} AND principal.status = 'active' AND session.status = 'active' AND session.ended_at IS NULL
 	AND session.external_session_key = attempt.external_session_key AND credential.client_record_id = ${j("$.clientRecordId")}
-	AND credential.status = 'active' AND credential.revoked_at IS NULL AND julianday(credential.expires_at) > julianday('now')
+	AND credential.status = 'active' AND credential.revoked_at IS NULL AND ${afterNow(sql`credential.expires_at`)}
 	AND NOT EXISTS (SELECT 1 FROM work_resource_requirements required WHERE required.org_id = work.org_id AND required.work_item_id = work.id
 	AND NOT EXISTS (SELECT 1 FROM work_resource_reservations reserved WHERE reserved.org_id = work.org_id AND reserved.work_item_id = work.id
 	AND reserved.admission_id = admission.id AND reserved.resource_key = required.resource_key AND reserved.quantity = required.quantity
-	AND reserved.state = 'active' AND julianday(reserved.expires_at) > julianday('now'))))
+	AND reserved.state = 'active' AND ${afterNow(sql`reserved.expires_at`)})))
 	AND NOT EXISTS (SELECT 1 FROM billing_provider_cost_evidence_versions old WHERE old.original_org_id = ${j("$.row.originalOrgId")}
 	AND old.source_gateway_id = ${j("$.row.sourceGatewayId")} AND old.gateway_log_id = ${j("$.row.gatewayLogId")}
 	AND old.source_call_id = ${j("$.row.sourceCallId")} AND old.supersedes_evidence_version_id IS NULL AND ${j("$.row.supersedesEvidenceVersionId")} IS NULL)
