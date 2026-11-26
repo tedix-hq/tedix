@@ -108,6 +108,12 @@ export interface State {
 	organizationBrowserEgress?: BrowserHostnamePolicy;
 	/** Organization web search switch; absent or invalid means off. */
 	organizationWebSearch?: WebSearchPolicy;
+	/**
+	 * The tedi holds a Poppy personal-agent signing key (`POPPY_AGENT_SIGNING_KEY`
+	 * tedi secret), so `poppy_discover`/`poppy_call` tools may be offered. The
+	 * key itself is read and decrypted lazily inside the tool, never here.
+	 */
+	poppyAgentEnabled?: boolean;
 	/** Effective per-tedi operational budgets loaded from D1 during identity hydration. */
 	budgets?: TediBudgets;
 	/** Wall-clock freshness marker for the D1-backed governance cache. */

@@ -104,6 +104,7 @@ import { tenantMembershipContract } from "./tenant-membership";
 import { tenantBehavioralEvalsContract } from "./tenant-behavioral-evals";
 import { toolSchemaSyncContract } from "./tool-schema-sync";
 import { personalAgentInboundContract } from "./personal-agent-inbound";
+import { poppyAgentContract } from "./poppy-agent";
 import { userSettingsContract } from "./user-settings";
 import { userProfileContract } from "./user-profile";
 import { voiceContract } from "./voice";
@@ -323,6 +324,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	support: supportContract,
 	workApprovals: workApprovalsContract,
 	webSearch: webSearchContract,
+	poppyAgent: poppyAgentContract,
 	tokenExchange: tokenExchangeContract,
 	workAgentSessions: workAgentSessionsContract,
 	attention: attentionContract,

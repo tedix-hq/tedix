@@ -176,6 +176,7 @@ import {
 } from "./turn-trust";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { createWebSearchAiTools } from "./web-search-tool";
+import { createPoppyAgentAiTools } from "./poppy-agent-tools";
 import { withTimeout } from "./with-timeout";
 import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools";
 import { delegatedWorkTools } from "./delegated-work-tools";
@@ -1343,6 +1344,14 @@ export const runtimeFacetTurns = {
 				toolPolicy: this.state.toolPolicy,
 				runId: input.runId,
 				getPlatform: () => this.getPlatformClient(),
+			}),
+			...createPoppyAgentAiTools({
+				enabled: this.state.poppyAgentEnabled,
+				db: this.env.DB,
+				masterKey: this.env.SECRETS_MASTER_KEY,
+				apiBaseUrl: this.env.API_URL,
+				tediId: this.state.tediId,
+				slug: this.state.slug,
 			}),
 		};
 		const supervisedTools = {

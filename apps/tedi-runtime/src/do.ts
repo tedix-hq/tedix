@@ -2005,6 +2005,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		budgets: TediBudgets;
 		organizationBrowserEgress?: BrowserHostnamePolicy;
 		organizationWebSearch?: WebSearchPolicy;
+		poppyAgentEnabled?: boolean;
 		toolPolicy: ToolPolicy;
 	}> {
 		return runtimeParentTurns.loadTediGovernance.call(

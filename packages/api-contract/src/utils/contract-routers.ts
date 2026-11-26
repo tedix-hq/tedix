@@ -108,6 +108,7 @@ import { tenantMembershipContract } from "../contracts/tenant-membership";
 import { tenantBehavioralEvalsContract } from "../contracts/tenant-behavioral-evals";
 import { toolSchemaSyncContract } from "../contracts/tool-schema-sync";
 import { personalAgentInboundContract } from "../contracts/personal-agent-inbound";
+import { poppyAgentContract } from "../contracts/poppy-agent";
 import { userSettingsContract } from "../contracts/user-settings";
 import { userProfileContract } from "../contracts/user-profile";
 import { voiceContract } from "../contracts/voice";
@@ -234,6 +235,7 @@ export const ROUTERS: Record<string, unknown> = {
 	support: supportContract,
 	workApprovals: workApprovalsContract,
 	webSearch: webSearchContract,
+	poppyAgent: poppyAgentContract,
 	tokenExchange: tokenExchangeContract,
 	workAgentSessions: workAgentSessionsContract,
 	attention: attentionContract,

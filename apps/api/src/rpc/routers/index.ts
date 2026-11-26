@@ -210,6 +210,9 @@ export const apiRouter = {
 	webSearch: lazyRouter(() =>
 		import("./web-search").then((m) => m.webSearchContractRouter),
 	),
+	poppyAgent: lazyRouter(() =>
+		import("./poppy-agent").then((m) => m.poppyAgentContractRouter),
+	),
 	tokenExchange: lazyRouter(() =>
 		import("./token-exchange").then((m) => m.tokenExchangeContractRouter),
 	),

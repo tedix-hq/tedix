@@ -473,6 +473,7 @@ export const runtimeParentTurns = {
 		budgets: TediBudgets;
 		organizationBrowserEgress?: BrowserHostnamePolicy;
 		organizationWebSearch?: WebSearchPolicy;
+		poppyAgentEnabled?: boolean;
 		toolPolicy: ToolPolicy;
 	}> {
 		const defaults = {
@@ -481,6 +482,7 @@ export const runtimeParentTurns = {
 		};
 		const failClosed = {
 			budgets: { ...defaults.budgets, browserBudgetDaily: 0 },
+			poppyAgentEnabled: false,
 			toolPolicy: {
 				...defaults.toolPolicy,
 				browser: "always-approve" as const,
@@ -507,6 +509,7 @@ export const runtimeParentTurns = {
 					organizationMetadata?.browserEgress,
 				),
 				organizationWebSearch: webSearch.success ? webSearch.data : undefined,
+				poppyAgentEnabled: row?.poppyAgentEnabled === 1,
 				toolPolicy: ToolPolicySchema.parse(decode(row?.toolPolicy) ?? {}),
 			};
 		} catch (error) {
@@ -584,6 +587,7 @@ export const runtimeParentTurns = {
 					...this.state,
 					organizationBrowserEgress: governance.organizationBrowserEgress,
 					organizationWebSearch: governance.organizationWebSearch,
+					poppyAgentEnabled: governance.poppyAgentEnabled,
 					toolPolicy: governance.toolPolicy,
 					budgets: governance.budgets,
 					governanceLoadedAt: Date.now(),
@@ -659,6 +663,7 @@ export const runtimeParentTurns = {
 			telegramChannel,
 			organizationBrowserEgress: governance.organizationBrowserEgress,
 			organizationWebSearch: governance.organizationWebSearch,
+			poppyAgentEnabled: governance.poppyAgentEnabled,
 			toolPolicy: governance.toolPolicy,
 			budgets: governance.budgets,
 			governanceLoadedAt: Date.now(),

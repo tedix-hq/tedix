@@ -123,6 +123,8 @@
 		"./schemas/personal-agent-session": "./src/schemas/personal-agent-session.ts",
 		"./schemas/personal-agent-conversation": "./src/schemas/personal-agent-conversation.ts",
 		"./contracts/personal-agent-inbound": "./src/contracts/personal-agent-inbound.ts",
+		"./schemas/poppy-agent": "./src/schemas/poppy-agent.ts",
+		"./contracts/poppy-agent": "./src/contracts/poppy-agent.ts",
 		"./utils/host-session-id": "./src/utils/host-session-id.ts",
 		"./utils/code-mode-literal": "./src/utils/code-mode-literal.ts",
 		"./schemas/agent-session-feedback": "./src/schemas/agent-session-feedback.ts",

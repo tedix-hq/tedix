@@ -51,6 +51,7 @@ import {
 } from "./turn-trust";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { createWebSearchAiTools } from "./web-search-tool";
+import { createPoppyAgentAiTools } from "./poppy-agent-tools";
 export interface InboundEmailPayload {
 	tediId: string;
 	orgId: string;
@@ -490,6 +491,14 @@ export const runtimeChannels = {
 					runId: turnBinding?.runId,
 					getPlatform: () => this.getPlatformClient(),
 				}),
+				...createPoppyAgentAiTools({
+					enabled: this.state.poppyAgentEnabled,
+					db: this.env.DB,
+					masterKey: this.env.SECRETS_MASTER_KEY,
+					apiBaseUrl: this.env.API_URL,
+					tediId: this.state.tediId,
+					slug: this.state.slug,
+				}),
 			},
 			replyTool,
 		});
@@ -693,6 +702,14 @@ export const runtimeChannels = {
 									toolPolicy: this.state.toolPolicy,
 									runId: turnBinding?.runId,
 									getPlatform: () => this.getPlatformClient(),
+								}),
+								...createPoppyAgentAiTools({
+									enabled: this.state.poppyAgentEnabled,
+									db: this.env.DB,
+									masterKey: this.env.SECRETS_MASTER_KEY,
+									apiBaseUrl: this.env.API_URL,
+									tediId: this.state.tediId,
+									slug: this.state.slug,
 								}),
 							};
 					// The host page's own tools for this widget turn only: relayed to

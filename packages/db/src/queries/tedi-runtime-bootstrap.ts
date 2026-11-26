@@ -260,6 +260,8 @@ export async function getTediRuntimeGovernance(
 ): Promise<{
 	budgets: unknown;
 	organizationMetadata: unknown;
+	/** D1 `EXISTS(...)` projection: 1 when the tedi holds a Poppy signing key. */
+	poppyAgentEnabled: number;
 	runtimeProfileMaxIterationsPerTask: number | null;
 	toolPolicy: unknown;
 } | null> {
@@ -267,7 +269,11 @@ export async function getTediRuntimeGovernance(
 		.prepare(
 			`SELECT t.tool_policy AS toolPolicy, t.budgets,
 			        o.metadata AS organizationMetadata,
-			        p.max_iterations_per_task AS runtimeProfileMaxIterationsPerTask
+			        p.max_iterations_per_task AS runtimeProfileMaxIterationsPerTask,
+			        EXISTS(
+			          SELECT 1 FROM tedi_secrets s
+			           WHERE s.tedi_id = t.id AND s.name = 'POPPY_AGENT_SIGNING_KEY'
+			        ) AS poppyAgentEnabled
 			   FROM tedis t
 			   JOIN organizations o ON o.id = t.organization_id
 			   LEFT JOIN billing_accounts a ON a.organization_id = t.organization_id
