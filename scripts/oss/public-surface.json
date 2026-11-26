@@ -59,6 +59,11 @@
 			"licenseClass": "mit-ecosystem"
 		},
 		{
+			"path": "apps/cms/templates/blank",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
 			"path": "apps/cms/templates/blog",
 			"decision": "public-ecosystem",
 			"licenseClass": "mit-ecosystem"
