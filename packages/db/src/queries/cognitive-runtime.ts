@@ -2,6 +2,8 @@ import type { TediApprovalRequest } from "../schema/approvals";
 import type { KernelRuntimeRun } from "../schema/cognitive-runtime";
 import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
 import {
+	type SQL,
+	getColumns,
 	and,
 	asc,
 	desc,
@@ -19,21 +21,23 @@ import {
 } from "drizzle-orm";
 import { type AnySQLiteColumn, alias } from "drizzle-orm/sqlite-core";
 import { getLogStores, type DbClient } from "../client";
-import { auditEvents } from "../schema/audit-events";
+import { coreTable } from "../core-store/client";
+import { anyIds, coreStore, jsonRead, unixTime } from "../core-store/dialect";
+import { auditEvents as schemaAuditEvents } from "../schema/audit-events";
 import {
-	tediApprovalRequests,
+	tediApprovalRequests as schemaTediApprovalRequests,
 	approvalRequestStoredColumns,
 } from "../schema/approvals";
 import {
-	chatDispatchIdempotency,
-	kernelRuntimeRuns,
+	chatDispatchIdempotency as schemaChatDispatchIdempotency,
+	kernelRuntimeRuns as schemaKernelRuntimeRuns,
 	kernelRuntimeRunStoredColumns,
-	kernelWakeQueue,
-	tediArtifacts,
-	tediRuntimeEvents,
+	kernelWakeQueue as schemaKernelWakeQueue,
+	tediArtifacts as schemaTediArtifacts,
+	tediRuntimeEvents as schemaTediRuntimeEvents,
 } from "../schema/cognitive-runtime";
-import { tediSessionStates } from "../schema/tedi-sessions";
-import { tedis } from "../schema/tedis";
+import { tediSessionStates as schemaTediSessionStates } from "../schema/tedi-sessions";
+import { tedis as schemaTedis } from "../schema/tedis";
 import {
 	compareCreatedAtId,
 	mergeLogStoreRows,
@@ -45,9 +49,11 @@ import {
 	unindexedOrganizationId,
 } from "../utils/tedi-runtime-event-predicates";
 import { searchAuditEvents } from "./audit";
+import { normalizeStoredJsonText } from "../utils/json";
 
-export type TediRuntimeEventRow = typeof tediRuntimeEvents.$inferSelect;
-export type TediRuntimeEventInsert = typeof tediRuntimeEvents.$inferInsert;
+export type TediRuntimeEventRow = typeof schemaTediRuntimeEvents.$inferSelect;
+export type TediRuntimeEventInsert =
+	typeof schemaTediRuntimeEvents.$inferInsert;
 export type TediRuntimeEventKind = TediRuntimeEventInsert["kind"];
 export type TediRuntimeEventCursor = Pick<
 	TediRuntimeEventRow,
@@ -57,8 +63,8 @@ export type TediConversationCompactionEventRow = Pick<
 	TediRuntimeEventRow,
 	"payload" | "createdAt"
 >;
-export type TediArtifactRow = typeof tediArtifacts.$inferSelect;
-export type TediArtifactInsert = typeof tediArtifacts.$inferInsert;
+export type TediArtifactRow = typeof schemaTediArtifacts.$inferSelect;
+export type TediArtifactInsert = typeof schemaTediArtifacts.$inferInsert;
 export class TediArtifactOwnershipConflictError extends Error {
 	constructor(readonly artifactId: string) {
 		super(`Artifact ${artifactId} is owned by another tedi`);
@@ -96,11 +102,14 @@ export async function listTediObservabilityRows(
 	runtimeTruncated: boolean;
 	auditTruncated: boolean;
 }> {
+	const auditEvents = coreTable(db, schemaAuditEvents);
+	const tedis = coreTable(db, schemaTedis);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const rowLimit = input.limit + 1;
 	const stores = getLogStores(db);
-	const readRuntimeRows = (store: DbClient) =>
-		store
+	const readRuntimeRows = (store: DbClient) => {
+		const tediRuntimeEvents = coreTable(store, schemaTediRuntimeEvents);
+		return store
 			.select({
 				id: tediRuntimeEvents.id,
 				kind: tediRuntimeEvents.kind,
@@ -120,6 +129,7 @@ export async function listTediObservabilityRows(
 			)
 			.orderBy(desc(tediRuntimeEvents.createdAt), desc(tediRuntimeEvents.id))
 			.limit(rowLimit);
+	};
 	const [runtimePages, auditRows] = await Promise.all([
 		readLogStores(
 			db,
@@ -192,8 +202,9 @@ export async function listTediObservabilityRows(
 
 export async function enqueueKernelChildWake(
 	db: DbClient,
-	input: typeof kernelWakeQueue.$inferInsert,
+	input: typeof schemaKernelWakeQueue.$inferInsert,
 ): Promise<void> {
+	const kernelWakeQueue = coreTable(db, schemaKernelWakeQueue);
 	await db
 		.insert(kernelWakeQueue)
 		.values(input)
@@ -204,6 +215,7 @@ export async function getMappedDispatchRunId(
 	db: DbClient,
 	input: { tediId: string; idempotencyKey: string },
 ): Promise<string | null> {
+	const chatDispatchIdempotency = coreTable(db, schemaChatDispatchIdempotency);
 	const [mapping] = await db
 		.select({ runId: chatDispatchIdempotency.runId })
 		.from(chatDispatchIdempotency)
@@ -221,6 +233,7 @@ export async function insertTediRuntimeEvent(
 	db: DbClient,
 	input: TediRuntimeEventInsert & TenantScope,
 ): Promise<TediRuntimeEventRow | null> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const metadataTraceId = input.runtimeMetadata?.traceId;
 	const [row] = await db
@@ -241,6 +254,7 @@ export async function getTediRuntimeEventById(
 	scope: TenantScope & { tediId?: string },
 	id: string,
 ): Promise<TediRuntimeEventRow | null> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const pages = await readLogStores(db, async (store) => {
 		const row = await getTediRuntimeEventById(store, scope, id);
@@ -268,6 +282,7 @@ export async function updateTediRuntimeEventPayload(
 		payload: TediRuntimeEventInsert["payload"];
 	} & TenantScope,
 ): Promise<TediRuntimeEventRow | null> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.update(tediRuntimeEvents)
@@ -298,6 +313,7 @@ export async function listTediRuntimeEventsForRouter(
 		limit?: number;
 	} & TenantScope,
 ): Promise<TediRuntimeEventRow[]> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.runIds?.length === 0 || input.kinds?.length === 0) return [];
 	// Both stores apply the same `before` cursor; the merged set is re-limited.
@@ -311,33 +327,10 @@ export async function listTediRuntimeEventsForRouter(
 			compare: input.order ? compareCreatedAtId(input.order) : undefined,
 			limit: input.limit,
 		});
-	// One statement per run id (one runId plus its dispatch-alias mappings; the
-	// sole caller builds [input.runId, ...mappedRunIds] for a single run): a
-	// `run_id IN (...)` list sends the planner to the tedi-only index under
-	// production statistics. The merged set is re-ordered and re-limited.
-	if (input.runIds) {
-		const { runIds, ...rest } = input;
-		const uniqueRunIds = [...new Set(runIds)];
-		if (uniqueRunIds.length === 1)
-			return listTediRuntimeEventsForRouter(db, {
-				...rest,
-				runId: uniqueRunIds[0],
-			});
-		return mergeLogStoreRows(
-			await Promise.all(
-				uniqueRunIds.map((runId) =>
-					listTediRuntimeEventsForRouter(db, { ...rest, runId }),
-				),
-			),
-			{
-				compare: input.order ? compareCreatedAtId(input.order) : undefined,
-				limit: input.limit,
-			},
-		);
-	}
-	const runScoped = Boolean(input.runId);
+	const runScoped = Boolean(input.runId || input.runIds);
+	const sqliteRunScoped = runScoped && coreStore(db) === "d1";
 	const conditions = [
-		runScoped
+		sqliteRunScoped
 			? unindexedOrganizationId(input.organizationId)
 			: eq(tediRuntimeEvents.organizationId, input.organizationId),
 		eq(tediRuntimeEvents.tediId, input.tediId),
@@ -345,17 +338,20 @@ export async function listTediRuntimeEventsForRouter(
 			? [eq(tediRuntimeEvents.conversationId, input.conversationId)]
 			: []),
 		...(input.runId ? [eq(tediRuntimeEvents.runId, input.runId)] : []),
+		...(input.runIds
+			? [anyIds(db, tediRuntimeEvents.runId, [...new Set(input.runIds)])]
+			: []),
 		// A run read keeps kind out of index selection (see the predicate owner).
 		...(input.kind
 			? [
-					runScoped
+					sqliteRunScoped
 						? unindexedKind(input.kind)
 						: eq(tediRuntimeEvents.kind, input.kind),
 				]
 			: []),
 		...(input.kinds
 			? [
-					runScoped
+					sqliteRunScoped
 						? unindexedKindIn(input.kinds)
 						: // bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
 							inArray(tediRuntimeEvents.kind, input.kinds),
@@ -375,8 +371,21 @@ export async function listTediRuntimeEventsForRouter(
 			: []),
 	];
 	const base = db
-		.select()
-		.from(tediRuntimeEvents)
+		.select(
+			Object.fromEntries(
+				Object.entries(getColumns(tediRuntimeEvents)).map(([key, column]) => [
+					key,
+					sql`${column}`.mapWith(column),
+				]),
+			) as {
+				[Key in keyof TediRuntimeEventRow]: SQL<TediRuntimeEventRow[Key]>;
+			},
+		)
+		.from(
+			sqliteRunScoped && input.runIds
+				? sql`${tediRuntimeEvents} INDEXED BY idx_tedi_runtime_events_run_created`
+				: tediRuntimeEvents,
+		)
 		.where(and(...conditions));
 	const ordered =
 		input.order === "asc"
@@ -397,6 +406,7 @@ export async function listTediRunConversationHints(
 	db: DbClient,
 	input: { tediId: string; runId: string; limit: number } & TenantScope,
 ): Promise<Array<Pick<TediRuntimeEventRow, "conversationId" | "kind">>> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	return db
 		.select({
@@ -424,6 +434,8 @@ export async function listTediConversationIndexRows(
 		limit: number;
 	} & TenantScope,
 ): Promise<TediRuntimeEventRow[]> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
+	const tediSessionStates = coreTable(db, schemaTediSessionStates);
 	input = { ...input, ...normalizeTenantScope(input) };
 	return db
 		.select()
@@ -461,6 +473,7 @@ export async function isTediConversationDeleted(
 	db: DbClient,
 	input: { organizationId: string; tediId: string; conversationId: string },
 ): Promise<boolean> {
+	const tediSessionStates = coreTable(db, schemaTediSessionStates);
 	const rows = await db
 		.select({ one: sql`1` })
 		.from(tediSessionStates)
@@ -485,6 +498,7 @@ export async function listTediConversationTranscriptRows(
 		limit: number;
 	} & TenantScope,
 ): Promise<TediRuntimeEventRow[]> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const pages = await readLogStores(
 		db,
@@ -523,6 +537,7 @@ export async function getLatestTediConversationCompactionEvent(
 	db: DbClient,
 	input: { tediId: string; conversationId: string } & TenantScope,
 ): Promise<TediConversationCompactionEventRow | null> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select({
@@ -545,8 +560,9 @@ export async function getLatestTediConversationCompactionEvent(
 
 export async function upsertChatDispatchIdempotency(
 	db: DbClient,
-	input: typeof chatDispatchIdempotency.$inferInsert,
+	input: typeof schemaChatDispatchIdempotency.$inferInsert,
 ): Promise<void> {
+	const chatDispatchIdempotency = coreTable(db, schemaChatDispatchIdempotency);
 	await db
 		.insert(chatDispatchIdempotency)
 		.values(input)
@@ -557,6 +573,7 @@ export async function updateChatDispatchRunId(
 	db: DbClient,
 	input: { idempotencyKey: string; runId: string; mappedAt: string },
 ): Promise<void> {
+	const chatDispatchIdempotency = coreTable(db, schemaChatDispatchIdempotency);
 	await db
 		.update(chatDispatchIdempotency)
 		.set({ runId: input.runId, mappedAt: input.mappedAt })
@@ -573,8 +590,18 @@ export async function listTediApprovalRequests(
 		limit: number;
 	},
 ): Promise<TediApprovalRequestRow[]> {
+	const tediApprovalRequests = coreTable(db, schemaTediApprovalRequests);
 	return db
-		.select(approvalRequestStoredColumns)
+		.select(
+			Object.fromEntries(
+				Object.keys(approvalRequestStoredColumns).map((key) => [
+					key,
+					getColumns(tediApprovalRequests)[
+						key as keyof typeof approvalRequestStoredColumns
+					],
+				]),
+			) as typeof approvalRequestStoredColumns,
+		)
 		.from(tediApprovalRequests)
 		.where(
 			and(
@@ -594,8 +621,18 @@ export async function findDirectKernelParentRun(
 	db: DbClient,
 	input: { organizationId: string; childRunId: string },
 ): Promise<KernelRuntimeRunRow | null> {
+	const kernelRuntimeRuns = coreTable(db, schemaKernelRuntimeRuns);
 	const rows = await db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(
+			Object.fromEntries(
+				Object.keys(kernelRuntimeRunStoredColumns).map((key) => [
+					key,
+					getColumns(kernelRuntimeRuns)[
+						key as keyof typeof kernelRuntimeRunStoredColumns
+					],
+				]),
+			) as typeof kernelRuntimeRunStoredColumns,
+		)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -611,8 +648,18 @@ export async function listRecentKernelRunsForOrganization(
 	db: DbClient,
 	input: { organizationId: string; limit: number },
 ): Promise<KernelRuntimeRunRow[]> {
+	const kernelRuntimeRuns = coreTable(db, schemaKernelRuntimeRuns);
 	return db
-		.select(kernelRuntimeRunStoredColumns)
+		.select(
+			Object.fromEntries(
+				Object.keys(kernelRuntimeRunStoredColumns).map((key) => [
+					key,
+					getColumns(kernelRuntimeRuns)[
+						key as keyof typeof kernelRuntimeRunStoredColumns
+					],
+				]),
+			) as typeof kernelRuntimeRunStoredColumns,
+		)
 		.from(kernelRuntimeRuns)
 		.where(eq(kernelRuntimeRuns.organizationId, input.organizationId))
 		.orderBy(desc(kernelRuntimeRuns.updatedAt))
@@ -632,6 +679,7 @@ export async function listTediArtifacts(
 		limit: number;
 	} & TenantScope,
 ): Promise<TediArtifactRow[]> {
+	const tediArtifacts = coreTable(db, schemaTediArtifacts);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const conditions = [
 		eq(tediArtifacts.organizationId, input.organizationId),
@@ -657,6 +705,7 @@ export async function upsertTediArtifact(
 	db: DbClient,
 	input: TediArtifactInsert & TenantScope,
 ): Promise<TediArtifactRow> {
+	const tediArtifacts = coreTable(db, schemaTediArtifacts);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.insert(tediArtifacts)
@@ -694,6 +743,7 @@ export async function claimTediArtifact(
 	db: DbClient,
 	input: TediArtifactInsert & TenantScope,
 ): Promise<{ artifact: TediArtifactRow; created: boolean }> {
+	const tediArtifacts = coreTable(db, schemaTediArtifacts);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [created] = await db
 		.insert(tediArtifacts)
@@ -719,8 +769,8 @@ export async function claimTediArtifact(
 		existing.mimeType !== (input.mimeType ?? null) ||
 		existing.uri !== input.uri ||
 		existing.sizeBytes !== (input.sizeBytes ?? null) ||
-		JSON.stringify(existing.metadata ?? null) !==
-			JSON.stringify(input.metadata ?? null) ||
+		normalizeStoredJsonText(JSON.stringify(existing.metadata ?? null)) !==
+			normalizeStoredJsonText(JSON.stringify(input.metadata ?? null)) ||
 		existing.contentDigest !== input.contentDigest ||
 		existing.accessClassification !== input.accessClassification ||
 		existing.producerExecutionId !== (input.producerExecutionId ?? null) ||
@@ -742,6 +792,7 @@ export async function markTediArtifactPublished(
 		contentDigest: string | null;
 	} & TenantScope,
 ): Promise<TediArtifactRow | null> {
+	const tediArtifacts = coreTable(db, schemaTediArtifacts);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [published] = await db
 		.update(tediArtifacts)
@@ -765,6 +816,7 @@ export async function getTediArtifact(
 	db: DbClient,
 	input: TenantScope & { tediId?: string; artifactId: string },
 ): Promise<TediArtifactRow | null> {
+	const tediArtifacts = coreTable(db, schemaTediArtifacts);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const ownerCondition = and(
 		eq(tediArtifacts.organizationId, input.organizationId),
@@ -783,6 +835,7 @@ export async function getTediArtifactClaim(
 	db: DbClient,
 	artifactId: string,
 ): Promise<TediArtifactRow | null> {
+	const tediArtifacts = coreTable(db, schemaTediArtifacts);
 	const [row] = await db
 		.select()
 		.from(tediArtifacts)
@@ -801,26 +854,31 @@ export async function patchOldestQueuedDispatchRunId(
 		mappedAt: string;
 	},
 ): Promise<number> {
-	const [candidate] = await db
+	const chatDispatchIdempotency = coreTable(db, schemaChatDispatchIdempotency);
+	const candidate = db
 		.select({ idempotencyKey: chatDispatchIdempotency.idempotencyKey })
 		.from(chatDispatchIdempotency)
 		.where(
 			and(
 				eq(chatDispatchIdempotency.tediId, input.tediId),
 				eq(chatDispatchIdempotency.conversationId, input.conversationId),
-				sql`${chatDispatchIdempotency.runId} IS NULL`,
-				sql`datetime(${chatDispatchIdempotency.createdAt}) > datetime(${input.cutoff})`,
+				isNull(chatDispatchIdempotency.runId),
+				sql`${unixTime(db, chatDispatchIdempotency.createdAt)} > ${unixTime(db, sql`${input.cutoff}`)}`,
 			),
 		)
 		.orderBy(chatDispatchIdempotency.createdAt)
 		.limit(1);
-	if (!candidate) return 0;
-	await updateChatDispatchRunId(db, {
-		idempotencyKey: candidate.idempotencyKey,
-		runId: input.runId,
-		mappedAt: input.mappedAt,
-	});
-	return 1;
+	const patched = await db
+		.update(chatDispatchIdempotency)
+		.set({ runId: input.runId, mappedAt: input.mappedAt })
+		.where(
+			and(
+				eq(chatDispatchIdempotency.idempotencyKey, candidate),
+				isNull(chatDispatchIdempotency.runId),
+			),
+		)
+		.returning({ idempotencyKey: chatDispatchIdempotency.idempotencyKey });
+	return patched.length;
 }
 
 export type OrphanRunCandidate = {
@@ -864,6 +922,8 @@ export async function findOrphanRuns(
 		limit?: number;
 	} = {},
 ): Promise<OrphanRunCandidate[]> {
+	const chatDispatchIdempotency = coreTable(db, schemaChatDispatchIdempotency);
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	const now = options.now ?? new Date();
 	const orphanAgeMinutes =
 		options.orphanAgeMinutes ?? ORPHAN_DEFAULT_AGE_MINUTES;
@@ -893,9 +953,9 @@ export async function findOrphanRuns(
 	const successfulCompletion = (event: RuntimeEventAlias) =>
 		and(
 			sql`${event.kind} = 'message.completed'`,
-			sql`COALESCE(LOWER(json_extract(${event.payload}, '$.status')), '')
+			sql`COALESCE(LOWER(${jsonRead(db, event.payload, ["status"])}), '')
 				NOT IN ('failed', 'error', 'canceled', 'cancelled')`,
-			sql`json_extract(${event.payload}, '$.error') IS NULL`,
+			sql`${jsonRead(db, event.payload, ["error"])} IS NULL`,
 		);
 	const recentActivity = (event: RuntimeEventAlias) =>
 		and(
@@ -941,10 +1001,12 @@ export async function findOrphanRuns(
 							successfulCompletion(ok),
 						),
 					),
-			)}`.as("succeeded_lost"),
+			)}`
+				.mapWith(Number)
+				.as("succeeded_lost"),
 		})
 		.from(
-			options.dueIds
+			coreStore(db) === "postgres" || options.dueIds
 				? run
 				: organizationId
 					? sql`${run} INDEXED BY idx_tedi_runtime_events_org_unfinished`
@@ -953,7 +1015,7 @@ export async function findOrphanRuns(
 		.where(
 			and(
 				// bound-params: internal selector from claimWorkDue, LIMIT 50.
-				options.dueIds ? inArray(run.id, options.dueIds) : undefined,
+				options.dueIds ? anyIds(db, run.id, options.dueIds) : undefined,
 				sql`${run.kind} = 'run.started'`,
 				eq(run.terminalSeen, 0),
 				isNotNull(run.runId),
@@ -997,7 +1059,7 @@ export async function findOrphanRuns(
 								sameRun(own),
 								sameOrganization(own.organizationId),
 								sql`${own.kind} = 'step.retry'`,
-								sql`json_extract(${own.payload}, '$.retryOwnedUntil') > ${nowIso}`,
+								sql`${jsonRead(db, own.payload, ["retryOwnedUntil"])} > ${nowIso}`,
 							),
 						),
 				),

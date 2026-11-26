@@ -1,8 +1,10 @@
 import { and, eq, notExists, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
-import { auditEvents } from "../schema/audit-events";
-import { tediRuntimeEvents } from "../schema/cognitive-runtime";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonRead, unixTime } from "../core-store/dialect";
+import { auditEvents as schemaAuditEvents } from "../schema/audit-events";
+import { tediRuntimeEvents as schemaTediRuntimeEvents } from "../schema/cognitive-runtime";
 import { insertAuditEvent } from "./audit";
 
 const ATTEMPT_ACTION = "tedi.runtime.orphan_cleanup_attempt";
@@ -25,6 +27,8 @@ function candidates(
 	terminalEventId?: string,
 	limit = 20,
 ) {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
+	const auditEvents = coreTable(db, schemaAuditEvents);
 	const e = alias(tediRuntimeEvents, "e");
 	const done = alias(auditEvents, "done");
 	const attempted = alias(auditEvents, "attempted");
@@ -32,7 +36,9 @@ function candidates(
 	const prior = alias(auditEvents, "prior");
 	const one = { one: sql`1` };
 	const lastAttempt = db
-		.select({ lastAttempt: sql`MAX(${prior.timestamp})` })
+		.select({
+			lastAttempt: sql`MAX(${coreStore(db) === "postgres" ? unixTime(db, prior.timestamp) : prior.timestamp})`,
+		})
 		.from(prior)
 		.where(
 			and(
@@ -56,8 +62,8 @@ function candidates(
 				sql`${e.kind} = 'run.failed'`,
 				sql`${e.runtimeBackend} = 'cloudflare-agents'`,
 				sql`${e.createdAt} <= ${now.toISOString()}`,
-				sql`json_extract(${e.runtimeMetadata}, '$.source') = 'scheduled.sweepOrphanRuns'`,
-				sql`json_extract(${e.runtimeMetadata}, '$.reason') = 'runtime_dropped'`,
+				sql`${jsonRead(db, e.runtimeMetadata, ["source"])} = 'scheduled.sweepOrphanRuns'`,
+				sql`${jsonRead(db, e.runtimeMetadata, ["reason"])} = 'runtime_dropped'`,
 				sql`${e.runId} LIKE ${e.tediId} || ':mcp:%'`,
 				terminalEventId ? eq(e.id, terminalEventId) : undefined,
 				notExists(
@@ -82,7 +88,7 @@ function candidates(
 								eq(attempted.resourceType, RESOURCE),
 								eq(attempted.resourceId, e.id),
 								eq(attempted.action, ATTEMPT_ACTION),
-								sql`${attempted.timestamp} > ${Math.floor((now.getTime() - RETRY_MS) / 1000)}`,
+								sql`${coreStore(db) === "postgres" ? unixTime(db, attempted.timestamp) : attempted.timestamp} > ${Math.floor((now.getTime() - RETRY_MS) / 1000)}`,
 							),
 						),
 				),
@@ -120,6 +126,7 @@ export async function claimOrphanWorkflowCleanup(
 	item: OrphanWorkflowCleanup,
 	now = new Date(),
 ) {
+	const auditEvents = coreTable(db, schemaAuditEvents);
 	const id = `orphan-native-attempt:${Math.floor(now.getTime() / RETRY_MS)}:${item.terminalEventId}`;
 	const c = candidates(db, now, item.terminalEventId, 1).as("c");
 	const rows = await db
@@ -134,10 +141,11 @@ export async function claimOrphanWorkflowCleanup(
 					action: sql<string>`${ATTEMPT_ACTION}`.as("action"),
 					resourceType: sql<string>`${RESOURCE}`.as("resource_type"),
 					resourceId: c.terminalEventId,
-					// Epoch seconds, bound raw like the column's stored form.
-					timestamp: sql<Date>`${Math.floor(now.getTime() / 1000)}`.as(
-						"timestamp",
-					),
+					// Bind each store's physical timestamp representation.
+					timestamp: (coreStore(db) === "postgres"
+						? sql<Date>`to_timestamp(${Math.floor(now.getTime() / 1000)})`
+						: sql<Date>`${Math.floor(now.getTime() / 1000)}`
+					).as("timestamp"),
 				})
 				.from(c)
 				.where(

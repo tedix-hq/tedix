@@ -1,15 +1,17 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, exists, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbClient } from "../client";
-import { appConfigVersions } from "../schema/app-config-versions";
-import { apps } from "../schema/apps";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
+import { appConfigVersions as schemaAppConfigVersions } from "../schema/app-config-versions";
+import { apps as schemaApps } from "../schema/apps";
 import type { AppConfigVersion } from "../schema/app-config-versions";
-import { getAffectedRows } from "../utils/d1-result";
 
 export async function listAppConfigVersions(
 	db: DbClient,
 	appId: string,
 ): Promise<AppConfigVersion[]> {
+	const appConfigVersions = coreTable(db, schemaAppConfigVersions);
 	return db
 		.select()
 		.from(appConfigVersions)
@@ -29,44 +31,47 @@ export async function createAppConfigVersion(
 		changeSummary?: string | null;
 	},
 ): Promise<AppConfigVersion> {
+	const apps = coreTable(db, schemaApps);
+	const appConfigVersions = coreTable(db, schemaAppConfigVersions);
 	const now = new Date().toISOString();
 	const id = crypto.randomUUID();
-
-	// Allocate inside the write; D1 serializes the insert and counter update
-	// together, and rolls back the draft if either statement fails.
-	const [createdRows] = await db.batch([
-		db
-			.insert(appConfigVersions)
-			.values({
-				id,
-				appId: input.appId,
-				version: sql<number>`(
-					select max(
-						coalesce(max(${appConfigVersions.version}), 0),
-						coalesce((select ${apps.latestConfigVersion} from ${apps}
-							where ${apps.id} = ${input.appId}), 0)
-					) + 1
-					from ${appConfigVersions}
-					where ${appConfigVersions.appId} = ${input.appId}
-				)`,
-				status: "draft",
-				config: input.config,
-				createdBy: input.createdBy ?? null,
-				changeSummary: input.changeSummary ?? null,
-				createdAt: now,
-				updatedAt: now,
-			})
-			.returning(),
-		db
-			.update(apps)
-			.set({
-				latestConfigVersion: sql<number>`(select ${appConfigVersions.version}
-					from ${appConfigVersions} where ${appConfigVersions.id} = ${id})`,
-				updatedAt: now,
-			})
-			.where(eq(apps.id, input.appId)),
-	]);
-
+	const postgres = coreStore(db) === "postgres";
+	const maximum = postgres ? sql`greatest` : sql`max`;
+	const nextVersion = sql<number>`(${maximum}(
+		coalesce((select max(${appConfigVersions.version}) from ${appConfigVersions}
+			where ${appConfigVersions.appId} = ${input.appId}), 0),
+		coalesce(${apps.latestConfigVersion}, 0)) + 1)`;
+	const insert = db
+		.insert(appConfigVersions)
+		.values({
+			id,
+			appId: input.appId,
+			version: postgres
+				? sql`(select ${apps.latestConfigVersion} from ${apps} where ${apps.id} = ${input.appId})`
+				: sql`(select ${nextVersion} from ${apps} where ${apps.id} = ${input.appId})`,
+			status: "draft",
+			config: input.config,
+			createdBy: input.createdBy ?? null,
+			changeSummary: input.changeSummary ?? null,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.returning();
+	// Lock the parent before allocating on Postgres, so concurrent creators use
+	// the updated counter. Both statements share one atomic protocol batch.
+	const counter = db
+		.update(apps)
+		.set({
+			latestConfigVersion: postgres
+				? nextVersion
+				: sql<number>`(select ${appConfigVersions.version}
+			from ${appConfigVersions} where ${appConfigVersions.id} = ${id})`,
+			updatedAt: now,
+		})
+		.where(eq(apps.id, input.appId));
+	const createdRows = postgres
+		? (await db.batch([counter, insert]))[1]
+		: (await db.batch([insert, counter]))[0];
 	const created = createdRows[0];
 	if (!created) throw new Error(`Failed to create app config version: ${id}`);
 	return created;
@@ -80,9 +85,9 @@ export async function publishAppConfigVersion(
 		publishedBy?: string | null;
 	},
 ): Promise<AppConfigVersion> {
+	const appConfigVersions = coreTable(db, schemaAppConfigVersions);
 	const now = new Date().toISOString();
-
-	const result = await db
+	const [updated] = await db
 		.update(appConfigVersions)
 		.set({
 			status: "published",
@@ -95,17 +100,12 @@ export async function publishAppConfigVersion(
 				eq(appConfigVersions.id, input.versionId),
 				eq(appConfigVersions.appId, input.appId),
 			),
-		);
-
-	const changes = getAffectedRows(result);
-	if (changes === 0) {
+		)
+		.returning();
+	if (!updated)
 		throw new Error(
 			`Config version not found for app publish: appId=${input.appId} versionId=${input.versionId}`,
 		);
-	}
-
-	const updated = await getAppConfigVersionById(db, input.versionId);
-	if (!updated) throw new Error(`Config version not found: ${input.versionId}`);
 	return updated;
 }
 
@@ -117,58 +117,43 @@ export async function activateAppConfigVersion(
 		activatedBy?: string | null;
 	},
 ): Promise<AppConfigVersion> {
+	const apps = coreTable(db, schemaApps);
+	const appConfigVersions = coreTable(db, schemaAppConfigVersions);
 	const now = new Date().toISOString();
-
-	const versionResult = await db
-		.update(appConfigVersions)
-		.set({
-			activatedAt: now,
-			activatedBy: input.activatedBy ?? null,
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(appConfigVersions.id, input.versionId),
-				eq(appConfigVersions.appId, input.appId),
-				eq(appConfigVersions.status, "published"),
+	const published = and(
+		eq(appConfigVersions.id, input.versionId),
+		eq(appConfigVersions.appId, input.appId),
+		eq(appConfigVersions.status, "published"),
+	);
+	const [versions] = await db.batch([
+		db
+			.update(appConfigVersions)
+			.set({
+				activatedAt: now,
+				activatedBy: input.activatedBy ?? null,
+				updatedAt: now,
+			})
+			.where(published)
+			.returning(),
+		db
+			.update(apps)
+			.set({ activeConfigVersionId: input.versionId, updatedAt: now })
+			.where(
+				and(
+					eq(apps.id, input.appId),
+					exists(
+						db
+							.select({ id: appConfigVersions.id })
+							.from(appConfigVersions)
+							.where(published),
+					),
+				),
 			),
-		);
-
-	const versionChanges = getAffectedRows(versionResult);
-	if (versionChanges === 0) {
+	]);
+	const updated = versions[0];
+	if (!updated)
 		throw new Error(
 			`Config version must exist and be published before activation: appId=${input.appId} versionId=${input.versionId}`,
 		);
-	}
-
-	const appResult = await db
-		.update(apps)
-		.set({
-			activeConfigVersionId: input.versionId,
-			updatedAt: now,
-		})
-		.where(eq(apps.id, input.appId));
-
-	const appChanges = getAffectedRows(appResult);
-	if (appChanges === 0) {
-		throw new Error(
-			`App not found for config activation: appId=${input.appId}`,
-		);
-	}
-
-	const updated = await getAppConfigVersionById(db, input.versionId);
-	if (!updated) throw new Error(`Config version not found: ${input.versionId}`);
 	return updated;
-}
-
-async function getAppConfigVersionById(
-	db: DbClient,
-	id: string,
-): Promise<AppConfigVersion | undefined> {
-	const rows = await db
-		.select()
-		.from(appConfigVersions)
-		.where(eq(appConfigVersions.id, id))
-		.limit(1);
-	return rows[0];
 }

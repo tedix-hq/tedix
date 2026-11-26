@@ -3,11 +3,12 @@
  * CRUD operations for encrypted app-level API keys and credentials
  */
 
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
 import {
 	type AppSecret,
-	appSecrets,
+	appSecrets as schemaAppSecrets,
 	type NewAppSecret,
 } from "../schema/app-secrets";
 
@@ -33,6 +34,7 @@ export async function listAppSecrets(
 		updatedAt: string;
 	}>
 > {
+	const appSecrets = coreTable(db, schemaAppSecrets);
 	const results = await db
 		.select({
 			id: appSecrets.id,
@@ -84,17 +86,19 @@ export async function createAppSecret(
 	db: DbClient,
 	data: Omit<NewAppSecret, "id" | "createdAt" | "updatedAt">,
 ): Promise<AppSecret> {
+	const appSecrets = coreTable(db, schemaAppSecrets);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
-	await db.insert(appSecrets).values({
-		id,
-		...data,
-		createdAt: now,
-		updatedAt: now,
-	});
-
-	const created = await getAppSecretById(db, id);
+	const [created] = await db
+		.insert(appSecrets)
+		.values({
+			id,
+			...data,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.returning();
 	if (!created) {
 		throw new Error("Failed to create app secret");
 	}
@@ -114,22 +118,20 @@ export async function updateAppSecret(
 		keyVersion?: number;
 	},
 ): Promise<AppSecret | undefined> {
-	const existing = await getAppSecretById(db, secretId);
-	if (!existing) {
-		return undefined;
-	}
+	const appSecrets = coreTable(db, schemaAppSecrets);
 
 	const now = new Date().toISOString();
 
-	await db
+	const [updated] = await db
 		.update(appSecrets)
 		.set({
 			...updates,
 			updatedAt: now,
 		})
-		.where(eq(appSecrets.id, secretId));
+		.where(eq(appSecrets.id, secretId))
+		.returning();
 
-	return getAppSecretById(db, secretId);
+	return updated;
 }
 
 /**
@@ -139,12 +141,10 @@ export async function deleteAppSecret(
 	db: DbClient,
 	secretId: string,
 ): Promise<boolean> {
-	const existing = await getAppSecretById(db, secretId);
-	if (!existing) {
-		return false;
-	}
-
-	await db.delete(appSecrets).where(eq(appSecrets.id, secretId));
-
-	return true;
+	const appSecrets = coreTable(db, schemaAppSecrets);
+	const deleted = await db
+		.delete(appSecrets)
+		.where(eq(appSecrets.id, secretId))
+		.returning({ id: appSecrets.id });
+	return deleted.length > 0;
 }

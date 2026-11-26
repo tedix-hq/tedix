@@ -6,10 +6,11 @@
  * Used by the unified MCP engine to dynamically configure data sources per app.
  */
 
-import { and, desc, eq, asc } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
 import type { AppAdapter, NewAppAdapter } from "../schema/adapters";
-import { appAdapters } from "../schema/adapters";
+import { appAdapters as schemaAppAdapters } from "../schema/adapters";
 
 // ============================================================================
 // Read Operations
@@ -26,11 +27,15 @@ export async function getAdaptersByAppId(
 	db: DbClient,
 	appId: string,
 ): Promise<AppAdapter[]> {
+	const appAdapters = coreTable(db, schemaAppAdapters);
 	return db
 		.select()
 		.from(appAdapters)
 		.where(eq(appAdapters.appId, appId))
-		.orderBy(desc(appAdapters.priority), asc(appAdapters.createdAt));
+		.orderBy(
+			sql`${appAdapters.priority} DESC NULLS LAST`,
+			sql`${appAdapters.createdAt} ASC NULLS FIRST`,
+		);
 }
 
 /**
@@ -57,11 +62,15 @@ export async function getEnabledAdapters(
 	db: DbClient,
 	appId: string,
 ): Promise<AppAdapter[]> {
+	const appAdapters = coreTable(db, schemaAppAdapters);
 	return db
 		.select()
 		.from(appAdapters)
 		.where(and(eq(appAdapters.appId, appId), eq(appAdapters.enabled, true)))
-		.orderBy(desc(appAdapters.priority), asc(appAdapters.createdAt));
+		.orderBy(
+			sql`${appAdapters.priority} DESC NULLS LAST`,
+			sql`${appAdapters.createdAt} ASC NULLS FIRST`,
+		);
 }
 
 /**
@@ -94,45 +103,25 @@ export async function upsertAdapter(
 	db: DbClient,
 	adapter: Omit<NewAppAdapter, "id"> & { id?: string },
 ): Promise<AppAdapter> {
+	const appAdapters = coreTable(db, schemaAppAdapters);
 	const now = new Date().toISOString();
 
-	// If ID provided, check if adapter exists
-	if (adapter.id) {
-		const existing = await getAdapterById(db, adapter.id);
-
-		if (existing) {
-			// Update existing adapter
-			await db
-				.update(appAdapters)
-				.set({
-					...adapter,
-					updatedAt: now,
-				})
-				.where(eq(appAdapters.id, adapter.id));
-
-			const updated = await getAdapterById(db, adapter.id);
-			if (!updated) {
-				throw new Error(`Failed to update adapter: ${adapter.id}`);
-			}
-			return updated;
-		}
-	}
-
-	// Create new adapter
 	const id = adapter.id || crypto.randomUUID();
-
-	await db.insert(appAdapters).values({
-		...adapter,
-		id,
-		createdAt: now,
-		updatedAt: now,
-	});
-
-	const created = await getAdapterById(db, id);
-	if (!created) {
-		throw new Error(`Failed to create adapter: ${id}`);
-	}
-	return created;
+	const [stored] = await db
+		.insert(appAdapters)
+		.values({
+			...adapter,
+			id,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.onConflictDoUpdate({
+			target: appAdapters.id,
+			set: { ...adapter, updatedAt: now },
+		})
+		.returning();
+	if (!stored) throw new Error(`Failed to save adapter: ${id}`);
+	return stored;
 }
 
 /**
@@ -145,6 +134,7 @@ export async function deleteAdapter(
 	db: DbClient,
 	adapterId: string,
 ): Promise<void> {
+	const appAdapters = coreTable(db, schemaAppAdapters);
 	await db.delete(appAdapters).where(eq(appAdapters.id, adapterId));
 }
 
@@ -160,6 +150,7 @@ export async function toggleAdapterEnabled(
 	adapterId: string,
 	enabled: boolean,
 ): Promise<void> {
+	const appAdapters = coreTable(db, schemaAppAdapters);
 	const now = new Date().toISOString();
 
 	await db
@@ -184,6 +175,7 @@ export async function updateAdapterPriority(
 	adapterId: string,
 	priority: number,
 ): Promise<void> {
+	const appAdapters = coreTable(db, schemaAppAdapters);
 	const now = new Date().toISOString();
 
 	await db

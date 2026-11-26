@@ -7,21 +7,19 @@
  * @module @tedix/db/queries/app-adapter-secret-bindings
  */
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { anyIds } from "../core-store/dialect";
 import {
 	type AppAdapterSecretBinding,
-	appAdapterSecretBindings,
+	appAdapterSecretBindings as schemaAppAdapterSecretBindings,
 	type SafeBindingMetadata,
 	type SecretScope,
 } from "../schema/app-adapter-secret-bindings";
-import { appSecrets } from "../schema/app-secrets";
-import { organizationSecrets } from "../schema/organization-secrets";
-import { chunkForBoundParams } from "../utils/batch";
+import { appSecrets as schemaAppSecrets } from "../schema/app-secrets";
+import { organizationSecrets as schemaOrganizationSecrets } from "../schema/organization-secrets";
 import { prefixedColumns } from "../utils/select";
-
-/** D1 caps bound parameters at 100 per statement; keep IN() lists ≤50. */
-const D1_IN_LIST_CHUNK = 50;
 
 // =============================================================================
 // READ OPERATIONS
@@ -38,6 +36,12 @@ export async function listBindingsForAdapter(
 	db: DbClient,
 	adapterId: string,
 ): Promise<SafeBindingMetadata[]> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
+	const appSecrets = coreTable(db, schemaAppSecrets);
+	const organizationSecrets = coreTable(db, schemaOrganizationSecrets);
 	// Query bindings with left joins to get secret metadata.
 	//
 	// The two secrets tables both have `name` and `hint`, and an unaliased
@@ -107,6 +111,12 @@ export async function listBindingsForApp(
 	db: DbClient,
 	appId: string,
 ): Promise<SafeBindingMetadata[]> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
+	const appSecrets = coreTable(db, schemaAppSecrets);
+	const organizationSecrets = coreTable(db, schemaOrganizationSecrets);
 	// Prefixed, not bare: `app_secrets` and `organization_secrets` both expose
 	// `name` and `hint`, so the select list emitted each of those names twice, D1
 	// collapsed the pairs, and an app-scoped binding decoded the org join's NULLs
@@ -173,23 +183,24 @@ export async function getBindingsBatch(
 	db: DbClient,
 	adapterIds: string[],
 ): Promise<Map<string, AppAdapterSecretBinding[]>> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
 	if (adapterIds.length === 0) return new Map();
 
 	// Group by adapter ID
 	const map = new Map<string, AppAdapterSecretBinding[]>();
-	for (const chunk of chunkForBoundParams(
-		[...new Set(adapterIds)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		const bindings = await db
-			.select()
-			.from(appAdapterSecretBindings)
-			.where(inArray(appAdapterSecretBindings.adapterId, chunk));
-		for (const binding of bindings) {
-			const existing = map.get(binding.adapterId) || [];
-			existing.push(binding);
-			map.set(binding.adapterId, existing);
-		}
+	const bindings = await db
+		.select()
+		.from(appAdapterSecretBindings)
+		.where(
+			anyIds(db, appAdapterSecretBindings.adapterId, [...new Set(adapterIds)]),
+		);
+	for (const binding of bindings) {
+		const existing = map.get(binding.adapterId) || [];
+		existing.push(binding);
+		map.set(binding.adapterId, existing);
 	}
 
 	return map;
@@ -205,6 +216,10 @@ export async function getBindingById(
 	db: DbClient,
 	bindingId: string,
 ): Promise<AppAdapterSecretBinding | undefined> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
 	const rows = await db
 		.select()
 		.from(appAdapterSecretBindings)
@@ -225,6 +240,10 @@ async function getBindingByPath(
 	adapterId: string,
 	configPath: string,
 ): Promise<AppAdapterSecretBinding | undefined> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
 	const rows = await db
 		.select()
 		.from(appAdapterSecretBindings)
@@ -261,6 +280,10 @@ export async function setBinding(
 	secretId: string,
 	secretScope: SecretScope,
 ): Promise<AppAdapterSecretBinding> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
 	const now = new Date().toISOString();
 
 	const [binding] = await db
@@ -301,6 +324,10 @@ export async function deleteBinding(
 	db: DbClient,
 	bindingId: string,
 ): Promise<boolean> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
 	const existing = await getBindingById(db, bindingId);
 	if (!existing) {
 		return false;
@@ -327,6 +354,10 @@ export async function deleteBindingByPath(
 	adapterId: string,
 	configPath: string,
 ): Promise<boolean> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
 	const existing = await getBindingByPath(db, adapterId, configPath);
 	if (!existing) {
 		return false;
@@ -356,6 +387,10 @@ export async function listAdaptersUsingSecret(
 	secretId: string,
 	secretScope: SecretScope,
 ): Promise<string[]> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
 	const results = await db
 		.select({ adapterId: appAdapterSecretBindings.adapterId })
 		.from(appAdapterSecretBindings)
@@ -380,6 +415,10 @@ export async function getUniqueSecretIds(
 	db: DbClient,
 	adapterIds: string[],
 ): Promise<{ appSecretIds: string[]; orgSecretIds: string[] }> {
+	const appAdapterSecretBindings = coreTable(
+		db,
+		schemaAppAdapterSecretBindings,
+	);
 	if (adapterIds.length === 0) {
 		return { appSecretIds: [], orgSecretIds: [] };
 	}
@@ -387,24 +426,21 @@ export async function getUniqueSecretIds(
 	const appSecretIds = new Set<string>();
 	const orgSecretIds = new Set<string>();
 
-	for (const chunk of chunkForBoundParams(
-		[...new Set(adapterIds)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		const bindings = await db
-			.select({
-				secretId: appAdapterSecretBindings.secretId,
-				secretScope: appAdapterSecretBindings.secretScope,
-			})
-			.from(appAdapterSecretBindings)
-			.where(inArray(appAdapterSecretBindings.adapterId, chunk));
+	const bindings = await db
+		.select({
+			secretId: appAdapterSecretBindings.secretId,
+			secretScope: appAdapterSecretBindings.secretScope,
+		})
+		.from(appAdapterSecretBindings)
+		.where(
+			anyIds(db, appAdapterSecretBindings.adapterId, [...new Set(adapterIds)]),
+		);
 
-		for (const binding of bindings) {
-			if (binding.secretScope === "app") {
-				appSecretIds.add(binding.secretId);
-			} else if (binding.secretScope === "organization") {
-				orgSecretIds.add(binding.secretId);
-			}
+	for (const binding of bindings) {
+		if (binding.secretScope === "app") {
+			appSecretIds.add(binding.secretId);
+		} else if (binding.secretScope === "organization") {
+			orgSecretIds.add(binding.secretId);
 		}
 	}
 
@@ -439,27 +475,18 @@ export async function fetchAppSecretsForHydration(
 	appId: string,
 	secretIds: string[],
 ): Promise<EncryptedSecretRecord[]> {
+	const appSecrets = coreTable(db, schemaAppSecrets);
 	if (secretIds.length === 0) return [];
 
-	const secrets: EncryptedSecretRecord[] = [];
-	for (const chunk of chunkForBoundParams(
-		[...new Set(secretIds)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		secrets.push(
-			...(await db
-				.select({
-					id: appSecrets.id,
-					encryptedValue: appSecrets.encryptedValue,
-				})
-				.from(appSecrets)
-				.where(
-					and(eq(appSecrets.appId, appId), inArray(appSecrets.id, chunk)),
-				)),
+	return db
+		.select({ id: appSecrets.id, encryptedValue: appSecrets.encryptedValue })
+		.from(appSecrets)
+		.where(
+			and(
+				eq(appSecrets.appId, appId),
+				anyIds(db, appSecrets.id, [...new Set(secretIds)]),
+			),
 		);
-	}
-
-	return secrets;
 }
 
 /**
@@ -475,28 +502,19 @@ export async function fetchOrgSecretsForHydration(
 	orgId: string,
 	secretIds: string[],
 ): Promise<EncryptedSecretRecord[]> {
+	const organizationSecrets = coreTable(db, schemaOrganizationSecrets);
 	if (secretIds.length === 0) return [];
 
-	const secrets: EncryptedSecretRecord[] = [];
-	for (const chunk of chunkForBoundParams(
-		[...new Set(secretIds)],
-		D1_IN_LIST_CHUNK,
-	)) {
-		secrets.push(
-			...(await db
-				.select({
-					id: organizationSecrets.id,
-					encryptedValue: organizationSecrets.encryptedValue,
-				})
-				.from(organizationSecrets)
-				.where(
-					and(
-						eq(organizationSecrets.organizationId, orgId),
-						inArray(organizationSecrets.id, chunk),
-					),
-				)),
+	return db
+		.select({
+			id: organizationSecrets.id,
+			encryptedValue: organizationSecrets.encryptedValue,
+		})
+		.from(organizationSecrets)
+		.where(
+			and(
+				eq(organizationSecrets.organizationId, orgId),
+				anyIds(db, organizationSecrets.id, [...new Set(secretIds)]),
+			),
 		);
-	}
-
-	return secrets;
 }
