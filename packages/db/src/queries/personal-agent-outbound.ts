@@ -6,6 +6,7 @@ import {
 	exists,
 	gt,
 	gte,
+	inArray,
 	isNotNull,
 	isNull,
 	lt,
@@ -40,11 +41,14 @@ import {
 import {
 	workEvents as d1WorkEvents,
 	workEvidence,
-	workEvidenceVerifications,
 	workItemComments as d1WorkItemComments,
-	workItemCorroborations,
 	workItems,
 } from "../schema/work-items";
+
+import {
+	currentConfirmationEvent,
+	observationEvent,
+} from "./work-items/observation-ledger";
 
 export interface PersonalAgentOutcomeSource {
 	orgId: string;
@@ -131,82 +135,140 @@ function activeEnrollment(db: object, userId: string, key: string) {
 	);
 }
 
-/** Existing response/verification ledgers are the backlog; no second queue. */
+/** Existing response/observation event ledgers are the backlog; no second queue. */
 export function listPersonalAgentOutcomeSources(
 	db: DbQueryClient,
 	limit = 50,
 ): Promise<PersonalAgentOutcomeSource[]> {
 	const { w, cfg, i, r, o } = outboundAliases(db);
-	const v = outboundAlias(db, workEvidenceVerifications, "v");
+	const v = outboundAlias(db, d1WorkEvents, "v");
 	const e = outboundAlias(db, workEvidence, "e");
-	const c = outboundAlias(db, workItemCorroborations, "c");
+	const c = outboundAlias(db, d1WorkEvents, "c");
+	const enrolledOrgs = db
+		.select({ orgId: jsonRead(db, cfg.value, ["orgId"]).as("org_id") })
+		.from(cfg)
+		.where(
+			and(
+				eq(cfg.namespace, ENROLLMENT_NAMESPACE),
+				enrollmentActive(db, cfg.value),
+			),
+		);
 	const observations = db.$with("observations").as(
 		db
 			.select({
-				id: sql<string>`${v.id}`.as("id"),
+				id: sql<string>`${jsonRead(db, v.payload, ["record", "id"])}`.as("id"),
 				orgId: sql<string>`${v.orgId}`.as("org_id"),
 				workItemId: sql<string>`${v.workItemId}`.as("work_item_id"),
-				evidenceId: sql<string | null>`${v.evidenceId}`.as("evidence_id"),
+				evidenceId: sql<
+					string | null
+				>`${jsonRead(db, v.payload, ["record", "evidenceId"])}`.as(
+					"evidence_id",
+				),
 				evidenceUri: sql<string | null>`${e.uri}`.as("evidence_uri"),
 				evidenceVersion: sql<string | null>`cast(${e.version} AS TEXT)`.as(
 					"evidence_version",
 				),
-				observationSource: sql<string>`${v.source}`.as("observation_source"),
-				observerType: sql<string>`${v.verifierType}`.as("observer_type"),
-				observerId: sql<string>`${v.verifierId}`.as("observer_id"),
+				observationSource:
+					sql<string>`${jsonRead(db, v.payload, ["record", "source"])}`.as(
+						"observation_source",
+					),
+				observerType:
+					sql<string>`${jsonRead(db, v.payload, ["record", "verifierType"])}`.as(
+						"observer_type",
+					),
+				observerId:
+					sql<string>`${jsonRead(db, v.payload, ["record", "verifierId"])}`.as(
+						"observer_id",
+					),
 				observationState:
-					sql<string>`CASE WHEN ${v.matchesClaim}=${booleanValue(db, false)} THEN 'contradicted'
-				 WHEN ${e.version}=1 OR ${jsonRead(db, v.claimed, ["evidenceVersion"])}=cast(${e.version} AS TEXT) THEN 'verified' ELSE 'unverified' END`.as(
+					sql<string>`CASE WHEN ${jsonRead(db, v.payload, ["record", "matchesClaim"], "boolean")}=${booleanValue(db, false)} THEN 'contradicted'
+				 WHEN ${e.version}=1 OR ${jsonRead(db, v.payload, ["record", "claimed", "evidenceVersion"])}=cast(${e.version} AS TEXT) THEN 'verified' ELSE 'unverified' END`.as(
 						"observation_state",
 					),
 				matchesClaim:
-					sql<number>`CASE WHEN ${v.matchesClaim}=${booleanValue(db, true)} THEN 1 ELSE 0 END`.as(
+					sql<number>`CASE WHEN ${jsonRead(db, v.payload, ["record", "matchesClaim"], "boolean")}=${booleanValue(db, true)} THEN 1 ELSE 0 END`.as(
 						"matches_claim",
 					),
-				observedAt: sql<string>`${v.observedAt}`.as("observed_at"),
+				deliveryRevision: sql<string | null>`NULL`.as("delivery_revision"),
+				observedAt:
+					sql<string>`${jsonRead(db, v.payload, ["record", "observedAt"])}`.as(
+						"observed_at",
+					),
 			})
 			.from(v)
 			.innerJoin(
 				e,
 				and(
 					eq(e.orgId, v.orgId),
-					eq(e.id, v.evidenceId),
+					sql`${e.id}=${jsonRead(db, v.payload, ["record", "evidenceId"])}`,
 					eq(e.workItemId, v.workItemId),
+				),
+			)
+			.where(
+				and(
+					inArray(v.orgId, enrolledOrgs),
+					observationEvent(db, v, "verification"),
 				),
 			)
 			.unionAll(
 				db
 					.select({
-						id: sql<string>`${c.id}`.as("id"),
+						id: sql<string>`${jsonRead(db, c.payload, ["record", "id"])}`.as(
+							"id",
+						),
 						orgId: sql<string>`${c.orgId}`.as("org_id"),
 						workItemId: sql<string>`${c.workItemId}`.as("work_item_id"),
 						evidenceId: sql<string | null>`NULL`.as("evidence_id"),
-						evidenceUri: sql<string | null>`${c.evidenceRef}`.as(
+						evidenceUri: sql<
+							string | null
+						>`${jsonRead(db, c.payload, ["record", "evidenceRef"])}`.as(
 							"evidence_uri",
 						),
-						evidenceVersion: sql<string | null>`${c.occurredAt}`.as(
+						evidenceVersion: sql<
+							string | null
+						>`${jsonRead(db, c.payload, ["record", "occurredAt"])}`.as(
 							"evidence_version",
 						),
 						observationSource: sql<string>`'work_confirmation'`.as(
 							"observation_source",
 						),
-						observerType: sql<string>`${c.principalType}`.as("observer_type"),
-						observerId: sql<string>`${c.principalId}`.as("observer_id"),
+						observerType:
+							sql<string>`${jsonRead(db, c.payload, ["record", "principalType"])}`.as(
+								"observer_type",
+							),
+						observerId:
+							sql<string>`${jsonRead(db, c.payload, ["record", "principalId"])}`.as(
+								"observer_id",
+							),
 						observationState:
-							sql<string>`CASE WHEN ${c.stance}='corroborates' THEN 'corroborated' ELSE 'contradicted' END`.as(
+							sql<string>`CASE WHEN ${jsonRead(db, c.payload, ["record", "stance"])}='corroborates' THEN 'corroborated' ELSE 'contradicted' END`.as(
 								"observation_state",
 							),
 						matchesClaim:
-							sql<number>`CASE WHEN ${c.stance}='corroborates' THEN 1 ELSE 0 END`.as(
+							sql<number>`CASE WHEN ${jsonRead(db, c.payload, ["record", "stance"])}='corroborates' THEN 1 ELSE 0 END`.as(
 								"matches_claim",
 							),
-						observedAt: sql<string>`${c.occurredAt}`.as("observed_at"),
+						deliveryRevision: sql<
+							string | null
+						>`${jsonRead(db, c.payload, ["deliveryRevision"])}`.as(
+							"delivery_revision",
+						),
+						observedAt:
+							sql<string>`${jsonRead(db, c.payload, ["record", "occurredAt"])}`.as(
+								"observed_at",
+							),
 					})
-					.from(c),
+					.from(c)
+					.where(
+						and(
+							inArray(c.orgId, enrolledOrgs),
+							currentConfirmationEvent(db, c),
+						),
+					),
 			),
 	);
 	const newer = outboundAlias(db, workInteractionResponses, "newer");
-	const observationKey = sql`coalesce(${observations.id} || ':' || ${observations.observedAt} || ':' || ${observations.matchesClaim} || ':' || ${observations.evidenceVersion},'decision')`;
+	const observationKey = sql`coalesce(${observations.id} || ':' || ${observations.observedAt} || ':' || ${observations.matchesClaim} || ':' || ${observations.evidenceVersion} || coalesce(':' || ${observations.deliveryRevision}, ''),'decision')`;
 	return db
 		.with(observations)
 		.select({

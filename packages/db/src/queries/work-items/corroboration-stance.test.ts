@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { addWorkItemCorroboration } from "./comments";
@@ -15,14 +15,12 @@ const ORG = "org-1";
 const ITEM = "item-1";
 
 const DDL = `
-CREATE TABLE work_item_corroborations (
- id TEXT PRIMARY KEY, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL,
- principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, session_id TEXT,
- evidence_ref TEXT NOT NULL,
- stance TEXT NOT NULL DEFAULT 'corroborates',
- body TEXT NOT NULL, occurred_at TEXT NOT NULL,
- created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
- UNIQUE (org_id, work_item_id, principal_type, principal_id));
+CREATE TABLE work_events (
+ sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+ org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, project_id TEXT, objective_id TEXT,
+ attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL,
+ actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL,
+ occurred_at TEXT NOT NULL);
 `;
 
 let sqlite: DatabaseSync;
@@ -33,6 +31,8 @@ beforeEach(() => {
 	sqlite.exec(DDL);
 	db = createDbQueryClient(createD1Facade(sqlite));
 });
+
+afterEach(() => sqlite.close());
 
 function row(overrides: Record<string, unknown> = {}) {
 	return {
@@ -49,23 +49,6 @@ function row(overrides: Record<string, unknown> = {}) {
 }
 
 describe("corroboration stance", () => {
-	it("defaults to corroborates, which is what every pre-stance row meant", async () => {
-		const { corroboration, inserted } = await addWorkItemCorroboration(
-			db,
-			row(),
-		);
-		expect(inserted).toBe(true);
-		expect(corroboration.stance).toBe("corroborates");
-	});
-
-	it("records a contradiction, so the plane can detect and not only agree", async () => {
-		const { corroboration } = await addWorkItemCorroboration(
-			db,
-			row({ stance: "contradicts", body: "the settled claim does not hold" }),
-		);
-		expect(corroboration.stance).toBe("contradicts");
-	});
-
 	it("keeps one row per principal — stance is not part of dedup", async () => {
 		// A principal that agreed and then changed its mind must not count twice;
 		// the ledger's whole value is that a stable principal counts once.
@@ -153,6 +136,29 @@ describe("corroboration stance", () => {
 		});
 	});
 
+	it("rejects a concurrent correction based on a stale history revision", async () => {
+		await addWorkItemCorroboration(db, row());
+		const results = await Promise.allSettled([
+			addWorkItemCorroboration(
+				db,
+				row({ stance: "contradicts", body: "First correction" }),
+			),
+			addWorkItemCorroboration(
+				db,
+				row({ stance: "contradicts", body: "Other correction" }),
+			),
+		]);
+		expect(
+			results.filter((result) => result.status === "fulfilled"),
+		).toHaveLength(1);
+		expect(
+			results.find((result) => result.status === "rejected"),
+		).toMatchObject({ reason: { code: "CONFLICT" } });
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM work_events").get(),
+		).toEqual({ n: 2 });
+	});
+
 	it("counts a different principal separately", async () => {
 		await addWorkItemCorroboration(db, row());
 		const other = await addWorkItemCorroboration(
@@ -169,6 +175,7 @@ describe("corroboration stance", () => {
 			{ orgId: "org-2" },
 			{ workItemId: "item-2" },
 			{ principalType: "user" as const },
+			{ principalType: "organization" as const },
 			{ principalId: "agent-b" },
 		]) {
 			const result = await addWorkItemCorroboration(db, row(override));

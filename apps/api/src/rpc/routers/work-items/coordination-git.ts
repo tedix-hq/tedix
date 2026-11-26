@@ -115,7 +115,7 @@ export const corroborateProcedure = authOs.corroborate.handler(
 export const listCorroborationsProcedure = authOs.listCorroborations.handler(
 	async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
-		return listWorkItemCorroborations(context.db, workItem.id);
+		return listWorkItemCorroborations(context.db, workItem.orgId, workItem.id);
 	},
 );
 

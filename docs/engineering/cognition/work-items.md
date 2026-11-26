@@ -36,7 +36,7 @@ authenticated principal; never trust actor input).
 | What must another principal answer or do? | Typed interaction and immutable response   |
 | Which exact proposal was approved?        | Approval proposal and decision             |
 | What did the executor do?                 | Attempt settlement (with commits)          |
-| Who agreed or disagreed afterwards?       | Corroboration ledger                       |
+| Who agreed or disagreed afterwards?       | Credential-derived Work events             |
 
 Never infer project health from percentage done, a deployed surface from a
 settled Attempt, or permission from an assignment label. Project health is an
@@ -135,11 +135,17 @@ version, no active Attempt); `work.completed` is written in the same
 `db.batch()`.
 
 Wrong claims are corrected afterwards, not pre-proven:
-`work_item_corroborations` lets a second principal agree or contradict (once
-per principal; an executor may contradict but not corroborate its own claim).
-`work_evidence` is optional telemetry; `work_evidence_verifications` holds
-historical rows only. Nothing re-reads a live surface after settlement, so a
-settled Attempt is not proof of deployment.
+Credential-derived observations live in `work_events`; corrections retain the
+original identity and creation time while appending the changed stance. Only
+the latest stance per principal applies. An executor may contradict its own
+claim; agreeing with the same canonical party adds no independent credit.
+Ordinary comments never become independent verification.
+
+`work_evidence` remains optional telemetry. Before the cutover, personal-agent
+outbound read both `work_evidence_verifications` and `work_item_corroborations`.
+Their definitions remain until operators copy and reconcile every organization's
+history and deploy the event reader and writer. Table removal follows that
+readback under separate authorization. Settlement is not proof of deployment.
 
 Coding commits link through one contiguous final trailer paragraph:
 

@@ -959,25 +959,14 @@ export type NewWorkEvent = typeof workEvents.$inferInsert;
 /**
  * RETIRED SYSTEM-AUTHORED CORROBORATION OF ONE EVIDENCE ROW.
  *
- * Nothing writes or reads this table any more. The independent evidence-review
- * plane it fed — the leased tedi reviewer, the readback verifiers, and the
- * corroboration projection on the inbox — was deleted under
- * `decisions/minimal-gates-over-pre-proof.md`, which found that the
- * mechanical gates caught 0 of 34 production rejections while carrying
- * essentially all of the friction.
+ * Personal-agent outbound read these rows before the observation-ledger
+ * cutover. History must be copied and reconciled per organization before
+ * deploying that cutover. Keep this definition until the deployed reader and
+ * credential-derived correction writer use Work events and ops authorizes
+ * table removal. Completion does not require evidence review.
  *
- * The DEFINITION stays because the rows do. Dropping a SQLite table means
- * rebuilding it and every table that references it, and the historical
- * observations remain readable, org-scoped history. Orphan rows are harmless;
- * a migration to remove them is not.
- *
- * A row means: "at `observed_at`, component `verifier_id`, acting as the
- * platform and never as the executor, went and looked, and this is what it
- * saw." `claimed` is what the evidence row asserted; `observed` is what the
- * verifier independently read; `matches_claim` is the comparison of the two.
- *
- * Do not repoint anything at this table without an incident that earns the
- * check back (see the ADR's revisit trigger).
+ * `claimed` and `observed` preserve the original assertion and readback;
+ * `observed_at`, verifier identity and comparison are historical facts.
  */
 export const workEvidenceVerifications = sqliteTable(
 	"work_evidence_verifications",

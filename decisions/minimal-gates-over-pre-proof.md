@@ -63,8 +63,8 @@ claim's truth.
    Completion requires no evidence count or separate evidence review. Legacy
    acceptance-contract fields stay parseable so existing items deserialize, but
    nothing consults them. A wrong claim is corrected when noticed: a second
-   principal records a contradiction in `work_item_corroborations`
-   (`packages/db/src/schema/work-items.ts`).
+   principal records a credential-derived contradiction in Work history
+   (`packages/db/src/queries/work-items/comments.ts`).
 7. **A record earns its place only if something reads it.** Retiring a gate
    does not retire its tables, verbs, flags, and prose. When a plane stops being
    enforced, say what still reads it and what breaks if nothing writes it, then

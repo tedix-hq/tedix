@@ -92,11 +92,7 @@ import {
 	respondToWorkInteraction,
 } from "./interactions";
 import { decisionEdges } from "../../schema/decision-graph";
-import {
-	workItemComments,
-	workItemCorroborations,
-	workEvents,
-} from "../../schema/work-items";
+import { workItemComments, workEvents } from "../../schema/work-items";
 import {
 	addWorkItemComment,
 	addWorkItemCorroboration,
@@ -152,7 +148,6 @@ for (const store of ["d1", "postgres"] as const)
 					workAttempts,
 					workItemRelations,
 					workItemComments,
-					workItemCorroborations,
 					workEvents,
 					decisionEdges,
 					auditEvents,
@@ -181,6 +176,10 @@ for (const store of ["d1", "postgres"] as const)
 					osGadgetExecutions,
 				].forEach(include);
 				sqlite.exec(schemaDdl(...tables));
+				// schemaDdl omits column-level uniqueness; match the event id fence.
+				sqlite.exec(
+					"CREATE UNIQUE INDEX test_work_events_id ON work_events(id)",
+				);
 				const migrated = createMigratedSqlite();
 				for (const row of migrated
 					.prepare(

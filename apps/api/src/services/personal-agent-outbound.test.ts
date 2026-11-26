@@ -18,7 +18,6 @@ import {
 	workEvents,
 	workEvidence,
 	workEvidenceVerifications,
-	workItemCorroborations,
 } from "@tedix/db/schema/work-items";
 import {
 	workInteractions,
@@ -32,12 +31,26 @@ import {
 	recordPersonalAgentOutcome,
 } from "@tedix/db/queries/personal-agent-outbound";
 import { PersonalAgentOutcomeSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
-import { addWorkItemCorroboration } from "@tedix/db/queries/work-items/comments";
+import {
+	addWorkItemCorroboration,
+	addWorkItemComment,
+} from "@tedix/db/queries/work-items/comments";
 import { personalAgentInboundContractRouter } from "../rpc/routers/personal-agent-inbound";
 import { personalAgentInboundRoutes } from "../personal-agent-inbound-routes";
 import type { BaseContext } from "../rpc/orpc";
 import { receivePersonalAgentFinding } from "./personal-agent-inbound";
-import { reconcilePersonalAgentOutcomes } from "./personal-agent-outbound";
+import { migrateWorkObservationHistoryPage } from "@tedix/db/queries/work-items/observation-history";
+import { reconcilePersonalAgentOutcomes as reconcileLedgerOutcomes } from "./personal-agent-outbound";
+
+async function reconcilePersonalAgentOutcomes(
+	...args: Parameters<typeof reconcileLedgerOutcomes>
+) {
+	await migrateWorkObservationHistoryPage(args[0], {
+		orgId: org,
+		kind: "verification",
+	});
+	return reconcileLedgerOutcomes(...args);
+}
 
 const org = "11111111-1111-4111-8111-111111111111";
 const project = "22222222-2222-4222-8222-222222222222";
@@ -59,7 +72,6 @@ async function setup() {
 				workInteractionResponses,
 				workEvidence,
 				workEvidenceVerifications,
-				workItemCorroborations,
 				tediEmailAddresses,
 			),
 	);
@@ -285,6 +297,31 @@ describe("personal-agent outbound", () => {
 				supersedes: rows[0]!.id,
 				execution: { state: "contradicted" },
 			});
+			const corrected = {
+				...observation,
+				stance: "contradicts" as const,
+				body: "Corrected reference at the same timestamp.",
+				evidenceRef: "https://cedar.example/corrected",
+				occurredAt: new Date(Date.now() + 1).toISOString(),
+			};
+			await addWorkItemCorroboration(h.db, corrected);
+			await reconcilePersonalAgentOutcomes(h.db, {});
+			await addWorkItemCorroboration(h.db, corrected);
+			await reconcilePersonalAgentOutcomes(h.db, {});
+			const revised = await listPersonalAgentOutcomes(h.db, {
+				orgId: org,
+				userId: user,
+				enrollmentId: h.e.enrollment.id,
+			});
+			expect(revised).toHaveLength(3);
+			expect(revised[2]!.payload).toMatchObject({
+				supersedes: rows[1]!.id,
+				execution: {
+					state: "contradicted",
+					evidenceUri: corrected.evidenceRef,
+					verificationId: rows[1]!.payload.execution.verificationId,
+				},
+			});
 		} finally {
 			h.sqlite.close();
 		}
@@ -429,6 +466,21 @@ describe("personal-agent outbound", () => {
 		try {
 			const r = await h.finding(1);
 			await h.decide(r.workItemId);
+			await addWorkItemComment(h.db, {
+				id: "self-claim",
+				orgId: org,
+				workItemId: r.workItemId,
+				authorType: "user",
+				authorId: user,
+				body: "I verified this",
+				recordActivity: true,
+				createdAt: new Date().toISOString(),
+				metadata: {
+					schema: "tedix.work-observation.v1",
+					kind: "verification",
+					record: { matchesClaim: true },
+				},
+			});
 			const foreign = await h.finding(2);
 			await h.decide(foreign.workItemId, undefined, "fictional-other");
 			await h.finding(3, "fyi");

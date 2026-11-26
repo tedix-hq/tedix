@@ -3,14 +3,9 @@ import {
 	CARD_SECRET_MESSAGE,
 	containsCardSecret,
 } from "@tedix/api-contract/utils/card-secrets";
-import { and, asc, desc, eq, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import { coreTable } from "../../core-store/client";
-import {
-	booleanValue,
-	coreStore,
-	jsonRead,
-	jsonWrite,
-} from "../../core-store/dialect";
+import { booleanValue, jsonRead, jsonWrite } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkItemComment,
@@ -20,9 +15,15 @@ import {
 	type WorkItemCorroborationStance,
 	workEvents as d1WorkEvents,
 	workItemComments as d1WorkItemComments,
-	workItemCorroborations as d1WorkItemCorroborations,
 	workItems as d1WorkItems,
 } from "../../schema/work-items";
+
+import { WorkControlError } from "./factory-validation";
+import {
+	currentConfirmationEvent,
+	OBSERVATION_EVENT,
+	OBSERVATION_SCHEMA,
+} from "./observation-ledger";
 
 /**
  * Unclassified notes remain facts; exempt are the asking agent's declared
@@ -224,77 +225,101 @@ export async function addWorkItemCorroboration(
 	db: DbQueryClient,
 	params: AddWorkItemCorroborationParams,
 ): Promise<{ corroboration: WorkItemCorroboration; inserted: boolean }> {
-	const workItemCorroborations = coreTable(db, d1WorkItemCorroborations);
-	const stance = params.stance ?? "corroborates";
-	const sessionId = params.sessionId ?? null;
-	const changed = or(
-		ne(workItemCorroborations.stance, stance),
-		ne(workItemCorroborations.evidenceRef, params.evidenceRef),
-		ne(workItemCorroborations.body, params.body),
-		sql`${workItemCorroborations.sessionId} ${coreStore(db) === "postgres" ? sql`IS DISTINCT FROM` : sql`IS NOT`} ${sessionId}`,
-	);
-	const inserted = await db
-		.insert(workItemCorroborations)
-		.values({ ...params, stance, sessionId })
-		.onConflictDoNothing({
-			target: [
-				workItemCorroborations.orgId,
-				workItemCorroborations.workItemId,
-				workItemCorroborations.principalType,
-				workItemCorroborations.principalId,
-			],
-		})
-		.returning();
-	if (inserted[0]) return { corroboration: inserted[0], inserted: true };
-	const corrected = await db
-		.update(workItemCorroborations)
-		.set({
-			stance,
-			evidenceRef: params.evidenceRef,
-			body: params.body,
-			sessionId,
-			occurredAt: params.occurredAt,
-		})
+	const events = coreTable(db, d1WorkEvents);
+	const [previous] = await db
+		.select()
+		.from(events)
 		.where(
 			and(
-				eq(workItemCorroborations.orgId, params.orgId),
-				eq(workItemCorroborations.workItemId, params.workItemId),
-				eq(workItemCorroborations.principalType, params.principalType),
-				eq(workItemCorroborations.principalId, params.principalId),
-				changed,
+				eq(events.orgId, params.orgId),
+				eq(events.workItemId, params.workItemId),
+				currentConfirmationEvent(db, events),
+				sql`${jsonRead(db, events.payload, ["record", "principalType"])}=${params.principalType}`,
+				sql`${jsonRead(db, events.payload, ["record", "principalId"])}=${params.principalId}`,
 			),
 		)
-		.returning();
-	if (corrected[0]) return { corroboration: corrected[0], inserted: false };
-	const existing = (
-		await db
-			.select()
-			.from(workItemCorroborations)
-			.where(
-				and(
-					eq(workItemCorroborations.orgId, params.orgId),
-					eq(workItemCorroborations.workItemId, params.workItemId),
-					eq(workItemCorroborations.principalType, params.principalType),
-					eq(workItemCorroborations.principalId, params.principalId),
-				),
-			)
-			.limit(1)
-	)[0];
-	if (!existing)
-		throw new Error("Corroboration write did not return an existing row");
-	return { corroboration: existing, inserted: false };
+		.limit(1);
+	const old = previous?.payload.record as WorkItemCorroboration | undefined;
+	const stance = params.stance ?? "corroborates";
+	const sessionId = params.sessionId ?? null;
+	if (
+		old &&
+		old.stance === stance &&
+		old.sessionId === sessionId &&
+		old.evidenceRef === params.evidenceRef &&
+		old.body === params.body
+	)
+		return { corroboration: old, inserted: false };
+	const corroboration: WorkItemCorroboration = {
+		...params,
+		id: old?.id ?? params.id,
+		stance,
+		sessionId,
+		createdAt: old?.createdAt ?? params.createdAt ?? params.occurredAt,
+	};
+	// Two writers based on the same revision share one insert fence. A stale
+	// caller must read again; it cannot silently overwrite a newer correction.
+	const key = encodeURIComponent(
+		JSON.stringify([
+			params.orgId,
+			params.workItemId,
+			params.principalType,
+			params.principalId,
+		]),
+	);
+	const written = await db
+		.insert(events)
+		.values({
+			id: `work-confirmation:${key}:${previous?.sequence ?? 0}`,
+			orgId: params.orgId,
+			workItemId: params.workItemId,
+			eventType: OBSERVATION_EVENT,
+			actorType:
+				params.principalType === "organization"
+					? "system"
+					: params.principalType,
+			actorId:
+				params.principalType === "organization"
+					? `organization:${params.principalId}`
+					: params.principalId,
+			actorSessionId: sessionId,
+			payload: {
+				schema: OBSERVATION_SCHEMA,
+				kind: "confirmation",
+				record: corroboration,
+				deliveryRevision: previous ? String(previous.sequence) : null,
+				summary: params.body,
+			},
+			occurredAt: params.occurredAt,
+		})
+		.onConflictDoNothing({ target: events.id })
+		.returning({ id: events.id });
+	if (!written.length)
+		throw new WorkControlError(
+			"CONFLICT",
+			"Work confirmation changed; read the current observation before correcting it",
+		);
+	return { corroboration, inserted: !old };
 }
 
 export async function listWorkItemCorroborations(
 	db: DbQueryClient,
+	orgId: string,
 	workItemId: string,
 ): Promise<WorkItemCorroboration[]> {
-	const workItemCorroborations = coreTable(db, d1WorkItemCorroborations);
-	return db
-		.select()
-		.from(workItemCorroborations)
-		.where(eq(workItemCorroborations.workItemId, workItemId))
-		.orderBy(asc(workItemCorroborations.createdAt));
+	const events = coreTable(db, d1WorkEvents);
+	const rows = await db
+		.select({ payload: events.payload })
+		.from(events)
+		.where(
+			and(
+				eq(events.orgId, orgId),
+				eq(events.workItemId, workItemId),
+				currentConfirmationEvent(db, events),
+			),
+		)
+		.orderBy(asc(events.sequence));
+	return rows.map((row) => row.payload.record as WorkItemCorroboration);
 }
 
 export async function listWorkItemComments(
