@@ -27,7 +27,13 @@ import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { providerInstallations } from "@tedix/db/schema/provider-installations";
-import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
+import { projects } from "@tedix/db/schema/projects";
+import {
+	osReviewBatches,
+	osShareLinks,
+	osShareSessions,
+	osShareSkillReadGrants,
+} from "@tedix/db/schema/os-shares";
 import {
 	skillRunArtifacts,
 	skillRuns,
@@ -87,6 +93,9 @@ export function createEnv(
 		schemaDdl(
 			connectionInstances,
 			providerInstallations,
+			projects,
+			osReviewBatches,
+			osShareSkillReadGrants,
 			organizationMembers,
 			osWorkspaceCollaborators,
 			osWorkspaceAccessEdges,

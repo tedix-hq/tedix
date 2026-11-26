@@ -336,7 +336,13 @@ describe("workspaces", () => {
 				provisionedBy: "user-1",
 				status,
 			});
-			await c.org1.workspaces.archive({ workspaceId: workspace.id });
+			await expect(
+				c.org1.workspaces.archive({ workspaceId: workspace.id }),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			await c.org1.workspaces.archive({
+				workspaceId: workspace.id,
+				acknowledgeDependents: ["installation:installation-1"],
+			});
 			await expect(
 				c.org1.workspaces.delete({ workspaceId: workspace.id }),
 			).rejects.toMatchObject({
@@ -407,8 +413,17 @@ describe("workspaces", () => {
 			sourceId: "codex:session-1",
 			content: { kind: "document", blocks: [] },
 		});
-		await c.org1.outputs.archive({ outputId: output.id });
-		await c.org1.workspaces.archive({ workspaceId: workspace.id });
+		await expect(
+			c.org1.outputs.archive({ outputId: output.id }),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		await c.org1.outputs.archive({
+			outputId: output.id,
+			acknowledgeDependents: ["proposals:open"],
+		});
+		await c.org1.workspaces.archive({
+			workspaceId: workspace.id,
+			acknowledgeDependents: ["proposals:open"],
+		});
 
 		await expect(
 			c.org1.outputs.delete({ outputId: output.id }),

@@ -259,8 +259,14 @@ describe("purge_archived_os_items", () => {
 			sourceId: "codex:session-1",
 			content: { kind: "document", blocks: [] },
 		});
-		await t.admin.outputs.archive({ outputId: reviewedOutput.output.id });
-		await t.admin.workspaces.archive({ workspaceId: reviewed.workspace.id });
+		await t.admin.outputs.archive({
+			outputId: reviewedOutput.output.id,
+			acknowledgeDependents: ["proposals:open"],
+		});
+		await t.admin.workspaces.archive({
+			workspaceId: reviewed.workspace.id,
+			acknowledgeDependents: ["proposals:open"],
+		});
 
 		const plainOutput = await archivedOutput(t, "Plain", active.workspace.id);
 		const sharedOutput = await archivedOutput(

@@ -7,6 +7,8 @@ import {
 	osWorkspaces,
 	osWorkspaceResources,
 	osCollaborationProposals,
+	osWorkspaceProjects,
+	osGadgets,
 } from "@tedix/db/schema/os-workspaces";
 import {
 	osOutputs,
@@ -20,6 +22,7 @@ import {
 } from "@tedix/db/schema/os-collaborators";
 import { osShareLinks } from "@tedix/db/schema/os-shares";
 import { providerInstallations } from "@tedix/db/schema/provider-installations";
+import { projects } from "@tedix/db/schema/projects";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
@@ -38,7 +41,7 @@ import { osWorkspacesContractRouter } from "../rpc/routers/os-workspaces";
 function fixture() {
 	const sql = new DatabaseSync(":memory:");
 	sql.exec(
-		"CREATE TABLE organizations(id TEXT PRIMARY KEY); INSERT INTO organizations VALUES ('org-1'), ('org-2');",
+		"CREATE TABLE organizations(id TEXT PRIMARY KEY, name TEXT); INSERT INTO organizations VALUES ('org-1', 'First'), ('org-2', 'Second');",
 	);
 	sql.exec(
 		schemaDdl(
@@ -53,6 +56,9 @@ function fixture() {
 			osWorkspaceShareKeys,
 			osShareLinks,
 			providerInstallations,
+			projects,
+			osWorkspaceProjects,
+			osGadgets,
 			auditEvents,
 			userConfigs,
 		),

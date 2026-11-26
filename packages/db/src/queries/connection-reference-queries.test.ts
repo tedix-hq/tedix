@@ -1,5 +1,9 @@
-import type { DbClient } from "../client";
+import { DatabaseSync } from "node:sqlite";
+import { createDbClient, type DbClient } from "../client";
 import { describe, expect, it } from "vite-plus/test";
+import { appTools } from "../schema/tools";
+import { createD1Facade } from "../test/d1-facade";
+import { schemaDdl } from "../test/schema-ddl";
 import {
 	listAppReferenceMetadataByOrganization,
 	listAppReferenceMetadataBySlugs,
@@ -50,6 +54,35 @@ describe("connection reference bulk queries", () => {
 		expect(mock.selections).toEqual([
 			["id", "slug", "name", "organizationId", "metadata"],
 		]);
+	});
+
+	it("reads tool policies beyond 100 ids under the D1 parameter cap", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		try {
+			sqlite.exec("PRAGMA foreign_keys = OFF");
+			sqlite.exec(schemaDdl(appTools));
+			const db = createDbClient(createD1Facade(sqlite));
+			const ids = Array.from({ length: 151 }, (_, index) => `app-${index}`);
+			for (const appId of [...ids, "outside"]) {
+				await db.insert(appTools).values({
+					id: appId,
+					appId,
+					toolId: "read",
+					title: "Read",
+					toolTypeId: "rpc",
+					config: { auth: { type: "oauth", connectionId: "connection" } },
+				});
+			}
+			const rows = await listConnectionToolPoliciesByAppIds(db, ids);
+			expect(rows.map((row) => row.appId).sort()).toEqual([...ids].sort());
+			expect(rows[0]).toMatchObject({
+				toolId: "read",
+				authType: "oauth",
+				connectionId: "connection",
+			});
+		} finally {
+			sqlite.close();
+		}
 	});
 
 	it("binds narrow tool config projections as one JSON id set", async () => {
