@@ -1180,6 +1180,24 @@ export const auditEvents = pgTable(
 		),
 	],
 );
+export const auditDeliveryOutbox = pgTable("audit_delivery_outbox", {
+	id: text("id").primaryKey(),
+	ignoreDuplicates: boolean("ignore_duplicates").notNull().default(false),
+	organizationId: text("organization_id").notNull(),
+	actorId: text("actor_id").notNull(),
+	actorType: text("actor_type").notNull(),
+	action: text("action").notNull(),
+	resourceType: text("resource_type").notNull(),
+	resourceId: text("resource_id"),
+	metadata: jsonb("metadata"),
+	ipAddress: text("ip_address"),
+	userAgent: text("user_agent"),
+	timestamp: timestamp("timestamp", {
+		withTimezone: true,
+		mode: "date",
+	}).notNull(),
+	traceId: text("trace_id"),
+});
 export const auditMetadataRefs = pgTable(
 	"audit_metadata_refs",
 	{
@@ -15475,6 +15493,7 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(artifactRedactionCandidates), artifactRedactionCandidates],
 	[getTableName(artifactReleaseReviews), artifactReleaseReviews],
 	[getTableName(auditEvents), auditEvents],
+	[getTableName(auditDeliveryOutbox), auditDeliveryOutbox],
 	[getTableName(auditMetadataRefs), auditMetadataRefs],
 	[getTableName(billingAccounts), billingAccounts],
 	[getTableName(billingCloudflareDailyCosts), billingCloudflareDailyCosts],

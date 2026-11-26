@@ -66,7 +66,12 @@ for (const store of ["d1", "postgres"] as const)
 					for (const ddl of migration.sql) await fixture.engine.exec(ddl);
 			}
 			await db.insert(coreTable(db, organizations)).values([
-				{ id: "orchard", name: "Orchard", slug: "orchard" },
+				{
+					id: "orchard",
+					name: "Orchard",
+					slug: "orchard",
+					metadata: { defaultApprovalMode: "ask_every_time" },
+				},
 				{ id: "river", name: "River", slug: "river" },
 			]);
 			await db.insert(coreTable(db, tedis)).values({

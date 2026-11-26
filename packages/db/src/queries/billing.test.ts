@@ -102,7 +102,8 @@ function setup(onPrepare?: (query: string) => void) {
 			metadata TEXT,
 			ip_address TEXT,
 			user_agent TEXT,
-			timestamp INTEGER
+			timestamp INTEGER,
+			trace_id TEXT
 		);
 		CREATE TABLE provider_model_rate_versions (
 			id TEXT PRIMARY KEY,

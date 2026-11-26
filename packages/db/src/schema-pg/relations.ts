@@ -1281,6 +1281,7 @@ const miscRelations = defineRelationsPart(schema, (_r) => ({
 	// =========================================================================
 
 	auditEvents: {},
+	auditDeliveryOutbox: {},
 
 	// Tenant bundle rows are keyed by slug and have no Drizzle FK by design.
 	tenantBundles: {},

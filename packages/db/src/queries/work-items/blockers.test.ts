@@ -1,3 +1,5 @@
+import { organizationMembers } from "../../schema/organization-members";
+import { organizations } from "../../schema/organizations";
 import {
 	workApprovalProposals,
 	workApprovalDecisions,
@@ -18,7 +20,7 @@ import {
 
 const NOW = "2026-08-20T12:00:00.000Z";
 const DDL = `
-${schemaDdl(workApprovalProposals, workApprovalDecisions, workAdmissions, workEvents)}
+${schemaDdl(organizations, organizationMembers, workApprovalProposals, workApprovalDecisions, workAdmissions, workEvents)}
 CREATE TABLE work_items (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, disposition TEXT NOT NULL DEFAULT 'proposed', work_kind TEXT NOT NULL DEFAULT 'other', risk_level TEXT NOT NULL DEFAULT 'medium', acceptance_contract TEXT, required_capabilities TEXT NOT NULL DEFAULT '[]', required_authorities TEXT NOT NULL DEFAULT '[]', admission_spec_revision TEXT NOT NULL DEFAULT 'test-revision', priority TEXT NOT NULL DEFAULT 'medium', accountable_owner_type TEXT, accountable_owner_id TEXT, steward_type TEXT, steward_id TEXT, reviewer_type TEXT, reviewer_id TEXT, reviewer_lease_expires_at TEXT, objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT, parent_work_item_id TEXT, executor_type TEXT, executor_id TEXT, dispatch_state TEXT, delegation_depth INTEGER, max_attempts INTEGER, root_work_item_id TEXT, root_goal TEXT, budget_share_micros INTEGER, source_session_key TEXT, source_intent_id TEXT, due_date TEXT, deadline TEXT, start_at TEXT, duration_days INTEGER, provenance TEXT DEFAULT '{}',
  repository_observer INTEGER GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.repositoryObserver') END) VIRTUAL,
  report TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.report') END) VIRTUAL,

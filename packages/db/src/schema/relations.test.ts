@@ -41,8 +41,10 @@ const relationParts = [
 ];
 
 it("gives every schema table a relational query surface", () => {
+	// tedi_tasks stays in the D1 schema only for the historical work_items
+	// foreign key; it has no Postgres table and no relations surface.
 	const tables = Object.entries(schema)
-		.filter(([, value]) => is(value, Table))
+		.filter(([name, value]) => name !== "tediTasks" && is(value, Table))
 		.map(([name]) => name)
 		.sort();
 	const covered = Object.keys(relations).sort();

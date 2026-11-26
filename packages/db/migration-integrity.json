@@ -2140,6 +2140,10 @@
 		{
 			"name": "20261126180207_app-mcp-audience-indexes/migration.sql",
 			"sha256": "dab4d06ec5a9a6c25c4e5279d49e962d3ebf0e7d4a5fa3f739519e75d114f855"
+		},
+		{
+			"name": "20261126220545_call_costs_reservation_health_split/migration.sql",
+			"sha256": "f2869189638f2ed6f3338bdfa41dc9563f155436fb46a70ca85f1b7543a89633"
 		}
 	]
 }

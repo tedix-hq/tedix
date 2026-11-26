@@ -138,7 +138,7 @@ it("does not rescan all tenant events for every fact without evidence", async ()
 				if (query.includes('from "memory_facts"')) {
 					// Count actual SQLite evidence-array evaluations while keeping its native JSON functions.
 					query = query.replace(
-						'json_each(json_extract("memory_facts"."metadata",\'$.learningFeed.evidenceEventIds\'))',
+						'json_each(json_extract("memory_facts"."metadata", \'$.learningFeed.evidenceEventIds\'))',
 						'json_each(observe_evidence(json_extract("memory_facts"."metadata",\'$.learningFeed.evidenceEventIds\')))',
 					);
 					plans.push(

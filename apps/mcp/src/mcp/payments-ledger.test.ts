@@ -92,7 +92,7 @@ function rows(
 	table:
 		| "mcp_payment_events"
 		| "mcp_payment_reservations"
-		| "audit_events"
+		| "audit_delivery_outbox"
 		| "tedi_rationale_records",
 ) {
 	return sqlite.prepare(`SELECT * FROM ${table}`).all();
@@ -114,6 +114,7 @@ beforeEach(() => {
 		DELETE FROM mcp_payment_reservations;
 		DELETE FROM mcp_payment_events;
 		DELETE FROM audit_events;
+		DELETE FROM audit_delivery_outbox;
 		DELETE FROM tedi_rationale_records;
 	`);
 	vi.useFakeTimers({ toFake: ["Date"] });
@@ -153,7 +154,7 @@ describe("reservePaymentRequirement", () => {
 					}),
 				}),
 			]);
-			expect(rows("audit_events")).toEqual([]);
+			expect(rows("audit_delivery_outbox")).toEqual([]);
 		},
 	);
 
@@ -184,7 +185,7 @@ describe("reservePaymentRequirement", () => {
 			);
 			await reserve({ agent: context });
 			expect(rows("mcp_payment_reservations")).toEqual([]);
-			expect(rows("audit_events")).toEqual([]);
+			expect(rows("audit_delivery_outbox")).toEqual([]);
 		},
 	);
 
@@ -275,7 +276,7 @@ describe("recordPaymentEvent", () => {
 				status: reservationStatus,
 				settled_event_id: settled ? "event-ledger" : null,
 			});
-			expect(rows("audit_events")).toEqual([
+			expect(rows("audit_delivery_outbox")).toEqual([
 				expect.objectContaining({
 					id: stored?.auditEventId,
 					organization_id: ORG,
@@ -316,7 +317,7 @@ describe("recordPaymentEvent", () => {
 		});
 		expect(rows("mcp_payment_events")).toHaveLength(1);
 		// Audit precedes the event insert, including duplicate attempts.
-		expect(rows("audit_events")).toHaveLength(2);
+		expect(rows("audit_delivery_outbox")).toHaveLength(2);
 	});
 
 	it("guards settlement atomically and leaves rejected reservations pending", async () => {
@@ -344,7 +345,7 @@ describe("recordPaymentEvent", () => {
 			status: "reserved",
 			settled_event_id: null,
 		});
-		expect(rows("audit_events")).toHaveLength(2);
+		expect(rows("audit_delivery_outbox")).toHaveLength(2);
 	});
 
 	it.each([
@@ -373,7 +374,7 @@ describe("recordPaymentEvent", () => {
 				expect(rows("mcp_payment_reservations")[0]).toMatchObject({
 					status: "reserved",
 				});
-				expect(rows("audit_events")).toHaveLength(1);
+				expect(rows("audit_delivery_outbox")).toHaveLength(1);
 			} finally {
 				sqlite.exec("DROP TRIGGER fail_event");
 			}
@@ -417,7 +418,7 @@ describe("recordPaymentEvent", () => {
 			recorded: false,
 		});
 		expect(rows("mcp_payment_events")).toEqual([]);
-		expect(rows("audit_events")).toEqual([]);
+		expect(rows("audit_delivery_outbox")).toEqual([]);
 	});
 
 	it("records an unscoped event without auditing or settling a reservation", async () => {
@@ -428,7 +429,7 @@ describe("recordPaymentEvent", () => {
 			organization_id: null,
 			audit_event_id: null,
 		});
-		expect(rows("audit_events")).toEqual([]);
+		expect(rows("audit_delivery_outbox")).toEqual([]);
 		expect(rows("mcp_payment_reservations")[0]).toMatchObject({
 			status: "reserved",
 		});
@@ -444,7 +445,7 @@ describe("recordPaymentEvent", () => {
 		});
 		const stored = rows("mcp_payment_events")[0];
 		expect(stored).toBeDefined();
-		expect(rows("audit_events")[0]).toMatchObject({
+		expect(rows("audit_delivery_outbox")[0]).toMatchObject({
 			id: stored?.audit_event_id,
 			actor_type: "tedi",
 			actor_id: "tedi-ledger",

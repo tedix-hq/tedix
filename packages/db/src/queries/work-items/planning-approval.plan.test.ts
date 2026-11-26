@@ -1,6 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
+import { organizationMembers } from "../../schema/organization-members";
+import { organizations } from "../../schema/organizations";
 import { workEvents, workItems, type WorkItem } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
@@ -10,7 +12,13 @@ it("reads only an item's lifecycle events for owner delegation", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	try {
 		sqlite.exec("PRAGMA foreign_keys=OFF");
-		for (const table of [workItems, workEvents]) sqlite.exec(schemaDdl(table));
+		for (const table of [
+			organizations,
+			organizationMembers,
+			workItems,
+			workEvents,
+		])
+			sqlite.exec(schemaDdl(table));
 		let query = "";
 		const db = createDbQueryClient(
 			createD1Facade(sqlite, {

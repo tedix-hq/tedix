@@ -45,4 +45,6 @@ export const tenantStoreMigrations: Record<string, string> = {
 		"CREATE INDEX `idx_kernel_runtime_events_conversation_run_created` ON `kernel_runtime_events` (`organization_id`,`conversation_id`,`run_id`,`created_at`,`id`);",
 	"20261126072815_drop_redundant_memory_prefix_indexes":
 		"DROP INDEX IF EXISTS `idx_memory_domains_org`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_memory_edges_source`;--> statement-breakpoint\nDROP INDEX IF EXISTS `idx_tedi_expertise_tedi`;",
+	"20261126220924_happy_sandman":
+		"CREATE INDEX `os_workspace_resources_org_provider_object_status_idx` ON `os_workspace_resources` (`organization_id`,`provider_id`,`resource_type`,`provider_resource_id`,`status`);",
 };

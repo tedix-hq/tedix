@@ -63,7 +63,7 @@ export function ownerWorkDelegation(
 		JOIN organization_members delegation_owner ON delegation_owner.organization_id=delegation_org.id
 		WHERE delegation_org.id=${item.orgId}
 		AND COALESCE(${jsonRead(db, sql`delegation_org.metadata`, ["defaultApprovalMode"])}, ${WORK_DELEGATION_DEFAULTS.approvalMode})='auto'
-		AND (${item.accountableOwnerType}='user' OR ${item.accountableOwnerType} IS NULL)
+		AND COALESCE(${item.accountableOwnerType}, 'user')='user'
 		AND (delegation_owner.user_id=${item.accountableOwnerId} OR delegation_owner.descope_user_id=${item.accountableOwnerId})
 		AND delegation_owner.status='active' AND delegation_owner.kind='human'
 	) OR (${item.accountableOwnerType}='user' AND EXISTS (

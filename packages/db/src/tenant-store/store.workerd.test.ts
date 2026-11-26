@@ -78,6 +78,7 @@ describe("TenantStore", () => {
 			"20261121103432_drop_unused_memory_runtime_indexes",
 			"20261123072228_conversation-event-stream-index",
 			"20261126072815_drop_redundant_memory_prefix_indexes",
+			"20261126220924_happy_sandman",
 		]);
 		// A second call is served by the same object and keeps its identity.
 		const again = await tenantStoreStub(

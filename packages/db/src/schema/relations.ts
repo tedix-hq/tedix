@@ -26,7 +26,10 @@ import { tediRelations } from "./relations/tedis";
 import { tenancyRelations } from "./relations/tenancy";
 import { workItemRelations } from "./relations/work-items";
 
-const baseRelations = defineRelations(schema);
+// tedi_tasks stays in the D1 schema for the historical work_items foreign key
+// but has no Postgres core table, so it stays out of the relations graph.
+const { tediTasks: _tediTasks, ...relationsSchema } = schema;
+const baseRelations = defineRelations(relationsSchema);
 
 export const relations = {
 	...baseRelations,

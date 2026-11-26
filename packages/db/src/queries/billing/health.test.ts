@@ -128,7 +128,7 @@ it("reads settlement health through covering indexes without duplicating holds o
 	for (const index of [
 		"idx_billing_reservation_newest",
 		"idx_provider_execution_authorized",
-		"idx_call_costs_billing_reservation",
+		"idx_call_costs_reservation_health",
 		"idx_billing_charge_created",
 	]) {
 		expect(plans.join(" | ")).toContain(`USING COVERING INDEX ${index}`);

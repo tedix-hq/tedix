@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { workEvents } from "../schema/work-items";
+import { organizationMembers } from "../schema/organization-members";
 import {
 	workAdmissions,
 	workResourceRequirements,
@@ -29,7 +30,7 @@ const OLD = "2026-07-01T00:00:00.000Z";
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(canonicalWorkFactoryDdl());
-	sqlite.exec(schemaDdl(workEvents, workAdmissions));
+	sqlite.exec(schemaDdl(workEvents, workAdmissions, organizationMembers));
 	// Steward fixtures intentionally include orphan references for detection.
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	const seed = (

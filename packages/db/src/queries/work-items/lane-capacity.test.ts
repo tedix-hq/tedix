@@ -1009,7 +1009,7 @@ it("pins a default contract on ordinary parent admission without changing ordina
 		const terms = await getAdmittedTaskContract(f.db, run.attempt);
 		expect(terms).toMatchObject({
 			version: 2,
-			goal: "Finish the ordinary task",
+			goal: "root\n\nFinish the ordinary task",
 			budget: { maxTokens: 0, maxCostUsd: 0 },
 			remainingDepth: 3,
 		});
