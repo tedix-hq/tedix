@@ -601,7 +601,7 @@ function GroupedConsentScreen({
 					...new Set([...options.supportedScopes, "openid", "offline_access"]),
 				]).filter((scope) => scope.name !== "platform:admin");
 				const stepUp = options.existingScopes.length > 0;
-				setScopePreset(stepUp ? "custom" : "tasks");
+				setScopePreset(stepUp ? "custom" : "minimal");
 				setSelectedScopes(
 					stepUp
 						? state.scopes
@@ -612,7 +612,7 @@ function GroupedConsentScreen({
 										offered.some((candidate) => candidate.name === scope.name),
 								)
 								.map((scope) => scope.name)
-						: selectConsentPreset(offered, "tasks"),
+						: selectConsentPreset(offered, "minimal"),
 				);
 			})
 			.catch(() => {

@@ -281,68 +281,80 @@ describe("InboundConsentPage layout", () => {
 		},
 	);
 
-	it("offers task-ready access and stages exactly once after one Authorize click", async () => {
-		await act(async () => renderConsentPage());
-		const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
-			screenName: string,
-			context: Record<string, unknown>,
-			next: ReturnType<typeof vi.fn>,
-		) => boolean;
-		const next = vi.fn().mockResolvedValue({ ok: true });
-		await act(async () => {
-			onScreenUpdate(
-				"Consent Screen - Verified App",
-				{
-					data: {
-						inboundAppApproveScopes: [
-							{ id: "mcp:work.read", desc: "Read work" },
-							{ id: "mcp:skills.read", desc: "Read skills" },
-						],
+	it.each(["Minimal", "Run tasks"])(
+		"defaults to Minimal and stages only chosen access once (%s)",
+		async (preset) => {
+			await act(async () => renderConsentPage());
+			const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
+				screenName: string,
+				context: Record<string, unknown>,
+				next: ReturnType<typeof vi.fn>,
+			) => boolean;
+			const next = vi.fn().mockResolvedValue({ ok: true });
+			await act(async () => {
+				onScreenUpdate(
+					"Consent Screen - Verified App",
+					{
+						data: {
+							inboundAppApproveScopes: [
+								{ id: "mcp:apps.read", desc: "Read apps" },
+								{ id: "mcp:apps.write", desc: "Write apps" },
+								{ id: "mcp:apps.admin", desc: "Administer apps" },
+							],
+						},
 					},
-				},
-				next,
+					next,
+				);
+			});
+			const allRequested = [...container.querySelectorAll("button")].find(
+				(button) => button.textContent === "All",
 			);
-		});
-		const allRequested = [...container.querySelectorAll("button")].find(
-			(button) => button.textContent === "All",
-		);
-		expect(allRequested?.getAttribute("aria-pressed")).toBe("false");
-		expect(container.textContent).not.toContain("Full access");
-		expect(container.textContent).toContain("6 of 7 selected");
-		expect(
-			[...container.querySelectorAll("button")]
-				.find((button) => button.textContent === "Run tasks")
-				?.getAttribute("aria-pressed"),
-		).toBe("true");
-		expect(container.textContent).toContain("Tedix");
-		expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
-		expect(next).not.toHaveBeenCalled();
-		await clickButton("Authorize");
-		await clickButton("Authorizing…");
-		expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledTimes(1);
-		expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledWith({
-			clientId: "TPAclient1",
-			resourceUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
-			selectedTenantIds: ["org_tedix"],
-			approvedScopes: ["mcp:apps.read", "mcp:apps.write", "email", "profile"],
-		});
-		expect(next).toHaveBeenCalledTimes(1);
-		expect(next).toHaveBeenCalledWith(
-			INBOUND_CONSENT_AUTHORIZE_INTERACTION,
-			expect.objectContaining({
-				"form.tedixConsentRevision": consentRevision,
-				"form.tedixSelectedOrganizations": '["org_tedix"]',
-				thirdPartyAppApproveScopes: [
-					"mcp:apps.read",
-					"mcp:apps.write",
-					"email",
-					"offline_access",
-					"openid",
-					"profile",
-				],
-			}),
-		);
-	});
+			expect(allRequested?.getAttribute("aria-pressed")).toBe("false");
+			expect(container.textContent).not.toContain("Full access");
+			expect(container.textContent).toContain("4 of 7 selected");
+			expect(
+				[...container.querySelectorAll("button")]
+					.find((button) => button.textContent === "Minimal")
+					?.getAttribute("aria-pressed"),
+			).toBe("true");
+			expect(
+				[...container.querySelectorAll("button")]
+					.find((button) => button.textContent === "Run tasks")
+					?.getAttribute("aria-pressed"),
+			).toBe("false");
+			expect(container.textContent).toContain("Tedix");
+			expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
+			expect(next).not.toHaveBeenCalled();
+			if (preset === "Run tasks") await clickButton("Run tasks");
+			const approvedScopes =
+				preset === "Minimal"
+					? ["email", "profile"]
+					: ["mcp:apps.read", "mcp:apps.write", "email", "profile"];
+			await clickButton("Authorize");
+			await clickButton("Authorizing…");
+			expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledTimes(1);
+			expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledWith({
+				clientId: "TPAclient1",
+				resourceUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+				selectedTenantIds: ["org_tedix"],
+				approvedScopes,
+			});
+			expect(next).toHaveBeenCalledTimes(1);
+			expect(next).toHaveBeenCalledWith(
+				INBOUND_CONSENT_AUTHORIZE_INTERACTION,
+				expect.objectContaining({
+					"form.tedixConsentRevision": consentRevision,
+					"form.tedixSelectedOrganizations": '["org_tedix"]',
+					thirdPartyAppApproveScopes: [
+						...approvedScopes.filter((scope) => scope !== "profile"),
+						"offline_access",
+						"openid",
+						"profile",
+					],
+				}),
+			);
+		},
+	);
 
 	it.each([
 		{ hint: undefined, session: "org_sample", selected: ["org_sample"] },
@@ -1043,7 +1055,7 @@ it("narrows a tenant-bound authorization to the selected scopes and hinted organ
 	window.history.replaceState({}, "", "/oauth/consent?tenant=org_tedix");
 	expect(controls).toHaveLength(7);
 	expect(container.textContent).toContain("Minimal");
-	expect(container.textContent).toContain("6 of 7 selected");
+	expect(container.textContent).toContain("4 of 7 selected");
 	expect(container.textContent).toContain("Signed in as member@example.test");
 	await clickButton("Read only");
 	await clickButton("Choose organizations");

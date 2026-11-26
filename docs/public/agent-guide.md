@@ -98,16 +98,17 @@ and the published marketplace is
 
 #### Consent presets and added permissions
 
-New connections start on **Run tasks**: known read and write permissions,
-including connected-tool execution, but not administration. Choose this to
-let an agent carry out tasks and save results. The consent page shows the
+New connections start on **Minimal**, without task access. Choose **Run tasks**
+to allow known read and write permissions, including connected-tool execution,
+but not administration, so an agent can carry out tasks and save results.
+The consent page shows the
 permissions and selected organization before you press **Authorize**; nothing
 is approved until you do. It selects an eligible organization from the request
 or signed-in session, or the only eligible organization if there is no hint.
 If the organization is ambiguous, choose one first. You can change either
 selection before authorizing.
 
-**Minimal** is available for signing in without task access: `openid` identifies the account, `profile` reads
+**Minimal** includes only these scopes: `openid` identifies the account, `profile` reads
 the profile and lists the caller's organizations and their workspace surfaces,
 `email` reads the email address, and `offline_access` keeps the host signed in.
 There are no Work, document, app, memory, skill, messaging, settings or connected
