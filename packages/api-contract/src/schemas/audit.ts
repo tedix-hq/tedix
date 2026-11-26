@@ -324,6 +324,18 @@ export const GatewayChangeRecordsInputSchema = z
 		path: ["until"],
 	});
 export const GatewayChangeRecordsExportSchema = z.object({
+	archivedBefore: z
+		.string()
+		.optional()
+		.describe(
+			"The range reaches before the 30-day hot window. Archived is not no records; consult the day manifests.",
+		),
+	manifestKeys: z
+		.array(z.string())
+		.optional()
+		.describe(
+			"EU archive day manifest keys covering removed records in this range, before applying resource, actor or subject filters",
+		),
 	from: z.string(),
 	until: z.string(),
 	exportedAt: z.string(),
@@ -332,7 +344,7 @@ export const GatewayChangeRecordsExportSchema = z.object({
 		.int()
 		.nonnegative()
 		.describe(
-			"Total records in the time range and filters, independent of page size and cursor",
+			"Total hot-store records in the time range and filters, independent of page size and cursor; excludes archived records",
 		),
 	records: z.array(
 		GatewayChangeRecordSchema.extend({

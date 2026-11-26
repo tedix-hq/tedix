@@ -93,7 +93,7 @@ export const auditContract = oc
 				path: "/gateway-change-records",
 				summary: "List and count gateway change records",
 				description:
-					"Read your organization's record of tool calls made through the MCP gateway, allowed or refused, for a time range. Returns one page, oldest first, plus the count of every record in the range. Follow nextAfterSequence with the same range to read the remaining records. Pass subjectId to read only the records of calls about one Work Item. Records hold a hash of the call's arguments, never the arguments. While the organization's records are being moved to its log store (a few minutes, once), records written in that window are not yet listed or counted; they appear with their sequence when the move finishes. Only an active owner or admin of the organization can call it.",
+					"Read your organization's record of tool calls made through the MCP gateway, allowed or refused, for a time range. Returns one page, oldest first, plus the count of hot-store records in the range. Ranges reaching before the 30-day window return archivedBefore and EU archive day manifestKeys. An archived range is not 'no records': download the manifests and their checkpoint bundles to read and verify the older records. Follow nextAfterSequence with the same range to read the remaining records. Pass subjectId to read only the records of calls about one Work Item. Records hold a hash of the call's arguments, never the arguments. Only an active owner or admin of the organization can call it.",
 			})
 			.input(GatewayChangeRecordsInputSchema)
 			.output(GatewayChangeRecordsExportSchema),

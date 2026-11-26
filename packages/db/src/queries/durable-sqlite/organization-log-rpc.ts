@@ -71,6 +71,13 @@ export type OrganizationLogAppendResult =
 	| { status: "forward" }
 	| { status: "stored"; record: OrganizationLogRecord };
 
+export interface OrganizationLogRange {
+	records: OrganizationLogRecord[];
+	count: number;
+	archivedBefore?: string;
+	manifestKeys?: string[];
+}
+
 export type OrganizationLogRead<T> =
 	| { status: "not_live" }
 	| { status: "live"; value: T };
@@ -102,9 +109,7 @@ export interface OrganizationLogRuntime {
 		organizationId: string,
 		range: GatewayChangeRecordRangeParams,
 		page: { afterSequence?: number; limit: number },
-	): Promise<
-		OrganizationLogRead<{ records: OrganizationLogRecord[]; count: number }>
-	>;
+	): Promise<OrganizationLogRead<OrganizationLogRange>>;
 	organizationLogCheckpoints(
 		organizationId: string,
 		query: GatewayChangeRecordCheckpointQuery,

@@ -119,10 +119,10 @@ export async function readChangeRecordRange(
 	range: GatewayChangeRecordRangeParams,
 	page: { afterSequence?: number; limit: number },
 ) {
-	const { count, records } = await readLive((log) =>
+	const { records, ...metadata } = await readLive((log) =>
 		log.organizationLogRange(organizationId, range, page),
 	);
-	return { count, records: records as unknown as SealedChangeRecord[] };
+	return { ...metadata, records: records as unknown as SealedChangeRecord[] };
 }
 
 export function listChangeRecordCheckpoints(

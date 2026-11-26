@@ -25,6 +25,7 @@ import {
 	chainHash,
 	type DsseEnvelope,
 	importSigningKey,
+	importVerifyingKey,
 	recordDigest,
 	type SigningKey,
 	sealRun,
@@ -41,6 +42,7 @@ import type {
 	OrganizationLogAppendInput,
 	OrganizationLogAppendResult,
 	OrganizationLogRead,
+	OrganizationLogRange,
 	OrganizationLogRecord,
 } from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
 import type { WorkspaceEnv } from "./env";
@@ -48,6 +50,8 @@ import type { WorkspaceEnv } from "./env";
 /** A checkpoint closes at this many records, or after `CHECKPOINT_AFTER_MS`. */
 export const RECORDS_PER_CHECKPOINT = 500;
 export const CHECKPOINT_AFTER_MS = 5 * 60_000;
+
+const RETENTION_MS = 30 * 24 * 60 * 60_000;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS log_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -81,6 +85,12 @@ CREATE TABLE IF NOT EXISTS change_record_checkpoints (
 	evidence_bundle_key TEXT
 );
 CREATE INDEX IF NOT EXISTS change_record_checkpoints_sealed_at ON change_record_checkpoints(sealed_at);
+CREATE TABLE IF NOT EXISTS archived_log_ranges (
+	checkpoint_id TEXT PRIMARY KEY,
+	manifest_key TEXT NOT NULL,
+	first_recorded_at TEXT NOT NULL,
+	last_recorded_at TEXT NOT NULL
+);
 -- Held appends of the finished cutover from main; emptied when a store went live.
 DROP TABLE IF EXISTS pending_change_records;
 `;
@@ -234,6 +244,14 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 		super(ctx, env);
 		this.#sql = ctx.storage.sql;
 		this.#sql.exec(SCHEMA);
+		ctx.blockConcurrencyWhile(async () => {
+			// Stores created before retention may have no alarm left after sealing.
+			if (
+				this.#meta("organization_id") &&
+				(await ctx.storage.getAlarm()) === null
+			)
+				await ctx.storage.setAlarm(Date.now() + CHECKPOINT_AFTER_MS);
+		});
 	}
 
 	/**
@@ -399,10 +417,14 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 	override async alarm() {
 		const organizationId = this.#meta("organization_id");
 		if (!organizationId) return;
-		await this.#closeCheckpoints(organizationId);
-		await this.#writeMissingBundles(organizationId);
-		if (this.#uncheckpointed() > 0)
+		try {
+			await this.#closeCheckpoints(organizationId);
+			await this.#writeMissingBundles(organizationId);
+			await this.#serial(() => this.#pruneArchived(organizationId));
+		} finally {
+			// Idle stores still age; failed archives must not stop retention alarms.
 			await this.ctx.storage.setAlarm(Date.now() + CHECKPOINT_AFTER_MS);
+		}
 	}
 
 	/** Seal every record after the last checkpoint, in runs of at most 500. */
@@ -582,6 +604,137 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 		});
 	}
 
+	/** Verify a complete sealing day using only its downloaded archive objects. */
+	async #verifyArchivedDay(
+		bucket: R2Bucket,
+		organizationId: string,
+		day: string,
+		cutoff: string,
+	) {
+		const object = await bucket.get(dayManifestKey(organizationId, day));
+		if (!object) throw new Error("Archive day manifest is missing");
+		const manifest = await object.json<DayManifest>();
+		const checkpoints = this.#sql
+			.exec<CheckpointRow>(
+				"SELECT * FROM change_record_checkpoints WHERE sealed_at >= ? AND sealed_at < ? ORDER BY last_sequence",
+				`${day}T00:00:00.000Z`,
+				new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000).toISOString(),
+			)
+			.toArray();
+		if (
+			manifest.format !== DAY_MANIFEST_FORMAT ||
+			manifest.organizationId !== organizationId ||
+			manifest.day !== day ||
+			manifest.checkpoints.length !== checkpoints.length
+		)
+			throw new Error("Archive day manifest does not match its checkpoints");
+		const eligible: Array<{
+			checkpointId: string;
+			firstSequence: number;
+			lastSequence: number;
+			firstRecordedAt: string;
+			lastRecordedAt: string;
+		}> = [];
+		let previous: CheckpointInput | undefined;
+		for (const [i, row] of checkpoints.entries()) {
+			const entry = manifest.checkpoints[i];
+			if (
+				!entry ||
+				entry.checkpointId !== row.id ||
+				entry.checkpointDigest !== row.checkpoint_digest ||
+				entry.firstSequence !== row.first_sequence ||
+				entry.lastSequence !== row.last_sequence ||
+				entry.recordCount !== row.record_count ||
+				entry.bundleKey !== row.evidence_bundle_key
+			)
+				throw new Error("Archive manifest checkpoint does not match");
+			const stored = await bucket.get(entry.bundleKey);
+			if (!stored) throw new Error("Archive checkpoint bundle is missing");
+			const body = await stored.text();
+			if ((await sha256Hex(body)) !== entry.bundleSha256)
+				throw new Error("Archive checkpoint bundle digest does not match");
+			const bundle = JSON.parse(body) as EvidenceBundle;
+			if (
+				bundle.format !== EVIDENCE_BUNDLE_FORMAT ||
+				bundle.checkpointId !== row.id ||
+				JSON.stringify(bundle.checkpoint) !==
+					JSON.stringify(
+						checkpointInput(toCheckpoint(row, organizationId), true),
+					)
+			)
+				throw new Error("Archive checkpoint statement does not match");
+			const verified = await verifyChain({
+				records: bundle.records as never,
+				checkpoints: [bundle.checkpoint],
+				publicKey: bundle.publicKey
+					? await importVerifyingKey(bundle.publicKey.spki)
+					: null,
+			});
+			if (!verified.ok || verified.recordsVerified !== row.record_count)
+				throw new Error("Archive checkpoint does not verify");
+			if (
+				previous &&
+				(bundle.checkpoint.firstSequence !== previous.lastSequence + 1 ||
+					bundle.checkpoint.previousChainHash !== previous.headChainHash ||
+					bundle.checkpoint.previousCheckpointDigest !==
+						manifest.checkpoints[i - 1]!.checkpointDigest)
+			)
+				throw new Error("Archive day checkpoint chain does not link");
+			previous = bundle.checkpoint;
+			const times = bundle.records
+				.map((r) => String(r.recordedAt))
+				.filter((t) => t < cutoff)
+				.sort();
+			if (times.length)
+				eligible.push({
+					checkpointId: bundle.checkpointId,
+					firstSequence: bundle.checkpoint.firstSequence,
+					lastSequence: bundle.checkpoint.lastSequence,
+					firstRecordedAt: times[0]!,
+					lastRecordedAt: times.at(-1)!,
+				});
+		}
+		return eligible;
+	}
+
+	/** No deletion until the entire sealing day has verified from R2 alone. */
+	async #pruneArchived(organizationId: string) {
+		const bucket = (this.env as { R2_BUCKET?: R2Bucket }).R2_BUCKET;
+		if (!bucket) return;
+		const cutoff = new Date(Date.now() - RETENTION_MS).toISOString();
+		const days = this.#sql
+			.exec<{ day: string }>(
+				"SELECT DISTINCT substr(c.sealed_at, 1, 10) AS day FROM change_record_checkpoints c WHERE EXISTS (SELECT 1 FROM change_records r WHERE r.sequence BETWEEN c.first_sequence AND c.last_sequence AND r.recorded_at < ?) ORDER BY day LIMIT 1",
+				cutoff,
+			)
+			.toArray();
+		for (const { day } of days) {
+			const eligible = await this.#verifyArchivedDay(
+				bucket,
+				organizationId,
+				day,
+				cutoff,
+			);
+			// No awaits between the archive index and deletion: the same storage
+			// turn commits both, and appends cannot change the sealed sequences.
+			for (const checkpoint of eligible) {
+				this.#sql.exec(
+					"INSERT INTO archived_log_ranges (checkpoint_id, manifest_key, first_recorded_at, last_recorded_at) VALUES (?, ?, ?, ?) ON CONFLICT(checkpoint_id) DO UPDATE SET last_recorded_at = MAX(last_recorded_at, excluded.last_recorded_at)",
+					checkpoint.checkpointId,
+					dayManifestKey(organizationId, day),
+					checkpoint.firstRecordedAt,
+					checkpoint.lastRecordedAt,
+				);
+				this.#sql.exec(
+					"DELETE FROM change_records WHERE sequence BETWEEN ? AND ? AND recorded_at < ?",
+					checkpoint.firstSequence,
+					checkpoint.lastSequence,
+					cutoff,
+				);
+			}
+		}
+	}
+
 	#live<T>(organizationId: string, read: () => T): OrganizationLogRead<T> {
 		this.#bind(organizationId);
 		return { status: "live", value: read() };
@@ -629,9 +782,7 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 		organizationId: string,
 		range: GatewayChangeRecordRangeParams,
 		page: { afterSequence?: number; limit: number },
-	): Promise<
-		OrganizationLogRead<{ records: OrganizationLogRecord[]; count: number }>
-	> {
+	): Promise<OrganizationLogRead<OrganizationLogRange>> {
 		return this.#live(organizationId, () => {
 			const where = ["recorded_at >= ?", "recorded_at < ?"];
 			const params: SqlStorageValue[] = [range.from, range.until];
@@ -663,7 +814,22 @@ export class OrganizationLogStore extends DurableObject<WorkspaceEnv> {
 				)
 				.toArray()
 				.map(toRecord);
-			return { records, count: counted?.n ?? 0 };
+			const archivedBefore = new Date(Date.now() - RETENTION_MS).toISOString();
+			const archive =
+				range.from < archivedBefore
+					? {
+							archivedBefore,
+							manifestKeys: this.#sql
+								.exec<{ manifest_key: string }>(
+									"SELECT DISTINCT manifest_key FROM archived_log_ranges WHERE first_recorded_at < ? AND last_recorded_at >= ? ORDER BY manifest_key",
+									range.until,
+									range.from,
+								)
+								.toArray()
+								.map((r) => r.manifest_key),
+						}
+					: {};
+			return { records, count: counted?.n ?? 0, ...archive };
 		});
 	}
 

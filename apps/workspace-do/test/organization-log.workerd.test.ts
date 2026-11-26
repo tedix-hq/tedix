@@ -4,9 +4,10 @@ import {
 	runInDurableObject,
 } from "cloudflare:test";
 import type { OrganizationLogStore } from "../src/organization-log";
-import { expect, test } from "vite-plus/test";
+import { expect, test, vi } from "vite-plus/test";
 import {
 	type DayManifest,
+	type EvidenceBundle,
 	dayManifestKey,
 	evidenceBundleKey,
 } from "@tedix/agent-governance/evidence";
@@ -152,12 +153,156 @@ test("without a signing key the store chains records but writes no checkpoint", 
 		const appended = await unkeyed.organizationLogAppend(organizationId, {
 			...body(1),
 			id: id(1),
-			recordedAt: "2026-11-20T09:00:01.000Z",
+			recordedAt: new Date(Date.now() - 31 * 86_400_000).toISOString(),
 		});
 		expect(appended.status).toBe("stored");
 		await unkeyed.alarm();
 		expect(
 			await unkeyed.organizationLogCheckpoints(organizationId, { limit: 10 }),
 		).toEqual({ status: "live", value: [] });
+		expect(
+			await unkeyed.organizationLogGet(organizationId, id(1)),
+		).toMatchObject({ status: "live", value: { sequence: 1 } });
+	});
+});
+
+test("retention keeps the whole day until its archive verifies, then exposes manifests and preserves checkpoints", async () => {
+	const organizationId = "org_log_retention";
+	const log = store(organizationId);
+	await runInDurableObject(log, async (instance) => {
+		const own = instance as unknown as OrganizationLogStore;
+		const dayMs = 86_400_000;
+		const now = Date.now();
+		const future = now + 2 * dayMs;
+		const cutoff = new Date(future - 30 * dayMs).toISOString();
+		await own.organizationLogAppend(organizationId, {
+			...body(1),
+			id: id(1),
+			recordedAt: new Date(now - 29 * dayMs).toISOString(),
+		});
+		await own.alarm();
+		await own.organizationLogAppend(organizationId, {
+			...body(2),
+			id: id(2),
+			recordedAt: cutoff,
+		});
+		await own.alarm();
+		const checkpoints = await own.organizationLogCheckpoints(organizationId, {
+			limit: 10,
+		});
+		if (checkpoints.status !== "live") throw new Error("not live");
+		expect(checkpoints.value).toHaveLength(2);
+		const last = checkpoints.value[1]!;
+		const manifestKey = dayManifestKey(
+			organizationId,
+			last.sealedAt.slice(0, 10),
+		);
+		const manifestBody = await (await bindings.R2_BUCKET.get(
+			manifestKey,
+		))!.text();
+		const bundleKey = last.evidenceBundleKey!;
+		const bundleBody = await (await bindings.R2_BUCKET.get(bundleKey))!.text();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(future);
+		try {
+			const retained = async () =>
+				expect(
+					await own.organizationLogGet(organizationId, id(1)),
+				).toMatchObject({ status: "live", value: { sequence: 1 } });
+			await bindings.R2_BUCKET.delete(manifestKey);
+			await expect(own.alarm()).rejects.toThrow("manifest is missing");
+			await retained();
+			await bindings.R2_BUCKET.put(manifestKey, manifestBody);
+			await bindings.R2_BUCKET.delete(bundleKey);
+			await expect(own.alarm()).rejects.toThrow("bundle is missing");
+			await retained();
+			// A matching object hash is insufficient: the records must verify too.
+			const tampered = JSON.parse(bundleBody) as EvidenceBundle;
+			tampered.records[0]!.argsHash = "changed";
+			const badBody = JSON.stringify(tampered);
+			await bindings.R2_BUCKET.put(bundleKey, badBody);
+			await expect(own.alarm()).rejects.toThrow("digest does not match");
+			await retained();
+			const manifest = JSON.parse(manifestBody) as DayManifest;
+			const hash = await crypto.subtle.digest(
+				"SHA-256",
+				new TextEncoder().encode(badBody),
+			);
+			manifest.checkpoints[1]!.bundleSha256 = Array.from(
+				new Uint8Array(hash),
+				(b) => b.toString(16).padStart(2, "0"),
+			).join("");
+			await bindings.R2_BUCKET.put(manifestKey, JSON.stringify(manifest));
+			await expect(own.alarm()).rejects.toThrow("does not verify");
+			await retained();
+			await bindings.R2_BUCKET.put(bundleKey, bundleBody);
+			await bindings.R2_BUCKET.put(manifestKey, manifestBody);
+			await own.alarm();
+			expect(await own.organizationLogGet(organizationId, id(1))).toEqual({
+				status: "live",
+				value: null,
+			});
+			expect(await own.organizationLogGet(organizationId, id(2))).toMatchObject(
+				{ status: "live", value: { sequence: 2 } },
+			);
+			expect(
+				await own.organizationLogRange(
+					organizationId,
+					{ from: new Date(now - 31 * dayMs).toISOString(), until: cutoff },
+					{ limit: 10 },
+				),
+			).toEqual({
+				status: "live",
+				value: {
+					records: [],
+					count: 0,
+					archivedBefore: cutoff,
+					manifestKeys: [manifestKey],
+				},
+			});
+			expect(
+				await own.organizationLogRange(
+					organizationId,
+					{ from: cutoff, until: new Date(future).toISOString() },
+					{ limit: 10 },
+				),
+			).toMatchObject({ status: "live", value: { count: 1 } });
+			expect(
+				await own.organizationLogCheckpoints(organizationId, { limit: 10 }),
+			).toEqual(checkpoints);
+			const restoredManifest = JSON.parse(manifestBody) as DayManifest;
+			const archived = await Promise.all(
+				restoredManifest.checkpoints.map(
+					async (c) =>
+						(await (await bindings.R2_BUCKET.get(
+							c.bundleKey,
+						))!.json()) as EvidenceBundle,
+				),
+			);
+			const key = await importSigningKey(bindings.CHANGE_RECORD_SIGNING_KEY);
+			expect(
+				await verifyChain({
+					records: archived.flatMap((b) => b.records) as never,
+					checkpoints: archived.map((b) => b.checkpoint),
+					publicKey: key.publicKey,
+				}),
+			).toMatchObject({ ok: true, recordsVerified: 2, checkpointsVerified: 2 });
+			// The next append and checkpoint continue the chain after pruning.
+			await own.organizationLogAppend(organizationId, {
+				...body(3),
+				id: id(3),
+				recordedAt: new Date(future).toISOString(),
+			});
+			await own.alarm();
+			const after = await own.organizationLogCheckpoints(organizationId, {
+				limit: 10,
+			});
+			expect(after.status === "live" && after.value[2]).toMatchObject({
+				firstSequence: 3,
+				previousChainHash: last.headChainHash,
+				previousCheckpointDigest: last.checkpointDigest,
+			});
+		} finally {
+			clock.mockRestore();
+		}
 	});
 });

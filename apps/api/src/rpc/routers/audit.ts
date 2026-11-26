@@ -391,17 +391,18 @@ const listOrganizationGatewayChangeRecords = authedOs.listGatewayChangeRecords
 	.handler(async ({ input, context }) => {
 		await assertGatewayChangeRecordReader(context, context.organizationId);
 		const { afterSequence, limit, ...range } = input;
-		const { count, records } = await organizationLog.readChangeRecordRange(
-			context.organizationId,
-			range,
-			{ afterSequence, limit: limit + 1 },
-		);
+		const { records, ...metadata } =
+			await organizationLog.readChangeRecordRange(
+				context.organizationId,
+				range,
+				{ afterSequence, limit: limit + 1 },
+			);
 		const page = records.slice(0, limit);
 		return {
 			from: range.from,
 			until: range.until,
 			exportedAt: new Date().toISOString(),
-			count,
+			...metadata,
 			records: page,
 			nextAfterSequence:
 				records.length > limit ? (page.at(-1)?.sequence ?? null) : null,

@@ -11,7 +11,7 @@ import type { OrganizationLogAppendInput } from "@tedix/db/queries/durable-sqlit
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { installOrganizationLogFixture } from "../../../test/organization-log-fixture";
 import type { BaseContext } from "../orpc";
 import { auditContractRouter } from "./audit";
@@ -241,7 +241,7 @@ describe("owner and admin read of gateway change records", () => {
 					scopes,
 				} as BaseContext["apiKey"],
 			});
-		return { sqlite, member, machine };
+		return { sqlite, member, machine, store };
 	}
 
 	it("returns only the caller's organization's records", async () => {
@@ -282,6 +282,36 @@ describe("owner and admin read of gateway change records", () => {
 				code: "FORBIDDEN",
 			});
 		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("preserves archived-range metadata when no hot records remain", async () => {
+		const { sqlite, member, store } = await ledger();
+		const original = store.runtime.organizationLogRange.bind(store.runtime);
+		const archive = {
+			archivedBefore: "2026-11-19T00:00:00.000Z",
+			manifestKeys: ["change-record-evidence/v1/example/days/2026-11-18.json"],
+		};
+		const read = vi
+			.spyOn(store.runtime, "organizationLogRange")
+			.mockImplementation(async (org, range, page) =>
+				org === ORG_A
+					? { status: "live", value: { count: 0, records: [], ...archive } }
+					: original(org, range, page),
+			);
+		try {
+			expect(await member(ORG_A, "owner-a")(DAY)).toMatchObject({
+				...archive,
+				count: 0,
+				records: [],
+				nextAfterSequence: null,
+			});
+			const other = await member(ORG_B, "owner-b")(DAY);
+			expect(other.count).toBe(1);
+			expect(other.archivedBefore).toBeUndefined();
+		} finally {
+			read.mockRestore();
 			sqlite.close();
 		}
 	});
