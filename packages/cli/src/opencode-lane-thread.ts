@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { laneChildEnv } from "./lane-child-env";
+import { openCodeLaneEnv } from "./opencode-lane-env";
 
 const MODEL = /^[^/\s]+\/[^\s]+$/;
 export const opencodeSessionId = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
@@ -26,7 +26,7 @@ export async function createOpenCodeLaneThread(
 		{
 			cwd,
 			env: {
-				...laneChildEnv(),
+				...openCodeLaneEnv(),
 				OPENCODE_DISABLE_AUTOUPDATE: "true",
 				OPENCODE_SERVER_USERNAME: "opencode",
 				OPENCODE_SERVER_PASSWORD: password,

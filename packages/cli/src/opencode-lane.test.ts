@@ -9,12 +9,17 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
+import { openCodeLaneEnv } from "./opencode-lane-env";
 import { openCodeExportHasNoToolAction, runLaneProcess } from "./lane-run";
 import { resumeThenFresh } from "./lane-routing";
 const dirs: string[] = [];
 const originalPath = process.env.PATH;
+const originalGatewayToken = process.env.CF_AI_GATEWAY_TOKEN;
 afterEach(() => {
 	process.env.PATH = originalPath;
+	if (originalGatewayToken === undefined)
+		delete process.env.CF_AI_GATEWAY_TOKEN;
+	else process.env.CF_AI_GATEWAY_TOKEN = originalGatewayToken;
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -24,7 +29,23 @@ function fixture() {
 	dirs.push(dir);
 	return dir;
 }
+it("loads a gateway token only into the child and preserves an environment override", () => {
+	const parent = { TEDIX_AGENT_SESSION: "codex:parent", PATH: "/bin" };
+	const child = openCodeLaneEnv(parent, () => "fictional-keychain-token");
+	expect(child.CF_AI_GATEWAY_TOKEN).toBe("fictional-keychain-token");
+	expect(child.TEDIX_AGENT_SESSION).toBeUndefined();
+	expect(parent).toEqual({ TEDIX_AGENT_SESSION: "codex:parent", PATH: "/bin" });
+	expect(
+		openCodeLaneEnv({ CF_AI_GATEWAY_TOKEN: "environment-token" }, () => {
+			throw new Error("Keychain must not be read for an environment override");
+		}).CF_AI_GATEWAY_TOKEN,
+	).toBe("environment-token");
+	expect(
+		openCodeLaneEnv({}, () => undefined).CF_AI_GATEWAY_TOKEN,
+	).toBeUndefined();
+});
 it("recovers a stopped backend before resuming, falls back only on missing session, and never prompts during allocation", async () => {
+	process.env.CF_AI_GATEWAY_TOKEN = "fictional-gateway-token";
 	const dir = fixture();
 	const executable = join(dir, "opencode");
 	const requests = join(dir, "requests.jsonl");
@@ -32,6 +53,7 @@ it("recovers a stopped backend before resuming, falls back only on missing sessi
 		executable,
 		`#!${process.execPath}
 import { appendFileSync } from 'node:fs';
+if (process.env.CF_AI_GATEWAY_TOKEN !== 'fictional-gateway-token') process.exit(23);
 if (process.argv[2] === 'run') {
  console.log(JSON.stringify({type:'step_finish',sessionID:${JSON.stringify(id)},part:{id:'step-1',tokens:{input:2,output:1}}}));
  process.exit(0);

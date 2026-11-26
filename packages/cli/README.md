@@ -36,6 +36,20 @@ completed step. Other executors reject turn or cost limits before launch.
 The child receives an interrupt or SIGTERM, then is killed after five seconds
 if it has not exited. No limits are enabled by default.
 
+## OpenCode cost tracking
+
+To track OpenCode lane costs through your AI Gateway, first configure OpenCode's
+provider address and headers for your gateway. Reference the token in its
+`cf-aig-authorization` header as `Bearer {env:CF_AI_GATEWAY_TOKEN}`.
+Keep your organization's tracking labels in its `cf-aig-metadata` header.
+
+On macOS, save the token once as a generic password in Keychain Access with
+the service name `CF_AI_GATEWAY_TOKEN`. The runner reads it when launching
+OpenCode and passes it through the child's environment. An existing
+`CF_AI_GATEWAY_TOKEN` environment value takes precedence; on other systems,
+set that environment variable before starting the runner. The runner does not
+write the token to OpenCode's configuration or change its provider address.
+
 ## Quick start
 
 ```sh

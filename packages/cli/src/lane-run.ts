@@ -27,6 +27,7 @@ import type { NativeProviderActivity } from "@tedix/api-contract/schemas/dispatc
 import type { CodexLaneServer } from "./codex-lane-thread";
 import type { DevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
+import { openCodeLaneEnv } from "./opencode-lane-env";
 import { recordExecutorUsageSignal } from "./lane-budget";
 import {
 	laneLimitsSchema,
@@ -594,7 +595,7 @@ async function runLaneProcessWithReporter(
 		);
 	}
 	const env = {
-		...laneChildEnv(),
+		...(opencode ? openCodeLaneEnv() : laneChildEnv()),
 		...(devin
 			? {
 					TEDIX_DEVIN_LANE_ROOT: deps.cwd ?? process.cwd(),
