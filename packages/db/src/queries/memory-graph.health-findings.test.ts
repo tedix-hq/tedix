@@ -13,6 +13,7 @@ import {
 	memoryEdges,
 	memoryFacts,
 } from "../schema/memory-graph";
+import { readMarks } from "../schema/read-marks";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import { getMemoryHealthFindings } from "./memory-graph/health-findings";
@@ -35,7 +36,7 @@ type Seed = {
 function setup(seeds: Seed[], edges: [string, string, string, string][] = []) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	sqlite.exec(schemaDdl(memoryDomains, memoryFacts, memoryEdges));
+	sqlite.exec(schemaDdl(memoryDomains, memoryFacts, memoryEdges, readMarks));
 	const insert = sqlite.prepare(`
 		INSERT INTO memory_facts
 			(id, organization_id, content, fact_type, confidence, created_at,

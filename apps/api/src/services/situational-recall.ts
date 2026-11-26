@@ -16,6 +16,7 @@ import {
 	setAgentLessonTriggers,
 	type ApprovedAgentLessonRow,
 } from "@tedix/db/queries/memory-graph/agent-lessons";
+import { markRowsRead } from "@tedix/db/queries/read-marks";
 import {
 	createWorkItem,
 	getWorkItemBySourceIntentId,
@@ -248,6 +249,12 @@ export async function recordIncident(
 			}
 		workItemIds.push(work.id);
 	}
+	await markRowsRead(
+		context.db,
+		org,
+		"lesson",
+		lessons.map((l) => l.id),
+	);
 	return { fingerprint, lessonIds: lessons.map((l) => l.id), workItemIds };
 }
 
@@ -303,6 +310,12 @@ export async function recallDispatchBrief(
 	}
 	const truncated = fitting.length < lessons.length;
 	const recall = renderRecall(fitting);
+	await markRowsRead(
+		context.db,
+		org,
+		"lesson",
+		fitting.map((l) => l.id),
+	);
 	return {
 		prompt: recall ? `${recall}\n\n${input.brief}` : input.brief,
 		lessonRecall: {

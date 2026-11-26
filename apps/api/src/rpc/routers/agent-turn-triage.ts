@@ -121,6 +121,7 @@ import {
 } from "../orpc";
 import type { AgentTurnDefaults } from "@tedix/api-contract/schemas/agent-turn-defaults";
 import { getAgentTurnDefaults } from "@tedix/db/queries/agent-turn-defaults";
+import { unusedReportNote } from "@tedix/db/queries/read-marks";
 import { verifiedActiveWorkActor } from "./work-items-principal";
 import { rethrowWorkControlError } from "./work-items/policy-helpers";
 
@@ -1970,6 +1971,7 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 			mistakeEventsRecorded: 0,
 			proposalsCreated: 0,
 			budgetHit: false,
+			note: unusedReportNote("stale lesson window 90 day(s)"),
 			inProgress: true,
 		};
 	},

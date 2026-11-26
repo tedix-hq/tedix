@@ -228,6 +228,9 @@ export * from "./memory-fact-citations";
 // Ops alerting memory — the platform-health digest's NEW/ESCALATED/RESOLVED
 // dedup state (distinct from the cron-darkness work-item dedup).
 export * from "./ops-alert-state";
+// Daily last-read dates for rows that are only read (skills, Outputs,
+// policy packs, lessons) — the cheap store the unused judges consult.
+export * from "./read-marks";
 export * from "./site-reconciliation";
 // Decision graph edges (Deck card ↔ decisions, Work, people, systems)
 export * from "./decision-graph";

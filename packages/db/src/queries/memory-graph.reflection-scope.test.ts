@@ -11,7 +11,7 @@ import {
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		`CREATE TABLE memory_facts (id TEXT PRIMARY KEY,organization_id TEXT,tedi_id TEXT,domain_id TEXT,confidence REAL,archived_at TEXT,valid_to TEXT,last_verified_at TEXT,last_accessed_at TEXT,created_at TEXT,updated_at TEXT,priority TEXT,usage_count INTEGER,access_count INTEGER,status TEXT,source TEXT,metadata TEXT); INSERT INTO memory_facts (id,organization_id,confidence,created_at,updated_at) VALUES ('selected','org',0.05,'2020-01-01','2020-01-01'),('outside','org',0.05,'2020-01-01','2020-01-01'),('foreign','other',0.05,'2020-01-01','2020-01-01');`,
+		`CREATE TABLE memory_facts (id TEXT PRIMARY KEY,organization_id TEXT,tedi_id TEXT,domain_id TEXT,confidence REAL,archived_at TEXT,valid_to TEXT,last_verified_at TEXT,last_accessed_at TEXT,created_at TEXT,updated_at TEXT,priority TEXT,usage_count INTEGER,access_count INTEGER,status TEXT,source TEXT,metadata TEXT); CREATE TABLE read_marks (organization_id TEXT NOT NULL, kind TEXT NOT NULL, row_id TEXT NOT NULL, last_read_on TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (organization_id, kind, row_id)); INSERT INTO memory_facts (id,organization_id,confidence,created_at,updated_at) VALUES ('selected','org',0.05,'2020-01-01','2020-01-01'),('outside','org',0.05,'2020-01-01','2020-01-01'),('foreign','other',0.05,'2020-01-01','2020-01-01');`,
 	);
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }

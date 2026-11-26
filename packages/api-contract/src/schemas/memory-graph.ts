@@ -326,6 +326,8 @@ export const MemoryHealthFindingsSchema = z.object({
 	staleDays: z.number().int(),
 	/** Orphans are measured over this many most recently updated active facts. */
 	orphanWindow: z.number().int(),
+	/** What "unused" meant for this report, including the read-tracking caveat. */
+	note: z.string(),
 	findings: z.array(MemoryHealthFindingSchema),
 	graphLayer: z.object({
 		/** Whether a Neo4j projection is configured. D1 is canonical either way. */

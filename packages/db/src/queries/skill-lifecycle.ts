@@ -47,6 +47,7 @@ import {
 } from "../schema/control-plane";
 import { tedis } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
+import { freshReadMarkExists, unusedReportNote } from "./read-marks";
 
 export type SkillLifecycleState = NonNullable<SkillEntry["lifecycleState"]>;
 export type { SkillPaceLayer };
@@ -747,6 +748,8 @@ export interface SweepExpiredDraftSkillsResult {
 	cutoff: string;
 	dryRun: boolean;
 	entries: SweptDraftSkill[];
+	/** What "unused" meant for this sweep, including the read-tracking caveat. */
+	note: string;
 }
 
 /**
@@ -795,10 +798,20 @@ export async function sweepExpiredDraftSkills(
 		isEphemeralFlow,
 		sql`datetime(coalesce(${skillEntries.lastUsedAt}, ${skillEntries.updatedAt}, ${skillEntries.createdAt})) < ${layerCutoff}`,
 	);
+	// A draft read within its TTL window is not unused even with zero recorded
+	// runs: reads leave a daily date in read_marks (kind 'skill'). The mark is
+	// compared against the same per-layer cutoff as the usage predicates.
+	const notReadWithinTtl = sql`NOT ${freshReadMarkExists({
+		organizationId: skillEntries.organizationId,
+		kind: "skill",
+		rowId: skillEntries.id,
+		sinceDate: sql`date(${layerCutoff})`,
+	})}`;
 	const conditions = [
 		eq(skillEntries.lifecycleState, "draft"),
 		// Improvement copies have their own deletion sweep and evidence guards.
 		sql`NOT EXISTS (SELECT 1 FROM json_each(coalesce(${skillEntries.tags}, '[]')) WHERE value = 'workflow-improvement')`,
+		notReadWithinTtl,
 		or(ordinaryDraftIsExpired, ephemeralFlowIsExpired),
 	];
 	if (options.organizationId) {
@@ -818,12 +831,16 @@ export async function sweepExpiredDraftSkills(
 		.where(and(...conditions))
 		.limit(limit);
 
+	const reportNote = unusedReportNote(
+		`draft TTL per pace layer (global fallback ${olderThanDays} day(s)); skill_usage_events kept 90 day(s)`,
+	);
 	if (options.dryRun || rows.length === 0) {
 		return {
 			archived: rows.length,
 			cutoff,
 			dryRun: options.dryRun ?? false,
 			entries: rows,
+			note: reportNote,
 		};
 	}
 
@@ -850,5 +867,11 @@ export async function sweepExpiredDraftSkills(
 	}
 
 	const entries = rows.filter((row) => archivedIds.has(row.id));
-	return { archived: entries.length, cutoff, dryRun: false, entries };
+	return {
+		archived: entries.length,
+		cutoff,
+		dryRun: false,
+		entries,
+		note: reportNote,
+	};
 }

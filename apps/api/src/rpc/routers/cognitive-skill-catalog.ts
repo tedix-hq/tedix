@@ -46,6 +46,7 @@ import {
 } from "@tedix/db/queries/skill-schedules";
 import { recordSkillUsageEvent } from "@tedix/db/queries/skill-usage";
 import { getTediOrganizationId } from "@tedix/db/queries/tedis";
+import { markRowsRead, unusedReportNote } from "@tedix/db/queries/read-marks";
 import type { SkillEntry } from "@tedix/db/schema/cognitive";
 import { withTransientD1ReadRetry } from "@tedix/db/utils/d1-retry";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -118,6 +119,7 @@ export const skillsRecord = authedSkills.record
 			skillInput,
 		);
 		if (workspace) await linkSkillToWorkspace(context, workspace, entry);
+		await markRowsRead(context.db, orgId, "skill", [entry.id]);
 		return { entry, ...(warnings.length ? { warnings } : {}) };
 	});
 
@@ -471,6 +473,7 @@ export const skillsImprove = authedSkills.improve
 			}
 		}
 
+		if (updated) await markRowsRead(context.db, orgId, "skill", [updated.id]);
 		return {
 			entry: updated!,
 			...(gateWarnings.length ? { warnings: gateWarnings } : {}),
@@ -496,6 +499,7 @@ export const skillsGet = authedSkills.get
 		const orgId = context.organizationId;
 		const entry = await getSkillEntry(context.db, input.id, orgId);
 		if (!entry) return { entry: null };
+		await markRowsRead(context.db, orgId, "skill", [entry.id]);
 		return {
 			entry,
 			usedBy: await listSkillUsers(context.db, { orgId, skillId: entry.id }),
@@ -513,6 +517,7 @@ export const skillsMove = authedSkills.move
 		invalidateSkillCaches(context, orgId, "skill.moved");
 		const entry = await getSkillEntry(context.db, input.id, orgId);
 		if (!entry) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
+		await markRowsRead(context.db, orgId, "skill", [entry.id]);
 		return { entry };
 	});
 
@@ -581,6 +586,12 @@ export const skillsListByOrg = authedSkills.listByOrg
 			domainId,
 			tediId: input.tediId,
 		});
+		await markRowsRead(
+			context.db,
+			orgId,
+			"skill",
+			page.entries.map((entry) => entry.id),
+		);
 		return {
 			...page,
 			entries: input.summary
@@ -599,6 +610,12 @@ export const skillsFind = authedSkills.find
 			appId: input.appId,
 			limit: input.limit,
 		});
+		await markRowsRead(
+			context.db,
+			orgId,
+			"skill",
+			entries.map((entry) => entry.id),
+		);
 		// Compact by default (GATEWAY-UX skills polish): a broad find over a
 		// 100-skill library returned every full SKILL.md — the skills-layer
 		// twin of the includeParameters discovery problem. summary: false is
@@ -632,6 +649,12 @@ export const skillsListByApp = authedSkills.listByApp
 						lifecycleState: input.lifecycleState,
 					}),
 			);
+			await markRowsRead(
+				context.db,
+				orgId,
+				"skill",
+				summaries.map((summary) => summary.id),
+			);
 			return { skills: [], summaries };
 		}
 
@@ -644,6 +667,12 @@ export const skillsListByApp = authedSkills.listByApp
 					lifecycleState: input.lifecycleState,
 					slugs: input.slugs,
 				}),
+		);
+		await markRowsRead(
+			context.db,
+			orgId,
+			"skill",
+			skills.map((skill) => skill.id),
 		);
 		return { skills };
 	});
@@ -666,6 +695,12 @@ export const skillsListSummariesByApps = authedSkills.listSummariesByApps
 					tediId: input.tediId,
 					lifecycleState: input.lifecycleState,
 				}),
+		);
+		await markRowsRead(
+			context.db,
+			orgId,
+			"skill",
+			[...byApp.values()].flat().map((summary) => summary.id),
 		);
 		return { summariesByApp: Object.fromEntries(byApp) };
 	});
@@ -695,6 +730,12 @@ export const skillsListPromotionCandidates =
 					limit,
 					offset,
 				},
+			);
+			await markRowsRead(
+				context.db,
+				orgId,
+				"skill",
+				entries.map((entry) => entry.id),
 			);
 			return {
 				entries: entries.map(compactPromotionCandidate),
@@ -804,12 +845,16 @@ export const skillsAuditLowQuality = authedSkills.auditLowQuality
 			ownership,
 			scanned: result.scanned,
 			total: result.total,
-			warnings:
-				result.scanned >= 1000
+			warnings: [
+				...(result.scanned >= 1000
 					? [
 							"Audit scanned the first 1000 matching skills; narrow the app, tedi, slug, or lifecycle filters if results look incomplete.",
 						]
-					: [],
+					: []),
+				unusedReportNote(
+					`orphan window ${input.orphanOlderThanDays ?? 30} day(s); skill_usage_events kept 90 day(s)`,
+				),
+			],
 		};
 	});
 
@@ -832,6 +877,11 @@ export const skillsSweepDraftTtl = authedSkills.sweepDraftTtl
 					.join(", ")}`,
 			);
 		}
+		// The contract output has no free-text field for the sweep's "unused"
+		// caveat, so it is logged instead of returned.
+		console.log(
+			`[Skills] draft-TTL sweep note for org ${orgId}: ${result.note}`,
+		);
 		return {
 			applied: !input.dryRun,
 			archived: result.archived,
@@ -858,6 +908,7 @@ export const skillsGetForMcp = authedSkills.getForMcp
 			tediId: input.tediId ?? context.tediId,
 		});
 		if (!entry) return { entry: null };
+		await markRowsRead(context.db, orgId, "skill", [entry.id]);
 		return {
 			entry,
 			usedBy: await listSkillUsers(context.db, { orgId, skillId: entry.id }),
@@ -1076,6 +1127,8 @@ export const skillsPreview = authedSkills.preview
 			frontmatter,
 		};
 
+		// A preview of an existing skill delivers its stored body.
+		if (existing) await markRowsRead(context.db, orgId, "skill", [existing.id]);
 		return {
 			valid: validation.valid,
 			errors: validation.errors,
@@ -1138,6 +1191,7 @@ export const skillsRepair = authedSkills.repair
 		if (input.dryRun) {
 			return { id: existing.id, applied: false, changes, entry: null };
 		}
+		await markRowsRead(context.db, orgId, "skill", [existing.id]);
 
 		const hasPatch = Object.keys(patch).length > 0;
 		if (!hasPatch && !scheduleProjectionChanged) {
@@ -1220,6 +1274,7 @@ export const skillsPromote = authedSkills.promote
 				entry: null,
 			};
 		}
+		await markRowsRead(context.db, orgId, "skill", [existing.id]);
 		if (existing.tags?.includes(WORKFLOW_IMPROVEMENT_TAG)) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,

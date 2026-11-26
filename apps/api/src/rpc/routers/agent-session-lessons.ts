@@ -34,6 +34,7 @@ import {
 	type ApprovedAgentLessonRow,
 	listApprovedAgentLessons,
 } from "@tedix/db/queries/memory-graph/agent-lessons";
+import { markRowsRead } from "@tedix/db/queries/read-marks";
 import {
 	observedLearningActor,
 	observedLearningEventId,
@@ -311,6 +312,12 @@ export async function getSessionLessons(
 					},
 				];
 			});
+		await markRowsRead(
+			context.db,
+			organizationId,
+			"lesson",
+			lessons.map((lesson) => lesson.id),
+		);
 		return {
 			organizationId,
 			lessons,
@@ -330,7 +337,15 @@ export async function getSessionLessons(
 				input.selectedLessonIds!.indexOf(b.id),
 		);
 	const sessionId = input.sessionId?.toLowerCase();
-	if (!sessionId) return { organizationId, ...selected };
+	if (!sessionId) {
+		await markRowsRead(
+			context.db,
+			organizationId,
+			"lesson",
+			selected.lessons.map((lesson) => lesson.id),
+		);
+		return { organizationId, ...selected };
+	}
 	// A holdout session gets every lesson except the miner's own.
 	const holdout = await isHoldoutSession(sessionId);
 	const withheld = holdout
@@ -377,6 +392,12 @@ export async function getSessionLessons(
 	// Measurement never delays or fails the lessons themselves.
 	if (context.waitUntil) context.waitUntil(record);
 	else await record;
+	await markRowsRead(
+		context.db,
+		organizationId,
+		"lesson",
+		result.lessons.map((lesson) => lesson.id),
+	);
 	return { organizationId, ...result, holdout };
 }
 
@@ -430,23 +451,29 @@ export async function listNotebookLessons(
 	);
 	const addedAt = (row: ApprovedAgentLessonRow) =>
 		row.createdAt ?? row.updatedAt ?? "";
+	const page = [...rows]
+		.sort((a, b) => addedAt(b).localeCompare(addedAt(a)))
+		.slice(0, limit);
+	await markRowsRead(
+		context.db,
+		organizationId,
+		"lesson",
+		page.map((row) => row.id),
+	);
 	return {
-		lessons: [...rows]
-			.sort((a, b) => addedAt(b).localeCompare(addedAt(a)))
-			.slice(0, limit)
-			.map((row) => ({
-				id: row.id,
-				text: lessonText(row),
-				addedAt: row.createdAt ?? row.updatedAt,
-				learnedFrom: lessonLearnedFrom(row.metadata, viewerUserId),
-				evidence: evidenceOfLesson(row.metadata),
-				fromCallerFeedback:
-					row.metadata?.learningFeed != null &&
-					typeof row.metadata.learningFeed === "object" &&
-					!Array.isArray(row.metadata.learningFeed) &&
-					row.metadata.learningFeed.ownerUserId === viewerUserId &&
-					row.metadata.learningFeed.producer === "session-feedback",
-			})),
+		lessons: page.map((row) => ({
+			id: row.id,
+			text: lessonText(row),
+			addedAt: row.createdAt ?? row.updatedAt,
+			learnedFrom: lessonLearnedFrom(row.metadata, viewerUserId),
+			evidence: evidenceOfLesson(row.metadata),
+			fromCallerFeedback:
+				row.metadata?.learningFeed != null &&
+				typeof row.metadata.learningFeed === "object" &&
+				!Array.isArray(row.metadata.learningFeed) &&
+				row.metadata.learningFeed.ownerUserId === viewerUserId &&
+				row.metadata.learningFeed.producer === "session-feedback",
+		})),
 	};
 }
 

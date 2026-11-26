@@ -55,6 +55,14 @@ function fixture() {
 			created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
 			updated_at TEXT DEFAULT (CURRENT_TIMESTAMP)
 		);
+		CREATE TABLE read_marks (
+			organization_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			row_id TEXT NOT NULL,
+			last_read_on TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (organization_id, kind, row_id)
+		);
 	`);
 	const insert = sqlite.prepare(
 		`INSERT INTO memory_facts (id, organization_id, domain_id, content, fact_type, status, access_count, valid_to, archived_at, metadata, created_at)

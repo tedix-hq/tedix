@@ -20,6 +20,7 @@ import {
 	listWorkspaceOutputLibrary,
 } from "@tedix/db/queries/workspace-feed/read";
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { markRowsRead } from "@tedix/db/queries/read-marks";
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import {
 	getOsWorkspace,
@@ -112,7 +113,15 @@ export async function getOsOutput(
 	if (!scope) return undefined;
 	if (args[1].workspaceId && scope.workspaceId !== args[1].workspaceId)
 		return undefined;
-	return store.outputQuery(scope, { op: "get", outputId: args[1].outputId });
+	const row = await store.outputQuery(scope, {
+		op: "get",
+		outputId: args[1].outputId,
+	});
+	if (row)
+		await markRowsRead(args[0], args[1].organizationId, "output", [
+			args[1].outputId,
+		]);
+	return row;
 }
 
 /**
@@ -200,12 +209,19 @@ export async function listOsOutputs(
 		);
 		objectRows = indexed.map((row) => outputLibraryRowsFromIndex(row).output);
 	}
-	return objectRows
+	const rows = objectRows
 		.sort(
 			(a, b) =>
 				b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id),
 		)
 		.slice(0, options.limit ?? 100);
+	await markRowsRead(
+		db,
+		scope.organizationId,
+		"output",
+		rows.map((row) => row.id),
+	);
+	return rows;
 }
 
 /**
@@ -224,8 +240,8 @@ export async function getOsOutputRevision(
 	const scope = workspaceId
 		? { organizationId, workspaceId }
 		: await getWorkspaceOutputIndexRevision(args[0], args[1]);
-	return scope
-		? store.outputQuery(
+	const row = scope
+		? await store.outputQuery(
 				{
 					organizationId: scope.organizationId,
 					workspaceId: scope.workspaceId,
@@ -233,6 +249,9 @@ export async function getOsOutputRevision(
 				{ op: "revision", revisionId },
 			)
 		: undefined;
+	if (row)
+		await markRowsRead(args[0], organizationId, "output", [row.outputId]);
+	return row;
 }
 
 export async function getOsOutputRevisionByNumber(
@@ -244,13 +263,18 @@ export async function getOsOutputRevisionByNumber(
 		args[1].organizationId,
 		args[1].outputId,
 	);
-	return scope
-		? store.outputQuery(scope, {
+	const row = scope
+		? await store.outputQuery(scope, {
 				op: "revisionByNumber",
 				outputId: args[1].outputId,
 				revision: args[1].revision,
 			})
 		: undefined;
+	if (row)
+		await markRowsRead(args[0], args[1].organizationId, "output", [
+			args[1].outputId,
+		]);
+	return row;
 }
 
 export async function listOsOutputRevisions(
@@ -266,13 +290,18 @@ export async function listOsOutputRevisions(
 		args[1].organizationId,
 		args[1].outputId,
 	);
-	return scope
-		? store.outputQuery(scope, {
+	const rows = scope
+		? await store.outputQuery(scope, {
 				op: "history",
 				outputId: args[1].outputId,
 				options: args[2],
 			})
 		: [];
+	if (rows.length > 0)
+		await markRowsRead(args[0], args[1].organizationId, "output", [
+			args[1].outputId,
+		]);
+	return rows;
 }
 
 export async function requireWorkspaceOutputAuthority(scope: {
@@ -398,13 +427,18 @@ export async function getActiveSheetByTitle(
 		params: OsWorkspaceScopeParams & { title: string },
 	]
 ) {
-	return readRuntime().outputQuery(
+	const row = await readRuntime().outputQuery(
 		{
 			organizationId: args[1].organizationId,
 			workspaceId: args[1].workspaceId,
 		},
 		{ op: "activeSheet", title: args[1].title },
 	);
+	if (row)
+		await markRowsRead(args[0], args[1].organizationId, "output", [
+			row.output.id,
+		]);
+	return row;
 }
 
 export async function deleteOsOutput(

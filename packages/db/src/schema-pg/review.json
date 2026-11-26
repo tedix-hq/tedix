@@ -138,6 +138,7 @@
 	"provider_model_rate_versions.chk_provider_model_rate_interval: check must be ported by its lane",
 	"provider_model_rate_versions.chk_provider_model_rate_currency: check must be ported by its lane",
 	"provider_model_rate_versions.chk_provider_model_rate_amounts: check must be ported by its lane",
+	"read_marks.chk_read_marks_strings: check must be ported by its lane",
 	"skill_runs.idx_skill_runs_reconcile_pending: expression or partial index must be ported by its lane",
 	"tedi_approval_requests.work_item_id: generated expression must be ported by its lane",
 	"tedi_approval_requests.execution_status: generated expression must be ported by its lane",

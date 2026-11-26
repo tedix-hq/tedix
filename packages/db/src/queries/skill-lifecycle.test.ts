@@ -83,6 +83,14 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 		);
 		CREATE UNIQUE INDEX uniq_skill_usage_events_run
 			ON skill_usage_events (run_id, execution_epoch);
+		CREATE TABLE read_marks (
+			organization_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			row_id TEXT NOT NULL,
+			last_read_on TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (organization_id, kind, row_id)
+		);
 	`);
 
 	const insertSkill = (row: {

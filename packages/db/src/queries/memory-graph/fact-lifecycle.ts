@@ -4,6 +4,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { memoryFacts } from "../../schema/memory-graph";
 import { getAffectedRows } from "../../utils/d1-result";
+import { freshReadMarkExists } from "../read-marks";
 
 export async function decayConfidence(
 	db: DbClient,
@@ -28,6 +29,9 @@ export async function decayConfidence(
 		now.getTime() - 7 * 24 * 60 * 60 * 1000,
 	).toISOString();
 	const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+	// A lesson read within the decay window is not stale: lesson reads leave a
+	// daily date in read_marks even when they never bump last_accessed_at.
+	const lessonReadCutoff = sevenDaysAgo.slice(0, 10);
 
 	const baseConditions = [
 		eq(memoryFacts.organizationId, orgId),
@@ -35,6 +39,12 @@ export async function decayConfidence(
 		sql`${memoryFacts.validTo} IS NULL`,
 		sql`COALESCE(${memoryFacts.lastVerifiedAt}, ${memoryFacts.lastAccessedAt}, ${memoryFacts.createdAt}) < ${sevenDaysAgo}`,
 		sql`${memoryFacts.updatedAt} < ${oneDayAgo}`,
+		sql`NOT ${freshReadMarkExists({
+			organizationId: orgId,
+			kind: "lesson",
+			rowId: memoryFacts.id,
+			sinceDate: lessonReadCutoff,
+		})}`,
 	];
 
 	if (options?.tediId) {
@@ -215,6 +225,10 @@ export async function expireProbation(
 	const cutoff = new Date(
 		Date.now() - maxAgeDays * 24 * 60 * 60 * 1000,
 	).toISOString();
+	// A lesson read within the probation window is accessed, even when the
+	// access never reached access_count: reads leave a daily date in
+	// read_marks (kind 'lesson').
+	const lessonReadCutoff = cutoff.slice(0, 10);
 	// Same lifecycle bump as archiveLowConfidence. Starker here: the sibling that
 	// handles the opposite transition, promoteFromProbation, already sets
 	// updatedAt — so promoted facts surfaced in freshness-ordered samples and
@@ -230,6 +244,12 @@ export async function expireProbation(
 				isNull(memoryFacts.archivedAt),
 				sql`${memoryFacts.accessCount} = 0`,
 				sql`${memoryFacts.createdAt} < ${cutoff}`,
+				sql`NOT ${freshReadMarkExists({
+					organizationId: orgId,
+					kind: "lesson",
+					rowId: memoryFacts.id,
+					sinceDate: lessonReadCutoff,
+				})}`,
 			),
 		)
 		.returning({ id: memoryFacts.id });

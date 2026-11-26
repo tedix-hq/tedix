@@ -71,6 +71,10 @@ import {
 	listArchivedLearningFeedLessons,
 	listStaleLearningFeedLessons,
 } from "@tedix/db/queries/memory-graph/agent-lessons";
+import {
+	getReadMarkDates,
+	unusedReportNote,
+} from "@tedix/db/queries/read-marks";
 import { getOrCreateDomain } from "@tedix/db/queries/memory-graph/domains";
 import { createEdge } from "@tedix/db/queries/memory-graph/edges";
 import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
@@ -182,6 +186,8 @@ export interface LearningFeedResult {
 	mistakeEventsRecorded: number;
 	proposalsCreated: number;
 	budgetHit: boolean;
+	/** What "unused" meant for this run, including the read-tracking caveat. */
+	note: string;
 }
 
 type Meta = Record<string, unknown>;
@@ -846,8 +852,19 @@ async function archiveStaleLessons(
 		"learning-feed:decision:",
 		before,
 	);
+	// A lesson read within the stale window is not unused even with no new
+	// supporting decision: lesson reads leave a daily date in read_marks.
+	const readMarks = await getReadMarkDates(
+		db,
+		orgId,
+		"lesson",
+		stale.map((fact) => fact.id),
+	);
+	const readCutoff = before.slice(0, 10);
 	for (const fact of stale) {
 		if (!isReplaceableLesson(fact)) continue;
+		const lastReadOn = readMarks.get(fact.id);
+		if (lastReadOn && lastReadOn >= readCutoff) continue;
 		await updateFact(db, { organizationId: orgId }, fact.id, {
 			archivedAt: now.toISOString(),
 		});
@@ -994,6 +1011,7 @@ export async function mineLearningFeed(
 		mistakeEventsRecorded: 0,
 		proposalsCreated: 0,
 		budgetHit: false,
+		note: unusedReportNote(`stale lesson window ${STALE_DAYS} day(s)`),
 	};
 	const since = new Date(
 		now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000,

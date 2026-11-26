@@ -2080,6 +2080,10 @@
 		{
 			"name": "20261126002804_mcp-consent-sign-in-labels/migration.sql",
 			"sha256": "e226f1ec9892d994c9109e643e1f9f9783ce74dc04ed078a656d46e6d08b6164"
+		},
+		{
+			"name": "20261126004200_read_marks/migration.sql",
+			"sha256": "760a510c5a8126c1d6649496ae5dd7c5511e601dd6e012333e47cd1d77419c57"
 		}
 	]
 }

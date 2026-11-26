@@ -58,7 +58,11 @@ import {
 } from "@tedix/db/queries/cognitive/learned-capabilities";
 import { listSkillLabelsByTediIds } from "@tedix/db/queries/cognitive/skill-catalog";
 import { getPolicyPackDefinitionsByIds } from "@tedix/db/queries/control-plane/definitions";
-import { getActivePolicyPackDefinition } from "@tedix/db/queries/kernel-runtime-support";
+import {
+	getActiveOrganizationPolicyPack,
+	getActivePolicyPackDefinition,
+} from "@tedix/db/queries/kernel-runtime-support";
+import { markRowsRead } from "@tedix/db/queries/read-marks";
 import {
 	type ActiveDelegationEntrustmentProjection,
 	getActiveDelegationEntrustmentProjections,
@@ -666,6 +670,19 @@ async function loadPolicyPacks(
 			tedi.policyPackId ? (defById.get(tedi.policyPackId) ?? null) : null,
 		);
 	}
+	// Read tracking: each pack row actually loaded counts as read by its org.
+	const readByOrg = new Map<string, Set<string>>();
+	for (const tedi of tediRows) {
+		if (!tedi.policyPackId || !defById.has(tedi.policyPackId)) continue;
+		const ids = readByOrg.get(tedi.organizationId) ?? new Set<string>();
+		ids.add(tedi.policyPackId);
+		readByOrg.set(tedi.organizationId, ids);
+	}
+	await Promise.all(
+		[...readByOrg].map(([orgId, ids]) =>
+			markRowsRead(db, orgId, "policy_pack", [...ids]),
+		),
+	);
 	return result;
 }
 
@@ -687,6 +704,28 @@ export async function readOrgDispatchPolicyLayer(
 		const definition = await (cache
 			? cache.cache.read(organizationId, "orgPolicyPack", read, cache.trace)
 			: read());
+		// Read tracking: stamp the org pack row this layer was read from. The
+		// system-default fallback has no org-owned row to mark. Best-effort —
+		// a failed mark lookup must not change the fail-soft layer result.
+		if (definition) {
+			try {
+				const packId = cache
+					? await cache.cache.read(
+							organizationId,
+							"orgPolicyPackId",
+							async () =>
+								(await getActiveOrganizationPolicyPack(db, organizationId))
+									?.id ?? null,
+							cache.trace,
+						)
+					: ((await getActiveOrganizationPolicyPack(db, organizationId))?.id ??
+						null);
+				if (packId)
+					await markRowsRead(db, organizationId, "policy_pack", [packId]);
+			} catch {
+				// Read marks never fail the read they rode in on.
+			}
+		}
 		const parsedLayer = parseDispatchPolicyLayer(definition?.gatingPolicy);
 		const layer = platformAutonomyOptedOut(definition?.governancePolicy)
 			? { ...parsedLayer, platformAutonomy: false as const }

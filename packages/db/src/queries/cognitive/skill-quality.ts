@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { type SkillEntry, skillEntries } from "../../schema/cognitive";
+import { getReadMarkDates } from "../read-marks";
 import type { SkillLifecycleState } from "../skill-lifecycle";
 
 export const LOW_QUALITY_SKILL_REASON_CODES = [
@@ -122,7 +123,11 @@ export function classifyLowQualitySkill(
 	}
 
 	if (reasons.length === 0) return null;
-	const score = reasons.reduce((total, reason) => {
+	return { entry, reasons, score: scoreLowQualityReasons(reasons) };
+}
+
+function scoreLowQualityReasons(reasons: LowQualitySkillReason[]): number {
+	return reasons.reduce((total, reason) => {
 		if (
 			reason.code === "LONG_SENTENCE_SLUG" ||
 			reason.code === "ORPHANED_UNUSED"
@@ -131,7 +136,6 @@ export function classifyLowQualitySkill(
 		}
 		return total + 1;
 	}, 0);
-	return { entry, reasons, score };
 }
 
 export async function auditLowQualitySkills(
@@ -189,7 +193,8 @@ export async function auditLowQualitySkills(
 		.where(and(...conditions))
 		.orderBy(desc(skillEntries.updatedAt), desc(skillEntries.createdAt))
 		.limit(scanLimit);
-	const candidates = rows
+	const orphanDays = Math.max(options?.orphanOlderThanDays ?? 30, 1);
+	const classified = rows
 		.map((entry) =>
 			classifyLowQualitySkill(entry, {
 				maxSuccessCount: options?.maxSuccessCount,
@@ -197,6 +202,44 @@ export async function auditLowQualitySkills(
 				orphanOlderThanDays: options?.orphanOlderThanDays,
 			}),
 		)
+		.filter(
+			(candidate): candidate is LowQualitySkillAuditCandidate =>
+				candidate !== null,
+		);
+
+	// A skill read inside the orphan window is not unused, even with zero
+	// recorded runs — reads leave a daily mark in read_marks. Drop the
+	// ORPHANED_UNUSED reason (and the candidate when nothing else remains).
+	const orphanReadCutoff = new Date(
+		Date.now() - orphanDays * 24 * 60 * 60 * 1000,
+	)
+		.toISOString()
+		.slice(0, 10);
+	const readOnBySkillId = await getReadMarkDates(
+		db,
+		orgId,
+		"skill",
+		classified.map((candidate) => candidate.entry.id),
+	);
+	const candidates = classified
+		.map((candidate) => {
+			if (
+				!candidate.reasons.some((reason) => reason.code === "ORPHANED_UNUSED")
+			) {
+				return candidate;
+			}
+			const lastReadOn = readOnBySkillId.get(candidate.entry.id);
+			if (!lastReadOn || lastReadOn < orphanReadCutoff) return candidate;
+			const reasons = candidate.reasons.filter(
+				(reason) => reason.code !== "ORPHANED_UNUSED",
+			);
+			if (reasons.length === 0) return null;
+			return {
+				entry: candidate.entry,
+				reasons,
+				score: scoreLowQualityReasons(reasons),
+			};
+		})
 		.filter(
 			(candidate): candidate is LowQualitySkillAuditCandidate =>
 				candidate !== null,

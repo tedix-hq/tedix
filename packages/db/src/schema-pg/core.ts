@@ -8496,6 +8496,26 @@ export const rationaleOrgCounts = pgTable(
 			.onUpdate("no action"),
 	],
 );
+export const readMarks = pgTable(
+	"read_marks",
+	{
+		organizationId: text("organization_id").notNull(),
+		kind: text("kind").notNull(),
+		rowId: text("row_id").notNull(),
+		lastReadOn: text("last_read_on").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t["organizationId"], t["kind"], t["rowId"]] }),
+		foreignKey({
+			name: "read_marks_organization_id_organizations_id_fk",
+			columns: [t["organizationId"]],
+			foreignColumns: [referencedColumn("organizations", "id")],
+		})
+			.onDelete("cascade")
+			.onUpdate("no action"),
+	],
+);
 export const releaseLocks = pgTable(
 	"release_locks",
 	{
@@ -15930,6 +15950,7 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(providerProbeReceipts), providerProbeReceipts],
 	[getTableName(providerProbeResults), providerProbeResults],
 	[getTableName(rationaleOrgCounts), rationaleOrgCounts],
+	[getTableName(readMarks), readMarks],
 	[getTableName(releaseLocks), releaseLocks],
 	[getTableName(roleTemplates), roleTemplates],
 	[getTableName(runtimeProfiles), runtimeProfiles],

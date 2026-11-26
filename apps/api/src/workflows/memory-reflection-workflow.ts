@@ -45,6 +45,7 @@ import {
 	expireProbation,
 	promoteFromProbation,
 } from "@tedix/db/queries/memory-graph/fact-lifecycle";
+import { unusedReportNote } from "@tedix/db/queries/read-marks";
 import { searchFacts } from "@tedix/db/queries/memory-graph/fact-search";
 import { getFactById } from "@tedix/db/queries/memory-graph/facts";
 import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
@@ -697,6 +698,11 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			tediCapabilitiesDistilled > 0
 				? ` Distilled ${tediCapabilitiesDistilled} tedi capability profile${tediCapabilitiesDistilled === 1 ? "" : "s"}.`
 				: "";
+		// Confidence decay and probation expiry judge "unused" from access
+		// counts, not reads — the summary must say so.
+		const readTrackingNote = ` ${unusedReportNote(
+			"probation expiry 7-day no-access window; confidence decay 7-day no-access window",
+		)}`;
 
 		// Consolidation state-transition quota: a reflection run that only
 		// appends facts is a failed consolidation. Visible warning, never fatal.
@@ -731,7 +737,7 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			kernelRouteEvalGraded,
 			tediCapabilitiesDistilled,
 			transitions,
-			summary: `Reflection complete. Reviewed ${factsCount} facts. Found ${dupsCount} similar pairs, created ${edgesCreated} new edges.${mergeNote}${autoLinkNote} Decayed confidence on ${confidenceUpdated} facts. Archived ${factsArchived} low-confidence facts.${probationNote}${transitionsNote}${graphNote}${algoNote}${homeNote}${learningFeedNote}${kernelRouteEvalNote}${capabilityNote}`,
+			summary: `Reflection complete. Reviewed ${factsCount} facts. Found ${dupsCount} similar pairs, created ${edgesCreated} new edges.${mergeNote}${autoLinkNote} Decayed confidence on ${confidenceUpdated} facts. Archived ${factsArchived} low-confidence facts.${probationNote}${transitionsNote}${graphNote}${algoNote}${homeNote}${learningFeedNote}${kernelRouteEvalNote}${capabilityNote}${readTrackingNote}`,
 		};
 
 		return result;

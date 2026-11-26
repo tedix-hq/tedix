@@ -28,6 +28,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { memoryFacts } from "../schema/memory-graph";
+import { freshReadMarkExists, unusedReportNote } from "./read-marks";
 
 /** Days an unretrieved probation fact survives before the TTL sweep archives it. */
 export const FACT_PROBATION_TTL_DAYS = 14;
@@ -207,6 +208,8 @@ export interface SweepExpiredProbationFactsResult {
 	/** Per-org archive counts for logging. */
 	perOrg: Record<string, number>;
 	dryRun: boolean;
+	/** What "unused" meant for this sweep, including the read-tracking caveat. */
+	note: string;
 }
 
 /**
@@ -239,12 +242,22 @@ export async function sweepExpiredProbationFacts(
 	// datetime() normalizes both D1 default "YYYY-MM-DD HH:MM:SS" and ISO
 	// timestamps; the per-fact TTL rides in as a '+N days' modifier.
 	const expiredCondition = sql`datetime(${memoryFacts.createdAt}, '+' || CAST(COALESCE(json_extract(${memoryFacts.metadata}, '$.brainAdmission.ttlDays'), ${defaultTtlDays}) AS TEXT) || ' days') <= datetime(${nowIso})`;
+	// A lesson read while the fact was alive counts as retrieval even when it
+	// never reached access_count: reads leave a daily date in read_marks
+	// (kind 'lesson'). The latest read on/after creation means it was read.
+	const readAsLesson = freshReadMarkExists({
+		organizationId: memoryFacts.organizationId,
+		kind: "lesson",
+		rowId: memoryFacts.id,
+		sinceDate: sql`date(${memoryFacts.createdAt})`,
+	});
 	const baseConditions = [
 		eq(memoryFacts.status, "probation"),
 		isNull(memoryFacts.archivedAt),
 		isNull(memoryFacts.validTo),
 		eq(memoryFacts.accessCount, 0),
 		expiredCondition,
+		sql`NOT ${readAsLesson}`,
 	];
 	if (options.organizationId) {
 		baseConditions.push(eq(memoryFacts.organizationId, options.organizationId));
@@ -315,5 +328,8 @@ export async function sweepExpiredProbationFacts(
 		archivedIds,
 		perOrg,
 		dryRun: options.dryRun ?? false,
+		note: unusedReportNote(
+			`probation TTL ${defaultTtlDays} day(s) default (per-fact metadata.brainAdmission.ttlDays), access_count = 0`,
+		),
 	};
 }

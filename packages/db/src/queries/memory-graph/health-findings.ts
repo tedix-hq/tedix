@@ -13,6 +13,7 @@ import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { aliasedTable, and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { memoryEdges, memoryFacts } from "../../schema/memory-graph";
+import { freshReadMarkExists, unusedReportNote } from "../read-marks";
 
 /** Counts stop here; callers show "N+" when `capped`. */
 export const FINDING_COUNT_CAP = 500;
@@ -57,6 +58,8 @@ export interface MemoryHealthFindingsResult {
 	staleDays: number;
 	orphanWindow: number;
 	findings: MemoryFinding[];
+	/** What "unused" meant here, including the read-tracking caveat. */
+	note: string;
 }
 
 export interface MemoryHealthFindingsOptions {
@@ -127,6 +130,16 @@ export async function getMemoryHealthFindings(
 		new Date(now.getTime() - days * DAY_MS).toISOString();
 	const unusedCutoff = iso(unusedDays);
 	const staleCutoff = iso(staleDays);
+	// Lesson reads leave a daily date in read_marks even when they never reach
+	// last_accessed_at, so the "unused" finding must not count a lesson read
+	// inside its window.
+	const unusedReadCutoff = unusedCutoff.slice(0, 10);
+	const notReadAsLesson = sql`NOT ${freshReadMarkExists({
+		organizationId: orgId,
+		kind: "lesson",
+		rowId: memoryFacts.id,
+		sinceDate: unusedReadCutoff,
+	})}`;
 	const recentCutoff = iso(30);
 	const capPlusOne = FINDING_COUNT_CAP + 1;
 
@@ -140,11 +153,13 @@ export async function getMemoryHealthFindings(
 		active,
 		isNull(memoryFacts.lastAccessedAt),
 		lt(memoryFacts.createdAt, unusedCutoff),
+		notReadAsLesson,
 	);
 	const retrievedLongAgo = and(
 		active,
 		lt(memoryFacts.lastAccessedAt, unusedCutoff),
 		lt(memoryFacts.createdAt, unusedCutoff),
+		notReadAsLesson,
 	);
 	const staleButUsed = and(
 		active,
@@ -286,6 +301,9 @@ export async function getMemoryHealthFindings(
 		unusedDays,
 		staleDays,
 		orphanWindow: ORPHAN_WINDOW,
+		note: unusedReportNote(
+			`"unused" = no retrieval in ${unusedDays} day(s); "stale_in_use" verification window ${staleDays} day(s); orphans sampled over the ${ORPHAN_WINDOW} most recently updated active facts`,
+		),
 		findings: [
 			finish(
 				"unused",

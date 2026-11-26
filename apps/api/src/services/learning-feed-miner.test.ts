@@ -52,6 +52,10 @@ vi.mock("@tedix/db/queries/tedis", () => ({
 vi.mock("@tedix/db/queries/work-items/activity", () => ({
 	listWorkActivity: vi.fn(async () => ({ events: [], truncated: false })),
 }));
+vi.mock("@tedix/db/queries/read-marks", () => ({
+	getReadMarkDates: vi.fn(async () => new Map<string, string>()),
+	unusedReportNote: vi.fn((window: string) => `note:${window}`),
+}));
 
 import {
 	listLearningImprovementProposals,
