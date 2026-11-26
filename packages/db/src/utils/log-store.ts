@@ -14,6 +14,7 @@
 
 import { getLogStores, type LogStores } from "../client";
 import { readLogPartition } from "../queries/log-partitions";
+import type { LogArchiveSource } from "./log-archive";
 
 export interface ReadLogStoresOptions {
 	from?: string;
@@ -60,6 +61,41 @@ export async function readLogStores<T>(
 			: [stores.main, ...logs]
 		).map(read),
 	);
+}
+
+export interface ReadLogStoresAndArchivesOptions<
+	T,
+> extends ReadLogStoresOptions {
+	/** Extra sources beyond `getLogStores(db).archives`; deduped by identity. */
+	archives?: readonly LogArchiveSource[];
+	/**
+	 * Read one archive source with the same filters/cursor the database `read`
+	 * callback received. Archive pages are appended after every database page so
+	 * main-first dedupe still wins while a partition overlaps its archive.
+	 */
+	readArchive: (source: LogArchiveSource) => Promise<T[]>;
+}
+
+/**
+ * `readLogStores` plus registered archive sources. Returns null only when the
+ * client has neither logs bindings nor archives, preserving the single-store
+ * fallback.
+ */
+export async function readLogStoresAndArchives<T>(
+	db: object,
+	read: (store: LogStores["main"]) => Promise<T[]>,
+	options: ReadLogStoresAndArchivesOptions<T>,
+): Promise<T[][] | null> {
+	const stores = getLogStores(db);
+	const archives = [
+		...new Set([...(stores?.archives ?? []), ...(options.archives ?? [])]),
+	];
+	if (!stores && archives.length === 0) return null;
+	const pages = stores ? await readLogStores(db, read, options) : [];
+	const archivePages = await Promise.all(
+		archives.map((source) => options.readArchive(source)),
+	);
+	return [...(pages ?? []), ...archivePages];
 }
 
 export interface MergeLogStoreRowsOptions<T> {

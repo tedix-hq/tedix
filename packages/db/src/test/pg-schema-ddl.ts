@@ -8,8 +8,29 @@ import {
 
 const dialect = new PgDialect();
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+export interface PgTableDdlOptions {
+	/**
+	 * Declarative partitioning for tables whose Drizzle definition cannot
+	 * express `PARTITION BY` (for example monthly retention ledgers).
+	 */
+	partitionBy?: {
+		strategy: "range" | "list" | "hash";
+		columns: string[];
+	};
+	/**
+	 * Replace the table's primary key with these physical columns. Required for
+	 * partitioned tables: PostgreSQL rejects a key that omits a partition column.
+	 */
+	primaryKeyColumns?: string[];
+	primaryKeyName?: string;
+}
+
 /** Test DDL preserves the pg-core definition, including constraints and index expressions. */
-export function pgTableDdl(table: PgTable): string[] {
+export function pgTableDdl(
+	table: PgTable,
+	options: PgTableDdlOptions = {},
+): string[] {
 	const config = getTableConfig(table);
 	const name = config.schema
 		? `${quote(config.schema)}.${quote(config.name)}`
@@ -28,7 +49,7 @@ export function pgTableDdl(table: PgTable): string[] {
 					: column.generated.as;
 			ddl += ` GENERATED ALWAYS AS (${is(value, SQL) ? expression(value) : value}) STORED`;
 		}
-		if (column.primary) ddl += " PRIMARY KEY";
+		if (column.primary && !options.primaryKeyColumns) ddl += " PRIMARY KEY";
 		if (column.notNull) ddl += " NOT NULL";
 		if (column.isUnique)
 			ddl += ` UNIQUE${column.uniqueType === "not distinct" ? " NULLS NOT DISTINCT" : ""}`;
@@ -44,10 +65,16 @@ export function pgTableDdl(table: PgTable): string[] {
 		}
 		return ddl;
 	});
-	for (const pk of config.primaryKeys)
+	if (options.primaryKeyColumns) {
 		expressions.push(
-			`CONSTRAINT ${quote(pk.getName())} PRIMARY KEY (${pk.columns.map((c) => quote(c.name)).join(",")})`,
+			`CONSTRAINT ${quote(options.primaryKeyName ?? `${config.name}_pkey`)} PRIMARY KEY (${options.primaryKeyColumns.map(quote).join(",")})`,
 		);
+	} else {
+		for (const pk of config.primaryKeys)
+			expressions.push(
+				`CONSTRAINT ${quote(pk.getName())} PRIMARY KEY (${pk.columns.map((c) => quote(c.name)).join(",")})`,
+			);
+	}
 	for (const unique of config.uniqueConstraints)
 		expressions.push(
 			`CONSTRAINT ${quote(unique.getName()!)} UNIQUE${unique.nullsNotDistinct ? " NULLS NOT DISTINCT" : ""} (${unique.columns.map((c) => quote(c.name)).join(",")})`,
@@ -66,8 +93,11 @@ export function pgTableDdl(table: PgTable): string[] {
 			`CONSTRAINT ${quote(fk.getName())} FOREIGN KEY (${reference.columns.map((c) => quote(c.name)).join(",")}) REFERENCES ${target} (${reference.foreignColumns.map((c) => quote(c.name)).join(",")}) ON UPDATE ${fk.onUpdate ?? "no action"} ON DELETE ${fk.onDelete ?? "no action"}`,
 		);
 	}
+	const partition = options.partitionBy
+		? ` PARTITION BY ${options.partitionBy.strategy.toUpperCase()} (${options.partitionBy.columns.map(quote).join(",")})`
+		: "";
 	return [
-		`CREATE TABLE ${name} (${expressions.join(",")})`,
+		`CREATE TABLE ${name} (${expressions.join(",")})${partition}`,
 		...config.indexes.map(({ config: idx }) => {
 			const columns = idx.columns.map((c) => {
 				if (is(c, SQL)) return `(${expression(c)})`;

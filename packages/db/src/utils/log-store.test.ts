@@ -4,7 +4,12 @@ import { configureLogStore, createDbClient, getLogStores } from "../client";
 import { logPartition } from "../schema/logs-db";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { mergeLogStoreRows, readLogStores } from "./log-store";
+import {
+	mergeLogStoreRows,
+	readLogStores,
+	readLogStoresAndArchives,
+} from "./log-store";
+import type { LogArchiveSource } from "./log-archive";
 
 function store(partition?: { from: string; to?: string }) {
 	const sqlite = new DatabaseSync(":memory:");
@@ -188,5 +193,47 @@ describe("log partition directory", () => {
 		});
 		expect(getLogStores(main.db)?.logs).toBeUndefined();
 		expect(await readLogStores(main.db, async () => [])).toEqual([[], []]);
+	});
+
+	it("merges verified archive pages after database stores with main-first dedupe", async () => {
+		const main = store();
+		const logs = store();
+		const archive: LogArchiveSource = {
+			listPartitions: async () => [],
+			readPage: (async () => ({
+				rows: [
+					{ id: "duplicate", source: "archive" },
+					{ id: "archive-only", source: "archive" },
+				],
+				hasMore: false,
+			})) as LogArchiveSource["readPage"],
+			receipt: async () => null,
+		};
+		configureLogStore(main.db, { LOGS_DB: logs.binding }, [archive]);
+		const pages = await readLogStoresAndArchives(
+			main.db,
+			async (db) => [
+				{
+					id: "duplicate",
+					source: db.$client === main.db.$client ? "main" : "logs",
+				},
+			],
+			{
+				readArchive: (source) =>
+					source
+						.readPage<{ id: string; source: string }>({
+							table: "t",
+							ownerId: "o",
+							limit: 10,
+							order: "asc",
+						})
+						.then((page) => page.rows),
+			},
+		);
+		expect(pages).toHaveLength(3);
+		expect(mergeLogStoreRows(pages!)).toEqual([
+			{ id: "duplicate", source: "main" },
+			{ id: "archive-only", source: "archive" },
+		]);
 	});
 });

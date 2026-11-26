@@ -7,6 +7,7 @@ import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema/index";
 import { relations } from "./schema/relations";
 import { observeD1, registerD1BindingKey } from "./slow-query";
+import type { LogArchiveSource } from "./utils/log-archive";
 
 export function createDbClient(d1: D1Database) {
 	return drizzle(observeD1(d1), { relations });
@@ -26,11 +27,17 @@ export interface LogStores {
 	/** Current writer target; numbered bindings are read-only partitions. */
 	logs?: DbClient;
 	partitions: { binding: string; db: DbClient }[];
+	/** Verified-receipt archive sources merged after the database stores. */
+	archives?: LogArchiveSource[];
 }
 
 const logStores = new WeakMap<object, LogStores>();
 /** Discover current and historical logs bindings without a fixed partition cap. */
-export function configureLogStore(db: DbClient, bindings: object): void {
+export function configureLogStore(
+	db: DbClient,
+	bindings: object,
+	archives: readonly LogArchiveSource[] = [],
+): void {
 	const seen = new Set<D1Database>();
 	const partitions = Object.entries(bindings)
 		.filter(([name, value]) => /^LOGS_DB(?:_\d+)?$/.test(name) && value)
@@ -40,12 +47,26 @@ export function configureLogStore(db: DbClient, bindings: object): void {
 			seen.add(value);
 			return [{ binding, db: createDbClient(value) }];
 		});
-	if (!partitions.length) return;
+	if (!partitions.length && !archives.length) return;
 	logStores.set(db, {
 		main: createDbClient(db.$client),
 		logs: partitions.find((partition) => partition.binding === "LOGS_DB")?.db,
 		partitions,
+		archives: [...archives],
 	});
+}
+
+/** Attach archive sources to an already-configured (or archive-only) client. */
+export function configureLogArchives(
+	db: DbClient,
+	archives: readonly LogArchiveSource[],
+): void {
+	const stores = logStores.get(db) ?? {
+		main: createDbClient(db.$client),
+		partitions: [],
+	};
+	stores.archives = [...archives];
+	logStores.set(db, stores);
 }
 
 /** The registered stores for `db`, or undefined when there is no logs binding. */
