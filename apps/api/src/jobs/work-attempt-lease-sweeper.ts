@@ -1,4 +1,6 @@
-import { coreQueryDb } from "@tedix/db/core-store/scope";
+import { coreDb, coreQueryDb } from "@tedix/db/core-store/scope";
+import { configureLogStore } from "@tedix/db/client";
+import { moveRoutineAuditEventsToLogs } from "@tedix/db/queries/audit";
 import {
 	reconcileWorkInteractionConditions,
 	sweepObsoleteWorkInteractions,
@@ -87,6 +89,8 @@ export async function runWorkMaintenanceTick(
 				limit: MAX_INTERACTION_WRITES_PER_TICK,
 			})
 		: { observed: 0, expired: 0, candidates: 0, writes: 0, dryRun: 0 };
+	const auditDb = coreDb(env);
+	configureLogStore(auditDb, env);
 	return {
 		// The hourly replay also catches notices made eligible by later Work edits.
 		lanesNotified: await notifyStoppedLanes(
@@ -102,5 +106,6 @@ export async function runWorkMaintenanceTick(
 		interactionExpiryCandidates: interactions.candidates,
 		interactionExpiryWrites: interactions.writes,
 		interactionExpiryDryRuns: interactions.dryRun,
+		auditRowsMoved: await moveRoutineAuditEventsToLogs(auditDb),
 	};
 }

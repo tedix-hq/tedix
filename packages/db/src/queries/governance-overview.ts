@@ -15,6 +15,11 @@ import { tediApprovalRequests } from "../schema/approvals";
 import { auditEvents } from "../schema/audit-events";
 import { skillEntries } from "../schema/cognitive";
 import { tediCronExecutions } from "../schema/cron-executions";
+import {
+	compareTimestampId,
+	mergeLogStoreRows,
+	readLogStores,
+} from "../utils/log-store";
 
 /** Grouped count keyed by tedi. `tediId: null` = org-scoped rows. */
 export interface TediGovernanceCount {
@@ -148,24 +153,30 @@ export async function listGovernanceAuditEvents(
 	organizationId: string,
 	limit = 10,
 ): Promise<GovernanceAuditEventRow[]> {
-	const rows = await db
-		.select({
-			action: auditEvents.action,
-			actorId: auditEvents.actorId,
-			actorType: auditEvents.actorType,
-			resourceType: auditEvents.resourceType,
-			resourceId: auditEvents.resourceId,
-			timestamp: auditEvents.timestamp,
-			metadata: auditEvents.metadata,
-		})
-		.from(auditEvents)
-		.where(
-			and(
-				eq(auditEvents.organizationId, organizationId),
-				inArray(auditEvents.action, [...GOVERNANCE_AUDIT_ACTIONS]),
-			),
-		)
-		.orderBy(desc(auditEvents.timestamp))
-		.limit(limit);
-	return rows;
+	const read = async (store: DbClient) =>
+		store
+			.select({
+				id: auditEvents.id,
+				action: auditEvents.action,
+				actorId: auditEvents.actorId,
+				actorType: auditEvents.actorType,
+				resourceType: auditEvents.resourceType,
+				resourceId: auditEvents.resourceId,
+				timestamp: auditEvents.timestamp,
+				metadata: auditEvents.metadata,
+			})
+			.from(auditEvents)
+			.where(
+				and(
+					eq(auditEvents.organizationId, organizationId),
+					inArray(auditEvents.action, [...GOVERNANCE_AUDIT_ACTIONS]),
+				),
+			)
+			.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
+			.limit(limit);
+	const pages = await readLogStores(db, read);
+	const rows = pages
+		? mergeLogStoreRows(pages, { compare: compareTimestampId("desc"), limit })
+		: await read(db);
+	return rows.map(({ id: _id, ...row }) => row);
 }

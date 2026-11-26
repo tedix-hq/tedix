@@ -7,6 +7,7 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, gte, inArray, lte, lt, or } from "drizzle-orm";
 import { getLogStores, type DbClient } from "../client";
 import { coreTable } from "../core-store/client";
+import { anyIds, jsonRead } from "../core-store/dialect";
 import { auditEvents } from "../schema/audit-events";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { chunkForBoundParams } from "../utils/batch";
@@ -84,22 +85,74 @@ export interface SearchAuditEventsOptions {
 /**
  * Insert a single audit event.
  *
- * Known MCP execution telemetry goes to the logs database when the client has
- * one (`configureLogStore`); every other action, and every audit row composed
- * into a main-database batch through `buildInsertAuditEventStatement`, stays
- * in the main database.
+ * Execution telemetry, policy approvals and expiry receipts use the logs store.
+ * Atomic main-database batches are drained by `moveRoutineAuditEventsToLogs`.
  */
 export async function insertAuditEvent(
 	db: DbClient,
 	event: InsertAuditEventParams,
 ): Promise<string> {
-	const target = MCP_TELEMETRY_ACTIONS.has(event.action)
-		? (getLogStores(db)?.logs ?? db)
-		: db;
+	const target =
+		MCP_TELEMETRY_ACTIONS.has(event.action) ||
+		event.action === "interaction.expiry.run" ||
+		(event.action === "approval.approved" &&
+			(event.actorId === "policy" ||
+				event.metadata?.resolvedBy === "policy" ||
+				event.metadata?.resolverProvenance === "policy"))
+			? (getLogStores(db)?.logs ?? db)
+			: db;
 	// Keep attribution inline: a dictionary lookup must not block the audit write.
 	const { id, statement } = buildInsertAuditEventStatement(target, event);
 	await statement;
 	return id;
+}
+
+/** Keep atomic batch receipts in main until their complete log copy is verified. */
+export async function moveRoutineAuditEventsToLogs(
+	db: DbClient,
+): Promise<number> {
+	const logs = getLogStores(db)?.logs;
+	if (!logs) return 0;
+	const table = coreTable(db, auditEvents);
+	const rows = await db
+		.select()
+		.from(table)
+		.where(
+			or(
+				eq(table.action, "interaction.expiry.run"),
+				and(
+					eq(table.action, "approval.approved"),
+					or(
+						eq(table.actorId, "policy"),
+						eq(jsonRead(db, table.metadata, ["resolvedBy"]), "policy"),
+						eq(jsonRead(db, table.metadata, ["resolverProvenance"]), "policy"),
+					),
+				),
+			),
+		)
+		.limit(500);
+	if (!rows.length) return 0;
+	// 500 per two-minute maintenance tick exceeds the observed ~34 rows/minute.
+	// Copy before delete; a failed copy or interrupted drain is safe to replay.
+	const [first, ...rest] = chunkForBoundParams(rows, 8).map((chunk) =>
+		logs
+			.insert(auditEvents)
+			.values(chunk.map(({ traceId: _traceId, ...row }) => row))
+			.onConflictDoNothing(),
+	);
+	if (first) await logs.batch([first, ...rest]);
+	const ids = rows.map((row) => row.id);
+	const copied = await logs
+		.select()
+		.from(auditEvents)
+		.where(anyIds(logs, auditEvents.id, ids));
+	const byId = new Map(copied.map((row) => [row.id, row]));
+	for (const row of rows) {
+		if (JSON.stringify(row) !== JSON.stringify(byId.get(row.id)))
+			throw new Error(`Routine audit log copy mismatch: ${row.id}`);
+	}
+	await db.delete(table).where(anyIds(db, table.id, ids));
+	return rows.length;
 }
 
 /** Insert several main-database audit events in one D1 batch. */

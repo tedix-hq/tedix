@@ -3,6 +3,11 @@ import type { DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { kernelRuntimeEvents } from "../schema/cognitive-runtime";
 import { memoryFacts } from "../schema/memory-graph";
+import {
+	compareTimestampId,
+	mergeLogStoreRows,
+	readLogStores,
+} from "../utils/log-store";
 
 export async function hasActiveMemoryFactSource(
 	db: DbClient,
@@ -50,18 +55,28 @@ export async function listHomeOperatorDecisionAuditEvents(
 		limit: number;
 	},
 ) {
-	return db
-		.select()
-		.from(auditEvents)
-		.where(
-			and(
-				eq(auditEvents.organizationId, input.organizationId),
-				eq(auditEvents.actorType, "user"),
-				// bound-params: sole caller passes the fixed DECISION_ACTIONS verb set
-				inArray(auditEvents.action, input.actions),
-				gte(auditEvents.timestamp, input.since),
-			),
-		)
-		.orderBy(desc(auditEvents.timestamp))
-		.limit(input.limit);
+	const read = async (store: DbClient) =>
+		store
+			.select()
+			.from(auditEvents)
+			.where(
+				and(
+					eq(auditEvents.organizationId, input.organizationId),
+					eq(auditEvents.actorType, "user"),
+					// bound-params: sole caller passes the fixed DECISION_ACTIONS verb set
+					inArray(auditEvents.action, input.actions),
+					gte(auditEvents.timestamp, input.since),
+				),
+			)
+			.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
+			.limit(input.limit);
+	const pages = await readLogStores(db, read, {
+		from: input.since.toISOString(),
+	});
+	return pages
+		? mergeLogStoreRows(pages, {
+				compare: compareTimestampId("desc"),
+				limit: input.limit,
+			})
+		: read(db);
 }

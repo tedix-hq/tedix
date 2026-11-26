@@ -1,5 +1,10 @@
 import { coreTable } from "../../core-store/client";
 import {
+	compareTimestampId,
+	mergeLogStoreRows,
+	readLogStores,
+} from "../../utils/log-store";
+import {
 	anyIds,
 	booleanValue,
 	containsText,
@@ -1822,18 +1827,38 @@ export async function listInteractionExpiryReceipts(
 	orgId: string,
 	limit = 10,
 ) {
-	const auditEvents = coreTable(db, d1AuditEvents);
-	return db
-		.select()
-		.from(auditEvents)
-		.where(
-			and(
-				eq(auditEvents.organizationId, orgId),
-				eq(auditEvents.action, EXPIRY_RECEIPT),
-			),
-		)
-		.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
-		.limit(Math.min(100, Math.max(1, limit)));
+	return readInteractionExpiryReceipts(
+		db,
+		orgId,
+		Math.min(100, Math.max(1, limit)),
+	);
+}
+
+async function readInteractionExpiryReceipts(
+	db: DbQueryClient,
+	orgId: string,
+	limit: number,
+	receiptId?: string,
+) {
+	const read = async (store: DbQueryClient) => {
+		const auditEvents = coreTable(store, d1AuditEvents);
+		return store
+			.select()
+			.from(auditEvents)
+			.where(
+				and(
+					eq(auditEvents.organizationId, orgId),
+					eq(auditEvents.action, EXPIRY_RECEIPT),
+					receiptId ? eq(auditEvents.id, receiptId) : undefined,
+				),
+			)
+			.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
+			.limit(limit);
+	};
+	const pages = await readLogStores(db, read);
+	return pages
+		? mergeLogStoreRows(pages, { compare: compareTimestampId("desc"), limit })
+		: read(db);
 }
 
 /**
@@ -2163,24 +2188,18 @@ export async function restoreExpiredWorkInteraction(
 	},
 ) {
 	const workInteractions = coreTable(db, d1WorkInteractions);
-	const auditEvents = coreTable(db, d1AuditEvents);
 	await validateActor(db, p.orgId, p.actor);
 	if (p.actor.type !== "user")
 		throw new WorkControlError(
 			"NOT_ELIGIBLE",
 			"Only the addressed person can restore an expired request",
 		);
-	const [receipt] = await db
-		.select()
-		.from(auditEvents)
-		.where(
-			and(
-				eq(auditEvents.id, p.receiptId),
-				eq(auditEvents.organizationId, p.orgId),
-				eq(auditEvents.action, EXPIRY_RECEIPT),
-			),
-		)
-		.limit(1);
+	const [receipt] = await readInteractionExpiryReceipts(
+		db,
+		p.orgId,
+		1,
+		p.receiptId,
+	);
 	const ids = receipt?.metadata?.expiredIds;
 	if (
 		!receipt ||

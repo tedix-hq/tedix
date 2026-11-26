@@ -10,6 +10,8 @@ import { parseKernelGovernancePolicy } from "@tedix/api-contract/utils/approval-
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
+import { configureLogStore, createDbClient } from "../../client";
+import { moveRoutineAuditEventsToLogs } from "../audit";
 import {
 	policyPacks,
 	runtimeProfiles,
@@ -1166,6 +1168,20 @@ describe("obsolete Work interactions", () => {
 		);
 		await tick(f);
 		await tick(f, 1);
+		const logs = new DatabaseSync(":memory:");
+		logs.exec(schemaDdl(auditEvents));
+		const db = createDbClient(createD1Facade(f.sqlite));
+		configureLogStore(db, { LOGS_DB: createD1Facade(logs) });
+		f.db = db;
+		expect(await moveRoutineAuditEventsToLogs(db)).toBe(2);
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT count(*) n FROM audit_events WHERE action='interaction.expiry.run'",
+				)
+				.get(),
+		).toEqual({ n: 0 });
+		expect(await listInteractionExpiryReceipts(f.db, "org-other")).toEqual([]);
 		const receipt = (await listInteractionExpiryReceipts(f.db, "org"))[0]!;
 		const input = {
 			orgId: "org",
@@ -1205,6 +1221,7 @@ describe("obsolete Work interactions", () => {
 				)
 				.get(restored!.id)?.receipt,
 		).toBe(receipt.id);
+		logs.close();
 	});
 	it.each(["question", "coordination"])(
 		"offers guarded %s restore through the existing create surface",

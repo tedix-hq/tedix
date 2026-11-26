@@ -6,11 +6,15 @@ import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { logPartition } from "../schema/logs-db";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
+import { listGovernanceAuditEvents } from "./governance-overview";
+import { listHomeOperatorDecisionAuditEvents } from "./home-reflection";
 import {
 	buildInsertAuditEventStatement,
 	getAuditEventsByResource,
 	insertAuditEvent,
+	insertAuditEventsBatch,
 	insertMcpAuditEventsBatch,
+	moveRoutineAuditEventsToLogs,
 	searchAuditEvents,
 } from "./audit";
 import {
@@ -49,6 +53,93 @@ const event = {
 };
 
 describe("optional audit log store", () => {
+	it("routes policy approvals and drains atomic receipts without losing rows on failure or replay", async () => {
+		const main = store();
+		const logs = store();
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		const policy = {
+			...event,
+			action: "approval.approved",
+			metadata: { resolvedBy: "policy", approvalReason: "Tenant rule" },
+		};
+		await insertAuditEvent(main.db, { ...policy, id: "direct" });
+		await insertAuditEvent(main.db, {
+			...event,
+			id: "human",
+			action: "approval.approved",
+		});
+		await insertAuditEventsBatch(
+			main.db,
+			Array.from({ length: 20 }, (_, i) => ({
+				...policy,
+				id: `atomic-${i}`,
+				organizationId: i % 2 ? "org-other" : event.organizationId,
+			})),
+		);
+		await main.db.batch([
+			buildInsertAuditEventStatement(main.db, {
+				...event,
+				id: "expiry",
+				action: "interaction.expiry.run",
+				metadata: { expiredIds: ["request"] },
+			}).statement,
+		]);
+		logs.sqlite.exec(
+			"CREATE TRIGGER fail_copy BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT,'copy failed'); END",
+		);
+		await expect(moveRoutineAuditEventsToLogs(main.db)).rejects.toThrow();
+		expect(
+			main.sqlite.prepare("SELECT count(*) n FROM audit_events").get(),
+		).toEqual({ n: 22 });
+		logs.sqlite.exec("DROP TRIGGER fail_copy");
+		await insertAuditEvent(logs.db, {
+			...policy,
+			id: "atomic-0",
+			metadata: { resolvedBy: "policy", approvalReason: "Wrong copy" },
+		});
+		await expect(moveRoutineAuditEventsToLogs(main.db)).rejects.toThrow(
+			"copy mismatch",
+		);
+		expect(
+			main.sqlite.prepare("SELECT count(*) n FROM audit_events").get(),
+		).toEqual({ n: 22 });
+		logs.sqlite.exec("DELETE FROM audit_events WHERE id='atomic-0'");
+		main.sqlite.exec(
+			"CREATE TRIGGER fail_delete BEFORE DELETE ON audit_events BEGIN SELECT RAISE(ABORT,'delete failed'); END",
+		);
+		await expect(moveRoutineAuditEventsToLogs(main.db)).rejects.toThrow();
+		expect(
+			logs.sqlite.prepare("SELECT count(*) n FROM audit_events").get(),
+		).toEqual({ n: 22 });
+		main.sqlite.exec("DROP TRIGGER fail_delete");
+		expect(await moveRoutineAuditEventsToLogs(main.db)).toBe(21);
+		expect(await moveRoutineAuditEventsToLogs(main.db)).toBe(0);
+		expect(main.sqlite.prepare("SELECT id FROM audit_events").all()).toEqual([
+			{ id: "human" },
+		]);
+		const rows = await searchAuditEvents(main.db, {
+			organizationId: event.organizationId,
+			action: "approval.approved",
+		});
+		expect(rows.data).toHaveLength(12);
+		expect(rows.data.find((row) => row.id === "atomic-0")?.metadata).toEqual(
+			policy.metadata,
+		);
+		expect(
+			await listGovernanceAuditEvents(main.db, event.organizationId, 20),
+		).toHaveLength(12);
+		expect(
+			await listHomeOperatorDecisionAuditEvents(main.db, {
+				organizationId: event.organizationId,
+				since: new Date(0),
+				actions: ["approval.approved"],
+				limit: 20,
+			}),
+		).toHaveLength(12);
+		main.sqlite.close();
+		logs.sqlite.close();
+	});
+
 	it("writes 100 telemetry rows in one batch without dictionary access and retains inline metadata", async () => {
 		const main = store();
 		const logs = store();
