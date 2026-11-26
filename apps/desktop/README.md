@@ -70,8 +70,9 @@ The app is not signed or notarized yet and has been run on macOS only.
   start its browser sign-in. Claude Code and Codex can check the connection
   with a Tedix read. Fresh ChatGPT Work and Claude Code installs use the
   bundled native plugin marketplace, with hook review in the host. For
-  Claude chat and Cowork, save the bundled plugin ZIP for Claude's upload
-  screen. Local tasks and session sharing are set up separately in
+  Claude (Cowork), add the `tedix-hq/tedix-plugins` marketplace and install
+  Tedix. If marketplaces are unavailable, save the bundled plugin ZIP for
+  Claude's upload screen. Local tasks and session sharing are set up separately in
   **Settings → Agents**.
 - **The command-line tool.** With no `tedix` installed, the app links its own
   copy and adds `~/.local/bin` to your shell profile if it is missing. A

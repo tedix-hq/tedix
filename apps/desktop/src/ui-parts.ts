@@ -150,7 +150,7 @@ export const namedAgentTool = (tool: ToolRow): ToolRow => {
 /** The public plugin repository, which Claude accepts as a marketplace. */
 export const CLAUDE_MARKETPLACE = "tedix-hq/tedix-plugins";
 
-export const CLAUDE_PLUGIN_STEPS = `In Claude, choose Customize → Plugins → Add marketplace and paste ${CLAUDE_MARKETPLACE}. Install Tedix, then open its Connectors tab and sign in. It stays up to date from there.`;
+export const CLAUDE_PLUGIN_STEPS = `In Claude, choose Customize → Plugins → Add marketplace and paste ${CLAUDE_MARKETPLACE}. Install Tedix, then open its Connectors tab and sign in. It stays up to date from there. If marketplaces are unavailable, choose Save plugin file and upload it in Claude.`;
 
 export function claudePluginButtons() {
 	return [
