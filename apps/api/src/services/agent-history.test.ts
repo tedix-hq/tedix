@@ -167,34 +167,30 @@ it("keeps 7/30-day outcome, model and scope evidence distinct and attributes exa
 			lesson: null,
 			lessonStatus: "pending" as const,
 		};
-		await db
-			.insert(workAgentSessions)
-			.values({
-				id: "matching",
-				organizationId: "org",
-				userId: "reader",
-				harness: "codex",
-				sessionKey: "session-2",
-				workItemId: workId,
-				state: "done",
-				stateSince: at(1),
-				lastEventAt: at(1),
-				telemetry: { ...telemetry, executor: "codex" },
-			});
-		await db
-			.insert(workAgentSessions)
-			.values({
-				id: "overwritten",
-				organizationId: "org",
-				userId: "reader",
-				harness: "claude-code",
-				sessionKey: "older",
-				telemetry,
-				workItemId: workId,
-				state: "done",
-				stateSince: at(1),
-				lastEventAt: at(1),
-			});
+		await db.insert(workAgentSessions).values({
+			id: "matching",
+			organizationId: "org",
+			userId: "reader",
+			harness: "codex",
+			sessionKey: "session-2",
+			workItemId: workId,
+			state: "done",
+			stateSince: at(1),
+			lastEventAt: at(1),
+			telemetry: { ...telemetry, executor: "codex" },
+		});
+		await db.insert(workAgentSessions).values({
+			id: "overwritten",
+			organizationId: "org",
+			userId: "reader",
+			harness: "claude-code",
+			sessionKey: "older",
+			telemetry,
+			workItemId: workId,
+			state: "done",
+			stateSince: at(1),
+			lastEventAt: at(1),
+		});
 		const event = {
 			projectId: "22222222-2222-4222-8222-222222222222",
 			repository: "example/product",

@@ -615,7 +615,11 @@ const chooseTool = readOs.chooseTool.handler(async ({ input, context }) => {
 	);
 	const evidence = (executor: string) => ({
 		evidence: agentHistoryEvidence(history, executor),
-		evidenceRefs: ["https://os.tedix.dev/work?view=feed"],
+		evidenceRefs: [
+			context.env.OS_URL
+				? new URL("/work?view=feed", context.env.OS_URL).href
+				: "/work?view=feed",
+		],
 	});
 	const state = {
 		title: input.title,
