@@ -241,9 +241,11 @@ if (import.meta.main) {
 				after: args[i + 2]!,
 			});
 		const read: Read = (command) => {
-			// A backend refusal ("...unavailable") is retried for up to three
-			// minutes, which outlasts the core database's stalls; any other
-			// failure, such as a missing Attempt, still refuses at once.
+			// A failed read is retried for up to three minutes, which outlasts
+			// the core database's stalls. Under those stalls the backend also
+			// answers "not found" or times out, so the read is only refused once
+			// the window ends; the last answer is printed with the refusal. A
+			// successful read that denies the push still refuses at once.
 			const giveUpAt = Date.now() + 180_000;
 			for (let attempt = 1; ; attempt += 1) {
 				const result = spawnSync(
@@ -263,18 +265,19 @@ if (import.meta.main) {
 					},
 				);
 				if (result.status === 0) return JSON.parse(result.stdout);
-				// A read that hangs past its limit (killed, no exit status) is
-				// as transient as one the backend answers with "unavailable".
-				const transient =
-					result.status === null ||
-					/unavailable|timed out/i.test(
-						`${result.stdout ?? ""}${result.stderr ?? ""}`,
-					);
 				const pause = Math.min(3_000 * attempt, 15_000);
-				if (!transient || Date.now() + pause >= giveUpAt)
+				if (Date.now() + pause >= giveUpAt) {
+					const last =
+						result.status === null
+							? "no answer within 30 s"
+							: `${result.stdout ?? ""}${result.stderr ?? ""}`
+									.replace(/\s+/g, " ")
+									.trim()
+									.slice(0, 240);
 					throw new Error(
-						`Tedix ${command.slice(0, 2).join(" ")} unavailable; push refused`,
+						`Tedix ${command.slice(0, 2).join(" ")} unavailable after ${attempt} tries (last: ${last}); push refused`,
 					);
+				}
 				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pause);
 			}
 		};
