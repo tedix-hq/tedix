@@ -3,6 +3,36 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.25 (2026-11-26)
+
+### Patch Changes
+
+- 1b1bf45: `tedix work create` help now states that an agent session with no verified accountable person must pass `--owner`, matching the server's refusal at creation.
+- e5bb18c: Ask through one canonical Work Interaction and use the blocking Work wait. Remove the settlement `--needs-user`/`--request-id` options and final `question` result. Runs return `waiting_on_user` with the actual request fence. Historical question logs remain readable; ended runs no longer accept alternate answers. Deploy the API and OS changes before updating runners and local plugins.
+- 80d2742: Measure retained run checkouts by allocated disk blocks, like `tedix storage`, so APFS clone families are not counted once per run folder; a runner that cannot get under its checkout cap now reports the held reason in its health instead of appearing stuck.
+- a56a8c4: Keep admission refusals on their own retry schedule and show runner state when process timing lookup is unavailable.
+- 43905a2: Show one decimal in runner tool-choice percentages near the Clef threshold so a rejected pick does not appear equal to the cutoff.
+- 9884808: Defer runner heartbeats and settlement during macOS dark wake. Keep running Attempts through transient credential or status-read failures until the server confirms lease loss.
+- b551ead: Start fresh when a retained run checkout is gone, defer repeated preparation failures, and remove eviction leftovers without reporting commits from a parent repository.
+- b875928: Name who can record an answer for an ended question run, and allow a revised task to start instead of retaining the old question wait.
+- 6122fd5: `tedix setup agents --sign-ins --json` prints the Tedix sign-ins each agent on this Mac holds, and the Mac app's Connect now ends the sign-in it replaces while Remove still ends only that install's.
+- 055f09c: Renew Work Attempt leases on one shared schedule — a third of the remaining lease — across the runner, `work heartbeat --watch` and lane watches, and report a missed renewal once. Lane session states now come from the Attempt's own state instead of a separate lane liveness report.
+- 16b10f3: Use the blocking Work wait for parked human requests instead of repeatedly reading their answers. Persist the cursor across runner restarts and keep other Work moving while a wait is pending.
+
+  Replace the separate answer and draft polling hooks with `await-input`. Session supervisors use the same blocking wait and read answers only after it wakes. Update the CLI and local plugin together after the API is deployed.
+
+- e0623de: Show "Stopped by a person" instead of a raw user ID in stopped run cards and chat notices.
+- c316c9a: Back off transient machine-tool claims and summarize recovered retries separately from outages. Report dark-wake deferrals and socket close causes, and give a connection a fresh ping after a short sleep.
+- 8b33a2b: Set effort and permissions on local routing rules and show their effective values with `tedix lane routing`. Pass explicit settings to Codex and Claude launches and resumed sessions, OpenCode model variants, and Devin permission mode; reject unsupported settings before launch.
+- 2622581: Show repeated admission failures in runner status and health even while the runner process is alive.
+- e144a94: `tedix work context` now shows the item's readiness, so a run waiting on an answer to its question is named with how to answer it. The Work Item's creator can now send that answer through `send_work_attempt_message` even when they are not its owner or steward.
+- dfc7fb9: Persist runner routing and full Clef choices on server Work and Attempt records so local log rotation does not erase run history.
+- 3a049d3: Let the server be the only judge of a stale Attempt. The local attempt cache under ~/.tedix/work-attempts is now only a pointer that remembers the Attempt id; heartbeats, run renewal and settlement no longer refuse when it disagrees, and the server's stale-Attempt error is the only one.
+- 2105279: Retain Devin request-level tokens for cost estimates, use native model IDs for OpenCode pricing, and preserve the explicit rate scope when reporting owner-session transcripts.
+- 1190fb9: Do not start a tedi turn until its machine workspace answers: the turn now checks that machine tools are serving and that the adopted workspace still resolves before the turn is sent.
+- ebbad6f: Allow runner routes and tasks to cap Attempt wall time, model responses and estimated token cost, retaining the limit reason in settlement.
+- 0e591de: Let the Claude Code sign-in check use either the Tedix plugin or the claude.ai Tedix connector, and guide skills to use the tools actually loaded in headless runs.
+
 ## 0.37.24 (2026-11-25)
 
 ### Patch Changes
