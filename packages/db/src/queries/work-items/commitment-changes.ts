@@ -218,7 +218,7 @@ export async function recordCommitmentFollowupAttention(
 		interactionId: string;
 		commitmentKey: string;
 		dedupeKey: string;
-		decisionClass: string;
+		decisionClass: "deadline.owner.commitment" | "personal.proposal.commitment";
 	},
 ): Promise<void> {
 	await db.update(workInteractions).set({
@@ -227,6 +227,7 @@ export async function recordCommitmentFollowupAttention(
 	})
 		.where(sql`${workInteractions.orgId} = ${p.orgId} AND ${workInteractions.id} = ${p.interactionId}
 		AND ${workInteractions.status} = 'open' AND json_extract(${workInteractions.metadata}, '$.dedupeKey') IS NOT ${p.dedupeKey}
+		AND ${workInteractions.kind} = 'question'
 		AND (${p.commitmentKey} LIKE 'interaction:%' OR ${workInteractions.subject} LIKE 'Follow up:%'
 		 OR json_extract(${workInteractions.metadata}, '$.commitmentKey') IS NOT NULL)
 		AND json_extract(${workInteractions.metadata}, '$.decisionDeck.kind') IS NOT 'approval'

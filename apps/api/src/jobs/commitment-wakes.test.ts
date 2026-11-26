@@ -353,6 +353,128 @@ describe("commitment wakes", () => {
 		).toBe('{"decisionDeck":{"kind":"approval"}}');
 	});
 
+	it("reuses an untagged follow-up on the migrated schema and gets a wake acceptance receipt", async () => {
+		const { sqlite, db, binding } = fixture([], true);
+		try {
+			sqlite.exec(`
+				INSERT INTO tedis(id,organization_id,name,slug,status,scope,owner_user_id)
+				VALUES ('personal','org-one','Personal','personal','active','personal','human');
+				INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status)
+				VALUES ('member','org-one','human','provider-user','human@example.test','active');
+				INSERT INTO work_items(id,org_id,title,created_at,disposition,accountable_owner_type,accountable_owner_id,deadline,admission_spec_revision)
+				VALUES ('overdue','org-one','Send proposal','${after}','accepted','user','human','${changedAt}','fixture-v1');
+				INSERT INTO work_interactions(id,org_id,work_item_id,kind,status,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata)
+				VALUES ('existing','org-one','overdue','question','open','Follow up: Send proposal','Status?','tedi','personal','user','human','${after}','{}');
+			`);
+			await advanceCommitmentWakeCheckpoint(db, after);
+			const fetch = vi.fn(async (request: Request) => {
+				const body = (await request.json()) as { client_request_id: string };
+				const runId = buildRuntimeRunId({
+					tediId: "personal",
+					surface: "mcp",
+					turnKey: body.client_request_id,
+				});
+				await db.insert(tediRuntimeEvents).values({
+					id: "accepted-reminder",
+					organizationId: "org-one",
+					tediId: "personal",
+					kind: "run.started",
+					runId,
+					runtimeBackend: "cloudflare-agents",
+					createdAt: through,
+				});
+				return Response.json({ accepted: true, run_id: runId });
+			});
+			expect(
+				await dispatchCommitmentWakes(
+					{
+						DB: binding,
+						ENVIRONMENT: "test",
+						TEDI_SERVICE: { fetch },
+					} as unknown as CloudflareEnv,
+					Date.parse(through) + 30_000,
+				),
+			).toMatchObject({ observed: 1, dispatched: 1, failed: 0 });
+			expect(fetch).toHaveBeenCalledTimes(1);
+			const row = sqlite
+				.prepare("SELECT * FROM work_interactions WHERE id='existing'")
+				.get()!;
+			expect(JSON.parse(String(row.metadata))).toEqual({
+				commitmentKey: "work:overdue",
+				dedupeKey: "work:overdue:2026-10-16",
+				decisionClass: "deadline.owner.commitment",
+			});
+			expect(row).toMatchObject({
+				version: 2,
+				status: "open",
+				target_type: "user",
+				target_id: "human",
+				subject: "Follow up: Send proposal",
+				prompt: "Status?",
+				created_at: after,
+			});
+			expect(
+				sqlite.prepare("SELECT count(*) AS n FROM work_interactions").get()?.n,
+			).toBe(1);
+			expect(
+				sqlite
+					.prepare(
+						"SELECT run_id FROM tedi_runtime_events WHERE id='accepted-reminder'",
+					)
+					.get()?.run_id,
+			).toBe(
+				buildRuntimeRunId({
+					tediId: "personal",
+					surface: "mcp",
+					turnKey: `commitments:org-one:personal:${through}`,
+				}),
+			);
+			expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+			const [change] = await listCommitmentChanges(db, after, through, "test");
+			expect(await ensureCommitmentFollowup(db, change!, through)).toBe(
+				"existing",
+			);
+			expect(
+				sqlite
+					.prepare("SELECT version FROM work_interactions WHERE id='existing'")
+					.get()?.version,
+			).toBe(2);
+			// A valid reminder annotation must not carry unrelated edits or malformed classification.
+			for (const edit of [
+				",metadata=json_set(metadata,'$.dedupeKey','work:overdue:2026-10-17','$.arbitrary','write')",
+				",prompt='Changed request'",
+				",target_id='someone-else'",
+				",metadata=json_set(metadata,'$.commitmentKey','work:other','$.dedupeKey','work:other:2026-10-17')",
+				",metadata=json_remove(json_set(metadata,'$.dedupeKey','work:overdue:2026-10-17'),'$.decisionClass')",
+			]) {
+				expect(() =>
+					sqlite.exec(`UPDATE work_interactions SET version=version+1,
+					metadata=json_set(metadata,'$.dedupeKey','work:overdue:2026-10-17')
+					${edit} WHERE id='existing'`),
+				).toThrow("invalid interaction delegation");
+			}
+			expect(
+				await ensureCommitmentFollowup(
+					db,
+					{ ...change!, state: "idle" },
+					"2026-10-18T12:02:00.000Z",
+				),
+			).toBe("existing");
+			expect(
+				sqlite
+					.prepare(
+						"SELECT version,json_extract(metadata,'$.decisionClass') AS class FROM work_interactions WHERE id='existing'",
+					)
+					.get(),
+			).toEqual({
+				version: 3,
+				class: "personal.proposal.commitment",
+			});
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	it.each([false, true])(
 		"records partial delivery counts and retries only once (recover=%s)",
 		async (recover) => {

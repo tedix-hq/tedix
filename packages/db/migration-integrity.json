@@ -2092,6 +2092,10 @@
 		{
 			"name": "20261126071201_unknown_cost_basis_default/migration.sql",
 			"sha256": "d2510f551d84bfbe5f9732890e4e1baf4528ebf8085720d2f1050152acafb12d"
+		},
+		{
+			"name": "20261126071520_commitment_reminder_annotation/migration.sql",
+			"sha256": "906dcda94f386237e30b6f2b5c94cfaa1928956930bae6bde70517cb6e28d5f0"
 		}
 	]
 }
