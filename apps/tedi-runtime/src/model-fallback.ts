@@ -1,4 +1,5 @@
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
 import {
 	validateCatalogFallback,
 	type ModelCatalogConfig,
@@ -6,12 +7,12 @@ import {
 import { getTediRuntimeGovernance } from "@tedix/db/queries/tedi-runtime-bootstrap";
 
 export async function loadTediModelFallback(
-	db: D1Database,
+	env: CoreStoreEnv & { DB: D1Database },
 	tediId: string | undefined,
 	catalog?: ModelCatalogConfig,
 ) {
 	if (!tediId) throw new Error("Model fallback requires a tedi identity");
-	const row = await getTediRuntimeGovernance(db, tediId);
+	const row = await getTediRuntimeGovernance(env.DB, tediId);
 	if (!row) throw new Error("Model fallback organization is unavailable");
 	const metadata =
 		typeof row.organizationMetadata === "string"
@@ -20,7 +21,7 @@ export async function loadTediModelFallback(
 	const config =
 		catalog ??
 		(await getModelCatalogConfig(
-			(await import("@tedix/db/client")).createDbClient(db),
+			(await import("@tedix/db/core-store/scope")).coreDb(env),
 		));
 	return validateCatalogFallback(
 		metadata?.modelFallback ?? config.fallback,

@@ -16,7 +16,11 @@ import {
 import { workersAiClient, type WorkersAiRuntimeEnv } from "./workers-ai-client";
 
 export type ObserverEnv = ObserverCallOptions["env"] &
-	WorkersAiRuntimeEnv & { DB?: D1Database };
+	WorkersAiRuntimeEnv & {
+		DB?: D1Database;
+		CORE_STORE?: "d1" | "postgres";
+		CORE_HYPERDRIVE?: Pick<Hyperdrive, "connectionString">;
+	};
 
 export interface ConfiguredObserverCallOptions extends Omit<
 	ObserverCallOptions,
@@ -83,12 +87,14 @@ export async function observerCompletion(
 	opts: ConfiguredObserverCallOptions,
 ): Promise<string> {
 	opts.signal?.throwIfAborted();
+	const scope = await import("@tedix/db/core-store/scope");
+	const hasCoreStore = scope.isD1CoreStore(opts.env)
+		? opts.env.DB
+		: opts.env.CORE_HYPERDRIVE;
 	const catalog =
 		opts.modelCatalog ??
-		(opts.env.DB
-			? await getModelCatalogConfig(
-					(await import("@tedix/db/core-store/scope")).coreDb(opts.env),
-				)
+		(hasCoreStore
+			? await getModelCatalogConfig(scope.coreDb(opts.env))
 			: undefined);
 	const ref =
 		opts.modelRef ??

@@ -540,7 +540,7 @@ export class ConversationFacet extends PiAgent<
 			{
 				load: () =>
 					loadTediModelFallback(
-						this.env.DB,
+						this.env,
 						this.state.aigMetadata?.tediId,
 						this.state.modelCatalog,
 					),
@@ -1742,7 +1742,7 @@ export class ConversationFacet extends PiAgent<
 			return undefined;
 		try {
 			const policy = await loadTediModelFallback(
-				this.env.DB,
+				this.env,
 				this.state.aigMetadata?.tediId,
 				this.state.modelCatalog,
 			);
