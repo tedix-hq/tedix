@@ -27,6 +27,7 @@ import {
 	runnerFor,
 	type SessionsUi,
 	sessionsPanel,
+	TOOL_APPS,
 	TOOL_ICONS,
 	toggle,
 	toolView,
@@ -391,12 +392,6 @@ const AGENT_APPS = [
 	["opencode", "OpenCode"],
 ] as const;
 type AgentApp = (typeof AGENT_APPS)[number][0];
-const TOOL_APPS: Record<string, AgentApp> = {
-	codex: "chatgpt",
-	claude: "claude",
-	devin: "devin",
-	opencode: "opencode",
-};
 
 function tools(now: PanelState): Group[] {
 	const found = foundTools(now);

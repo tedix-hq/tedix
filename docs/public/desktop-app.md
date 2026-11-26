@@ -49,8 +49,9 @@ the links above; allowing it does not mean Apple has checked it for malware.
 4. In Tedix, choose **Try a demo** to explore a sample on your Mac, or
    **Sign in** to use your Tedix account. Finish signing in in your browser
    and return to Tedix.
-5. Choose **Open Tedix**, or choose **Connect an app** to add Tedix to an app
-   you already use. Tedix opens a sign-in page when the app needs one.
+5. Tedix lists the apps it found on your Mac. Add Tedix to the ones you use,
+   or choose **Open Tedix**. Tedix opens a sign-in page when an app needs
+   one. If you install or open an app now, Tedix finds it when you come back.
 
 macOS remembers this exception for the app, so later opens do not normally
 need these steps. Do not disable your Mac's security checks or override an

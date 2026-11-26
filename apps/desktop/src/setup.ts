@@ -426,6 +426,8 @@ export interface SetupState {
 	desktopApps: Record<DesktopApp, boolean>;
 	/** Each installed app's own icon, as an image URL, read from the app. */
 	appIcons: Partial<Record<DesktopApp, string>>;
+	/** True while Tedix looks for apps and checks them. */
+	looking: boolean;
 	/**
 	 * Which tool takes which tasks, one plain sentence per rule, and the file
 	 * runners read it from. Undefined when the command-line tool cannot say.
@@ -845,9 +847,12 @@ async function readRouting(): Promise<void> {
 /** The running read of the tools' status, so two refreshes share one. */
 let readingStatus: Promise<void> | undefined;
 export function readAgentStatus(): Promise<void> {
-	readingStatus ??= readAgentStatusNow().finally(() => {
+	if (readingStatus) return readingStatus;
+	readingStatus = readAgentStatusNow().finally(() => {
 		readingStatus = undefined;
+		changed();
 	});
+	changed();
 	return readingStatus;
 }
 
@@ -896,7 +901,7 @@ async function readAgentStatusNow(): Promise<void> {
 	} catch {
 		agentStatus = {
 			problem: findTedix()
-				? "Tedix cannot check this app yet. It updates itself; choose Look again later."
+				? "Tedix cannot check this app yet. It updates itself and checks again when you come back."
 				: "Tedix is still setting up this Mac. If this stays, quit and open Tedix again.",
 		};
 	}
@@ -1381,6 +1386,7 @@ export function setupState(): SetupState {
 			opencode: Boolean(desktopAppPath("opencode")),
 		},
 		appIcons,
+		looking: readingStatus !== undefined,
 	};
 }
 

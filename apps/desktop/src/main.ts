@@ -1494,9 +1494,13 @@ function openSetup(): void {
 	});
 	window.webContents.on("will-navigate", (event) => event.preventDefault());
 	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-	// Coming back from the browser shows the new state at once.
+	// Coming back, from the browser or from installing or opening an app,
+	// looks for apps again in full, at most every 15 seconds.
+	let lookedAt = Date.now();
 	window.on("focus", () => {
-		void refreshSetup(false);
+		const deep = Date.now() - lookedAt > 15_000;
+		if (deep) lookedAt = Date.now();
+		void refreshSetup(deep);
 		void readAppSignIn();
 	});
 	void window.loadFile(join(root, "setup.html"));

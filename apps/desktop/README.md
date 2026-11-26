@@ -62,8 +62,10 @@ The app is not signed or notarized yet and has been run on macOS only.
   cannot finish, the app says why and offers to start again. Once you are
   signed in, the menu shows who is signed in instead.
 - **First run.** Choose **Try a demo** for the bundled sample or **Sign in**
-  to use a Tedix account. After sign-in, choose **Open Tedix** or
-  **Connect an app**. The setup guide is also in **Settings → General**.
+  to use a Tedix account. After sign-in, the guide goes straight to your
+  apps, each with its own icon, and looks for apps again in full when you
+  come back to it (at most every 15 seconds). The setup guide is also in
+  **Settings → General**.
 - **Connect an app.** Tedix looks for Mac apps and command-line tools
   separately. If both are installed for the same provider, Tedix uses the
   Mac app's executable. Choose **Connect** to add Tedix to a detected coding tool and

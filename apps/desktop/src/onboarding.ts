@@ -8,6 +8,7 @@ import {
 	namedAgentTool,
 	onButtonsChange,
 	openAgentApp,
+	TOOL_APPS,
 	TOOL_ICONS,
 	toolView,
 } from "./ui-parts";
@@ -66,6 +67,8 @@ const done = (label: string) => el("span", "done", icon("check", 13), label);
 function row(view: {
 	key: string;
 	icon: IconName;
+	/** The app's own icon, in place of the drawing. */
+	image?: string;
 	title: string;
 	sub: string;
 	control?: Child;
@@ -82,7 +85,13 @@ function row(view: {
 	return el(
 		"div",
 		"r",
-		el("span", "glyph", icon(view.icon, 22)),
+		el(
+			"span",
+			"glyph",
+			view.image
+				? Object.assign(el("img", "app-icon"), { src: view.image, alt: "" })
+				: icon(view.icon, 22),
+		),
 		el(
 			"div",
 			"text",
@@ -123,8 +132,7 @@ interface Choice {
 interface Screen {
 	/** Centred: a mark, an optional pill, a headline and up to two lines. */
 	centre?: { mark: Child; pill?: Child; lines: Child[]; choices?: Choice[] };
-	/** Split: the pill and one sentence on the left, rows on the right. */
-	label?: string;
+	/** Split: a headline and one sentence on the left, rows on the right. */
 	sentence?: Child;
 	rows?: Child[];
 	headline: string;
@@ -138,7 +146,10 @@ function go(id: StepId): void {
 	draw();
 }
 const back = () => {
-	const step = STEPS[position(current ?? "welcome") - 1];
+	let at = position(current ?? "welcome") - 1;
+	// Signed in, the sign-in step has nothing to do: Back skips it.
+	if (STEPS[at]?.[0] === "mac" && state?.setup.app.state === "in") at--;
+	const step = STEPS[at];
 	if (step) go(step[0]);
 };
 
@@ -183,30 +194,24 @@ function screenFor(id: StepId, now: PanelState): Screen {
 		};
 	}
 
-	if (id === "mac" || app.state !== "in") {
-		const signedIn = app.state === "in";
+	if (app.state !== "in") {
 		const waiting = app.state === "out" && app.waiting;
 		return {
-			headline: signedIn ? "You’re signed in" : "Sign in to Tedix",
+			headline: "Sign in to Tedix",
 			centre: {
 				mark: appIcon(),
 				lines: [
 					el(
 						"p",
 						"",
-						signedIn
-							? "You can connect another app or go straight to Tedix."
-							: "Finish signing in in your browser, then return to Tedix.",
+						"Finish signing in in your browser, then return to Tedix.",
 					),
-					signedIn && button("Connect an app", "link", () => go("tools")),
 				],
 			},
-			primary: signedIn
-				? openTedix
-				: {
-						label: waiting ? "Open browser again" : "Sign in",
-						click: () => act("app-sign-in"),
-					},
+			primary: {
+				label: waiting ? "Open browser again" : "Sign in",
+				click: () => act("app-sign-in"),
+			},
 		};
 	}
 
@@ -215,9 +220,11 @@ function screenFor(id: StepId, now: PanelState): Screen {
 		.map((tool) => {
 			const named = namedAgentTool(tool);
 			const view = toolView(now, named, "connection");
+			const appId = TOOL_APPS[named.id];
 			return row({
 				key: `tool:${named.id}`,
 				icon: TOOL_ICONS[named.id] ?? "bubble",
+				image: appId && now.setup.appIcons?.[appId],
 				title: named.name,
 				sub: [named.bothInstalled ? "Connects the desktop app." : "", view.sub]
 					.filter(Boolean)
@@ -244,6 +251,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			row({
 				key: "chat:claude",
 				icon: "bubble",
+				image: now.setup.appIcons?.claude,
 				title: "Claude (Cowork)",
 				sub: CLAUDE_PLUGIN_SUB,
 				below: claudePluginSteps(),
@@ -264,11 +272,12 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			row({
 				key: `app:${app}`,
 				icon: "bubble",
+				image: now.setup.appIcons?.[app],
 				title: name,
 				sub:
 					app === "claude"
-						? "Open the Code tab in Claude once, then choose Look again."
-						: `Open and sign in to ${name}, then choose Look again.`,
+						? "Open the Code tab in Claude once. Tedix finds it when you come back."
+						: `Open ${name} and sign in. Tedix finds it when you come back.`,
 				control: button(
 					`Open ${app === "claude" ? "Claude" : name}`,
 					"plain",
@@ -277,14 +286,18 @@ function screenFor(id: StepId, now: PanelState): Screen {
 			}),
 		);
 	}
+	const firstName = app.name.trim().split(/\s+/)[0];
+	const looking = now.setup.looking;
 	return {
-		label: "Your apps",
-		headline: "Connect an app you use",
+		headline: "Add Tedix to your apps",
 		sentence: el(
 			"span",
 			"",
-			"You can connect an app later in Settings. ",
-			rows.length > 0 && button("Look again", "link", () => act("check")),
+			firstName ? `Welcome, ${firstName}. ` : "",
+			"Tedix works inside the apps you already use. You can change this later in Settings.",
+			looking &&
+				rows.length > 0 &&
+				el("span", "looking", el("span", "spinner"), "Looking for apps…"),
 		),
 		rows: rows.length
 			? rows
@@ -292,9 +305,11 @@ function screenFor(id: StepId, now: PanelState): Screen {
 					row({
 						key: "no-apps",
 						icon: "bubble",
-						title: "No supported apps found",
-						sub: "Open Tedix to get started.",
-						control: button("Look again", "quiet", () => act("check")),
+						title: looking ? "Looking for apps…" : "No apps found yet",
+						sub: looking
+							? "This takes a few seconds."
+							: "Install Claude or ChatGPT. Tedix finds it when you come back.",
+						control: looking && el("span", "spinner"),
 					}),
 				],
 		primary: openTedix,
@@ -325,6 +340,8 @@ function draw(): void {
 	const now = state;
 	if (!now) return;
 	current ??= now.setup.app.state === "in" ? "tools" : "welcome";
+	// Back from the browser signed in: straight on to the apps.
+	if (current === "mac" && now.setup.app.state === "in") current = "tools";
 	const id = current;
 	const view = screenFor(id, now);
 	const same = drawn === id;
@@ -361,13 +378,7 @@ function draw(): void {
 		: el(
 				"div",
 				"split",
-				el(
-					"div",
-					"side",
-					el("span", "pill", view.label),
-					headline,
-					el("p", "", view.sentence),
-				),
+				el("div", "side", headline, el("p", "", view.sentence)),
 				el("div", "rows", ...(view.rows ?? [])),
 			);
 	// A new screen fades and slides in: the left column first, then each row.

@@ -131,6 +131,17 @@ export const EXECUTOR_NAMES: Record<string, string> = {
 	opencode: "OpenCode",
 	"any-local": "Any agent",
 };
+/** The Mac app each coding tool comes with, for its icon. */
+export const TOOL_APPS: Record<
+	string,
+	"chatgpt" | "claude" | "devin" | "opencode"
+> = {
+	codex: "chatgpt",
+	claude: "claude",
+	devin: "devin",
+	opencode: "opencode",
+};
+
 export const TOOL_ICONS: Record<string, IconName> = {
 	claude: "prompt",
 	codex: "brackets",
@@ -380,8 +391,8 @@ export function toolView(
 			...base,
 			ready: false,
 			tone: "warn",
-			sub: "Could not check right now",
-			action: checkAgain(),
+			sub: `Tedix couldn’t check ${tool.name}.`,
+			action: checkAgain("Try again"),
 		};
 	if (!tool.enabled)
 		return {
