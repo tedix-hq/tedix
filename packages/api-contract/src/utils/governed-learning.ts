@@ -13,6 +13,9 @@ export const GOVERNED_LEARNING_SCHEDULES = [
 	{ name: "skill-development", intervalHours: 24 },
 	{ name: "knowledge-freshness", intervalHours: 24 },
 	{ name: "grounding-review", intervalHours: 6 },
+	{ name: "growth-snapshot", intervalHours: 168 },
+	{ name: "winners-self-eval", intervalHours: 168 },
+	{ name: "muscle-crystallization", intervalHours: 24 },
 ] as const;
 
 export type GovernedLearningScheduleName =

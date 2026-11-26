@@ -9,7 +9,12 @@ import {
 	findDarkCognitiveCronsFromLedger,
 	upsertCronDarknessWorkItems,
 } from "./flywheel/cron-darkness";
-import { EXPECTED_COGNITIVE_CRONS } from "./flywheel/cron-executions";
+import {
+	buildCronFlywheelHealth,
+	EXPECTED_COGNITIVE_CRONS,
+	getCronExecutionCounts,
+	getLatestCronExecutions,
+} from "./flywheel/cron-executions";
 
 /**
  * Flywheel WS5 chaos-test seam — the cron-darkness check over the WS0
@@ -317,6 +322,54 @@ describe("findDarkCognitiveCrons (real SQLite)", () => {
 		seedExecution(sqlite, "tedi-archived", "brain-reflection", hoursAgo(500));
 
 		expect(await findDarkCognitiveCrons(db, { now: NOW })).toEqual([]);
+	});
+
+	it("reports scheduled growth, winners and muscle runs with all nine health rows", async () => {
+		const { db, sqlite } = realDb();
+		seedTedi(sqlite, TEDI, "active", "cto");
+		const names = [
+			"growth-snapshot",
+			"winners-self-eval",
+			"muscle-crystallization",
+		];
+		for (const name of names) {
+			sqlite
+				.prepare(`INSERT INTO skill_runs
+				(id, organization_id, tedi_id, skill_slug, status, started_at, completed_at, created_by)
+				VALUES (?, ?, ?, ?, 'completed', ?, ?, 'schedule')`)
+				.run(
+					name,
+					ORG,
+					TEDI,
+					`platform-${name}-dogfood`,
+					hoursAgo(2),
+					hoursAgo(1),
+				);
+		}
+		const access = { tediId: TEDI, orgId: ORG };
+		const health = buildCronFlywheelHealth(
+			await getLatestCronExecutions(db, access),
+			await getCronExecutionCounts(db, access, hoursAgo(24)),
+			NOW,
+			[],
+			new Set(names),
+		);
+		expect(health).toHaveLength(9);
+		for (const name of names) {
+			expect(health.find((row) => row.name === name)).toMatchObject({
+				mechanism: "scheduled_skill_workflow",
+				lastRunId: name,
+				lastSuccess: true,
+				executionsLast24h: 1,
+				state: "healthy",
+				expectedIntervalHours: name === "muscle-crystallization" ? 24 : 168,
+			});
+		}
+		expect(
+			health
+				.filter((row) => !names.includes(row.name))
+				.every((row) => row.state === "disabled"),
+		).toBe(true);
 	});
 
 	it("treats a fresh scheduled dogfood skill run as the active cognitive schedule", async () => {

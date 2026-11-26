@@ -610,7 +610,7 @@ export const flywheelHealthContract = oc
 				path: "/crons",
 				summary: "Get cron execution status",
 				description:
-					"Returns execution and canonical schedule state for the six cognitive learning schedules. Budget-suppressed occurrences are state=budget_blocked with reason/reset evidence, not runtime failures. After cron-to-skill-workflow migration it prefers scheduled skill-run terminals and falls back to the legacy cron ledger for pre-cutover tenants.",
+					"Returns execution and canonical schedule state for the nine platform dogfood jobs. Budget-suppressed occurrences are state=budget_blocked with reason/reset evidence, not runtime failures. After cron-to-skill-workflow migration it prefers scheduled skill-run terminals and falls back to the legacy cron ledger for pre-cutover tenants.",
 			})
 			.input(z.object({ tediId: z.uuid() }))
 			.output(
