@@ -198,12 +198,7 @@ describe("sheet chunks", () => {
 			"integrity",
 		);
 		await expect(
-			readSheetBlocks(
-				store,
-				"org",
-				manifest,
-				new Map([["flat", new Set([0])]]),
-			),
+			readSheetBlocks(cold, "org", manifest, new Map([["flat", new Set([0])]])),
 		).rejects.toThrow("integrity");
 	});
 
@@ -217,6 +212,9 @@ describe("sheet chunks", () => {
 		const manifest = await storeSheetBlocks(store, "org", sheet);
 		const selected = new Map([["flat", new Set([998, 999, 1_000])]]);
 		const partial = await readSheetBlocks(store, "org", manifest, selected);
+		expect(store.get).not.toHaveBeenCalled();
+		expect(partial.rows[997]).toEqual([]);
+		expect(partial.rows[998]).toEqual([998]);
 		for (const row of selected.get("flat")!) partial.rows[row]![0] = "changed";
 		store.put.mockClear();
 		const changed = await updateSheetBlocks(
@@ -236,6 +234,7 @@ describe("sheet chunks", () => {
 		store.put.mockClear();
 		await updateSheetBlocks(store, "org", changed, full, selected);
 		expect(store.put).not.toHaveBeenCalled();
+		expect(await readSheetBlocks(store, "org", manifest)).toEqual(sheet);
 	});
 
 	it.each([false, true])(

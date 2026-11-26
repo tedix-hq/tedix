@@ -1914,6 +1914,8 @@ describe("output patch verbs", () => {
 			"1.45 MB setSheetRange milliseconds",
 			timings.map((ms) => Number(ms.toFixed(2))),
 		);
+		const get = vi.spyOn(workerEnv.R2_BUCKET, "get");
+		const put = vi.spyOn(workerEnv.R2_BUCKET, "put");
 		for (let attempt = 0; attempt < 3; attempt++) {
 			const started = performance.now();
 			const saved = await c.org1.outputs.setSheetRange({
@@ -1926,6 +1928,10 @@ describe("output patch verbs", () => {
 			console.info("unchanged sheet save ms", performance.now() - started);
 			expect(saved.revision.revision).toBe(6);
 		}
+		expect(get).not.toHaveBeenCalled();
+		expect(put).not.toHaveBeenCalled();
+		get.mockRestore();
+		put.mockRestore();
 		mocks.authorizeDerivedOutputSources.mockResolvedValueOnce(false);
 		await expect(
 			c.org1.outputs.setSheetRange({
@@ -2000,7 +2006,7 @@ describe("output patch verbs", () => {
 		});
 		expect(
 			get.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
-		).toHaveLength(2);
+		).toHaveLength(1);
 		expect(
 			put.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
 		).toHaveLength(2);
@@ -2021,7 +2027,7 @@ describe("output patch verbs", () => {
 		});
 		expect(
 			get.mock.calls.filter(([key]) => key.startsWith("os-sheet-blocks/")),
-		).toHaveLength(2);
+		).toHaveLength(1);
 		get.mockClear();
 		expect(
 			(await c.org1.outputs.changes({ outputId: output.id, sinceRevision: 2 }))

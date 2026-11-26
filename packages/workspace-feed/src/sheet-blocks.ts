@@ -340,13 +340,19 @@ export async function readSheetBlocks(
 			readMs: Math.round(performance.now() - started),
 		});
 	const key = assemblyKey(organizationId, manifest);
-	if (!selection) {
-		const cached = cachedSheet(bucket, key);
-		if (cached) {
-			cache = "memory";
-			report();
-			return cached;
+	const cached = cachedSheet(bucket, key);
+	if (cached) {
+		if (selection) {
+			for (const table of tables(cached)) {
+				const selected = selection.get(table.id);
+				for (let index = 0; index < table.rows.length; index++)
+					if (!selected?.has(index)) table.rows[index] = [];
+			}
+			if (cached.workbook) Object.assign(cached, projectSheet(cached.workbook));
 		}
+		cache = "memory";
+		report();
+		return cached;
 	}
 	const content = structuredClone(manifest.content);
 	for (const table of manifest.tables) {

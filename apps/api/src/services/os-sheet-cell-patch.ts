@@ -91,6 +91,13 @@ export async function saveSheetCellPatch(
 	},
 ) {
 	const start = performance.now();
+	let mark = start;
+	const durations: Record<string, number> = {};
+	const lap = (stage: string) => {
+		const now = performance.now();
+		durations[stage] = Math.round(now - mark);
+		mark = now;
+	};
 	let output = input.output;
 	const bucket = env.R2_BUCKET;
 	for (let attempt = 0; attempt < 3; attempt++) {
@@ -99,10 +106,12 @@ export async function saveSheetCellPatch(
 			workspaceId: output.workspaceId ?? undefined,
 			revisionId: output.currentRevisionId!,
 		});
+		lap("readRevisionMs");
 		if (!current || !(await input.canReadRevision(current)))
 			throw new ORPCError("FORBIDDEN", {
 				message: "Output source access unavailable",
 			});
+		lap("readAccessMs");
 		const manifest = sheetBlockManifest(current.content);
 		if (!manifest) throw new Error("Sheet revision was not migrated to chunks");
 		let selection = cellSelection(input, manifest);
@@ -176,6 +185,7 @@ export async function saveSheetCellPatch(
 			base === manifest
 				? theirs
 				: await readSheetBlocks(bucket, output.organizationId, base, selection);
+		lap("readRowsMs");
 		let mine;
 		try {
 			mine = range
@@ -203,6 +213,7 @@ export async function saveSheetCellPatch(
 		const content = checked.data;
 		if (content.kind !== "sheet")
 			throw new Error("Sheet patch changed its kind");
+		lap("editMs");
 		const next = await updateSheetBlocks(
 			bucket,
 			output.organizationId,
@@ -214,11 +225,33 @@ export async function saveSheetCellPatch(
 			throw new ORPCError("BAD_REQUEST", {
 				message: "Sheet exceeds the output size limit",
 			});
-		const body = await storeOutputRevisionBody(
-			bucket,
-			output.organizationId,
-			JSON.stringify(next),
+		lap("writeRowsMs");
+		const rowsChanged = next.tables.reduce(
+			(sum, table, index) =>
+				sum +
+				table.rows.filter(
+					(row, position) =>
+						row.digest !== manifest.tables[index]!.rows[position]!.digest,
+				).length,
+			0,
 		);
+		// Reuse verified immutable bytes; the commit still checks concurrency and source access.
+		const body =
+			rowsChanged === 0 &&
+			current.bodyR2Key &&
+			current.contentSha256 &&
+			current.contentBytes != null
+				? {
+						bodyR2Key: current.bodyR2Key,
+						contentSha256: current.contentSha256,
+						contentBytes: current.contentBytes,
+					}
+				: await storeOutputRevisionBody(
+						bucket,
+						output.organizationId,
+						JSON.stringify(next),
+					);
+		lap("storeBodyMs");
 		const note = input.autosave
 			? OS_OUTPUT_AUTOSAVE_NOTE
 			: (input.note ?? null);
@@ -236,6 +269,7 @@ export async function saveSheetCellPatch(
 			...input.producer,
 			accessEnvelope: input.accessEnvelope,
 		});
+		lap("commitMs");
 		if (!result.ok) {
 			output = await input.reloadOutput();
 			continue;
@@ -260,19 +294,12 @@ export async function saveSheetCellPatch(
 		console.info({
 			event: "os_output_sheet_blocks_saved",
 			outputId: output.id,
+			...durations,
 			saveMs: Math.round(performance.now() - start),
 			rowsRead:
 				[...selection.values()].reduce((sum, rows) => sum + rows.size, 0) *
 				(base === manifest ? 1 : 2),
-			rowsChanged: next.tables.reduce(
-				(sum, table, index) =>
-					sum +
-					table.rows.filter(
-						(row, position) =>
-							row.digest !== manifest.tables[index]!.rows[position]!.digest,
-					).length,
-				0,
-			),
+			rowsChanged,
 			manifestBytes: body.contentBytes,
 			sheetBytes: sheetContentBytes(next),
 		});
