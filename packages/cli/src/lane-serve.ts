@@ -6109,6 +6109,8 @@ export class LaneDispatcher {
 			]);
 		let answer: {
 			status: "ok" | "unavailable";
+			evidence?: string;
+			evidenceRefs?: string[];
 			executor: LocalExecutor | null;
 			confidence: number | null;
 			probabilities?: Record<string, number> | null;
@@ -6205,7 +6207,7 @@ export class LaneDispatcher {
 		}
 		const name = AGENT_NAMES[answer.executor] ?? answer.executor;
 		const decider = answer.model.includes("jev") ? "Jev" : "Clef";
-		const detail = `${decider} chose ${name} (${likelyPercent}% likely): ${this.policy.tools![answer.executor]!.strengths}${loadNote(answer.executor, offered, load)}`;
+		const detail = `${decider} chose ${name} (${likelyPercent}% likely): ${answer.evidence ?? this.policy.tools![answer.executor]!.strengths}${loadNote(answer.executor, offered, load)}`;
 		const receiptLine = `Model ${answer.model}, ${answer.latencyMs} ms, billed as Workers AI usage.`;
 		if (answer.executor === from) {
 			this.log("tool-choice", item.id, detail);

@@ -33,6 +33,21 @@ export function pushObservation(
 		/^Repair-Observation:\s*([0-9a-f-]{36})\s*$/m,
 	)?.[1];
 	const work = message.match(/^Work-Item:\s*([0-9a-f-]{36})\s*$/m)?.[1];
+	const commits = commitShas.map((commitSha) => {
+		const body =
+			commitSha === sha
+				? message
+				: runGit("show", "-s", "--format=%B", commitSha);
+		const workItemId = body.match(/^Work-Item:\s*([0-9a-f-]{36})\s*$/m)?.[1];
+		const revertsSha = body.match(
+			/^This reverts commit ([0-9a-f]{40})\.?\s*$/m,
+		)?.[1];
+		return {
+			sha: commitSha,
+			...(workItemId ? { workItemId } : {}),
+			...(revertsSha ? { revertsSha } : {}),
+		};
+	});
 	return {
 		projectId,
 		repository,
@@ -43,6 +58,7 @@ export function pushObservation(
 			: {}),
 		kind: "push",
 		...(commitShas.length ? { commitShas } : {}),
+		...(commits.length ? { commits } : {}),
 		surface: "all",
 		paths: paths.slice(0, 500),
 		commands: "",

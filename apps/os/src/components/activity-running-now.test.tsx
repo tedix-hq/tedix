@@ -86,8 +86,47 @@ const report = {
 let client: QueryClient;
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
+function scorecardResult(attempts = 3) {
+	return {
+		tedis: [],
+		localMetrics: [],
+		history: {
+			observedAt: at,
+			windows: ([7, 30] as const).map((days) => ({
+				days,
+				since: "2026-10-08T12:00:00.000Z",
+				rows: [
+					{
+						executor: "codex",
+						model: "example-model",
+						attempts: days === 7 ? attempts : 8,
+						items: 2,
+						succeeded: 1,
+						landedUnverified: 1,
+						failed: 1,
+						cancelled: 0,
+						expired: 0,
+						rejected: 0,
+						unsettled: 0,
+						successRate: 1 / 3,
+						medianSettleMs: 60000,
+						p90SettleMs: 180000,
+						attemptsPerItem: 1.5,
+						landedItems: 1,
+						costPerLandedItemUsd: 0.12,
+						tokensPerLandedItem: 4200,
+						reverts: null,
+						redCi: null,
+						qualityObservedCommits: 0,
+						landedCommits: 1,
+					},
+				],
+			})),
+		},
+	};
+}
 beforeEach(() => {
-	api.metrics.mockResolvedValue({ tedis: [], localMetrics: [] });
+	api.metrics.mockReset().mockResolvedValue(scorecardResult());
 	vi.useFakeTimers();
 	vi.setSystemTime(new Date(at));
 	api.attempts
@@ -171,7 +210,8 @@ it("shows the canonical attempt fields and polls away completed attempts without
 	).toHaveLength(2);
 	expect(
 		api.attempts.mock.calls.filter(([input]) => !input.runtimeStates),
-	).toHaveLength(2);
+	).toHaveLength(0);
+	expect(api.metrics).toHaveBeenCalledTimes(2);
 	expect(api.health).toHaveBeenCalledTimes(2);
 	expect(host.textContent).not.toContain("Prepare Cedar brief");
 	expect(host.textContent).toContain("No work is running here.");
@@ -249,136 +289,56 @@ it("keeps failures distinct from a quiet fleet and exposes retry controls", asyn
 	expect(host.querySelectorAll("button").length).toBeGreaterThan(0);
 });
 
-it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation", async () => {
-	const first = row();
-	first.attempt.externalSessionKey = "codex:cedar-session";
-	const second = row();
-	second.attempt.id = "55555555-5555-4555-8555-555555555555";
-	second.attempt.externalSessionKey = "codex:second-session";
-	second.attempt.startedAt = "2026-11-06T13:00:00.000Z";
-	second.attempt.outcome = "failed";
-	second.attempt.runtimeState = "failed";
-	api.metrics.mockResolvedValue({
-		tedis: [
-			{
-				id: "juniper",
-				runner: "Juniper",
-				started: 3,
-				done: 2,
-				failed: 1,
-				durationMs: 120000,
-				costUsd: 0.12,
-				tokens: 4200,
-			},
-		],
-		localMetrics: [
-			{
-				attemptId: first.attempt.id,
-				telemetryStartedAt: first.attempt.startedAt,
-				inputTokens: 100,
-				outputTokens: 25,
-				costUsd: 0.25,
-			},
-			{
-				attemptId: second.attempt.id,
-				telemetryStartedAt: second.attempt.startedAt,
-				inputTokens: 200,
-				outputTokens: 50,
-				costUsd: 0.1,
-			},
-		],
-	});
-	const old = row();
-	old.attempt.id = "66666666-6666-4666-8666-666666666666";
-	old.attempt.startedAt = "2026-11-06T11:59:59.999Z";
-	api.attempts.mockImplementation(async (input) => {
-		if (input.runtimeStates)
-			return { data: [first], hasMore: false, nextCursor: null };
-		if (!input.cursor)
-			return {
-				data: [first],
-				hasMore: true,
-				nextCursor: { at: first.attempt.startedAt, id: first.attempt.id },
-			};
-		if (input.cursor.id === first.attempt.id)
-			return {
-				data: [second, old],
-				hasMore: true,
-				nextCursor: { at: old.attempt.startedAt, id: old.attempt.id },
-			};
-		throw new Error("Must stop paging at the 24-hour boundary");
-	});
+it("switches 7/30-day evidence and refreshes without paging raw history", async () => {
 	await mount(projectId);
 	await openScorecard();
-	await flush(20);
 	const scorecard = host.querySelector(
 		'section[aria-label="Agent scorecard"]',
 	)!;
-	const codexCells = () =>
-		[...scorecard.querySelectorAll("tbody tr")]
-			.find((tr) => tr.firstElementChild?.textContent === "Codex")
-			?.querySelectorAll("td") ?? [];
-	const cells = () =>
-		[...codexCells()].map((td) => td.lastChild?.textContent).join("");
-	expect(cells()).toMatch(/^Codex2010/);
-	expect(cells()).toMatch(/0.35375$/);
-	expect(
-		[...scorecard.querySelectorAll("tbody tr")].find(
-			(tr) => tr.firstElementChild?.textContent === "Juniper (tedi)",
-		)?.textContent,
-	).toBe("Juniper (tedi)Runs3Done2Failed1Commits—Time2mUSD0.12Tokens4.2K");
-	for (const name of ["Codex", "Claude Code", "OpenCode", "Devin"])
-		expect(scorecard.textContent).toContain(name);
+	expect(scorecard.textContent).toContain("3 attempts");
+	expect(scorecard.textContent).toContain("Succeeded 1 · Unverified 1");
+	expect(api.metrics).toHaveBeenCalledWith(
+		{ projectIds: [projectId] },
+		expect.anything(),
+	);
 	expect(
 		api.attempts.mock.calls.filter(([input]) => !input.runtimeStates),
-	).toHaveLength(2);
-	first.attempt.outcome = "succeeded";
-	first.attempt.runtimeState = "finished";
-	first.attempt.metadata = {
-		lane: true,
-		settlement: {
-			mode: "commit",
-			commitShas: ["a".repeat(40)],
-		},
-	};
+	).toHaveLength(0);
+	const month = [
+		...scorecard.querySelectorAll<HTMLButtonElement>("button"),
+	].find((button) => button.textContent === "30 days")!;
+	await act(async () => month.click());
+	expect(scorecard.textContent).toContain("8 attempts");
+	const week = [
+		...scorecard.querySelectorAll<HTMLButtonElement>("button"),
+	].find((button) => button.textContent === "7 days")!;
+	await act(async () => week.click());
+	api.metrics.mockResolvedValue(scorecardResult(4));
 	await flush(30_020);
-	expect(cells()).toMatch(/^Codex2111/);
+	expect(scorecard.textContent).toContain("4 attempts");
 });
 
-it("keeps forbidden history unknown and recovers through manual retry", async () => {
-	api.attempts.mockImplementation(async (input) => {
-		if (!input.runtimeStates)
-			throw Object.assign(new Error("History unavailable"), {
-				code: "FORBIDDEN",
-			});
-		return { data: [row()], hasMore: false, nextCursor: null };
-	});
+it("keeps forbidden scorecard evidence unknown and recovers through manual retry", async () => {
+	api.metrics.mockRejectedValue(
+		Object.assign(new Error("History unavailable"), { code: "FORBIDDEN" }),
+	);
 	await mount();
 	await openScorecard();
 	expect(host.textContent).toContain("Agent scorecard unavailable");
-	// No partial counts while history is unreadable.
-	expect(host.textContent).toContain("Counting agents");
 	expect(
 		host.querySelector('section[aria-label="Agent scorecard"] table'),
 	).toBeNull();
-	const recovered = row();
-	recovered.attempt.externalSessionKey = "codex:recovered-session";
-	api.attempts.mockResolvedValue({
-		data: [recovered],
-		hasMore: false,
-		nextCursor: null,
-	});
+	api.metrics.mockResolvedValue(scorecardResult());
 	const retry = [
 		...host.querySelectorAll<HTMLButtonElement>(
 			'section[aria-label="Agent scorecard"] button',
 		),
 	].find((button) => button.textContent === "Retry")!;
-	expect(retry.disabled).toBe(false);
 	await act(async () => retry.click());
 	await flush();
 	expect(host.textContent).not.toContain("Agent scorecard unavailable");
 	expect(
 		host.querySelector('section[aria-label="Agent scorecard"] tbody tr')
 			?.textContent,
-	).toBe("CodexRuns1Done0Failed0Commits0Time10mUSD—Tokens—");
+	).toContain("example-model");
 });

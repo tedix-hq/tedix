@@ -5520,6 +5520,9 @@ describe("dispatcher admission", () => {
 								status: "ok",
 								executor: "opencode",
 								confidence: 0.12,
+								evidence:
+									"Activity scorecard: 7d 8/10 succeeded; 30d 20/25 succeeded; model example-model.",
+								evidenceRefs: ["https://os.example/work?view=feed"],
 								probabilities: { codex: 0.18, opencode: likely },
 								model: "@cf/cloudflare/clef-flash",
 								latencyMs: 400,
@@ -5577,7 +5580,7 @@ describe("dispatcher admission", () => {
 						fromExecutor: "codex",
 						reason: "chosen",
 						detail: expect.stringContaining(
-							`Clef chose OpenCode (${percent}% likely): small routine edits and docs`,
+							`Clef chose OpenCode (${percent}% likely): Activity scorecard: 7d 8/10 succeeded; 30d 20/25 succeeded; model example-model.`,
 						),
 					},
 				});

@@ -33,20 +33,23 @@ try {
 				exact: true,
 			});
 			await scorecard.getByRole("table").waitFor();
-			await scorecard
-				.getByRole("cell", { name: "Juniper (tedi)", exact: true })
-				.waitFor();
-			// Quiet local runners remain comparable with individual tedis.
+			await scorecard.getByText("example-model").first().waitFor();
 			assert.equal(
-				await scorecard
-					.getByRole("cell", { name: "Codex", exact: true })
-					.count(),
+				await scorecard.getByRole("cell", { name: /Codex/ }).count(),
 				1,
 			);
+			await scorecard
+				.getByRole("button", { name: "30 days", exact: true })
+				.click();
+			await scorecard.getByText("8 attempts · 2 items").first().waitFor();
+			await scorecard
+				.getByRole("button", { name: "7 days", exact: true })
+				.click();
+			await scorecard.getByText("3 attempts · 2 items").first().waitFor();
 			await page.evaluate(() => document.fonts.ready);
 			assert.deepEqual(
 				await scorecard.getByRole("columnheader").allTextContents(),
-				["Agent", "Runs", "Done", "Failed", "Commits", "Time", "USD", "Tokens"],
+				["Agent / model", "Outcomes", "Settlement", "Cost / quality"],
 			);
 			assert.equal(await scorecard.getByText(/Unknown/).count(), 0);
 			assert(

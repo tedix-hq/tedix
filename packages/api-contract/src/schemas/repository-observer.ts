@@ -56,6 +56,17 @@ export const RepositoryEventSchema = z.strictObject({
 	beforeSha: sha.optional(),
 	/** Every commit the push added to the branch, newest first; capped. */
 	commitShas: z.array(sha).max(100).optional(),
+	/** Facts read from each commit's trailer and standard Git revert message. */
+	commits: z
+		.array(
+			z.strictObject({
+				sha,
+				workItemId: z.uuid().optional(),
+				revertsSha: sha.optional(),
+			}),
+		)
+		.max(100)
+		.optional(),
 	occurredAt: z.iso.datetime().optional(),
 	kind: z.enum(["push", "ship_red", "ship_green", "ci_red", "ci_green"]),
 	// Same incident across retries: a new run ID is evidence, not a new repair budget.

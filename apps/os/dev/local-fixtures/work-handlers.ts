@@ -1118,6 +1118,37 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 	"workItems/listEvidence": () => ({ data: [], nextCursor: null }),
 	"workItems/listEvents": () => ({ events: [], nextSequence: null }),
 	"workItems/getAgentScorecard": () => ({
+		history: {
+			observedAt: new Date().toISOString(),
+			windows: ([7, 30] as const).map((days) => ({
+				days,
+				since: new Date(Date.now() - days * 86400000).toISOString(),
+				rows: ["codex", "tedi"].map((executor) => ({
+					executor,
+					model: "example-model",
+					attempts: days === 7 ? 3 : 8,
+					items: 2,
+					succeeded: 1,
+					landedUnverified: 1,
+					failed: 1,
+					cancelled: 0,
+					expired: 0,
+					rejected: 0,
+					unsettled: days === 7 ? 0 : 5,
+					successRate: 1 / 3,
+					medianSettleMs: 60000,
+					p90SettleMs: 180000,
+					attemptsPerItem: days === 7 ? 1.5 : 4,
+					landedItems: 1,
+					costPerLandedItemUsd: 0.12,
+					tokensPerLandedItem: 4200,
+					reverts: null,
+					redCi: null,
+					qualityObservedCommits: 0,
+					landedCommits: 1,
+				})),
+			})),
+		},
 		tedis: [
 			{
 				id: "fixture-tedi",

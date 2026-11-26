@@ -1,4 +1,8 @@
-import { readAgentScorecardActivity } from "@tedix/db/queries/work-items/agent-scorecard";
+import {
+	readAgentScorecardActivity,
+	readAgentScorecardHistory,
+} from "@tedix/db/queries/work-items/agent-scorecard";
+import { summarizeAgentHistory } from "../../../services/agent-history";
 import { summarizeTediScorecard } from "../../../services/agent-scorecard";
 import {
 	listOrgWorkAttempts,
@@ -120,12 +124,25 @@ export const getAgentScorecardProcedure =
 		const activity = await readAgentScorecardActivity(context.db, {
 			orgId: requireOrgId(context),
 			projectId: input.projectId,
+			projectIds: input.projectIds,
 			viewerUserId: context.authType === "user" ? context.user?.sub : undefined,
 			since: new Date(now - 24 * 60 * 60 * 1000).toISOString(),
 			now: new Date(now).toISOString(),
 		});
 		return {
 			tedis: summarizeTediScorecard(activity, now),
+			history: summarizeAgentHistory(
+				await readAgentScorecardHistory(context.db, {
+					orgId: requireOrgId(context),
+					projectId: input.projectId,
+					projectIds: input.projectIds,
+					viewerUserId:
+						context.authType === "user" ? context.user?.sub : undefined,
+					since: new Date(now - 30 * 86_400_000).toISOString(),
+					now: new Date(now).toISOString(),
+				}),
+				now,
+			),
 			localMetrics: activity.localMetrics.map((metric) => ({
 				attemptId: metric.attemptId,
 				telemetryStartedAt:

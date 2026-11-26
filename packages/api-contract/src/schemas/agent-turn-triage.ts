@@ -900,6 +900,13 @@ export const ChooseWorkToolInputSchema = z.strictObject({
 export type ChooseWorkToolInput = z.infer<typeof ChooseWorkToolInputSchema>;
 
 export const ChooseWorkToolResultSchema = z.object({
+	evidence: z
+		.string()
+		.optional()
+		.describe(
+			"Server-derived 7/30-day scorecard for the selected executor, as supplied to the decision model",
+		),
+	evidenceRefs: z.array(z.string()).optional(),
 	status: z
 		.enum(["ok", "unavailable"])
 		.describe(

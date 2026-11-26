@@ -24,6 +24,9 @@ import { createRouterClient } from "@orpc/server";
 import type { AgentTurnTriagePolicyInput } from "@tedix/api-contract/schemas/agent-turn-triage";
 import { createDbClient } from "@tedix/db/client";
 import { userConfigs } from "@tedix/db/schema/user-configs";
+import { workAttempts, workItems } from "@tedix/db/schema/work-items";
+import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
+import { workInteractions } from "@tedix/db/schema/work-factory";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -591,4 +594,74 @@ it("does not answer or classify when installation configuration is unavailable",
 		client(userContext(env)).triage({ text: "No action needed" }),
 	).rejects.toThrow("Installation configuration unavailable");
 	expect(env.AI.run).not.toHaveBeenCalled();
+});
+
+it("supplies server scorecard evidence to Clef and returns the selected tool's citation", async () => {
+	const { env, sqlite } = createEnv(async () => ({
+		answers: {
+			tool: {
+				type: "choice",
+				choice: "codex",
+				confidence: 0.9,
+				probabilities: { codex: 0.9, opencode: 0.1 },
+			},
+		},
+	}));
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	sqlite.exec(
+		schemaDdl(workItems, workAttempts, workAgentSessions, workInteractions),
+	);
+	try {
+		const context = apiKeyContext(env, ["mcp:messaging.read"]);
+		const at = new Date(Date.now() - 60_000).toISOString();
+		await context.db
+			.insert(workItems)
+			.values({
+				id: "scorecard-work",
+				orgId: ORG_1,
+				title: "Example task",
+				createdAt: at,
+			});
+		await context.db
+			.insert(workAttempts)
+			.values({
+				id: "scorecard-attempt",
+				orgId: ORG_1,
+				workItemId: "scorecard-work",
+				executorType: "external_agent",
+				executorId: "example-agent",
+				externalSessionKey: "codex:example-session",
+				attemptNumber: 1,
+				startedAt: at,
+				heartbeatAt: at,
+				finishedAt: new Date().toISOString(),
+				runtimeState: "finished",
+				outcome: "landed_unverified",
+				metadata: { runnerMetrics: { modelId: "example-model" } },
+			});
+		const result = await client(context).chooseTool({
+			title: "Implement an example",
+			tools: [
+				{ executor: "codex", strengths: "Owner preference", examples: [] },
+				{ executor: "opencode", strengths: "Owner preference", examples: [] },
+			],
+		});
+		expect(result.status).toBe("ok");
+		expect(result.evidence).toContain(
+			"7d codex/example-model: 1 attempts/1 items",
+		);
+		expect(result.evidence).toContain("unverified=1");
+		expect(result.evidence).toContain("success=0");
+		const run = env.AI.run as unknown as ReturnType<typeof vi.fn>;
+		const body = run.mock.calls[0]![1];
+		expect(body.state.scorecard.windows).toHaveLength(2);
+		expect(body.state.scorecard.windows[0].rows[0]).toMatchObject({
+			executor: "codex",
+			model: "example-model",
+			succeeded: 0,
+			landedUnverified: 1,
+		});
+	} finally {
+		sqlite.close();
+	}
 });

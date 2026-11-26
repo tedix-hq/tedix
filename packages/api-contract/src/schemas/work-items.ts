@@ -3014,9 +3014,47 @@ export const AgentScorecardRowSchema = z.object({
 	tokens: z.number().int().nonnegative().nullable(),
 });
 export const GetAgentScorecardInputSchema = z
-	.object({ projectId: z.uuid().optional() })
+	.object({
+		projectId: z.uuid().optional(),
+		projectIds: z.array(z.uuid()).max(100).optional(),
+	})
 	.strict();
+export const AgentHistoryRowSchema = z.object({
+	executor: z.string(),
+	model: z.string().nullable(),
+	attempts: z.number().int().nonnegative(),
+	items: z.number().int().nonnegative(),
+	succeeded: z.number().int().nonnegative(),
+	landedUnverified: z.number().int().nonnegative(),
+	failed: z.number().int().nonnegative(),
+	cancelled: z.number().int().nonnegative(),
+	expired: z.number().int().nonnegative(),
+	rejected: z.number().int().nonnegative(),
+	unsettled: z.number().int().nonnegative(),
+	successRate: z.number().min(0).max(1).nullable(),
+	medianSettleMs: z.number().nonnegative().nullable(),
+	p90SettleMs: z.number().nonnegative().nullable(),
+	attemptsPerItem: z.number().nonnegative(),
+	landedItems: z.number().int().nonnegative(),
+	costPerLandedItemUsd: z.number().nonnegative().nullable(),
+	tokensPerLandedItem: z.number().nonnegative().nullable(),
+	reverts: z.number().int().nonnegative().nullable(),
+	redCi: z.number().int().nonnegative().nullable(),
+	qualityObservedCommits: z.number().int().nonnegative(),
+	landedCommits: z.number().int().nonnegative(),
+});
+export const AgentHistorySchema = z.object({
+	observedAt: z.iso.datetime(),
+	windows: z.array(
+		z.object({
+			days: z.union([z.literal(7), z.literal(30)]),
+			since: z.iso.datetime(),
+			rows: z.array(AgentHistoryRowSchema),
+		}),
+	),
+});
 export const GetAgentScorecardResultSchema = z.object({
+	history: AgentHistorySchema.optional(),
 	tedis: z.array(AgentScorecardRowSchema),
 	localMetrics: z.array(
 		z.object({

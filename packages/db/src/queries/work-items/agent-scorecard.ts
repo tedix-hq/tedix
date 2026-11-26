@@ -10,7 +10,7 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { coreTable } from "../../core-store/client";
-import { jsonRead, unixTime } from "../../core-store/dialect";
+import { anyIds, jsonRead, unixTime } from "../../core-store/dialect";
 import { kernelRuntimeRuns as d1Home } from "../../schema/cognitive-runtime";
 import { skillRuns as d1Skills } from "../../schema/cognitive";
 import { machineToolCalls as d1Machines } from "../../schema/machines";
@@ -23,12 +23,141 @@ import {
 } from "../../schema/work-items";
 import { personalWorkFeedPredicate } from "./personal-feed";
 
+/** Start-time cohorts, scoped before aggregation; session reports can be overwritten. */
+export async function readAgentScorecardHistory(
+	db: DbQueryClient,
+	input: {
+		orgId: string;
+		projectId?: string;
+		projectIds?: string[];
+		viewerUserId?: string;
+		since: string;
+		now: string;
+	},
+) {
+	const attempts = coreTable(db, d1Attempts);
+	const work = coreTable(db, d1Work);
+	const sessions = coreTable(db, d1Sessions);
+	const inWindow = (at: SQLWrapper) =>
+		and(
+			gte(at, input.since.slice(0, 10)),
+			gte(unixTime(db, at), Math.floor(Date.parse(input.since) / 1000)),
+			lte(unixTime(db, at), Math.floor(Date.parse(input.now) / 1000)),
+		);
+	const [rows, observations] = await Promise.all([
+		db
+			.select({
+				id: attempts.id,
+				workItemId: attempts.workItemId,
+				executorType: attempts.executorType,
+				executorId: attempts.executorId,
+				externalSessionKey: attempts.externalSessionKey,
+				startedAt: attempts.startedAt,
+				finishedAt: attempts.finishedAt,
+				outcome: attempts.outcome,
+				metadata: attempts.metadata,
+				sessionId: sql<string | null>`${sessions.id}`.as(
+					"scorecard_session_id",
+				),
+				telemetryStartedAt: jsonRead(db, sessions.telemetry, ["startedAt"]),
+				model: jsonRead(db, sessions.telemetry, ["model"]),
+				inputTokens: jsonRead(
+					db,
+					sessions.telemetry,
+					["usage", "input"],
+					"number",
+				),
+				outputTokens: jsonRead(
+					db,
+					sessions.telemetry,
+					["usage", "output"],
+					"number",
+				),
+				costUsd: jsonRead(
+					db,
+					sessions.telemetry,
+					["estimatedCostUsd"],
+					"number",
+				),
+			})
+			.from(attempts)
+			.innerJoin(
+				work,
+				and(eq(work.orgId, attempts.orgId), eq(work.id, attempts.workItemId)),
+			)
+			.leftJoin(
+				sessions,
+				and(
+					eq(sessions.organizationId, attempts.orgId),
+					eq(sessions.workItemId, attempts.workItemId),
+					or(
+						eq(sessions.sessionKey, attempts.externalSessionKey),
+						eq(
+							sql`CASE WHEN ${sessions.harness} = 'claude-code' THEN 'claude' ELSE ${sessions.harness} END || ':' || ${sessions.sessionKey}`,
+							attempts.externalSessionKey,
+						),
+					),
+					gte(
+						unixTime(db, jsonRead(db, sessions.telemetry, ["startedAt"])),
+						unixTime(db, attempts.startedAt),
+					),
+					lte(
+						unixTime(db, jsonRead(db, sessions.telemetry, ["startedAt"])),
+						unixTime(db, sql`coalesce(${attempts.finishedAt}, ${input.now})`),
+					),
+				),
+			)
+			.where(
+				and(
+					eq(attempts.orgId, input.orgId),
+					inWindow(attempts.startedAt),
+					input.projectId ? eq(work.projectId, input.projectId) : undefined,
+					input.projectIds
+						? anyIds(db, work.projectId, input.projectIds)
+						: undefined,
+					input.viewerUserId
+						? personalWorkFeedPredicate(input.viewerUserId)
+						: undefined,
+				),
+			),
+		// Observers may belong to a different project than the commit's Work.
+		db
+			.select({
+				createdAt: work.createdAt,
+				kind: jsonRead(db, work.metadata, ["event", "kind"]),
+				repository: jsonRead(db, work.metadata, ["event", "repository"]),
+				branch: jsonRead(db, work.metadata, ["event", "branch"]),
+				sha: jsonRead(db, work.metadata, ["event", "sha"]),
+				workItemId: jsonRead(db, work.metadata, ["event", "workItemId"]),
+				occurredAt: jsonRead(db, work.metadata, ["event", "occurredAt"]),
+				commits: jsonRead(
+					db,
+					work.metadata,
+					["event", "commits"],
+					"json",
+				).mapWith((value) =>
+					typeof value === "string" ? JSON.parse(value) : value,
+				),
+			})
+			.from(work)
+			.where(
+				and(
+					eq(work.orgId, input.orgId),
+					eq(work.repositoryObserver, 1),
+					inWindow(work.createdAt),
+				),
+			),
+	]);
+	return { rows, observations };
+}
+
 /** Lean execution and usage facts; each source retains its own identity. */
 export async function readAgentScorecardActivity(
 	db: DbQueryClient,
 	input: {
 		orgId: string;
 		projectId?: string;
+		projectIds?: string[];
 		viewerUserId?: string;
 		since: string;
 		now: string;
@@ -53,6 +182,9 @@ export async function readAgentScorecardActivity(
 						eq(work.orgId, input.orgId),
 						eq(work.id, workId),
 						input.projectId ? eq(work.projectId, input.projectId) : undefined,
+						input.projectIds
+							? anyIds(db, work.projectId, input.projectIds)
+							: undefined,
 						input.viewerUserId
 							? personalWorkFeedPredicate(input.viewerUserId)
 							: undefined,
@@ -60,7 +192,7 @@ export async function readAgentScorecardActivity(
 				),
 		);
 	const scope = (workId: SQLWrapper) =>
-		input.projectId
+		input.projectId || input.projectIds
 			? visibleWork(workId)
 			: or(sql`${workId} IS NULL`, visibleWork(workId));
 	const window = (at: SQLWrapper) =>
@@ -135,7 +267,7 @@ export async function readAgentScorecardActivity(
 					scope(skills.workItemId),
 				),
 			),
-		input.projectId
+		input.projectId || input.projectIds
 			? Promise.resolve([])
 			: db
 					.select({

@@ -70,7 +70,9 @@ describe("repository event notifier", () => {
 	it("uses the full push range and carries a Work trailer as data", () => {
 		const git = mock((...args: string[]) =>
 			args[0] === "show"
-				? "A harmless doc edit\nWork-Item: 11111111-1111-4111-8111-111111111111"
+				? args.at(-1) === "c".repeat(40)
+					? `Revert an earlier change\n\nThis reverts commit ${"d".repeat(40)}.\nWork-Item: 22222222-2222-4222-8222-222222222222`
+					: "A harmless doc edit\nWork-Item: 11111111-1111-4111-8111-111111111111"
 				: args.includes("--stat")
 					? "2 files changed"
 					: args[0] === "rev-list"
@@ -91,6 +93,17 @@ describe("repository event notifier", () => {
 		expect(result.paths).toEqual(["docs/a.md", "docs/b.md"]);
 		expect(result.workItemId).toBe("11111111-1111-4111-8111-111111111111");
 		expect(result.commitShas).toEqual(["a".repeat(40), "c".repeat(40)]);
+		expect(result.commits).toEqual([
+			{
+				sha: "a".repeat(40),
+				workItemId: "11111111-1111-4111-8111-111111111111",
+			},
+			{
+				sha: "c".repeat(40),
+				workItemId: "22222222-2222-4222-8222-222222222222",
+				revertsSha: "d".repeat(40),
+			},
+		]);
 		expect(git).toHaveBeenCalledWith(
 			"rev-list",
 			"--max-count=100",
