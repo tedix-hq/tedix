@@ -1,4 +1,12 @@
-import { afterAll, afterEach, describe, expect, it, spyOn } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	spyOn,
+} from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
@@ -9300,9 +9308,13 @@ it("fetches a landed commit missing from a stale product checkout", async () => 
 	expect(await mainLaneCommits(stale, [sha])).toEqual([sha]);
 });
 
-it("accepts cited existing commits only when each is on origin/main and the checkout holds no change of its own", async () => {
-	const { root, repo, git } = gitFixture();
+describe("existing commit custody", () => {
+	let fixture: ReturnType<typeof gitFixture>;
+	let first: string;
+	let second: string;
+	const tracked = "fix.txt";
 	const commit = (subject: string) => {
+		const { git } = fixture;
 		git([
 			"-c",
 			"commit.gpgsign=false",
@@ -9313,40 +9325,50 @@ it("accepts cited existing commits only when each is on origin/main and the chec
 		]);
 		return git(["rev-parse", "HEAD"]);
 	};
-	const remote = join(root, "origin.git");
-	git(["init", "--bare", remote]);
-	git(["remote", "add", "origin", remote]);
-	const tracked = "fix.txt";
-	writeFileSync(join(repo, tracked), "fixed");
-	git(["add", tracked]);
-	const first = commit("earlier fix");
-	const second = commit("later fix");
-	git(["push", "origin", "main"]);
-	expect(await existingLaneCommits(repo, [first, second])).toBeUndefined();
-	expect(await existingLaneCommits(repo, [first, "f".repeat(40)])).toBe(
-		"ffffffffffff is not on origin/main",
-	);
-	// Files the run only created, such as test output, are not a change.
-	writeFileSync(join(repo, "test-output.log"), "passed");
-	expect(await existingLaneCommits(repo, [first])).toBeUndefined();
-	writeFileSync(join(repo, tracked), "changed by the run");
-	expect(await existingLaneCommits(repo, [first])).toBe(
-		"the checkout has uncommitted changes to tracked files",
-	);
-	git(["checkout", "--", tracked]);
-	const unpushed = commit("not pushed");
-	expect(await existingLaneCommits(repo, [first])).toBe(
-		"the checkout has 1 commit that is not on origin/main",
-	);
-	// A commit that never reached main is no evidence, even when cited.
-	expect(await existingLaneCommits(repo, [unpushed])).toBe(
-		`${unpushed.slice(0, 12)} is not on origin/main`,
-	);
-	git(["reset", "--hard", second]);
-	git(["remote", "set-url", "origin", join(root, "missing.git")]);
-	await expect(existingLaneCommits(repo, [first])).rejects.toBeInstanceOf(
-		LaneCommitFetchError,
-	);
+	// Repository construction must not consume the custody-check deadline.
+	beforeAll(() => {
+		fixture = gitFixture(false, false);
+		const { root, repo, git } = fixture;
+		const remote = join(root, "origin.git");
+		git(["init", "--bare", remote]);
+		git(["remote", "add", "origin", remote]);
+		writeFileSync(join(repo, tracked), "fixed");
+		git(["add", tracked]);
+		first = commit("earlier fix");
+		second = commit("later fix");
+		git(["push", "origin", "main"]);
+	});
+	afterAll(() => {
+		if (fixture) rmSync(fixture.root, { recursive: true, force: true });
+	});
+	it("accepts cited existing commits only when each is on origin/main and the checkout holds no change of its own", async () => {
+		const { root, repo, git } = fixture;
+		expect(await existingLaneCommits(repo, [first, second])).toBeUndefined();
+		expect(await existingLaneCommits(repo, [first, "f".repeat(40)])).toBe(
+			"ffffffffffff is not on origin/main",
+		);
+		// Files the run only created, such as test output, are not a change.
+		writeFileSync(join(repo, "test-output.log"), "passed");
+		expect(await existingLaneCommits(repo, [first])).toBeUndefined();
+		writeFileSync(join(repo, tracked), "changed by the run");
+		expect(await existingLaneCommits(repo, [first])).toBe(
+			"the checkout has uncommitted changes to tracked files",
+		);
+		git(["checkout", "--", tracked]);
+		const unpushed = commit("not pushed");
+		expect(await existingLaneCommits(repo, [first])).toBe(
+			"the checkout has 1 commit that is not on origin/main",
+		);
+		// A commit that never reached main is no evidence, even when cited.
+		expect(await existingLaneCommits(repo, [unpushed])).toBe(
+			`${unpushed.slice(0, 12)} is not on origin/main`,
+		);
+		git(["reset", "--hard", second]);
+		git(["remote", "set-url", "origin", join(root, "missing.git")]);
+		await expect(existingLaneCommits(repo, [first])).rejects.toBeInstanceOf(
+			LaneCommitFetchError,
+		);
+	});
 });
 
 describe("historical commit custody", () => {
