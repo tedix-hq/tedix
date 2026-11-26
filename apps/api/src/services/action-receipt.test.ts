@@ -197,6 +197,93 @@ describe("verified action receipts", () => {
 	});
 });
 
+describe("app proposal receipts", () => {
+	const proposal = {
+		id: "proposal-1",
+		organizationId: "org-1",
+		workspaceId: "space-1",
+		documentType: "gadget",
+		documentId: "app-1",
+		baseRevisionId: "revision-1",
+		baseRevision: 1,
+		status: "open",
+		sourceKind: "chat",
+		sourceId: "chat-1",
+		content: {},
+		sequence: 0,
+		createdByKind: "tedi",
+		createdById: "tedi-1",
+		createdAt: "2026-11-26T00:00:00.000Z",
+		updatedAt: "2026-11-26T00:00:00.000Z",
+		decisionRationale: null,
+		decisionEvidenceRefs: [],
+		decidedByKind: null,
+		decidedById: null,
+		decidedAt: null,
+		mergeRationale: null,
+		mergeEvidenceRefs: [],
+		mergedByKind: null,
+		mergedById: null,
+		mergedAt: null,
+		resultRevisionId: null,
+		resultRevision: null,
+	};
+	const previewUrl =
+		"https://fictional.os.tedix.tech/workspace/space-1?workpiece=gadget:app-1&view=edit";
+	const write = {
+		...input,
+		operation: "os.propose_edit",
+		endpoint: "osAppRuntime/proposeEdit",
+		args: { workspaceId: "space-1", gadgetId: "app-1" },
+		result: { proposal, previewUrl },
+	};
+	it("verifies the draft proposal through the collaboration list and links the preview", async () => {
+		const receipt = await verifyAction({
+			...write,
+			read: async (tool, args, endpoint) => {
+				expect({ tool, args, endpoint }).toEqual({
+					tool: "list_os_collaboration_proposals",
+					args: {
+						workspaceId: "space-1",
+						documentType: "gadget",
+						documentId: "app-1",
+						limit: 200,
+					},
+					endpoint: "osWorkspaces/collaboration/list",
+				});
+				return { items: [proposal], truncated: false };
+			},
+		});
+		expect(receipt).toMatchObject({
+			verified: true,
+			url: previewUrl,
+			state: "open draft proposal-1",
+		});
+	});
+	it("plans the same read-back from the tedi callable name without an endpoint", async () => {
+		const { endpoint: _endpoint, ...withoutEndpoint } = write;
+		const receipt = await verifyAction({
+			...withoutEndpoint,
+			read: async () => ({ items: [proposal], truncated: false }),
+		});
+		expect(receipt.verified).toBe(true);
+		expect(receipt.url).toBe(previewUrl);
+	});
+	it.each([
+		{ items: [{ ...proposal, id: "other" }], truncated: false },
+		{ items: [{ ...proposal, workspaceId: "other" }], truncated: false },
+		{ items: [{ ...proposal, documentId: "other" }], truncated: false },
+		{ items: [{ ...proposal, documentType: "output" }], truncated: false },
+		{ items: [{ ...proposal, sequence: -1 }], truncated: false },
+		{ items: [{ ...proposal, status: null }], truncated: false },
+		{ items: [], truncated: false },
+	])("does not verify a missing or mismatched proposal", async (read) => {
+		expect(
+			(await verifyAction({ ...write, read: async () => read })).verified,
+		).toBe(false);
+	});
+});
+
 describe("Support action receipts", () => {
 	const draft = {
 		body: "Saved redacted answer",

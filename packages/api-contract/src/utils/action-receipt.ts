@@ -117,6 +117,36 @@ export function actionReadbackPlan(
 			};
 	}
 	if (
+		endpoint === "osAppRuntime/proposeEdit" ||
+		(!endpoint && /^(propose_edit|propose_os_app_edit|proposeEdit)$/.test(name))
+	) {
+		const proposal = asRecord(data?.proposal);
+		const workspaceId = proposal?.workspaceId;
+		const documentId = proposal?.documentId;
+		const documentType = proposal?.documentType;
+		if (
+			typeof proposal?.id === "string" &&
+			typeof workspaceId === "string" &&
+			typeof documentId === "string" &&
+			(documentType === "gadget" || documentType === "output") &&
+			typeof proposal.status === "string" &&
+			typeof proposal.sequence === "number" &&
+			typeof data?.previewUrl === "string"
+		)
+			return {
+				tool: "list_os_collaboration_proposals",
+				readEndpoint: "osWorkspaces/collaboration/list",
+				args: { workspaceId, documentType, documentId, limit: 200 },
+				id: proposal.id,
+				kind: "appProposal" as const,
+				workspaceId,
+				documentType,
+				documentId,
+				sequence: proposal.sequence,
+				previewUrl: data.previewUrl,
+			};
+	}
+	if (
 		/^(create|patch|revise|rename|archive|restore|set)_os_(output|document|slides|sheet_range)$/.test(
 			name,
 		)
@@ -297,6 +327,29 @@ export async function verifyAction(input: {
 				input.origin,
 			).href;
 			receipt.state = `internal review present, ${request.state}; delivery unverified`;
+			return receipt;
+		}
+		if (plan.kind === "appProposal") {
+			const proposal = Array.isArray(read?.items)
+				? read.items.map(asRecord).find((item) => item?.id === plan.id)
+				: null;
+			if (
+				!proposal ||
+				proposal.workspaceId !== plan.workspaceId ||
+				proposal.documentType !== plan.documentType ||
+				proposal.documentId !== plan.documentId ||
+				typeof proposal.status !== "string" ||
+				typeof proposal.sequence !== "number" ||
+				proposal.sequence < plan.sequence
+			)
+				return receipt;
+			try {
+				receipt.url = new URL(plan.previewUrl).href;
+			} catch {
+				receipt.url = null;
+			}
+			receipt.verified = true;
+			receipt.state = `${proposal.status} draft ${plan.id}`;
 			return receipt;
 		}
 		const object =

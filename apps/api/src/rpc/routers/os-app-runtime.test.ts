@@ -2415,7 +2415,10 @@ describe("MCP app editing", () => {
 			createdById: "agent-1",
 			status: "open",
 		});
-		expect(new URL(previewUrl).searchParams.get("view")).toBe("edit");
+		const preview = new URL(previewUrl);
+		expect(preview.pathname).toBe(`/workspace/${workspaceId}`);
+		expect(preview.host).toBe("fictional.os.tedix.tech");
+		expect(preview.searchParams.get("view")).toBe("edit");
 		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
 		const { session } = await f.agent.draft({
 			...scope,

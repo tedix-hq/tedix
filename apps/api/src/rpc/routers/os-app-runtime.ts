@@ -2,6 +2,8 @@ import { requireSavableText } from "../../lib/savable-text";
 import { validateAppSource } from "../../services/os-app-validation";
 import { requestAppDraftRoom } from "../../services/os-app-draft-room";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
+import { buildSurfaceUrl } from "@tedix/tenant-directory";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 import type {
 	AppDraftRoomScopeSchema,
 	AppDraftRoomSubmissionSchema,
@@ -549,9 +551,15 @@ export function createOsAppRuntimeRouter() {
 			);
 		}
 
+		const organization = await getOrganizationProfile(
+			queryDb(context),
+			scope.organizationId,
+		);
 		const previewUrl = new URL(
-			`/workspaces/${scope.workspaceId}`,
-			context.env.OS_URL,
+			`/workspace/${scope.workspaceId}`,
+			buildSurfaceUrl("os", organization?.slug, {
+				platformDomain: platformDomain(context.env),
+			}) ?? context.env.OS_URL,
 		);
 		previewUrl.searchParams.set("workpiece", `gadget:${scope.gadgetId}`);
 		previewUrl.searchParams.set("view", "edit");
