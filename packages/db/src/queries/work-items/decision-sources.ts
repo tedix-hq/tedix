@@ -80,6 +80,17 @@ export type DecisionSourcePrefetch = {
 		{ disposition: string; version: number; executorId: string | null }
 	>;
 	commentCounts: Map<string, number>;
+	outputs: Map<
+		string,
+		Pick<typeof d1WorkspaceOutputIndex.$inferSelect, "status" | "revisionId">
+	>;
+	emailThreads: Map<
+		string,
+		Pick<
+			typeof d1TediEmailThreads.$inferSelect,
+			"tediId" | "updatedAt" | "lastMessageAt"
+		> & { messageCount: number }
+	>;
 	workReviews: Map<
 		Request,
 		Map<string, boolean | { through: string; note: string }>
@@ -118,39 +129,121 @@ export async function prefetchDecisionSources(
 		works: new Map(),
 		commentCounts: new Map(),
 		workReviews: new Map(),
+		outputs: new Map(),
+		emailThreads: new Map(),
 	};
-	if (!ids.length) return prefetch;
-	const [works, comments] = await db.batch([
-		db
+	if (ids.length) {
+		const [works, comments] = await db.batch([
+			db
+				.select({
+					id: workItems.id,
+					disposition: workItems.disposition,
+					version: workItems.version,
+					executorId: workItems.executorId,
+				})
+				.from(workItems)
+				.where(and(eq(workItems.orgId, orgId), anyIds(db, workItems.id, ids))),
+			db
+				.select({
+					workItemId: workItemComments.workItemId,
+					comments: count(),
+				})
+				.from(workItemComments)
+				.where(
+					and(
+						eq(workItemComments.orgId, orgId),
+						anyIds(db, workItemComments.workItemId, ids),
+					),
+				)
+				.groupBy(workItemComments.workItemId),
+		]);
+		for (const work of works) prefetch.works.set(work.id, work);
+		for (const id of ids)
+			prefetch.commentCounts.set(
+				id,
+				Number(comments.find((row) => row.workItemId === id)?.comments ?? 0),
+			);
+		await prefetchChangedWorkComments(db, orgId, requests, prefetch);
+	}
+	const sources = requests.flatMap((request) => {
+		const envelope = DecisionEnvelopeSchema.safeParse(
+			request.metadata.decisionDeck,
+		);
+		return [
+			request.metadata.decisionSources,
+			envelope.success ? envelope.data.sources : undefined,
+		].flatMap((raw) => DecisionSourcesSchema.safeParse(raw).data ?? []);
+	});
+	const outputIds = [
+		...new Set(
+			sources
+				.filter((source) => source.kind === "output")
+				.map((source) => source.id),
+		),
+	];
+	if (outputIds.length) {
+		const outputs = coreTable(db, d1WorkspaceOutputIndex);
+		const rows = await db
 			.select({
-				id: workItems.id,
-				disposition: workItems.disposition,
-				version: workItems.version,
-				executorId: workItems.executorId,
+				id: outputs.outputId,
+				status: outputs.status,
+				revisionId: outputs.revisionId,
 			})
-			.from(workItems)
-			.where(and(eq(workItems.orgId, orgId), anyIds(db, workItems.id, ids))),
-		db
-			.select({
-				workItemId: workItemComments.workItemId,
-				comments: count(),
-			})
-			.from(workItemComments)
+			.from(outputs)
 			.where(
 				and(
-					eq(workItemComments.orgId, orgId),
-					anyIds(db, workItemComments.workItemId, ids),
+					eq(outputs.organizationId, orgId),
+					eq(outputs.isCurrent, 1),
+					anyIds(db, outputs.outputId, outputIds),
+				),
+			);
+		for (const row of rows) prefetch.outputs.set(row.id, row);
+	}
+	const threadIds = [
+		...new Set(
+			sources
+				.filter((source) => source.kind === "email_thread")
+				.map((source) => source.id),
+		),
+	];
+	if (threadIds.length) {
+		const threads = coreTable(db, d1TediEmailThreads);
+		const messages = coreTable(db, d1TediEmailMessages);
+		const rows = await db
+			.select({
+				id: threads.id,
+				tediId: threads.tediId,
+				updatedAt: threads.updatedAt,
+				lastMessageAt: threads.lastMessageAt,
+				messageCount: count(messages.id),
+			})
+			.from(threads)
+			.leftJoin(
+				messages,
+				and(
+					eq(messages.organizationId, threads.organizationId),
+					eq(messages.tediId, threads.tediId),
+					eq(messages.threadId, threads.id),
 				),
 			)
-			.groupBy(workItemComments.workItemId),
-	]);
-	for (const work of works) prefetch.works.set(work.id, work);
-	for (const id of ids)
-		prefetch.commentCounts.set(
-			id,
-			Number(comments.find((row) => row.workItemId === id)?.comments ?? 0),
-		);
-	await prefetchChangedWorkComments(db, orgId, requests, prefetch);
+			.where(
+				and(
+					eq(threads.organizationId, orgId),
+					anyIds(db, threads.id, threadIds),
+				),
+			)
+			.groupBy(
+				threads.id,
+				threads.tediId,
+				threads.updatedAt,
+				threads.lastMessageAt,
+			);
+		for (const row of rows)
+			prefetch.emailThreads.set(row.id, {
+				...row,
+				messageCount: Number(row.messageCount),
+			});
+	}
 	return prefetch;
 }
 
@@ -592,6 +685,12 @@ async function decisionSourceMatches(
 			return { through: latest.createdAt, note: latest.body.slice(0, 600) };
 		}
 		case "output": {
+			if (prefetch) {
+				const output = prefetch.outputs.get(source.id);
+				return (
+					output?.status === "active" && output.revisionId === source.revisionId
+				);
+			}
 			const [output] = await db
 				.select({
 					status: workspaceOutputIndex.status,
@@ -612,6 +711,16 @@ async function decisionSourceMatches(
 			);
 		}
 		case "email_thread": {
+			if (prefetch) {
+				const thread = prefetch.emailThreads.get(source.id);
+				return (
+					!!thread &&
+					thread.tediId === source.tediId &&
+					thread.updatedAt === source.updatedAt &&
+					thread.lastMessageAt === source.lastMessageAt &&
+					thread.messageCount === source.messageCount
+				);
+			}
 			const [thread] = await db
 				.select({
 					updatedAt: tediEmailThreads.updatedAt,

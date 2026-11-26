@@ -78,6 +78,8 @@ import {
 } from "../work-attention";
 
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { tediEmailThreads, tediEmailMessages } from "../../schema/tedi-email";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { memoryEntities } from "../../schema/memory-entities";
 import { organizationSecrets } from "../../schema/organization-secrets";
 import { auditEvents } from "../../schema/audit-events";
@@ -157,6 +159,9 @@ for (const store of ["d1", "postgres"] as const)
 					agentSessionRequests,
 					memoryEntities,
 					organizationSecrets,
+					tediEmailThreads,
+					tediEmailMessages,
+					workspaceOutputIndex,
 					skillRuns,
 					kernelConversations,
 					kernelConversationGrants,
@@ -388,6 +393,124 @@ for (const store of ["d1", "postgres"] as const)
 		}, 30000);
 		afterAll(async () => {
 			await close?.();
+		});
+		it("prefetches output and email citations as sets and rereads them at the answer boundary", async () => {
+			const uuid = (n: number) =>
+				`20000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+			const tediId = uuid(999),
+				threadId = uuid(400),
+				outputId = uuid(600),
+				revisionId = uuid(800);
+			await db
+				.insert(coreTable(db, tedis))
+				.values({
+					id: tediId,
+					organizationId: "orchard",
+					name: "Mailer",
+					slug: "mailer",
+				});
+			await db
+				.insert(coreTable(db, tediEmailThreads))
+				.values({
+					id: threadId,
+					organizationId: "orchard",
+					tediId,
+					subjectNorm: "Review",
+					lastMessageAt: at,
+					updatedAt: at,
+				});
+			const message = {
+				threadId,
+				organizationId: "orchard",
+				tediId,
+				direction: "inbound" as const,
+				fromAddr: "sender@example.test",
+				to: [{ email: "mailer@example.test" }],
+				subject: "Review",
+				status: "received" as const,
+				receivedAt: at,
+			};
+			await db
+				.insert(coreTable(db, tediEmailMessages))
+				.values({ id: "first-message", ...message });
+			await db
+				.insert(coreTable(db, workspaceOutputIndex))
+				.values({
+					id: `${outputId}:1`,
+					organizationId: "orchard",
+					workspaceId: "review-space",
+					outputId,
+					revision: 1,
+					revisionId,
+					isCurrent: 1,
+					outputKind: "document",
+					title: "Review",
+					status: "active",
+					outputCreatedByKind: "user",
+					outputCreatedById: "reader",
+					outputCreatedAt: at,
+					revisionCreatedByKind: "user",
+					revisionCreatedById: "reader",
+					revisionCreatedAt: at,
+					updatedAt: at,
+				});
+			const requests = Array.from({ length: 150 }, (_, n) => ({
+				status: "open",
+				kind: "question",
+				targetType: "user",
+				subject: "Review",
+				prompt: "Ready?",
+				metadata: {
+					decisionSources: [
+						{ kind: "output", id: n ? uuid(n) : outputId, revisionId },
+						{
+							kind: "email_thread",
+							id: n ? uuid(n) : threadId,
+							tediId,
+							updatedAt: at,
+							lastMessageAt: at,
+							messageCount: 1,
+						},
+					],
+				},
+			}));
+			const select = vi.spyOn(db, "select");
+			try {
+				const prefetch = await prefetchDecisionSources(db, "orchard", requests);
+				expect(select).toHaveBeenCalledTimes(2);
+				const reviews = await Promise.all(
+					requests.map((request) =>
+						decisionSourcesReview(db, "orchard", request, { prefetch }),
+					),
+				);
+				expect(reviews[0]).toEqual({ current: true });
+				expect(reviews.slice(1).every((review) => !review.current)).toBe(true);
+				expect(select).toHaveBeenCalledTimes(2);
+				const foreign = await prefetchDecisionSources(db, "river", requests);
+				expect(
+					await decisionSourcesReview(db, "river", requests[0]!, {
+						prefetch: foreign,
+					}),
+				).toEqual({ current: false });
+				await db
+					.insert(coreTable(db, tediEmailMessages))
+					.values({ id: "delayed-message", ...message });
+				expect(
+					await decisionSourcesReview(db, "orchard", requests[0]!),
+				).toEqual({ current: false });
+				const refreshed = await prefetchDecisionSources(
+					db,
+					"orchard",
+					requests,
+				);
+				expect(
+					await decisionSourcesReview(db, "orchard", requests[0]!, {
+						prefetch: refreshed,
+					}),
+				).toEqual({ current: false });
+			} finally {
+				select.mockRestore();
+			}
 		});
 		it("keeps comment relevance and continuation fences identical for decision callers", async () => {
 			const later = "2026-11-26T08:00:00.000Z";
