@@ -55,6 +55,38 @@ Site Builder are in `apps/cms/AGENTS.md`; the user guide is
   active bundle and calls its Emdash `scheduled()` handler. The starter's
   `src/worker.ts` exports and `wrangler.jsonc` cron must stay in the snapshot.
 
+## Registry content notifications
+
+The parent plugin host accepts `content:afterSave` and `content:afterPublish`
+alongside the required `plugin:install` hook. Each notification must use a
+structured manifest entry with `errorPolicy: "continue"` and must not be
+exclusive. The canonical registry manifest must declare `content:read`; missing
+capabilities, abort policies, mutation/policy hooks, and all other hooks are
+rejected before execution, including when a tenant has cached an older manifest.
+
+Here `content:read` grants the notification's content payload, not general host
+content APIs. The event contains `content` and `collection`, plus `isNew` for
+after-save. Actor, request, and other top-level metadata are omitted. Payloads
+are detached JSON limited to 64 KiB. Plugin return values cannot change content
+or veto an operation.
+
+Callbacks run through Emdash's registry proxy and the parent sandbox wrapper
+under the pinned site's shared restore permit. The plugin receives only its own
+KV bridge: native `ctx.kv` remains available without an extra manifest capability,
+but settings keys, another plugin's rows, another tenant's database, and ambient
+network access remain inaccessible. KV writes recheck the restore epoch in the
+database object. A closed or stale epoch denies even a read-only callback.
+
+Notification failures are reported to the hook pipeline without failing the
+save or publish. Delivery is best-effort, not durable or exactly-once: there is
+no automatic retry, and an earlier KV write is not rolled back if the callback
+later fails. The sandbox's wall-time limit and request-context closure also
+apply to notifications.
+
+The configured-site canary gate is unchanged. This source support does not
+enable registry plugins for other sites; live rollout and verification remain
+separate.
+
 ## Agent model
 
 Each site is code that renders content. The theme is a full Astro project

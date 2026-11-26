@@ -346,6 +346,39 @@ function hasNoAdminExtensions(manifestInput: unknown): boolean {
 	);
 }
 
+function isContentNotification(name: string): boolean {
+	return name === "content:afterSave" || name === "content:afterPublish";
+}
+
+/** Content access grants notification payloads, not host content APIs or actor data. */
+function notificationEvent(hookName: string, input: unknown): unknown {
+	if (!input || typeof input !== "object" || Array.isArray(input)) {
+		throw new Error("Invalid content notification");
+	}
+	const content: unknown = Reflect.get(input, "content");
+	const collection: unknown = Reflect.get(input, "collection");
+	const isNew: unknown = Reflect.get(input, "isNew");
+	if (
+		!content ||
+		typeof content !== "object" ||
+		Array.isArray(content) ||
+		typeof collection !== "string" ||
+		!collection ||
+		collection.length > 63 ||
+		(hookName === "content:afterSave" && typeof isNew !== "boolean")
+	) {
+		throw new Error("Invalid content notification");
+	}
+	// Project and detach the event before crossing into untrusted plugin code.
+	return JSON.parse(
+		encodeValue({
+			content,
+			collection,
+			...(hookName === "content:afterSave" ? { isNew } : {}),
+		}),
+	) as unknown;
+}
+
 function assertSupportedManifest(
 	manifest: PluginManifest,
 	code: string,
@@ -365,7 +398,11 @@ function assertSupportedManifest(
 	}
 	if (
 		!Array.isArray(manifest.capabilities) ||
-		manifest.capabilities.length > 0 ||
+		manifest.capabilities.some((capability) => capability !== "content:read") ||
+		(manifest.capabilities.includes("content:read") &&
+			!manifest.hooks.some((hook) =>
+				isContentNotification(typeof hook === "string" ? hook : hook.name),
+			)) ||
 		!Array.isArray(manifest.allowedHosts) ||
 		manifest.allowedHosts.length > 0 ||
 		Object.keys(manifest.declaredAccess ?? {}).length > 0 ||
@@ -377,10 +414,17 @@ function assertSupportedManifest(
 			(hook) =>
 				(typeof hook === "string" ? hook : hook.name) === "plugin:install",
 		) ||
-		manifest.hooks.some(
-			(hook) =>
-				(typeof hook === "string" ? hook : hook.name) !== "plugin:install",
-		) ||
+		manifest.hooks.some((hook) => {
+			const name = typeof hook === "string" ? hook : hook.name;
+			if (name === "plugin:install") return false;
+			return (
+				!isContentNotification(name) ||
+				!manifest.capabilities.includes("content:read") ||
+				typeof hook === "string" ||
+				hook.errorPolicy !== "continue" ||
+				hook.exclusive === true
+			);
+		}) ||
 		!Array.isArray(manifest.routes) ||
 		manifest.routes.some(
 			(route) =>
@@ -515,7 +559,7 @@ export class TenantPluginHost extends WorkerEntrypoint<
 		const parsed = pluginManifestSchema.safeParse(manifestInput);
 		if (!parsed.success) throw new Error("Invalid canonical plugin manifest");
 		// The validated wire manifest is structurally narrower at its admin UI
-		// fields; only the no-capability subset below may execute here.
+		// fields; only the supported notification/KV subset may execute here.
 		const manifest = parsed.data as unknown as PluginManifest;
 		assertSupportedManifest(manifest, code, manifestInput);
 		if (manifest.id !== pluginId || manifest.version !== pluginVersion) {
@@ -555,14 +599,32 @@ export class TenantPluginHost extends WorkerEntrypoint<
 			) {
 				throw new Error("Plugin hook is not declared");
 			}
-			const value = await invokeTenantSandboxedPlugin(
-				this.env,
-				scope,
-				manifest,
-				code,
-				(entrypoint, invocationId) =>
-					entrypoint.invokeHook(hookName, event, invocationId),
-			);
+			const notification = isContentNotification(hookName);
+			const disclosedEvent = notification
+				? notificationEvent(hookName, event)
+				: event;
+			const invoke = () =>
+				invokeTenantSandboxedPlugin(
+					this.env,
+					scope,
+					manifest,
+					code,
+					(entrypoint, invocationId) =>
+						entrypoint.invokeHook(hookName, disclosedEvent, invocationId),
+				);
+			const value = notification
+				? await withSharedCmsRestorePermit(
+						this.env,
+						{
+							siteId: scope.siteId,
+							slug: scope.tenantSlug,
+							restoreEpoch: scope.restoreEpoch,
+						},
+						invoke,
+					)
+				: await invoke();
+			// Notifications cannot change content or veto the completed operation.
+			if (notification) return { ok: true, value: null };
 			return { ok: true, value };
 		} catch (error) {
 			return hostFailure(error);

@@ -13,7 +13,13 @@ import {
 	getCmsRestoreFenceState,
 	releaseCmsRestoreFence,
 } from "@tedix/db/queries/cms-restore-fences";
-import type { PluginManifest, SerializedRequest } from "emdash";
+import {
+	HookPipeline,
+	type PluginManifest,
+	type ResolvedPlugin,
+	type SandboxedPluginInstance,
+	type SerializedRequest,
+} from "emdash";
 import type { EmDashDB } from "./emdash-db";
 import { tenantPluginCanaryEnabled } from "./index";
 import {
@@ -1255,6 +1261,255 @@ test("native plugin transport exposes only its named bridge and denies ambient a
 		secret: null,
 	});
 }, 15000);
+
+describe("capability-gated content notifications", () => {
+	const manifest: PluginManifest = {
+		...SANDBOX_MANIFEST,
+		id: "content-notifier",
+		capabilities: ["content:read"],
+		hooks: [
+			"plugin:install",
+			{ name: "content:afterSave", errorPolicy: "continue" },
+			{ name: "content:afterPublish", errorPolicy: "continue" },
+		],
+	};
+	const code = `export default {
+		hooks: {
+			"plugin:install": async () => {},
+			"content:afterSave": async (event, ctx) => {
+				await ctx.kv.set("save", event);
+				if (event.content.fail) throw new Error("notification failed");
+				event.content.title = "plugin mutation";
+				return { content: event.content, allowed: false };
+			},
+			"content:afterPublish": async (event, ctx) => {
+				await ctx.kv.set("publish", event);
+				if (event.content.fail) throw new Error("notification failed");
+			}
+		}
+	}`;
+
+	test("requires explicit content disclosure and continue policy while every other hook stays denied", async () => {
+		const host = pluginHost("notification-policy", crypto.randomUUID());
+		expect(await host.validateBundle(manifest, code)).toEqual({
+			ok: true,
+			value: null,
+		});
+		for (const unsupported of [
+			{ ...manifest, capabilities: [] },
+			{ ...manifest, capabilities: ["content:read", "content:write"] },
+			{ ...manifest, hooks: ["plugin:install", "content:afterSave"] },
+			{ ...manifest, hooks: ["plugin:install", { name: "content:afterSave" }] },
+			{
+				...manifest,
+				hooks: [
+					"plugin:install",
+					{ name: "content:afterSave", errorPolicy: "abort" },
+				],
+			},
+			{
+				...manifest,
+				hooks: [
+					"plugin:install",
+					{
+						name: "content:afterSave",
+						errorPolicy: "continue",
+						exclusive: true,
+					},
+				],
+			},
+			...[
+				"content:beforeSave",
+				"content:beforePublish",
+				"content:afterDelete",
+				"content:afterRestore",
+				"media:afterUpload",
+				"plugin:activate",
+			].map((name) => ({
+				...manifest,
+				hooks: [...manifest.hooks, { name, errorPolicy: "continue" }],
+			})),
+		] as PluginManifest[]) {
+			expect(await host.validateBundle(unsupported, code)).toMatchObject({
+				ok: false,
+			});
+		}
+	});
+
+	test("native callback pipeline discloses bounded content only, persists plugin KV, and cannot veto or cross tenants", async () => {
+		// Runtime import keeps upstream source outside Tedix's type-check.
+		const proxyModule = "../node_modules/emdash/src/plugins/sandbox/proxy";
+		const { createSandboxedPluginProxy } = (await import(
+			/* @vite-ignore */ proxyModule
+		)) as {
+			createSandboxedPluginProxy(
+				manifest: PluginManifest,
+				instance: SandboxedPluginInstance,
+			): ResolvedPlugin;
+		};
+		const host = env as unknown as PluginHostEnv;
+		const slug = `notification-${crypto.randomUUID().slice(0, 12)}`;
+		const otherSlug = `notification-other-${crypto.randomUUID().slice(0, 12)}`;
+		const siteId = crypto.randomUUID();
+		const scope: TenantPluginScope = {
+			tenantSlug: slug,
+			siteId,
+			restoreEpoch: 0,
+			pluginId: manifest.id,
+			pluginVersion: manifest.version,
+			grants: [],
+		};
+		const otherManifest = { ...manifest, id: "other-notifier" };
+		for (const [tenant, bundle] of [
+			[slug, manifest],
+			[slug, otherManifest],
+			[otherSlug, manifest],
+		] as const) {
+			await createActiveRegistryPlugin(host, tenant, bundle.id);
+			mockCanonicalBundle(tenant, bundle, code);
+		}
+		await registerSite(scope);
+		const runner = pluginHost(slug, siteId);
+		const invokeHook = async (name: string, event: unknown) => {
+			const result = await runner.invokeHook(
+				manifest.id,
+				manifest.version,
+				name,
+				event,
+			);
+			if (!result.ok) throw new Error(result.error);
+			return result.value;
+		};
+		const plugin = createSandboxedPluginProxy(manifest, {
+			id: `${manifest.id}:${manifest.version}`,
+			invokeHook,
+			invokeRoute: async () => {
+				throw new Error("No route in notification probe");
+			},
+			terminate: async () => {},
+		});
+		const pipeline = new HookPipeline([plugin], { db: {} as never });
+		const content = { id: "entry", title: "draft" };
+		expect(
+			await pipeline.runContentAfterSave(content, "pages", true, {
+				id: "private-actor",
+				role: 50,
+			}),
+		).toMatchObject([{ success: true }]);
+		expect(content.title).toBe("draft");
+		expect(
+			await pipeline.runContentAfterPublish(content, "pages"),
+		).toMatchObject([{ success: true }]);
+		const dbFor = (tenant: string) =>
+			host.DB_DO.get(host.DB_DO.idFromName(tenant)) as unknown as {
+				query(
+					sql: string,
+					params?: unknown[],
+				): Promise<{ rows: Record<string, unknown>[] }>;
+			};
+		expect(
+			(
+				await dbFor(slug).query(
+					"SELECT id, data FROM _plugin_storage WHERE plugin_id = ? ORDER BY id",
+					[manifest.id],
+				)
+			).rows,
+		).toEqual([
+			{ id: "publish", data: JSON.stringify({ content, collection: "pages" }) },
+			{
+				id: "save",
+				data: JSON.stringify({ content, collection: "pages", isNew: true }),
+			},
+		]);
+		expect(
+			(
+				await dbFor(slug).query(
+					"SELECT id FROM _plugin_storage WHERE plugin_id = ?",
+					[otherManifest.id],
+				)
+			).rows,
+		).toEqual([]);
+		expect(
+			(await dbFor(otherSlug).query("SELECT id FROM _plugin_storage")).rows,
+		).toEqual([]);
+
+		// Error after a KV write is reported, not rolled back or retried, and does
+		// not reject the publish pipeline. The next callback still works.
+		expect(
+			await pipeline.runContentAfterPublish({ fail: true }, "pages"),
+		).toMatchObject([{ success: false }]);
+		expect(
+			(
+				await dbFor(slug).query(
+					"SELECT data FROM _plugin_storage WHERE plugin_id = ? AND id = 'publish'",
+					[manifest.id],
+				)
+			).rows,
+		).toEqual([
+			{
+				data: JSON.stringify({ content: { fail: true }, collection: "pages" }),
+			},
+		]);
+		expect(
+			await pipeline.runContentAfterPublish(content, "pages"),
+		).toMatchObject([{ success: true }]);
+		expect(
+			await pipeline.runContentAfterSave({ fail: true }, "pages", false),
+		).toMatchObject([{ success: false }]);
+		expect(
+			await pipeline.runContentAfterSave(content, "pages", false),
+		).toMatchObject([{ success: true }]);
+		for (const event of [
+			{ collection: "pages", content: null, isNew: true },
+			{ collection: "pages", content, isNew: "yes" },
+			{
+				collection: "pages",
+				content: { title: "x".repeat(65536) },
+				isNew: true,
+			},
+		]) {
+			await expect(invokeHook("content:afterSave", event)).rejects.toThrow(
+				/Invalid/,
+			);
+		}
+		await expect(
+			invokeHook("content:beforeSave", { content, collection: "pages" }),
+		).rejects.toThrow(/not declared/);
+
+		// Cached tenant metadata cannot grant a capability missing from canonical R2.
+		mockCanonicalBundle(slug, { ...manifest, capabilities: [] }, code);
+		await expect(
+			invokeHook("content:afterSave", {
+				content,
+				collection: "pages",
+				isNew: false,
+			}),
+		).rejects.toThrow(/unsupported host access/);
+		mockCanonicalBundle(
+			slug,
+			manifest,
+			`export default {
+			hooks: { "plugin:install": async () => {}, "content:afterSave": async () => {} }
+		}`,
+		);
+		// A stale host cannot disclose an event, even if its callback never writes KV.
+		expect(
+			await closeCmsRestoreFence(platformDb, {
+				siteId,
+				slug,
+				generation: "notification-close",
+				captureId: "capture",
+			}),
+		).toBe(true);
+		await expect(
+			invokeHook("content:afterSave", {
+				content,
+				collection: "pages",
+				isNew: false,
+			}),
+		).rejects.toThrow(/restore fence unavailable/);
+	}, 30_000);
+});
 
 describe("CMS plugin production Loader diagnostics", () => {
 	async function assertBridgeClosed(code: WorkerLoaderWorkerCode) {
