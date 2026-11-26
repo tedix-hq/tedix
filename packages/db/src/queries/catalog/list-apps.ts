@@ -29,6 +29,7 @@ import {
 	type Source,
 } from "../../schema/catalog";
 import { coreStore, jsonRead } from "../../core-store/dialect";
+import { chunkForBoundParams } from "../../utils/batch";
 import { prefixedColumns } from "../../utils/select";
 import { catalogTables } from "./catalog-tables";
 import { catalogFeedKey } from "./sync-logs";
@@ -204,9 +205,13 @@ export async function listCatalogApps(
 				)`,
 		);
 		const semanticIds = normalizedSemanticMatches.map((match) => match.id);
+		const semanticIdChunks = chunkForBoundParams(semanticIds, 50);
 		conditions.push(
-			semanticMatchesJson && semanticIds.length > 0
-				? or(lexicalCondition, inArray(appCatalog.id, semanticIds))
+			semanticMatchesJson && semanticIdChunks.length > 0
+				? or(
+						lexicalCondition,
+						...semanticIdChunks.map((chunk) => inArray(appCatalog.id, chunk)),
+					)
 				: lexicalCondition,
 		);
 	}

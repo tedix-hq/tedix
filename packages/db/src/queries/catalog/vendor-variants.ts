@@ -129,9 +129,8 @@ export interface CatalogVisibilityOptions {
 
 /** Literal booleans keep SQLite's partial-index proofs working under INDEXED BY. */
 function boolLiteral(db: Database, value: boolean): SQL {
-	return coreStore(db) === "postgres"
-		? sql.raw(value ? "true" : "false")
-		: sql.raw(value ? "1" : "0");
+	if (coreStore(db) === "postgres") return value ? sql`true` : sql`false`;
+	return value ? sql`1` : sql`0`;
 }
 
 /** The public catalog visibility filter used by list browsing. */
