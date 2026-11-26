@@ -47,6 +47,20 @@ opencode api GET /api/mcp -H "x-opencode-directory:$PWD"
 `opencode mcp auth tedix` opens the shared Tedix consent page. Complete it
 yourself; installing the plugin grants no access.
 
+## Running a manual check from a script
+
+When the prompt is an argument and you have no input to pipe, close stdin:
+
+```sh
+opencode run --format json "Reply with STARTUP_OK. Do not use tools." </dev/null
+```
+
+OpenCode 1.19.6 reads non-terminal stdin until EOF even when a prompt is
+supplied. An inherited pipe that stays open leaves the log at `init`, before
+a session is created. Close the pipe after writing the prompt, or use
+`/dev/null` for argument-only prompts. The Tedix runner already writes its
+brief and closes the child's stdin.
+
 ## What the plugin adds
 
 | Capability             | Claude Code and Codex                           | OpenCode plugin                                                                                                  |
