@@ -7,8 +7,13 @@
 
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../core-store/client";
 import type { DbQueryClient } from "../query-client";
-import { type TenantBundle, tenantBundles } from "../schema/tenant-bundles";
+import {
+	type TenantBundle,
+	tenantBundles as schemaTenantBundles,
+} from "../schema/tenant-bundles";
 
 /**
  * Get the active bundle for a CMS app slug. Returns null when no bundle is
@@ -19,6 +24,7 @@ export async function getActiveTenantBundle(
 	db: DbClient,
 	slug: string,
 ): Promise<TenantBundle | null> {
+	const tenantBundles = coreTable(db, schemaTenantBundles);
 	const rows = await db
 		.select()
 		.from(tenantBundles)
@@ -33,6 +39,7 @@ export async function getActiveTenantBundle(
 export async function listActiveTenantBundles(
 	db: DbClient,
 ): Promise<TenantBundle[]> {
+	const tenantBundles = coreTable(db, schemaTenantBundles);
 	return db
 		.select()
 		.from(tenantBundles)
@@ -46,6 +53,7 @@ export async function getTenantBundleSummary(
 	activeVersion: number | null;
 	lastDeployedAt: string | null;
 }> {
+	const tenantBundles = coreTable(db, schemaTenantBundles);
 	const rows = await db
 		.select({
 			version: tenantBundles.version,
@@ -71,6 +79,7 @@ export async function listTenantBundleRecoveryPoints(
 ): Promise<
 	Array<{ version: number; deployedAt: string | null; active: boolean }>
 > {
+	const tenantBundles = coreTable(db, schemaTenantBundles);
 	const rows = await db
 		.select({
 			version: tenantBundles.version,
@@ -94,6 +103,7 @@ export async function listTenantBundles(
 	db: DbQueryClient,
 	slug: string,
 ): Promise<TenantBundle[]> {
+	const tenantBundles = coreTable(db, schemaTenantBundles);
 	return db
 		.select()
 		.from(tenantBundles)
@@ -135,6 +145,8 @@ export async function deleteTenantBundleRow(
 	slug: string,
 	version: number,
 ): Promise<boolean> {
+	const tenantBundles = coreTable(db, schemaTenantBundles);
+	const active = alias(tenantBundles, "active");
 	const deleted = await db
 		.delete(tenantBundles)
 		.where(
@@ -142,7 +154,10 @@ export async function deleteTenantBundleRow(
 				eq(tenantBundles.slug, slug),
 				eq(tenantBundles.version, version),
 				eq(tenantBundles.isActive, false),
-				sql`${tenantBundles.version} < (select min(active.version) from tenant_bundles active where active.slug = ${slug} and active.is_active = 1)`,
+				sql`${tenantBundles.version} < (${db
+					.select({ version: sql`min(${active.version})` })
+					.from(active)
+					.where(and(eq(active.slug, slug), eq(active.isActive, true)))})`,
 			),
 		)
 		.returning({ version: tenantBundles.version });

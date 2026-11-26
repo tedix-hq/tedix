@@ -1,8 +1,9 @@
-import { and, desc, eq, gt, inArray, like } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
 import type { DbQueryClient } from "../query-client";
-import { userConfigs } from "../schema/user-configs";
+import { userConfigs as schemaUserConfigs } from "../schema/user-configs";
 import { upsertUserConfig } from "./user-configs";
-import { chunkForBoundParams } from "../utils/batch";
+import { anyIds, likeText } from "../core-store/dialect";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 
 const pushNamespace = (organizationId: string) => `os.push:${organizationId}`;
@@ -24,6 +25,7 @@ export async function listPushConfigs(
 	scope: { organizationId: string; userId: string },
 	prefix: string,
 ) {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	return db
 		.select()
 		.from(userConfigs)
@@ -31,7 +33,7 @@ export async function listPushConfigs(
 			and(
 				eq(userConfigs.userId, scope.userId),
 				eq(userConfigs.namespace, pushNamespace(scope.organizationId)),
-				like(userConfigs.key, `${prefix}%`),
+				likeText(db, userConfigs.key, `${prefix}%`),
 			),
 		)
 		.limit(100);
@@ -41,6 +43,7 @@ export async function listPushSubscriptionKeys(
 	db: DbQueryClient,
 	scope: { organizationId: string; userId: string },
 ) {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	return db
 		.select({
 			key: userConfigs.key,
@@ -52,10 +55,13 @@ export async function listPushSubscriptionKeys(
 			and(
 				eq(userConfigs.userId, scope.userId),
 				eq(userConfigs.namespace, pushNamespace(scope.organizationId)),
-				like(userConfigs.key, "subscription:%"),
+				likeText(db, userConfigs.key, "subscription:%"),
 			),
 		)
-		.orderBy(desc(userConfigs.updatedAt), desc(userConfigs.key))
+		.orderBy(
+			sql`${userConfigs.updatedAt} DESC NULLS LAST`,
+			desc(userConfigs.key),
+		)
 		.limit(100);
 }
 export async function deletePushConfigs(
@@ -63,22 +69,24 @@ export async function deletePushConfigs(
 	scope: { organizationId: string; userId: string },
 	keys: string[],
 ) {
-	for (const chunk of chunkForBoundParams(keys, 50))
-		await db
-			.delete(userConfigs)
-			.where(
-				and(
-					eq(userConfigs.userId, scope.userId),
-					eq(userConfigs.namespace, pushNamespace(scope.organizationId)),
-					inArray(userConfigs.key, chunk),
-				),
-			);
+	if (!keys.length) return;
+	const userConfigs = coreTable(db, schemaUserConfigs);
+	await db
+		.delete(userConfigs)
+		.where(
+			and(
+				eq(userConfigs.userId, scope.userId),
+				eq(userConfigs.namespace, pushNamespace(scope.organizationId)),
+				anyIds(db, userConfigs.key, keys),
+			),
+		);
 }
 export async function deletePushConfig(
 	db: DbQueryClient,
 	scope: { organizationId: string; userId: string },
 	key: string,
 ) {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	await db
 		.delete(userConfigs)
 		.where(
@@ -95,6 +103,7 @@ export async function hasVisiblePushConversation(
 	conversationId: string,
 	now: number,
 ) {
+	const userConfigs = coreTable(db, schemaUserConfigs);
 	const rows = await db
 		.select({ value: userConfigs.value })
 		.from(userConfigs)
@@ -102,7 +111,7 @@ export async function hasVisiblePushConversation(
 			and(
 				eq(userConfigs.userId, scope.userId),
 				eq(userConfigs.namespace, pushNamespace(scope.organizationId)),
-				like(userConfigs.key, "visible:%"),
+				likeText(db, userConfigs.key, "visible:%"),
 				gt(userConfigs.updatedAt, new Date(now - 60_000).toISOString()),
 			),
 		)

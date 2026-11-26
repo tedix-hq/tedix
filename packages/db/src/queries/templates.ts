@@ -19,18 +19,22 @@ import {
 } from "@tedix/api-contract/schemas/tools";
 import { asc, eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { coreTable } from "../core-store/client";
 import type { DbClient } from "../client";
-import { appAdapters } from "../schema/adapters";
-import { apps } from "../schema/apps";
-import { organizations } from "../schema/organizations";
+import { appAdapters as schemaAppAdapters } from "../schema/adapters";
+import { apps as schemaApps } from "../schema/apps";
+import { organizations as schemaOrganizations } from "../schema/organizations";
 import {
 	type AppTemplate,
-	appTemplates,
+	appTemplates as schemaAppTemplates,
 	type NewAppTemplate,
 	type TemplateAdapter,
 	type TemplateTool,
 } from "../schema/templates";
-import { appTools, serializeAdapterScope } from "../schema/tools";
+import {
+	appTools as schemaAppTools,
+	serializeAdapterScope,
+} from "../schema/tools";
 import { toJsonRecord } from "../utils/json";
 
 // ============================================================================
@@ -45,6 +49,7 @@ import { toJsonRecord } from "../utils/json";
  * @returns Array of active templates
  */
 export async function getTemplates(db: DbClient): Promise<AppTemplate[]> {
+	const appTemplates = coreTable(db, schemaAppTemplates);
 	return db
 		.select()
 		.from(appTemplates)
@@ -97,18 +102,20 @@ export async function createTemplate(
 	db: DbClient,
 	template: Omit<NewAppTemplate, "id" | "createdAt" | "updatedAt">,
 ): Promise<AppTemplate> {
+	const appTemplates = coreTable(db, schemaAppTemplates);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
-	await db.insert(appTemplates).values({
-		...template,
-		id,
-		slug: template.slug.toLowerCase(),
-		createdAt: now,
-		updatedAt: now,
-	});
-
-	const created = await getTemplateById(db, id);
+	const [created] = await db
+		.insert(appTemplates)
+		.values({
+			...template,
+			id,
+			slug: template.slug.toLowerCase(),
+			createdAt: now,
+			updatedAt: now,
+		})
+		.returning();
 	if (!created) {
 		throw new Error(`Failed to create template: ${id}`);
 	}
@@ -129,6 +136,7 @@ export async function updateTemplate(
 	id: string,
 	updates: Partial<Omit<NewAppTemplate, "id" | "createdAt">>,
 ): Promise<AppTemplate | undefined> {
+	const appTemplates = coreTable(db, schemaAppTemplates);
 	const now = new Date().toISOString();
 
 	// Normalize slug if provided
@@ -138,12 +146,13 @@ export async function updateTemplate(
 		updatedAt: now,
 	};
 
-	await db
+	const [updated] = await db
 		.update(appTemplates)
 		.set(normalizedUpdates)
-		.where(eq(appTemplates.id, id));
+		.where(eq(appTemplates.id, id))
+		.returning();
 
-	return getTemplateById(db, id);
+	return updated;
 }
 
 /**
@@ -154,6 +163,7 @@ export async function updateTemplate(
  * @param id - Template ID
  */
 export async function deleteTemplate(db: DbClient, id: string): Promise<void> {
+	const appTemplates = coreTable(db, schemaAppTemplates);
 	const now = new Date().toISOString();
 
 	await db
@@ -204,9 +214,9 @@ export interface AppCustomization {
  * Result of applying a template to create an app
  */
 export interface ApplyTemplateResult {
-	app: typeof apps.$inferSelect;
-	adapters: Array<typeof appAdapters.$inferSelect>;
-	tools: Array<typeof appTools.$inferSelect>;
+	app: typeof schemaApps.$inferSelect;
+	adapters: Array<typeof schemaAppAdapters.$inferSelect>;
+	tools: Array<typeof schemaAppTools.$inferSelect>;
 }
 
 /**
@@ -239,6 +249,10 @@ export async function applyTemplate(
 	templateId: string,
 	appData: AppCustomization,
 ): Promise<ApplyTemplateResult> {
+	const appAdapters = coreTable(db, schemaAppAdapters);
+	const apps = coreTable(db, schemaApps);
+	const organizations = coreTable(db, schemaOrganizations);
+	const appTools = coreTable(db, schemaAppTools);
 	// 1. Fetch the template
 	const template = await getTemplateById(db, templateId);
 	if (!template) {

@@ -1,9 +1,12 @@
-import { and, desc, eq, isNull, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { organizations } from "../schema/organizations";
+import { coreTable } from "../core-store/client";
+import { anyIds, jsonRead } from "../core-store/dialect";
+import { batchNonEmpty } from "../utils/batch";
+import { organizations as schemaOrganizations } from "../schema/organizations";
 import {
-	siteReconciliationFindings,
-	siteReconciliationRuns,
+	siteReconciliationFindings as schemaFindings,
+	siteReconciliationRuns as schemaRuns,
 } from "../schema/site-reconciliation";
 
 export interface SiteFindingInput {
@@ -19,10 +22,11 @@ export async function listSiteReconciliationOrganizations(
 	db: DbClient,
 	limit = 100,
 ) {
+	const organizations = coreTable(db, schemaOrganizations);
 	return db
 		.select({ id: organizations.id, slug: organizations.slug })
 		.from(organizations)
-		.where(sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`)
+		.where(sql`${jsonRead(db, organizations.metadata, ["retiredAt"])} IS NULL`)
 		.orderBy(organizations.id)
 		.limit(limit);
 }
@@ -39,6 +43,8 @@ export async function recordSiteReconciliation(
 		findings: SiteFindingInput[];
 	},
 ) {
+	const siteReconciliationFindings = coreTable(db, schemaFindings);
+	const siteReconciliationRuns = coreTable(db, schemaRuns);
 	const open = await db
 		.select()
 		.from(siteReconciliationFindings)
@@ -51,7 +57,10 @@ export async function recordSiteReconciliation(
 	const byKey = new Map(
 		open.map((finding) => [`${finding.siteId}:${finding.code}`, finding]),
 	);
-	const statements = [
+	const statements: Array<
+		| ReturnType<ReturnType<typeof db.insert>["values"]>
+		| ReturnType<ReturnType<ReturnType<typeof db.update>["set"]>["where"]>
+	> = [
 		db.insert(siteReconciliationRuns).values({
 			id: input.runId,
 			organizationId: input.organizationId,
@@ -62,6 +71,24 @@ export async function recordSiteReconciliation(
 			issueCount: input.findings.length,
 		}),
 	];
+	const activeIds = input.findings
+		.map((finding) => byKey.get(`${finding.siteId}:${finding.code}`)?.id)
+		.filter((id): id is string => Boolean(id));
+	if (open.length)
+		statements.push(
+			db
+				.update(siteReconciliationFindings)
+				.set({ resolvedAt: input.completedAt })
+				.where(
+					and(
+						eq(siteReconciliationFindings.organizationId, input.organizationId),
+						isNull(siteReconciliationFindings.resolvedAt),
+						activeIds.length
+							? sql`NOT (${anyIds(db, siteReconciliationFindings.id, activeIds)})`
+							: sql`1 = 1`,
+					),
+				),
+		);
 	for (const finding of input.findings) {
 		const current = byKey.get(`${finding.siteId}:${finding.code}`);
 		if (current)
@@ -76,7 +103,7 @@ export async function recordSiteReconciliation(
 						detail: finding.detail,
 						lastDetectedAt: input.completedAt,
 					})
-					.where(eq(siteReconciliationFindings.id, current.id)) as never,
+					.where(eq(siteReconciliationFindings.id, current.id)),
 			);
 		else
 			statements.push(
@@ -92,39 +119,19 @@ export async function recordSiteReconciliation(
 					detail: finding.detail,
 					firstDetectedAt: input.completedAt,
 					lastDetectedAt: input.completedAt,
-				}) as never,
+				}),
 			);
 	}
-	const activeIds = input.findings
-		.map((finding) => byKey.get(`${finding.siteId}:${finding.code}`)?.id)
-		.filter((id): id is string => Boolean(id));
-	if (open.length)
-		statements.push(
-			db
-				.update(siteReconciliationFindings)
-				.set({ resolvedAt: input.completedAt })
-				.where(
-					and(
-						eq(siteReconciliationFindings.organizationId, input.organizationId),
-						isNull(siteReconciliationFindings.resolvedAt),
-						activeIds.length
-							? notInArray(siteReconciliationFindings.id, activeIds)
-							: sql`1 = 1`,
-					),
-				) as never,
-		);
-	await db.batch(
-		statements as [
-			(typeof statements)[number],
-			...(typeof statements)[number][],
-		],
-	);
+
+	await db.batch(batchNonEmpty(statements));
 }
 
 export async function getLatestSiteReconciliation(
 	db: DbClient,
 	organizationId: string,
 ) {
+	const siteReconciliationFindings = coreTable(db, schemaFindings);
+	const siteReconciliationRuns = coreTable(db, schemaRuns);
 	const [run] = await db
 		.select()
 		.from(siteReconciliationRuns)

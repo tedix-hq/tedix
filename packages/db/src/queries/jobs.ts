@@ -1,11 +1,11 @@
 /** Background-job query helpers, isolated from app and item query graphs. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
 import type { DbClient } from "../client";
 import type { Job, JobStatus, JobType, NewJob } from "../schema/jobs";
-import { jobs } from "../schema/jobs";
-import { getAffectedRows } from "../utils/d1-result";
+import { jobs as schemaJobs } from "../schema/jobs";
 
 /**
  * Create a new job
@@ -18,20 +18,22 @@ export async function createJob(
 		payload?: Record<string, JsonValue>;
 	},
 ): Promise<Job> {
+	const jobs = coreTable(db, schemaJobs);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
-	await db.insert(jobs).values({
-		id,
-		type: data.type,
-		appId: data.appId,
-		status: "pending",
-		payload: data.payload,
-		createdAt: now,
-		updatedAt: now,
-	});
-
-	const job = await getJobById(db, id);
+	const [job] = await db
+		.insert(jobs)
+		.values({
+			id,
+			type: data.type,
+			appId: data.appId,
+			status: "pending",
+			payload: data.payload,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.returning();
 	if (!job) throw new Error("Failed to create job");
 	return job;
 }
@@ -54,6 +56,7 @@ export async function getJobsByApp(
 	appId: string,
 	opts?: { limit?: number; offset?: number; status?: JobStatus },
 ) {
+	const jobs = coreTable(db, schemaJobs);
 	const conditions = [eq(jobs.appId, appId)];
 	if (opts?.status) {
 		conditions.push(eq(jobs.status, opts.status));
@@ -63,7 +66,7 @@ export async function getJobsByApp(
 		.select()
 		.from(jobs)
 		.where(and(...conditions))
-		.orderBy(desc(jobs.createdAt))
+		.orderBy(sql`${jobs.createdAt} DESC NULLS LAST`)
 		.limit(opts?.limit ?? 50);
 
 	if (opts?.offset !== undefined) {
@@ -81,6 +84,7 @@ export async function countJobsByApp(
 	appId: string,
 	opts?: { status?: JobStatus },
 ): Promise<number> {
+	const jobs = coreTable(db, schemaJobs);
 	const conditions = [eq(jobs.appId, appId)];
 	if (opts?.status) {
 		conditions.push(eq(jobs.status, opts.status));
@@ -102,6 +106,7 @@ export async function updateJobStatus(
 		progress?: Record<string, JsonValue>;
 	},
 ): Promise<Job | undefined> {
+	const jobs = coreTable(db, schemaJobs);
 	const now = new Date().toISOString();
 
 	const updateData: Partial<NewJob> = {
@@ -127,9 +132,12 @@ export async function updateJobStatus(
 		updateData.progress = data.progress;
 	}
 
-	await db.update(jobs).set(updateData).where(eq(jobs.id, id));
-
-	return getJobById(db, id);
+	const [updated] = await db
+		.update(jobs)
+		.set(updateData)
+		.where(eq(jobs.id, id))
+		.returning();
+	return updated;
 }
 
 /**
@@ -140,17 +148,19 @@ export async function updateJobProgress(
 	id: string,
 	progress: Record<string, JsonValue>,
 ): Promise<Job | undefined> {
+	const jobs = coreTable(db, schemaJobs);
 	const now = new Date().toISOString();
 
-	await db
+	const [updated] = await db
 		.update(jobs)
 		.set({
 			progress,
 			updatedAt: now,
 		})
-		.where(eq(jobs.id, id));
+		.where(eq(jobs.id, id))
+		.returning();
 
-	return getJobById(db, id);
+	return updated;
 }
 
 /**
@@ -160,6 +170,7 @@ export async function cleanupOldJobs(
 	db: DbClient,
 	olderThanDays = 7,
 ): Promise<number> {
+	const jobs = coreTable(db, schemaJobs);
 	const cutoff = new Date();
 	cutoff.setDate(cutoff.getDate() - olderThanDays);
 	const cutoffStr = cutoff.toISOString();
@@ -171,7 +182,8 @@ export async function cleanupOldJobs(
 				or(eq(jobs.status, "completed"), eq(jobs.status, "failed")),
 				sql`${jobs.completedAt} < ${cutoffStr}`,
 			),
-		);
+		)
+		.returning({ id: jobs.id });
 
-	return getAffectedRows(result);
+	return result.length;
 }

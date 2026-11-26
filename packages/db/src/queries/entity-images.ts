@@ -1,8 +1,10 @@
-import { and, eq, isNotNull, notLike } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { likeText } from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
 import type { DbClient } from "../client";
-import { apps } from "../schema/apps";
-import { organizations } from "../schema/organizations";
-import { tedis } from "../schema/tedis";
+import { apps as schemaApps } from "../schema/apps";
+import { organizations as schemaOrganizations } from "../schema/organizations";
+import { tedis as schemaTedis } from "../schema/tedis";
 
 export type ImageEntityType = "organization" | "app" | "tedi";
 
@@ -12,6 +14,9 @@ export async function listLegacyEntityImagesForPlatform(
 	entityType: ImageEntityType,
 	limit: number,
 ): Promise<Array<{ id: string; url: string | null }>> {
+	const apps = coreTable(db, schemaApps);
+	const organizations = coreTable(db, schemaOrganizations);
+	const tedis = coreTable(db, schemaTedis);
 	const legacyPattern = "%imagedelivery.net%";
 	switch (entityType) {
 		case "organization":
@@ -21,7 +26,7 @@ export async function listLegacyEntityImagesForPlatform(
 				.where(
 					and(
 						isNotNull(organizations.logoUrl),
-						notLike(organizations.logoUrl, legacyPattern),
+						sql`NOT (${likeText(db, organizations.logoUrl, legacyPattern)})`,
 					),
 				)
 				.limit(limit);
@@ -30,7 +35,10 @@ export async function listLegacyEntityImagesForPlatform(
 				.select({ id: apps.id, url: apps.logoUrl })
 				.from(apps)
 				.where(
-					and(isNotNull(apps.logoUrl), notLike(apps.logoUrl, legacyPattern)),
+					and(
+						isNotNull(apps.logoUrl),
+						sql`NOT (${likeText(db, apps.logoUrl, legacyPattern)})`,
+					),
 				)
 				.limit(limit);
 		case "tedi":
@@ -38,7 +46,10 @@ export async function listLegacyEntityImagesForPlatform(
 				.select({ id: tedis.id, url: tedis.avatar })
 				.from(tedis)
 				.where(
-					and(isNotNull(tedis.avatar), notLike(tedis.avatar, legacyPattern)),
+					and(
+						isNotNull(tedis.avatar),
+						sql`NOT (${likeText(db, tedis.avatar, legacyPattern)})`,
+					),
 				)
 				.limit(limit);
 	}
@@ -52,6 +63,9 @@ export async function getEntityImageUrl(
 		organizationId: string;
 	},
 ): Promise<string | null> {
+	const apps = coreTable(db, schemaApps);
+	const organizations = coreTable(db, schemaOrganizations);
+	const tedis = coreTable(db, schemaTedis);
 	switch (input.entityType) {
 		case "organization": {
 			const [row] = await db
@@ -104,6 +118,9 @@ export async function updateEntityImageUrl(
 		url: string | null;
 	},
 ): Promise<void> {
+	const apps = coreTable(db, schemaApps);
+	const organizations = coreTable(db, schemaOrganizations);
+	const tedis = coreTable(db, schemaTedis);
 	switch (input.entityType) {
 		case "organization":
 			await db
@@ -149,6 +166,9 @@ export async function updateEntityImageUrlForPlatform(
 		url: string | null;
 	},
 ): Promise<void> {
+	const apps = coreTable(db, schemaApps);
+	const organizations = coreTable(db, schemaOrganizations);
+	const tedis = coreTable(db, schemaTedis);
 	switch (input.entityType) {
 		case "organization":
 			await db

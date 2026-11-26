@@ -3,12 +3,14 @@
  * CRUD operations for plugins, plugin installs, and plugin events.
  */
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
+import { coreStore } from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
 import type { DbClient } from "../client";
 import {
-	tediPlugins,
-	tediPluginInstalls,
-	tediPluginEvents,
+	tediPlugins as schemaTediPlugins,
+	tediPluginInstalls as schemaTediPluginInstalls,
+	tediPluginEvents as schemaTediPluginEvents,
 	type TediPlugin,
 	type PluginType,
 	type PluginStatus,
@@ -34,6 +36,7 @@ export async function listPlugins(
 	db: DbClient,
 	options: ListPluginsOptions = {},
 ): Promise<{ data: TediPlugin[]; total: number }> {
+	const tediPlugins = coreTable(db, schemaTediPlugins);
 	const { type, status, query, limit = 20, offset = 0 } = options;
 
 	const conditions = [];
@@ -44,21 +47,25 @@ export async function listPlugins(
 	// LIKE's ASCII case-insensitivity.
 	if (query) {
 		conditions.push(
-			sql`instr(lower(${tediPlugins.name}), lower(${query})) > 0`,
+			coreStore(db) === "postgres"
+				? sql`strpos(translate(${tediPlugins.name}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), translate(${query}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')) > 0`
+				: sql`instr(lower(${tediPlugins.name}), lower(${query})) > 0`,
 		);
 	}
 
 	const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-	const data = await db
-		.select()
-		.from(tediPlugins)
-		.where(where)
-		.orderBy(desc(tediPlugins.createdAt))
-		.limit(limit)
-		.offset(offset);
-
-	const total = await db.$count(tediPlugins, where);
+	const [data, totals] = await db.batch([
+		db
+			.select()
+			.from(tediPlugins)
+			.where(where)
+			.orderBy(sql`${tediPlugins.createdAt} DESC NULLS LAST`)
+			.limit(limit)
+			.offset(offset),
+		db.select({ total: count() }).from(tediPlugins).where(where),
+	]);
+	const total = totals[0]?.total ?? 0;
 
 	return { data, total };
 }
@@ -67,6 +74,7 @@ export async function getPluginById(
 	db: DbClient,
 	pluginId: string,
 ): Promise<TediPlugin | undefined> {
+	const tediPlugins = coreTable(db, schemaTediPlugins);
 	const [plugin] = await db
 		.select()
 		.from(tediPlugins)
@@ -82,6 +90,7 @@ export async function createPluginInstall(
 	db: DbClient,
 	install: NewTediPluginInstall,
 ): Promise<void> {
+	const tediPluginInstalls = coreTable(db, schemaTediPluginInstalls);
 	await db.insert(tediPluginInstalls).values(install);
 }
 
@@ -90,6 +99,7 @@ export async function getPluginInstall(
 	installId: string,
 	orgId: string,
 ): Promise<TediPluginInstall | undefined> {
+	const tediPluginInstalls = coreTable(db, schemaTediPluginInstalls);
 	const [existing] = await db
 		.select()
 		.from(tediPluginInstalls)
@@ -107,15 +117,13 @@ export async function updatePluginInstall(
 	installId: string,
 	updates: Partial<NewTediPluginInstall>,
 ): Promise<TediPluginInstall | undefined> {
-	await db
+	const tediPluginInstalls = coreTable(db, schemaTediPluginInstalls);
+	const [updated] = await db
 		.update(tediPluginInstalls)
 		.set(updates)
-		.where(eq(tediPluginInstalls.id, installId));
+		.where(eq(tediPluginInstalls.id, installId))
+		.returning();
 
-	const [updated] = await db
-		.select()
-		.from(tediPluginInstalls)
-		.where(eq(tediPluginInstalls.id, installId));
 	return updated;
 }
 
@@ -123,6 +131,7 @@ export async function deletePluginInstall(
 	db: DbClient,
 	installId: string,
 ): Promise<void> {
+	const tediPluginInstalls = coreTable(db, schemaTediPluginInstalls);
 	await db
 		.delete(tediPluginInstalls)
 		.where(eq(tediPluginInstalls.id, installId));
@@ -136,6 +145,7 @@ export async function createPluginEvent(
 	db: DbClient,
 	event: NewTediPluginEvent,
 ): Promise<void> {
+	const tediPluginEvents = coreTable(db, schemaTediPluginEvents);
 	await db.insert(tediPluginEvents).values(event);
 }
 
@@ -152,7 +162,11 @@ export interface ListPluginEventsOptions {
 export async function listPluginEvents(
 	db: DbClient,
 	options: ListPluginEventsOptions,
-): Promise<{ data: (typeof tediPluginEvents.$inferSelect)[]; total: number }> {
+): Promise<{
+	data: (typeof schemaTediPluginEvents.$inferSelect)[];
+	total: number;
+}> {
+	const tediPluginEvents = coreTable(db, schemaTediPluginEvents);
 	const {
 		orgId,
 		pluginId,
@@ -169,15 +183,20 @@ export async function listPluginEvents(
 	if (eventType) conditions.push(eq(tediPluginEvents.eventType, eventType));
 	if (status) conditions.push(eq(tediPluginEvents.status, status));
 
-	const data = await db
-		.select()
-		.from(tediPluginEvents)
-		.where(and(...conditions))
-		.orderBy(desc(tediPluginEvents.createdAt))
-		.limit(limit)
-		.offset(offset);
-
-	const total = await db.$count(tediPluginEvents, and(...conditions));
+	const [data, totals] = await db.batch([
+		db
+			.select()
+			.from(tediPluginEvents)
+			.where(and(...conditions))
+			.orderBy(sql`${tediPluginEvents.createdAt} DESC NULLS LAST`)
+			.limit(limit)
+			.offset(offset),
+		db
+			.select({ total: count() })
+			.from(tediPluginEvents)
+			.where(and(...conditions)),
+	]);
+	const total = totals[0]?.total ?? 0;
 
 	return { data, total };
 }

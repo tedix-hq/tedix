@@ -17,10 +17,8 @@ import type { SQL, SQLWrapper } from "drizzle-orm";
 import { coreTable } from "../core-store/client";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { resolveConnectionResourceAccess } from "@tedix/api-contract/utils/connection-resource-policy";
-import {
-	getConnectionInstance,
-	getOrganizationConnectionAllowedResources,
-} from "./connection-instances";
+import { listOrganizationConnectionInstances } from "./connection-instances";
+import { listOrganizationConnectionAllowedResources } from "./connection-providers";
 import type { InstallationTrustPolicy } from "@tedix/api-contract/schemas/installation-trust";
 import { getInstallationTrustPolicy } from "./installation-trust";
 import type { WidgetConfig } from "@tedix/api-contract/schemas/widget";
@@ -61,43 +59,62 @@ export async function filterAppConnectionResourceTools<
 	tools: T[],
 ): Promise<T[]> {
 	const defaults = app.metadata?.mcpConfig;
-	const instances = new Map<string, ReturnType<typeof getConnectionInstance>>();
-	const providerLimits = new Map<
-		string,
-		ReturnType<typeof getOrganizationConnectionAllowedResources>
-	>();
-	const decisions = await Promise.all(
-		tools.map(async (tool) => {
-			const config = tool.config;
-			const auth = isRecord(config?.auth) ? config.auth : undefined;
-			const ownProvider =
-				typeof auth?.connectionId === "string" ? auth.connectionId : undefined;
-			const providerId =
-				defaults?.connectionProviderId ??
-				(auth?.type === "connection" ? ownProvider : undefined);
-			const inherited = Boolean(defaults?.connectionProviderId);
-			const instanceId =
-				typeof auth?.connectionInstanceId === "string"
-					? auth.connectionInstanceId
-					: inherited
-						? defaults?.connectionInstanceId
-						: undefined;
-			const scope =
-				defaults?.connectionScope ??
-				auth?.credentialScope ??
-				auth?.scope ??
-				"tenant";
-			if (!providerId || scope === "user") return true;
-			let limits = providerLimits.get(providerId);
-			if (!limits) {
-				limits = getOrganizationConnectionAllowedResources(
-					db,
-					app.organizationId,
-					providerId,
-				);
-				providerLimits.set(providerId, limits);
-			}
-			const allowedResources = await limits;
+	const candidates = tools.map((tool) => {
+		const config = tool.config;
+		const auth = isRecord(config?.auth) ? config.auth : undefined;
+		const ownProvider =
+			typeof auth?.connectionId === "string" ? auth.connectionId : undefined;
+		const providerId =
+			defaults?.connectionProviderId ??
+			(auth?.type === "connection" ? ownProvider : undefined);
+		const inherited = Boolean(defaults?.connectionProviderId);
+		const instanceId =
+			typeof auth?.connectionInstanceId === "string"
+				? auth.connectionInstanceId
+				: inherited
+					? defaults?.connectionInstanceId
+					: undefined;
+		const scope =
+			defaults?.connectionScope ??
+			auth?.credentialScope ??
+			auth?.scope ??
+			"tenant";
+		return {
+			tool,
+			config,
+			auth,
+			providerId,
+			instanceId,
+			bypass: !providerId || scope === "user",
+		};
+	});
+	const tenant = candidates.filter((candidate) => !candidate.bypass);
+	if (!tenant.length) return tools;
+	const key = (providerId: string, id: string) =>
+		JSON.stringify([providerId, id]);
+	const pairs = tenant.flatMap(({ providerId, instanceId }) =>
+		providerId && instanceId ? [{ providerId, id: instanceId }] : [],
+	);
+	const [policies, rows] = await Promise.all([
+		listOrganizationConnectionAllowedResources(
+			db,
+			app.organizationId,
+			tenant.flatMap((candidate) =>
+				candidate.providerId ? [candidate.providerId] : [],
+			),
+		),
+		listOrganizationConnectionInstances(db, app.organizationId, pairs),
+	]);
+	const providerLimits = new Map(
+		policies.map((row) => [row.providerId, row.allowedResources]),
+	);
+	const instances = new Map(
+		rows.map((row) => [key(row.providerId, row.id), row]),
+	);
+	return candidates
+		.filter(({ config, auth, providerId, instanceId, bypass }) => {
+			if (bypass || !providerId) return true;
+			const allowedResources = providerLimits.get(providerId) ?? null;
 			const effectiveConfig =
 				auth?.type && auth.type !== "connection"
 					? config
@@ -114,18 +131,7 @@ export async function filterAppConnectionResourceTools<
 			)
 				return false;
 			if (!instanceId) return true;
-			const key = `${providerId}:${instanceId}`;
-			let pending = instances.get(key);
-			if (!pending) {
-				pending = getConnectionInstance(
-					db,
-					{ organizationId: app.organizationId },
-					instanceId,
-					providerId,
-				);
-				instances.set(key, pending);
-			}
-			const instance = await pending;
+			const instance = instances.get(key(providerId, instanceId));
 			return Boolean(
 				instance &&
 				resolveConnectionResourceAccess({
@@ -135,9 +141,8 @@ export async function filterAppConnectionResourceTools<
 					config: effectiveConfig,
 				}).allowed,
 			);
-		}),
-	);
-	return tools.filter((_, index) => decisions[index]);
+		})
+		.map((candidate) => candidate.tool);
 }
 
 type ToolSelectionOptions = {

@@ -10,6 +10,7 @@ import { appCatalog } from "../schema/catalog";
 import { appTools } from "../schema/tools";
 import { tenantToolPolicyResourceGenerations } from "../schema/tenant-tool-policy";
 import {
+	filterAppConnectionResourceTools,
 	deleteApp,
 	getAppById,
 	getAppBySlugWithTools,
@@ -134,6 +135,89 @@ import {
 	toggleAdapterEnabled,
 	deleteAdapter,
 } from "./adapters";
+
+import { connectionInstances } from "../schema/connection-instances";
+import {
+	memoryDomains,
+	memoryFacts,
+	tediExpertise,
+} from "../schema/memory-graph";
+import { tediRationaleRecords } from "../schema/rationale-records";
+import {
+	upsertItems,
+	getItemById,
+	searchItems,
+	deleteItemsByApp,
+	getItemCount,
+} from "./items";
+import {
+	collectAllTediGrowthMetrics,
+	createGrowthSnapshot,
+	listGrowthSnapshots,
+} from "./growth-snapshots";
+import {
+	listSiteReconciliationOrganizations,
+	recordSiteReconciliation,
+	getLatestSiteReconciliation,
+} from "./site-reconciliation";
+
+import { batchNonEmpty } from "../utils/batch";
+
+import { tenantBundles } from "../schema/tenant-bundles";
+import { projects } from "../schema/projects";
+import {
+	getActiveTenantBundle,
+	listPrunableTenantBundles,
+	deleteTenantBundleRow,
+} from "./tenant-bundles";
+import {
+	listSiteVersionProjects,
+	saveSiteVersionReport,
+	findSiteUpgradeWork,
+} from "./site-versions";
+import {
+	listCmsTemplateUpstreamProjects,
+	saveCmsTemplateUpstreamReport,
+	findOpenCmsTemplateUpstreamWork,
+} from "./cms-template-upstream";
+
+import {
+	createTemplate,
+	applyTemplate,
+	updateTemplate,
+	deleteTemplate,
+	getTemplates,
+} from "./templates";
+import {
+	createJob,
+	updateJobStatus,
+	updateJobProgress,
+	getJobsByApp,
+	countJobsByApp,
+	cleanupOldJobs,
+} from "./jobs";
+import { tediPlugins } from "../schema/plugins";
+import {
+	createPluginInstall,
+	getPluginInstall,
+	updatePluginInstall,
+	createPluginEvent,
+	listPluginEvents,
+	listPlugins,
+} from "./plugins";
+import { userConfigs } from "../schema/user-configs";
+import {
+	savePushConfig,
+	listPushConfigs,
+	deletePushConfigs,
+	hasVisiblePushConversation,
+} from "./web-push";
+import { getOrganizationModelFallback } from "./model-fallback";
+import {
+	getEntityImageUrl,
+	updateEntityImageUrl,
+	listLegacyEntityImagesForPlatform,
+} from "./entity-images";
 
 const nativeUrl = process.env.TEST_POSTGRES_URL;
 const stores = nativeUrl
@@ -843,6 +927,643 @@ for (const store of stores) {
 			await confirmOrphanWorkflowCleanup(db, item, "terminated");
 			await confirmOrphanWorkflowCleanup(db, item, "terminated");
 			expect(await listPendingOrphanWorkflowCleanups(db, later)).toEqual([]);
+		});
+
+		it("filters large provider/instance sets with two tenant reads and no user-scope reads", async () => {
+			const ids = Array.from({ length: 120 }, (_, i) => `policy-provider-${i}`);
+			await db.batch(
+				batchNonEmpty(
+					ids.map((id) =>
+						db.insert(coreTable(db, connectionInstances)).values({
+							id,
+							providerId: id,
+							ownerUserId: "user",
+							organizationId: "org",
+							label: id,
+							tokenIds: [],
+							createdAt: "now",
+							updatedAt: "now",
+						}),
+					),
+				),
+			);
+			const tools = ids.map((id) => ({
+				id,
+				config: {
+					transport: "mcp" as const,
+					auth: {
+						type: "connection" as const,
+						connectionId: id,
+						connectionInstanceId: id,
+					},
+				},
+			}));
+			const missing = {
+				id: "missing",
+				config: {
+					auth: {
+						type: "connection" as const,
+						connectionId: ids[0]!,
+						connectionInstanceId: "absent",
+					},
+				},
+			};
+			const user = {
+				id: "user",
+				config: {
+					auth: { ...missing.config.auth, credentialScope: "user" as const },
+				},
+			};
+			const wrongPair = {
+				id: "wrong-pair",
+				config: {
+					auth: { ...missing.config.auth, connectionInstanceId: ids[1]! },
+				},
+			};
+			const select = vi.spyOn(db, "select");
+			try {
+				expect(
+					await filterAppConnectionResourceTools(
+						db,
+						{ organizationId: "org", metadata: null },
+						[...tools, missing, user, wrongPair],
+					),
+				).toEqual([...tools, user]);
+				expect(select).toHaveBeenCalledTimes(2);
+				select.mockClear();
+				expect(
+					await filterAppConnectionResourceTools(
+						db,
+						{ organizationId: "other", metadata: null },
+						[tools[0]!, user],
+					),
+				).toEqual([user]);
+				expect(select).toHaveBeenCalledTimes(2);
+				select.mockClear();
+				expect(
+					await filterAppConnectionResourceTools(
+						db,
+						{ organizationId: "missing", metadata: null },
+						[user],
+					),
+				).toEqual([user]);
+				expect(select).not.toHaveBeenCalled();
+			} finally {
+				select.mockRestore();
+			}
+		});
+
+		it("batches item imports in order, retaining successes around conflicts and isolating apps", async () => {
+			await db.insert(coreTable(db, apps)).values([
+				{ id: "item-app", organizationId: "org", name: "Items", slug: "items" },
+				{
+					id: "foreign-item-app",
+					organizationId: "other",
+					name: "Items",
+					slug: "items",
+				},
+			]);
+			const batch = vi.spyOn(db, "batch");
+			try {
+				expect(
+					await upsertItems(db, "item-app", [
+						{
+							id: "item-first",
+							externalId: "external",
+							title: "First",
+							vertical: "ecommerce",
+							url: "https://example.test/first",
+							metadata: { nested: [true, null] },
+						},
+						{
+							id: "item-updated",
+							externalId: "external",
+							title: "Updated",
+							vertical: "ecommerce",
+						},
+						{
+							id: "item-conflict",
+							externalId: "conflict",
+							title: "Conflict",
+							vertical: "ecommerce",
+							url: "https://example.test/first",
+						},
+						...Array.from({ length: 120 }, (_, i) => ({
+							id: `bulk-item-${i}`,
+							title: `ÄLPHA product ${i}`,
+							vertical: "ecommerce",
+						})),
+					]),
+				).toEqual({
+					inserted: 121,
+					updated: 1,
+					errors: [expect.stringContaining('"Conflict"')],
+				});
+				expect(batch).toHaveBeenCalledTimes(1);
+			} finally {
+				batch.mockRestore();
+			}
+			expect((await getItemById(db, "item-updated"))?.metadata).toEqual({
+				nested: [true, null],
+			});
+			expect(await searchItems(db, "item-app", "älpha")).toEqual([]);
+			expect(
+				await searchItems(db, "item-app", "Älpha", { limit: 150 }),
+			).toHaveLength(120);
+			expect(
+				await upsertItems(db, "foreign-item-app", [
+					{
+						id: "foreign-item",
+						externalId: "external",
+						title: "Foreign",
+						vertical: "ecommerce",
+					},
+				]),
+			).toMatchObject({ inserted: 1, updated: 0 });
+			expect(await getItemCount(db, "item-app")).toBe(121);
+			expect(await deleteItemsByApp(db, "item-app")).toBe(121);
+			expect(await getItemCount(db, "foreign-item-app")).toBe(1);
+		});
+
+		it("collects growth metrics with bounded sets, numeric results and structured snapshots", async () => {
+			const rows = Array.from({ length: 120 }, (_, i) => ({
+				id: `growth-tedi-${i}`,
+				organizationId: "org",
+				name: "Growth",
+				status: "active" as const,
+				slug: `growth-${i}`,
+			}));
+			await db.batch(
+				batchNonEmpty(
+					rows.map((row) => db.insert(coreTable(db, tedis)).values(row)),
+				),
+			);
+			await db
+				.insert(coreTable(db, memoryDomains))
+				.values({ id: "growth-domain", organizationId: "org", name: "Growth" });
+			await db.insert(coreTable(db, memoryFacts)).values([
+				{
+					id: "growth-fact",
+					organizationId: "org",
+					tediId: "growth-tedi-0",
+					content: "Example",
+					factType: "technical",
+					confidence: 0.8123,
+				},
+				{
+					id: "growth-archived",
+					organizationId: "org",
+					tediId: "growth-tedi-0",
+					content: "Old",
+					factType: "technical",
+					confidence: 0.2,
+					archivedAt: "2026-11-25",
+				},
+			]);
+			await db.insert(coreTable(db, tediExpertise)).values({
+				id: "growth-expertise",
+				tediId: "growth-tedi-0",
+				domainId: "growth-domain",
+				expertiseLevel: "expert",
+			});
+			await db.insert(coreTable(db, tediRationaleRecords)).values({
+				id: "growth-rationale",
+				tediId: "growth-tedi-0",
+				orgId: "org",
+				action: "read",
+				rationale: "Example",
+				runId: "growth-run",
+				createdAt: "2026-11-26T00:00:00Z",
+			});
+			const batch = vi.spyOn(db, "batch");
+			let collected: Awaited<ReturnType<typeof collectAllTediGrowthMetrics>>;
+			try {
+				collected = await collectAllTediGrowthMetrics(db, "2026-11-26");
+				expect(batch).toHaveBeenCalledTimes(1);
+				expect(batch.mock.calls[0]![0]).toHaveLength(2);
+			} finally {
+				batch.mockRestore();
+			}
+			const first = collected.find((row) => row.tediId === "growth-tedi-0")!;
+			expect(first.metrics).toEqual({
+				facts: 1,
+				avgConfidence: 0.812,
+				skills: 0,
+				avgRevision: 0,
+				muscles: 0,
+				avgUsage: 0,
+				domains: 1,
+				autonomyRate: 1,
+				expertiseLevels: { "growth-domain": "expert" },
+			});
+			expect(
+				collected.filter((row) => row.tediId.startsWith("growth-tedi-")),
+			).toHaveLength(120);
+			await createGrowthSnapshot(db, first);
+			await createGrowthSnapshot(db, {
+				...first,
+				metrics: { ...first.metrics, facts: 2 },
+			});
+			expect(await listGrowthSnapshots(db, first.tediId)).toMatchObject({
+				total: 1,
+				data: [{ metrics: { facts: 2 } }],
+			});
+		});
+
+		it("keeps new reconciliation findings open while resolving old ones in one batch", async () => {
+			const finding = {
+				siteId: "reconcile-site",
+				slug: "example",
+				type: "cms" as const,
+				code: "old",
+				severity: "error" as const,
+				detail: "Example",
+			};
+			const input = {
+				organizationId: "org",
+				source: "scheduled" as const,
+				startedAt: "2026-11-25T00:00:00Z",
+				completedAt: "2026-11-25T00:00:01Z",
+				sitesChecked: 1,
+			};
+			await recordSiteReconciliation(db, {
+				...input,
+				runId: "reconcile-first",
+				findings: [finding],
+			});
+			const batch = vi.spyOn(db, "batch");
+			try {
+				await recordSiteReconciliation(db, {
+					...input,
+					runId: "reconcile-next",
+					completedAt: "2026-11-25T01:00:01Z",
+					findings: [{ ...finding, code: "new" }],
+				});
+				expect(batch).toHaveBeenCalledTimes(1);
+			} finally {
+				batch.mockRestore();
+			}
+			expect(await getLatestSiteReconciliation(db, "org")).toMatchObject({
+				run: { id: "reconcile-next", issueCount: 1 },
+				findings: [{ code: "new", resolvedAt: null }],
+			});
+			expect(await getLatestSiteReconciliation(db, "other")).toBeNull();
+			expect(
+				(await listSiteReconciliationOrganizations(db)).map((row) => row.id),
+			).toContain("org");
+			await expect(
+				recordSiteReconciliation(db, {
+					...input,
+					runId: "reconcile-next",
+					findings: [],
+				}),
+			).rejects.toThrow();
+			expect(await getLatestSiteReconciliation(db, "org")).toMatchObject({
+				findings: [{ code: "new", resolvedAt: null }],
+			});
+		});
+
+		it("retains active and referenced CMS generations", async () => {
+			await db.insert(coreTable(db, tenantBundles)).values(
+				[1, 2, 3].map((version) => ({
+					id: `cms-bundle-${version}`,
+					slug: "bundle-example",
+					version,
+					r2Prefix: `example/v${version}`,
+					mainModule: "entry.mjs",
+					etag: `etag-${version}`,
+					modulesJson: ["entry.mjs"],
+					isActive: version === 3,
+				})),
+			);
+			expect(await getActiveTenantBundle(db, "bundle-example")).toMatchObject({
+				version: 3,
+				modulesJson: ["entry.mjs"],
+			});
+			expect(
+				await listPrunableTenantBundles(db, "bundle-example", 0, {
+					compressedVersions: [1, 2],
+					referencedVersions: [2],
+				}),
+			).toMatchObject([{ version: 1 }]);
+			expect(await deleteTenantBundleRow(db, "bundle-example", 3)).toBe(false);
+			expect(await deleteTenantBundleRow(db, "absent", 1)).toBe(false);
+			expect(await deleteTenantBundleRow(db, "bundle-example", 1)).toBe(true);
+			expect((await getActiveTenantBundle(db, "bundle-example"))?.version).toBe(
+				3,
+			);
+		});
+
+		it("stores structured version/template reports only on the owning configured project", async () => {
+			const table = coreTable(db, projects);
+			await db.insert(table).values([
+				{
+					id: "cms-report-project",
+					orgId: "org",
+					key: "CMSREPORT",
+					name: "CMS",
+					createdAt: "2026-11-26",
+					metadata: {
+						siteVersionCheck: { enabled: true },
+						cmsTemplateUpstreamCheck: { enabled: true },
+						keep: [1, true],
+					},
+				},
+				{
+					id: "cms-other-project",
+					orgId: "other",
+					key: "CMSREPORT",
+					name: "CMS",
+					createdAt: "2026-11-26",
+					metadata: {
+						siteVersionCheck: { enabled: true },
+						cmsTemplateUpstreamCheck: { enabled: true },
+					},
+				},
+			]);
+			expect(
+				(await listSiteVersionProjects(db, "org")).map((row) => row.id),
+			).toEqual(["cms-report-project"]);
+			expect(
+				(await listCmsTemplateUpstreamProjects(db, "org")).map((row) => row.id),
+			).toEqual(["cms-report-project"]);
+			const version = {
+				checkedAt: "2026-11-26",
+				productRevision: "a".repeat(40),
+				sites: [],
+				alerts: [],
+			};
+			const template = {
+				checkedAt: "2026-11-26",
+				upstreamRevision: "b".repeat(40),
+				projects: [],
+			};
+			await saveSiteVersionReport(db, "cms-report-project", "other", version);
+			await saveCmsTemplateUpstreamReport(
+				db,
+				"cms-report-project",
+				"other",
+				template,
+			);
+			expect(
+				(
+					await db
+						.select()
+						.from(table)
+						.where(eq(table.id, "cms-report-project"))
+				)[0]?.metadata,
+			).not.toHaveProperty("siteVersionReport");
+			await saveSiteVersionReport(db, "cms-report-project", "org", version);
+			await saveCmsTemplateUpstreamReport(
+				db,
+				"cms-report-project",
+				"org",
+				template,
+			);
+			expect(
+				(
+					await db
+						.select()
+						.from(table)
+						.where(eq(table.id, "cms-report-project"))
+				)[0]?.metadata,
+			).toMatchObject({
+				keep: [1, true],
+				siteVersionReport: version,
+				cmsTemplateUpstreamReport: template,
+			});
+			expect(
+				await findSiteUpgradeWork(db, "org", "cms-report-project", "Absent"),
+			).toBeNull();
+			expect(
+				await findOpenCmsTemplateUpstreamWork(
+					db,
+					"org",
+					"cms-report-project",
+					"Absent",
+				),
+			).toBeNull();
+		});
+
+		it("applies app templates in one atomic batch and persists structured job results", async () => {
+			const template = await createTemplate(db, {
+				slug: "PARITY-TEMPLATE",
+				name: "Parity",
+				vertical: "ecommerce",
+				isActive: true,
+				adapters: [
+					{
+						name: "example",
+						adapterType: "custom",
+						config: { baseUrl: "https://example.test" },
+					},
+				],
+				tools: [
+					{
+						toolId: "read_items",
+						title: "Read",
+						toolTypeId: "rpc",
+						writeCapability: "read",
+						widgetKey: "render",
+						config: { endpoint: "items/list" },
+					},
+				],
+			});
+			const batch = vi.spyOn(db, "batch");
+			let result: Awaited<ReturnType<typeof applyTemplate>>;
+			try {
+				result = await applyTemplate(db, template.id, {
+					organizationId: "org",
+					name: "Template app",
+					slug: "template-app",
+					primaryDomain: "template.example.test",
+				});
+				expect(batch).toHaveBeenCalledTimes(1);
+			} finally {
+				batch.mockRestore();
+			}
+			expect(result.adapters).toMatchObject([
+				{ config: { baseUrl: "https://example.test" } },
+			]);
+			expect(result.tools).toMatchObject([
+				{ toolId: "read_items", writeCapability: "read" },
+			]);
+			await expect(
+				applyTemplate(db, template.id, {
+					organizationId: "org",
+					name: "Duplicate",
+					slug: "template-app",
+					primaryDomain: "duplicate.example.test",
+				}),
+			).rejects.toThrow();
+			const job = await createJob(db, {
+				appId: result.app.id,
+				type: "scrape",
+				payload: { nested: [true, null] },
+			});
+			expect(job.payload).toEqual({ nested: [true, null] });
+			expect(await updateJobStatus(db, job.id, "running")).toMatchObject({
+				startedAt: expect.any(String),
+			});
+			expect(await updateJobProgress(db, job.id, { count: 3 })).toMatchObject({
+				progress: { count: 3 },
+			});
+			expect(
+				await updateJobStatus(db, job.id, "completed", {
+					result: { values: [1, 2] },
+				}),
+			).toMatchObject({
+				result: { values: [1, 2] },
+				completedAt: expect.any(String),
+			});
+			expect(
+				await countJobsByApp(db, result.app.id, { status: "completed" }),
+			).toBe(1);
+			expect(await getJobsByApp(db, "foreign-item-app")).toEqual([]);
+			expect(await cleanupOldJobs(db, 7)).toBe(0);
+			expect(
+				await updateTemplate(db, template.id, { name: "Renamed" }),
+			).toMatchObject({ name: "Renamed" });
+			await deleteTemplate(db, template.id);
+			expect(
+				(await getTemplates(db)).some((row) => row.id === template.id),
+			).toBe(false);
+		});
+
+		it("paginates plugin installs and events with isolated JSON values", async () => {
+			await db.insert(coreTable(db, tediPlugins)).values({
+				id: "parity-plugin",
+				slug: "parity-plugin",
+				name: "ÄLPHA plugin",
+				type: "tool",
+				version: "1.0",
+				manifest: { nested: [true] },
+			});
+			expect(await listPlugins(db, { query: "Älpha" })).toMatchObject({
+				total: 1,
+				data: [{ manifest: { nested: [true] } }],
+			});
+			expect(await listPlugins(db, { query: "älpha" })).toMatchObject({
+				total: 0,
+				data: [],
+			});
+			await createPluginInstall(db, {
+				id: "parity-install",
+				orgId: "org",
+				pluginId: "parity-plugin",
+				config: { enabled: true },
+			});
+			expect(
+				await getPluginInstall(db, "parity-install", "other"),
+			).toBeUndefined();
+			expect(
+				await updatePluginInstall(db, "parity-install", {
+					config: { nested: [null, true] },
+				}),
+			).toMatchObject({ config: { nested: [null, true] } });
+			await createPluginEvent(db, {
+				id: "parity-event",
+				orgId: "org",
+				pluginId: "parity-plugin",
+				eventType: "read",
+				payload: { input: [1] },
+			});
+			expect(
+				await listPluginEvents(db, { orgId: "org", pluginId: "parity-plugin" }),
+			).toMatchObject({ total: 1, data: [{ payload: { input: [1] } }] });
+			expect(await listPluginEvents(db, { orgId: "other" })).toEqual({
+				total: 0,
+				data: [],
+			});
+		});
+
+		it("deletes push subscription sets once while keeping other tenants and active visibility", async () => {
+			const scope = { organizationId: "org", userId: "push-user" };
+			await savePushConfig(db, scope, "subscription:first", {
+				endpoint: "https://example.test/push",
+			});
+			await savePushConfig(
+				db,
+				{ ...scope, organizationId: "other" },
+				"subscription:first",
+				{ endpoint: "https://other.example.test/push" },
+			);
+			const keys = Array.from({ length: 120 }, (_, i) => `subscription:${i}`);
+			await db.batch(
+				batchNonEmpty(
+					keys.map((key, i) =>
+						db.insert(coreTable(db, userConfigs)).values({
+							id: `push-${i}`,
+							userId: scope.userId,
+							namespace: "os.push:org",
+							key,
+							value: {},
+						}),
+					),
+				),
+			);
+			expect(await listPushConfigs(db, scope, "SUBSCRIPTION:")).toHaveLength(
+				100,
+			);
+			const deletion = vi.spyOn(db, "delete");
+			try {
+				await deletePushConfigs(db, scope, [...keys, "subscription:first"]);
+				expect(deletion).toHaveBeenCalledTimes(1);
+			} finally {
+				deletion.mockRestore();
+			}
+			expect(await listPushConfigs(db, scope, "subscription:")).toEqual([]);
+			expect(
+				await listPushConfigs(
+					db,
+					{ ...scope, organizationId: "other" },
+					"subscription:",
+				),
+			).toHaveLength(1);
+			await savePushConfig(db, scope, "visible:one", {
+				conversationId: "visible-chat",
+			});
+			expect(
+				await hasVisiblePushConversation(db, scope, "visible-chat", Date.now()),
+			).toBe(true);
+		});
+
+		it("keeps entity images and model fallback scoped to the owning tenant", async () => {
+			const app = coreTable(db, apps);
+			await db.insert(app).values({
+				id: "image-app",
+				organizationId: "org",
+				name: "Images",
+				slug: "images",
+			});
+			const input = {
+				entityType: "app" as const,
+				entityId: "image-app",
+				organizationId: "org",
+			};
+			await updateEntityImageUrl(db, {
+				...input,
+				organizationId: "other",
+				url: "https://other.example.test/logo",
+			});
+			expect(await getEntityImageUrl(db, input)).toBeNull();
+			await updateEntityImageUrl(db, {
+				...input,
+				url: "https://example.test/logo",
+			});
+			expect(await getEntityImageUrl(db, input)).toBe(
+				"https://example.test/logo",
+			);
+			expect(
+				await listLegacyEntityImagesForPlatform(db, "app", 100),
+			).toContainEqual({ id: "image-app", url: "https://example.test/logo" });
+			const policy = { version: 1 as const, maxTransitions: 0, ladder: {} };
+			await db
+				.update(coreTable(db, organizations))
+				.set({ metadata: { modelFallback: policy } })
+				.where(eq(coreTable(db, organizations).id, "org"));
+			expect(await getOrganizationModelFallback(db, "org")).toEqual(policy);
+			expect(await getOrganizationModelFallback(db, "other")).toBeNull();
 		});
 
 		const site = (id: string) =>
