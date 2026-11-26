@@ -5,7 +5,7 @@ import {
 } from "@tedix/api-client/internal";
 
 interface ApiRpcEnv {
-	API_SERVICE?: Fetcher;
+	API_SERVICE: Fetcher;
 	API_URL: string;
 }
 
@@ -37,10 +37,9 @@ export async function callApiRpc(
 		onServerTiming?: (value: string) => void;
 	} = {},
 ): Promise<{ data: unknown; status: number }> {
-	const useServiceBinding =
-		(options.serviceBinding ?? true) && Boolean(env.API_SERVICE);
+	const useServiceBinding = options.serviceBinding ?? true;
 	const bindingFetch = useServiceBinding
-		? serviceBindingFetch(env.API_SERVICE!)
+		? serviceBindingFetch(env.API_SERVICE)
 		: undefined;
 	try {
 		const data = await callRpc(path, input, {

@@ -60,11 +60,6 @@ export async function invokeTediEnrichment(
 	env: CloudflareEnv,
 	request: TediEnrichmentRequest,
 ): Promise<TediEnrichmentResponse | null> {
-	if (!env.API_SERVICE) {
-		console.warn("[TediEnrichment] API_SERVICE binding not available");
-		return null;
-	}
-
 	try {
 		const headers: Record<string, string> = {
 			"X-Service-Binding": "true",

@@ -70,8 +70,7 @@ export async function resolveDefaultCallableTedis(input: {
 		!caller ||
 		caller.authType === "anonymous" ||
 		!organizationId ||
-		caller.organizationId !== organizationId ||
-		!env.API_SERVICE
+		caller.organizationId !== organizationId
 	)
 		return [];
 	const explicit = new Set(entries.map(aggregateTediNamespace));

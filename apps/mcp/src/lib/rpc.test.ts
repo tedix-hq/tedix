@@ -51,47 +51,35 @@ describe("callApiRpc transport", () => {
 			"output-editor;dur=123",
 		);
 	});
-	it("does not observe timing from the HTTPS fallback", async () => {
+	it("does not observe timing from the explicit HTTPS dispatch", async () => {
 		vi.mocked(callRpc).mockResolvedValueOnce({ ok: true });
 		const onServerTiming = vi.fn();
-		await callApiRpc({ API_URL }, PATH, input, { onServerTiming });
+		await callApiRpc({ API_URL, API_SERVICE: binding }, PATH, input, {
+			onServerTiming,
+			serviceBinding: false,
+		});
 		expect(vi.mocked(callRpc).mock.calls[0]?.[2].fetch).toBeUndefined();
 		expect(onServerTiming).not.toHaveBeenCalled();
 	});
 	it.each([
 		{
 			name: "default binding",
-			hasBinding: true,
 			serviceBinding: undefined,
 			useBinding: true,
 		},
 		{
 			name: "explicit binding",
-			hasBinding: true,
 			serviceBinding: true,
 			useBinding: true,
 		},
 		{
 			name: "explicit HTTPS",
-			hasBinding: true,
 			serviceBinding: false,
-			useBinding: false,
-		},
-		{
-			name: "absent binding",
-			hasBinding: false,
-			serviceBinding: undefined,
-			useBinding: false,
-		},
-		{
-			name: "requested but absent binding",
-			hasBinding: false,
-			serviceBinding: true,
 			useBinding: false,
 		},
 	])(
 		"preserves caller options over $name",
-		async ({ hasBinding, serviceBinding, useBinding }) => {
+		async ({ serviceBinding, useBinding }) => {
 			const headers = Object.freeze({
 				Authorization: "Bearer example-caller-token",
 				"X-Tedix-Org-Id": "org-example",
@@ -103,7 +91,7 @@ describe("callApiRpc transport", () => {
 			vi.mocked(callRpc).mockResolvedValueOnce(data);
 
 			const result = await callApiRpc(
-				{ API_URL, ...(hasBinding ? { API_SERVICE: binding } : {}) },
+				{ API_URL, API_SERVICE: binding },
 				PATH,
 				input,
 				{ headers, serviceBinding, timeoutMs: 4321, signal },
@@ -136,11 +124,9 @@ describe("callApiRpc transport", () => {
 			vi.mocked(callRpc).mockResolvedValueOnce(null);
 
 			expect(
-				await callApiRpc(
-					{ API_URL, ...(useBinding ? { API_SERVICE: binding } : {}) },
-					PATH,
-					input,
-				),
+				await callApiRpc({ API_URL, API_SERVICE: binding }, PATH, input, {
+					serviceBinding: useBinding,
+				}),
 			).toEqual({ data: null, status: 200 });
 			expect(callRpc).toHaveBeenCalledExactlyOnceWith(PATH, input, {
 				apiUrl: useBinding ? "https://api" : API_URL,
@@ -195,7 +181,8 @@ describe.each([400, 401, 403, 429, 503])("callApiRpc HTTP %s", (status) => {
 			const headers = { "X-Tedix-Org-Id": "org-example" };
 
 			expect(
-				await callApiRpc({ API_URL }, PATH, input, {
+				await callApiRpc({ API_URL, API_SERVICE: binding }, PATH, input, {
+					serviceBinding: false,
 					headers,
 					signal,
 					timeoutMs: 1234,
@@ -236,7 +223,9 @@ describe("callApiRpc error values", () => {
 				new RpcCallError(PATH, 400, detail, "Bad Request", undefined),
 			);
 
-			expect(await callApiRpc({ API_URL }, PATH, input)).toEqual({
+			expect(
+				await callApiRpc({ API_URL, API_SERVICE: binding }, PATH, input),
+			).toEqual({
 				data,
 				status: 400,
 			});

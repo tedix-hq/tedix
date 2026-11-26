@@ -342,12 +342,10 @@ export async function executeTool(
 				// A hosting-org tedi cannot select target-org credentials.
 				tediId: undefined,
 			},
-			apiClient: agent.env.API_SERVICE
-				? getApiClient({
-						serviceFetch: agent.env.API_SERVICE,
-						orgId: selected.organizationId,
-					})
-				: agent.apiClient,
+			apiClient: getApiClient({
+				serviceFetch: agent.env.API_SERVICE,
+				orgId: selected.organizationId,
+			}),
 		};
 	}
 

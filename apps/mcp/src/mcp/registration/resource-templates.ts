@@ -251,11 +251,7 @@ async function fetchCatalogConnectionToken(
 		agent.callerIdentity?.organizationId ?? agent.app.organizationId;
 	if (!organizationId) return null;
 
-	const useServiceBinding = !!agent.env.API_SERVICE;
-	const baseUrl = useServiceBinding ? "https://api" : agent.env.API_URL;
-	const fetcher = useServiceBinding
-		? serviceBindingFetch(agent.env.API_SERVICE!)
-		: globalThis.fetch;
+	const fetcher = serviceBindingFetch(agent.env.API_SERVICE);
 
 	const rpcInput: Record<string, unknown> = {
 		organizationId,
@@ -272,10 +268,10 @@ async function fetchCatalogConnectionToken(
 			"connections/fetchOrgToken",
 			rpcInput,
 			{
-				apiUrl: baseUrl,
+				apiUrl: "https://api",
 				fetch: fetcher,
 				headers: {
-					...(useServiceBinding ? { "X-Service-Binding": "true" } : {}),
+					"X-Service-Binding": "true",
 					"X-Tedix-Org-Id": organizationId,
 				},
 			},

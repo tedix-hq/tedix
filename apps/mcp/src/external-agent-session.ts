@@ -119,9 +119,6 @@ export async function handleExternalAgentSessionExchange(
 	if (request.method !== "POST") {
 		return jsonResponse({ error: "Method not allowed" }, 405);
 	}
-	if (!env.API_SERVICE) {
-		return jsonResponse({ error: "Session exchange unavailable" }, 503);
-	}
 	const rawApiKey = request.headers.get("X-API-Key")?.trim();
 	const authorization = request.headers.get("Authorization")?.trim();
 	const subjectToken = authorization?.startsWith("Bearer ")

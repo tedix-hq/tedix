@@ -142,8 +142,7 @@ async function callGraphMaintenance(
 	taskId: string,
 ): Promise<{ data: unknown; status: number }> {
 	const requiresCredentialReplay = callerIdentity?.authType === "apiKey";
-	const useServiceBinding =
-		Boolean(env.API_SERVICE) && !requiresCredentialReplay;
+	const useServiceBinding = !requiresCredentialReplay;
 	const headers: Record<string, string> = {
 		"X-Tedix-Org-Id": organizationId,
 	};
@@ -168,12 +167,6 @@ async function callGraphMaintenance(
 			callerIdentity?.authType === "service") &&
 		callerIdentity.tediId
 	) {
-		if (!useServiceBinding) {
-			throw new McpTaskError(
-				-32_603,
-				"Graph maintenance tedi authority requires the API service binding",
-			);
-		}
 		headers["X-Tedix-Tedi-Id"] = callerIdentity.tediId;
 		if ((callerIdentity.scopes ?? []).length > 0) {
 			headers["X-Tedix-Tedi-Scopes"] = [

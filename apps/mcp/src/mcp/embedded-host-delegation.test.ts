@@ -78,9 +78,8 @@ describe("embedded host delegation", () => {
 			expect.objectContaining({ serviceBinding: true }),
 		);
 	});
-	it("rejects missing binding, human callers, and malformed metadata before lookup", async () => {
+	it("rejects human callers and malformed metadata before lookup", async () => {
 		for (const patch of [
-			{ env: {} },
 			{
 				callerIdentity: {
 					authType: "user",

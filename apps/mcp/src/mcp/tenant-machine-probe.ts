@@ -87,8 +87,7 @@ export async function prepareMachineProviderProof(
 		!caller.externalAgentSessionId ||
 		!caller.externalAgentClientRecordId ||
 		!caller.externalAgentMcpServerId ||
-		!caller.clientId ||
-		!agent.env.API_SERVICE
+		!caller.clientId
 	)
 		throw new Error(
 			"A verified external-agent session and profile are required.",

@@ -851,25 +851,21 @@ export class ToolHandler {
 		}
 
 		// Build fetch options
-		const apiUrl = ctx.env.API_URL;
-		const useServiceBinding = !!ctx.env.API_SERVICE;
-		const baseUrl = useServiceBinding ? "https://api" : apiUrl;
+		const baseUrl = "https://api";
 
 		const headers: Record<string, string> = {
 			"Content-Type": "application/json",
 		};
 
-		if (useServiceBinding) {
-			headers["X-Service-Binding"] = "true";
-			const lineageHeaders = [
-				[TEDIX_KERNEL_RUN_META_KEY, "X-Tedix-Kernel-Run-Id"],
-				[TEDIX_WORK_ITEM_META_KEY, "X-Tedix-Work-Item-Id"],
-				[TEDIX_TRACE_BUNDLE_META_KEY, "X-Tedix-Trace-Bundle-Id"],
-			] as const;
-			for (const [metaKey, headerName] of lineageHeaders) {
-				const value = metaString(ctx.requestMeta, metaKey);
-				if (value) headers[headerName] = value.slice(0, 512);
-			}
+		headers["X-Service-Binding"] = "true";
+		const lineageHeaders = [
+			[TEDIX_KERNEL_RUN_META_KEY, "X-Tedix-Kernel-Run-Id"],
+			[TEDIX_WORK_ITEM_META_KEY, "X-Tedix-Work-Item-Id"],
+			[TEDIX_TRACE_BUNDLE_META_KEY, "X-Tedix-Trace-Bundle-Id"],
+		] as const;
+		for (const [metaKey, headerName] of lineageHeaders) {
+			const value = metaString(ctx.requestMeta, metaKey);
+			if (value) headers[headerName] = value.slice(0, 512);
 		}
 		if (ctx.traceId) headers["X-Tedix-Trace-Id"] = ctx.traceId;
 		if (ctx.executionId) {
@@ -896,7 +892,7 @@ export class ToolHandler {
 			(readToolConfigExtension(config, "_forwardCallerAuth") === true ||
 				kernelActingUser) &&
 			Boolean(ctx.callerIdentity?.userId);
-		if (useServiceBinding && forwardCallerUser) {
+		if (forwardCallerUser) {
 			headers["X-Forwarded-Authorization"] = `Bearer ${ctx.bearerToken}`;
 			headers["X-Tedix-Caller-Type"] = "mcp-edge-user";
 			// The edge just validated these capability scopes. Carry them over the
@@ -913,20 +909,18 @@ export class ToolHandler {
 					ctx.callerIdentity.ownerHostSessionId;
 			}
 		}
-		if (useServiceBinding && forwardActingUser && ctx.callerIdentity?.userId) {
+		if (forwardActingUser && ctx.callerIdentity?.userId) {
 			headers["X-Tedix-Acting-User"] = ctx.callerIdentity.userId;
 		}
 		// Only a Home creation carries this provenance to the creator ledger.
 		// The API rechecks active tenant membership; service scopes still apply.
 		if (
-			useServiceBinding &&
 			kernelActingUser &&
 			ctx.callerIdentity?.userId &&
 			endpoint === "workItems/create"
 		)
 			headers["X-Tedix-Kernel"] = "true";
 		if (
-			useServiceBinding &&
 			ctx.callerIdentity?.tediId &&
 			(ctx.callerIdentity.authType === "tedi" ||
 				ctx.callerIdentity.authType === "service")
@@ -948,7 +942,6 @@ export class ToolHandler {
 			}
 		}
 		if (
-			useServiceBinding &&
 			!headers["X-Tedix-Tedi-Scopes"] &&
 			(ctx.callerIdentity?.scopes?.length ?? 0) > 0
 		) {
@@ -975,7 +968,6 @@ export class ToolHandler {
 			}
 		}
 		if (
-			useServiceBinding &&
 			ctx.callerIdentity?.authType === "external_agent" &&
 			ctx.callerIdentity.externalAgentPrincipalId &&
 			ctx.callerIdentity.externalAgentSessionId &&
@@ -998,17 +990,12 @@ export class ToolHandler {
 					ctx.callerIdentity.externalAgentMcpServerId;
 			}
 		}
-		if (
-			useServiceBinding &&
-			credentialDerivedTediActor &&
-			verifiedCredentialTediActor
-		) {
+		if (credentialDerivedTediActor && verifiedCredentialTediActor) {
 			// Authentication established this actor before aggregate routing. The
 			// selected namespace was checked only for equality and cannot mint it.
 			headers["X-Tedix-Tedi-Id"] = verifiedCredentialTediActor;
 		}
 		if (
-			useServiceBinding &&
 			endpoint === "workInteractions/respond" &&
 			ctx.callerIdentity?.authType === "service" &&
 			ctx.callerIdentity.kernel &&
@@ -1018,7 +1005,6 @@ export class ToolHandler {
 				ctx.callerIdentity.approvedWorkResponderUserId;
 		}
 		if (
-			useServiceBinding &&
 			ctx.callerIdentity?.authType === "service" &&
 			ctx.callerIdentity.kernel &&
 			ctx.callerIdentity.approvedFactoryRequestId
@@ -1031,11 +1017,7 @@ export class ToolHandler {
 		// the end-user id on the trusted hop so admission paths (run_skill_workflow)
 		// can record who started the run. Same spoofing argument as the tedi
 		// headers above: this header only exists Worker-to-Worker.
-		if (
-			useServiceBinding &&
-			ctx.callerIdentity?.authType === "oauth" &&
-			ctx.callerIdentity.userId
-		) {
+		if (ctx.callerIdentity?.authType === "oauth" && ctx.callerIdentity.userId) {
 			headers["X-Tedix-End-User-Id"] = ctx.callerIdentity.userId;
 		}
 		// Pass org context for scoped API calls. Platform operators may explicitly
@@ -1086,14 +1068,13 @@ export class ToolHandler {
 				readOnlyHint: ctx.readOnlyHint,
 				callerOrganizationId: ctx.callerIdentity?.organizationId,
 				headers,
-				serviceBinding: useServiceBinding,
+				serviceBinding: true,
 			});
 		// An approved Home write: governance verified the receipt for exactly
 		// this tool and these arguments. Delegate only the scopes this tool
 		// requires, for this one request; apps/api still runs its guard and
 		// tenant and member checks. An exchanged token keeps narrowing instead.
 		if (
-			useServiceBinding &&
 			ctx.callerIdentity?.authType === "service" &&
 			ctx.callerIdentity.kernel === true &&
 			ctx.callerIdentity.homeApprovedCall === true
@@ -1166,9 +1147,7 @@ export class ToolHandler {
 						signal: controller.signal,
 					};
 				}
-				const fetcher = useServiceBinding
-					? ctx.env.API_SERVICE!.fetch.bind(ctx.env.API_SERVICE!)
-					: globalThis.fetch;
+				const fetcher = ctx.env.API_SERVICE.fetch.bind(ctx.env.API_SERVICE);
 				const response = await fetcher(url, fetchInit);
 				status = response.status;
 				const contentType = response.headers.get("content-type") ?? "";

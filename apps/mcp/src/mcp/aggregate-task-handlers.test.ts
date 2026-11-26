@@ -26,6 +26,14 @@ import {
 
 const ENV = {
 	API_URL: "https://api.test",
+	API_SERVICE: {
+		fetch: async (request: Request) =>
+			globalThis.fetch(request.url, {
+				method: request.method,
+				headers: request.headers,
+				body: await request.text(),
+			}),
+	},
 	DB: {} as unknown,
 } as unknown as CloudflareEnv;
 
@@ -503,7 +511,10 @@ describe("aggregate task handlers — graph-gds task routing", () => {
 			"memoryGraph/graph/maintenanceTaskStatus",
 		);
 		expect(requests[0]?.headers.get("X-Tedix-Org-Id")).toBe("org-1");
-		expect(requests[0]?.headers.get("Authorization")).toBe("Bearer user-token");
+		expect(requests[0]?.headers.get("X-Forwarded-Authorization")).toBe(
+			"Bearer user-token",
+		);
+		expect(requests[0]?.headers.get("X-Service-Binding")).toBe("true");
 		expect(requests[0]?.body).toEqual({ taskId: "graph-gds-abc" });
 	});
 

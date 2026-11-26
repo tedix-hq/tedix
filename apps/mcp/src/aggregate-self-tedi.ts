@@ -17,8 +17,7 @@ export async function withSelfTediSkills(input: {
 		caller?.authType !== "tedi" ||
 		!caller.tediId ||
 		!organizationId ||
-		caller.organizationId !== organizationId ||
-		!env.API_SERVICE
+		caller.organizationId !== organizationId
 	)
 		return entries;
 	const client = getApiClient({

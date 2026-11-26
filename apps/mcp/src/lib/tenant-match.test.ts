@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 const orgTenants = new Map<string, string | null>();
 const failingOrgs = new Set<string>();
+const env = { API_SERVICE: { fetch: vi.fn() } as unknown as Fetcher };
 
 vi.mock("./api-client", () => ({
 	getApiClient: () => ({
@@ -45,12 +46,12 @@ describe("tenant-match", () => {
 	});
 
 	it("rejects OAuth payloads without tenant context", async () => {
-		await expect(jwtTenantMatchesApp({}, "org_no_tenant", {})).resolves.toEqual(
-			{
-				ok: false,
-				reason: "JWT has no tenant context",
-			},
-		);
+		await expect(
+			jwtTenantMatchesApp({}, "org_no_tenant", env),
+		).resolves.toEqual({
+			ok: false,
+			reason: "JWT has no tenant context",
+		});
 	});
 
 	it("accepts a resource-bound AIH user access token through signed tenant membership", async () => {
@@ -63,7 +64,7 @@ describe("tenant-match", () => {
 					token_type: "access_token",
 				},
 				"org_aih_member",
-				{},
+				env,
 			),
 		).resolves.toEqual({ ok: true });
 	});
@@ -78,7 +79,7 @@ describe("tenant-match", () => {
 					token_type: "access_token",
 				},
 				"org_aih_other",
-				{},
+				env,
 			),
 		).resolves.toEqual({
 			ok: false,
@@ -98,7 +99,7 @@ describe("tenant-match", () => {
 					token_type: "access_token",
 				},
 				"org_aih_mismatch",
-				{},
+				env,
 			),
 		).resolves.toEqual({
 			ok: false,
@@ -111,7 +112,7 @@ describe("tenant-match", () => {
 		orgTenants.set("org_missing", null);
 
 		await expect(
-			jwtTenantMatchesApp({ dct: "tenant_acme" }, "org_missing", {}),
+			jwtTenantMatchesApp({ dct: "tenant_acme" }, "org_missing", env),
 		).resolves.toEqual({
 			ok: false,
 			reason: 'App organization "org_missing" has no Descope tenant id',
@@ -122,7 +123,7 @@ describe("tenant-match", () => {
 		orgTenants.set("org_acme_mismatch", "tenant_acme");
 
 		await expect(
-			jwtTenantMatchesApp({ dct: "tenant_tedix" }, "org_acme_mismatch", {}),
+			jwtTenantMatchesApp({ dct: "tenant_tedix" }, "org_acme_mismatch", env),
 		).resolves.toEqual({
 			ok: false,
 			reason:
@@ -134,7 +135,7 @@ describe("tenant-match", () => {
 		orgTenants.set("org_acme_match", "tenant_acme");
 
 		await expect(
-			jwtTenantMatchesApp({ dct: "tenant_acme" }, "org_acme_match", {}),
+			jwtTenantMatchesApp({ dct: "tenant_acme" }, "org_acme_match", env),
 		).resolves.toEqual({ ok: true });
 	});
 
@@ -143,7 +144,7 @@ describe("tenant-match", () => {
 		orgTenants.set("org_flaky", "tenant_flaky");
 
 		await expect(
-			jwtTenantMatchesApp({ dct: "tenant_flaky" }, "org_flaky", {}),
+			jwtTenantMatchesApp({ dct: "tenant_flaky" }, "org_flaky", env),
 		).resolves.toEqual({
 			ok: false,
 			reason:
@@ -153,7 +154,7 @@ describe("tenant-match", () => {
 		// Lookup succeeds again → the earlier failure must not have been cached.
 		failingOrgs.delete("org_flaky");
 		await expect(
-			jwtTenantMatchesApp({ dct: "tenant_flaky" }, "org_flaky", {}),
+			jwtTenantMatchesApp({ dct: "tenant_flaky" }, "org_flaky", env),
 		).resolves.toEqual({
 			ok: true,
 		});
@@ -164,6 +165,7 @@ describe("tenant-match", () => {
 
 		await expect(
 			jwtTenantMatchesApp({ dct: "org_tedix" }, "org_tedix_d1", {
+				...env,
 				DB: createD1Mock({ descopeTenantId: "org_tedix" }),
 			}),
 		).resolves.toEqual({ ok: true });

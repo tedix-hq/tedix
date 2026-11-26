@@ -38,8 +38,8 @@ export type ApiClient = InternalApiClient;
  * @param options - Service binding and optional caller identity headers
  * @returns Typed client for all oRPC procedures
  */
-export function getApiClient(options?: {
-	serviceFetch?: Fetcher;
+export function getApiClient(options: {
+	serviceFetch: Fetcher;
 	headers?: Record<string, string>;
 	orgId?: string;
 	externalAgent?: {
@@ -48,11 +48,6 @@ export function getApiClient(options?: {
 		clientRecordId: string;
 	};
 }): ApiClient {
-	if (!options?.serviceFetch) {
-		throw new Error(
-			"Service binding (serviceFetch) is required. MCP Worker must use Cloudflare Service Bindings to communicate with the API.",
-		);
-	}
 	return getInternalApiClient(
 		{ API_SERVICE: gatewayReadBinding(options.serviceFetch) },
 		{

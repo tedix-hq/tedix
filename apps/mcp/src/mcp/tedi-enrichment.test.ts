@@ -188,18 +188,6 @@ describe("invokeTediEnrichment", () => {
 		},
 	);
 
-	it("returns null without constructing an RPC client when the binding is absent", async () => {
-		vi.spyOn(console, "warn").mockImplementation(() => undefined);
-		expect(
-			await invokeTediEnrichment(
-				{} as CloudflareEnv,
-				buildEnrichmentRequest(context()),
-			),
-		).toBeNull();
-		expect(serviceBindingFetch).not.toHaveBeenCalled();
-		expect(callRpc).not.toHaveBeenCalled();
-	});
-
 	it("returns null and logs one rejected RPC without retrying", async () => {
 		const { env } = bindingEnvironment();
 		const request = buildEnrichmentRequest(context());

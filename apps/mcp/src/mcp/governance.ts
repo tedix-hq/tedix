@@ -1247,7 +1247,7 @@ export async function requireDestructiveToolApproval(
 					}
 				: undefined,
 			apiClient: getApiClient({
-				serviceFetch: agent.env?.API_SERVICE,
+				serviceFetch: agent.env!.API_SERVICE,
 				orgId: selected.organizationId,
 			}),
 		};
@@ -1613,7 +1613,7 @@ export async function requireDestructiveToolApproval(
 		if (latched) return latched;
 		if (
 			caller?.authType !== "external_agent" ||
-			!agent.env?.API_SERVICE ||
+			!agent.env ||
 			!caller.organizationId ||
 			!caller.externalAgentPrincipalId ||
 			!caller.externalAgentSessionId ||
@@ -1747,7 +1747,7 @@ export async function requireDestructiveToolApproval(
 			if (latched) return latched;
 			try {
 				if (
-					!agent.env?.API_SERVICE ||
+					!agent.env ||
 					!caller.organizationId ||
 					!caller.externalAgentPrincipalId ||
 					!caller.externalAgentSessionId ||

@@ -1628,8 +1628,7 @@ const worker = {
 				bindHumanToTedi &&
 				!request.headers.get("x-tedix-auth-tedi-id") &&
 				request.headers.get("x-tedix-auth-user-id") &&
-				app.organizationId &&
-				env.API_SERVICE
+				app.organizationId
 			) {
 				const resolvedTediId = await resolvePrimaryTedi(
 					env,

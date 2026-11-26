@@ -67,7 +67,6 @@ export async function resolveEmbeddedHostDelegation(
 	if (
 		typeof token !== "string" ||
 		!token ||
-		!ctx.env.API_SERVICE ||
 		!caller?.tediId ||
 		!caller.organizationId ||
 		!["tedi", "service"].includes(caller.authType) ||

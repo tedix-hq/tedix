@@ -7,11 +7,6 @@ import {
 } from "./api-client";
 
 describe("MCP edge API service role", () => {
-	it("rejects a missing service binding", () => {
-		expect(() => getApiClient()).toThrow(
-			"Service binding (serviceFetch) is required",
-		);
-	});
 	it("delegates only the reviewed control-plane read scopes", async () => {
 		expect(MCP_EDGE_CONTROL_PLANE_SCOPES).toEqual(["apps:read", "tedis:read"]);
 		expect(MCP_EDGE_CONTROL_PLANE_SCOPES).not.toContain("*");

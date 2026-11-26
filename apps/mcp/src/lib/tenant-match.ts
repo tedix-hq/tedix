@@ -31,10 +31,8 @@ interface D1DatabaseLike {
 	prepare(query: string): D1PreparedStatementLike;
 }
 
-// Loose env type — caller passes the worker `env` directly. The api-client
-// itself validates the service binding shape at runtime.
 interface ApiClientFactoryEnv {
-	API_SERVICE?: Fetcher;
+	API_SERVICE: Fetcher;
 	DB?: D1DatabaseLike;
 }
 

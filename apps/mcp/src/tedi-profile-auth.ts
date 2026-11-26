@@ -55,12 +55,9 @@ function errorCode(error: unknown): string {
  * id, so it uses the narrow `system` service-binding scope.
  */
 export async function resolveTediProfileAuth(
-	env: { API_SERVICE?: CloudflareEnv["API_SERVICE"] },
+	env: { API_SERVICE: CloudflareEnv["API_SERVICE"] },
 	tediId: string,
 ): Promise<TediProfileAuth> {
-	if (!env.API_SERVICE) {
-		return { status: "unavailable", errorCode: "API_SERVICE_UNBOUND" };
-	}
 	try {
 		const client = getTediProfileApiClient(env.API_SERVICE);
 		const tedi = await withUpstreamRetry(() => client.tedis.get({ tediId }), {

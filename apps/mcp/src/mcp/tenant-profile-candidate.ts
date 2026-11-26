@@ -36,8 +36,7 @@ export async function tenantProfileDiscoveryPotential(
 			caller.externalAgentSessionId &&
 			caller.externalAgentClientRecordId &&
 			caller.clientId &&
-			caller.externalAgentMcpServerId &&
-			agent.env.API_SERVICE
+			caller.externalAgentMcpServerId
 		) {
 			const identity = {
 				organizationId: caller.organizationId,
@@ -95,8 +94,7 @@ export async function tenantProfileDiscoveryPotential(
 			tool.config?.transport !== "mcp" ||
 			caller?.authType !== "oauth" ||
 			!caller.userId ||
-			!hasScope(caller.scopes ?? [], "connections.execute") ||
-			!agent.env.API_SERVICE
+			!hasScope(caller.scopes ?? [], "connections.execute")
 		)
 			return false;
 		const selected = resolveMultiOrgToolTarget(agent, tool);
@@ -136,8 +134,7 @@ export async function resolveMachineCandidate(
 		!caller.externalAgentSessionId ||
 		!caller.externalAgentClientRecordId ||
 		!caller.clientId ||
-		!caller.externalAgentMcpServerId ||
-		!agent.env.API_SERVICE
+		!caller.externalAgentMcpServerId
 	)
 		return null;
 	const identity = {
@@ -348,8 +345,7 @@ export async function resolveTenantProfileCandidate(
 		if (
 			caller?.authType !== "oauth" ||
 			!caller.userId ||
-			!hasScope(caller.scopes ?? [], "connections.execute") ||
-			!agent.env.API_SERVICE
+			!hasScope(caller.scopes ?? [], "connections.execute")
 		)
 			return null;
 		const target = resolveMultiOrgToolTarget(agent, tool);

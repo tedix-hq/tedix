@@ -91,8 +91,6 @@ async function resolveFallbackTediId(
 	env: CloudflareEnv,
 	orgId: string,
 ): Promise<string | null> {
-	if (!env.API_SERVICE) return null;
-
 	try {
 		const data = await callRpc<{ data?: Array<{ id: string }> }>(
 			"tedis/list",
@@ -137,7 +135,7 @@ export async function resolveManagedMcpAuthHeaders(params: {
 	tediId?: string | null;
 	orgId?: string | null;
 }): Promise<Record<string, string>> {
-	if (!isTedixManagedMcpUrl(params.serverUrl) || !params.env.API_SERVICE) {
+	if (!isTedixManagedMcpUrl(params.serverUrl)) {
 		return {};
 	}
 

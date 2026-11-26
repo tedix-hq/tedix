@@ -89,11 +89,6 @@ export async function verifyOwnerHostSession(input: {
 	appOrganizationId: string | undefined;
 	sessionId: string;
 }): Promise<OwnerHostSession & { organizationId: string }> {
-	if (!input.env.API_SERVICE) {
-		throw new OwnerHostSessionError(
-			"agentSessionId cannot be verified: the API service binding is unavailable",
-		);
-	}
 	const organizations = candidateOrganizations(
 		input.caller,
 		input.appOrganizationId,

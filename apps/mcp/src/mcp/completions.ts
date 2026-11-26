@@ -106,7 +106,6 @@ async function fetchConversationIds(
 	organizationId: string,
 	search: string,
 ): Promise<string[]> {
-	if (!env.API_SERVICE && !env.API_URL) return [];
 	try {
 		const { data, status } = await callApiRpc(
 			env,

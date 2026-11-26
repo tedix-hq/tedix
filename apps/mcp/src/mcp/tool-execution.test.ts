@@ -261,7 +261,11 @@ function makeAgent(result: FakeRpcResult): ServerContext {
 	};
 
 	return {
-		env: { ENVIRONMENT: "test", GIT_SHA: "1234567890abcdef" },
+		env: {
+			ENVIRONMENT: "test",
+			GIT_SHA: "1234567890abcdef",
+			API_SERVICE: { fetch: vi.fn(async () => Response.json({ json: {} })) },
+		},
 		ctx: { waitUntil: vi.fn() },
 		appId: "app-uuid",
 		appSlug: "test-app",
@@ -1330,6 +1334,7 @@ describe("executeTool generic async task gate (_asyncTask + clientSupportsTasks)
 		const agent = makeAgent({ status: 200, data: { ok: true } });
 		const workflowCreate = vi.fn(async () => ({ id: "wf-instance-1" }));
 		(agent as unknown as { env: Record<string, unknown> }).env = {
+			...agent.env,
 			ENVIRONMENT: "test",
 			GIT_SHA: "1234567890abcdef",
 			DB: {},

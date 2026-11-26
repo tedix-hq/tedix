@@ -152,14 +152,6 @@ describe("resolveTediProfileAuth", () => {
 		});
 		expect(getTedi).toHaveBeenCalledTimes(3);
 	});
-
-	it("is unavailable without an API binding instead of granting scopes", async () => {
-		await expect(resolveTediProfileAuth({}, "tedi-1")).resolves.toEqual({
-			status: "unavailable",
-			errorCode: "API_SERVICE_UNBOUND",
-		});
-		expect(getTedi).not.toHaveBeenCalled();
-	});
 });
 
 describe("tediProfileFailureResponse", () => {

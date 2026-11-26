@@ -156,18 +156,12 @@ export const GENERIC_TASK_ENDPOINT_SCOPES: Readonly<
 function replayHeaders(
 	orgId: string,
 	caller: CapturedCallerSnapshot | undefined,
-	useServiceBinding: boolean,
 	endpoint: string,
 ): Record<string, string> {
 	const headers: Record<string, string> = {
 		"X-Tedix-Org-Id": orgId,
 	};
-	// `X-Service-Binding` is the trust anchor and is only honored over the
-	// worker-to-worker API_SERVICE binding. Assert it only when we actually
-	// dispatch over that binding — on the public-URL fallback (dead in every
-	// deployed env, reached only when API_SERVICE is unbound) public ingress
-	// strips it anyway, so do not emit it there.
-	if (useServiceBinding) headers["X-Service-Binding"] = "true";
+	headers["X-Service-Binding"] = "true";
 	const tediId = caller?.tediId;
 	if (tediId) {
 		headers["X-Tedix-Tedi-Id"] = tediId;
@@ -179,7 +173,7 @@ function replayHeaders(
 		headers["X-Tedix-Connection-Label"] = caller.connectionLabel;
 	}
 	const endpointScopes = GENERIC_TASK_ENDPOINT_SCOPES[endpoint];
-	if (useServiceBinding && endpointScopes?.length) {
+	if (endpointScopes?.length) {
 		headers["X-Tedix-Tedi-Scopes"] = endpointScopes.join(" ");
 	}
 	return headers;
@@ -535,14 +529,7 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 			return { ok: false, error: UNSUPPORTED_TRANSPORT_ERROR(transport) };
 		}
 
-		const useServiceBinding = Boolean(this.env.API_SERVICE);
-		const baseUrl = useServiceBinding ? "https://api" : this.env.API_URL;
-		if (!baseUrl) {
-			return {
-				ok: false,
-				error: { code: -32_603, message: "No apps/api base URL available." },
-			};
-		}
+		const baseUrl = "https://api";
 
 		// ── [security] Dispatch-time authority re-check (revocation fail-closed) ──
 		// Credential NOT_FOUND does not cover an org-tenant-scoped token whose
@@ -552,11 +539,7 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 		// (NOT_FOUND/FORBIDDEN → terminal failed); bare service callers have no
 		// acting user to revoke.
 		if (caller?.userId && !caller.tediId) {
-			const confirmed = await this.confirmActiveMembership(
-				useServiceBinding,
-				orgId,
-				caller,
-			);
+			const confirmed = await this.confirmActiveMembership(orgId, caller);
 			if (confirmed === false) {
 				return { ok: false, error: AUTHORITY_REVOKED_ERROR };
 			}
@@ -569,7 +552,7 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 
 		const headers: Record<string, string> = {
 			"Content-Type": "application/json",
-			...replayHeaders(orgId, caller, useServiceBinding, execConfig.endpoint),
+			...replayHeaders(orgId, caller, execConfig.endpoint),
 			// Stable taskId-derived idempotency key so an idempotency-honoring
 			// server dedups a retried dispatch (defense-in-depth alongside the
 			// terminal short-circuit).
@@ -581,9 +564,7 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 			let status: number;
 			let data: unknown;
 			if (transport === "rest") {
-				const fetcher = useServiceBinding
-					? this.env.API_SERVICE!.fetch.bind(this.env.API_SERVICE!)
-					: globalThis.fetch;
+				const fetcher = this.env.API_SERVICE.fetch.bind(this.env.API_SERVICE);
 				const method = execConfig.method ?? "POST";
 				const route = materializeRestRoute(execConfig.endpoint, inputArgs);
 				const queryString =
@@ -607,7 +588,6 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 					inputArgs,
 					{
 						headers,
-						serviceBinding: useServiceBinding,
 						timeoutMs: DISPATCH_TIMEOUT_MS,
 					},
 				);
@@ -672,7 +652,6 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 	 *           the authoritative gate on dispatch)
 	 */
 	private async confirmActiveMembership(
-		useServiceBinding: boolean,
 		orgId: string,
 		caller: CapturedCallerSnapshot,
 	): Promise<boolean | null> {
@@ -698,13 +677,7 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 						offset,
 					},
 					{
-						headers: replayHeaders(
-							orgId,
-							caller,
-							useServiceBinding,
-							"members/listMembers",
-						),
-						serviceBinding: useServiceBinding,
+						headers: replayHeaders(orgId, caller, "members/listMembers"),
 						timeoutMs: AUTHORITY_RECHECK_TIMEOUT_MS,
 					},
 				);

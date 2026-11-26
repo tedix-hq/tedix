@@ -1096,8 +1096,6 @@ export async function resolvePrimaryTedi(
 	}
 
 	try {
-		if (!env.API_SERVICE) return null;
-
 		const client = getApiClient({
 			serviceFetch: env.API_SERVICE,
 			orgId: organizationId,
@@ -1166,16 +1164,12 @@ export async function resolvePrimaryTedi(
  * non-ok — a transient outage with the binding present): stamp every entry's
  * runtimeKind to `agent` so the aggregate surface stays on the only supported
  * tedi runtime kind while the API is briefly unavailable.
- *
- * The no-binding case (`!env.API_SERVICE`) is a permanent config/dev condition,
- * not a transient outage — in production the binding is always present. There we
- * leave entries unmodified and rely on the downstream Agent-runtime default.
  */
 export async function hydrateAggregateRuntimeKinds(
 	entries: AggregateTediEntry[],
 	env: CloudflareEnv,
 ): Promise<AggregateTediEntry[]> {
-	if (!env.API_SERVICE || entries.length === 0) return entries;
+	if (entries.length === 0) return entries;
 	// Operator-authored aggregateTedis metadata may contain empty/blank slugs.
 	// The endpoint's input schema rejects empty strings (z.string().min(1)), so
 	// one bad row would 400 the whole batch and trip the transient-outage

@@ -25,6 +25,14 @@ function ctx(
 		env: {
 			ENVIRONMENT: "test",
 			API_URL: "https://api.example.test",
+			API_SERVICE: {
+				fetch: async (request: Request) =>
+					globalThis.fetch(request.url, {
+						method: request.method,
+						headers: request.headers,
+						body: await request.text(),
+					}),
+			},
 		} as unknown as CloudflareEnv,
 		config: config as unknown as ToolConfig,
 		toolId: "create_secret",

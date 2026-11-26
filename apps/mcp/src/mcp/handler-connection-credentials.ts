@@ -498,7 +498,6 @@ export async function fetchTediConnectionToken(
 	// Read the authoritative vault on every call so revocation and rotation
 	// take effect in every isolate without waiting for a local cache TTL.
 
-	const useServiceBinding = !!ctx.env.API_SERVICE;
 	try {
 		const rpcInput: Record<string, unknown> = {
 			tediId,
@@ -539,7 +538,6 @@ export async function fetchTediConnectionToken(
 			rpcInput,
 			{
 				headers,
-				serviceBinding: useServiceBinding,
 			},
 		);
 
@@ -614,7 +612,6 @@ export async function fetchOrgConnectionToken(
 	const resolvedScope = scope ?? "tenant";
 	const callerUserId = credentialActingUserId(ctx);
 
-	const useServiceBinding = !!ctx.env.API_SERVICE;
 	try {
 		// Direct scope-aware credential lookup — no tedi proxy required.
 		// `connections.fetchOrgToken` resolves either tenant credentials or the
@@ -656,7 +653,6 @@ export async function fetchOrgConnectionToken(
 			rpcInput,
 			{
 				headers: orgHeaders,
-				serviceBinding: useServiceBinding,
 			},
 		);
 

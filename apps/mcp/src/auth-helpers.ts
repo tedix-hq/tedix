@@ -840,9 +840,6 @@ export async function resolveExternalAgentSessionAuth(
 	registeredScopes?: string[],
 	fresh = false,
 ): Promise<ResolvedExternalAgentSessionAuth & { scopes: string[] }> {
-	if (!env.API_SERVICE) {
-		throw new Error("API service binding is required for external-agent auth");
-	}
 	const resolved = await callRpc<ResolvedExternalAgentSessionAuth>(
 		"externalAgentIdentity/resolveSessionAuth",
 		{ ...identity, clientRecordId, ...(fresh ? { fresh: true } : {}) },
@@ -885,8 +882,6 @@ async function searchAihMcpServerClientsViaApi(
 	mcpServerId: string,
 	clientId: string,
 ): Promise<AihMcpClientRecord[]> {
-	if (!env.API_SERVICE) return [];
-
 	const result = await callRpc<{ clients?: AihMcpClientRecord[] }>(
 		"descopeAih/searchMcpClients",
 		{ mcpServerId, clientId },
@@ -1032,7 +1027,7 @@ export async function resolveAihM2mClientScopeContext(
 	mcpServerId: string,
 	options?: ResolveAihM2mClientScopeOptions,
 ): Promise<AihM2mClientScopeContext | null> {
-	if (!env.DESCOPE_PROJECT_ID || !env.API_SERVICE || !mcpServerId) {
+	if (!env.DESCOPE_PROJECT_ID || !mcpServerId) {
 		return null;
 	}
 

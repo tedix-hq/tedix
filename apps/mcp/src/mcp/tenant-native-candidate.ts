@@ -40,7 +40,7 @@ export async function tenantMachinePolicyFallbackBlocked(
 		return false;
 	if (caller.authType !== "external_agent" && tool.config?.transport !== "mcp")
 		return false;
-	if (!agent.appId || !tool.id || !agent.env.API_SERVICE) return true;
+	if (!agent.appId || !tool.id) return true;
 	try {
 		const selected =
 			caller.authType === "oauth"
@@ -173,8 +173,7 @@ export async function resolveNativePolicyCandidate(
 		!caller.externalAgentSessionId ||
 		!caller.externalAgentClientRecordId ||
 		!caller.clientId ||
-		!caller.externalAgentMcpServerId ||
-		!agent.env.API_SERVICE
+		!caller.externalAgentMcpServerId
 	)
 		return null;
 	const identity = {

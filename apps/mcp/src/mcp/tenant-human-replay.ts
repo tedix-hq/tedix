@@ -24,8 +24,7 @@ export async function resolveHumanPolicyReplay(
 		!caller.userId ||
 		!caller.organizationId ||
 		!hasScope(caller.scopes ?? [], "connections.execute") ||
-		typeof approvalRequestId !== "string" ||
-		!agent.env.API_SERVICE
+		typeof approvalRequestId !== "string"
 	)
 		return null;
 	const client = getInternalApiClient(
