@@ -16,6 +16,8 @@ import { beginFileLock, withFileLockSync } from "./local-file-lock";
 export interface ExternalAgentStoreOptions {
 	configDir?: string;
 	homeDir?: string;
+	/** The organization a command targets; defaults to TEDIX_ORGANIZATION. */
+	organization?: string;
 }
 
 export interface StoredExternalAgentSession {
@@ -446,15 +448,72 @@ export function externalAgentProfileSlot(
 	sessionKey?: string,
 	options?: ExternalAgentStoreOptions,
 ): string {
+	const { workspaces } = readStore(options);
 	const family = sessionKey?.includes(":")
 		? harnessFamily(sessionKey)
 		: undefined;
-	if (!family) return workspace;
-	const { workspaces } = readStore(options);
-	const shared = workspaces[workspace];
-	const own = `${workspace}#${family}`;
-	if (!shared) return workspaces[own] ? own : workspace;
-	return principalServesSession(shared.key, sessionKey) ? workspace : own;
+	let slot = workspace;
+	if (family) {
+		const shared = workspaces[workspace];
+		const own = `${workspace}#${family}`;
+		if (!shared) slot = workspaces[own] ? own : workspace;
+		else if (!principalServesSession(shared.key, sessionKey)) slot = own;
+	}
+	return organizationProfileSlot(slot, workspaces, options?.organization);
+}
+
+/**
+ * A principal belongs to one organization, so one login that reaches several
+ * organizations keeps one principal per organization: the first in the
+ * workspace's own slot, each other one beside it as `<slot>@<organization>`.
+ * The target is the command's `--organization`, else TEDIX_ORGANIZATION; with
+ * neither, the workspace's own slot is used as before.
+ */
+function organizationProfileSlot(
+	slot: string,
+	workspaces: ExternalAgentStore["workspaces"],
+	organization?: string,
+): string {
+	const target = (organization ?? process.env.TEDIX_ORGANIZATION)?.trim();
+	const profile = workspaces[slot];
+	// Only a profile whose names are known can be told apart from the target;
+	// an older profile without them is checked against the server on start.
+	if (
+		!target ||
+		!profile?.organizationAliases?.length ||
+		profileNamesOrganization(profile, target)
+	)
+		return slot;
+	const aside = `${slot}@${target}`;
+	if (workspaces[aside]) return aside;
+	// The same organization stored under another of its names (id or slug).
+	for (const [name, other] of Object.entries(workspaces))
+		if (name.startsWith(`${slot}@`) && profileNamesOrganization(other, target))
+			return name;
+	return aside;
+}
+
+export function profileNamesOrganization(
+	profile: Pick<
+		StoredExternalAgentProfile,
+		"organizationId" | "organizationAliases"
+	>,
+	organization: string,
+): boolean {
+	return (
+		organization === profile.organizationId ||
+		(profile.organizationAliases ?? []).includes(organization)
+	);
+}
+
+/** The workspace a profile slot belongs to: `connect#claude@org_x` is `connect`. */
+export function profileSlotWorkspace(slot: string): string {
+	return slot.split(/[#@]/)[0]!;
+}
+
+/** The harness family a slot is named for: `connect#claude@org_x` is `claude`. */
+export function profileSlotFamily(slot: string): string | undefined {
+	return slot.split("@")[0]!.split("#")[1];
 }
 
 /**
@@ -592,8 +651,8 @@ export function externalAgentSessionWorkspaces(
 				Object.values(profile.sessions).some(
 					(session) => session.externalSessionKey.split(":").at(-1) === key,
 				));
-		// A harness slot (`connect#claude`) belongs to its workspace.
-		const name = workspace.split("#")[0]!;
+		// A harness or organization slot (`connect#claude@org_x`) belongs to its workspace.
+		const name = profileSlotWorkspace(workspace);
 		if (match && !found.includes(name)) found.push(name);
 	}
 	return found;

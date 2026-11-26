@@ -165,6 +165,10 @@ export async function main() {
 
 	const parsed = parseOptions(process.argv.slice(2));
 	const { command, options } = parsed;
+	// Agent identities are kept per organization, and the store reads the
+	// target from the environment, so the flag wins over an inherited value.
+	if (options.organization)
+		process.env.TEDIX_ORGANIZATION = options.organization;
 	if (await rejectUnsupportedJson(command, options.json)) return;
 	if (options.version) {
 		console.log(options.json ? JSON.stringify(CLI_VERSION) : CLI_VERSION);

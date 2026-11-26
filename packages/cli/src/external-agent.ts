@@ -20,6 +20,8 @@ import { decodeJwtPayload } from "./jwt-payload";
 import {
 	clearBootstrapApproval,
 	externalAgentProfileSlot,
+	profileNamesOrganization,
+	profileSlotFamily,
 	principalServesSession,
 	readBootstrapApproval,
 	readExternalAgentProfile,
@@ -503,19 +505,6 @@ export function externalAgentNamesOrganization(
 	return Boolean(profile && profileNamesOrganization(profile, organization));
 }
 
-function profileNamesOrganization(
-	profile: Pick<
-		StoredExternalAgentProfile,
-		"organizationId" | "organizationAliases"
-	>,
-	organization: string,
-): boolean {
-	return (
-		organization === profile.organizationId ||
-		(profile.organizationAliases ?? []).includes(organization)
-	);
-}
-
 /** Select only a name that both identifies the agent and the Connect login selected. */
 export function externalAgentContextOrganization(
 	profile: Pick<
@@ -796,6 +785,7 @@ async function startExternalAgentSessionLocked(
 	const slot = externalAgentProfileSlot(
 		options.workspace,
 		tuple.externalSessionKey,
+		{ organization: options.organization },
 	);
 	let profile = readExternalAgentProfile(slot);
 	const existingProfile = Boolean(profile);
@@ -1159,12 +1149,15 @@ function findStoredSession(
 function sessionProfile(
 	workspace: string,
 	sessionKey: string | undefined,
+	organization?: string,
 ): {
 	slot: string;
 	profile: StoredExternalAgentProfile | null;
 	session?: StoredExternalAgentSession;
 } {
-	const slot = externalAgentProfileSlot(workspace, sessionKey);
+	const slot = externalAgentProfileSlot(workspace, sessionKey, {
+		organization,
+	});
 	if (sessionKey)
 		for (const candidate of new Set([slot, workspace])) {
 			const profile = readExternalAgentProfile(candidate);
@@ -1181,13 +1174,18 @@ function sessionProfile(
 function currentSessionContext(
 	workspace: string,
 	sessionKey?: string,
+	organization?: string,
 ): {
 	slot: string;
 	profile: StoredExternalAgentProfile;
 	session: StoredExternalAgentSession;
 } {
 	const current = resolveExplicitAgentSession(sessionKey);
-	const { slot, profile, session } = sessionProfile(workspace, current.session);
+	const { slot, profile, session } = sessionProfile(
+		workspace,
+		current.session,
+		organization,
+	);
 	if (!profile) throw new Error("No external-agent profile is configured.");
 	if (!session || (sessionKey && session.externalSessionKey !== sessionKey)) {
 		throw new Error(`Agent-Session "${current.session}" has not been started.`);
@@ -1215,6 +1213,7 @@ export async function resolveExternalAgentAuth(options: {
 	const { slot, profile, session } = currentSessionContext(
 		options.workspace,
 		options.sessionKey,
+		options.organization,
 	);
 	return {
 		headers: credential,
@@ -1241,7 +1240,11 @@ async function resolveExternalAgentCredential(
 		slot,
 		profile,
 		session: stored,
-	} = currentSessionContext(options.workspace, options.sessionKey);
+	} = currentSessionContext(
+		options.workspace,
+		options.sessionKey,
+		options.organization,
+	);
 	if (
 		options.organization &&
 		!profileNamesOrganization(profile, options.organization)
@@ -1581,7 +1584,8 @@ export async function renameExternalAgentPrincipal(options: {
 	if (!profile) throw new Error("No external-agent profile is configured.");
 	const displayName =
 		options.displayName?.trim() ||
-		defaultLocalPrincipal(undefined, undefined, slot.split("#")[1]).displayName;
+		defaultLocalPrincipal(undefined, undefined, profileSlotFamily(slot))
+			.displayName;
 	const url = options.mcpUrl ?? profile.mcpUrl;
 	const target = isMultiOrganizationMcpUrl(url)
 		? resolveOrganizationTarget({

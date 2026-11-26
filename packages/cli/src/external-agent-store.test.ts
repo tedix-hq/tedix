@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
 	clearBootstrapApproval,
 	discardExternalAgentCredential,
+	externalAgentProfileSlot,
 	externalAgentSessionWorkspaces,
 	readBootstrapApproval,
 	readExternalAgentProfile,
@@ -30,6 +31,36 @@ afterEach(() => {
 });
 
 describe("external-agent credential store", () => {
+	test("keeps another organization's principal beside the workspace's own", () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		writeExternalAgentProfile(
+			"connect",
+			{
+				organizationId: "tedix-id",
+				organizationAliases: ["tedix", "org_tedix"],
+				principalId: "principal-id",
+				key: "local-ada-mac",
+				displayName: "Ada's Mac",
+				apiKeyId: "api-key-id",
+				rawApiKey: "sk_secret_never_render",
+				scopes: ["mcp:work.read"],
+				mcpUrl: "https://connect.mcp.tedix.dev/mcp",
+				createdAt: "2026-11-26T00:00:00.000Z",
+				sessions: {},
+			},
+			{ configDir },
+		);
+		const slot = (organization?: string) =>
+			externalAgentProfileSlot("connect", "codex:session-1", {
+				configDir,
+				organization,
+			});
+		expect(slot("org_tedix")).toBe("connect");
+		// A Tedix principal must never act for Acme Work.
+		expect(slot("org_acme")).toBe("connect@org_acme");
+	});
+
 	test("round-trips a profile and hardens the secret file to 0600", () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);

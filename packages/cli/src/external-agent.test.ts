@@ -1269,10 +1269,12 @@ describe("external-agent CLI session", () => {
 					],
 					createClient: () => factory(),
 					fetch: async () => {
-						throw new Error("must not exchange wrong organization");
+						throw new Error("bootstraps its own principal");
 					},
 				}),
-			).rejects.toThrow("not 55555555");
+				// Another organization gets its own principal; the Tedix one is never reused.
+			).rejects.toThrow("bootstraps its own principal");
+			expect(readExternalAgentProfile("connect")?.organizationId).toBe(ORG);
 			await expect(
 				resolveExternalAgentAuth({
 					workspace: "connect",
@@ -1283,7 +1285,10 @@ describe("external-agent CLI session", () => {
 					},
 				}),
 			).rejects.toThrow(`Use --organization ${ORG}`);
-			expect(code).toHaveLength(before);
+			// Calls since then were for the other organization's own principal.
+			expect(code.slice(before).some((source) => source.includes(ORG))).toBe(
+				false,
+			);
 
 			// A profile saved before aliases existed learns them at the next start.
 			const { organizationAliases: _, ...legacy } =
