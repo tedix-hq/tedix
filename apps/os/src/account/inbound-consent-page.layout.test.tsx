@@ -69,9 +69,13 @@ vi.mock("@/lib/api", () => ({
 }));
 
 /** A Descope session JWT that stays valid for the test. */
-function sessionJwt(subject: string): string {
+function sessionJwt(subject: string, tenant?: string): string {
 	const payload = btoa(
-		JSON.stringify({ sub: subject, exp: Math.floor(Date.now() / 1000) + 600 }),
+		JSON.stringify({
+			sub: subject,
+			dct: tenant,
+			exp: Math.floor(Date.now() / 1000) + 600,
+		}),
 	).replace(/=+$/, "");
 	return `header.${payload}.signature`;
 }
@@ -277,13 +281,14 @@ describe("InboundConsentPage layout", () => {
 		},
 	);
 
-	it("defaults to Minimal independently of an all-read request", async () => {
+	it("offers task-ready access and stages exactly once after one Authorize click", async () => {
 		await act(async () => renderConsentPage());
 		const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
 			screenName: string,
 			context: Record<string, unknown>,
 			next: ReturnType<typeof vi.fn>,
 		) => boolean;
+		const next = vi.fn().mockResolvedValue({ ok: true });
 		await act(async () => {
 			onScreenUpdate(
 				"Consent Screen - Verified App",
@@ -295,7 +300,7 @@ describe("InboundConsentPage layout", () => {
 						],
 					},
 				},
-				vi.fn(),
+				next,
 			);
 		});
 		const allRequested = [...container.querySelectorAll("button")].find(
@@ -303,13 +308,105 @@ describe("InboundConsentPage layout", () => {
 		);
 		expect(allRequested?.getAttribute("aria-pressed")).toBe("false");
 		expect(container.textContent).not.toContain("Full access");
-		expect(container.textContent).toContain("4 of 7 selected");
+		expect(container.textContent).toContain("6 of 7 selected");
 		expect(
 			[...container.querySelectorAll("button")]
-				.find((button) => button.textContent === "Minimal")
+				.find((button) => button.textContent === "Run tasks")
 				?.getAttribute("aria-pressed"),
 		).toBe("true");
+		expect(container.textContent).toContain("Tedix");
+		expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
+		expect(next).not.toHaveBeenCalled();
+		await clickButton("Authorize");
+		await clickButton("Authorizing…");
+		expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledTimes(1);
+		expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledWith({
+			clientId: "TPAclient1",
+			resourceUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+			selectedTenantIds: ["org_tedix"],
+			approvedScopes: ["mcp:apps.read", "mcp:apps.write", "email", "profile"],
+		});
+		expect(next).toHaveBeenCalledTimes(1);
+		expect(next).toHaveBeenCalledWith(
+			INBOUND_CONSENT_AUTHORIZE_INTERACTION,
+			expect.objectContaining({
+				"form.tedixConsentRevision": consentRevision,
+				"form.tedixSelectedOrganizations": '["org_tedix"]',
+				thirdPartyAppApproveScopes: [
+					"mcp:apps.read",
+					"mcp:apps.write",
+					"email",
+					"offline_access",
+					"openid",
+					"profile",
+				],
+			}),
+		);
 	});
+
+	it.each([
+		{ hint: undefined, session: "org_sample", selected: ["org_sample"] },
+		{ hint: "org_tedix", session: "org_sample", selected: ["org_tedix"] },
+		{ hint: "org_missing", session: "org_sample", selected: [] },
+		{ hint: undefined, session: undefined, selected: [] },
+	])(
+		"bounds organization defaults to eligible memberships ($hint, $session)",
+		async ({ hint, session, selected }) => {
+			const url = new URL(window.location.href);
+			url.searchParams.delete("tenant");
+			if (hint) url.searchParams.set("tenant", hint);
+			window.history.replaceState({}, "", url);
+			descopeMock.sessionToken = sessionJwt("member", session);
+			descopeMock.myTenants.mockResolvedValueOnce({
+				ok: true,
+				data: {
+					tenants: [
+						{ id: "org_tedix", name: "Tedix" },
+						{ id: "org_sample", name: "Sample" },
+					],
+				},
+			});
+			apiMock.listMyWorkspaces.mockResolvedValue({
+				data: ["org_tedix", "org_sample"].map((id) => ({
+					org: { descopeTenantId: id, provisionComplete: true },
+					surfaces: [
+						{
+							surface: "mcp",
+							provisioned: true,
+							canonicalUrl: "https://example.test/mcp",
+						},
+					],
+				})),
+			});
+			await act(async () => renderConsentPage());
+			const update = descopeMock.flowProps?.onScreenUpdate as (
+				name: string,
+				context: Record<string, unknown>,
+				next: ReturnType<typeof vi.fn>,
+			) => boolean;
+			const next = vi.fn().mockResolvedValue({ ok: true });
+			await act(async () =>
+				update(
+					"Consent Screen - Verified App",
+					{ data: { inboundAppApproveScopes: ["openid"] } },
+					next,
+				),
+			);
+			const authorize = [...container.querySelectorAll("button")].find(
+				(button) => button.textContent === "Authorize",
+			)!;
+			expect(authorize.disabled).toBe(selected.length === 0);
+			await clickButton("Authorize");
+			if (selected.length) {
+				expect(apiMock.stageMultiOrgMcpConsent).toHaveBeenCalledWith(
+					expect.objectContaining({ selectedTenantIds: selected }),
+				);
+			} else {
+				expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
+				expect(next).not.toHaveBeenCalled();
+			}
+		},
+	);
 
 	it.each([false, true])(
 		"batches organization lookups and fails closed when a later batch fails (%s)",
@@ -946,7 +1043,7 @@ it("narrows a tenant-bound authorization to the selected scopes and hinted organ
 	window.history.replaceState({}, "", "/oauth/consent?tenant=org_tedix");
 	expect(controls).toHaveLength(7);
 	expect(container.textContent).toContain("Minimal");
-	expect(container.textContent).toContain("4 of 7 selected");
+	expect(container.textContent).toContain("6 of 7 selected");
 	expect(container.textContent).toContain("Signed in as member@example.test");
 	await clickButton("Read only");
 	await clickButton("Choose organizations");

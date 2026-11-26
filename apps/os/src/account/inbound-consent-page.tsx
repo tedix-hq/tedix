@@ -433,6 +433,18 @@ export function inboundConsentSessionJwtUsable(
 	}
 }
 
+function sessionTenantHint(jwt: string | null | undefined): string | undefined {
+	if (!inboundConsentSessionJwtUsable(jwt)) return undefined;
+	try {
+		const payload = JSON.parse(
+			atob(jwt.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")),
+		) as { dct?: unknown };
+		return typeof payload.dct === "string" ? payload.dct : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * Consent API calls carry the consent flow's own Descope session, so a
  * browser with no Tedix OS session can still list workspaces and stage the
@@ -443,12 +455,16 @@ export function inboundConsentSessionJwtUsable(
 function useInboundConsentApi() {
 	const descope = useDescope();
 	const { sessionToken } = useSession();
+	const [sessionTenant, setSessionTenant] = useState(() =>
+		sessionTenantHint(sessionToken),
+	);
 	const sessionTokenRef = useRef(sessionToken);
 	sessionTokenRef.current = sessionToken;
-	return useMemo(() => {
+	const consentApi = useMemo(() => {
 		let refreshing: Promise<string> | null = null;
 		return createInboundConsentApi(async () => {
 			if (inboundConsentSessionJwtUsable(sessionTokenRef.current)) {
+				setSessionTenant(sessionTenantHint(sessionTokenRef.current));
 				return sessionTokenRef.current;
 			}
 			refreshing ??= descope
@@ -456,6 +472,7 @@ function useInboundConsentApi() {
 				.then((result) => {
 					const jwt = result.ok ? result.data?.sessionJwt : undefined;
 					if (!jwt) throw new Error("Consent sign-in unavailable");
+					setSessionTenant(sessionTenantHint(jwt));
 					return jwt;
 				})
 				.finally(() => {
@@ -464,6 +481,7 @@ function useInboundConsentApi() {
 			return refreshing;
 		});
 	}, [descope]);
+	return { consentApi, sessionTenant };
 }
 
 function GroupedConsentScreen({
@@ -481,7 +499,7 @@ function GroupedConsentScreen({
 }) {
 	const descope = useDescope();
 	const { user } = useUser();
-	const consentApi = useInboundConsentApi();
+	const { consentApi, sessionTenant } = useInboundConsentApi();
 	const [consentOptions, setConsentOptions] = useState<{
 		supportedScopes: string[];
 		existingScopes: string[];
@@ -583,7 +601,7 @@ function GroupedConsentScreen({
 					...new Set([...options.supportedScopes, "openid", "offline_access"]),
 				]).filter((scope) => scope.name !== "platform:admin");
 				const stepUp = options.existingScopes.length > 0;
-				setScopePreset(stepUp ? "custom" : "minimal");
+				setScopePreset(stepUp ? "custom" : "tasks");
 				setSelectedScopes(
 					stepUp
 						? state.scopes
@@ -594,7 +612,7 @@ function GroupedConsentScreen({
 										offered.some((candidate) => candidate.name === scope.name),
 								)
 								.map((scope) => scope.name)
-						: selectConsentPreset(offered, "minimal"),
+						: selectConsentPreset(offered, "tasks"),
 				);
 			})
 			.catch(() => {
@@ -705,15 +723,21 @@ function GroupedConsentScreen({
 			.then((tenants) => {
 				if (!active) return;
 				setOrganizations(tenants.map(({ id, name }) => ({ id, name })));
-				// A tenant-bound request (the CLI's `tenant` hint) starts selected.
+				// Defaults are hints, checked against the caller's eligible memberships.
 				if (consentOptions?.selectedTenantIds.length) {
 					setSelectedTenantIds(
 						consentOptions.selectedTenantIds.filter((id) =>
 							tenants.some((organization) => organization.id === id),
 						),
 					);
-				} else if (tenants.some(({ id }) => id === tenant)) {
-					setSelectedTenantIds([tenant!]);
+				} else {
+					const preferredTenant = tenant ?? sessionTenant;
+					if (preferredTenant) {
+						if (tenants.some(({ id }) => id === preferredTenant))
+							setSelectedTenantIds([preferredTenant]);
+					} else if (tenants.length === 1) {
+						setSelectedTenantIds([tenants[0]!.id]);
+					}
 				}
 				setOrganizationsError(false);
 				setOrganizationsLoading(false);
@@ -731,6 +755,7 @@ function GroupedConsentScreen({
 	}, [
 		descope,
 		tenant,
+		sessionTenant,
 		organizationsReload,
 		currentDirectory?.eligibleTenants,
 		consentOptions,
@@ -741,6 +766,18 @@ function GroupedConsentScreen({
 	const submissionStarted = useRef(false);
 	const [completionDelayed, setCompletionDelayed] = useState(false);
 	const [decisionError, setDecisionError] = useState<string | null>(null);
+	const canAuthorize =
+		Boolean(consentOptions) &&
+		!optionsError &&
+		!organizationsLoading &&
+		!directoryLoading &&
+		!organizationsError &&
+		!directoryError &&
+		approvedPermissions.length > 0 &&
+		selectedTenantIds.length > 0 &&
+		selectedTenantIds.length <= 10 &&
+		JSON.stringify(selectedTenantIds).length <= 500 &&
+		selectedOrganizationsValid;
 	useEffect(() => {
 		if (!submitting) return;
 		const timeout = window.setTimeout(() => setCompletionDelayed(true), 15_000);
@@ -751,6 +788,7 @@ function GroupedConsentScreen({
 		interactionId: string,
 	) => {
 		if (submissionStarted.current) return;
+		if (kind === "authorize" && !canAuthorize) return;
 		submissionStarted.current = true;
 		setSubmitting(kind);
 		setDecisionError(null);
@@ -857,11 +895,24 @@ function GroupedConsentScreen({
 						</Text>
 					) : null}
 				</CardHeader>
-				<CardContent className="grid gap-3">
+				<CardContent className="grid grid-cols-1 gap-3">
 					{decisionError ? (
 						<Text role="body" tone="error">
 							{decisionError}
 						</Text>
+					) : null}
+					{submitting ? (
+						<div role="status">
+							<Text role="body" tone="secondary">
+								{submitting === "cancel"
+									? completionDelayed
+										? "Cancellation is taking longer than expected. Return to the application that requested access to check the result."
+										: "Completing cancellation. Return to the application that requested access to check the result."
+									: completionDelayed
+										? "Authorization is taking longer than expected. Return to the application that requested access to check the result before starting a new login. Your consent may already have been recorded."
+										: "Completing your request. Wait for the application that requested access to confirm authorization."}
+							</Text>
+						</div>
 					) : null}
 					{step === "permissions" ? (
 						<>
@@ -886,6 +937,12 @@ function GroupedConsentScreen({
 								You can change permissions later by reconnecting this
 								application.
 							</Text>
+							<Text role="body" tone="secondary">
+								Choose Run tasks to let your agent read information, save
+								results and use connected tools. Read only can look things up,
+								but cannot save changes. Administration is not needed to run
+								ordinary tasks.
+							</Text>
 							<div className="flex flex-wrap gap-2">
 								<SegmentedControl
 									ariaLabel="Permission preset"
@@ -894,6 +951,7 @@ function GroupedConsentScreen({
 									options={[
 										{ value: "minimal", label: "Minimal" },
 										{ value: "read", label: "Read only" },
+										{ value: "tasks", label: "Run tasks" },
 										{ value: "all", label: "All" },
 										{ value: "custom", label: "Custom" },
 									]}
@@ -919,8 +977,15 @@ function GroupedConsentScreen({
 								{selectedScopes.length} of {selectableScopes.length} selected
 							</Text>
 							<Text role="body" tone="secondary">
-								Minimal identifies you, lists your organizations and workspaces,
-								and keeps you signed in. Other access needs your permission.
+								{scopePreset === "minimal"
+									? "Minimal only identifies you, lists your organizations and workspaces, and keeps you signed in."
+									: scopePreset === "tasks"
+										? "Run tasks includes read and write access, but not administrative permissions."
+										: scopePreset === "read"
+											? "Read only allows viewing information without changing it."
+											: scopePreset === "all"
+												? "All includes ordinary administrative permissions. Platform administration stays separate."
+												: "Only the selected permissions will be allowed."}
 							</Text>
 							{existingPermissions.length ? (
 								<>
@@ -955,7 +1020,34 @@ function GroupedConsentScreen({
 									</Text>
 								</div>
 							) : null}
-							<div className="flex justify-end gap-2 pt-2">
+							<Text role="label">Organization access</Text>
+							{organizationsLoading || directoryLoading ? (
+								<LoadingArea label="Loading your organizations" />
+							) : organizationsError || directoryError ? (
+								<Text role="body" tone="error">
+									Could not load your organizations. Choose organizations to try
+									again.
+								</Text>
+							) : selectedTenantIds.length ? (
+								visibleOrganizations
+									.filter((organization) =>
+										selectedTenantIds.includes(organization.id),
+									)
+									.map((organization) => (
+										<Text key={organization.id} role="body">
+											{organization.name}
+										</Text>
+									))
+							) : (
+								<Text role="body" tone="secondary">
+									Choose an organization before authorizing.
+								</Text>
+							)}
+							<Text role="body" tone="secondary">
+								Authorize allows only the permissions and organizations shown
+								here. You can remove this access in Connected applications.
+							</Text>
+							<div className="flex flex-wrap justify-end gap-2 pt-2">
 								<Button
 									variant="outline"
 									disabled={Boolean(submitting)}
@@ -970,14 +1062,28 @@ function GroupedConsentScreen({
 									Cancel
 								</Button>
 								<Button
+									variant="outline"
 									disabled={
 										!consentOptions ||
 										optionsError ||
+										Boolean(submitting) ||
 										approvedPermissions.length === 0
 									}
 									onClick={() => setStep("organizations")}
 								>
 									Choose organizations
+								</Button>
+								<Button
+									disabled={Boolean(submitting) || !canAuthorize}
+									loading={submitting === "authorize"}
+									onClick={() =>
+										void continueFlow(
+											"authorize",
+											INBOUND_CONSENT_AUTHORIZE_INTERACTION,
+										)
+									}
+								>
+									{submitting === "authorize" ? "Authorizing…" : "Authorize"}
 								</Button>
 							</div>
 						</>
@@ -1112,19 +1218,6 @@ function GroupedConsentScreen({
 										{organization.name}
 									</Text>
 								))}
-							{submitting ? (
-								<div role="status">
-									<Text role="body" tone="secondary">
-										{submitting === "cancel"
-											? completionDelayed
-												? "Cancellation is taking longer than expected. Return to the application that requested access to check the result."
-												: "Completing cancellation. Return to the application that requested access to check the result."
-											: completionDelayed
-												? "Authorization is taking longer than expected. Return to the application that requested access to check the result before starting a new login. Your consent may already have been recorded."
-												: "Completing your request. Wait for the application that requested access to confirm authorization."}
-									</Text>
-								</div>
-							) : null}
 							<div className="flex justify-end gap-2.5 pt-2">
 								{
 									<Button
@@ -1149,14 +1242,7 @@ function GroupedConsentScreen({
 									{submitting === "cancel" ? "Cancelling…" : "Cancel"}
 								</Button>
 								<Button
-									disabled={
-										Boolean(submitting) ||
-										!consentOptions ||
-										optionsError ||
-										approvedPermissions.length === 0 ||
-										selectedTenantIds.length === 0 ||
-										!selectedOrganizationsValid
-									}
+									disabled={Boolean(submitting) || !canAuthorize}
 									loading={submitting === "authorize"}
 									onClick={() =>
 										void continueFlow(

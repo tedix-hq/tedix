@@ -2,7 +2,12 @@ import { MCP_SCOPE_POLICY } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import { CAPABILITY_SCOPES, TEDI_MCP_SCOPES } from "./scopes";
 
 /** Human consent presets are bounded by the resource's offered permissions. */
-export type HumanConsentPreset = "minimal" | "read" | "all" | "custom";
+export type HumanConsentPreset =
+	| "minimal"
+	| "read"
+	| "tasks"
+	| "all"
+	| "custom";
 export const CONSENT_PROTOCOL_SCOPES = Object.keys(
 	MCP_SCOPE_POLICY.protocolScopes,
 );
@@ -76,7 +81,9 @@ export function selectConsentPreset(
 						preset === "all" ||
 						(preset === "minimal"
 							? MINIMAL_CONSENT_SCOPES.some((name) => name === scope.name)
-							: isReadConsentScope(scope.name)),
+							: preset === "tasks"
+								? isMemberConsentScope(scope.name)
+								: isReadConsentScope(scope.name)),
 				)
 				.map((scope) => scope.name),
 		),

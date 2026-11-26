@@ -12,6 +12,28 @@ import {
 	isMcpToolVisibleToCaller,
 } from "./tool-scopes";
 describe("human consent presets", () => {
+	it("selects task permissions without unknown or administrative authority", () => {
+		expect(
+			selectConsentPreset(
+				[
+					"openid",
+					"mcp:work.read",
+					"mcp:work.write",
+					"connections.execute",
+					"mcp:work.admin",
+					"connections.admin",
+					"platform:admin",
+					"unknown.write",
+				].map((name) => ({ name, required: true })),
+				"tasks",
+			),
+		).toEqual([
+			"openid",
+			"mcp:work.read",
+			"mcp:work.write",
+			"connections.execute",
+		]);
+	});
 	it("offers optional Connect actions but selects only reads by default", () => {
 		const offered = selectConnectConsentRequestScopes([
 			...HUMAN_CONNECT_CONSENT_SCOPES,
