@@ -256,6 +256,7 @@ describe("optional audit log store", () => {
 		await insertAuditEvent(main.db, {
 			...event,
 			id: "old",
+			action: "mcp.session.open",
 			occurredAt: new Date("2026-01-01T00:00:00Z"),
 		});
 		configureLogStore(main.db, { LOGS_DB: logs.binding });
@@ -286,6 +287,13 @@ describe("optional audit log store", () => {
 			"mcp.tool.error",
 		]);
 		expect(activity[0]?.oauthClientId).toBe("client-example");
+		await insertAuditEvent(main.db, {
+			...event,
+			id: "security",
+			action: "mcp.access.denied",
+			occurredAt: new Date("2026-01-04T00:00:00Z"),
+		});
+		const prepare = vi.spyOn(main.binding, "prepare");
 		const freshness = await getAnalyticsAppFreshness(main.db, {
 			organizationId: event.organizationId,
 			appId: "app-example",
@@ -293,11 +301,15 @@ describe("optional audit log store", () => {
 			windowEndSeconds: 2000000000,
 		});
 		expect(freshness.countsRow).toEqual({
-			totalEvents: 3,
-			toolExecutions: 2,
+			totalEvents: 4,
+			toolExecutions: 1,
 			toolErrors: 1,
 			codeExecutions: 0,
 		});
+		expect(freshness.latestRow?.action).toBe("mcp.access.denied");
+		expect(
+			prepare.mock.calls.some(([statement]) => statement.includes("SUM(")),
+		).toBe(false);
 	});
 
 	it("preserves audit search across rotation with duplicates and tenant scope", async () => {

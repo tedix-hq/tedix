@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import type { DbClient } from "../client";
+import { type DbClient, getLogStores } from "../client";
 import { coreTable } from "../core-store/client";
 import {
 	anyIds,
@@ -265,7 +265,15 @@ export async function getAnalyticsAppFreshness(
 }> {
 	const pages = await readLogStores(
 		db,
-		(store) => getAnalyticsAppFreshness(store, input),
+		(store) =>
+			withAuditMetadataRefs((refs) =>
+				readAnalyticsAppFreshness(
+					store,
+					input,
+					refs,
+					store !== getLogStores(db)?.main,
+				),
+			),
 		{
 			from: new Date(input.windowStartSeconds * 1000).toISOString(),
 			to: new Date(input.windowEndSeconds * 1000).toISOString(),
@@ -305,6 +313,7 @@ async function readAnalyticsAppFreshness(
 		windowEndSeconds: number;
 	},
 	refs: boolean,
+	includeTelemetry = true,
 ): Promise<{
 	countsRow: AnalyticsFreshnessCountsRow | undefined;
 	latestRow: AnalyticsLatestAuditRow | undefined;
@@ -325,19 +334,28 @@ async function readAnalyticsAppFreshness(
 			totalEvents: sql<number | null>`COUNT(*)`
 				.mapWith(Number)
 				.as("totalEvents"),
-			toolExecutions: sql<
-				number | null
-			>`SUM(CASE WHEN ${auditEvents.action} = 'mcp.tool.execute' THEN 1 ELSE 0 END)`
+			toolExecutions: (includeTelemetry
+				? sql<
+						number | null
+					>`SUM(CASE WHEN ${auditEvents.action} = 'mcp.tool.execute' THEN 1 ELSE 0 END)`
+				: sql<number>`0`
+			)
 				.mapWith(Number)
 				.as("toolExecutions"),
-			codeExecutions: sql<
-				number | null
-			>`SUM(CASE WHEN ${auditEvents.action} = 'mcp.code.execute' THEN 1 ELSE 0 END)`
+			codeExecutions: (includeTelemetry
+				? sql<
+						number | null
+					>`SUM(CASE WHEN ${auditEvents.action} = 'mcp.code.execute' THEN 1 ELSE 0 END)`
+				: sql<number>`0`
+			)
 				.mapWith(Number)
 				.as("codeExecutions"),
-			toolErrors: sql<
-				number | null
-			>`SUM(CASE WHEN ${auditEvents.action} = 'mcp.tool.error' THEN 1 ELSE 0 END)`
+			toolErrors: (includeTelemetry
+				? sql<
+						number | null
+					>`SUM(CASE WHEN ${auditEvents.action} = 'mcp.tool.error' THEN 1 ELSE 0 END)`
+				: sql<number>`0`
+			)
 				.mapWith(Number)
 				.as("toolErrors"),
 		})
@@ -383,12 +401,13 @@ export async function listAnalyticsExecutionAuditRows(
 		auditOauthClientId,
 		optionalOrganization,
 	} = auditExpressions(db);
-	const pages = await readLogStores(
-		db,
-		(store) => listAnalyticsExecutionAuditRows(store, input),
-		{ order: "logs-first" },
-	);
-	if (pages) {
+	const stores = getLogStores(db);
+	if (stores) {
+		const pages = await Promise.all(
+			stores.partitions.map(({ db: store }) =>
+				listAnalyticsExecutionAuditRows(store, input),
+			),
+		);
 		const rows = pages
 			.flat()
 			.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));

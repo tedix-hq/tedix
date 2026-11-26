@@ -84,21 +84,28 @@ describe("partition-aware query callers", () => {
 			limit: 2,
 		});
 		expect(activity.map((row) => row.resourceId)).toEqual(["new", "middle"]);
-		for (const rows of [
-			await listAnalyticsExecutionAuditRows(main.db, {
-				organizationId: ORG,
+		const prepare = vi.spyOn(main.binding, "prepare");
+		const execution = await listAnalyticsExecutionAuditRows(main.db, {
+			organizationId: ORG,
+			executionId: "execution-example",
+		});
+		expect(execution.map((row) => row.resourceId)).toEqual(["old", "new"]);
+		await expect(
+			listAnalyticsExecutionAuditRows(main.db, {
+				organizationId: "org-other",
 				executionId: "execution-example",
 			}),
-			await listAnalyticsTraceActivity(main.db, {
-				organizationId: ORG,
-				traceId: "trace-example",
-			}),
-		])
-			expect(rows.map((row) => row.resourceId)).toEqual([
-				"old",
-				"middle",
-				"new",
-			]);
+		).resolves.toEqual([]);
+		expect(prepare).not.toHaveBeenCalled();
+		const trace = await listAnalyticsTraceActivity(main.db, {
+			organizationId: ORG,
+			traceId: "trace-example",
+		});
+		expect(trace.map((row) => row.resourceId)).toEqual([
+			"old",
+			"middle",
+			"new",
+		]);
 		expect(
 			await listRecentAnalyticsAuditActivity(main.db, {
 				organizationId: "org-other",
