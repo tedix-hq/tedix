@@ -1,4 +1,5 @@
 import { and, eq, getColumns, sql } from "drizzle-orm";
+import { COMMITMENT_REMINDER_SOURCE } from "@tedix/api-contract/utils/commitment-reminder";
 import type { DbQueryClient } from "../../query-client";
 import { coreTable } from "../../core-store/client";
 import { coreStore, jsonRead } from "../../core-store/dialect";
@@ -119,7 +120,9 @@ export async function reassignIdleWork(
 			)}) AND ${jsonRead(db, workAttempts.metadata, ["dispatchVersion"], "number")} = ${item.version})))`,
 		sql`(SELECT count(*) FROM ${workAttempts} WHERE ${workAttempts.orgId} = ${input.orgId} AND ${workAttempts.workItemId} = ${item.id}
 			AND ${jsonRead(db, workAttempts.metadata, ["dispatchVersion"], "number")} = ${item.version} AND ${workAttempts.outcome} IN ('failed', 'expired')) < 3`,
-		sql`NOT EXISTS (SELECT 1 FROM ${workInteractions} WHERE ${workInteractions.orgId} = ${input.orgId} AND ${workInteractions.workItemId} = ${item.id} AND ${workInteractions.status} = 'open')`,
+		// A status follow-up is not a person waiting; starting an Attempt closes it.
+		sql`NOT EXISTS (SELECT 1 FROM ${workInteractions} WHERE ${workInteractions.orgId} = ${input.orgId} AND ${workInteractions.workItemId} = ${item.id} AND ${workInteractions.status} = 'open'
+			AND COALESCE(${jsonRead(db, workInteractions.metadata, ["source"])}, '') <> ${COMMITMENT_REMINDER_SOURCE})`,
 	);
 	const why =
 		input.detail ??

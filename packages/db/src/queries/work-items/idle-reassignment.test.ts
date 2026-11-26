@@ -145,6 +145,12 @@ it("moves Work to the tool the decision model chose without waiting, from any-lo
 	const { sqlite, db, input } = fixture();
 	try {
 		sqlite.exec("UPDATE work_items SET executor_id='any-local'");
+		// A tedi's status follow-up does not hold the task back.
+		sqlite
+			.prepare(
+				"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,created_at,metadata) VALUES('follow-up','org-acme','work','question','Follow up','Status?','tedi','example-tedi',?,?)",
+			)
+			.run(now, JSON.stringify({ source: "commitment_followup" }));
 		const moved = await reassignIdleWork(db, {
 			...input,
 			fromExecutor: "any-local",
