@@ -50,6 +50,7 @@ const REASON_WINDOW_MS = 30 * 60 * 1000;
 const REASON_EVENTS = new Set([
 	"accept-failed",
 	"admission-check-deferred",
+	"checkout-cap-held",
 	"completion-retained",
 	"disk-low",
 	"failed",

@@ -223,6 +223,7 @@ describe("local dispatcher health", () => {
 		"completion-retained",
 		"telemetry-retained",
 		"disk-low",
+		"checkout-cap-held",
 	])("collects repeated %s reasons", (event) => {
 		const { root, directory } = lane();
 		writeDispatcherHealthSource(

@@ -10291,6 +10291,42 @@ it("measures a finished run once, across sweeps and a runner restart", async () 
 	}
 });
 
+it("measures every run folder in a cap sweep against one shared clone set", async () => {
+	const f = fixture();
+	f.items.splice(0);
+	for (const n of [1, 2, 3]) {
+		const work = item(n);
+		const run = join(f.dir, "runs", `${work.id}-2`);
+		const repo = join(run, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(
+			join(f.dir, `${work.id}-2.json`),
+			JSON.stringify({
+				itemId: work.id,
+				version: 2,
+				phase: "deferred",
+				outcome: "expired",
+				admissionState: "admitted",
+				attemptId: `attempt-${n}`,
+				session: "codex:interrupted",
+				repo,
+			}),
+		);
+	}
+	const seenSets: Array<Set<string> | undefined> = [];
+	f.deps.directoryBytes = async (_path, seen) => {
+		seenSets.push(seen);
+		return 0;
+	};
+	const dispatcher = f.restart();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(seenSets).toHaveLength(3);
+	expect(seenSets[0]).toBeInstanceOf(Set);
+	expect(seenSets[1]).toBe(seenSets[0]);
+	expect(seenSets[2]).toBe(seenSets[0]);
+});
+
 it("retries a run folder it could not measure hourly, not on every sweep", async () => {
 	const { restart, dir, items, deps } = fixture();
 	items.splice(0);

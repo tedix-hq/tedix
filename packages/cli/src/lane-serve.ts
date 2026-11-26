@@ -125,6 +125,7 @@ import {
 	waitForLaneProcessIdentity,
 } from "./lane-process-recovery";
 import { unpushedLaneCommits } from "./lane-unpushed";
+import { diskUsage } from "./lane-retention";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import { kernelProcessCwd, kernelProcessTable } from "./process-facts";
 import { beginFileLock } from "./local-file-lock";
@@ -3252,8 +3253,13 @@ interface DispatcherDeps {
 		evict?: boolean,
 		refused?: (reason: string) => void,
 	) => boolean | Promise<boolean>;
-	/** Recursive size of a run directory in bytes. */
-	directoryBytes: (path: string) => Promise<number>;
+	/**
+	 * Allocated bytes under a run directory, measured like `tedix storage`:
+	 * real blocks with APFS clone and hardlink families counted once. A shared
+	 * `seen` set lets one sweep count a family spanning several run folders
+	 * once, at its first member in scan order.
+	 */
+	directoryBytes: (path: string, seen?: Set<string>) => Promise<number>;
 	freeDiskBytes: (path: string) => number;
 	gatewayCooldownUntil: typeof gatewayCooldownUntil;
 	recall: typeof prefixLaneBrief;
@@ -3302,13 +3308,11 @@ const defaultDeps: DispatcherDeps = {
 	darkWake: inDarkWake,
 	cleanup: (source, destination, evict, refused) =>
 		cleanupLaneWorktree(source, destination, undefined, evict, refused),
-	directoryBytes: async (path) => {
-		const { stdout } = await promisify(execFile)("du", ["-sk", path], {
-			encoding: "utf8",
-			timeout: 300_000,
-			maxBuffer: 1024 * 1024,
-		});
-		return Number.parseInt(stdout, 10) * 1024;
+	directoryBytes: async (path, seen) => {
+		// The walk is synchronous; yield first so a large run folder does not
+		// starve the dispatch pass and lease bookkeeping around it.
+		await new Promise((resolve) => setImmediate(resolve));
+		return diskUsage(path, seen).bytes;
 	},
 	freeDiskBytes: (path) => {
 		const stats = statfsSync(path);
@@ -5407,7 +5411,8 @@ export class LaneDispatcher {
 		name: string,
 		run: string,
 		mtimeMs: number,
-		row?: Receipt,
+		row: Receipt | undefined,
+		seen: Set<string>,
 	): Promise<number> {
 		const itemId = name.slice(0, 36);
 		const live =
@@ -5422,7 +5427,7 @@ export class LaneDispatcher {
 		)
 			return known.bytes;
 		try {
-			const bytes = await this.deps.directoryBytes(run);
+			const bytes = await this.deps.directoryBytes(run, seen);
 			this.runSizes[name] = { key, bytes, at: Date.now() };
 			return bytes;
 		} catch (error) {
@@ -5485,6 +5490,11 @@ export class LaneDispatcher {
 		const held = new Map<string, { itemId: string; reason: string }>();
 		const hold = (name: string, itemId: string, reason: string) =>
 			held.set(name, { itemId, reason });
+		// One shared set for the whole sweep, like `tedix storage`: an APFS
+		// clone or hardlink family spanning several run folders counts once,
+		// at its first member in scan order, so kept folders of cloned
+		// checkouts cannot inflate the total past the cap.
+		const seen = new Set<string>();
 		for (const name of names) {
 			if (this.stopping) return;
 			const run = join(runs, name);
@@ -5493,7 +5503,7 @@ export class LaneDispatcher {
 			let size: number;
 			try {
 				at = statSync(run).mtimeMs;
-				size = await this.runBytes(name, run, at, row);
+				size = await this.runBytes(name, run, at, row, seen);
 			} catch (error) {
 				this.log("run-size-deferred", name.slice(0, 36), String(error));
 				continue;
@@ -5625,6 +5635,10 @@ export class LaneDispatcher {
 				);
 			if (!existsSync(candidate.run)) {
 				this.cleanupAfter.delete(eviction);
+				// The removed folder may have been the first member the shared
+				// measurement credited with a clone family's blocks; the cached
+				// sizes of the survivors no longer add up, so measure again.
+				this.runSizes = {};
 				total -= candidate.size;
 				this.log(
 					"checkout-evicted",
