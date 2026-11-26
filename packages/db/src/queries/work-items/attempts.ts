@@ -21,6 +21,14 @@ import {
 } from "@tedix/api-contract/schemas/work-items";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
 import { workAttemptFailureReason } from "./attempt-failure";
 import { lifecycleEventInsert } from "./crud";
 import { retireDecisionReviews } from "./decision-review-retirement";
@@ -33,16 +41,16 @@ import {
 	type WorkAttemptOutcome,
 	type WorkAttemptRuntimeState,
 	type WorkItem,
-	workAttemptMessages,
-	workAttemptSteps,
-	workAttempts,
-	workEvents,
-	workItems,
+	workAttemptMessages as d1WorkAttemptMessages,
+	workAttemptSteps as d1WorkAttemptSteps,
+	workAttempts as d1WorkAttempts,
+	workEvents as d1WorkEvents,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 import {
-	workAdmissions,
-	workBudgetReservations,
-	workResourceReservations,
+	workAdmissions as d1WorkAdmissions,
+	workBudgetReservations as d1WorkBudgetReservations,
+	workResourceReservations as d1WorkResourceReservations,
 } from "../../schema/work-factory";
 import {
 	ACTIVE_ATTEMPT_STATES,
@@ -65,6 +73,7 @@ export async function getAuthoritativeWorkItemAttempt(
 	},
 ): Promise<WorkAttempt> {
 	const at = params.at ?? new Date().toISOString();
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const attempt = (
 		await db
 			.select()
@@ -137,6 +146,7 @@ async function findTimedOutAttempt(
 	db: DbQueryClient,
 	params: { orgId: string; workItemId: string; at: string },
 ): Promise<TimedOutAttempt | null> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	return (
 		(
 			await db
@@ -174,10 +184,14 @@ async function findTimedOutAttempt(
  *   charged its reservation, while an expired or cancelled run with nothing
  *   committed gives the budget back.
  */
-function budgetSettlementValues(p: {
-	committedMicros: number | null | undefined;
-	fullOnUnknown: boolean;
-}) {
+function budgetSettlementValues(
+	db: DbQueryClient,
+	p: {
+		committedMicros: number | null | undefined;
+		fullOnUnknown: boolean;
+	},
+) {
+	const workBudgetReservations = coreTable(db, d1WorkBudgetReservations);
 	const committed =
 		p.committedMicros === undefined || p.committedMicros === null
 			? sql`COALESCE(${workBudgetReservations.consumedMicros}, 0)`
@@ -228,6 +242,10 @@ function buildAttemptExpiryStatements(
 ) {
 	const { timedOut, at } = params;
 	const nextVersion = timedOut.version + 1;
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
+	const workBudgetReservations = coreTable(db, d1WorkBudgetReservations);
+	const workEvents = coreTable(db, d1WorkEvents);
 	const expireAttempt = db
 		.update(workAttempts)
 		.set({
@@ -266,7 +284,7 @@ function buildAttemptExpiryStatements(
 	const consumeBudgets = db
 		.update(workBudgetReservations)
 		.set({
-			...budgetSettlementValues({
+			...budgetSettlementValues(db, {
 				committedMicros: null,
 				fullOnUnknown: false,
 			}),
@@ -306,7 +324,7 @@ function buildAttemptExpiryStatements(
 				actorSessionId: sql`${workAttempts.executorSessionId}`
 					.mapWith(workAttempts.executorSessionId)
 					.as("actor_session_id"),
-				payload: sql<Record<string, JsonValue>>`${JSON.stringify({
+				payload: sql<Record<string, JsonValue>>`${jsonParameter(db, {
 					outcome: "expired",
 					reason: "lease_elapsed",
 					expiresAt: timedOut.expiresAt,
@@ -365,6 +383,7 @@ export async function sweepElapsedWorkAttempts(
 ): Promise<SweepElapsedWorkAttemptsResult> {
 	const at = options.now ?? new Date().toISOString();
 	const limit = Math.min(Math.max(Math.trunc(options.limit ?? 100), 1), 200);
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const candidates = await db
 		.select({
 			id: workAttempts.id,
@@ -378,7 +397,9 @@ export async function sweepElapsedWorkAttempts(
 		.where(
 			and(
 				// bound-params: internal selector from claimWorkDue, LIMIT 50.
-				options.dueIds ? inArray(workAttempts.id, options.dueIds) : undefined,
+				options.dueIds
+					? anyIds(db, workAttempts.id, options.dueIds)
+					: undefined,
 				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
 				sql`${workAttempts.expiresAt} IS NOT NULL AND ${workAttempts.expiresAt} <= ${at}`,
 			),
@@ -411,6 +432,7 @@ async function assertLaneHasNoSettledResult(
 	db: DbQueryClient,
 	params: { orgId: string; workItemId: string },
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const [row] = await db
 		.select({ available: laneDispatchHasNoSettledResult(db).as("available") })
 		.from(workItems)
@@ -445,6 +467,12 @@ export async function startWorkItemAttempt(
 	},
 ): Promise<{ workItem: WorkItem; attempt: WorkAttempt; resumed: boolean }> {
 	const startedAt = params.startedAt ?? new Date().toISOString();
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workAdmissions = coreTable(db, d1WorkAdmissions);
+	const workItems = coreTable(db, d1WorkItems);
+	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
+	const workBudgetReservations = coreTable(db, d1WorkBudgetReservations);
+	const workEvents = coreTable(db, d1WorkEvents);
 	const releaseLosingReservations = async () => {
 		await db.batch([
 			db
@@ -594,11 +622,12 @@ export async function startWorkItemAttempt(
 					finishedAt: sql<null>`NULL`.as("finished_at"),
 					summary: sql<null>`NULL`.as("summary"),
 					version: sql<number>`1`.as("version"),
-					metadata: sql<
-						Record<string, JsonValue>
-					>`json_patch(${JSON.stringify(workAttemptCallerMetadata(params.metadata))}, json_object('taskContract', json_extract((SELECT payload FROM work_events WHERE id=${workAdmissions.id} AND org_id=${workAdmissions.orgId} AND work_item_id=${workAdmissions.workItemId} AND event_type='admission.task_contract' AND coalesce(json_extract(payload, '$.defaulted'),0)=0), '$.taskContract')))`.as(
-						"metadata",
-					),
+					metadata: sql<Record<string, JsonValue>>`${
+						coreStore(db) === "postgres"
+							? // `||` merges at the top level; caller metadata never carries taskContract.
+								sql`${jsonParameter(db, workAttemptCallerMetadata(params.metadata))} || jsonb_build_object('taskContract', (SELECT payload #> '{taskContract}' FROM work_events WHERE id=${workAdmissions.id} AND org_id=${workAdmissions.orgId} AND work_item_id=${workAdmissions.workItemId} AND event_type='admission.task_contract' AND coalesce(CASE jsonb_typeof(payload #> '{defaulted}') WHEN 'boolean' THEN CASE WHEN (payload #>> '{defaulted}')::boolean THEN 1 ELSE 0 END WHEN 'number' THEN (payload #>> '{defaulted}')::numeric ELSE 0 END, 0)=0))`
+							: sql`json_patch(${JSON.stringify(workAttemptCallerMetadata(params.metadata))}, json_object('taskContract', json_extract((SELECT payload FROM work_events WHERE id=${workAdmissions.id} AND org_id=${workAdmissions.orgId} AND work_item_id=${workAdmissions.workItemId} AND event_type='admission.task_contract' AND coalesce(json_extract(payload, '$.defaulted'),0)=0), '$.taskContract')))`
+					}`.as("metadata"),
 				})
 				.from(workAdmissions)
 				.innerJoin(
@@ -656,7 +685,7 @@ export async function startWorkItemAttempt(
 				actorSessionId: workAttempts.executorSessionId,
 				payload: sql<
 					Record<string, JsonValue>
-				>`${JSON.stringify({ runtimeState: "running" })}`.as("payload"),
+				>`${jsonParameter(db, { runtimeState: "running" })}`.as("payload"),
 				occurredAt: sql<string>`${startedAt}`.as("occurred_at"),
 			})
 			.from(workAttempts)
@@ -754,6 +783,7 @@ export async function recordWorkAttemptRepository(
 	},
 ): Promise<WorkAttempt> {
 	const recordedAt = params.recordedAt ?? new Date().toISOString();
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	if (
 		params.repository.workItemId !== params.workItemId ||
 		params.repository.attemptId !== params.attemptId
@@ -768,7 +798,7 @@ export async function recordWorkAttemptRepository(
 		.set({
 			metadata: sql<
 				Record<string, JsonValue>
-			>`json_set(COALESCE(${workAttempts.metadata}, '{}'), '$.repository', json(${JSON.stringify(params.repository)}))`,
+			>`${jsonWrite(db, workAttempts.metadata, ["repository"], params.repository)}`,
 			version: sql`${workAttempts.version} + 1`,
 		})
 		.where(
@@ -809,6 +839,7 @@ export async function getWorkAttemptRepositoryAdmission(
 		attempt.executorType !== "external_agent"
 	)
 		return undefined;
+	const workAdmissions = coreTable(db, d1WorkAdmissions);
 	const [admission] = await db
 		.select()
 		.from(workAdmissions)
@@ -855,12 +886,13 @@ export async function recordWorkAttemptRepositoryCandidate(
 			"NOT_READY",
 			"Candidate provenance does not match the Attempt",
 		);
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const [attempt] = await db
 		.update(workAttempts)
 		.set({
 			metadata: sql<
 				Record<string, JsonValue>
-			>`json_set(COALESCE(${workAttempts.metadata}, '{}'), '$.repositoryCandidate', json(${JSON.stringify(descriptor)}))`,
+			>`${jsonWrite(db, workAttempts.metadata, ["repositoryCandidate"], descriptor)}`,
 			version: sql`${workAttempts.version} + 1`,
 		})
 		.where(
@@ -879,8 +911,8 @@ export async function recordWorkAttemptRepositoryCandidate(
 					: isNull(workAttempts.externalSessionKey),
 				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
 				sql`${workAttempts.expiresAt} > ${new Date().toISOString()}`,
-				sql`json_extract(${workAttempts.metadata}, '$.repositoryCandidate') IS NULL`,
-				sql`json_extract(${workAttempts.metadata}, '$.repository.repositoryId') = ${descriptor.repositoryId}`,
+				sql`${jsonRead(db, workAttempts.metadata, ["repositoryCandidate"])} IS NULL`,
+				sql`${jsonRead(db, workAttempts.metadata, ["repository", "repositoryId"])} = ${descriptor.repositoryId}`,
 			),
 		)
 		.returning();
@@ -911,6 +943,7 @@ export async function recordWorkAttemptRepositoryCandidatePublication(
 ): Promise<WorkAttempt | null> {
 	const at = params.at ?? new Date().toISOString(),
 		d = params.record.preparation.descriptor;
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	if (
 		d.organizationId !== params.orgId ||
 		d.workItemId !== params.workItemId ||
@@ -926,17 +959,17 @@ export async function recordWorkAttemptRepositoryCandidatePublication(
 		.set({
 			metadata: sql<
 				Record<string, JsonValue>
-			>`json_set(${workAttempts.metadata}, '$.repositoryCandidatePublication', json(${JSON.stringify(params.record)}))`,
+			>`${jsonWrite(db, workAttempts.metadata, ["repositoryCandidatePublication"], params.record)}`,
 			version: sql`${workAttempts.version}+1`,
 		})
 		.where(
 			and(
-				...candidatePublicationFence(params, at),
+				...candidatePublicationFence(db, params, at),
 				eq(workAttempts.admissionId, d.admissionId),
-				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidate.docKey')=${d.docKey}`,
-				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidate.selectionDigest')=${d.selectionDigest}`,
-				sql`json_extract(${workAttempts.metadata},'$.repository.repositoryId')=${d.repositoryId}`,
-				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication') IS NULL`,
+				sql`${jsonRead(db, workAttempts.metadata, ["repositoryCandidate", "docKey"])}=${d.docKey}`,
+				sql`${jsonRead(db, workAttempts.metadata, ["repositoryCandidate", "selectionDigest"])}=${d.selectionDigest}`,
+				sql`${jsonRead(db, workAttempts.metadata, ["repository", "repositoryId"])}=${d.repositoryId}`,
+				sql`${jsonRead(db, workAttempts.metadata, ["repositoryCandidatePublication"])} IS NULL`,
 			),
 		)
 		.returning();
@@ -951,19 +984,20 @@ export async function claimWorkAttemptRepositoryCandidatePublication(
 	},
 ): Promise<WorkAttempt | null> {
 	const at = params.at ?? new Date().toISOString();
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const [row] = await db
 		.update(workAttempts)
 		.set({
 			metadata: sql<
 				Record<string, JsonValue>
-			>`json_set(${workAttempts.metadata}, '$.repositoryCandidatePublication.attemptedAt', ${at})`,
+			>`${jsonWrite(db, workAttempts.metadata, ["repositoryCandidatePublication", "attemptedAt"], at)}`,
 			version: sql`${workAttempts.version}+1`,
 		})
 		.where(
 			and(
-				...candidatePublicationFence(params, at),
-				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication.preparation.preparationDigest')=${params.preparationDigest}`,
-				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication.attemptedAt') IS NULL`,
+				...candidatePublicationFence(db, params, at),
+				sql`${jsonRead(db, workAttempts.metadata, ["repositoryCandidatePublication", "preparation", "preparationDigest"])}=${params.preparationDigest}`,
+				sql`${jsonRead(db, workAttempts.metadata, ["repositoryCandidatePublication", "attemptedAt"])} IS NULL`,
 			),
 		)
 		.returning();
@@ -971,9 +1005,11 @@ export async function claimWorkAttemptRepositoryCandidatePublication(
 }
 
 function candidatePublicationFence(
+	db: DbQueryClient,
 	params: CandidatePublicationFence,
 	at: string,
 ) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	return [
 		eq(workAttempts.id, params.attemptId),
 		eq(workAttempts.orgId, params.orgId),
@@ -1021,7 +1057,10 @@ export async function heartbeatWorkItemAttempt(
 	const requestedExpiry = new Date(
 		Date.parse(heartbeatAt) + params.leaseTtlMs,
 	).toISOString();
-	const expiresAt = sql<string>`min(${requestedExpiry}, coalesce(json_extract(${workAttempts.metadata}, '$.taskContract.deadline'), ${requestedExpiry}))`;
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
+	const workBudgetReservations = coreTable(db, d1WorkBudgetReservations);
+	const expiresAt = sql<string>`min(${requestedExpiry}, coalesce(${jsonRead(db, workAttempts.metadata, ["taskContract", "deadline"])}, ${requestedExpiry}))`;
 	const heartbeatMutation = db
 		.update(workAttempts)
 		.set({
@@ -1143,6 +1182,14 @@ export async function settleWorkItemAttempt(
 }> {
 	const settledAt = params.settledAt ?? new Date().toISOString();
 	const completion = params.completion;
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
+	const workAdmissions = coreTable(db, d1WorkAdmissions);
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workAttemptSteps = coreTable(db, d1WorkAttemptSteps);
+	const workAttemptMessages = coreTable(db, d1WorkAttemptMessages);
+	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
+	const workBudgetReservations = coreTable(db, d1WorkBudgetReservations);
 	if (completion && params.outcome !== "succeeded")
 		throw new WorkFactoryError(
 			"NOT_READY",
@@ -1262,13 +1309,24 @@ export async function settleWorkItemAttempt(
 							updatedAt: settledAt,
 							version: sql`${workItems.version} + 1`,
 						})
-						.where(and(completionFence, sql`changes() = 1`)),
+						.where(
+							and(
+								completionFence,
+								// Postgres has no changes(); the settlement winner
+								// fence proves the settle event was written.
+								coreStore(db) === "postgres"
+									? sql`EXISTS (SELECT 1 FROM work_attempts AS settlement_winner WHERE settlement_winner.id=${params.attemptId} AND settlement_winner.version=${prior.version + 1} AND settlement_winner.runtime_state=${runtimeState} AND settlement_winner.finished_at=${settledAt} AND settlement_winner.outcome=${params.outcome})`
+									: sql`changes() = 1`,
+							),
+						),
 					lifecycleEventInsert(db, {
 						orgId: params.orgId,
 						workItemId: params.workItemId,
 						disposition: "completed",
 						expectedVersion: completion.expectedWorkItemVersion + 1,
-						requiresPreviousWrite: true,
+						// The version and disposition predicates already prove
+						// the closeout write on Postgres.
+						requiresPreviousWrite: coreStore(db) === "d1",
 						eventType: "work.completed",
 						actor: completion.actor,
 						occurredAt: settledAt,
@@ -1339,7 +1397,7 @@ export async function settleWorkItemAttempt(
 					actorSessionId: workAttempts.executorSessionId,
 					payload: sql<
 						Record<string, JsonValue>
-					>`${JSON.stringify({ outcome: params.outcome, summary: summary ?? null })}`.as(
+					>`${jsonParameter(db, { outcome: params.outcome, summary: summary ?? null })}`.as(
 						"payload",
 					),
 					occurredAt: sql<string>`${settledAt}`.as("occurred_at"),
@@ -1350,7 +1408,11 @@ export async function settleWorkItemAttempt(
 						eq(workAttempts.id, params.attemptId),
 						eq(workAttempts.version, prior.version + 1),
 						eq(workAttempts.runtimeState, runtimeState),
-						sql`changes() = 1`,
+						// Postgres has no changes(); the version CAS plus the
+						// finished-at fence identify this batch's winning write.
+						coreStore(db) === "postgres"
+							? eq(workAttempts.finishedAt, settledAt)
+							: sql`changes() = 1`,
 					),
 				),
 		);
@@ -1372,7 +1434,7 @@ export async function settleWorkItemAttempt(
 		const consumeBudgets = db
 			.update(workBudgetReservations)
 			.set({
-				...budgetSettlementValues({
+				...budgetSettlementValues(db, {
 					committedMicros: params.costMicros,
 					fullOnUnknown:
 						params.outcome === "succeeded" ||
@@ -1555,13 +1617,16 @@ export async function listLatestWorkAttemptSummaries(
 		}
 	>();
 	const ids = [...new Set(params.workItemIds)];
-	for (let offset = 0; offset < ids.length; offset += 50) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	// Postgres binds the whole ID set in one pass; D1 keeps 50 per VALUES list.
+	const chunk = coreStore(db) === "postgres" ? Math.max(ids.length, 1) : 50;
+	for (let offset = 0; offset < ids.length; offset += chunk) {
 		// Start from the requested IDs so the outer read cannot scan Attempt history.
 		const requested = db
 			.select({ workItemId: sql<string>`column1`.as("work_item_id") })
 			.from(
 				sql`(VALUES ${sql.join(
-					ids.slice(offset, offset + 50).map((id) => sql`(${id})`),
+					ids.slice(offset, offset + chunk).map((id) => sql`(${id})`),
 					sql`, `,
 				)})`,
 			)
@@ -1584,9 +1649,11 @@ export async function listLatestWorkAttemptSummaries(
 				runtimeState: workAttempts.runtimeState,
 				outcome: workAttempts.outcome,
 				finishedAt: workAttempts.finishedAt,
-				workItemVersion: sql<
-					number | null
-				>`json_extract(${workAttempts.metadata}, '$.dispatchVersion')`,
+				workItemVersion: sql<number | null>`${
+					coreStore(db) === "postgres"
+						? sql`CASE WHEN jsonb_typeof(${workAttempts.metadata} #> '{dispatchVersion}') = 'number' THEN (${workAttempts.metadata} #>> '{dispatchVersion}')::int END`
+						: sql`json_extract(${workAttempts.metadata}, '$.dispatchVersion')`
+				}`,
 			})
 			.from(workAttempts)
 			.where(
@@ -1612,6 +1679,7 @@ export async function getRecordedWorkItemAttempt(
 	db: DbQueryClient,
 	params: { orgId: string; workItemId: string; attemptId: string },
 ): Promise<WorkAttempt | null> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const [attempt] = await db
 		.select()
 		.from(workAttempts)
@@ -1639,6 +1707,7 @@ export async function listWorkItemAttempts(
 	nextCursor: { startedAt: string; id: string } | null;
 }> {
 	const limit = Math.min(Math.max(1, Math.trunc(params.limit ?? 50)), 100);
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const rows = await db
 		.select()
 		.from(workAttempts)
@@ -1713,6 +1782,7 @@ export async function listLiveWorkAttemptHolders(
 	params: { orgId: string; limit?: number },
 ): Promise<Map<string, LiveWorkAttemptHolder>> {
 	const limit = Math.min(Math.max(Math.trunc(params.limit ?? 200), 1), 500);
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const rows = await db
 		.select({
 			workItemId: workAttempts.workItemId,
@@ -1737,8 +1807,12 @@ export async function listLiveWorkAttemptHolders(
 		// it otherwise picks for the sort and then walks every Attempt the
 		// organization ever made (17k rows read per call on 7 Nov). With no index
 		// for the sort it filters through idx_work_attempt_org_state_started and
-		// sorts the few live rows (39 read).
-		.orderBy(sql`+${workAttempts.startedAt} desc`)
+		// sorts the few live rows (39 read). Postgres orders the text column.
+		.orderBy(
+			coreStore(db) === "postgres"
+				? desc(workAttempts.startedAt)
+				: sql`+${workAttempts.startedAt} desc`,
+		)
 		.limit(limit);
 	const holders = new Map<string, LiveWorkAttemptHolder>();
 	for (const row of rows) {
@@ -1767,6 +1841,8 @@ export async function findAgentApprovalWork(
 		now: string;
 	},
 ) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
 	const rows = await db
 		.select({
 			workItemId: workAttempts.workItemId,

@@ -1,11 +1,15 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, gt, inArray, lte, sql } from "drizzle-orm";
-import { workAttempts, workItems } from "../../schema/work-items";
-import type { DbQueryClient } from "../../query-client";
-import { chunkForBoundParams } from "../../utils/batch";
+import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import {
-	workResourcePools,
-	workResourceReservations,
+	workAttempts as d1WorkAttempts,
+	workItems as d1WorkItems,
+} from "../../schema/work-items";
+import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { anyIds } from "../../core-store/dialect";
+import {
+	workResourcePools as d1WorkResourcePools,
+	workResourceReservations as d1WorkResourceReservations,
 	type WorkResourcePool,
 } from "../../schema/work-factory";
 import { WorkControlError } from "./factory-validation";
@@ -24,6 +28,7 @@ export async function createWorkResourcePool(
 	db: DbQueryClient,
 	p: CreateWorkResourcePoolParams,
 ): Promise<WorkResourcePool> {
+	const workResourcePools = coreTable(db, d1WorkResourcePools);
 	return (
 		await db
 			.insert(workResourcePools)
@@ -52,6 +57,8 @@ export async function updateWorkResourcePool(
 		now: string;
 	},
 ) {
+	const workResourcePools = coreTable(db, d1WorkResourcePools);
+	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
 	const row = (
 		await db
 			.update(workResourcePools)
@@ -87,6 +94,7 @@ export async function getWorkResourcePoolByKey(
 	db: DbQueryClient,
 	p: { orgId: string; resourceKey: string; includeDisabled?: boolean },
 ) {
+	const workResourcePools = coreTable(db, d1WorkResourcePools);
 	return (
 		(
 			await db
@@ -115,6 +123,7 @@ export async function listWorkResourcePools(
 		limit?: number;
 	},
 ) {
+	const workResourcePools = coreTable(db, d1WorkResourcePools);
 	const limit = Math.min(p.limit ?? 100, 500);
 	const rows = await db
 		.select({
@@ -159,59 +168,56 @@ export async function listActiveWorkResourceHolders(
 	p: { orgId: string; poolIds: string[]; at: string },
 ) {
 	if (p.poolIds.length === 0) return [];
-	const readChunk = async (poolIds: string[]) => {
-		const ranked = db
-			.select({
-				poolId: workResourceReservations.poolId,
-				reservationId: sql<string>`${workResourceReservations.id}`.as(
-					"reservation_id",
+	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
+	const ranked = db
+		.select({
+			poolId: workResourceReservations.poolId,
+			reservationId: sql<string>`${workResourceReservations.id}`.as(
+				"reservation_id",
+			),
+			quantity: workResourceReservations.quantity,
+			expiresAt: workResourceReservations.expiresAt,
+			attemptId: sql<string>`${workAttempts.id}`.as("holder_attempt_id"),
+			workItemId: sql<string>`${workItems.id}`.as("holder_work_item_id"),
+			workTitle: workItems.title,
+			executorType: workAttempts.executorType,
+			executorId: workAttempts.executorId,
+			externalSessionKey: workAttempts.externalSessionKey,
+			holderRank:
+				sql<number>`ROW_NUMBER() OVER (PARTITION BY ${workResourceReservations.poolId} ORDER BY ${workResourceReservations.id})`.as(
+					"holder_rank",
 				),
-				quantity: workResourceReservations.quantity,
-				expiresAt: workResourceReservations.expiresAt,
-				attemptId: sql<string>`${workAttempts.id}`.as("holder_attempt_id"),
-				workItemId: sql<string>`${workItems.id}`.as("holder_work_item_id"),
-				workTitle: workItems.title,
-				executorType: workAttempts.executorType,
-				executorId: workAttempts.executorId,
-				externalSessionKey: workAttempts.externalSessionKey,
-				holderRank:
-					sql<number>`ROW_NUMBER() OVER (PARTITION BY ${workResourceReservations.poolId} ORDER BY ${workResourceReservations.id})`.as(
-						"holder_rank",
-					),
-			})
-			.from(workResourceReservations)
-			.innerJoin(
-				workAttempts,
-				and(
-					eq(workAttempts.orgId, p.orgId),
-					eq(workAttempts.workItemId, workResourceReservations.workItemId),
-					eq(workAttempts.admissionId, workResourceReservations.admissionId),
-				),
-			)
-			.innerJoin(
-				workItems,
-				and(
-					eq(workItems.orgId, p.orgId),
-					eq(workItems.id, workResourceReservations.workItemId),
-				),
-			)
-			.where(
-				and(
-					eq(workResourceReservations.orgId, p.orgId),
-					// bound-params: readChunk receives at most 50 pool IDs from chunkForBoundParams below.
-					inArray(workResourceReservations.poolId, poolIds),
-					eq(workResourceReservations.state, "active"),
-					gt(workResourceReservations.expiresAt, p.at),
-				),
-			);
-		const page = ranked.as("ranked_resource_holders");
-		return db
-			.select()
-			.from(page)
-			.where(lte(page.holderRank, 9))
-			.orderBy(asc(page.poolId), asc(page.reservationId));
-	};
-	return (
-		await Promise.all(chunkForBoundParams(p.poolIds, 50).map(readChunk))
-	).flat();
+		})
+		.from(workResourceReservations)
+		.innerJoin(
+			workAttempts,
+			and(
+				eq(workAttempts.orgId, p.orgId),
+				eq(workAttempts.workItemId, workResourceReservations.workItemId),
+				eq(workAttempts.admissionId, workResourceReservations.admissionId),
+			),
+		)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.orgId, p.orgId),
+				eq(workItems.id, workResourceReservations.workItemId),
+			),
+		)
+		.where(
+			and(
+				eq(workResourceReservations.orgId, p.orgId),
+				anyIds(db, workResourceReservations.poolId, p.poolIds),
+				eq(workResourceReservations.state, "active"),
+				gt(workResourceReservations.expiresAt, p.at),
+			),
+		);
+	const page = ranked.as("ranked_resource_holders");
+	return db
+		.select()
+		.from(page)
+		.where(lte(page.holderRank, 9))
+		.orderBy(asc(page.poolId), asc(page.reservationId));
 }

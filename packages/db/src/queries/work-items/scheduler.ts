@@ -9,24 +9,29 @@ import {
 	ownerWorkDelegation,
 } from "./planning-approval";
 import { ensureWorkRiskApproval } from "./approvals";
-import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getColumns, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { anyIds } from "../../core-store/dialect";
 import { chunkForBoundParams } from "../../utils/batch";
-import { capabilityLinks, orgCapabilities } from "../../schema/capabilities";
 import {
-	workEvidence,
-	workItemRelations,
-	workItems,
+	capabilityLinks as d1CapabilityLinks,
+	orgCapabilities as d1OrgCapabilities,
+} from "../../schema/capabilities";
+import {
+	workEvidence as d1WorkEvidence,
+	workItemRelations as d1WorkItemRelations,
+	workItems as d1WorkItems,
 	workItemStoredColumns,
 	type WorkItem,
 } from "../../schema/work-items";
 import {
-	workApprovalDecisions,
-	workApprovalProposals,
-	workBudgetEnvelopes,
-	workCaseItems,
-	workResourcePools,
-	workResourceRequirements,
+	workApprovalDecisions as d1WorkApprovalDecisions,
+	workApprovalProposals as d1WorkApprovalProposals,
+	workBudgetEnvelopes as d1WorkBudgetEnvelopes,
+	workCaseItems as d1WorkCaseItems,
+	workResourcePools as d1WorkResourcePools,
+	workResourceRequirements as d1WorkResourceRequirements,
 	CREDIT_BUDGET_CURRENCY,
 } from "../../schema/work-factory";
 import {
@@ -72,6 +77,17 @@ export interface WorkExecutionCluster {
 	items: ReadyWorkCandidate[];
 	resourceKeys: string[];
 }
+/** Stored-column selection rebound to whichever store `db` points at. */
+function workItemSelection(db: DbQueryClient): typeof workItemStoredColumns {
+	const columns = getColumns(coreTable(db, d1WorkItems));
+	return Object.fromEntries(
+		Object.keys(workItemStoredColumns).map((key) => [
+			key,
+			columns[key as keyof typeof columns],
+		]),
+	) as typeof workItemStoredColumns;
+}
+
 const priorityScore = { critical: 100, high: 70, medium: 40, low: 10 } as const;
 const riskPenalty = { low: 0, medium: 5, high: 15, critical: 30 } as const;
 const HARD_FACT_LIMIT = 5000;
@@ -244,6 +260,7 @@ export async function listReadyWork(
 	}
 	const candidateLimit = Math.min(p.candidateLimit ?? 500, 500),
 		edgeLimit = Math.min(candidateLimit * 10, 5000);
+	const workItems = coreTable(db, d1WorkItems);
 	const emptyReasons = {
 		not_accepted: 0,
 		already_running: 0,
@@ -260,7 +277,7 @@ export async function listReadyWork(
 		cost_blocked: 0,
 	};
 	const candidates = await db
-		.select(workItemStoredColumns)
+		.select(workItemSelection(db))
 		.from(workItems)
 		.where(
 			and(
@@ -305,6 +322,16 @@ export async function listReadyWork(
 	for (const item of candidates) await ensureWorkRiskApproval(db, item, p.now);
 	const ids = candidates.map((x) => x.id),
 		idChunks = chunkForBoundParams(ids, 40);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
+	const capabilityLinks = coreTable(db, d1CapabilityLinks);
+	const orgCapabilities = coreTable(db, d1OrgCapabilities);
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
+	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
+	const workResourcePools = coreTable(db, d1WorkResourcePools);
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
+	const workEvidence = coreTable(db, d1WorkEvidence);
 	const [
 		blockerFacts,
 		graphEdges,
@@ -332,7 +359,7 @@ export async function listReadyWork(
 						and(
 							eq(workItemRelations.orgId, p.orgId),
 							eq(workItemRelations.relationType, "blocks"),
-							inArray(workItemRelations.toWorkItemId, idsChunk),
+							anyIds(db, workItemRelations.toWorkItemId, idsChunk),
 							ne(workItems.disposition, "completed"),
 							ne(workItems.disposition, "cancelled"),
 						),
@@ -353,8 +380,8 @@ export async function listReadyWork(
 							and(
 								eq(workItemRelations.orgId, p.orgId),
 								eq(workItemRelations.relationType, "blocks"),
-								inArray(workItemRelations.fromWorkItemId, fromChunk),
-								inArray(workItemRelations.toWorkItemId, toChunk),
+								anyIds(db, workItemRelations.fromWorkItemId, fromChunk),
+								anyIds(db, workItemRelations.toWorkItemId, toChunk),
 							),
 						)
 						.limit(edgeLimit + 1),
@@ -414,7 +441,7 @@ export async function listReadyWork(
 					.where(
 						and(
 							eq(workApprovalProposals.orgId, p.orgId),
-							inArray(workApprovalProposals.workItemId, idsChunk),
+							anyIds(db, workApprovalProposals.workItemId, idsChunk),
 							eq(workApprovalProposals.status, "approved"),
 							sql`${workApprovalProposals.expiresAt}>${p.now}`,
 						),
@@ -433,7 +460,7 @@ export async function listReadyWork(
 						allocationMode: workResourcePools.allocationMode,
 						capacity: workResourcePools.capacity,
 						reserved:
-							sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id=${p.orgId} AND r.pool_id="work_resource_pools"."id" AND r.state='active' AND r.expires_at>${p.now}),0)`.as(
+							sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id=${p.orgId} AND r.pool_id=${workResourcePools.id} AND r.state='active' AND r.expires_at>${p.now}),0)`.as(
 								"reserved",
 							),
 					})
@@ -452,7 +479,7 @@ export async function listReadyWork(
 					.where(
 						and(
 							eq(workResourceRequirements.orgId, p.orgId),
-							inArray(workResourceRequirements.workItemId, idsChunk),
+							anyIds(db, workResourceRequirements.workItemId, idsChunk),
 						),
 					)
 					.limit(HARD_FACT_LIMIT + 1),
@@ -466,7 +493,7 @@ export async function listReadyWork(
 				limitMicros: workBudgetEnvelopes.limitMicros,
 				reservationMicros: workBudgetEnvelopes.reservationMicros,
 				committed:
-					sql<number>`COALESCE((SELECT SUM(CASE WHEN r.state='consumed' THEN COALESCE(r.consumed_micros,r.amount_micros) ELSE r.amount_micros END) FROM work_budget_reservations r WHERE r.org_id=${p.orgId} AND r.envelope_id="work_budget_envelopes"."id" AND (r.state='consumed' OR (r.state='active' AND r.expires_at>${p.now}))),0)`.as(
+					sql<number>`COALESCE((SELECT SUM(CASE WHEN r.state='consumed' THEN COALESCE(r.consumed_micros,r.amount_micros) ELSE r.amount_micros END) FROM work_budget_reservations r WHERE r.org_id=${p.orgId} AND r.envelope_id=${workBudgetEnvelopes.id} AND (r.state='consumed' OR (r.state='active' AND r.expires_at>${p.now}))),0)`.as(
 						"committed",
 					),
 			})
@@ -492,7 +519,7 @@ export async function listReadyWork(
 					.where(
 						and(
 							eq(workCaseItems.orgId, p.orgId),
-							inArray(workCaseItems.workItemId, idsChunk),
+							anyIds(db, workCaseItems.workItemId, idsChunk),
 						),
 					)
 					.limit(HARD_FACT_LIMIT + 1),
@@ -509,7 +536,7 @@ export async function listReadyWork(
 					.where(
 						and(
 							eq(workEvidence.orgId, p.orgId),
-							inArray(workEvidence.workItemId, idsChunk),
+							anyIds(db, workEvidence.workItemId, idsChunk),
 							eq(workEvidence.disposition, "pending"),
 						),
 					)

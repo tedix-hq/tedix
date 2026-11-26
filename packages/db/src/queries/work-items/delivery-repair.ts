@@ -1,15 +1,27 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getColumns, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonParameter } from "../../core-store/dialect";
 import {
-	workItemComments,
-	workItems,
+	workItemComments as d1WorkItemComments,
+	workItems as d1WorkItems,
 	workItemStoredColumns,
 	type WorkItem,
 } from "../../schema/work-items";
 
 export function deliveryRepairSourceIntent(workItemId: string) {
 	return `dispatcher-repair:${workItemId}`;
+}
+
+function workItemSelection(db: DbQueryClient): typeof workItemStoredColumns {
+	const columns = getColumns(coreTable(db, d1WorkItems));
+	return Object.fromEntries(
+		Object.keys(workItemStoredColumns).map((key) => [
+			key,
+			columns[key as keyof typeof columns],
+		]),
+	) as typeof workItemStoredColumns;
 }
 
 /**
@@ -27,6 +39,8 @@ export async function proposeWorkDeliveryRepair(
 		now: string;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	const source = p.workItem;
 	const sourceIntentId = deliveryRepairSourceIntent(source.id);
 	const existingRepair = and(
@@ -47,7 +61,10 @@ export async function proposeWorkDeliveryRepair(
 				workKind: source.workKind,
 				workClass: source.workClass,
 				riskLevel: source.riskLevel,
-				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+				admissionSpecRevision:
+					coreStore(db) === "postgres"
+						? sql`gen_random_uuid()::text`
+						: sql`lower(hex(randomblob(16)))`,
 				disposition: "proposed",
 				priority: "high",
 				accountableOwnerType: source.accountableOwnerType,
@@ -75,7 +92,7 @@ export async function proposeWorkDeliveryRepair(
 						),
 						metadata: sql<
 							Record<string, JsonValue>
-						>`${JSON.stringify({ failedAttemptId: p.failedAttemptId, repairOf: source.id })}`.as(
+						>`${jsonParameter(db, { failedAttemptId: p.failedAttemptId, repairOf: source.id })}`.as(
 							"metadata",
 						),
 						createdAt: sql<string>`${p.now}`.as("created_at"),
@@ -88,7 +105,7 @@ export async function proposeWorkDeliveryRepair(
 	return (
 		(
 			await db
-				.select(workItemStoredColumns)
+				.select(workItemSelection(db))
 				.from(workItems)
 				.where(existingRepair)
 				.limit(1)

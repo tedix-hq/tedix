@@ -1,11 +1,23 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { DbQueryClient } from "../../query-client";
-import { type WorkItem, workAttempts } from "../../schema/work-items";
-import { workAdmissions } from "../../schema/work-factory";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead } from "../../core-store/dialect";
+import {
+	type WorkItem,
+	workAttempts as d1WorkAttempts,
+} from "../../schema/work-items";
+import { workAdmissions as d1WorkAdmissions } from "../../schema/work-factory";
 
 /** From this many failed Attempts in a row, the task waits before the next one. */
 const FAILURES_BEFORE_WAIT = 4;
+
+/** SQLite's two-argument max(); Postgres spells it greatest(). */
+function latestOf(db: DbQueryClient, a: SQL, b: SQL): SQL {
+	return coreStore(db) === "postgres"
+		? sql`greatest(${a}, ${b})`
+		: sql`max(${a}, ${b})`;
+}
 
 /**
  * The wait after failed Attempts in a row on one Work version, newest first.
@@ -98,6 +110,8 @@ export async function workDeferralWait(
 	item: WorkItem,
 	now: string,
 ): Promise<string | undefined> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workAdmissions = coreTable(db, d1WorkAdmissions);
 	const attempts = await db
 		.select({
 			id: workAttempts.id,
@@ -150,9 +164,9 @@ export async function workDeferralWait(
 	const [change] = await db.select({
 		at: sql<string | null>`max(at)`.as("deferral_change_at"),
 	}).from(sql`(
-		SELECT json_extract(metadata, '$.decisionContinuation.at') AS at FROM work_items WHERE org_id=${item.orgId} AND id=${item.id}
-		UNION ALL SELECT max(coalesce(d.updated_at, d.created_at), r.created_at) FROM work_item_relations r JOIN work_items d ON d.org_id=r.org_id AND d.id=r.from_work_item_id WHERE r.org_id=${item.orgId} AND r.to_work_item_id=${item.id} AND r.relation_type='blocks'
-		UNION ALL SELECT max(created_at, coalesce(resolved_at, created_at)) FROM work_approval_proposals WHERE org_id=${item.orgId} AND work_item_id=${item.id}
+		SELECT ${jsonRead(db, sql`metadata`, ["decisionContinuation", "at"])} AS at FROM work_items WHERE org_id=${item.orgId} AND id=${item.id}
+		UNION ALL SELECT ${latestOf(db, sql`coalesce(d.updated_at, d.created_at)`, sql`r.created_at`)} FROM work_item_relations r JOIN work_items d ON d.org_id=r.org_id AND d.id=r.from_work_item_id WHERE r.org_id=${item.orgId} AND r.to_work_item_id=${item.id} AND r.relation_type='blocks'
+		UNION ALL SELECT ${latestOf(db, sql`created_at`, sql`coalesce(resolved_at, created_at)`)} FROM work_approval_proposals WHERE org_id=${item.orgId} AND work_item_id=${item.id}
 	)`);
 	const changedAt = change?.at ?? "";
 	if (changedAt > latest.startedAt) return;

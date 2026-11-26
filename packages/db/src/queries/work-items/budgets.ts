@@ -1,12 +1,17 @@
 import { and, asc, eq, gt, gte, inArray, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { tediObjectives } from "../../schema/tedi-objectives";
-import { workAttempts, workItems } from "../../schema/work-items";
+import { coreTable } from "../../core-store/client";
+import { anyIds, coreStore } from "../../core-store/dialect";
+import { tediObjectives as d1TediObjectives } from "../../schema/tedi-objectives";
+import {
+	workAttempts as d1WorkAttempts,
+	workItems as d1WorkItems,
+} from "../../schema/work-items";
 import { ACTIVE_ATTEMPT_STATES } from "./factory-state";
 import {
 	CREDIT_BUDGET_CURRENCY,
-	workCaseItems,
-	workBudgetEnvelopes,
+	workBudgetEnvelopes as d1WorkBudgetEnvelopes,
+	workCaseItems as d1WorkCaseItems,
 	type WorkBudgetEnvelope,
 	type WorkBudgetMode,
 	type WorkBudgetScope,
@@ -33,6 +38,7 @@ async function validateScope(
 	else if (p.scopeType === "case")
 		await requireWorkCase(db, p.orgId, p.scopeId);
 	else if (p.scopeType === "objective") {
+		const tediObjectives = coreTable(db, d1TediObjectives);
 		const [objective] = await db
 			.select({ id: tediObjectives.id })
 			.from(tediObjectives)
@@ -65,6 +71,8 @@ export async function createWorkBudgetEnvelope(
 	db: DbQueryClient,
 	p: CreateWorkBudgetEnvelopeParams,
 ): Promise<WorkBudgetEnvelope> {
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
+	const workItems = coreTable(db, d1WorkItems);
 	await validateScope(db, p);
 	const create = db
 		.insert(workBudgetEnvelopes)
@@ -82,7 +90,10 @@ export async function createWorkBudgetEnvelope(
 	const bump = db
 		.update(workItems)
 		.set({
-			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+			admissionSpecRevision:
+				coreStore(db) === "postgres"
+					? sql`gen_random_uuid()::text`
+					: sql`lower(hex(randomblob(16)))`,
 			updatedAt: p.now,
 			version: sql`${workItems.version}+1`,
 		})
@@ -119,6 +130,8 @@ export async function updateWorkBudgetEnvelope(
 		now: string;
 	},
 ) {
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
+	const workItems = coreTable(db, d1WorkItems);
 	const prior = (
 		await db
 			.select()
@@ -172,7 +185,10 @@ export async function updateWorkBudgetEnvelope(
 	const bump = db
 		.update(workItems)
 		.set({
-			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+			admissionSpecRevision:
+				coreStore(db) === "postgres"
+					? sql`gen_random_uuid()::text`
+					: sql`lower(hex(randomblob(16)))`,
 			updatedAt: p.now,
 			version: sql`${workItems.version}+1`,
 		})
@@ -205,6 +221,7 @@ export async function getWorkBudgetEnvelopeByScope(
 		includeDisabled?: boolean;
 	},
 ) {
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
 	return (
 		(
 			await db
@@ -228,6 +245,7 @@ export async function getWorkBudgetEnvelopeById(
 	db: DbQueryClient,
 	p: { orgId: string; envelopeId: string },
 ) {
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
 	return (
 		(
 			await db
@@ -258,6 +276,7 @@ export async function markCreditBudgetAlerted(
 		percent: number;
 	},
 ) {
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
 	const [row] = await db
 		.update(workBudgetEnvelopes)
 		.set({
@@ -290,6 +309,7 @@ export async function listWorkBudgetEnvelopes(
 		limit?: number;
 	},
 ) {
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
 	const limit = Math.min(p.limit ?? 100, 500);
 	const rows = await db
 		.select({
@@ -357,6 +377,9 @@ export async function getCreditBudgetsForWorkItem(
 	db: DbQueryClient,
 	p: { orgId: string; workItemId: string },
 ): Promise<CreditBudget[]> {
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
+	const workItems = coreTable(db, d1WorkItems);
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
 	const items: string[] = [];
 	const projects = new Set<string>();
 	const objectives = new Set<string>();
@@ -383,7 +406,7 @@ export async function getCreditBudgetsForWorkItem(
 			? and(
 					eq(workBudgetEnvelopes.scopeType, type),
 					// bound-params: at most CREDIT_BUDGET_ANCESTOR_DEPTH + 1 ids
-					inArray(workBudgetEnvelopes.scopeId, ids),
+					anyIds(db, workBudgetEnvelopes.scopeId, ids),
 				)
 			: undefined;
 	return db
@@ -439,6 +462,7 @@ export async function findSessionWorkItem(
 	db: DbQueryClient,
 	p: { orgId: string; sessionId: string },
 ): Promise<string | null> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const rows = await db
 		.select({ workItemId: workAttempts.workItemId })
 		.from(workAttempts)
@@ -462,6 +486,7 @@ export async function findSpentCreditBudget(
 	db: DbQueryClient,
 	p: { orgId: string; workItemId: string },
 ): Promise<CreditBudget | null> {
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
 	const [any] = await db
 		.select({ id: workBudgetEnvelopes.id })
 		.from(workBudgetEnvelopes)

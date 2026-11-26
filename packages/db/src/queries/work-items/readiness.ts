@@ -15,23 +15,35 @@ import {
 } from "./planning-approval";
 import { ensureWorkRiskApproval } from "./approvals";
 import { findSpentCreditBudget } from "./budgets";
-import { and, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	getColumns,
+	inArray,
+	lt,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { anyIds, coreStore } from "../../core-store/dialect";
 import {
 	type WorkItemReadiness,
 	type WorkItem,
 	type WorkItemKind,
-	workAttempts,
-	workItemRelations,
-	workItems,
+	workAttempts as d1WorkAttempts,
+	workItemRelations as d1WorkItemRelations,
+	workItems as d1WorkItems,
 	workItemStoredColumns,
 } from "../../schema/work-items";
 import {
-	workApprovalDecisions,
-	workApprovalProposals,
-	workBudgetEnvelopes,
-	workCaseItems,
-	workResourceRequirements,
+	workApprovalDecisions as d1WorkApprovalDecisions,
+	workApprovalProposals as d1WorkApprovalProposals,
+	workBudgetEnvelopes as d1WorkBudgetEnvelopes,
+	workCaseItems as d1WorkCaseItems,
+	workResourceRequirements as d1WorkResourceRequirements,
 	CREDIT_BUDGET_CURRENCY,
 } from "../../schema/work-factory";
 import { ACTIVE_ATTEMPT_STATES, getScopedWorkItem } from "./factory-state";
@@ -43,6 +55,17 @@ import {
 	type WorkAdmissionApprovalReceipt,
 } from "./admission-approval-policy";
 import { hasActivePurposeContext } from "./purpose";
+
+/** Stored-column selection rebound to whichever store `db` points at. */
+function workItemSelection(db: DbQueryClient): typeof workItemStoredColumns {
+	const columns = getColumns(coreTable(db, d1WorkItems));
+	return Object.fromEntries(
+		Object.keys(workItemStoredColumns).map((key) => [
+			key,
+			columns[key as keyof typeof columns],
+		]),
+	) as typeof workItemStoredColumns;
+}
 
 export interface WorkItemReadinessReason {
 	code: Exclude<WorkItemReadiness, "ready">;
@@ -410,6 +433,14 @@ export async function deriveWorkItemsReadiness(
 	params: Omit<ReadinessParams, "workItemId"> & { workItemIds: string[] },
 ): Promise<WorkItemReadinessResult[]> {
 	const derivedAt = params.derivedAt ?? new Date().toISOString();
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
+	// Postgres `enabled` is a real boolean; D1 stores it as 1/0.
+	const enabledPredicate =
+		coreStore(db) === "postgres" ? sql`e.enabled` : sql`e.enabled=1`;
 	const results: WorkItemReadinessResult[] = [];
 	for (const ids of chunkForBoundParams(params.workItemIds, 40)) {
 		const rows = await db
@@ -428,7 +459,7 @@ export async function deriveWorkItemsReadiness(
 				)`}`.as("has_resource_requirement"),
 				hasBudgetEnvelope: sql<boolean>`${sql`EXISTS (
 					SELECT 1 FROM ${workBudgetEnvelopes} e
-					WHERE e.org_id=${params.orgId} AND e.enabled=1 AND e.currency<>${CREDIT_BUDGET_CURRENCY}
+					WHERE e.org_id=${params.orgId} AND ${enabledPredicate} AND e.currency<>${CREDIT_BUDGET_CURRENCY}
 						AND (
 							(e.scope_type='organization' AND e.scope_id=${params.orgId})
 							OR (e.scope_type='work_item' AND e.scope_id=${workItems.id})
@@ -441,14 +472,14 @@ export async function deriveWorkItemsReadiness(
 				)`}`.as("has_budget_envelope"),
 				hasSpentCreditBudget: sql<boolean>`${sql`EXISTS (
 					SELECT 1 FROM ${workBudgetEnvelopes} e
-					WHERE e.org_id=${params.orgId} AND e.enabled=1 AND e.currency=${CREDIT_BUDGET_CURRENCY}
+					WHERE e.org_id=${params.orgId} AND ${enabledPredicate} AND e.currency=${CREDIT_BUDGET_CURRENCY}
 						AND e.mode='stop' AND e.alerted_percent>=100
 				)`}`.as("has_spent_credit_budget"),
 			})
 			.from(workItems)
 			// bound-params: 40 Work IDs plus fixed org, currency and time predicates.
 			.where(
-				and(eq(workItems.orgId, params.orgId), inArray(workItems.id, ids)),
+				and(eq(workItems.orgId, params.orgId), anyIds(db, workItems.id, ids)),
 			);
 		const facts = new Map(rows.map((row) => [row.id, row]));
 		results.push(
@@ -479,6 +510,14 @@ async function deriveReadiness(
 	capacity?: ReadinessCapacity,
 ): Promise<WorkItemReadinessResult> {
 	const derivedAt = params.derivedAt ?? new Date().toISOString();
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
+	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
 	const item = await getScopedWorkItem(db, params.orgId, params.workItemId);
 	const ownerDelegated = await hasOwnerWorkDelegation(db, item, derivedAt);
 	const [attemptLimit] = await db
@@ -663,9 +702,22 @@ export async function listWorkItemReadinessProjection(
 }> {
 	const observedAt = params.observedAt ?? new Date().toISOString();
 	const limit = Math.min(Math.max(1, Math.trunc(params.limit ?? 25)), 50);
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
+	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
+	// Postgres `enabled` is a real boolean; D1 stores it as 1/0.
+	const enabledPredicate =
+		coreStore(db) === "postgres"
+			? sql`envelope.enabled`
+			: sql`envelope.enabled=1`;
 	const rows = await db
 		.select({
-			...workItemStoredColumns,
+			...workItemSelection(db),
 			attemptLimitAvailable: workAttemptLimitAvailable(db).as(
 				"attempt_limit_available",
 			),
@@ -710,7 +762,7 @@ export async function listWorkItemReadinessProjection(
 					and(
 						eq(workAttempts.orgId, params.orgId),
 						// bound-params: itemIds is derived from this projection's max-50 page.
-						inArray(workAttempts.workItemId, itemIds),
+						anyIds(db, workAttempts.workItemId, itemIds),
 						inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
 						sql`${workAttempts.expiresAt}>${observedAt}`,
 					),
@@ -732,7 +784,7 @@ export async function listWorkItemReadinessProjection(
 					and(
 						eq(workItemRelations.orgId, params.orgId),
 						// bound-params: itemIds is derived from this projection's max-50 page.
-						inArray(workItemRelations.toWorkItemId, itemIds),
+						anyIds(db, workItemRelations.toWorkItemId, itemIds),
 						eq(workItemRelations.relationType, "blocks"),
 						ne(workItems.disposition, "completed"),
 						ne(workItems.disposition, "cancelled"),
@@ -745,7 +797,7 @@ export async function listWorkItemReadinessProjection(
 					and(
 						eq(workResourceRequirements.orgId, params.orgId),
 						// bound-params: itemIds is derived from this projection's max-50 page.
-						inArray(workResourceRequirements.workItemId, itemIds),
+						anyIds(db, workResourceRequirements.workItemId, itemIds),
 					),
 				),
 			db
@@ -755,11 +807,11 @@ export async function listWorkItemReadinessProjection(
 					and(
 						eq(workItems.orgId, params.orgId),
 						// bound-params: itemIds is derived from this projection's max-50 page.
-						inArray(workItems.id, itemIds),
+						anyIds(db, workItems.id, itemIds),
 						sql`EXISTS (
 							SELECT 1 FROM ${workBudgetEnvelopes} envelope
 							WHERE envelope.org_id=${params.orgId}
-								AND envelope.enabled=1
+								AND ${enabledPredicate}
 								AND (
 									(envelope.scope_type='organization' AND envelope.scope_id=${params.orgId})
 									OR (envelope.scope_type='work_item' AND envelope.scope_id=${workItems.id})
@@ -806,7 +858,7 @@ export async function listWorkItemReadinessProjection(
 					and(
 						eq(workApprovalProposals.orgId, params.orgId),
 						// bound-params: readiness pages cap itemIds at 50
-						inArray(workApprovalProposals.workItemId, itemIds),
+						anyIds(db, workApprovalProposals.workItemId, itemIds),
 						eq(workApprovalProposals.action, WORK_ADMISSION_APPROVAL_ACTION),
 						eq(workApprovalProposals.status, "approved"),
 						sql`${workApprovalProposals.expiresAt}>${observedAt}`,

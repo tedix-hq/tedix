@@ -1,6 +1,8 @@
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { externalAgentSessions } from "../../schema/external-agent-identity";
+import { coreTable } from "../../core-store/client";
+import { anyIds, booleanValue, coreStore } from "../../core-store/dialect";
+import { externalAgentSessions as d1ExternalAgentSessions } from "../../schema/external-agent-identity";
 import {
 	type WorkAttempt,
 	type WorkAttemptMessageKind,
@@ -8,10 +10,10 @@ import {
 	type WorkAttemptMessageSenderType,
 	type WorkAttemptStepKind,
 	type WorkAttemptStepRow,
-	workAttemptMessages,
-	workAttemptSteps,
-	workAttempts,
-	workItems,
+	workAttemptMessages as d1WorkAttemptMessages,
+	workAttemptSteps as d1WorkAttemptSteps,
+	workAttempts as d1WorkAttempts,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 import { getAuthoritativeWorkItemAttempt } from "./attempts";
 import {
@@ -112,6 +114,10 @@ export async function appendWorkAttemptSteps(
 			"Ask through a canonical Work Interaction, not a run step",
 		);
 
+	const workAttemptSteps = coreTable(db, d1WorkAttemptSteps);
+	const workAttemptMessages = coreTable(db, d1WorkAttemptMessages);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
 	const rows = params.steps.map((step) => ({
 		id: crypto.randomUUID(),
 		orgId: params.orgId,
@@ -189,7 +195,7 @@ export async function appendWorkAttemptSteps(
 				isNull(workAttemptMessages.appliedAt),
 				// An empty list matches no row; the statement stays in the batch
 				// so its shape does not depend on the input.
-				inArray(workAttemptMessages.id, appliedIds),
+				anyIds(db, workAttemptMessages.id, appliedIds),
 			),
 		)
 		.returning({ appliedId: workAttemptMessages.id });
@@ -226,6 +232,7 @@ async function findWorkAttemptForSteps(
 	db: DbQueryClient,
 	params: { orgId: string; workItemId: string; attemptId?: string },
 ): Promise<WorkAttempt | null> {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const [attempt] = await db
 		.select()
 		.from(workAttempts)
@@ -266,6 +273,8 @@ export async function listWorkAttemptSteps(
 	params: ListWorkAttemptStepsParams,
 ): Promise<ListWorkAttemptStepsResult> {
 	const at = params.at ?? new Date().toISOString();
+	const workAttemptMessages = coreTable(db, d1WorkAttemptMessages);
+	const workAttemptSteps = coreTable(db, d1WorkAttemptSteps);
 	const attempt = await findWorkAttemptForSteps(db, params);
 	if (!attempt) {
 		if (params.attemptId)
@@ -356,6 +365,8 @@ export async function queueWorkItemFollowUp(
 		"orgId" | "workItemId" | "body" | "sender" | "at"
 	>,
 ): Promise<WorkAttemptMessageRow | null> {
+	const workAttemptMessages = coreTable(db, d1WorkAttemptMessages);
+	const workItems = coreTable(db, d1WorkItems);
 	const [message] = await db
 		.insert(workAttemptMessages)
 		.select(
@@ -372,7 +383,7 @@ export async function queueWorkItemFollowUp(
 							"sender_type",
 						),
 					senderId: sql<string>`${params.sender.id}`.as("sender_id"),
-					interrupt: sql<boolean>`0`.as("interrupt"),
+					interrupt: booleanValue(db, false).as("interrupt"),
 					createdAt: sql<string>`${params.at ?? new Date().toISOString()}`.as(
 						"message_created_at",
 					),
@@ -405,6 +416,9 @@ export async function sendWorkAttemptMessage(
 	const at = params.at ?? new Date().toISOString();
 	const id = crypto.randomUUID();
 	const interrupt = params.kind === "follow_up" && params.interrupt === true;
+	const workAttemptMessages = coreTable(db, d1WorkAttemptMessages);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
 	const live = sql`${workAttempts.outcome} IS NULL
 		AND ${inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES)}
 		AND ${workAttempts.expiresAt} > ${at}`;
@@ -424,7 +438,7 @@ export async function sendWorkAttemptMessage(
 							"sender_type",
 						),
 					senderId: sql<string>`${params.sender.id}`.as("sender_id"),
-					interrupt: sql<boolean>`${interrupt}`.as("interrupt"),
+					interrupt: booleanValue(db, interrupt).as("interrupt"),
 					createdAt: sql<string>`${at}`.as("message_created_at"),
 					deliveredAt: sql<null>`NULL`.as("delivered_at"),
 					appliedAt: sql<null>`NULL`.as("applied_at"),
@@ -483,6 +497,10 @@ export async function listLiveWorkRuns(
 ) {
 	const at = params.at ?? new Date().toISOString();
 	const limit = Math.min(Math.max(Math.trunc(params.limit ?? 50), 1), 50);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttemptSteps = coreTable(db, d1WorkAttemptSteps);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const candidates = await db
 		.select({
 			attemptId: workAttempts.id,
@@ -522,12 +540,18 @@ export async function listLiveWorkRuns(
 				isNull(workAttempts.outcome),
 				gt(workAttempts.expiresAt, at),
 				// Apply chat visibility before the limit; hidden projects cannot crowd out visible runs.
-				sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.id} = ${workAttempts.workItemId} AND ${workItems.orgId} = ${params.orgId} ${params.projectIds == null ? sql`` : sql`AND ${workItems.projectId} IN (SELECT value FROM json_each(${JSON.stringify(params.projectIds)}))`})`,
+				sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.id} = ${workAttempts.workItemId} AND ${workItems.orgId} = ${params.orgId} ${params.projectIds == null ? sql`` : sql`AND ${anyIds(db, workItems.projectId, params.projectIds)}`})`,
 			),
 		)
 		// See listLiveWorkAttemptHolders: `+started_at` keeps the planner on
 		// the state index instead of walking every Attempt by start time.
-		.orderBy(sql`+${workAttempts.startedAt} desc`, desc(workAttempts.id))
+		// Postgres orders the text column directly.
+		.orderBy(
+			coreStore(db) === "postgres"
+				? desc(workAttempts.startedAt)
+				: sql`+${workAttempts.startedAt} desc`,
+			desc(workAttempts.id),
+		)
 		.limit(limit + 1);
 	const complete = candidates.length <= limit;
 	const attempts = candidates.slice(0, limit);
@@ -548,7 +572,8 @@ export async function listLiveWorkRuns(
 				and(
 					eq(workItems.orgId, params.orgId),
 					// bound-params: at most 50 Attempts, the limit of the read above.
-					inArray(
+					anyIds(
+						db,
 						workItems.id,
 						attempts.map((attempt) => attempt.workItemId),
 					),
@@ -566,7 +591,8 @@ export async function listLiveWorkRuns(
 				and(
 					eq(workAttemptSteps.orgId, params.orgId),
 					// bound-params: at most 50 Attempts, the limit of the read above.
-					inArray(
+					anyIds(
+						db,
 						workAttemptSteps.attemptId,
 						attempts.map((attempt) => attempt.attemptId),
 					),

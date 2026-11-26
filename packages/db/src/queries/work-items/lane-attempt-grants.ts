@@ -1,6 +1,12 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { workAttempts, workEvents, workItems } from "../../schema/work-items";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
+import {
+	workAttempts as d1WorkAttempts,
+	workEvents as d1WorkEvents,
+	workItems as d1WorkItems,
+} from "../../schema/work-items";
 import { WorkControlError } from "./factory-validation";
 
 /** Admission adds one Attempt to the lane budget for each of these events. */
@@ -24,6 +30,9 @@ export async function grantLaneAttempt(
 		now: string;
 	},
 ) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workItems = coreTable(db, d1WorkItems);
 	const [grant] = await db
 		.insert(workEvents)
 		.select(
@@ -37,9 +46,13 @@ export async function grantLaneAttempt(
 					actorType: sql<string>`'user'`.as("actor_type"),
 					actorId: sql<string>`${p.userId}`.as("actor_id"),
 					payload:
-						sql<string>`json_object('reason', ${p.reason}, 'workItemVersion', ${workItems.version})`.as(
-							"payload",
-						),
+						coreStore(db) === "postgres"
+							? sql<string>`jsonb_build_object('reason', ${p.reason}, 'workItemVersion', ${workItems.version})`.as(
+									"payload",
+								)
+							: sql<string>`json_object('reason', ${p.reason}, 'workItemVersion', ${workItems.version})`.as(
+									"payload",
+								),
 					occurredAt: sql<string>`${p.now}`.as("occurred_at"),
 				})
 				.from(workAttempts)

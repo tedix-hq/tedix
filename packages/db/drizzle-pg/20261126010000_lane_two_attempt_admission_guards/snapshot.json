@@ -1,0 +1,9 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "6f2a91c4-8d3e-4b7a-a1c5-9e0d2f4b6a8c",
+	"prevIds": ["8b27d010-492b-4c20-8987-56c9d48c4008"],
+	"footprints": [],
+	"deltas": []
+}

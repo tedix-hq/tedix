@@ -24,23 +24,31 @@ import {
 } from "@tedix/api-contract/schemas/lane-execution";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { capabilityLinks, orgCapabilities } from "../../schema/capabilities";
+import { coreTable } from "../../core-store/client";
 import {
-	workAttempts,
-	workEvents,
-	workItemRelations,
-	workItems,
+	anyIds,
+	booleanValue,
+	coreStore,
+	jsonRead,
+} from "../../core-store/dialect";
+import { capabilityLinks as d1CapabilityLinks } from "../../schema/capabilities";
+import { orgCapabilities as d1OrgCapabilities } from "../../schema/capabilities";
+import {
+	workAttempts as d1WorkAttempts,
+	workEvents as d1WorkEvents,
+	workItemRelations as d1WorkItemRelations,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 import {
-	workAdmissions,
-	workApprovalDecisions,
-	workApprovalProposals,
-	workBudgetEnvelopes,
-	workBudgetReservations,
-	workCaseItems,
-	workResourcePools,
-	workResourceRequirements,
-	workResourceReservations,
+	workAdmissions as d1WorkAdmissions,
+	workApprovalDecisions as d1WorkApprovalDecisions,
+	workApprovalProposals as d1WorkApprovalProposals,
+	workBudgetEnvelopes as d1WorkBudgetEnvelopes,
+	workBudgetReservations as d1WorkBudgetReservations,
+	workCaseItems as d1WorkCaseItems,
+	workResourcePools as d1WorkResourcePools,
+	workResourceRequirements as d1WorkResourceRequirements,
+	workResourceReservations as d1WorkResourceReservations,
 	type WorkAdmission,
 	CREDIT_BUDGET_CURRENCY,
 } from "../../schema/work-factory";
@@ -137,6 +145,8 @@ async function loadRequirements(
 	db: DbQueryClient,
 	p: { orgId: string; workItemId: string; at: string },
 ) {
+	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
+	const workResourcePools = coreTable(db, d1WorkResourcePools);
 	const rows = await db
 		.select({
 			resourceKey: workResourceRequirements.resourceKey,
@@ -180,6 +190,8 @@ async function loadApplicableEnvelopes(
 		at: string;
 	},
 ) {
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
+	const workCaseItems = coreTable(db, d1WorkCaseItems);
 	const rows = await db
 		.select({
 			id: workBudgetEnvelopes.id,
@@ -207,7 +219,7 @@ async function loadApplicableEnvelopes(
 					),
 					and(
 						eq(workBudgetEnvelopes.scopeType, "work_item"),
-						inArray(workBudgetEnvelopes.scopeId, [
+						anyIds(db, workBudgetEnvelopes.scopeId, [
 							p.workItemId,
 							...(p.ancestorIds ?? []),
 						]),
@@ -237,6 +249,7 @@ async function loadLanePolicy(
 	db: DbQueryClient,
 	item: Eligibility["item"],
 ): Promise<{ policy?: LaneExecutionPolicy; rejection?: string }> {
+	const workItems = coreTable(db, d1WorkItems);
 	type Node = Pick<
 		Eligibility["item"],
 		"id" | "parentWorkItemId" | "metadata" | "delegationDepth" | "maxAttempts"
@@ -333,6 +346,15 @@ async function evaluate(
 	db: DbQueryClient,
 	p: PreviewWorkAdmissionParams,
 ): Promise<Eligibility> {
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
+	const capabilityLinks = coreTable(db, d1CapabilityLinks);
+	const orgCapabilities = coreTable(db, d1OrgCapabilities);
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
+	const workResourcePools = coreTable(db, d1WorkResourcePools);
 	const item = await requireWorkItem(db, p.orgId, p.workItemId);
 	const empty = { item, requirements: [], envelopes: [] };
 	const contractRefusal = await taskContractRefusal(db, item, p.now);
@@ -496,7 +518,7 @@ async function evaluate(
 			and(
 				eq(capabilityLinks.organizationId, p.orgId),
 				p.executorType === "human"
-					? sql`0`
+					? sql`${booleanValue(db, false)}`
 					: eq(capabilityLinks.entityKind, p.executorType),
 				eq(capabilityLinks.entityId, p.executorId),
 			),
@@ -697,7 +719,7 @@ async function evaluate(
 						eq(workAttempts.orgId, p.orgId),
 						eq(workAttempts.workItemId, p.workItemId),
 						eq(workAttempts.outcome, "rejected"),
-						sql`json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${item.version}`,
+						sql`${jsonRead(db, workAttempts.metadata, ["dispatchVersion"], "number")} = ${item.version}`,
 					),
 				)
 				.limit(1)
@@ -853,6 +875,7 @@ export async function evaluateAndRecordWorkAdmission(
 			"stale_specification",
 			"leaseTtlMs must be 1000..3600000",
 		);
+	const workAdmissions = coreTable(db, d1WorkAdmissions);
 	const eligibility = await previewWorkAdmission(db, p);
 	if (eligibility.rejection) {
 		const key = rejectionKey(p, eligibility.rejection.code);
@@ -966,6 +989,10 @@ function buildWorkAdmissionStatements(
 	p: EvaluateWorkAdmissionParams,
 	eligibility: Eligibility,
 ): PreparedWorkAdmission {
+	const workAdmissions = coreTable(db, d1WorkAdmissions);
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
+	const workBudgetReservations = coreTable(db, d1WorkBudgetReservations);
 	const item = eligibility.item;
 	const explicitTerms = item.acceptanceContract?.taskContract;
 	// Default terms authorize no additional model usage. Owners can allocate it explicitly.
@@ -1163,6 +1190,9 @@ export async function getWorkAdmissionSpecifications(
 	db: DbQueryClient,
 	p: { orgId: string; workItemIds: string[] },
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
 	const result = new Map<
 		string,
 		Awaited<ReturnType<typeof getWorkAdmissionSpecification>>
@@ -1194,7 +1224,7 @@ export async function getWorkAdmissionSpecifications(
 					eq(workBudgetEnvelopes.scopeId, workItems.id),
 				),
 			)
-			.where(and(eq(workItems.orgId, p.orgId), inArray(workItems.id, ids)))
+			.where(and(eq(workItems.orgId, p.orgId), anyIds(db, workItems.id, ids)))
 			.orderBy(workItems.id, workResourceRequirements.resourceKey);
 		for (const row of rows) {
 			let specification = result.get(row.workItemId);
@@ -1228,6 +1258,8 @@ export async function getWorkAdmissionSpecification(
 	db: DbQueryClient,
 	p: { orgId: string; workItemId: string },
 ) {
+	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
 	const item = await requireWorkItem(db, p.orgId, p.workItemId);
 	const [resources, budgets] = await Promise.all([
 		db
@@ -1284,6 +1316,10 @@ export async function replaceWorkAdmissionSpecification(
 		now: string;
 	},
 ) {
+	const workResourcePools = coreTable(db, d1WorkResourcePools);
+	const workItems = coreTable(db, d1WorkItems);
+	const workResourceRequirements = coreTable(db, d1WorkResourceRequirements);
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
 	const duplicate = new Set<string>();
 	for (const resource of p.specification.resources) {
 		if (duplicate.has(resource.resourceKey))
@@ -1305,7 +1341,7 @@ export async function replaceWorkAdmissionSpecification(
 				and(
 					eq(workResourcePools.orgId, p.orgId),
 					eq(workResourcePools.enabled, true),
-					inArray(workResourcePools.resourceKey, chunk),
+					anyIds(db, workResourcePools.resourceKey, chunk),
 				),
 			)
 			.limit(chunk.length);
@@ -1412,7 +1448,7 @@ export async function replaceWorkAdmissionSpecification(
 									"reservation_micros",
 								),
 							currency: sql<"USD">`'USD'`.as("currency"),
-							enabled: sql<boolean>`1`.as("enabled"),
+							enabled: booleanValue(db, true).as("enabled"),
 							createdAt: sql<string>`${p.now}`.as("created_at"),
 							updatedAt: sql<null>`NULL`.as("updated_at"),
 							version: sql<number>`1`.as("version"),
@@ -1444,7 +1480,10 @@ export async function replaceWorkAdmissionSpecification(
 	const bump = db
 		.update(workItems)
 		.set({
-			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+			admissionSpecRevision:
+				coreStore(db) === "postgres"
+					? sql`gen_random_uuid()::text`
+					: sql`lower(hex(randomblob(16)))`,
 			updatedAt: p.now,
 			version: sql`${workItems.version}+1`,
 		})

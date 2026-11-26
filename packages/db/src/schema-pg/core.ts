@@ -12330,6 +12330,9 @@ export const workApprovalProposals = pgTable(
 export const workAttemptMessages = pgTable(
 	"work_attempt_messages",
 	{
+		sequence: bigint("sequence", {
+			mode: "number",
+		}).generatedByDefaultAsIdentity(),
 		id: text("id").primaryKey(),
 		orgId: text("org_id").notNull(),
 		workItemId: text("work_item_id").notNull(),
@@ -13108,6 +13111,9 @@ export const workInteractionReplyDrafts = pgTable(
 export const workInteractionResponses = pgTable(
 	"work_interaction_responses",
 	{
+		sequence: bigint("sequence", {
+			mode: "number",
+		}).generatedByDefaultAsIdentity(),
 		id: text("id").primaryKey(),
 		orgId: text("org_id").notNull(),
 		interactionId: text("interaction_id").notNull(),

@@ -10,8 +10,8 @@ import {
 	type AgentRequestExecution,
 } from "@tedix/api-contract/schemas/agent-requests";
 import { chunkForBoundParams } from "../../utils/batch";
-import { organizations } from "../../schema/organizations";
-import { organizationMembers } from "../../schema/organization-members";
+import { organizations as d1Organizations } from "../../schema/organizations";
+import { organizationMembers as d1OrganizationMembers } from "../../schema/organization-members";
 import { normalizeWorkItemRow } from "./normalization";
 import {
 	recordCardCreationEdges,
@@ -32,12 +32,23 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { prefixedColumns } from "../../utils/select";
-import { workItems, workEvents, type WorkItem } from "../../schema/work-items";
+import { coreTable } from "../../core-store/client";
 import {
-	workApprovalDecisions,
-	workApprovalExecutions,
-	workApprovalProposals,
+	anyIds,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+} from "../../core-store/dialect";
+import { prefixedColumns } from "../../utils/select";
+import {
+	workItems as d1WorkItems,
+	workEvents as d1WorkEvents,
+	type WorkItem,
+} from "../../schema/work-items";
+import {
+	workApprovalDecisions as d1WorkApprovalDecisions,
+	workApprovalExecutions as d1WorkApprovalExecutions,
+	workApprovalProposals as d1WorkApprovalProposals,
 	type WorkApprovalDecision,
 	type WorkApprovalProposal,
 } from "../../schema/work-factory";
@@ -55,7 +66,7 @@ import {
 import { areSameWorkParty } from "../external-agent-identity/canonical-party";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import { getActiveOrganizationPolicyPack } from "../kernel-runtime-support";
-import { tedis } from "../../schema/tedis";
+import { tedis as d1Tedis } from "../../schema/tedis";
 
 export interface ProposeWorkApprovalParams {
 	id: string;
@@ -105,6 +116,8 @@ export async function listPendingTediWorkApprovals(
 	input: { observedAt: string; limit?: number; dueIds?: string[] },
 ): Promise<PendingTediWorkApproval[]> {
 	const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workItems = coreTable(db, d1WorkItems);
 	return db
 		.select({
 			id: workApprovalProposals.id,
@@ -136,7 +149,7 @@ export async function listPendingTediWorkApprovals(
 			and(
 				// bound-params: internal selector from claimWorkDue, LIMIT 50.
 				input.dueIds
-					? inArray(workApprovalProposals.id, input.dueIds)
+					? anyIds(db, workApprovalProposals.id, input.dueIds)
 					: undefined,
 				eq(workApprovalProposals.status, "pending"),
 				eq(workApprovalProposals.approverType, "tedi"),
@@ -209,6 +222,8 @@ async function requireAgentRequestApprover(
 			"NOT_ELIGIBLE",
 			"Agent requests require a matching typed proposal and user approver",
 		);
+	const organizations = coreTable(db, d1Organizations);
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const [organization] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -230,7 +245,7 @@ async function requireAgentRequestApprover(
 				eq(organizationMembers.organizationId, input.orgId),
 				eq(organizationMembers.status, "active"),
 				eq(organizationMembers.kind, "human"),
-				inArray(organizationMembers.userId, [
+				anyIds(db, organizationMembers.userId, [
 					input.approverId,
 					parsed.data.ownerUserId,
 				]),
@@ -337,6 +352,8 @@ export async function proposeWorkApproval(
 	}
 	// One pending proposal per scope (uniq_work_approval_pending_scope). Name
 	// the live one instead of surfacing the index violation as a server error.
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
 	const requireNoPendingScope = async () => {
 		const [pending] = await db
 			.select({
@@ -469,6 +486,12 @@ export async function decideWorkApproval(
 	db: DbQueryClient,
 	p: DecideWorkApprovalParams,
 ): Promise<WorkApprovalDecision> {
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
+	const workItems = coreTable(db, d1WorkItems);
+	const workEvents = coreTable(db, d1WorkEvents);
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const organizations = coreTable(db, d1Organizations);
 	await requireActivePrincipal(db, {
 		orgId: p.orgId,
 		type: p.deciderType,
@@ -562,7 +585,7 @@ export async function decideWorkApproval(
 							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition} NOT IN ('completed', 'cancelled'))
 							 AND EXISTS (SELECT 1 FROM ${organizationMembers} WHERE ${organizationMembers.organizationId}=${p.orgId} AND ${organizationMembers.userId}=${p.deciderId} AND ${organizationMembers.status}='active' AND ${organizationMembers.kind}='human' AND ${organizationMembers.role} IN ('owner','admin'))
 							 AND EXISTS (SELECT 1 FROM ${organizationMembers} WHERE ${organizationMembers.organizationId}=${p.orgId} AND ${organizationMembers.userId}=${agentProposal.ownerUserId} AND ${organizationMembers.status}='active' AND ${organizationMembers.kind}='human' AND ${organizationMembers.role} IN ('owner','admin','member'))
-							 AND EXISTS (SELECT 1 FROM ${organizations} WHERE ${organizations.id}=${p.orgId} AND json_extract(${organizations.metadata}, '$.agentRequestApprovals.approver')='org_admin')`
+							 AND EXISTS (SELECT 1 FROM ${organizations} WHERE ${organizations.id}=${p.orgId} AND ${jsonRead(db, organizations.metadata, ["agentRequestApprovals", "approver"], "text")}='org_admin')`
 							: undefined,
 						contract
 							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition}='proposed')`
@@ -606,7 +629,7 @@ export async function decideWorkApproval(
 						actorSessionId: sql<null>`NULL`.as("actor_session_id"),
 						payload: sql<
 							Record<string, JsonValue>
-						>`${JSON.stringify({ executor: "api:work-acceptance", proposalId: proposal.id, decisionId: p.id, deciderType: p.deciderType, deciderId: p.deciderId })}`.as(
+						>`${jsonParameter(db, { executor: "api:work-acceptance", proposalId: proposal.id, decisionId: p.id, deciderType: p.deciderType, deciderId: p.deciderId })}`.as(
 							"payload",
 						),
 						occurredAt: sql<string>`${p.now}`.as("occurred_at"),
@@ -649,6 +672,8 @@ export async function getWorkApprovalProposal(
 	db: DbQueryClient,
 	p: { orgId: string; proposalId: string },
 ) {
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
 	return (
 		(
 			await db
@@ -679,6 +704,11 @@ export async function claimAgentRequestExecution(
 	db: DbQueryClient,
 	input: { orgId: string; proposalId: string; decisionId: string },
 ) {
+	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
+	const workItems = coreTable(db, d1WorkItems);
+	const organizations = coreTable(db, d1Organizations);
 	const rows = await db
 		.update(workApprovalExecutions)
 		.set({ execution: { status: "running" } })
@@ -686,9 +716,9 @@ export async function claimAgentRequestExecution(
 			and(
 				eq(workApprovalExecutions.orgId, input.orgId),
 				eq(workApprovalExecutions.proposalId, input.proposalId),
-				sql`json_extract(${workApprovalExecutions.execution}, '$.status') = 'pending'`,
+				sql`${jsonRead(db, workApprovalExecutions.execution, ["status"], "text")} = 'pending'`,
 				sql`EXISTS (SELECT 1 FROM ${workApprovalProposals} p JOIN ${workApprovalDecisions} d ON d.proposal_id=p.id WHERE p.org_id=${input.orgId} AND p.id=${input.proposalId} AND p.status='approved' AND p.action IN ('agent.create','agent.connect','resource.grant') AND d.id=${input.decisionId} AND d.decision='approved'
-				 AND EXISTS (SELECT 1 FROM ${organizations} o WHERE o.id=p.org_id AND json_extract(o.metadata,'$.agentRequestApprovals.approver')='org_admin')
+				 AND EXISTS (SELECT 1 FROM ${organizations} o WHERE o.id=p.org_id AND ${jsonRead(db, sql`o.metadata`, ["agentRequestApprovals", "approver"], "text")}='org_admin')
 				 AND EXISTS (SELECT 1 FROM ${workItems} wi WHERE wi.org_id=p.org_id AND wi.id=p.work_item_id AND wi.version=p.work_item_version AND wi.disposition NOT IN ('completed','cancelled')))`,
 			),
 		)
@@ -704,6 +734,7 @@ export async function finishAgentRequestExecution(
 		execution: AgentRequestExecution & { status: "succeeded" | "failed" };
 	},
 ) {
+	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
 	await db
 		.update(workApprovalExecutions)
 		.set({ execution: input.execution })
@@ -711,7 +742,7 @@ export async function finishAgentRequestExecution(
 			and(
 				eq(workApprovalExecutions.orgId, input.orgId),
 				eq(workApprovalExecutions.proposalId, input.proposalId),
-				sql`json_extract(${workApprovalExecutions.execution}, '$.status') = 'running'`,
+				sql`${jsonRead(db, workApprovalExecutions.execution, ["status"], "text")} = 'running'`,
 			),
 		);
 }
@@ -721,6 +752,8 @@ export async function listTaskMemoryApprovals(
 	db: DbQueryClient,
 	p: { orgId: string; references: string[]; observedAt: string },
 ) {
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workItems = coreTable(db, d1WorkItems);
 	const columns = {
 		id: sql`${workApprovalProposals.id}`
 			.mapWith(workApprovalProposals.id)
@@ -768,7 +801,7 @@ export async function listTaskMemoryApprovals(
 				.where(
 					and(
 						eq(workApprovalProposals.orgId, p.orgId),
-						inArray(workApprovalProposals.workItemId, ids),
+						anyIds(db, workApprovalProposals.workItemId, ids),
 					),
 				),
 		);
@@ -782,7 +815,9 @@ export async function listTaskMemoryApprovals(
 		const direct = await db
 			.select(columns)
 			.from(
-				sql`${workApprovalProposals} INDEXED BY sqlite_autoindex_work_approval_proposals_1`,
+				coreStore(db) === "postgres"
+					? workApprovalProposals
+					: sql`${workApprovalProposals} INDEXED BY sqlite_autoindex_work_approval_proposals_1`,
 			)
 			.innerJoin(
 				workItems,
@@ -794,7 +829,7 @@ export async function listTaskMemoryApprovals(
 			.where(
 				and(
 					eq(workApprovalProposals.orgId, p.orgId),
-					inArray(workApprovalProposals.id, ids),
+					anyIds(db, workApprovalProposals.id, ids),
 				),
 			);
 		result.push(
@@ -827,6 +862,10 @@ export async function listWorkApprovalInbox(
 		observedAt: string;
 	},
 ) {
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workApprovalExecutions = coreTable(db, d1WorkApprovalExecutions);
+	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
+	const workItems = coreTable(db, d1WorkItems);
 	const asApprover = p.party
 		? and(
 				eq(workApprovalProposals.approverType, p.party.type),
@@ -956,6 +995,7 @@ export async function listRequestedWorkApprovalEvents(
 		limit: number;
 	},
 ): Promise<RequestedWorkApprovalEventRow[]> {
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
 	return db
 		.select({
 			id: workApprovalProposals.id,
@@ -994,6 +1034,7 @@ export async function getLatestWorkApprovalPosition(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<{ at: string; id: string } | null> {
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
 	const [row] = await db
 		.select({
 			at: workApprovalProposals.createdAt,
@@ -1047,6 +1088,7 @@ async function resolveRiskApprovalTedi(
 		item.accountableOwnerId === tediId
 	)
 		return null;
+	const tedis = coreTable(db, d1Tedis);
 	const [tedi] = await db
 		.select({ id: tedis.id })
 		.from(tedis)
@@ -1084,6 +1126,8 @@ export async function ensureWorkRiskApproval(
 		(await hasOwnerWorkDelegation(db, item, now))
 	)
 		return;
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const existing = await db
 		.select({
 			approverType: workApprovalProposals.approverType,

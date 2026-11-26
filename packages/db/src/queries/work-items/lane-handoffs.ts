@@ -1,24 +1,33 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
 import {
-	workInteractions,
-	workInteractionStoredColumns,
-} from "../../schema/work-factory";
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
+import { workInteractions as d1WorkInteractions } from "../../schema/work-factory";
+import { interactionColumns, interactionJsonType } from "./interaction-store";
 /** Once a reminder's original ask leaves open, the reminder is cancelled; metadata stays fenced. */
 export async function withdrawStaleLaneNudges(db: DbQueryClient, now: string) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const rows = await db
 		.update(workInteractions)
 		.set({
 			status: "cancelled",
 			cancelledAt: now,
-			resolutionFence: sql`lower(hex(randomblob(16)))`,
+			resolutionFence:
+				coreStore(db) === "postgres"
+					? sql`gen_random_uuid()::text`
+					: sql`lower(hex(randomblob(16)))`,
 			version: sql`${workInteractions.version}+1`,
 		})
 		.where(
 			and(
 				eq(workInteractions.status, "open"),
-				sql`json_type(${workInteractions.metadata},'$.laneNudge.requestId')='text'`,
-				sql`NOT EXISTS (SELECT 1 FROM work_interactions o WHERE o.org_id=${workInteractions.orgId} AND o.id=json_extract(${workInteractions.metadata},'$.laneNudge.requestId') AND o.status='open' AND (o.expires_at IS NULL OR o.expires_at>${now}))`,
+				sql`${interactionJsonType(db, workInteractions.metadata, ["laneNudge", "requestId"])}='text'`,
+				sql`NOT EXISTS (SELECT 1 FROM work_interactions o WHERE o.org_id=${workInteractions.orgId} AND o.id=${jsonRead(db, workInteractions.metadata, ["laneNudge", "requestId"], "text")} AND o.status='open' AND (o.expires_at IS NULL OR o.expires_at>${now}))`,
 			),
 		)
 		.returning({ id: workInteractions.id });
@@ -32,19 +41,20 @@ export async function nudgeLaneHandoffs(db: DbQueryClient, now: string) {
 	if (hour < 8 || hour >= 12) return 0;
 	const day = now.slice(0, 10);
 	const cutoff = new Date(Date.parse(now) - 86_400_000).toISOString();
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const due = and(
 		eq(workInteractions.status, "open"),
 		eq(workInteractions.targetType, "user"),
-		sql`(json_type(${workInteractions.metadata},'$.laneHandoff')='object' OR json_type(${workInteractions.metadata},'$.followThrough.laneHandoff')='object')`,
+		sql`(${interactionJsonType(db, workInteractions.metadata, ["laneHandoff"])}='object' OR ${interactionJsonType(db, workInteractions.metadata, ["followThrough", "laneHandoff"])}='object')`,
 		sql`${workInteractions.createdAt}<=${cutoff}`,
-		sql`coalesce(json_extract(${workInteractions.metadata},'$.followThrough.lastNudgedDay'),'')<${day}`,
-		sql`coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${now}`,
-		sql`json_extract(${workInteractions.metadata},'$.followThrough.reviewAt')>${now}`,
+		sql`coalesce(${jsonRead(db, workInteractions.metadata, ["followThrough", "lastNudgedDay"], "text")},'')<${day}`,
+		sql`coalesce(${jsonRead(db, workInteractions.metadata, ["followThrough", "snoozedUntil"], "text")},'')<=${now}`,
+		sql`${jsonRead(db, workInteractions.metadata, ["followThrough", "reviewAt"], "text")}>${now}`,
 		sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${now})`,
 		sql`NOT EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.disposition IN ('completed','cancelled'))`,
 	);
 	const rows = await db
-		.select(workInteractionStoredColumns)
+		.select(interactionColumns(db))
 		.from(workInteractions)
 		.where(due)
 		.limit(50);
@@ -83,7 +93,7 @@ export async function nudgeLaneHandoffs(db: DbQueryClient, now: string) {
 									"prompt",
 								),
 							metadata:
-								sql<string>`${JSON.stringify({ notification: { state: "digest", requestIds: [row.id] }, laneNudge: { requestId: row.id, day } })}`.as(
+								sql<string>`${jsonParameter(db, { notification: { state: "digest", requestIds: [row.id] }, laneNudge: { requestId: row.id, day } })}`.as(
 									"metadata",
 								),
 							createdAt: sql<string>`${now}`.as("created_at"),
@@ -106,7 +116,12 @@ export async function nudgeLaneHandoffs(db: DbQueryClient, now: string) {
 			db
 				.update(workInteractions)
 				.set({
-					metadata: sql`json_set(${workInteractions.metadata},'$.followThrough.lastNudgedDay',${day})`,
+					metadata: jsonWrite(
+						db,
+						workInteractions.metadata,
+						["followThrough", "lastNudgedDay"],
+						day,
+					),
 				})
 				.where(
 					and(

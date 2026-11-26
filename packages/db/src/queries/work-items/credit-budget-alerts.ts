@@ -12,10 +12,14 @@
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { and, eq } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { projects } from "../../schema/projects";
-import { tediObjectives } from "../../schema/tedi-objectives";
-import { type WorkBudgetEnvelope, workCases } from "../../schema/work-factory";
-import { workItems } from "../../schema/work-items";
+import { coreTable } from "../../core-store/client";
+import { projects as d1Projects } from "../../schema/projects";
+import { tediObjectives as d1TediObjectives } from "../../schema/tedi-objectives";
+import {
+	workCases as d1WorkCases,
+	type WorkBudgetEnvelope,
+} from "../../schema/work-factory";
+import { workItems as d1WorkItems } from "../../schema/work-items";
 import {
 	creditNoticeCardId,
 	listCreditNoticeRecipients,
@@ -55,6 +59,10 @@ async function scopeName(
 	envelope: WorkBudgetEnvelope,
 ): Promise<string> {
 	const { orgId, scopeId } = envelope;
+	const workItems = coreTable(db, d1WorkItems);
+	const projects = coreTable(db, d1Projects);
+	const workCases = coreTable(db, d1WorkCases);
+	const tediObjectives = coreTable(db, d1TediObjectives);
 	const named = async (rows: Promise<Array<{ name: string }>>, kind: string) =>
 		`${kind} “${(await rows)[0]?.name ?? scopeId}”`;
 	switch (envelope.scopeType) {
@@ -222,6 +230,7 @@ export async function deliverCreditBudgetAlert(
 	]);
 	// Filed on the project, not the Work: the budget outlives the Work, and an
 	// ended Attempt or finished Work must not withdraw the raise card.
+	const workItems = coreTable(db, d1WorkItems);
 	const [work] = alert.workItemId
 		? await db
 				.select({ projectId: workItems.projectId })

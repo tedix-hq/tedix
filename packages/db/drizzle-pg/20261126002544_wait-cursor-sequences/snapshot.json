@@ -1,0 +1,91 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "8b27d010-492b-4c20-8987-56c9d48c4008",
+	"prevIds": ["7794df9f-cd6c-49a8-987b-f02faf6a9d9a"],
+	"footprints": [
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"work_attempt_messages",
+				"sequence"
+			],
+			"writes": [
+				"s|col|public.work_attempt_messages.sequence",
+				"n|col|public.work_attempt_messages.sequence",
+				"e|col|public.work_attempt_messages.sequence"
+			],
+			"reads": ["n|tbl|public.work_attempt_messages", "n|sch|public"]
+		},
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"work_interaction_responses",
+				"sequence"
+			],
+			"writes": [
+				"s|col|public.work_interaction_responses.sequence",
+				"n|col|public.work_interaction_responses.sequence",
+				"e|col|public.work_interaction_responses.sequence"
+			],
+			"reads": ["n|tbl|public.work_interaction_responses", "n|sch|public"]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_attempt_messages",
+				"name": "sequence",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": {
+					"type": "byDefault",
+					"name": "work_attempt_messages_sequence_seq",
+					"increment": "1",
+					"startWith": "1",
+					"minValue": "1",
+					"maxValue": "9223372036854775807",
+					"cache": 1,
+					"cycle": false
+				},
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_interaction_responses",
+				"name": "sequence",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": {
+					"type": "byDefault",
+					"name": "work_interaction_responses_sequence_seq",
+					"increment": "1",
+					"startWith": "1",
+					"minValue": "1",
+					"maxValue": "9223372036854775807",
+					"cache": 1,
+					"cycle": false
+				},
+				"entityType": "columns"
+			}
+		}
+	]
+}

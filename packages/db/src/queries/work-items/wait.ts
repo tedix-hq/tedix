@@ -1,13 +1,15 @@
 import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import {
-	workEvents,
-	workAttemptMessages,
-	workAttempts,
+	workEvents as d1WorkEvents,
+	workAttemptMessages as d1WorkAttemptMessages,
+	workAttempts as d1WorkAttempts,
 } from "../../schema/work-items";
 import {
-	workInteractions,
-	workInteractionResponses,
+	workInteractions as d1WorkInteractions,
+	workInteractionResponses as d1WorkInteractionResponses,
 } from "../../schema/work-factory";
 
 /** Read insertion positions so equal timestamps and concurrent writers do not lose replies. */
@@ -26,11 +28,19 @@ export async function readWorkWaitPage(
 	},
 ) {
 	const { orgId, workItemId, cursor } = params;
-	const messagePosition = sql<number>`${workAttemptMessages}.rowid`.mapWith(
-		Number,
-	);
-	const responsePosition =
-		sql<number>`${workInteractionResponses}.rowid`.mapWith(Number);
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workAttemptMessages = coreTable(db, d1WorkAttemptMessages);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
+	// D1 uses rowids; Postgres uses the identity sequence column.
+	const postgres = coreStore(db) === "postgres";
+	const messagePosition = postgres
+		? sql<number>`${workAttemptMessages}.sequence`.mapWith(Number)
+		: sql<number>`${workAttemptMessages}.rowid`.mapWith(Number);
+	const responsePosition = postgres
+		? sql<number>`${workInteractionResponses}.sequence`.mapWith(Number)
+		: sql<number>`${workInteractionResponses}.rowid`.mapWith(Number);
 	const order = cursor ? asc : desc;
 	const limit = cursor ? 100 : 1;
 	// One batch gives the initial cursor a consistent view of all three ledgers.

@@ -1,16 +1,28 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getColumns, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead } from "../../core-store/dialect";
 import {
-	workItems,
+	workItems as d1WorkItems,
 	workItemStoredColumns,
-	workAttempts,
-	workItemComments,
+	workAttempts as d1WorkAttempts,
+	workItemComments as d1WorkItemComments,
 } from "../../schema/work-items";
-import { workInteractions } from "../../schema/work-factory";
+import { workInteractions as d1WorkInteractions } from "../../schema/work-factory";
 import { getScopedWorkItem, WorkFactoryError } from "./factory-state";
 import { normalizeWorkItemRow } from "./normalization";
 
 const runners = ["codex", "claude-code", "opencode", "devin", "tedi"];
+
+function workItemSelection(db: DbQueryClient): typeof workItemStoredColumns {
+	const columns = getColumns(coreTable(db, d1WorkItems));
+	return Object.fromEntries(
+		Object.keys(workItemStoredColumns).map((key) => [
+			key,
+			columns[key as keyof typeof columns],
+		]),
+	) as typeof workItemStoredColumns;
+}
 
 /** Assignment bookkeeping must never create a fresh revision that clears a hold. */
 export async function reassignIdleWork(
@@ -29,6 +41,10 @@ export async function reassignIdleWork(
 		now?: string;
 	},
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const item = await getScopedWorkItem(db, input.orgId, input.workItemId);
 	const now = input.now ?? new Date().toISOString();
 	const age = Date.parse(now) - Date.parse(input.unavailableSince);
@@ -100,9 +116,9 @@ export async function reassignIdleWork(
 					: ["failed", "expired"]
 				).map((outcome) => sql`${outcome}`),
 				sql`, `,
-			)}) AND json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${item.version})))`,
+			)}) AND ${jsonRead(db, workAttempts.metadata, ["dispatchVersion"], "number")} = ${item.version})))`,
 		sql`(SELECT count(*) FROM ${workAttempts} WHERE ${workAttempts.orgId} = ${input.orgId} AND ${workAttempts.workItemId} = ${item.id}
-			AND json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${item.version} AND ${workAttempts.outcome} IN ('failed', 'expired')) < 3`,
+			AND ${jsonRead(db, workAttempts.metadata, ["dispatchVersion"], "number")} = ${item.version} AND ${workAttempts.outcome} IN ('failed', 'expired')) < 3`,
 		sql`NOT EXISTS (SELECT 1 FROM ${workInteractions} WHERE ${workInteractions.orgId} = ${input.orgId} AND ${workInteractions.workItemId} = ${item.id} AND ${workInteractions.status} = 'open')`,
 	);
 	const why =
@@ -122,10 +138,13 @@ export async function reassignIdleWork(
 				executorId: input.executor,
 				updatedAt: now,
 				// Fence stale preparations without resetting revision-based failure holds.
-				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+				admissionSpecRevision:
+					coreStore(db) === "postgres"
+						? sql`gen_random_uuid()::text`
+						: sql`lower(hex(randomblob(16)))`,
 			})
 			.where(fence)
-			.returning(workItemStoredColumns),
+			.returning(workItemSelection(db)),
 		db.insert(workItemComments).select(
 			db
 				.select({
@@ -143,7 +162,7 @@ export async function reassignIdleWork(
 					and(
 						eq(workItems.orgId, input.orgId),
 						eq(workItems.id, item.id),
-						sql`json_extract(${workItems.metadata}, '$.idleReassignment.id') = ${receiptId}`,
+						sql`${jsonRead(db, workItems.metadata, ["idleReassignment", "id"])} = ${receiptId}`,
 					),
 				),
 		),

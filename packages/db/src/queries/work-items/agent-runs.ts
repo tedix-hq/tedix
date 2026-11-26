@@ -5,30 +5,27 @@
  * waiting, so a tedi can supervise several runs without reading each log.
  */
 
-import {
-	and,
-	desc,
-	eq,
-	gt,
-	inArray,
-	isNotNull,
-	isNull,
-	or,
-	sql,
-} from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../../query-client";
-import { tedis } from "../../schema/tedis";
-import { workAdmissions } from "../../schema/work-factory";
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
+import { tedis as d1Tedis } from "../../schema/tedis";
+import { workAdmissions as d1WorkAdmissions } from "../../schema/work-factory";
 import {
 	type WorkAttempt,
 	type WorkAttemptMessageRow,
 	type WorkAttemptStepRow,
 	type WorkItem,
-	workAttemptMessages,
-	workAttemptSteps,
-	workAttempts,
-	workItems,
+	workAttemptMessages as d1WorkAttemptMessages,
+	workAttemptSteps as d1WorkAttemptSteps,
+	workAttempts as d1WorkAttempts,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 import { isWorkAttemptLive } from "./attempt-steps";
 
@@ -136,6 +133,11 @@ export async function listAgentRuns(
 	const since = new Date(
 		Date.parse(at) - AGENT_RUN_LIST_WINDOW_DAYS * 86_400_000,
 	).toISOString();
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workAttemptSteps = coreTable(db, d1WorkAttemptSteps);
+	const workAttemptMessages = coreTable(db, d1WorkAttemptMessages);
+	const workAdmissions = coreTable(db, d1WorkAdmissions);
 	const candidates: AgentRunWorkItem[] = await db
 		.select({
 			id: workItems.id,
@@ -190,7 +192,8 @@ export async function listAgentRuns(
 				and(
 					eq(workAttempts.orgId, params.orgId),
 					// bound-params: sliced to ID_CHUNK (50) Work Items per statement.
-					inArray(
+					anyIds(
+						db,
 						workAttempts.workItemId,
 						candidates.slice(offset, offset + ID_CHUNK).map((item) => item.id),
 					),
@@ -258,7 +261,7 @@ export async function listAgentRuns(
 				and(
 					eq(workAttemptMessages.orgId, params.orgId),
 					// bound-params: one Attempt per listed run, and `limit` is at most 50.
-					inArray(workAttemptMessages.attemptId, attemptIds),
+					anyIds(db, workAttemptMessages.attemptId, attemptIds),
 					or(
 						eq(workAttemptMessages.kind, "stop"),
 						isNull(workAttemptMessages.appliedAt),
@@ -347,9 +350,15 @@ export async function listAgentRunSupervisors(
 	db: DbQueryClient,
 	params: { since: string; limit: number; dueIds?: string[] },
 ): Promise<AgentRunSupervisor[]> {
+	const workItems = coreTable(db, d1WorkItems);
+	const tedis = coreTable(db, d1Tedis);
 	return db
 		.select({
-			workItemIds: sql<string>`json_group_array(${workItems.id})`
+			workItemIds: sql<string>`${
+				coreStore(db) === "postgres"
+					? sql`jsonb_agg(${workItems.id})::text`
+					: sql`json_group_array(${workItems.id})`
+			}`
 				.mapWith((value: string) => JSON.parse(value) as string[])
 				.as("supervised_work_ids"),
 			orgId: workItems.orgId,
@@ -372,7 +381,7 @@ export async function listAgentRunSupervisors(
 				eq(workItems.metadataSource, AGENT_RUN_SOURCE),
 				gt(workItems.createdAt, params.since),
 				// bound-params: internal selector from claimWorkDue, LIMIT 50.
-				params.dueIds ? inArray(workItems.id, params.dueIds) : undefined,
+				params.dueIds ? anyIds(db, workItems.id, params.dueIds) : undefined,
 				eq(workItems.executorType, "external_agent"),
 				eq(workItems.stewardType, "tedi"),
 				isNotNull(workItems.sourceSessionKey),
@@ -424,18 +433,19 @@ export async function recordAgentRunSupervisionRound(
 		state: AgentRunSupervisionState;
 	},
 ): Promise<boolean> {
+	const workItems = coreTable(db, d1WorkItems);
 	const rows = await db
 		.update(workItems)
 		.set({
 			metadata: sql<
 				Record<string, JsonValue>
-			>`json_set(COALESCE(${workItems.metadata}, '{}'), '$.agentRunSupervision', json(${JSON.stringify(params.state)}))`,
+			>`${jsonWrite(db, workItems.metadata, ["agentRunSupervision"], params.state)}`,
 		})
 		.where(
 			and(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.id, params.workItemId),
-				sql`COALESCE(json_extract(${workItems.metadata}, '$.agentRunSupervision.rounds'), 0) = ${params.expectedRounds}`,
+				sql`COALESCE(${jsonRead(db, workItems.metadata, ["agentRunSupervision", "rounds"], "number")}, 0) = ${params.expectedRounds}`,
 			),
 		)
 		.returning({ id: workItems.id });
@@ -451,18 +461,19 @@ export async function claimAgentRunPersonUpdate(
 	db: DbQueryClient,
 	params: { orgId: string; workItemId: string; at: string; notBefore: string },
 ): Promise<boolean> {
+	const workItems = coreTable(db, d1WorkItems);
 	const rows = await db
 		.update(workItems)
 		.set({
 			metadata: sql<
 				Record<string, JsonValue>
-			>`json_set(COALESCE(${workItems.metadata}, '{}'), '$.agentRunUpdateAt', ${params.at})`,
+			>`${jsonWrite(db, workItems.metadata, ["agentRunUpdateAt"], params.at)}`,
 		})
 		.where(
 			and(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.id, params.workItemId),
-				sql`COALESCE(json_extract(${workItems.metadata}, '$.agentRunUpdateAt'), '') < ${params.notBefore}`,
+				sql`COALESCE(${jsonRead(db, workItems.metadata, ["agentRunUpdateAt"])}, '') < ${params.notBefore}`,
 			),
 		)
 		.returning({ id: workItems.id });

@@ -1,26 +1,29 @@
-import { auditEvents } from "../../schema/audit-events";
+import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { organizationMembers } from "../../schema/organization-members";
-import {
-	tediApprovalRequests,
-	approvalRequestStoredColumns,
-} from "../../schema/approvals";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { organizationMembers as d1OrganizationMembers } from "../../schema/organization-members";
+import { tediApprovalRequests as d1TediApprovalRequests } from "../../schema/approvals";
+import { and, desc, eq, getColumns, isNull, sql } from "drizzle-orm";
 import {
 	DelegatedApprovalsPolicySchema,
 	DelegatedApprovalReceiptSchema,
 } from "@tedix/api-contract/schemas/delegated-approvals";
 import { delegatedCardAllowed } from "@tedix/api-contract/utils/delegated-approvals";
 import type { DbQueryClient } from "../../query-client";
-import { organizations } from "../../schema/organizations";
-import { externalAgentPrincipals } from "../../schema/external-agent-identity";
-import { tedis } from "../../schema/tedis";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonParameter, jsonRead } from "../../core-store/dialect";
+import { organizations as d1Organizations } from "../../schema/organizations";
+import { externalAgentPrincipals as d1ExternalAgentPrincipals } from "../../schema/external-agent-identity";
+import { tedis as d1Tedis } from "../../schema/tedis";
 import {
-	workInteractions,
-	workInteractionStoredColumns,
-	workInteractionResponses,
+	workInteractions as d1WorkInteractions,
+	workInteractionResponses as d1WorkInteractionResponses,
 	type WorkInteraction,
 } from "../../schema/work-factory";
+import {
+	interactionAuditTime,
+	interactionColumns,
+	interactionJsonType,
+} from "./interaction-store";
 import type { InteractionActor } from "./interactions";
 
 /** Sessions on the same credential are one requester, regardless of session id. */
@@ -32,6 +35,8 @@ export async function independentApprovalActor(
 ): Promise<boolean> {
 	if (requester.type === decider.type && requester.id === decider.id)
 		return false;
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const credential = async (actor: Pick<InteractionActor, "type" | "id">) => {
 		if (actor.type === "external_agent") {
 			const [principal] = await db
@@ -86,6 +91,10 @@ export async function delegatedApprover(
 		!(await independentApprovalActor(db, p.orgId, p.requester, p.actor))
 	)
 		return null;
+	const organizations = coreTable(db, d1Organizations);
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const tedis = coreTable(db, d1Tedis);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	const [organization] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -174,6 +183,8 @@ export async function preferredApprovalDelegate(
 	ownerId: string,
 	requester: Pick<InteractionActor, "type" | "id">,
 ) {
+	const organizations = coreTable(db, d1Organizations);
+	const tedis = coreTable(db, d1Tedis);
 	const [organization] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -222,6 +233,9 @@ export async function preferredVerificationDelegate(
 	orgId: string,
 	ownerId: string,
 ) {
+	const organizations = coreTable(db, d1Organizations);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const tedis = coreTable(db, d1Tedis);
 	const [organization] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -295,6 +309,7 @@ export async function claimDelegatedApproval(
 	if (request.targetType === p.actor.type && request.targetId === p.actor.id)
 		return prior?.actorId === p.actor.id ? { request, receipt } : null;
 	if (request.targetType !== "user") return null;
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const [row] = await db
 		.update(workInteractions)
 		.set({
@@ -314,7 +329,7 @@ export async function claimDelegatedApproval(
 				sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
 			),
 		)
-		.returning(workInteractionStoredColumns);
+		.returning(interactionColumns(db));
 	return row ? { request: row, receipt } : null;
 }
 
@@ -323,6 +338,9 @@ export async function listDecidedForYou(
 	db: DbQueryClient,
 	p: { orgId: string; ownerId: string; limit: number; before?: string },
 ) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	const rows = await db
 		.select({
 			source: sql<"interaction">`'interaction'`.as("decision_source"),
@@ -331,7 +349,7 @@ export async function listDecidedForYou(
 			subject: workInteractions.subject,
 			body: workInteractionResponses.body,
 			decision:
-				sql<string>`coalesce(json_extract(${workInteractionResponses.metadata},'$.cardAction'),'Answered')`.as(
+				sql<string>`coalesce(${jsonRead(db, workInteractionResponses.metadata, ["cardAction"], "text")},'Answered')`.as(
 					"decision_choice",
 				),
 			decidedAt: workInteractionResponses.respondedAt,
@@ -339,7 +357,7 @@ export async function listDecidedForYou(
 			metadata: workInteractions.metadata,
 			undoneAt: sql<
 				string | null
-			>`(SELECT json_extract(a.metadata,'$.undoneAt') FROM audit_events a WHERE a.organization_id=${workInteractions.orgId} AND a.id='delegated-undo:interaction:' || ${workInteractions.orgId} || ':' || ${workInteractions.id})`.as(
+			>`(SELECT ${jsonRead(db, sql`a.metadata`, ["undoneAt"], "text")} FROM audit_events a WHERE a.organization_id=${workInteractions.orgId} AND a.id='delegated-undo:interaction:' || ${workInteractions.orgId} || ':' || ${workInteractions.id})`.as(
 				"undone_at",
 			),
 		})
@@ -385,13 +403,13 @@ export async function listDecidedForYou(
 			),
 			workItemId: sql<
 				string | null
-			>`json_extract(${tediApprovalRequests.payload},'$.workItemId')`.as(
+			>`${jsonRead(db, tediApprovalRequests.payload, ["workItemId"], "text")}`.as(
 				"work_item_id",
 			),
 			metadata: tediApprovalRequests.payload,
 			undoneAt: sql<
 				string | null
-			>`json_extract(${tediApprovalRequests.payload},'$.delegatedApprovalUndoneAt')`.as(
+			>`${jsonRead(db, tediApprovalRequests.payload, ["delegatedApprovalUndoneAt"], "text")}`.as(
 				"undone_at",
 			),
 		})
@@ -399,7 +417,7 @@ export async function listDecidedForYou(
 		.where(
 			and(
 				eq(tediApprovalRequests.orgId, p.orgId),
-				sql`(${tediApprovalRequests.status} IN ('approved','rejected') OR (${tediApprovalRequests.status}='cancelled' AND json_type(${tediApprovalRequests.payload},'$.delegatedApprovalUndoneAt') IS NOT NULL))`,
+				sql`(${tediApprovalRequests.status} IN ('approved','rejected') OR (${tediApprovalRequests.status}='cancelled' AND ${interactionJsonType(db, tediApprovalRequests.payload, ["delegatedApprovalUndoneAt"])} IS NOT NULL))`,
 				eq(tediApprovalRequests.delegatedOwnerId, p.ownerId),
 				p.before
 					? sql`${tediApprovalRequests.resolvedAt} || ':runtime:' || ${tediApprovalRequests.id} < ${p.before}`
@@ -434,6 +452,15 @@ export async function getDelegatedRuntimeApproval(
 	orgId: string,
 	id: string,
 ) {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const {
+		workItemId: _approvalWorkItemId,
+		executionStatus: _executionStatus,
+		executionDismissedAt: _executionDismissedAt,
+		consumedAt: _consumedAt,
+		delegatedOwnerId: _delegatedOwnerId,
+		...approvalRequestStoredColumns
+	} = getColumns(tediApprovalRequests);
 	const [row] = await db
 		.select(approvalRequestStoredColumns)
 		.from(tediApprovalRequests)
@@ -459,6 +486,9 @@ export async function undoDelegatedApproval(
 	},
 ) {
 	const token = crypto.randomUUID();
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const auditEvents = coreTable(db, d1AuditEvents);
 	const table =
 		p.source === "interaction" ? workInteractions : tediApprovalRequests;
 	const metadata =
@@ -468,7 +498,7 @@ export async function undoDelegatedApproval(
 	const fence = and(
 		eq(table.orgId, p.orgId),
 		eq(table.id, p.requestId),
-		sql`json_extract(${metadata},'$.delegatedApproval.ownerId')=${p.ownerId}`,
+		sql`${jsonRead(db, metadata, ["delegatedApproval", "ownerId"], "text")}=${p.ownerId}`,
 	);
 	const [prior] = await db
 		.select({ metadata })
@@ -477,7 +507,11 @@ export async function undoDelegatedApproval(
 		.limit(1);
 	if (!prior) return false;
 	if (typeof prior.metadata.delegatedApprovalUndoneAt === "string") return true;
-	const changed = sql`json_extract(${metadata},'$.delegatedApprovalUndoId')=${token}`;
+	const changed = sql`${jsonRead(db, metadata, ["delegatedApprovalUndoId"], "text")}=${token}`;
+	const undonePayload = {
+		delegatedApprovalUndoneAt: p.now,
+		delegatedApprovalUndoId: token,
+	};
 	const update =
 		p.source === "interaction"
 			? db
@@ -488,13 +522,16 @@ export async function undoDelegatedApproval(
 					.update(tediApprovalRequests)
 					.set({
 						status: "cancelled",
-						payload: sql`json_set(${metadata},'$.delegatedApprovalUndoneAt',${p.now},'$.delegatedApprovalUndoId',${token})`,
+						payload:
+							coreStore(db) === "postgres"
+								? sql`${metadata} || ${jsonParameter(db, undonePayload)}`
+								: sql`json_set(${metadata},'$.delegatedApprovalUndoneAt',${p.now},'$.delegatedApprovalUndoId',${token})`,
 					})
 					.where(
 						and(
 							fence,
 							sql`${tediApprovalRequests.status} IN ('approved','rejected')`,
-							sql`json_type(${metadata},'$.delegatedApprovalUndoneAt') IS NULL`,
+							sql`${interactionJsonType(db, metadata, ["delegatedApprovalUndoneAt"])} IS NULL`,
 						),
 					);
 	const auditId = `delegated-undo:${p.source}:${p.orgId}:${p.requestId}`;
@@ -518,10 +555,10 @@ export async function undoDelegatedApproval(
 						resourceId: table.id,
 						metadata: sql<
 							Record<string, JsonValue>
-						>`${JSON.stringify({ source: p.source, receipt: prior.metadata.delegatedApproval ?? null, completedEffectsRetained: true, undoneAt: p.now })}`.as(
+						>`${jsonParameter(db, { source: p.source, receipt: prior.metadata.delegatedApproval ?? null, completedEffectsRetained: true, undoneAt: p.now })}`.as(
 							"metadata",
 						),
-						timestamp: sql<Date>`${Math.floor(Date.parse(p.now) / 1000)}`.as(
+						timestamp: sql<Date>`${interactionAuditTime(db, p.now)}`.as(
 							"timestamp",
 						),
 					})
