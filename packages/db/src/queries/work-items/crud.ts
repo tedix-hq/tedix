@@ -69,6 +69,11 @@ import {
 import { acceptanceRenewedPurposeExpiry } from "./purpose";
 import { resolveWorkItemSteward } from "./stewardship";
 import { retireDecisionReviews } from "./decision-review-retirement";
+import {
+	appendOpenShipAlert,
+	shipRunRepository,
+	shipStepScope,
+} from "./ship-alerts";
 
 export interface CreateWorkItemParams {
 	id: string;
@@ -212,6 +217,31 @@ export async function createWorkItem(
 	const storeWorkEvents = coreTable(db, workEvents);
 	const storeWorkItems = coreTable(db, workItems);
 	const stewardship = await resolveWorkItemSteward(db, params);
+	const metadata = params.metadata;
+	if (
+		params.workKind === "incident" &&
+		(metadata?.source === "cloud-ops-ship" ||
+			metadata?.source === "cloud-ops-postdeploy-smoke") &&
+		typeof metadata.failedJob === "string" &&
+		typeof metadata.productSha === "string" &&
+		typeof metadata.runUrl === "string"
+	) {
+		const repository = shipRunRepository(metadata.runUrl);
+		if (repository) {
+			const existing = await appendOpenShipAlert(db, {
+				orgId: params.orgId,
+				scope: and(
+					shipStepScope(db, repository),
+					sql`${jsonRead(db, storeWorkItems.metadata, ["failedJob"])} = ${metadata.failedJob}`,
+				),
+				sha: metadata.productSha,
+				runUrl: metadata.runUrl,
+				now: params.createdAt,
+				metadata,
+			});
+			if (existing) return normalizeWorkItemRow(existing);
+		}
+	}
 	const { createdBy, ...values } = params;
 	const insert = db
 		.insert(storeWorkItems)

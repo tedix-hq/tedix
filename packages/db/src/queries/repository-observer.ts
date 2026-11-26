@@ -22,8 +22,13 @@ import {
 } from "../schema/work-items";
 import { coreTable } from "../core-store/client";
 import { anyIds, coreStore, jsonRead, jsonWrite } from "../core-store/dialect";
+import {
+	appendOpenShipAlert,
+	settleShipStepAlerts,
+	shipRunRepository,
+} from "./work-items/ship-alerts";
 
-/** Observation state lives on canonical Work, with one deterministic item per commit/incident. */
+/** Observation state lives on canonical Work; Ship failures reuse the open surface incident. */
 export async function createRepositoryObservation(
 	db: DbQueryClient,
 	input: {
@@ -40,6 +45,42 @@ export async function createRepositoryObservation(
 	},
 ) {
 	const workItems = coreTable(db, d1WorkItems);
+	const shipEvent = input.metadata.event as
+		| {
+				kind?: string;
+				repository?: string;
+				branch?: string;
+				surface?: string;
+				sha?: string;
+				evidenceUrl?: string;
+				occurredAt?: string;
+		  }
+		| undefined;
+	if (
+		shipEvent?.kind === "ship_red" &&
+		shipEvent.repository &&
+		shipEvent.branch &&
+		shipEvent.surface &&
+		shipEvent.sha &&
+		shipEvent.evidenceUrl
+	) {
+		const existing = await appendOpenShipAlert(db, {
+			orgId: input.orgId,
+			scope: and(
+				eq(workItems.projectId, input.projectId),
+				sql`${observerFlag(db)} = 1`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "kind"])} = 'ship_red'`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "repository"])} = ${shipEvent.repository}`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "branch"])} = ${shipEvent.branch}`,
+				sql`${jsonRead(db, workItems.metadata, ["event", "surface"])} = ${shipEvent.surface}`,
+			),
+			sha: shipEvent.sha,
+			runUrl: shipEvent.evidenceUrl,
+			now: input.now,
+			metadata: { occurredAt: shipEvent.occurredAt ?? input.now },
+		});
+		if (existing) return existing;
+	}
 	const push =
 		input.metadata.repositoryObserver === 1 &&
 		(input.metadata.event as { kind?: string } | undefined)?.kind === "push";
@@ -488,10 +529,28 @@ export async function settleRecoveredRepositoryShipObservations(
 		branch: string;
 		surface: string;
 		occurredAt?: string;
+		evidenceUrl?: string;
+		shipRepository?: string;
+		green?: boolean;
+		recoveredSteps?: string[];
 		now: string;
 	},
 ) {
 	const workItems = coreTable(db, d1WorkItems);
+	if (
+		p.evidenceUrl &&
+		p.shipRepository &&
+		shipRunRepository(p.evidenceUrl) === p.shipRepository
+	)
+		await settleShipStepAlerts(db, {
+			orgId: p.orgId,
+			runUrl: p.evidenceUrl,
+			all: p.green !== false && p.surface === "all",
+			steps: p.recoveredSteps ?? [p.surface],
+			occurredAt: p.occurredAt,
+			now: p.now,
+		});
+	if (p.green === false) return [];
 	return db
 		.update(workItems)
 		.set(settlementValues(db, p.now, "no action needed: ship_green recovery"))
@@ -503,7 +562,7 @@ export async function settleRecoveredRepositoryShipObservations(
 				sql`${jsonRead(db, workItems.metadata, ["event", "repository"])}=${p.repository}`,
 				sql`${jsonRead(db, workItems.metadata, ["event", "branch"])}=${p.branch}`,
 				sql`${jsonRead(db, workItems.metadata, ["event", "surface"])}=${p.surface}`,
-				sql`${observationTime(db, sql`coalesce(${jsonRead(db, workItems.metadata, ["event", "occurredAt"])}, ${workItems.createdAt})`)} <= ${observationTime(db, sql`${p.occurredAt ?? p.now}`)}`,
+				sql`${observationTime(db, sql`coalesce(${jsonRead(db, workItems.metadata, ["latestShipFailure", "occurredAt"])}, ${jsonRead(db, workItems.metadata, ["event", "occurredAt"])}, ${workItems.createdAt})`)} <= ${observationTime(db, sql`${p.occurredAt ?? p.now}`)}`,
 				settleableObservation(db, p.now),
 			),
 		)

@@ -114,6 +114,31 @@ it("rejects an event from another repository before reading lessons", async () =
 	).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	expect(deps.lessons).not.toHaveBeenCalled();
 });
+it("uses the reused incident for dispatch and forwards only successful Ship steps for recovery", async () => {
+	deps.create.mockResolvedValueOnce({
+		id: "existing-alert",
+		metadata: { targetWorkItemId: "existing-alert" },
+	});
+	const result = await observeRepositoryEvent(context, "org-example", {
+		...event,
+		sha: "b".repeat(40),
+		summary: JSON.stringify({
+			jobs: [
+				{ name: "contracts", conclusion: "success" },
+				{ name: "deploy", conclusion: "failure" },
+				{ name: "smoke", conclusion: "skipped" },
+			],
+		}),
+	});
+	expect(result.observationId).toBe("existing-alert");
+	expect(deps.enqueue.mock.calls[0]?.[0]?.conversationId).toBe(
+		"repository-observer:existing-alert",
+	);
+	expect(deps.settleShip).toHaveBeenCalledWith(
+		{},
+		expect.objectContaining({ green: false, recoveredSteps: ["contracts"] }),
+	);
+});
 it("does not let an external caller report as the configured tedi", async () => {
 	deps.get.mockResolvedValue({ id: "observation", projectId: event.projectId });
 	await expect(

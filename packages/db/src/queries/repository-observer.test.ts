@@ -1,6 +1,7 @@
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { fileURLToPath } from "node:url";
 import { coreTable } from "../core-store/client";
+import { createWorkItem } from "./work-items/crud";
 import { createPGliteFacade } from "../test/pglite-facade";
 import { gitCommitAliases } from "../schema/git-commit-aliases";
 import {
@@ -275,6 +276,227 @@ it.each([{}, { stillRed: false }, { stillRed: true }])(
 		).toBe("cancelled");
 	},
 );
+it("reuses Ship surface and step alerts across commits and closes them on recovery", async () => {
+	const { db, sqlite } = fixture();
+	const runUrl = (run: number) =>
+		`https://github.com/example/ops/actions/runs/${run}`;
+	const red = (run: number) => ({
+		...event,
+		id: `ship-${run}`,
+		now: `2026-10-17T12:0${run}:00.000Z`,
+		metadata: {
+			repositoryObserver: 1,
+			event: {
+				kind: "ship_red",
+				repository: "example/repo",
+				branch: "main",
+				surface: "all",
+				sha: String(run).repeat(40),
+				evidenceUrl: runUrl(run),
+				occurredAt: `2026-10-17T12:0${run}:00.000Z`,
+			},
+		},
+	});
+	const step = (run: number, failedJob: string) =>
+		createWorkItem(db, {
+			id: `${failedJob}-${run}`,
+			orgId: event.orgId,
+			title: `Investigate ship ${failedJob}`,
+			workKind: "incident",
+			accountableOwnerType: "tedi",
+			accountableOwnerId: event.ownerTediId,
+			sourceIntentId: `ship:${failedJob}:${run}`,
+			createdAt: red(run).now,
+			metadata: {
+				source: "cloud-ops-ship",
+				failedJob,
+				productSha: String(run).repeat(40),
+				runUrl: runUrl(run),
+			},
+		});
+	for (const run of [1, 2]) {
+		expect((await createRepositoryObservation(db, red(run)))?.id).toBe(
+			"ship-1",
+		);
+		for (const name of ["deploy:api", "contracts"])
+			expect((await step(run, name)).id).toBe(`${name}-1`);
+	}
+	await createRepositoryObservation(db, red(2));
+	await step(2, "deploy:api");
+	expect(
+		sqlite
+			.prepare(
+				"SELECT count(*) AS n FROM work_items WHERE disposition = 'proposed'",
+			)
+			.get(),
+	).toEqual({ n: 3 });
+	expect(
+		sqlite
+			.prepare(
+				"SELECT body FROM work_item_comments WHERE work_item_id = 'deploy:api-1'",
+			)
+			.all(),
+	).toEqual([
+		{ body: `Ship failed again at ${"2".repeat(40)}.\nRun: ${runUrl(2)}` },
+	]);
+	const green = {
+		orgId: event.orgId,
+		projectId: event.projectId,
+		repository: "example/repo",
+		branch: "main",
+		surface: "all",
+		shipRepository: "example/ops",
+		evidenceUrl: runUrl(3),
+		now: "2026-10-17T12:03:00.000Z",
+	};
+	await settleRecoveredRepositoryShipObservations(db, {
+		...green,
+		occurredAt: red(1).now,
+	});
+	expect(
+		sqlite
+			.prepare(
+				"SELECT count(*) AS n FROM work_items WHERE disposition = 'proposed'",
+			)
+			.get(),
+	).toEqual({ n: 3 });
+	await settleRecoveredRepositoryShipObservations(db, {
+		...green,
+		green: false,
+		recoveredSteps: ["contracts"],
+	});
+	expect(
+		sqlite
+			.prepare("SELECT id FROM work_items WHERE disposition = 'cancelled'")
+			.all(),
+	).toEqual([{ id: "contracts-1" }]);
+	await settleRecoveredRepositoryShipObservations(db, green);
+	expect(
+		sqlite
+			.prepare(
+				"SELECT count(*) AS n FROM work_items WHERE disposition = 'proposed'",
+			)
+			.get(),
+	).toEqual({ n: 0 });
+	await createRepositoryObservation(db, red(4));
+	expect((await step(4, "deploy:api")).id).toBe("deploy:api-4");
+});
+it("appends to the newest open Ship alert within its tenant and failure scope", async () => {
+	const { db, sqlite } = fixture();
+	const shipEvent = {
+		kind: "ship_red",
+		repository: "example/repo",
+		branch: "main",
+		surface: "api",
+		sha: "a".repeat(40),
+		evidenceUrl: "https://github.com/example/ops/actions/runs/1",
+	};
+	for (const [id, orgId, metadata, createdAt] of [
+		[
+			"older",
+			event.orgId,
+			{ repositoryObserver: 1, event: shipEvent },
+			"2026-10-17T10:00:00Z",
+		],
+		[
+			"newest",
+			event.orgId,
+			{ repositoryObserver: 1, event: shipEvent },
+			"2026-10-17T11:00:00Z",
+		],
+		[
+			"other-tenant",
+			"other",
+			{ repositoryObserver: 1, event: shipEvent },
+			"2026-10-17T12:00:00Z",
+		],
+		[
+			"other-surface",
+			event.orgId,
+			{ repositoryObserver: 1, event: { ...shipEvent, surface: "os" } },
+			"2026-10-17T12:00:00Z",
+		],
+		[
+			"older-step",
+			event.orgId,
+			{
+				source: "cloud-ops-ship",
+				failedJob: "deploy:api",
+				runUrl: shipEvent.evidenceUrl,
+			},
+			"2026-10-17T10:00:00Z",
+		],
+		[
+			"newest-step",
+			event.orgId,
+			{
+				source: "cloud-ops-ship",
+				failedJob: "deploy:api",
+				runUrl: shipEvent.evidenceUrl,
+			},
+			"2026-10-17T11:00:00Z",
+		],
+		[
+			"other-repository",
+			event.orgId,
+			{
+				source: "cloud-ops-ship",
+				failedJob: "deploy:api",
+				runUrl: "https://github.com/example/other/actions/runs/1",
+			},
+			"2026-10-17T12:00:00Z",
+		],
+	] as const)
+		await db
+			.insert(workItems)
+			.values({
+				id,
+				orgId,
+				projectId: event.projectId,
+				title: id,
+				admissionSpecRevision: crypto.randomUUID(),
+				metadata,
+				createdAt,
+			});
+	expect(
+		(
+			await createRepositoryObservation(db, {
+				...event,
+				id: "incoming",
+				metadata: {
+					repositoryObserver: 1,
+					event: { ...shipEvent, sha: "b".repeat(40) },
+				},
+			})
+		)?.id,
+	).toBe("newest");
+	expect(
+		(
+			await createWorkItem(db, {
+				id: "incoming-step",
+				orgId: event.orgId,
+				title: "Step failure",
+				workKind: "incident",
+				accountableOwnerType: "tedi",
+				accountableOwnerId: event.ownerTediId,
+				createdAt: event.now,
+				metadata: {
+					source: "cloud-ops-ship",
+					failedJob: "deploy:api",
+					productSha: "b".repeat(40),
+					runUrl: shipEvent.evidenceUrl,
+				},
+			})
+		).id,
+	).toBe("newest-step");
+	expect(
+		sqlite
+			.prepare(
+				"SELECT work_item_id AS id FROM work_item_comments ORDER BY work_item_id",
+			)
+			.all(),
+	).toEqual([{ id: "newest" }, { id: "newest-step" }]);
+});
 it("closes older red Ship records and shift fixes on the recovered surface", async () => {
 	const { db } = fixture();
 	const eventFields = {

@@ -98,6 +98,30 @@ export async function observeRepositoryEvent(
 		});
 	const wakeRequests = () =>
 		wakeKernelRequestsForRepository(context, orgId, event);
+	if (event.kind === "ship_red" || event.kind === "ship_green") {
+		let recoveredSteps: string[] = [];
+		try {
+			const summary: { jobs?: { name?: string; conclusion?: string }[] } =
+				JSON.parse(event.summary);
+			recoveredSteps =
+				summary.jobs
+					?.filter(
+						(job) =>
+							job.conclusion === "success" && typeof job.name === "string",
+					)
+					.map((job) => job.name!) ?? [];
+		} catch {
+			// Older producers send plain text, which provides no per-step recovery proof.
+		}
+		await observations.settleRecoveredRepositoryShipObservations(context.db, {
+			...event,
+			orgId,
+			shipRepository: config.shipRepository,
+			green: event.kind === "ship_green",
+			recoveredSteps,
+			now: new Date().toISOString(),
+		});
+	}
 	if (event.kind === "ci_red" || event.kind === "ci_green") {
 		if (event.kind === "ci_green")
 			await observations.settleRecoveredRepositoryCiObservations(context.db, {
@@ -158,11 +182,6 @@ export async function observeRepositoryEvent(
 		if (event.kind !== "push") id = parent.id;
 	}
 	if (event.kind === "ship_green") {
-		await observations.settleRecoveredRepositoryShipObservations(context.db, {
-			...event,
-			orgId,
-			now: new Date().toISOString(),
-		});
 		await wakeRequests();
 		const row = await observations.getRepositoryObservation(
 			context.db,
@@ -253,6 +272,7 @@ export async function observeRepositoryEvent(
 		},
 	});
 	if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+	id = row.id;
 	const receipt = {
 		observationId: id,
 		workItemId: String(row.metadata?.targetWorkItemId ?? id),
