@@ -241,8 +241,10 @@ if (import.meta.main) {
 				after: args[i + 2]!,
 			});
 		const read: Read = (command) => {
-			// A brief backend refusal ("...unavailable") is retried; any other
+			// A backend refusal ("...unavailable") is retried for up to three
+			// minutes, which outlasts the core database's stalls; any other
 			// failure, such as a missing Attempt, still refuses at once.
+			const giveUpAt = Date.now() + 180_000;
 			for (let attempt = 1; ; attempt += 1) {
 				const result = spawnSync(
 					"tedix",
@@ -264,16 +266,12 @@ if (import.meta.main) {
 				const transient = /unavailable/i.test(
 					`${result.stdout ?? ""}${result.stderr ?? ""}`,
 				);
-				if (!transient || attempt >= 6)
+				const pause = Math.min(3_000 * attempt, 15_000);
+				if (!transient || Date.now() + pause >= giveUpAt)
 					throw new Error(
 						`Tedix ${command.slice(0, 2).join(" ")} unavailable; push refused`,
 					);
-				Atomics.wait(
-					new Int32Array(new SharedArrayBuffer(4)),
-					0,
-					0,
-					2_000 * attempt,
-				);
+				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pause);
 			}
 		};
 		for (const receipt of authorizePush(root, updates, read))
