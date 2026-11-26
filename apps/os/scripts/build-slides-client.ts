@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertOfficeEditorVersion } from "../dev/office-editor-build";
 
 const osRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const destination = resolve(
@@ -85,6 +86,7 @@ const legal = [...notices]
 	.join("\n\n");
 const source = `${result.outputFiles[0]!.text}\n/*! Third-party notices\n${legal}\n*/\n`;
 const sha256 = createHash("sha256").update(source).digest("hex");
+assertOfficeEditorVersion("presentation", sha256);
 const generated = JSON.stringify({ sha256, source }, null, "\t") + "\n";
 if (process.argv.includes("--check")) {
 	if ((await readFile(destination, "utf8")) !== generated)

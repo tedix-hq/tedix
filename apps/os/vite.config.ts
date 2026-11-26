@@ -19,6 +19,7 @@ import {
 import { fixturePackEnabled, localApiPlugin } from "./dev/local-api-plugin";
 import { localApiProxyOptions } from "./dev/local-api-proxy";
 import { phosphorImports } from "./dev/phosphor-imports";
+import { officeEditorBuildPlugin } from "./dev/office-editor-build";
 
 const optionalPublicValue = (name: string) =>
 	process.env[`TEDIX_BUILD_${name}`]?.trim() || "";
@@ -87,6 +88,7 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 		// (vitejs/vite#23672).
 		tsconfig: "./tsconfig.json",
 		plugins: [
+			officeEditorBuildPlugin(),
 			osVersionPlugin(buildSha),
 			...(iconImports ? [{ ...iconImports, enforce: "pre" as const }] : []),
 			...(withWorker ? [workerPlugin()] : []),

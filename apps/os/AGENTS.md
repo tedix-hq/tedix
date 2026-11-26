@@ -281,7 +281,10 @@ host calls for calculation (`sheet.evaluate`), revision-checked saves
 what someone else changed), exports and drafts. Changing a client means
 bumping its version in `OFFICE_EDITOR_VERSIONS`
 (`@tedix/api-contract/assets/office-editor-versions`) so existing editors can
-upgrade.
+upgrade. Append the new version and client SHA printed by the build to
+`packages/api-contract/src/assets/office-editor-client-shas.json`, preserving
+existing entries. Client generation, client checks and OS builds reject a SHA
+that is not recorded for the editor's version.
 
 ## Validation and deployment
 

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertOfficeEditorVersion } from "../dev/office-editor-build";
 import {
 	DOC_SERVER_SOURCE,
 	DOC_README,
@@ -100,6 +101,7 @@ if (total > APP_RUNTIME_MAX_FILES_BYTES)
 		`Doc gadget files are ${total} bytes; an app's files may be ${APP_RUNTIME_MAX_FILES_BYTES}`,
 	);
 const sha256 = createHash("sha256").update(source).digest("hex");
+assertOfficeEditorVersion("document", sha256);
 const generated = JSON.stringify({ sha256, source }, null, "\t") + "\n";
 if (process.argv.includes("--check")) {
 	if ((await readFile(destination, "utf8")) !== generated)

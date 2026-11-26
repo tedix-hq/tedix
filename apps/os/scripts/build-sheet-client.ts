@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertOfficeEditorVersion } from "../dev/office-editor-build";
 
 const osRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const destination = resolve(
@@ -36,6 +37,7 @@ for (const input of Object.keys(result.metafile.inputs))
 		throw new Error(`Sheet client includes a host-only dependency: ${input}`);
 const source = result.outputFiles[0]!.text;
 const sha256 = createHash("sha256").update(source).digest("hex");
+assertOfficeEditorVersion("sheet", sha256);
 const generated = JSON.stringify({ sha256, source }, null, "\t") + "\n";
 if (process.argv.includes("--check")) {
 	if ((await readFile(destination, "utf8")) !== generated)
