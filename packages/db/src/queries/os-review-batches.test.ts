@@ -1,15 +1,19 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../query-client";
+import { fileURLToPath } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { coreTable } from "../core-store/client";
+import { createDbQueryClient, type DbQueryClient } from "../query-client";
 import { schemaDdl } from "../test/schema-ddl";
 import { createD1Facade } from "../test/d1-facade";
+import { createPGliteFacade } from "../test/pglite-facade";
 import {
 	osShareLinks,
 	osShareSessions,
 	osReviewBatches,
 	osReviewFeedback,
 } from "../schema/os-shares";
-import { osGadgets } from "../schema/os-workspaces";
+import { osGadgets, osWorkspaces } from "../schema/os-workspaces";
 import {
 	createOsReviewBatch,
 	getActiveOsReviewBatchForGadget,
@@ -20,236 +24,286 @@ import {
 	type OsReviewFeedbackAccess,
 } from "./os-review-batches";
 const now = "2026-10-06T12:00:00.000Z";
-async function fixture() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=OFF");
-	sqlite.exec(
-		schemaDdl(
-			osShareLinks,
-			osShareSessions,
-			osReviewBatches,
-			osReviewFeedback,
-			osGadgets,
-		),
-	);
-	const db = createDbQueryClient(createD1Facade(sqlite));
-	await db.insert(osGadgets).values({
-		id: "gadget",
-		organizationId: "org",
-		workspaceId: "workspace",
-		name: "Review",
-		createdByKind: "user",
-		createdById: "owner",
-		status: "active",
-	});
-	await db.insert(osShareLinks).values({
-		id: "share",
-		organizationId: "org",
-		resourceType: "gadget",
-		resourceId: "gadget",
-		tokenHash: "linkhash",
-		role: "use",
-		createdByKind: "user",
-		createdById: "owner",
-	});
-	await db.insert(osShareSessions).values({
-		id: "session",
-		shareLinkId: "share",
-		sessionTokenHash: "sessionhash",
-		expiresAt: "2026-10-07T12:00:00.000Z",
-	});
-	const batch = {
-		id: "batch",
-		organizationId: "org",
-		shareLinkId: "share",
-		sourceOutputId: "output",
-		sourceRevisionId: "revision",
-		title: "Review batch",
-		cards: JSON.stringify([{ id: "card" }]),
-		accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
-		createdById: "owner",
-		createdAt: now,
-	};
-	const params = {
-		organizationId: "org",
-		access: {
-			kind: "share" as const,
-			shareId: "share",
-			sessionHash: "sessionhash",
-		} as OsReviewFeedbackAccess,
-		batchId: "batch",
-		cardId: "card",
-		reviewerId: "reviewer",
-		expectedRevision: 0,
-		decision: "edit" as const,
-		editedReply: "Useful reply",
-		reason: "Check price",
-		now,
-	};
-	return { db, sqlite, batch, params };
-}
-describe("bounded review persistence", () => {
-	it("keeps every immutable round on a link and serves the newest", async () => {
-		const { db, batch } = await fixture();
-		expect(await createOsReviewBatch(db, batch, now)).toMatchObject(batch);
-		const later = "2026-10-06T13:00:00.000Z";
-		expect(
-			await createOsReviewBatch(
-				db,
-				{ ...batch, id: "second", cards: "[]", createdAt: later },
-				later,
-			),
-		).toMatchObject({ id: "second" });
-		// The same id is never overwritten.
-		expect(
-			await createOsReviewBatch(db, { ...batch, title: "Changed" }, later),
-		).toBeUndefined();
-		expect(await getOsReviewBatch(db, "other-org", "share")).toBeUndefined();
-		expect(await getOsReviewBatch(db, "org", "share")).toMatchObject({
-			id: "second",
+
+for (const store of ["d1", "postgres"] as const) {
+	describe(`bounded review persistence: ${store}`, () => {
+		let db: DbQueryClient;
+		let exec: (statement: string) => void | Promise<void>;
+		let close: () => void | Promise<void>;
+		beforeAll(async () => {
+			if (store === "d1") {
+				const sqlite = new DatabaseSync(":memory:");
+				sqlite.exec("PRAGMA foreign_keys=OFF");
+				sqlite.exec(
+					schemaDdl(
+						osShareLinks,
+						osShareSessions,
+						osReviewBatches,
+						osReviewFeedback,
+						osGadgets,
+						osWorkspaces,
+					),
+				);
+				db = createDbQueryClient(createD1Facade(sqlite));
+				exec = (statement) => sqlite.exec(statement);
+				close = () => sqlite.close();
+			} else {
+				const fixture = await createPGliteFacade();
+				db = fixture.db;
+				close = fixture.close;
+				exec = async (statement) => {
+					await fixture.engine.exec(statement);
+				};
+				for (const migration of readMigrationFiles({
+					migrationsFolder: fileURLToPath(
+						new URL("../../drizzle-pg", import.meta.url),
+					),
+				}))
+					for (const ddl of migration.sql) await fixture.engine.exec(ddl);
+				await fixture.engine.exec(
+					"INSERT INTO organizations(id,name,slug) VALUES ('org','Org','org')",
+				);
+			}
+		}, 30000);
+		afterAll(async () => {
+			await close?.();
 		});
-		expect(await getOsReviewBatch(db, "org", "share", "batch")).toMatchObject({
-			cards: batch.cards,
-			title: "Review batch",
-		});
-		expect(
-			(await listOsReviewBatchRounds(db, "org", "share")).map((r) => r.id),
-		).toEqual(["second", "batch"]);
-	});
-	it("keeps reviewers separate and rejects stale writes without changing research", async () => {
-		const { db, batch, params } = await fixture();
-		await createOsReviewBatch(db, batch, now);
-		expect(await saveOsReviewFeedback(db, params)).toMatchObject({
-			revision: 1,
-			reviewerId: "reviewer",
-		});
-		expect(await saveOsReviewFeedback(db, params)).toBeUndefined();
-		expect(
-			await saveOsReviewFeedback(db, {
-				...params,
-				expectedRevision: 1,
-				decision: "skip",
-			}),
-		).toMatchObject({ revision: 2, decision: "skip" });
-		await saveOsReviewFeedback(db, { ...params, reviewerId: "other" });
-		expect(
-			await listOsReviewFeedback(db, "org", "batch", "reviewer"),
-		).toHaveLength(1);
-		expect(await listOsReviewFeedback(db, "org", "batch")).toHaveLength(2);
-		expect(await listOsReviewFeedback(db, "other-org", "batch")).toHaveLength(
-			0,
-		);
-		expect(await getOsReviewBatch(db, "org", "share")).toMatchObject({
-			cards: batch.cards,
-			sourceRevisionId: "revision",
-		});
-	});
-	for (const [name, mutation] of [
-		[
-			"revoked link",
-			"UPDATE os_share_links SET revoked_at='2026-10-06T11:00:00.000Z'",
-		],
-		[
-			"expired link",
-			"UPDATE os_share_links SET expires_at='2026-10-06T11:00:00.000Z'",
-		],
-		[
-			"revoked session",
-			"UPDATE os_share_sessions SET revoked_at='2026-10-06T11:00:00.000Z'",
-		],
-		[
-			"expired session",
-			"UPDATE os_share_sessions SET expires_at='2026-10-06T11:00:00.000Z'",
-		],
-		["narrowed policy", "UPDATE os_share_links SET policy_max_role='viewer'"],
-		["archived gadget", "UPDATE os_gadgets SET status='archived'"],
-	] as const) {
-		it(`atomically refuses insert and update after ${name}`, async () => {
-			const { db, sqlite, batch, params } = await fixture();
-			await createOsReviewBatch(db, batch, now);
-			await saveOsReviewFeedback(db, params);
-			sqlite.exec(mutation);
-			expect(
-				await saveOsReviewFeedback(db, { ...params, reviewerId: "new" }),
-			).toBeUndefined();
-			expect(
-				await saveOsReviewFeedback(db, { ...params, expectedRevision: 1 }),
-			).toBeUndefined();
-			expect(
-				(await listOsReviewFeedback(db, "org", "batch"))[0]?.revision,
-			).toBe(1);
-		});
-	}
-	it("rejects a foreign tenant, session, share, card or batch", async () => {
-		const { db, batch, params } = await fixture();
-		await createOsReviewBatch(db, batch, now);
-		for (const patch of [
-			{ organizationId: "other" },
-			{
+
+		async function fixture() {
+			const gadgets = coreTable(db, osGadgets);
+			const links = coreTable(db, osShareLinks);
+			const sessions = coreTable(db, osShareSessions);
+			await exec(
+				"DELETE FROM os_review_feedback; DELETE FROM os_review_batches; DELETE FROM os_share_sessions; DELETE FROM os_share_links; DELETE FROM os_gadgets;" +
+					(store === "postgres" ? " DELETE FROM os_workspaces;" : ""),
+			);
+			if (store === "postgres")
+				await db.insert(coreTable(db, osWorkspaces)).values({
+					id: "workspace",
+					organizationId: "org",
+					name: "Workspace",
+					createdByKind: "user",
+					createdById: "owner",
+				});
+			await db.insert(gadgets).values({
+				id: "gadget",
+				organizationId: "org",
+				workspaceId: "workspace",
+				name: "Review",
+				createdByKind: "user",
+				createdById: "owner",
+				status: "active",
+			});
+			await db.insert(links).values({
+				id: "share",
+				organizationId: "org",
+				resourceType: "gadget",
+				resourceId: "gadget",
+				tokenHash: "linkhash",
+				role: "use",
+				createdByKind: "user",
+				createdById: "owner",
+			});
+			await db.insert(sessions).values({
+				id: "session",
+				shareLinkId: "share",
+				sessionTokenHash: "sessionhash",
+				expiresAt: "2026-10-07T12:00:00.000Z",
+			});
+			const batch = {
+				id: "batch",
+				organizationId: "org",
+				shareLinkId: "share",
+				sourceOutputId: "output",
+				sourceRevisionId: "revision",
+				title: "Review batch",
+				cards: JSON.stringify([{ id: "card" }]),
+				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+				createdById: "owner",
+				createdAt: now,
+			};
+			const params = {
+				organizationId: "org",
 				access: {
 					kind: "share" as const,
 					shareId: "share",
-					sessionHash: "foreign",
-				},
-			},
-			{
-				access: {
-					kind: "share" as const,
-					shareId: "foreign",
 					sessionHash: "sessionhash",
-				},
-			},
-			{ access: { kind: "workspace" as const, gadgetId: "foreign" } },
-			{ cardId: "missing" },
-			{ batchId: "foreign" },
-		])
-			expect(
-				await saveOsReviewFeedback(db, { ...params, ...patch }),
-			).toBeUndefined();
-	});
-	it("binds the gadget's newest batch behind an active link and lets its workspace write the same record", async () => {
-		const { db, sqlite, batch, params } = await fixture();
-		const lookup = { organizationId: "org", gadgetId: "gadget", now };
-		expect(await getActiveOsReviewBatchForGadget(db, lookup)).toBeUndefined();
-		await createOsReviewBatch(db, batch, now);
-		expect((await getActiveOsReviewBatchForGadget(db, lookup))?.id).toBe(
-			"batch",
-		);
-		expect(
-			await getActiveOsReviewBatchForGadget(db, {
-				...lookup,
-				organizationId: "other",
-			}),
-		).toBeUndefined();
-		const workspace = {
-			...params,
-			access: { kind: "workspace" as const, gadgetId: "gadget" },
-		};
-		expect(await saveOsReviewFeedback(db, workspace)).toMatchObject({
-			revision: 1,
-		});
-		// The share session continues the same per-reviewer record.
-		expect(
-			await saveOsReviewFeedback(db, { ...params, expectedRevision: 1 }),
-		).toMatchObject({ revision: 2 });
-		expect(await listOsReviewFeedback(db, "org", "batch")).toHaveLength(1);
-		sqlite.exec(
-			"UPDATE os_share_links SET revoked_at='2026-10-06T11:00:00.000Z'",
-		);
-		expect(await getActiveOsReviewBatchForGadget(db, lookup)).toBeUndefined();
-		expect(
-			await saveOsReviewFeedback(db, { ...workspace, expectedRevision: 2 }),
-		).toBeUndefined();
-	});
-	it("refuses batch approval after revocation, expiry or from another owner", async () => {
-		for (const mutation of [
-			"UPDATE os_share_links SET revoked_at='2026-10-06T11:00:00.000Z'",
-			"UPDATE os_share_links SET expires_at='2026-10-06T11:00:00.000Z'",
-			"UPDATE os_share_links SET created_by_id='someone-else'",
-		]) {
-			const { db, sqlite, batch } = await fixture();
-			sqlite.exec(mutation);
-			expect(await createOsReviewBatch(db, batch, now)).toBeUndefined();
+				} as OsReviewFeedbackAccess,
+				batchId: "batch",
+				cardId: "card",
+				reviewerId: "reviewer",
+				expectedRevision: 0,
+				decision: "edit" as const,
+				editedReply: "Useful reply",
+				reason: "Check price",
+				now,
+			};
+			return { db, exec, batch, params };
 		}
+		it("keeps every immutable round on a link and serves the newest", async () => {
+			const { db, batch } = await fixture();
+			expect(await createOsReviewBatch(db, batch, now)).toMatchObject(batch);
+			const later = "2026-10-06T13:00:00.000Z";
+			expect(
+				await createOsReviewBatch(
+					db,
+					{ ...batch, id: "second", cards: "[]", createdAt: later },
+					later,
+				),
+			).toMatchObject({ id: "second" });
+			// The same id is never overwritten.
+			expect(
+				await createOsReviewBatch(db, { ...batch, title: "Changed" }, later),
+			).toBeUndefined();
+			expect(await getOsReviewBatch(db, "other-org", "share")).toBeUndefined();
+			expect(await getOsReviewBatch(db, "org", "share")).toMatchObject({
+				id: "second",
+			});
+			expect(await getOsReviewBatch(db, "org", "share", "batch")).toMatchObject(
+				{
+					cards: batch.cards,
+					title: "Review batch",
+				},
+			);
+			expect(
+				(await listOsReviewBatchRounds(db, "org", "share")).map((r) => r.id),
+			).toEqual(["second", "batch"]);
+		});
+		it("keeps reviewers separate and rejects stale writes without changing research", async () => {
+			const { db, batch, params } = await fixture();
+			await createOsReviewBatch(db, batch, now);
+			expect(await saveOsReviewFeedback(db, params)).toMatchObject({
+				revision: 1,
+				reviewerId: "reviewer",
+			});
+			expect(await saveOsReviewFeedback(db, params)).toBeUndefined();
+			expect(
+				await saveOsReviewFeedback(db, {
+					...params,
+					expectedRevision: 1,
+					decision: "skip",
+				}),
+			).toMatchObject({ revision: 2, decision: "skip" });
+			await saveOsReviewFeedback(db, { ...params, reviewerId: "other" });
+			expect(
+				await listOsReviewFeedback(db, "org", "batch", "reviewer"),
+			).toHaveLength(1);
+			expect(await listOsReviewFeedback(db, "org", "batch")).toHaveLength(2);
+			expect(await listOsReviewFeedback(db, "other-org", "batch")).toHaveLength(
+				0,
+			);
+			expect(await getOsReviewBatch(db, "org", "share")).toMatchObject({
+				cards: batch.cards,
+				sourceRevisionId: "revision",
+			});
+		});
+		for (const [name, mutation] of [
+			[
+				"revoked link",
+				"UPDATE os_share_links SET revoked_at='2026-10-06T11:00:00.000Z'",
+			],
+			[
+				"expired link",
+				"UPDATE os_share_links SET expires_at='2026-10-06T11:00:00.000Z'",
+			],
+			[
+				"revoked session",
+				"UPDATE os_share_sessions SET revoked_at='2026-10-06T11:00:00.000Z'",
+			],
+			[
+				"expired session",
+				"UPDATE os_share_sessions SET expires_at='2026-10-06T11:00:00.000Z'",
+			],
+			["narrowed policy", "UPDATE os_share_links SET policy_max_role='viewer'"],
+			["archived gadget", "UPDATE os_gadgets SET status='archived'"],
+		] as const) {
+			it(`atomically refuses insert and update after ${name}`, async () => {
+				const { db, exec, batch, params } = await fixture();
+				await createOsReviewBatch(db, batch, now);
+				await saveOsReviewFeedback(db, params);
+				await exec(mutation);
+				expect(
+					await saveOsReviewFeedback(db, { ...params, reviewerId: "new" }),
+				).toBeUndefined();
+				expect(
+					await saveOsReviewFeedback(db, { ...params, expectedRevision: 1 }),
+				).toBeUndefined();
+				expect(
+					(await listOsReviewFeedback(db, "org", "batch"))[0]?.revision,
+				).toBe(1);
+			});
+		}
+		it("rejects a foreign tenant, session, share, card or batch", async () => {
+			const { db, batch, params } = await fixture();
+			await createOsReviewBatch(db, batch, now);
+			for (const patch of [
+				{ organizationId: "other" },
+				{
+					access: {
+						kind: "share" as const,
+						shareId: "share",
+						sessionHash: "foreign",
+					},
+				},
+				{
+					access: {
+						kind: "share" as const,
+						shareId: "foreign",
+						sessionHash: "sessionhash",
+					},
+				},
+				{ access: { kind: "workspace" as const, gadgetId: "foreign" } },
+				{ cardId: "missing" },
+				{ batchId: "foreign" },
+			])
+				expect(
+					await saveOsReviewFeedback(db, { ...params, ...patch }),
+				).toBeUndefined();
+		});
+		it("binds the gadget's newest batch behind an active link and lets its workspace write the same record", async () => {
+			const { db, exec, batch, params } = await fixture();
+			const lookup = { organizationId: "org", gadgetId: "gadget", now };
+			expect(await getActiveOsReviewBatchForGadget(db, lookup)).toBeUndefined();
+			await createOsReviewBatch(db, batch, now);
+			expect((await getActiveOsReviewBatchForGadget(db, lookup))?.id).toBe(
+				"batch",
+			);
+			expect(
+				await getActiveOsReviewBatchForGadget(db, {
+					...lookup,
+					organizationId: "other",
+				}),
+			).toBeUndefined();
+			const workspace = {
+				...params,
+				access: { kind: "workspace" as const, gadgetId: "gadget" },
+			};
+			expect(await saveOsReviewFeedback(db, workspace)).toMatchObject({
+				revision: 1,
+			});
+			// The share session continues the same per-reviewer record.
+			expect(
+				await saveOsReviewFeedback(db, { ...params, expectedRevision: 1 }),
+			).toMatchObject({ revision: 2 });
+			expect(await listOsReviewFeedback(db, "org", "batch")).toHaveLength(1);
+			await exec(
+				"UPDATE os_share_links SET revoked_at='2026-10-06T11:00:00.000Z'",
+			);
+			expect(await getActiveOsReviewBatchForGadget(db, lookup)).toBeUndefined();
+			expect(
+				await saveOsReviewFeedback(db, { ...workspace, expectedRevision: 2 }),
+			).toBeUndefined();
+		});
+		it("refuses batch approval after revocation, expiry or from another owner", async () => {
+			for (const mutation of [
+				"UPDATE os_share_links SET revoked_at='2026-10-06T11:00:00.000Z'",
+				"UPDATE os_share_links SET expires_at='2026-10-06T11:00:00.000Z'",
+				"UPDATE os_share_links SET created_by_id='someone-else'",
+			]) {
+				const { db, exec, batch } = await fixture();
+				await exec(mutation);
+				expect(await createOsReviewBatch(db, batch, now)).toBeUndefined();
+			}
+		});
 	});
-});
+}

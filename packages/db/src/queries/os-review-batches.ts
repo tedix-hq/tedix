@@ -1,39 +1,57 @@
 import { and, desc, eq, exists, gt, isNull, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import {
-	osReviewBatches,
-	osReviewFeedback,
-	osShareLinks,
-	osShareSessions,
+	osReviewBatches as d1OsReviewBatches,
+	osReviewFeedback as d1OsReviewFeedback,
+	osShareLinks as d1OsShareLinks,
+	osShareSessions as d1OsShareSessions,
 	type OsReviewBatchRow,
 	type OsReviewFeedbackRow,
 } from "../schema/os-shares";
-import { osGadgets } from "../schema/os-workspaces";
+import { osGadgets as d1OsGadgets } from "../schema/os-workspaces";
 
-const l = alias(osShareLinks, "l");
-const g = alias(osGadgets, "g");
-const linkedGadget = and(
-	eq(g.id, l.resourceId),
-	eq(g.organizationId, l.organizationId),
-);
+/** Aliases must be built per client: the Postgres core store swaps table objects. */
+function reviewAlias<T extends Parameters<typeof sqliteAlias>[0]>(
+	db: DbQueryClient,
+	table: T,
+	name: string,
+) {
+	const core = coreTable(db, table);
+	return coreStore(db) === "postgres"
+		? (pgAlias as unknown as typeof sqliteAlias)(core, name)
+		: sqliteAlias(core, name);
+}
 
-/** A live `use` link to a gadget whose role policy still allows use. */
-function usableGadgetLink(now: string) {
-	return and(
-		sql`${l.resourceType}='gadget'`,
-		sql`${l.role}='use'`,
-		or(isNull(l.policyMaxRole), sql`${l.policyMaxRole}='use'`),
-		isNull(l.revokedAt),
-		or(isNull(l.expiresAt), gt(l.expiresAt, now)),
+function reviewLinkTables(db: DbQueryClient) {
+	const l = reviewAlias(db, d1OsShareLinks, "l");
+	const g = reviewAlias(db, d1OsGadgets, "g");
+	const linkedGadget = and(
+		eq(g.id, l.resourceId),
+		eq(g.organizationId, l.organizationId),
 	);
+	/** A live `use` link to a gadget whose role policy still allows use. */
+	const usableGadgetLink = (now: string) =>
+		and(
+			sql`${l.resourceType}='gadget'`,
+			sql`${l.role}='use'`,
+			or(isNull(l.policyMaxRole), sql`${l.policyMaxRole}='use'`),
+			isNull(l.revokedAt),
+			or(isNull(l.expiresAt), gt(l.expiresAt, now)),
+		);
+	return { l, g, linkedGadget, usableGadgetLink };
 }
 
 export async function createOsReviewBatch(
 	db: DbQueryClient,
-	row: typeof osReviewBatches.$inferInsert,
+	row: typeof d1OsReviewBatches.$inferInsert,
 	now: string,
 ) {
+	const osReviewBatches = coreTable(db, d1OsReviewBatches);
+	const { l, g, linkedGadget, usableGadgetLink } = reviewLinkTables(db);
 	// l.id and g.id are primary keys: the join yields at most the one row the
 	// former EXISTS checked for.
 	const [batch] = await db
@@ -84,6 +102,7 @@ export async function getOsReviewBatch(
 	shareLinkId: string,
 	batchId?: string,
 ): Promise<OsReviewBatchRow | undefined> {
+	const osReviewBatches = coreTable(db, d1OsReviewBatches);
 	const [row] = await db
 		.select()
 		.from(osReviewBatches)
@@ -104,6 +123,7 @@ export async function listOsReviewBatchRounds(
 	organizationId: string,
 	shareLinkId: string,
 ) {
+	const osReviewBatches = coreTable(db, d1OsReviewBatches);
 	return db
 		.select({
 			id: osReviewBatches.id,
@@ -129,13 +149,16 @@ export async function getActiveOsReviewBatchForGadget(
 	db: DbQueryClient,
 	p: { organizationId: string; gadgetId: string; now: string },
 ): Promise<OsReviewBatchRow | undefined> {
+	const osReviewBatches = coreTable(db, d1OsReviewBatches);
+	const osShareLinks = coreTable(db, d1OsShareLinks);
+	const { usableGadgetLink } = reviewLinkTables(db);
 	const [row] = await db
 		.select()
 		.from(osReviewBatches)
 		.where(
 			and(
 				eq(osReviewBatches.organizationId, p.organizationId),
-				sql`exists(select 1 from ${osShareLinks} l where l.id=${osReviewBatches.shareLinkId} and l.organization_id=${p.organizationId} and l.resource_type='gadget' and l.resource_id=${p.gadgetId} and l.role='use' and (l.policy_max_role is null or l.policy_max_role='use') and l.revoked_at is null and (l.expires_at is null or l.expires_at>${p.now}))`,
+				sql`exists(select 1 from ${osShareLinks} l where l.id=${osReviewBatches.shareLinkId} and l.organization_id=${p.organizationId} and l.resource_id=${p.gadgetId} and ${usableGadgetLink(p.now)})`,
 			),
 		)
 		.orderBy(desc(osReviewBatches.createdAt), desc(osReviewBatches.id))
@@ -148,6 +171,7 @@ export async function listOsReviewFeedback(
 	batchId: string,
 	reviewerId?: string,
 ) {
+	const osReviewFeedback = coreTable(db, d1OsReviewFeedback);
 	return db
 		.select()
 		.from(osReviewFeedback)
@@ -182,7 +206,11 @@ export async function saveOsReviewFeedback(
 		now: string;
 	},
 ) {
-	const b = alias(osReviewBatches, "b");
+	const osReviewBatches = coreTable(db, d1OsReviewBatches);
+	const osReviewFeedback = coreTable(db, d1OsReviewFeedback);
+	const osShareSessions = coreTable(db, d1OsShareSessions);
+	const b = reviewAlias(db, d1OsReviewBatches, "b");
+	const { l, g, linkedGadget, usableGadgetLink } = reviewLinkTables(db);
 	const caller =
 		p.access.kind === "share"
 			? sql`${l.id}=${p.access.shareId} and exists(select 1 from ${osShareSessions} s where s.share_link_id=${l.id} and s.session_token_hash=${p.access.sessionHash} and s.revoked_at is null and s.expires_at>${p.now})`
@@ -196,8 +224,11 @@ export async function saveOsReviewFeedback(
 		caller,
 		usableGadgetLink(p.now),
 		sql`${g.status}='active'`,
-		// json_each is a table-valued function; no builder form.
-		sql`exists(select 1 from json_each(${b.cards}) c where json_extract(c.value,'$.id')=${p.cardId})`,
+		// Table-valued JSON expansion has no builder form; the element shape is
+		// a cards array in both stores.
+		coreStore(db) === "postgres"
+			? sql`exists(select 1 from jsonb_array_elements(case when jsonb_typeof(${b.cards}::jsonb)='array' then ${b.cards}::jsonb else '[]'::jsonb end) c where c.value->>'id'=${p.cardId})`
+			: sql`exists(select 1 from json_each(${b.cards}) c where json_extract(c.value,'$.id')=${p.cardId})`,
 	);
 	const active = exists(
 		db
