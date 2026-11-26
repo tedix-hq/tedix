@@ -38,8 +38,14 @@ export async function listAvailableWorkspaces(opts: {
 			'async () => await discover.search({ query: "list_all_mine", limit: 3, includeMetadata: true })',
 		),
 	).value;
-	const tool = Array.isArray(discovery)
-		? discovery.find(
+	// Search answers `{ results: [...] }`; older gateways answered the bare list.
+	const found = Array.isArray(discovery)
+		? discovery
+		: isRecord(discovery) && Array.isArray(discovery.results)
+			? discovery.results
+			: undefined;
+	const tool = found
+		? found.find(
 				(entry) =>
 					isRecord(entry) &&
 					entry.authorized === true &&

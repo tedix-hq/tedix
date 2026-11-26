@@ -9,7 +9,8 @@ const discovered = [
 		schemaFreshness: { sourceRef: "organizations/listAllMine" },
 	},
 ];
-function client(value: unknown, discovery: unknown = discovered) {
+// Search answers the way the gateway does today: `{ results: [...] }`.
+function client(value: unknown, discovery: unknown = { results: discovered }) {
 	const sources: string[] = [];
 	return {
 		client: {
