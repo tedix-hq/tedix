@@ -6,5 +6,6 @@ export const CMS_TEMPLATE_SLUGS = [
 	"blog",
 	"portfolio",
 	"native-marketing",
+	"blank",
 ] as const;
 export type CmsTemplateSlug = (typeof CMS_TEMPLATE_SLUGS)[number];

@@ -6,6 +6,7 @@ import {
 	checkSiteVersions,
 	siteVersionAlerts,
 } from "../../services/site-versions";
+import { checkCmsTemplateUpstream } from "../../services/cms-template-upstream";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
 import {
 	aggregateAppEntryMatches,
@@ -496,7 +497,10 @@ export const getSiteReconciliationProcedure = authedSitesOs.getReconciliation
 export const runSiteReconciliationProcedure = authedSitesOs.runReconciliation
 	.use(withAuthorization("settings:manage", "mcp:content.admin"))
 	.handler(async ({ input, context }) => {
-		if (input.checkVersions && !isPlatformPrincipal(context))
+		if (
+			(input.checkVersions || input.checkUpstreamTemplates) &&
+			!isPlatformPrincipal(context)
+		)
 			throw createError(ErrorCodes.FORBIDDEN, "Platform admin access required");
 		const result = await reconcileOrganizationSites({
 			db: context.db,
@@ -513,6 +517,15 @@ export const runSiteReconciliationProcedure = authedSitesOs.runReconciliation
 			...(input.checkVersions
 				? {
 						versionReports: await checkSiteVersions({
+							db: context.db,
+							env: context.env,
+							organizationId: requireOrgId(context),
+						}),
+					}
+				: {}),
+			...(input.checkUpstreamTemplates
+				? {
+						templateUpstreamReports: await checkCmsTemplateUpstream({
 							db: context.db,
 							env: context.env,
 							organizationId: requireOrgId(context),

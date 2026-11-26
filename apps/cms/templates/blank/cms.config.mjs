@@ -1,0 +1,1 @@
+../tedix/astro.config.mjs

@@ -1,0 +1,1 @@
+../../../tedix/src/lib/portable-content.ts

@@ -1,0 +1,71 @@
+{
+	"name": "@tedix/cms-template-blank",
+	"version": "0.1.0",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"dev": "astro dev --port 4321",
+		"build": "astro build",
+		"preview": "astro preview"
+	},
+	"dependencies": {
+		"@astrojs/cloudflare": "^14.4.9",
+		"@astrojs/react": "^7.1.9",
+		"@cloudflare/vite-plugin": "1.70.1",
+		"@emdash-cms/auth": "1.6.0",
+		"@emdash-cms/cloudflare": "1.6.0",
+		"@emdash-cms/plugin-embeds": "^0.1.60",
+		"@emdash-cms/plugin-forms": "^0.2.14",
+		"@orpc/client": "2.0.0-beta.50",
+		"astro": "^7.4.13",
+		"emdash": "1.6.0",
+		"emprivacy": "^0.3.0",
+		"jose": "^6.2.18",
+		"react": "19.3.1",
+		"react-dom": "19.3.1"
+	},
+	"devDependencies": {
+		"@astrojs/check": "^0.9.12",
+		"@cloudflare/workers-types": "^5.20261119.1",
+		"@tailwindcss/vite": "4.3.5",
+		"@types/react": "^19.3.0",
+		"@types/react-dom": "^19.3.0",
+		"magic-string": "^1.4.5",
+		"tailwindcss": "^4.3.5",
+		"typescript": "^7.0.2",
+		"vite": "8.3.8",
+		"wrangler": "^4.165.0"
+	},
+	"overrides": {
+		"@hono/node-server": "2.1.9",
+		"@modelcontextprotocol/sdk": "1.32.2",
+		"@tiptap/core": "3.34.0",
+		"@tiptap/pm": "3.34.0",
+		"body-parser": "2.4.0",
+		"dompurify": "3.4.18",
+		"fast-uri": "4.2.3",
+		"hono": "4.13.19",
+		"ip-address": "10.7.6",
+		"nanoid@^3": "3.3.20",
+		"prosemirror-view": "1.42.9",
+		"proxy-addr": "2.0.8",
+		"qs": "6.17.1",
+		"sanitize-html": "2.18.2",
+		"seroval": "1.8.2",
+		"source-map-js": "1.2.4",
+		"undici@^7": "7.30.2",
+		"undici@^8": "8.12.4",
+		"zod@^4": "4.6.7"
+	},
+	"patchedDependencies": {
+		"@emdash-cms/cloudflare@1.6.0": "patches/@emdash-cms/cloudflare@1.6.0.patch",
+		"@emdash-cms/plugin-forms@0.2.14": "patches/@emdash-cms/plugin-forms@0.2.14.patch",
+		"emdash@1.6.0": "patches/emdash@1.6.0.patch"
+	},
+	"trustedDependencies": [
+		"better-sqlite3",
+		"esbuild",
+		"workerd"
+	]
+}

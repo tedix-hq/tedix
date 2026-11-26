@@ -4,6 +4,7 @@ import {
 	SiteVersionReportSchema,
 } from "../schemas/site-versions";
 import { CMS_TEMPLATE_SLUGS } from "../schemas/cms-template";
+import { CmsTemplateUpstreamReportSchema } from "../schemas/cms-template-upstream";
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
@@ -479,12 +480,22 @@ export const sitesContract = oc.errors(baseErrors).router({
 			tags: ["internal"],
 			summary: "Check owned sites and optionally file package upgrade Work",
 		})
-		.input(z.object({ checkVersions: z.boolean().optional() }).strict())
+		.input(
+			z
+				.object({
+					checkVersions: z.boolean().optional(),
+					checkUpstreamTemplates: z.boolean().optional(),
+				})
+				.strict(),
+		)
 		.output(
 			z.object({
 				runId: z.uuid(),
 				source: z.literal("manual"),
 				versionReports: z.array(SiteVersionReportSchema).optional(),
+				templateUpstreamReports: z
+					.array(CmsTemplateUpstreamReportSchema)
+					.optional(),
 				checkedAt: z.string(),
 				sitesChecked: z.number().int().nonnegative(),
 				issues: z.array(

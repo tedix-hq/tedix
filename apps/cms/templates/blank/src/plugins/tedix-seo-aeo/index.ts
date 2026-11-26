@@ -1,0 +1,1 @@
+../../../../tedix/src/plugins/tedix-seo-aeo/index.ts

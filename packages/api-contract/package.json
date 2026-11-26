@@ -440,6 +440,7 @@
 		"./schemas/site-theme-candidate": "./src/schemas/site-theme-candidate.ts",
 		"./schemas/site-versions": "./src/schemas/site-versions.ts",
 		"./schemas/cms-template": "./src/schemas/cms-template.ts",
+		"./schemas/cms-template-upstream": "./src/schemas/cms-template-upstream.ts",
 		"./contracts/personal-resource-delegations": "./src/contracts/personal-resource-delegations.ts",
 		"./schemas/personal-resource-delegations": "./src/schemas/personal-resource-delegations.ts",
 		"./contracts/calendar-coordinator": "./src/contracts/calendar-coordinator.ts",

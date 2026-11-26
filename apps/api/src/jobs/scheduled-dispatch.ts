@@ -362,6 +362,14 @@ const dispatchScheduled = async (
 			);
 		}
 
+		if (fleetEnabled && maintenanceIsDue("cms-template-upstream", event)) {
+			const { runCmsTemplateUpstreamCheckTick } =
+				await import("./cms-template-upstream");
+			await trackPlatformCronPath(env, event, "cms-template-upstream", () =>
+				runCmsTemplateUpstreamCheckTick(env),
+			);
+		}
+
 		if (
 			fleetEnabled &&
 			maintenanceIsDue("daily-billing-and-catalog-maintenance", event)

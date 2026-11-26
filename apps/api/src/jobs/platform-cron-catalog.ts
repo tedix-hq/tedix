@@ -62,6 +62,7 @@ export const PLATFORM_CRON_IDS = [
 	"tedi-access-key-rotation",
 	"site-reconciliation",
 	"site-versions",
+	"cms-template-upstream",
 	"d1-retention",
 	"capture-health-heartbeat",
 	"dispatcher-health-alarm",
@@ -296,6 +297,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		id: "site-versions",
 		cron: MAINTENANCE_CRONS["site-versions"],
 		intervalMinutes: 1440,
+		requiresFleet: true,
+	},
+	{
+		id: "cms-template-upstream",
+		cron: MAINTENANCE_CRONS["cms-template-upstream"],
+		intervalMinutes: 10_080,
 		requiresFleet: true,
 	},
 	{

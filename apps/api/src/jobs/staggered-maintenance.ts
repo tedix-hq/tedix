@@ -10,6 +10,7 @@ export const MAINTENANCE_CRONS = {
 	"external-agent-mcp-client-reaper": "5 * * * *",
 	"recurring-work": "7 * * * *",
 	"site-versions": "13 2 * * *",
+	"cms-template-upstream": "41 3 * * 1",
 	"daily-billing-and-catalog-maintenance": "17 2 * * *",
 	"cloudflare-billable-usage": "19 2 * * *",
 	"gateway-cost-reconciliation": "23 2 * * *",

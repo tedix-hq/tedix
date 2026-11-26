@@ -1,0 +1,1 @@
+../../../tedix/src/lib/tenant-plugin-runner.ts

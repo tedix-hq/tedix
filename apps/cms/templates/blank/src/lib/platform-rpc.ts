@@ -1,0 +1,1 @@
+../../../tedix/src/lib/platform-rpc.ts

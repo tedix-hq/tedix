@@ -1,0 +1,1 @@
+../../../tedix/src/middleware/site-builder-auth-bridge.ts

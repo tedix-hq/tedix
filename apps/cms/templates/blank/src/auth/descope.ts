@@ -1,0 +1,1 @@
+../../../tedix/src/auth/descope.ts
