@@ -353,11 +353,7 @@ describe("plugin packager", () => {
 				"com.openai": {
 					auth: {
 						baseScopes: [],
-						defaultScopes: [
-							"mcp:content.read",
-							"mcp:work.read",
-							"mcp:work.write",
-						],
+						defaultScopes: [],
 					},
 				},
 			},

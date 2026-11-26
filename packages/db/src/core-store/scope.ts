@@ -19,11 +19,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createDbClient, type DbClient } from "../client";
 import { createDbQueryClient, type DbQueryClient } from "../query-client";
-import {
-	createCoreStore,
-	requireCoreD1Binding,
-	type CoreStoreEnv,
-} from "./client";
+import { createCoreStore, type CoreStoreEnv } from "./client";
 
 export interface CoreStoreScope {
 	db: DbClient;
@@ -62,7 +58,7 @@ export async function withCoreStore<T>(
 export function coreDb(env: CoreStoreEnv): DbClient {
 	const scope = storage.getStore();
 	if (scope) return scope.db;
-	if (isD1CoreStore(env)) return createDbClient(requireCoreD1Binding(env));
+	if (isD1CoreStore(env)) return createDbClient(env.DB as D1Database);
 	throw new Error(
 		"CORE_STORE=postgres database access requires a withCoreStore scope",
 	);
@@ -72,7 +68,7 @@ export function coreDb(env: CoreStoreEnv): DbClient {
 export function coreQueryDb(env: CoreStoreEnv): DbQueryClient {
 	const scope = storage.getStore();
 	if (scope) return scope.db as unknown as DbQueryClient;
-	if (isD1CoreStore(env)) return createDbQueryClient(requireCoreD1Binding(env));
+	if (isD1CoreStore(env)) return createDbQueryClient(env.DB as D1Database);
 	throw new Error(
 		"CORE_STORE=postgres database access requires a withCoreStore scope",
 	);

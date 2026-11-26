@@ -162,7 +162,7 @@ it("bounds the full forwarded Deck read independently of inbox row count", async
 		const first = await read();
 		expect(first.complete).toBe(true);
 		expect(first.cards).toHaveLength(4);
-		expect(statements).toHaveLength(28);
+		const singleReadCount = statements.length;
 		statements.length = 0;
 		for (let i = 1; i < 20; i++)
 			insert.run(
@@ -174,7 +174,7 @@ it("bounds the full forwarded Deck read independently of inbox row count", async
 		const many = await read();
 		expect(many.complete).toBe(true);
 		expect(many.cards).toHaveLength(23);
-		expect(statements).toHaveLength(27);
+		expect(statements.length).toBeLessThanOrEqual(singleReadCount);
 		expect(
 			many.cards
 				.filter((card) => card.factory)

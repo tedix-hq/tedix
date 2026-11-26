@@ -11,6 +11,9 @@ import {
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { tediApprovalDependencyEvents } from "@tedix/db/schema/approval-simulations";
+import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import { workItems } from "@tedix/db/schema/work-items";
+import { organizations } from "@tedix/db/schema/organizations";
 import {
 	executeApprovedProvisionalPromotion,
 	provisionalOutcomeRecordHash,
@@ -60,6 +63,10 @@ function setup() {
 			(organization_id, approval_request_id, idempotency_key);
 	`);
 	sqlite.exec(schemaDdl(tediApprovalDependencyEvents));
+	sqlite.exec(schemaDdl(organizations, decisionEdges, workItems));
+	sqlite.exec(
+		"INSERT INTO organizations(id,name,slug) VALUES ('org-1','Example','example')",
+	);
 	return createDbClient(createD1Facade(sqlite));
 }
 

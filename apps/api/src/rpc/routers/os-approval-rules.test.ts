@@ -15,6 +15,8 @@ import {
 	tediApprovalSimulations,
 } from "@tedix/db/schema/approval-simulations";
 import { osApprovalRules } from "@tedix/db/schema/os-approval-rules";
+import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import { workItems } from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { eq } from "drizzle-orm";
@@ -64,6 +66,8 @@ function createFixture() {
 			tediApprovalSimulations,
 			tediApprovalDependencyEvents,
 			osApprovalRules,
+			decisionEdges,
+			workItems,
 		),
 	);
 	const facade = createD1Facade(sqlite);

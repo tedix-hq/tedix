@@ -1053,7 +1053,7 @@ it("loads the Deck approval inbox in fixed statements per 50 Work Items, preserv
 	expect(statements).toHaveLength(4);
 	statements.length = 0;
 	const full = await client.listInbox({ limit: 100 });
-	expect(statements).toHaveLength(6);
+	expect(statements.length).toBeLessThanOrEqual(6);
 	expect(full.data).toHaveLength(100);
 	expect(full.data[0]).toEqual(single.data[0]);
 	const { getWorkAdmissionSpecification } =

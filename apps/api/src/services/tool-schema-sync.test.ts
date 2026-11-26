@@ -61,7 +61,7 @@ function makeRpcTool(
 }
 
 function makeDb(rows: AppTool[]) {
-	const fixture = createApiSqliteFixture();
+	const fixture = createApiSqliteFixture({ maxBoundParams: 100 });
 	fixture.seed(apps, [
 		{
 			id: TEST_ADMIN_APP_ID,
@@ -338,7 +338,7 @@ describe("schema-only provenance refresh", () => {
 		expect(fixture.batches).toHaveLength(0);
 	});
 
-	it("chunks the synced_at touch under the D1 bound-parameter limit in one batch", async () => {
+	it("binds the synced_at id set under the D1 parameter limit in one batch", async () => {
 		const synced = await synchronizedTool();
 		const rows = Array.from({ length: 120 }, (_, index) => ({
 			...synced,
@@ -353,8 +353,7 @@ describe("schema-only provenance refresh", () => {
 			pruneStale: false,
 		});
 		expect(result).toMatchObject({ inSync: 120, updated: 0, planned: 0 });
-		// 120 ids → 50 + 50 + 20, all inside a single db.batch() round trip.
-		expect(fixture.batches).toEqual([3]);
+		expect(fixture.batches).toEqual([1]);
 		expect(fixture.updates).toHaveLength(120);
 		expect(
 			fixture.updates.every(

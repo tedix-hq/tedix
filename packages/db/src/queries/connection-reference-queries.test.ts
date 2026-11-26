@@ -39,30 +39,28 @@ describe("connection reference bulk queries", () => {
 		]);
 	});
 
-	it("chunks narrow app metadata projections below the D1 parameter cap", async () => {
+	it("binds narrow app metadata projections as one JSON id set", async () => {
 		const mock = makeReadDb();
 		await listAppReferenceMetadataBySlugs(
 			mock.db,
 			Array.from({ length: 51 }, (_, index) => `app-${index}`),
 		);
 
-		expect(mock.queryCount()).toBe(2);
+		expect(mock.queryCount()).toBe(1);
 		expect(mock.selections).toEqual([
-			["id", "slug", "name", "organizationId", "metadata"],
 			["id", "slug", "name", "organizationId", "metadata"],
 		]);
 	});
 
-	it("chunks narrow tool config projections below the D1 parameter cap", async () => {
+	it("binds narrow tool config projections as one JSON id set", async () => {
 		const mock = makeReadDb();
 		await listConnectionToolPoliciesByAppIds(
 			mock.db,
 			Array.from({ length: 51 }, (_, index) => `app-${index}`),
 		);
 
-		expect(mock.queryCount()).toBe(2);
+		expect(mock.queryCount()).toBe(1);
 		expect(mock.selections).toEqual([
-			["appId", "toolId", "title", "meta", "authType", "connectionId"],
 			["appId", "toolId", "title", "meta", "authType", "connectionId"],
 		]);
 	});

@@ -1399,7 +1399,7 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 			expect.arrayContaining([
 				"org-1",
 				TEDI_ID,
-				AUTO_CHILD_RUN_ID,
+				JSON.stringify([AUTO_CHILD_RUN_ID]),
 				"message.completed",
 			]),
 		);
@@ -1463,7 +1463,7 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 				expect.arrayContaining([
 					"org-1",
 					TEDI_ID,
-					AUTO_CHILD_RUN_ID,
+					JSON.stringify([AUTO_CHILD_RUN_ID]),
 					"run.failed",
 					"run.completed",
 					"run.canceled",

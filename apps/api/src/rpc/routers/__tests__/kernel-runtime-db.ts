@@ -9,6 +9,7 @@ import type { ExecutionRequirement } from "@tedix/api-contract/schemas/execution
 import {
 	auditEvents,
 	chatDispatchIdempotency,
+	decisionEdges,
 	harnessSubjectTraceBundles,
 	harnessSubjectVersions,
 	kernelConversationGrants,
@@ -154,7 +155,7 @@ export function collectWhereConditions(
 	value: unknown,
 	conditions: Array<{
 		key: string;
-		op: "=" | "<" | "is null";
+		op: "=" | "<" | "is null" | "like";
 		value: unknown;
 	}> = [],
 ) {
@@ -168,16 +169,32 @@ export function collectWhereConditions(
 			continue;
 		}
 		if (typeof chunk?.name !== "string") continue;
-		const op = stringChunkValue(chunks[index + 1]).trim();
+		const op = stringChunkValue(chunks[index + 1])
+			.trim()
+			.toLowerCase();
 		const key = columnKeyByName[chunk.name];
 		if (!key) continue;
 		const trailingSql = chunks
 			.slice(index + 1, index + 4)
 			.map(sqlChunkText)
 			.join("")
-			.trim();
+			.trim()
+			.toLowerCase();
 		if (op === "is null" || trailingSql.startsWith("is null")) {
 			conditions.push({ key, op: "is null", value: null });
+			continue;
+		}
+		if (op.includes("json_each")) {
+			const param = chunks[index + 2];
+			const raw =
+				typeof param === "string"
+					? param
+					: (param as { value?: unknown } | undefined)?.value;
+			if (typeof raw === "string") {
+				const ids: unknown = JSON.parse(raw);
+				if (!Array.isArray(ids)) throw new Error("Expected a JSON id set");
+				for (const id of ids) conditions.push({ key, op: "=", value: id });
+			}
 			continue;
 		}
 		const values = chunks[index + 2];
@@ -191,14 +208,23 @@ export function collectWhereConditions(
 						pending.push(...param.queryChunks);
 					else if ("value" in param && typeof param.value === "string")
 						conditions.push({ key, op: "=", value: param.value });
+				} else if (
+					typeof param === "string" ||
+					typeof param === "number" ||
+					typeof param === "boolean"
+				) {
+					conditions.push({ key, op: "=", value: param });
 				}
 			}
 			continue;
 		}
-		const param = chunks[index + 2] as { value?: unknown } | undefined;
-		if (!param || !("value" in param)) continue;
-		if (op === "=" || op === "<") {
-			conditions.push({ key, op, value: param.value });
+		const param = chunks[index + 2];
+		const bound =
+			param && typeof param === "object" && "value" in param
+				? param.value
+				: param;
+		if (op === "=" || op === "<" || op === "like") {
+			conditions.push({ key, op, value: bound });
 		}
 	}
 	return conditions;
@@ -212,6 +238,7 @@ export function applyWhere<Row extends Record<string, unknown>>(
 	if (conditions.length === 0) return rows;
 	const equalsByKey = new Map<string, Set<unknown>>();
 	const lessThan: Array<{ key: string; value: unknown }> = [];
+	const likes: Array<{ key: string; regex: RegExp }> = [];
 	const nullKeys = new Set<string>();
 	for (const condition of conditions) {
 		if (condition.op === "=") {
@@ -220,6 +247,17 @@ export function applyWhere<Row extends Record<string, unknown>>(
 			equalsByKey.set(condition.key, values);
 		} else if (condition.op === "is null") {
 			nullKeys.add(condition.key);
+		} else if (condition.op === "like") {
+			if (typeof condition.value !== "string")
+				throw new Error("Expected a LIKE pattern");
+			const pattern = condition.value
+				.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+				.replace(/%/g, ".*")
+				.replace(/_/g, ".");
+			likes.push({
+				key: condition.key,
+				regex: new RegExp(`^${pattern}$`, "i"),
+			});
 		} else {
 			lessThan.push(condition);
 		}
@@ -230,6 +268,10 @@ export function applyWhere<Row extends Record<string, unknown>>(
 		}
 		for (const [key, values] of equalsByKey) {
 			if (!values.has(row[key] ?? null)) return false;
+		}
+		for (const { key, regex } of likes) {
+			const value = row[key];
+			if (typeof value !== "string" || !regex.test(value)) return false;
 		}
 		for (const condition of lessThan) {
 			const rowValue = row[condition.key];
@@ -270,7 +312,12 @@ export function evalRelationWhere(
 		if (typeof chunk?.name === "string" && !chunk.queryChunks) {
 			const op = stringChunkValue(chunks[index + 1]).trim();
 			const param = chunks[index + 2] as { value?: unknown } | undefined;
-			if (op === "=" && param && "value" in param) {
+			if (
+				op === "=" &&
+				param &&
+				typeof param === "object" &&
+				"value" in param
+			) {
 				const key = columnKeyByName[chunk.name];
 				if (!key) return true;
 				return (row[key] ?? null) === param.value;
@@ -333,6 +380,7 @@ export function evalConversationIndexWhere(
 			if (
 				(op === "=" || op === "<" || op === "<>") &&
 				param &&
+				typeof param === "object" &&
 				"value" in param
 			) {
 				const key = columnKeyByName[chunk.name];
@@ -568,6 +616,38 @@ export function isRuntimeEventSource(source: unknown): boolean {
 		source === tediRuntimeEvents ||
 		(source instanceof SQL && source.queryChunks.includes(tediRuntimeEvents))
 	);
+}
+
+function resolveSqlLiteral(node: unknown): unknown {
+	let current = node;
+	for (let depth = 0; depth < 8; depth += 1) {
+		if (current == null || typeof current !== "object") return current;
+		const chunks = (current as { queryChunks?: unknown[] }).queryChunks;
+		if (!Array.isArray(chunks)) {
+			if ("encoder" in current) return (current as { value: unknown }).value;
+			return stringChunkValue(current).trim().toUpperCase() === "NULL"
+				? null
+				: undefined;
+		}
+		const meaningful = chunks.filter(
+			(chunk) =>
+				!(
+					chunk != null &&
+					typeof chunk === "object" &&
+					!("queryChunks" in chunk) &&
+					!("name" in chunk) &&
+					!("encoder" in chunk) &&
+					typeof (chunk as { value?: unknown }).value === "string"
+				),
+		);
+		if (meaningful.length === 0)
+			return chunks.map(sqlChunkText).join("").trim().toUpperCase() === "NULL"
+				? null
+				: undefined;
+		if (meaningful.length !== 1) return undefined;
+		current = meaningful[0];
+	}
+	return undefined;
 }
 
 export function createKernelRuntimeDb(opts?: {
@@ -1170,6 +1250,7 @@ export function createKernelRuntimeDb(opts?: {
 				table !== kernelRuntimeRuns &&
 				table !== kernelConversationGrants &&
 				table !== tediApprovalRequests &&
+				table !== decisionEdges &&
 				table !== workItems &&
 				table !== workItemComments
 			) {
@@ -1220,6 +1301,8 @@ export function createKernelRuntimeDb(opts?: {
 					return builder;
 				},
 				async returning() {
+					// Approval edge joins are covered by the database facade tests.
+					if (table === decisionEdges) return [];
 					if (selectedSource) {
 						rows = (await selectedSource) as typeof rows;
 					}
@@ -1506,11 +1589,9 @@ export function createKernelRuntimeDb(opts?: {
 										field.name === "id"
 									)
 										return [key, source.id];
-									const sqlValue = (
-										field as {
-											sql?: { queryChunks?: unknown[] };
-										}
-									).sql?.queryChunks?.[0];
+									const sqlValue = resolveSqlLiteral(
+										(field as { sql?: { queryChunks?: unknown[] } }).sql,
+									);
 									if (
 										(key === "payload" || key === "runtimeMetadata") &&
 										typeof sqlValue === "string"

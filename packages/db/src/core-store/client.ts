@@ -15,12 +15,6 @@ export interface CoreStoreEnv {
 	CORE_HYPERDRIVE?: Pick<Hyperdrive, "connectionString">;
 }
 
-/** The D1 binding a D1-mode store needs; Postgres mode never reads it. */
-export function requireCoreD1Binding(env: CoreStoreEnv): D1Database {
-	if (!env.DB)
-		throw new Error("CORE_STORE=d1 core store access requires the DB binding");
-	return env.DB;
-}
 const pgTables = new Map<string, Parameters<typeof getTableName>[0]>(
 	Object.values(schema)
 		.filter((table) => is(table, PgTable))
@@ -119,7 +113,8 @@ export function createCoreStore(env: CoreStoreEnv): {
 } {
 	if (!env.CORE_STORE || env.CORE_STORE === "d1")
 		return {
-			db: createDbClient(requireCoreD1Binding(env)),
+			// Preserve the D1 factory's first-use failure for a missing binding.
+			db: createDbClient(env.DB as D1Database),
 			close: async () => {},
 		};
 	if (env.CORE_STORE !== "postgres") throw new Error("Unknown CORE_STORE");

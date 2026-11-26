@@ -41,7 +41,11 @@ function dispatcherProbe() {
 	const effects: string[] = [];
 	const storage = memoryStorage();
 	const agent = tediDo({
-		ctx: { storage: { ...storage, transactionSync: <T>(fn: () => T) => fn() } },
+		ctx: {
+			storage: { ...storage, transactionSync: <T>(fn: () => T) => fn() },
+			waitUntil: (_task: Promise<unknown>) => {},
+		},
+		maintenance: { wakeDailyLogFlush: async () => true },
 		state: { tediId: "tedi-1", pendingDailyEntries: [] },
 		setState(next: unknown) {
 			agent.state = next;

@@ -4,6 +4,7 @@ import { createRouterClient, ORPCError } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { tediApprovalDependencyEvents } from "@tedix/db/schema/approval-simulations";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
+import { decisionEdges } from "@tedix/db/schema/decision-graph";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import {
 	kernelConversations,
@@ -183,6 +184,7 @@ async function fixture(
 			tediApprovalRequests,
 			tediApprovalDependencyEvents,
 			auditEvents,
+			decisionEdges,
 		),
 	);
 	const writes: string[] = [];

@@ -5,6 +5,8 @@ import { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { tediApprovalDependencyEvents } from "@tedix/db/schema/approval-simulations";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
+import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import { workItems } from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
@@ -97,6 +99,8 @@ function fixture(service = true) {
 			tediApprovalDependencyEvents,
 			auditEvents,
 			kernelRuntimeRuns,
+			decisionEdges,
+			workItems,
 		),
 	);
 	const writes: string[] = [];

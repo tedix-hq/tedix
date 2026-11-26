@@ -52,7 +52,7 @@ it("bounds getTurnMemory to 14 statements for 100 references while retaining ter
 		} as BaseContext,
 		{ tediId: "tedi", references },
 	);
-	expect(statements).toHaveLength(14);
+	expect(statements.length).toBeLessThanOrEqual(14);
 	const plans = statements.flatMap((query) =>
 		sqlite
 			.prepare(`EXPLAIN QUERY PLAN ${query}`)

@@ -7918,9 +7918,16 @@ ${message.body}`,
 			)
 				receipt.admissionState = "rejected";
 			receipt.note = String(error).slice(0, 1800);
+			const admissionRefusal =
+				(admissionSent && /\bNOT_ELIGIBLE\b/.test(String(error))) ||
+				(error instanceof Error &&
+					/^(Admission not ready:|Complete Attempt history is unavailable)/.test(
+						error.message,
+					));
 			if (
 				!admitted &&
 				!admissionSent &&
+				!admissionRefusal &&
 				!(error instanceof WorkRevisedDuringPreparationError) &&
 				!(error instanceof DispatcherStoppingError)
 			) {
@@ -7941,14 +7948,7 @@ ${message.body}`,
 					`Preparation failed ${count} time(s) the same way; retry after ${new Date(receipt.preparationFailure.retryAt).toISOString()}: ${receipt.note}`,
 				);
 			}
-			if (
-				!admitted &&
-				((admissionSent && /\bNOT_ELIGIBLE\b/.test(String(error))) ||
-					(error instanceof Error &&
-						/^(Admission not ready:|Complete Attempt history is unavailable)/.test(
-							error.message,
-						)))
-			) {
+			if (!admitted && admissionRefusal) {
 				receipt.admissionRefusals = (previous?.admissionRefusals ?? 0) + 1;
 				receipt.admissionRetryAt =
 					Date.now() +

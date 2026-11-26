@@ -8,6 +8,7 @@ import { createPGliteFacade } from "../test/pglite-facade";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { fileURLToPath } from "node:url";
 import { coreTable, createCoreStore } from "./client";
+import { coreDb, coreQueryDb } from "./scope";
 import {
 	anyIds,
 	jsonWrite,
@@ -470,6 +471,16 @@ INSERT INTO projects(id,org_id,key,name,created_at) VALUES ('project','org','TES
 			).toHaveLength(1);
 		});
 	});
+
+it("defers missing D1 bindings until a query uses them", async () => {
+	const store = createCoreStore({});
+	try {
+		for (const db of [store.db, coreDb({}), coreQueryDb({})])
+			await expect((async () => db.all(sql`SELECT 1`))()).rejects.toThrow();
+	} finally {
+		await store.close();
+	}
+});
 
 it("defaults to D1 and refuses a Postgres selection without its binding", async () => {
 	const sqlite = new DatabaseSync(":memory:");

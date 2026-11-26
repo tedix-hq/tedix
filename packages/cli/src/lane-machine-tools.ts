@@ -414,8 +414,8 @@ export function machineToolHandlers(options: {
 				"ps",
 				["-o", "pid=,etime=", "-p", pids.join(",")],
 				{ timeout: 10_000, env: base },
-			);
-			for (const line of listed.stdout.split("\n")) {
+			).catch(() => undefined);
+			for (const line of (listed?.stdout ?? "").split("\n")) {
 				const match = /^\s*(\d+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):\d+\s*$/.exec(
 					line,
 				);

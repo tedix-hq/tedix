@@ -80,7 +80,11 @@ import { CliReadError } from "./hooks/hook-io";
 import { beginFileLock } from "./local-file-lock";
 import { LaneOutcomeReadError } from "./lane-result";
 import { runtimeAppEvidenceUri } from "./lane-runtime-app-proof";
-import { laneProcessIdentity } from "./lane-process-recovery";
+import {
+	laneProcessIdentity,
+	setLaneProcessReaders,
+} from "./lane-process-recovery";
+import { kernelProcessFacts } from "./process-facts";
 import { unpushedLaneCommits } from "./lane-unpushed";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
@@ -4137,6 +4141,7 @@ describe("dispatcher admission", () => {
 		expect(existsSync(repo)).toBe(true);
 		saved.recheckAt = 0;
 		saved.admissionRetryAt = 0;
+		delete saved.preparationFailure;
 		writeFileSync(path, JSON.stringify(saved));
 		await dispatcher.tick();
 		await until(() => f.releases.length === 1);
@@ -4246,6 +4251,18 @@ describe("dispatcher admission", () => {
 			{ cwd: repo, detached: true, stdio: "ignore" },
 		);
 		const exited = once(child, "exit");
+		// Keep this orphan fixture usable where the sandbox hides process argv.
+		setLaneProcessReaders((pid) => {
+			const facts = kernelProcessFacts(pid);
+			if (!facts || pid !== child.pid) return facts;
+			return {
+				pgid: facts.pgid,
+				start: facts.start,
+				argv: facts.argv.length
+					? facts.argv
+					: [process.execPath, "-e", "setInterval(() => {}, 1000)", nativeId],
+			};
+		});
 		try {
 			await once(child, "spawn");
 			// Bun emits "spawn" before exec finishes; on Linux /proc/<pid>/cmdline
@@ -4302,6 +4319,7 @@ describe("dispatcher admission", () => {
 			f.releases[0]!();
 			await f.dispatcher.drain();
 		} finally {
+			setLaneProcessReaders();
 			if (child.exitCode === null && child.signalCode === null)
 				child.kill("SIGKILL");
 			await exited;
@@ -4386,7 +4404,12 @@ describe("dispatcher admission", () => {
 					),
 				).toBe(false);
 				deps.cli = cli;
-				now = Math.max(saved.recheckAt ?? 0, now) + 1;
+				now =
+					Math.max(
+						saved.recheckAt ?? 0,
+						saved.preparationFailure?.retryAt ?? 0,
+						now,
+					) + 1;
 				const resumed = restart();
 				await resumed.tick();
 				await until(() => releases.length === 1);
