@@ -896,11 +896,13 @@ async function runLaneProcessWithReporter(
 						) {
 							const tokens = event.part.tokens;
 							const cacheWrite = tokens.cache?.write ?? 0;
+							const reasoning = tokens.reasoning ?? 0;
 							const usage = LaneTelemetryInputSchema.shape.usage.safeParse({
 								input: tokens.input + (tokens.cache?.read ?? 0) + cacheWrite,
-								output: tokens.output,
+								// OpenCode reports text output and reasoning separately.
+								output: tokens.output + reasoning,
 								cached: tokens.cache?.read ?? 0,
-								reasoning: tokens.reasoning ?? 0,
+								reasoning,
 							});
 							if (usage.success && usage.data) {
 								usageEventIds.add(event.part.id);

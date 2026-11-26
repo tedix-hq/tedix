@@ -157,7 +157,7 @@ it.each(["ok", "error", "foreign"])(
  process.stdin.resume();process.stdin.on('end',()=>{
  console.log(JSON.stringify({type:'text',sessionID:${JSON.stringify(mode === "foreign" ? "ses_aaaaaaaaaaaaABCDEFGHIJKLMN" : id)},part:{messageID:'one',text:'progress'}}));
  console.log(JSON.stringify({type:'text',sessionID:${JSON.stringify(id)},part:{messageID:'two',text:'final result'}}));
- for (let i=0;i<2;i++) console.log(JSON.stringify({type:'step_finish',sessionID:${JSON.stringify(id)},part:{id:'step-1',tokens:{input:100,output:20,reasoning:5,cache:{read:40,write:10}}}}));
+ for (let i=0;i<2;i++) console.log(JSON.stringify({type:'step_finish',sessionID:${JSON.stringify(id)},part:{id:'step-1',tokens:{input:100,output:130,reasoning:1012,cache:{read:40,write:10}}}}));
  ${mode === "error" ? "console.log(JSON.stringify({type:'error',error:{message:'429 rate limit'}}));" : ""}
  setTimeout(()=>process.exit(0),20);
  });`,
@@ -198,17 +198,17 @@ it.each(["ok", "error", "foreign"])(
 		expect(telemetry.outcome).toBe(mode === "ok" ? "succeeded" : "failed");
 		expect(telemetry.usage).toEqual({
 			input: 150,
-			output: 20,
+			output: 1142,
 			cached: 40,
-			reasoning: 5,
+			reasoning: 1012,
 		});
 		expect(telemetry.usageSamples).toEqual([
 			{
 				model: "model",
 				input: 150,
-				output: 20,
+				output: 1142,
 				cached: 40,
-				reasoning: 5,
+				reasoning: 1012,
 				cacheWrite: 10,
 			},
 		]);
