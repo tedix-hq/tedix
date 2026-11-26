@@ -1,5 +1,6 @@
-import { and, asc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { coreTable } from "../../core-store/client";
+import { anyIds } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
 	workEvents as d1Events,
@@ -55,7 +56,8 @@ export async function migrateWorkObservationHistoryPage(
 				.where(
 					and(
 						eq(events.orgId, p.orgId),
-						inArray(
+						anyIds(
+							db,
 							events.id,
 							rows.map((row) => `work-observation:${p.kind}:${row.id}`),
 						),

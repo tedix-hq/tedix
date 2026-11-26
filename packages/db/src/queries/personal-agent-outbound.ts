@@ -206,6 +206,7 @@ export function listPersonalAgentOutcomeSources(
 			)
 			.where(
 				and(
+					// bound-params: SQL subquery; enrollment rows add no bound parameters.
 					inArray(v.orgId, enrolledOrgs),
 					observationEvent(db, v, "verification"),
 				),
@@ -261,6 +262,7 @@ export function listPersonalAgentOutcomeSources(
 					.from(c)
 					.where(
 						and(
+							// bound-params: SQL subquery; enrollment rows add no bound parameters.
 							inArray(c.orgId, enrolledOrgs),
 							currentConfirmationEvent(db, c),
 						),
