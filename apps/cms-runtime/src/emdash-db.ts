@@ -38,7 +38,7 @@ import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	checkCmsRestoreWriteAdmission,
 	closeCmsRestoreFence,
-	countCmsRestorePermitsForSite,
+	countCmsRestoreAdministrativePermitsForSite,
 	getCmsRestoreFenceState,
 } from "@tedix/db/queries/cms-restore-fences";
 import { rotateCmsSitePageCacheRevision } from "@tedix/db/queries/cms-sites";
@@ -1192,13 +1192,14 @@ export class EmDashDB extends EmdashSqlDB {
 		const db = createDbClient(env.PLATFORM_DB);
 		const [fence, permits, receipt, authority] = await Promise.all([
 			getCmsRestoreFenceState(db, input),
-			countCmsRestorePermitsForSite(db, input.siteId),
+			countCmsRestoreAdministrativePermitsForSite(db, input.siteId),
 			readCmsSiteRestoreReceipt(env.RECOVERY_STORAGE, input),
 			readRecoveryAuthority(env as Env, input.slug),
 		]);
 		if (
 			fence.fence?.generation !== input.generation ||
 			fence.fence.captureId !== input.captureId ||
+			fence.fence.restoreEpoch === null ||
 			permits !== 0 ||
 			!receipt ||
 			receipt.receipt.phase !==

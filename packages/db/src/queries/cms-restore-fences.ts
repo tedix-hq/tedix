@@ -16,6 +16,7 @@ import {
 	notExists,
 	or,
 	sql,
+	type SQL,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
@@ -87,26 +88,50 @@ function siteHasNoDeprovision(db: DbQueryClient) {
 	);
 }
 
-/** Terminal capture cleanup removes only its own pause.
- * It never reclaims permits or touches a replacement capture's ownership. */
+function buildDeletePausedCmsScheduledPermitsStatement(
+	db: DbQueryClient,
+	siteId: string,
+	pauseCondition: SQL | undefined,
+) {
+	const cmsRestorePermits = coreTable(db, schemaCmsRestorePermits);
+	const cmsCaptureCronPauses = coreTable(db, schemaCmsCaptureCronPauses);
+	return db.delete(cmsRestorePermits).where(
+		and(
+			eq(cmsRestorePermits.siteId, siteId),
+			eq(cmsRestorePermits.kind, "scheduled"),
+			sql`${cmsRestorePermits.id} NOT LIKE 'admin:%'`,
+			exists(
+				db
+					.select({ one: sql`1` })
+					.from(cmsCaptureCronPauses)
+					.where(pauseCondition),
+			),
+		),
+	);
+}
+
+/** Terminal cleanup removes its own pause and scheduled leftovers together. */
 export async function abortCmsCaptureCronPause(
 	db: DbQueryClient,
 	input: CmsCaptureCronPauseParams,
 ): Promise<number> {
 	const cmsCaptureCronPauses = coreTable(db, schemaCmsCaptureCronPauses);
-	const rows = await runCmsWrite(
-		db,
+	const pauseCondition = and(
+		eq(cmsCaptureCronPauses.siteId, input.siteId),
+		eq(cmsCaptureCronPauses.slug, input.slug),
+		eq(cmsCaptureCronPauses.captureId, input.captureId),
+	);
+	const [, rows] = await runCmsWriteBatch(db, [
+		buildDeletePausedCmsScheduledPermitsStatement(
+			db,
+			input.siteId,
+			pauseCondition,
+		),
 		db
 			.delete(cmsCaptureCronPauses)
-			.where(
-				and(
-					eq(cmsCaptureCronPauses.siteId, input.siteId),
-					eq(cmsCaptureCronPauses.slug, input.slug),
-					eq(cmsCaptureCronPauses.captureId, input.captureId),
-				),
-			)
+			.where(pauseCondition)
 			.returning({ siteId: cmsCaptureCronPauses.siteId }),
-	);
+	]);
 	return rows.length;
 }
 
@@ -217,21 +242,24 @@ export async function releaseCmsCaptureCronPause(
 	input: CmsCaptureCronPauseParams,
 ): Promise<boolean> {
 	const cmsCaptureCronPauses = coreTable(db, schemaCmsCaptureCronPauses);
-	const rows = await runCmsWrite(
-		db,
+	const pauseCondition = and(
+		eq(cmsCaptureCronPauses.siteId, input.siteId),
+		eq(cmsCaptureCronPauses.slug, input.slug),
+		eq(cmsCaptureCronPauses.captureId, input.captureId),
+		isNotNull(cmsCaptureCronPauses.drainedAtUnix),
+		sql`${cmsCaptureCronPauses.expiresAtUnix} > ${cmsEpochNow(db)}`,
+	);
+	const [, rows] = await runCmsWriteBatch(db, [
+		buildDeletePausedCmsScheduledPermitsStatement(
+			db,
+			input.siteId,
+			pauseCondition,
+		),
 		db
 			.delete(cmsCaptureCronPauses)
-			.where(
-				and(
-					eq(cmsCaptureCronPauses.siteId, input.siteId),
-					eq(cmsCaptureCronPauses.slug, input.slug),
-					eq(cmsCaptureCronPauses.captureId, input.captureId),
-					isNotNull(cmsCaptureCronPauses.drainedAtUnix),
-					sql`${cmsCaptureCronPauses.expiresAtUnix} > ${cmsEpochNow(db)}`,
-				),
-			)
+			.where(pauseCondition)
 			.returning({ siteId: cmsCaptureCronPauses.siteId }),
-	);
+	]);
 	if (rows.length === 1) return true;
 	// A write response can be lost after the exact row was deleted. Replaying the
 	// Workflow release must succeed only if no replacement owns this site.
@@ -532,6 +560,66 @@ export async function countCmsRestorePermitsForSite(
 		.from(cmsRestorePermits)
 		.where(eq(cmsRestorePermits.siteId, siteId));
 	return permits?.inFlight ?? 0;
+}
+
+/** Administrative claims are not revocable: unknown provider outcomes block restore. */
+export async function countCmsRestoreAdministrativePermitsForSite(
+	db: DbQueryClient,
+	siteId: string,
+): Promise<number> {
+	const cmsRestorePermits = coreTable(db, schemaCmsRestorePermits);
+	const [permits] = await db
+		.select({ inFlight: count() })
+		.from(cmsRestorePermits)
+		.where(
+			and(
+				eq(cmsRestorePermits.siteId, siteId),
+				sql`${cmsRestorePermits.id} LIKE 'admin:%'`,
+			),
+		);
+	return permits?.inFlight ?? 0;
+}
+
+/** After coordinated epoch closure and restore verification, remove runtime
+ * leftovers before releasing the fence. Administrative claims stay intact. */
+export async function deleteCmsRestoreRuntimePermits(
+	db: DbQueryClient,
+	input: CmsRestoreFenceParams,
+): Promise<number> {
+	const cmsSites = coreTable(db, schemaCmsSites);
+	const cmsRestoreFences = coreTable(db, schemaCmsRestoreFences);
+	const cmsRestorePermits = coreTable(db, schemaCmsRestorePermits);
+	const rows = await runCmsWrite(
+		db,
+		db
+			.delete(cmsRestorePermits)
+			.where(
+				and(
+					eq(cmsRestorePermits.siteId, input.siteId),
+					sql`${cmsRestorePermits.id} NOT LIKE 'admin:%'`,
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(cmsRestoreFences)
+							.innerJoin(cmsSites, eq(cmsSites.id, cmsRestoreFences.siteId))
+							.where(
+								and(
+									eq(cmsRestoreFences.siteId, input.siteId),
+									eq(cmsRestoreFences.slug, input.slug),
+									eq(cmsRestoreFences.generation, input.generation),
+									eq(cmsRestoreFences.captureId, input.captureId),
+									eq(cmsSites.slug, input.slug),
+									isNotNull(cmsRestoreFences.restoreEpoch),
+									gt(cmsSites.restoreEpoch, cmsRestoreFences.restoreEpoch),
+									gt(cmsSites.restoreEpoch, cmsRestorePermits.restoreEpoch),
+								),
+							),
+					),
+				),
+			)
+			.returning({ id: cmsRestorePermits.id }),
+	);
+	return rows.length;
 }
 
 /**

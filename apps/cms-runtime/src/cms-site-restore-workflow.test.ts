@@ -14,7 +14,8 @@ const mocks = vi.hoisted(() => ({
 	closeFence: vi.fn(),
 	getFence: vi.fn(),
 	countPermits: vi.fn(),
-	reconcileOuter: vi.fn(),
+	countAdministrativePermits: vi.fn(),
+	deleteRuntimePermits: vi.fn(),
 	releaseFence: vi.fn(),
 	readAuthority: vi.fn(),
 }));
@@ -24,7 +25,8 @@ vi.mock("@tedix/db/client", () => ({ createDbClient: vi.fn(() => ({})) }));
 vi.mock("@tedix/db/queries/cms-restore-fences", () => ({
 	closeCmsRestoreFence: mocks.closeFence,
 	countCmsRestorePermitsForSite: mocks.countPermits,
-	reconcileCmsRestoreOuterPermits: mocks.reconcileOuter,
+	countCmsRestoreAdministrativePermitsForSite: mocks.countAdministrativePermits,
+	deleteCmsRestoreRuntimePermits: mocks.deleteRuntimePermits,
 	getCmsRestoreFenceState: mocks.getFence,
 	releaseCmsRestoreFence: mocks.releaseFence,
 }));
@@ -241,10 +243,15 @@ describe("general CMS site restore", () => {
 		});
 		mocks.closeFence.mockResolvedValue(true);
 		mocks.getFence.mockResolvedValue({
-			fence: { generation: identity.generation, captureId: identity.captureId },
+			fence: {
+				generation: identity.generation,
+				captureId: identity.captureId,
+				restoreEpoch: 0,
+			},
 			inFlight: 0,
 		});
-		mocks.countPermits.mockResolvedValue(0);
+		mocks.countPermits.mockResolvedValue(27);
+		mocks.countAdministrativePermits.mockResolvedValue(0);
 		const schedule = vi
 			.fn()
 			.mockRejectedValue(new Error("provider response lost"));
@@ -301,121 +308,145 @@ describe("general CMS site restore", () => {
 		);
 	});
 
-	it("releases only after target and undo SQL, media and bundle parity", async () => {
-		const target = {
-			version: 2,
-			bookmark: "target-bookmark",
-			databaseDigest: "a".repeat(64),
-			bundle: { version: 7, etag: "bundle-7" },
-		};
-		const undo = {
-			...target,
-			bookmark: "undo-bookmark",
-			databaseDigest: "b".repeat(64),
-		};
-		let receipt = {
-			...identity,
-			version: 1 as const,
-			phase: "claimed",
-			mode: "roundtrip" as const,
-			createdAt: "2026-09-29T00:00:00.000Z",
-			updatedAt: "2026-09-29T00:00:00.000Z",
-			bundle: target.bundle,
-		};
-		let currentDigest = undo.databaseDigest;
-		mocks.readReceipt.mockImplementation(async () => ({
-			receipt,
-			etag: "etag",
-		}));
-		mocks.advanceReceipt.mockImplementation(
-			async (_storage, _current, next) => {
-				receipt = next;
-				return { receipt, etag: "new-etag" };
-			},
-		);
-		mocks.readCapture.mockImplementation(async (_storage, selected) => ({
-			manifest: selected.captureId === identity.captureId ? target : undo,
-			records: [],
-		}));
-		mocks.captureRecovery.mockResolvedValue(undo);
-		mocks.readAuthority.mockResolvedValue({
-			siteId: identity.siteId,
-			bundle: target.bundle,
-		});
-		mocks.closeFence.mockResolvedValue(true);
-		mocks.getFence.mockResolvedValue({
-			fence: { generation: identity.generation, captureId: identity.captureId },
-			inFlight: 0,
-		});
-		mocks.countPermits.mockResolvedValue(0);
-		mocks.listMediaPage.mockResolvedValue({ objects: [] });
-		mocks.releaseFence.mockResolvedValue(true);
-		const schedule = vi.fn(async ({ direction, expectedDatabaseDigest }) => {
-			if (expectedDatabaseDigest !== currentDigest)
-				throw new Error("wrong pre-schedule SQL digest");
-			return {
-				undoBookmark:
-					direction === "target" ? "undo-bookmark" : "redo-bookmark",
+	it.each([false, true])(
+		"restores with runtime leftovers, preserving administrative blocking (%s)",
+		async (administrativeClaim) => {
+			const target = {
+				version: 2,
+				bookmark: "target-bookmark",
+				databaseDigest: "a".repeat(64),
+				bundle: { version: 7, etag: "bundle-7" },
 			};
-		});
-		const restart = vi.fn(async ({ direction }) => {
-			currentDigest =
-				direction === "target" ? target.databaseDigest : undo.databaseDigest;
-		});
-		const env = {
-			RECOVERY_STORAGE: {
-				put: vi.fn().mockResolvedValue({ etag: "control-etag" }),
-				get: vi.fn().mockResolvedValue({
-					etag: "control-etag",
-					json: async () => ({ state: "running" }),
-				}),
-			},
-			PLATFORM_DB: {},
-			CF_ACCOUNT_ID: "account",
-			CLOUDFLARE_R2_API_TOKEN: "token",
-			DB_DO: {
-				idFromName: (slug: string) => slug,
-				get: () => ({
-					closeCmsSiteRestoreFence: mocks.closeFence,
-					scheduleCmsSiteRestore: schedule,
-					restartCmsSiteRestore: restart,
-					captureRecoverySnapshot: async () => ({
-						bookmark: "current-bookmark",
-						databaseDigest: currentDigest,
-					}),
-				}),
-			},
-		};
-		const doStep = vi.fn(
-			async (
-				_name: string,
-				configOrCallback: unknown,
-				maybeCallback?: () => Promise<unknown>,
-			) =>
-				(typeof configOrCallback === "function"
-					? (configOrCallback as () => Promise<unknown>)
-					: maybeCallback!)(),
-		);
-		await expect(
-			runCmsSiteRestore(env as never, { do: doStep } as never, {
+			const undo = {
+				...target,
+				bookmark: "undo-bookmark",
+				databaseDigest: "b".repeat(64),
+			};
+			let receipt = {
 				...identity,
+				version: 1 as const,
+				phase: "claimed",
+				mode: "roundtrip" as const,
+				createdAt: "2026-09-29T00:00:00.000Z",
+				updatedAt: "2026-09-29T00:00:00.000Z",
+				bundle: target.bundle,
+			};
+			let currentDigest = undo.databaseDigest;
+			mocks.readReceipt.mockImplementation(async () => ({
+				receipt,
+				etag: "etag",
+			}));
+			mocks.advanceReceipt.mockImplementation(
+				async (_storage, _current, next) => {
+					receipt = next;
+					return { receipt, etag: "new-etag" };
+				},
+			);
+			mocks.readCapture.mockImplementation(async (_storage, selected) => ({
+				manifest: selected.captureId === identity.captureId ? target : undo,
+				records: [],
+			}));
+			mocks.captureRecovery.mockResolvedValue(undo);
+			mocks.readAuthority.mockResolvedValue({
+				siteId: identity.siteId,
+				bundle: target.bundle,
+			});
+			mocks.closeFence.mockResolvedValue(true);
+			mocks.getFence.mockResolvedValue({
+				fence: {
+					generation: identity.generation,
+					captureId: identity.captureId,
+					restoreEpoch: 0,
+				},
+				inFlight: 27,
+			});
+			mocks.countPermits.mockResolvedValue(27);
+			mocks.countAdministrativePermits
+				.mockResolvedValueOnce(0)
+				.mockResolvedValue(administrativeClaim ? 1 : 0);
+			mocks.listMediaPage.mockResolvedValue({ objects: [] });
+			mocks.releaseFence.mockResolvedValue(true);
+			const schedule = vi.fn(async ({ direction, expectedDatabaseDigest }) => {
+				if (expectedDatabaseDigest !== currentDigest)
+					throw new Error("wrong pre-schedule SQL digest");
+				return {
+					undoBookmark:
+						direction === "target" ? "undo-bookmark" : "redo-bookmark",
+				};
+			});
+			const restart = vi.fn(async ({ direction }) => {
+				currentDigest =
+					direction === "target" ? target.databaseDigest : undo.databaseDigest;
+			});
+			const env = {
+				RECOVERY_STORAGE: {
+					put: vi.fn().mockResolvedValue({ etag: "control-etag" }),
+					get: vi.fn().mockResolvedValue({
+						etag: "control-etag",
+						json: async () => ({ state: "running" }),
+					}),
+				},
+				PLATFORM_DB: {},
+				CF_ACCOUNT_ID: "account",
+				CLOUDFLARE_R2_API_TOKEN: "token",
+				DB_DO: {
+					idFromName: (slug: string) => slug,
+					get: () => ({
+						closeCmsSiteRestoreFence: mocks.closeFence,
+						scheduleCmsSiteRestore: schedule,
+						restartCmsSiteRestore: restart,
+						captureRecoverySnapshot: async () => ({
+							bookmark: "current-bookmark",
+							databaseDigest: currentDigest,
+						}),
+					}),
+				},
+			};
+			const doStep = vi.fn(
+				async (
+					_name: string,
+					configOrCallback: unknown,
+					maybeCallback?: () => Promise<unknown>,
+				) =>
+					(typeof configOrCallback === "function"
+						? (configOrCallback as () => Promise<unknown>)
+						: maybeCallback!)(),
+			);
+			if (administrativeClaim) {
+				await expect(
+					runCmsSiteRestore(env as never, { do: doStep } as never, {
+						...identity,
+						mode: "roundtrip",
+					}),
+				).rejects.toThrow("administrative permits remained after drain");
+				expect(schedule).not.toHaveBeenCalled();
+				expect(mocks.deleteRuntimePermits).not.toHaveBeenCalled();
+				expect(mocks.releaseFence).not.toHaveBeenCalled();
+				return;
+			}
+
+			await expect(
+				runCmsSiteRestore(env as never, { do: doStep } as never, {
+					...identity,
+					mode: "roundtrip",
+				}),
+			).resolves.toEqual({
+				status: "released",
+				generation: identity.generation,
 				mode: "roundtrip",
-			}),
-		).resolves.toEqual({
-			status: "released",
-			generation: identity.generation,
-			mode: "roundtrip",
-		});
-		expect(receipt.phase).toBe("released");
-		expect(schedule).toHaveBeenCalledTimes(2);
-		expect(restart).toHaveBeenCalledTimes(2);
-		expect(mocks.assertMedia).toHaveBeenCalledTimes(3);
-		expect(mocks.reconcileOuter).toHaveBeenCalledWith(
-			{},
-			expect.objectContaining(identity),
-		);
-		expect(mocks.releaseFence).toHaveBeenCalledTimes(1);
-	});
+			});
+			expect(receipt.phase).toBe("released");
+			expect(schedule).toHaveBeenCalledTimes(2);
+			expect(restart).toHaveBeenCalledTimes(2);
+			expect(mocks.assertMedia).toHaveBeenCalledTimes(3);
+			expect(mocks.countPermits).not.toHaveBeenCalled();
+			expect(mocks.deleteRuntimePermits).toHaveBeenCalledWith(
+				{},
+				expect.objectContaining(identity),
+			);
+			expect(mocks.releaseFence).toHaveBeenCalledTimes(1);
+		},
+	);
 
 	it("derives a stable, distinct UUID for the private undo capture", () => {
 		const first = cmsSiteRestoreUndoCaptureId(identity);

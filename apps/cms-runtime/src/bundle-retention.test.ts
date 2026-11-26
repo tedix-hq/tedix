@@ -30,6 +30,7 @@ beforeEach(() => vi.resetAllMocks());
 function fixture(slug = "tedix-landing") {
 	const identity = { siteId: "site-example", slug, restoreEpoch: 4 };
 	let held = false;
+	let coordinatorFenced = false;
 	let failDelete = false;
 	let failRow = false;
 	const objects = new Map<string, string>();
@@ -166,6 +167,9 @@ function fixture(slug = "tedix-landing") {
 		objects,
 		events,
 		deny: () => vi.mocked(enterCmsRestorePermit).mockResolvedValue(false),
+		fenceCoordinator: () => {
+			coordinatorFenced = true;
+		},
 		failDelete: () => {
 			failDelete = true;
 		},
@@ -174,7 +178,22 @@ function fixture(slug = "tedix-landing") {
 		},
 		run: () =>
 			retainTenantBundles(
-				{ TENANT_BUNDLES: bucket(false), RECOVERY_STORAGE: bucket(true) },
+				{
+					TENANT_BUNDLES: bucket(false),
+					RECOVERY_STORAGE: bucket(true),
+					DB_DO: {
+						idFromName: (name: string) => name,
+						get: () => ({
+							runWithRestorePermit: async (
+								_identity: unknown,
+								run: () => Promise<void>,
+							) => {
+								if (coordinatorFenced) throw new Error("restore closed");
+								await run();
+							},
+						}),
+					} as unknown as DurableObjectNamespace,
+				},
 				{} as never,
 				identity,
 				{ waitUntil() {}, abort: vi.fn() },
@@ -219,6 +238,15 @@ test("no storage calls or deletion without restore admission", async () => {
 	const f = fixture();
 	f.deny();
 	await f.run();
+	expect(listTenantBundles).not.toHaveBeenCalled();
+	expect(deleteTenantBundleRow).not.toHaveBeenCalled();
+	expect(f.events).toEqual([]);
+});
+
+test("a scheduled permit cannot bypass coordinated write fencing", async () => {
+	const f = fixture();
+	f.fenceCoordinator();
+	await expect(f.run()).rejects.toThrow("CMS restore fence unavailable");
 	expect(listTenantBundles).not.toHaveBeenCalled();
 	expect(deleteTenantBundleRow).not.toHaveBeenCalled();
 	expect(f.events).toEqual([]);

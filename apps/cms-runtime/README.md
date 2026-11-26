@@ -177,14 +177,17 @@ and read-only batches retain shared admission. Epoch closure runs in the owning
 database object, refuses new mutating calls and awaits its actual executing
 write callbacks before closing D1. This prevents a delayed provider dispatch
 from crossing the epoch close; permit rows do not participate in that step.
-The restore workflow still drains durable reservations for administrative
-operations outside this coordinator. Only plain SELECTs are retried; writes
-execute once.
+The restore workflow waits only for administrative claims (`admin:` IDs),
+including unknown provider outcomes outside this coordinator. Runtime and
+scheduled leftovers do not block restore. After verifying the restore, the
+workflow removes old-epoch runtime permits under its exact fence before
+releasing it. Only plain SELECTs are retried; writes execute once.
 Tenant R2 and session writes, the collection
 deletion guard and tenant egress borrow the same nested reservation through
 the database object: the operation runs in the caller, and the object holds its
 borrower until the caller's callback settles or disconnects. Plugin KV, AI Search
-and contact-form work also use this shared admission. Plugin KV writes and
+and contact-form work also use this shared admission. Scheduled bundle retention
+holds the same coordinator through its R2 and catalog writes. Plugin KV writes and
 collection deletion additionally check the pinned epoch inside the database
 RPC that performs the mutation. Scheduled runs keep exact
 per-operation permits.
@@ -192,6 +195,8 @@ per-operation permits.
 Recovery capture pauses new scheduled admission without waiting for existing
 permits or requiring completion receipts. It retains the SQL and media checks
 that refuse publication when captured content changes during verification.
+Releasing or aborting the exact capture pause also clears scheduled leftovers;
+it preserves administrative claims and runtime reservations for human edits.
 No database migration or new namespace is required.
 Tenant Worker Loader keys include the runtime release
 so a deployment refreshes injected database RPC methods. The installation's D1

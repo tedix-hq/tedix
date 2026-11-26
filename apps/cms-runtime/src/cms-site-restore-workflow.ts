@@ -7,9 +7,9 @@ import {
 import { createHash } from "node:crypto";
 import { createDbClient } from "@tedix/db/client";
 import {
-	countCmsRestorePermitsForSite,
+	countCmsRestoreAdministrativePermitsForSite,
+	deleteCmsRestoreRuntimePermits,
 	getCmsRestoreFenceState,
-	reconcileCmsRestoreOuterPermits,
 	releaseCmsRestoreFence,
 } from "@tedix/db/queries/cms-restore-fences";
 import {
@@ -106,7 +106,8 @@ async function assertExactFence(
 	);
 	if (
 		state.fence?.generation !== identity.generation ||
-		state.fence.captureId !== identity.captureId
+		state.fence.captureId !== identity.captureId ||
+		state.fence.restoreEpoch === null
 	)
 		throw new Error("CMS restore exact fence unavailable");
 }
@@ -359,12 +360,8 @@ export async function runCmsSiteRestore(
 	await step.do("drain-site-permits", async () => {
 		await assertExactFence(env, identity);
 		for (let attempt = 0; attempt < 60; attempt++) {
-			await reconcileCmsRestoreOuterPermits(
-				createDbClient(env.PLATFORM_DB),
-				identity,
-			);
 			if (
-				(await countCmsRestorePermitsForSite(
+				(await countCmsRestoreAdministrativePermitsForSite(
 					createDbClient(env.PLATFORM_DB),
 					identity.siteId,
 				)) === 0
@@ -374,16 +371,16 @@ export async function runCmsSiteRestore(
 			}
 			await new Promise((resolve) => setTimeout(resolve, 500));
 		}
-		throw new Error("CMS restore permits did not drain");
+		throw new Error("CMS restore administrative permits did not drain");
 	});
 	await assertExactFence(env, identity);
 	if (
-		(await countCmsRestorePermitsForSite(
+		(await countCmsRestoreAdministrativePermitsForSite(
 			createDbClient(env.PLATFORM_DB),
 			identity.siteId,
 		)) !== 0
 	)
-		throw new Error("CMS restore permits remained after drain");
+		throw new Error("CMS restore administrative permits remained after drain");
 	await assertBundle(env, existing.receipt);
 	const targetAgain = await readVerifiedCmsRecoveryCapture(
 		env.RECOVERY_STORAGE,
@@ -555,6 +552,10 @@ export async function runCmsSiteRestore(
 		);
 	});
 	await step.do("release-exact-fence", async () => {
+		await deleteCmsRestoreRuntimePermits(
+			createDbClient(env.PLATFORM_DB),
+			identity,
+		);
 		const released = await releaseCmsRestoreFence(
 			createDbClient(env.PLATFORM_DB),
 			identity,

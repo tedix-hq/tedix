@@ -5,7 +5,10 @@ import {
 	listTenantBundles,
 } from "@tedix/db/queries/tenant-bundles";
 import { withScheduledCmsRestorePermit } from "./scheduled-restore-permits";
-import type { CmsRestoreFenceIdentity } from "./tenant-restore-fence";
+import {
+	withSharedCmsRestorePermit,
+	type CmsRestoreFenceIdentity,
+} from "./tenant-restore-fence";
 import type { RestoreLeaseContext } from "./restore-permit-lease";
 
 // Pruning is authorized for this site only; additions need explicit owner approval.
@@ -15,6 +18,7 @@ const VERSIONS_PER_TICK = 3;
 const PACK = "__tedix_packed_bundle.json.gz";
 
 type RetentionEnv = {
+	DB_DO: DurableObjectNamespace;
 	TENANT_BUNDLES: R2Bucket;
 	RECOVERY_STORAGE: R2Bucket;
 };
@@ -78,89 +82,93 @@ export async function retainTenantBundles(
 		db,
 		env.RECOVERY_STORAGE,
 		identity,
-		async () => {
-			// A caught rejection proves all awaited maintenance calls ended, permitting release.
-			try {
-				const before = await listTenantBundles(db, identity.slug);
-				const compressedVersions: number[] = [];
-				for (const bundle of before) {
-					if (bundle.r2Prefix !== `${identity.slug}/v${bundle.version}/`)
-						throw new Error("Bundle retention catalog prefix invalid");
-					if (await env.TENANT_BUNDLES.head(`${bundle.r2Prefix}${PACK}`))
-						compressedVersions.push(bundle.version);
-				}
-				const evidence = {
-					compressedVersions,
-					referencedVersions: await referencedVersions(
-						env.RECOVERY_STORAGE,
-						identity,
-					),
-				};
-				const prunable = await listPrunableTenantBundles(
-					db,
-					identity.slug,
-					KEEP_COMPRESSED,
-					evidence,
-				);
-				const excluded = prunable.map((bundle) => bundle.version);
-				const report = {
-					...identity,
-					before: before.map((bundle) => bundle.version),
-					kept: before
-						.filter((bundle) => !excluded.includes(bundle.version))
-						.map((bundle) => bundle.version),
-					deleted: [] as number[],
-					after: before.map((bundle) => bundle.version),
-					checkedAt: new Date().toISOString(),
-				};
+		() =>
+			withSharedCmsRestorePermit(env, identity, async () => {
+				// A caught rejection proves all awaited maintenance calls ended, permitting release.
 				try {
-					for (const bundle of prunable.slice(0, VERSIONS_PER_TICK)) {
-						// Recheck catalog eligibility before deleting any objects.
-						const eligible = await listPrunableTenantBundles(
-							db,
-							identity.slug,
-							KEEP_COMPRESSED,
-							evidence,
-						);
-						if (!eligible.some((current) => current.id === bundle.id)) continue;
-						let cursor: string | undefined;
-						do {
-							const page = await env.TENANT_BUNDLES.list({
-								prefix: bundle.r2Prefix,
-								cursor,
-							});
-							if (
-								page.objects.some(
-									(object) => !object.key.startsWith(bundle.r2Prefix),
-								)
-							)
-								throw new Error("Bundle retention object prefix invalid");
-							if (page.objects.length)
-								await env.TENANT_BUNDLES.delete(
-									page.objects.map((object) => object.key),
-								);
-							cursor = page.truncated ? page.cursor : undefined;
-						} while (cursor);
-						if (await deleteTenantBundleRow(db, identity.slug, bundle.version))
-							report.deleted.push(bundle.version);
+					const before = await listTenantBundles(db, identity.slug);
+					const compressedVersions: number[] = [];
+					for (const bundle of before) {
+						if (bundle.r2Prefix !== `${identity.slug}/v${bundle.version}/`)
+							throw new Error("Bundle retention catalog prefix invalid");
+						if (await env.TENANT_BUNDLES.head(`${bundle.r2Prefix}${PACK}`))
+							compressedVersions.push(bundle.version);
 					}
-				} finally {
-					report.after = (await listTenantBundles(db, identity.slug)).map(
-						(bundle) => bundle.version,
+					const evidence = {
+						compressedVersions,
+						referencedVersions: await referencedVersions(
+							env.RECOVERY_STORAGE,
+							identity,
+						),
+					};
+					const prunable = await listPrunableTenantBundles(
+						db,
+						identity.slug,
+						KEEP_COMPRESSED,
+						evidence,
 					);
-					await env.RECOVERY_STORAGE.put(
-						`bundle-retention/v1/${identity.siteId}.json`,
-						JSON.stringify(report),
-						{
-							httpMetadata: { contentType: "application/json" },
-						},
-					);
+					const excluded = prunable.map((bundle) => bundle.version);
+					const report = {
+						...identity,
+						before: before.map((bundle) => bundle.version),
+						kept: before
+							.filter((bundle) => !excluded.includes(bundle.version))
+							.map((bundle) => bundle.version),
+						deleted: [] as number[],
+						after: before.map((bundle) => bundle.version),
+						checkedAt: new Date().toISOString(),
+					};
+					try {
+						for (const bundle of prunable.slice(0, VERSIONS_PER_TICK)) {
+							// Recheck catalog eligibility before deleting any objects.
+							const eligible = await listPrunableTenantBundles(
+								db,
+								identity.slug,
+								KEEP_COMPRESSED,
+								evidence,
+							);
+							if (!eligible.some((current) => current.id === bundle.id))
+								continue;
+							let cursor: string | undefined;
+							do {
+								const page = await env.TENANT_BUNDLES.list({
+									prefix: bundle.r2Prefix,
+									cursor,
+								});
+								if (
+									page.objects.some(
+										(object) => !object.key.startsWith(bundle.r2Prefix),
+									)
+								)
+									throw new Error("Bundle retention object prefix invalid");
+								if (page.objects.length)
+									await env.TENANT_BUNDLES.delete(
+										page.objects.map((object) => object.key),
+									);
+								cursor = page.truncated ? page.cursor : undefined;
+							} while (cursor);
+							if (
+								await deleteTenantBundleRow(db, identity.slug, bundle.version)
+							)
+								report.deleted.push(bundle.version);
+						}
+					} finally {
+						report.after = (await listTenantBundles(db, identity.slug)).map(
+							(bundle) => bundle.version,
+						);
+						await env.RECOVERY_STORAGE.put(
+							`bundle-retention/v1/${identity.siteId}.json`,
+							JSON.stringify(report),
+							{
+								httpMetadata: { contentType: "application/json" },
+							},
+						);
+					}
+					return {};
+				} catch (error) {
+					return { error };
 				}
-				return {};
-			} catch (error) {
-				return { error };
-			}
-		},
+			}),
 		`bundle-retention:${crypto.randomUUID()}`,
 		context,
 	);

@@ -9,6 +9,8 @@ import {
 	checkCmsRestoreWriteAdmission,
 	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
+	countCmsRestoreAdministrativePermitsForSite,
+	deleteCmsRestoreRuntimePermits,
 	deleteExpiredCmsBundleRetentionPermits,
 	deleteExpiredCmsRestorePermitLeases,
 	cmsRestoreLeasePermit,
@@ -94,6 +96,51 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
+	it("ignores runtime leftovers while preserving unknown administrative outcomes until explicit completion", async () => {
+		const { db, sqlite } = fixture();
+		const runtime = [
+			{ ...one, kind: "outer" as const, permitId: "outer-leftover" },
+			{ ...one, kind: "nested" as const, permitId: "lease:v1:nested-leftover" },
+			{ ...one, kind: "scheduled" as const, permitId: "scheduled-leftover" },
+		];
+		const admin = {
+			...one,
+			kind: "nested" as const,
+			slug: "old-slug",
+			permitId: "admin:cms-agent:unknown",
+		};
+		for (const permit of [
+			...runtime,
+			{ ...admin, slug: one.slug },
+			{ ...two, permitId: "other" },
+		])
+			expect(await enterCmsRestorePermit(db, permit)).toBe(true);
+		sqlite.exec(
+			"UPDATE cms_restore_permits SET slug = 'old-slug' WHERE id = 'admin:cms-agent:unknown'",
+		);
+		expect(
+			await countCmsRestoreAdministrativePermitsForSite(db, one.siteId),
+		).toBe(1);
+		expect(await deleteCmsRestoreRuntimePermits(db, closed)).toBe(0);
+		expect(await closeCmsRestoreFence(db, closed)).toBe(true);
+		expect(
+			await deleteCmsRestoreRuntimePermits(db, {
+				...closed,
+				generation: "wrong",
+			}),
+		).toBe(0);
+		expect(await countCmsRestorePermitsForSite(db, one.siteId)).toBe(4);
+		expect(await deleteCmsRestoreRuntimePermits(db, closed)).toBe(3);
+		expect(await countCmsRestorePermitsForSite(db, two.siteId)).toBe(1);
+		expect(await releaseCmsRestoreFence(db, closed)).toBe(false);
+		expect(await leaveCmsRestorePermit(db, admin)).toBe(true);
+		expect(
+			await countCmsRestoreAdministrativePermitsForSite(db, one.siteId),
+		).toBe(0);
+		expect(await releaseCmsRestoreFence(db, closed)).toBe(true);
+		expect(await checkCmsRestoreWriteAdmission(db, one)).toBe(false);
+	});
+
 	it("reclaims legacy rows at the retirement boundary while preserving administrative and live leased holders", async () => {
 		const { db, sqlite } = fixture();
 		sqlite.exec(`
@@ -384,6 +431,8 @@ describe("CMS restore fence", () => {
 			await releaseCmsCaptureCronPause(db, { ...capture, captureId: "wrong" }),
 		).toBe(false);
 		expect(await releaseCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await countCmsRestorePermitsForSite(db, one.siteId)).toBe(1);
+		expect(await countCmsRestorePermitsForSite(db, two.siteId)).toBe(1);
 		// A lost D1 response can replay the same exact release.
 		expect(await releaseCmsCaptureCronPause(db, capture)).toBe(true);
 		expect(
@@ -419,7 +468,7 @@ describe("CMS restore fence", () => {
 		expect(await confirmCmsCaptureCronPause(db, second)).toBe(true);
 	});
 
-	it("aborts only the exact failed capture without draining or reclaiming permits", async () => {
+	it("aborts only the exact failed capture and clears its scheduled leftovers", async () => {
 		const { db, sqlite } = fixture();
 		const capture = {
 			siteId: one.siteId,
@@ -442,7 +491,7 @@ describe("CMS restore fence", () => {
 		).toBe(0);
 		expect(await abortCmsCaptureCronPause(db, capture)).toBe(1);
 		expect(await abortCmsCaptureCronPause(db, capture)).toBe(0);
-		expect(await countCmsRestorePermitsForSite(db, one.siteId)).toBe(1);
+		expect(await countCmsRestorePermitsForSite(db, one.siteId)).toBe(0);
 		expect(
 			await enterCmsRestorePermit(db, { ...scheduled, permitId: "new-cron" }),
 		).toBe(true);
