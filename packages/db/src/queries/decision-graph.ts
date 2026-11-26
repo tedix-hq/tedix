@@ -26,10 +26,24 @@ import {
 	notInArray,
 	sql,
 } from "drizzle-orm";
-import { alias, union } from "drizzle-orm/sqlite-core";
+import {
+	alias as sqliteAlias,
+	union as sqliteUnion,
+} from "drizzle-orm/sqlite-core";
+import { alias as pgAlias, union as pgUnion } from "drizzle-orm/pg-core";
+import { coreTable } from "../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+} from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
-import { type DecisionEdgeRow, decisionEdges } from "../schema/decision-graph";
-import { workItems } from "../schema/work-items";
+import {
+	type DecisionEdgeRow,
+	decisionEdges as d1DecisionEdges,
+} from "../schema/decision-graph";
+import { workItems as d1WorkItems } from "../schema/work-items";
 
 /** Max edges per upsert call. */
 export const DECISION_EDGE_UPSERT_LIMIT = 500;
@@ -135,6 +149,7 @@ export async function upsertDecisionEdges(
 	orgId: string,
 	edges: readonly DecisionEdgeInput[],
 ): Promise<UpsertDecisionEdgesResult> {
+	const decisionEdges = coreTable(db, d1DecisionEdges);
 	if (edges.length > DECISION_EDGE_UPSERT_LIMIT) {
 		throw new DecisionEdgeValidationError(
 			`At most ${DECISION_EDGE_UPSERT_LIMIT} edges per call`,
@@ -185,7 +200,10 @@ export async function upsertDecisionEdges(
 						confidence: sql`excluded.confidence`,
 						evidenceRef: sql`excluded.evidence_ref`,
 						note: sql`excluded.note`,
-						occurredAt: sql`min(${decisionEdges.occurredAt}, excluded.occurred_at)`,
+						occurredAt:
+							coreStore(db) === "postgres"
+								? sql`least(${decisionEdges.occurredAt}, excluded.occurred_at)`
+								: sql`min(${decisionEdges.occurredAt}, excluded.occurred_at)`,
 						updatedAt: sql`excluded.updated_at`,
 					},
 				}),
@@ -212,6 +230,7 @@ function toEdge(row: DecisionEdgeRow): DecisionGraphEdge {
 }
 
 function selectEdges(db: DbQueryClient) {
+	const decisionEdges = coreTable(db, d1DecisionEdges);
 	return db.select().from(decisionEdges);
 }
 
@@ -224,6 +243,7 @@ export async function getDecisionEdgeForProjection(
 	db: DbQueryClient,
 	input: { organizationId: string; edgeId: string },
 ): Promise<DecisionEdgeRow | null> {
+	const decisionEdges = coreTable(db, d1DecisionEdges);
 	const [row] = await selectEdges(db)
 		.where(
 			and(
@@ -241,13 +261,14 @@ export async function findPriorDecision(
 	orgId: string,
 	subjectNodeIds: readonly string[],
 ): Promise<DecisionGraphLink | null> {
+	const decisionEdges = coreTable(db, d1DecisionEdges);
 	const subjects = boundedIds(subjectNodeIds);
 	if (subjects.length === 0) return null;
 	const [row] = await selectEdges(db)
 		.where(
 			and(
 				eq(decisionEdges.orgId, orgId),
-				inArray(decisionEdges.fromId, subjects),
+				anyIds(db, decisionEdges.fromId, subjects),
 				inArray(decisionEdges.kind, DECISION_EDGE_KINDS),
 			),
 		)
@@ -258,36 +279,41 @@ export async function findPriorDecision(
 	return { node: edge.to, edge };
 }
 
-/** The newest source Work item recorded for each card, read in bounded pages. */
+/** The newest source Work item for each card, read as one set. */
 export async function listCardSourceWork(
 	db: DbQueryClient,
 	orgId: string,
 	cardIds: readonly string[],
 ) {
+	const decisionEdges = coreTable(db, d1DecisionEdges);
 	const result = new Map<string, string>();
-	const unique = [...new Set(cardIds)];
-	for (let offset = 0; offset < unique.length; offset += FRONTIER_LIMIT) {
-		const rows = await db
-			.select({ cardId: decisionEdges.fromId, workId: decisionEdges.toId })
+	if (!cardIds.length) return result;
+	const ranked = db.$with("ranked_card_work").as(
+		db
+			.select({
+				cardId: decisionEdges.fromId,
+				workId: decisionEdges.toId,
+				rank: sql<number>`row_number() over (partition by ${decisionEdges.fromId} order by ${decisionEdges.occurredAt} desc, ${decisionEdges.id})`.as(
+					"source_rank",
+				),
+			})
 			.from(decisionEdges)
 			.where(
 				and(
 					eq(decisionEdges.orgId, orgId),
 					eq(decisionEdges.fromKind, "deck_card"),
-					// bound-params: sliced to FRONTIER_LIMIT (50) ids per statement
-					inArray(
-						decisionEdges.fromId,
-						unique.slice(offset, offset + FRONTIER_LIMIT),
-					),
+					anyIds(db, decisionEdges.fromId, [...new Set(cardIds)]),
 					eq(decisionEdges.kind, "card_from_work"),
 					eq(decisionEdges.toKind, "work_item"),
 				),
-			)
-			.orderBy(desc(decisionEdges.occurredAt), decisionEdges.id)
-			.limit(FRONTIER_LIMIT * 4);
-		for (const row of rows)
-			if (!result.has(row.cardId)) result.set(row.cardId, row.workId);
-	}
+			),
+	);
+	const rows = await db
+		.with(ranked)
+		.select({ cardId: ranked.cardId, workId: ranked.workId })
+		.from(ranked)
+		.where(eq(ranked.rank, 1));
+	for (const row of rows) result.set(row.cardId, row.workId);
 	return result;
 }
 
@@ -297,6 +323,7 @@ export async function findDuplicateCards(
 	orgId: string,
 	cardId: string,
 ): Promise<string[]> {
+	const decisionEdges = coreTable(db, d1DecisionEdges);
 	const [outgoing, incoming] = await db.batch([
 		selectEdges(db)
 			.where(
@@ -331,6 +358,8 @@ async function countBlockedFrom(
 	orgId: string,
 	nodeIds: readonly string[],
 ) {
+	const decisionEdges = coreTable(db, d1DecisionEdges);
+	const workItems = coreTable(db, d1WorkItems);
 	const ids = boundedIds(nodeIds);
 	if (ids.length === 0) return 0;
 	const [row] = await db
@@ -346,8 +375,7 @@ async function countBlockedFrom(
 		.where(
 			and(
 				eq(decisionEdges.orgId, orgId),
-				// bound-params: boundedIds() caps the list at FRONTIER_LIMIT (50)
-				inArray(decisionEdges.fromId, ids),
+				anyIds(db, decisionEdges.fromId, ids),
 				eq(decisionEdges.kind, "blocks"),
 				eq(decisionEdges.toKind, "work_item"),
 				notInArray(workItems.disposition, ["completed", "cancelled"]),
@@ -359,29 +387,27 @@ async function countBlockedFrom(
 
 /**
  * Which of these Work ids are completed or cancelled. The graph walk asks
- * this of D1, the canonical record, instead of trusting graph-side Work state.
+ * this of the core store, the canonical record, instead of trusting graph-side Work state.
  */
 export async function terminalWorkItemIds(
 	db: DbQueryClient,
 	orgId: string,
 	ids: readonly string[],
 ): Promise<Set<string>> {
-	const unique = [...new Set(ids.filter(Boolean))];
+	const workItems = coreTable(db, d1WorkItems);
 	const terminal = new Set<string>();
-	for (let offset = 0; offset < unique.length; offset += FRONTIER_LIMIT) {
-		const rows = await db
-			.select({ id: workItems.id })
-			.from(workItems)
-			.where(
-				and(
-					eq(workItems.orgId, orgId),
-					// bound-params: chunked to FRONTIER_LIMIT (50) ids per query
-					inArray(workItems.id, unique.slice(offset, offset + FRONTIER_LIMIT)),
-					inArray(workItems.disposition, ["completed", "cancelled"]),
-				),
-			);
-		for (const row of rows) terminal.add(row.id);
-	}
+	if (!ids.length) return terminal;
+	const rows = await db
+		.select({ id: workItems.id })
+		.from(workItems)
+		.where(
+			and(
+				eq(workItems.orgId, orgId),
+				anyIds(db, workItems.id, ids),
+				inArray(workItems.disposition, ["completed", "cancelled"]),
+			),
+		);
+	for (const row of rows) terminal.add(row.id);
 	return terminal;
 }
 
@@ -405,6 +431,8 @@ export async function getDecisionContext(
 	cardId: string,
 	options: GetDecisionContextOptions = {},
 ): Promise<DecisionContext> {
+	const decisionEdges = coreTable(db, d1DecisionEdges);
+	const workItems = coreTable(db, d1WorkItems);
 	const maxHops = Math.max(
 		1,
 		Math.min(
@@ -428,8 +456,7 @@ export async function getDecisionContext(
 			.where(
 				and(
 					eq(decisionEdges.orgId, orgId),
-					// bound-params: boundedIds() caps the list at FRONTIER_LIMIT (50)
-					inArray(decisionEdges.fromId, ids),
+					anyIds(db, decisionEdges.fromId, ids),
 					inArray(decisionEdges.kind, CHAIN_EDGE_KINDS),
 				),
 			)
@@ -460,11 +487,7 @@ export async function getDecisionContext(
 					.select({ id: workItems.id, title: workItems.title })
 					.from(workItems)
 					.where(
-						and(
-							eq(workItems.orgId, orgId),
-							// bound-params: boundedIds() caps workIds at FRONTIER_LIMIT (50).
-							inArray(workItems.id, workIds),
-						),
+						and(eq(workItems.orgId, orgId), anyIds(db, workItems.id, workIds)),
 					)
 					.limit(FRONTIER_LIMIT)
 			).map((row) => [row.id, row.title]),
@@ -516,16 +539,32 @@ export async function getDeckDecisionContexts(
 	orgId: string,
 	cards: readonly { id: string; workItemId?: string | null }[],
 ): Promise<Map<string, DecisionContext>> {
+	const decisionEdges = coreTable(db, d1DecisionEdges);
+	const workItems = coreTable(db, d1WorkItems);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
+	const union =
+		coreStore(db) === "postgres"
+			? (pgUnion as unknown as typeof sqliteUnion)
+			: sqliteUnion;
 	const contexts = new Map<string, DecisionContext>();
 	if (!cards.length) return contexts;
 	// JSON binds the set once, including decks larger than D1's parameter limit.
 	const input = db.$with("deck_cards").as(
 		db
 			.select({
-				id: sql<string>`json_extract(value, '$.id')`.as("id"),
-				workId: sql<string>`json_extract(value, '$.workItemId')`.as("work_id"),
+				id: sql<string>`${jsonRead(db, sql`value`, ["id"])}`.as("id"),
+				workId: sql<string>`${jsonRead(db, sql`value`, ["workItemId"])}`.as(
+					"work_id",
+				),
 			})
-			.from(sql`json_each(${JSON.stringify(cards)})`),
+			.from(
+				coreStore(db) === "postgres"
+					? sql`jsonb_array_elements(${jsonParameter(db, cards)})`
+					: sql`json_each(${JSON.stringify(cards)})`,
+			),
 	);
 	const seed = db.$with<string>("deck_hop_0").as(
 		db
@@ -624,7 +663,9 @@ export async function getDeckDecisionContexts(
 			and(
 				// The id list below is already organization-scoped; the unary plus
 				// keeps the planner on the primary key instead of the org prefix.
-				sql`+${decisionEdges.orgId} = ${orgId}`,
+				coreStore(db) === "d1"
+					? sql`+${decisionEdges.orgId} = ${orgId}`
+					: eq(decisionEdges.orgId, orgId),
 				// One seek per subject and per card; an OR across from_id and to_id
 				// made the planner scan every edge in the organization.
 				// bound-params: CTE subquery; all card IDs use one JSON parameter.

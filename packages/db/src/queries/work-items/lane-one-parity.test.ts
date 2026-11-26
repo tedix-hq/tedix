@@ -2,9 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getTableConfig, type SQLiteTable } from "drizzle-orm/sqlite-core";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import { createDbQueryClient } from "../../query-client";
@@ -77,6 +77,44 @@ import {
 	readAttentionFactoryLinks,
 } from "../work-attention";
 
+import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { memoryEntities } from "../../schema/memory-entities";
+import { organizationSecrets } from "../../schema/organization-secrets";
+import { auditEvents } from "../../schema/audit-events";
+import { agentSessionRequests } from "../../schema/agent-session-requests";
+import { flushWorkInteractionDigests } from "./interaction-digests";
+import { reviewWorkInteraction } from "./interaction-reviews";
+import { retireDecisionReviews } from "./decision-review-retirement";
+import {
+	createWorkInteraction,
+	respondToWorkInteraction,
+} from "./interactions";
+import { decisionEdges } from "../../schema/decision-graph";
+import {
+	workItemComments,
+	workItemCorroborations,
+	workEvents,
+} from "../../schema/work-items";
+import {
+	addWorkItemComment,
+	addWorkItemCorroboration,
+	decisionRelevantWorkComment,
+	recordWorkDecisionContinuation,
+} from "./comments";
+import { nudgeLaneHandoffs, withdrawStaleLaneNudges } from "./lane-handoffs";
+import {
+	decisionSourcesReview,
+	prefetchDecisionSources,
+} from "./decision-sources";
+import { decisionActionChangeDetail } from "./decision-action-recheck";
+import {
+	upsertDecisionEdges,
+	getDeckDecisionContexts,
+	getDecisionContext,
+	listCardSourceWork,
+	terminalWorkItemIds,
+} from "../decision-graph";
+
 const at = "2026-11-25T12:00:00.000Z";
 for (const store of ["d1", "postgres"] as const)
 	describe(store, () => {
@@ -111,6 +149,14 @@ for (const store of ["d1", "postgres"] as const)
 					workItems,
 					workAttempts,
 					workItemRelations,
+					workItemComments,
+					workItemCorroborations,
+					workEvents,
+					decisionEdges,
+					auditEvents,
+					agentSessionRequests,
+					memoryEntities,
+					organizationSecrets,
 					skillRuns,
 					kernelConversations,
 					kernelConversationGrants,
@@ -342,6 +388,331 @@ for (const store of ["d1", "postgres"] as const)
 		}, 30000);
 		afterAll(async () => {
 			await close?.();
+		});
+		it("keeps comment relevance and continuation fences identical for decision callers", async () => {
+			const later = "2026-11-26T08:00:00.000Z";
+			const workId = "10000000-0000-4000-8000-000000000001";
+			await db.insert(coreTable(db, workItems)).values({
+				id: workId,
+				orgId: "orchard",
+				title: "Comment facts",
+				disposition: "accepted",
+				createdAt: at,
+			});
+			for (const [id, authorId, metadata] of [
+				["progress", "reader", { decisionImpact: "progress" }],
+				["answer-record", "reader", { schema: "tedix.decision-answer.v1" }],
+				["fact", "someone", {}],
+			] as const)
+				await addWorkItemComment(db, {
+					id,
+					orgId: "orchard",
+					workItemId: workId,
+					authorType: "external_agent",
+					authorId,
+					body: id,
+					metadata,
+					createdAt: later,
+					recordActivity: true,
+				});
+			const comments = coreTable(db, workItemComments);
+			const request = {
+				creatorType: "external_agent",
+				creatorId: "reader",
+				createdAt: at,
+			};
+			expect(
+				(
+					await db
+						.select({ id: comments.id })
+						.from(comments)
+						.where(
+							and(
+								eq(comments.orgId, "orchard"),
+								decisionRelevantWorkComment(db, request),
+							),
+						)
+				).map((row) => row.id),
+			).toEqual(["fact"]);
+			const change = await decisionActionChangeDetail(db, "orchard", {
+				...request,
+				id: "protected",
+				workItemId: workId,
+				status: "open",
+				kind: "question",
+				targetType: "user",
+				targetId: "reader",
+				subject: "Publish the release",
+				prompt: "Publish now?",
+				metadata: {},
+			});
+			expect(change).toMatchObject({ reviewableThrough: later, note: "fact" });
+			const pinned = {
+				...request,
+				workItemId: workId,
+				targetType: "user",
+				kind: "question",
+				status: "open",
+				subject: "Review",
+				prompt: "Review?",
+				metadata: {
+					decisionSources: [
+						{ kind: "work", id: workId, version: 1, commentCount: 0 },
+					],
+				},
+			};
+			const prefetch = await prefetchDecisionSources(db, "orchard", [pinned]);
+			expect(prefetch.workReviews.get(pinned)?.get(`${workId}:0`)).toEqual({
+				through: later,
+				note: "fact",
+			});
+			expect(
+				await decisionSourcesReview(db, "orchard", pinned, { prefetch }),
+			).toEqual(await decisionSourcesReview(db, "orchard", pinned));
+
+			const signal = {
+				orgId: "orchard",
+				workItemId: workId,
+				kind: "answer" as const,
+				requestId: "card",
+				responseId: "answer",
+				at: later,
+			};
+			expect(await recordWorkDecisionContinuation(db, signal)).toHaveLength(1);
+			expect(await recordWorkDecisionContinuation(db, signal)).toHaveLength(0);
+			expect(
+				await recordWorkDecisionContinuation(db, { ...signal, orgId: "river" }),
+			).toHaveLength(0);
+			const items = coreTable(db, workItems);
+			const [item] = await db.select().from(items).where(eq(items.id, workId));
+			expect(item).toMatchObject({
+				version: 1,
+				metadata: { decisionContinuation: { responseId: "answer" } },
+			});
+			const corroboration = {
+				id: "corroboration",
+				orgId: "orchard",
+				workItemId: workId,
+				principalType: "user" as const,
+				principalId: "reader",
+				evidenceRef: "test:proof",
+				body: "Observed",
+				occurredAt: later,
+				createdAt: later,
+			};
+			expect((await addWorkItemCorroboration(db, corroboration)).inserted).toBe(
+				true,
+			);
+			expect(
+				(
+					await addWorkItemCorroboration(db, {
+						...corroboration,
+						sessionId: "session",
+					})
+				).corroboration.sessionId,
+			).toBe("session");
+		});
+		it("reads large graph sets and the shared deck snapshot without mixing organizations", async () => {
+			const edges = [
+				{
+					kind: "card_from_work" as const,
+					from: { kind: "deck_card" as const, id: "graph-card" },
+					to: { kind: "work_item" as const, id: "source" },
+					source: "backfill",
+					occurredAt: at,
+				},
+				{
+					kind: "blocks" as const,
+					from: { kind: "work_item" as const, id: "source" },
+					to: { kind: "work_item" as const, id: "waiting" },
+					source: "test",
+					occurredAt: at,
+				},
+			];
+			const batch = vi.spyOn(db, "batch");
+			await upsertDecisionEdges(db, "orchard", edges);
+			expect(batch).toHaveBeenCalledTimes(1);
+			batch.mockRestore();
+			await upsertDecisionEdges(db, "orchard", [
+				{ ...edges[0]!, occurredAt: "2026-11-26T08:00:00.000Z" },
+			]);
+			await upsertDecisionEdges(db, "river", [
+				{ ...edges[0]!, to: { kind: "work_item", id: "foreign" } },
+			]);
+			const ids = [
+				...Array.from({ length: 150 }, (_, i) => `missing-${i}`),
+				"graph-card",
+			];
+			expect(await listCardSourceWork(db, "orchard", ids)).toEqual(
+				new Map([["graph-card", "source"]]),
+			);
+			expect(
+				await terminalWorkItemIds(db, "orchard", [...ids, "foreign"]),
+			).toEqual(new Set());
+			expect(
+				await terminalWorkItemIds(db, "river", [...ids, "foreign"]),
+			).toEqual(new Set(["foreign"]));
+			const single = await getDecisionContext(db, "orchard", "graph-card");
+			const deck = await getDeckDecisionContexts(
+				db,
+				"orchard",
+				ids.map((id) => ({ id })),
+			);
+			expect(deck.get("graph-card")).toEqual(single);
+			expect(single.chain[0]).toMatchObject({
+				node: { id: "source" },
+				edge: { note: "Harvest", occurredAt: at },
+			});
+			expect(single.blocksCount).toBe(1);
+		});
+		it("creates a page of reminders in one batch and withdraws them when their asks close", async () => {
+			const now = "2026-11-26T09:00:00.000Z";
+			const table = coreTable(db, workInteractions);
+			for (const id of ["remind-a", "remind-b", "snoozed"])
+				await db.insert(table).values({
+					id,
+					orgId: "orchard",
+					workItemId: "source",
+					kind: "question",
+					creatorType: "system",
+					creatorId: "tedix",
+					targetType: "user",
+					targetId: "reader",
+					subject: id,
+					prompt: "Ready?",
+					createdAt: "2026-11-24T08:00:00.000Z",
+					metadata: {
+						laneHandoff: {},
+						followThrough: {
+							reviewAt: "2026-12-01T00:00:00.000Z",
+							...(id === "snoozed"
+								? { snoozedUntil: "2026-11-27T00:00:00.000Z" }
+								: {}),
+						},
+					},
+				});
+			const batch = vi.spyOn(db, "batch");
+			try {
+				expect(await nudgeLaneHandoffs(db, now)).toBe(2);
+				expect(batch).toHaveBeenCalledTimes(1);
+				expect(batch.mock.calls[0]![0]).toHaveLength(1);
+				expect(await nudgeLaneHandoffs(db, now)).toBe(0);
+			} finally {
+				batch.mockRestore();
+			}
+			await db
+				.update(table)
+				.set({
+					status: "cancelled",
+					cancelledAt: now,
+					resolutionFence: "cancel-nudge",
+					version: sql`${table.version}+1`,
+				})
+				.where(eq(table.id, "remind-a"));
+			expect(await withdrawStaleLaneNudges(db, now)).toBe(1);
+		});
+		it("creates, bundles, reviews and answers native interactions with the deployed guards", async () => {
+			const createdAt = "2026-11-25T22:00:00.000Z";
+			const now = "2026-11-26T12:00:00.000Z";
+			for (const [id, kind] of [
+				["digest-update", "coordination"],
+				["review-ask", "question"],
+			] as const)
+				await createWorkInteraction(db, {
+					id,
+					orgId: "orchard",
+					workItemId: "source",
+					kind,
+					subject: id,
+					prompt: "Ready?",
+					creator: { type: "tedi", id: "gardener" },
+					targetType: "user",
+					targetId: "someone",
+					now: createdAt,
+				});
+			expect(await flushWorkInteractionDigests(db, now)).toMatchObject({
+				digests: 1,
+			});
+			expect(await flushWorkInteractionDigests(db, now)).toMatchObject({
+				digests: 0,
+			});
+			expect(
+				await reviewWorkInteraction(db, {
+					orgId: "orchard",
+					interactionId: "review-ask",
+					expectedVersion: 1,
+					actor: { type: "tedi", id: "gardener" },
+					action: "reask",
+					note: "Please review",
+					now: "2026-11-29T08:00:00.000Z",
+				}),
+			).toMatchObject({ status: "open", version: 2 });
+			const answered = await respondToWorkInteraction(db, {
+				id: "lifecycle-answer",
+				orgId: "orchard",
+				interactionId: "review-ask",
+				expectedVersion: 2,
+				responder: { type: "user", id: "someone" },
+				responseKind: "answer",
+				body: "Ready",
+				resolvesRequest: true,
+				now: "2026-11-29T08:01:00.000Z",
+			});
+			expect(answered).toMatchObject({ id: "lifecycle-answer" });
+			const envelope = DecisionEnvelopeSchema.parse({
+				version: 1,
+				kind: "question",
+				classId: "decision-facts-changed",
+				proposal: "Review new facts",
+				whyNow: "Changed",
+				recommendation: "Review",
+				reversibility: "two_way",
+				protectedEffects: [],
+				blastRadius: "Review only",
+				confidence: null,
+				costOfWaiting: "Delayed",
+				reasoning: "Changed facts",
+				options: [
+					{
+						id: "review",
+						label: "Reviewed",
+						intent: "approve",
+						consequence: "Record review",
+						cost: "None",
+					},
+					{
+						id: "dismiss",
+						label: "Not needed",
+						intent: "reject",
+						consequence: "Close",
+						cost: "None",
+					},
+				],
+			});
+			await db.insert(coreTable(db, workInteractions)).values({
+				id: "facts-review",
+				orgId: "orchard",
+				projectId: "trees",
+				kind: "question",
+				subject: "Review changed facts",
+				prompt: "Review only",
+				creatorType: "system",
+				creatorId: "tedix",
+				targetType: "user",
+				targetId: "someone",
+				metadata: {
+					decisionDeck: envelope,
+					replacesDecisionId: "review-ask",
+				},
+				createdAt: now,
+			});
+			expect(
+				await retireDecisionReviews(db, {
+					orgId: "orchard",
+					originalIds: ["review-ask"],
+					now: "2026-11-29T08:02:00.000Z",
+				}),
+			).toBe(1);
 		});
 		it("reads deck sets beyond D1's parameter limit with tenant-scoped state, objectives and dependency facts", async () => {
 			const ids = [

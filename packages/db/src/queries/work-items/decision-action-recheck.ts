@@ -1,11 +1,16 @@
+import { coreTable } from "../../core-store/client";
+import { jsonRead } from "../../core-store/dialect";
 import { and, desc, eq, gt, or, sql } from "drizzle-orm";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import type { DbQueryClient } from "../../query-client";
-import { workItemComments, workItemRelations } from "../../schema/work-items";
 import {
-	workInteractionResponses,
-	workInteractions,
+	workItemComments as d1WorkItemComments,
+	workItemRelations as d1WorkItemRelations,
+} from "../../schema/work-items";
+import {
+	workInteractionResponses as d1WorkInteractionResponses,
+	workInteractions as d1WorkInteractions,
 } from "../../schema/work-factory";
 import { creditBudgetCardCurrent } from "./budgets";
 import { getWorkItemById } from "./crud";
@@ -61,11 +66,12 @@ async function answeredReviewThrough(
 	orgId: string,
 	requestId: string,
 ) {
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
 	const [row] = await db
 		.select({
 			reviewedThrough: sql<
 				string | null
-			>`json_extract(${workInteractionResponses.metadata}, '$.reviewedChangesThrough')`,
+			>`${jsonRead(db, workInteractionResponses.metadata, ["reviewedChangesThrough"])}`,
 		})
 		.from(workInteractionResponses)
 		.where(
@@ -88,6 +94,9 @@ export async function decisionActionChangeDetail(
 	request: Decision,
 	options: { reviewedThrough?: string } = {},
 ): Promise<DecisionActionChange | null> {
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const text = (value: string | null) => (value ? { text: value } : null);
 	if (request.targetType !== "user" || request.kind === "coordination")
 		return null;
@@ -149,7 +158,7 @@ export async function decisionActionChangeDetail(
 					eq(workItemComments.orgId, orgId),
 					eq(workItemComments.workItemId, work.id),
 					gt(workItemComments.createdAt, since),
-					decisionRelevantWorkComment(request),
+					decisionRelevantWorkComment(db, request),
 				),
 			)
 			.orderBy(desc(workItemComments.createdAt), desc(workItemComments.id))
@@ -181,14 +190,14 @@ export async function decisionActionChangeDetail(
 					: undefined,
 				gt(workInteractions.createdAt, request.createdAt),
 				// The facts-changed review this card raised is not a rival card.
-				sql`coalesce(json_extract(${workInteractions.metadata}, '$.replacesDecisionId'), '')<>${request.id}`,
+				sql`coalesce(${jsonRead(db, workInteractions.metadata, ["replacesDecisionId"])}, '')<>${request.id}`,
 				or(
 					request.workItemId
 						? eq(workInteractions.workItemId, request.workItemId)
 						: undefined,
 					eq(workInteractions.subject, request.subject),
 					subjectName
-						? sql`json_extract(${workInteractions.metadata}, '$.cardSubject.name')=${subjectName}`
+						? sql`${jsonRead(db, workInteractions.metadata, ["cardSubject", "name"])}=${subjectName}`
 						: undefined,
 				),
 			),

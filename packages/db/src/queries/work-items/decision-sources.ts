@@ -217,7 +217,7 @@ async function prefetchChangedWorkComments(
 					: sql`json_each(${JSON.stringify(pins)})`,
 			),
 	);
-	const relevant = decisionRelevantWorkCommentFields({
+	const relevant = decisionRelevantWorkCommentFields(db, {
 		createdAt: sql`${input.createdAt}`,
 		creatorType: sql`${input.creatorType}`,
 		creatorId: sql`${input.creatorId}`,
@@ -544,7 +544,7 @@ async function decisionSourceMatches(
 					review.through > reviewedThrough
 					? review
 					: true;
-			const relevant = decisionRelevantWorkComment(request);
+			const relevant = decisionRelevantWorkComment(db, request);
 			const [comments] = await db
 				.select({
 					count: sql<number>`count(*)`,

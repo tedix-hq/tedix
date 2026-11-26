@@ -4,6 +4,13 @@ import {
 	containsCardSecret,
 } from "@tedix/api-contract/utils/card-secrets";
 import { and, asc, desc, eq, ne, or, sql, type SQL } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import {
+	booleanValue,
+	coreStore,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkItemComment,
@@ -11,43 +18,50 @@ import {
 	type WorkItemCorroboration,
 	type WorkItemCorroborationPrincipalType,
 	type WorkItemCorroborationStance,
-	workEvents,
-	workItemComments,
-	workItemCorroborations,
-	workItems,
+	workEvents as d1WorkEvents,
+	workItemComments as d1WorkItemComments,
+	workItemCorroborations as d1WorkItemCorroborations,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 
 /**
  * Unclassified notes remain facts; exempt are the asking agent's declared
  * progress and the record of a person's own card answer.
  */
-export function decisionRelevantWorkComment(request: {
-	creatorType?: string;
-	creatorId?: string;
-	createdAt?: string;
-}) {
-	return decisionRelevantWorkCommentFields({
-		createdAt: sql`${request.createdAt || null}`,
-		creatorType: sql`${request.creatorType ?? null}`,
-		creatorId: sql`${request.creatorId || null}`,
+export function decisionRelevantWorkComment(
+	db: DbQueryClient,
+	request: {
+		creatorType?: string;
+		creatorId?: string;
+		createdAt?: string;
+	},
+) {
+	return decisionRelevantWorkCommentFields(db, {
+		createdAt: sql`CAST(${request.createdAt || null} AS TEXT)`,
+		creatorType: sql`CAST(${request.creatorType ?? null} AS TEXT)`,
+		creatorId: sql`CAST(${request.creatorId || null} AS TEXT)`,
 	});
 }
 
 /** The same relevance rule for a set of requests held in a query relation. */
-export function decisionRelevantWorkCommentFields(request: {
-	createdAt: SQL;
-	creatorType: SQL;
-	creatorId: SQL;
-}) {
-	const answerRecord = sql`(json_extract(${workItemComments.metadata}, '$.schema') = 'tedix.decision-answer.v1' AND ${workItemComments.createdAt} > ${request.createdAt})`;
+export function decisionRelevantWorkCommentFields(
+	db: DbQueryClient,
+	request: {
+		createdAt: SQL;
+		creatorType: SQL;
+		creatorId: SQL;
+	},
+) {
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const answerRecord = sql`(${jsonRead(db, workItemComments.metadata, ["schema"])} = 'tedix.decision-answer.v1' AND ${workItemComments.createdAt} > ${request.createdAt})`;
 	return sql`(${request.createdAt} IS NULL OR NOT coalesce(${answerRecord} OR (
 		${request.creatorType} IN ('tedi', 'external_agent')
 		AND ${request.creatorId} IS NOT NULL
 		AND ${workItemComments.authorType} = ${request.creatorType}
 		AND ${workItemComments.authorId} = ${request.creatorId}
-		AND json_extract(${workItemComments.metadata}, '$.decisionImpact') = 'progress'
+		AND ${jsonRead(db, workItemComments.metadata, ["decisionImpact"])} = 'progress'
 		AND ${workItemComments.createdAt} > ${request.createdAt}
-	), 0))`;
+	), ${booleanValue(db, false)}))`;
 }
 
 export interface AddWorkItemCommentParams {
@@ -76,17 +90,23 @@ export function buildWorkDecisionContinuationStatement(
 	},
 	fence?: ReturnType<typeof sql>,
 ) {
-	const signal = JSON.stringify({
+	const workItems = coreTable(db, d1WorkItems);
+	const signal = {
 		kind: p.kind,
 		requestId: p.requestId,
 		responseId: p.responseId,
 		at: p.at,
 		...(p.body ? { body: p.body.slice(0, 4000) } : {}),
-	});
+	};
 	return db
 		.update(workItems)
 		.set({
-			metadata: sql`json_set(${workItems.metadata}, '$.decisionContinuation', json(${signal}))`,
+			metadata: jsonWrite(
+				db,
+				workItems.metadata,
+				["decisionContinuation"],
+				signal,
+			),
 		})
 		.where(
 			and(
@@ -94,7 +114,7 @@ export function buildWorkDecisionContinuationStatement(
 				eq(workItems.id, p.workItemId),
 				eq(workItems.disposition, "accepted"),
 				fence,
-				sql`coalesce(json_extract(${workItems.metadata}, '$.decisionContinuation.at'), '') < ${p.at}`,
+				sql`coalesce(${jsonRead(db, workItems.metadata, ["decisionContinuation", "at"])}, '') < ${p.at}`,
 			),
 		)
 		.returning({ id: workItems.id });
@@ -111,6 +131,7 @@ export async function getWorkItemCommentById(
 	db: DbQueryClient,
 	id: string,
 ): Promise<WorkItemComment | null> {
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	return (
 		(
 			await db
@@ -126,6 +147,9 @@ export async function addWorkItemComment(
 	db: DbQueryClient,
 	params: AddWorkItemCommentParams,
 ): Promise<WorkItemComment> {
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const workItems = coreTable(db, d1WorkItems);
 	if (containsCardSecret([params.body, params.metadata]))
 		throw new Error(CARD_SECRET_MESSAGE);
 	const item = (
@@ -200,13 +224,14 @@ export async function addWorkItemCorroboration(
 	db: DbQueryClient,
 	params: AddWorkItemCorroborationParams,
 ): Promise<{ corroboration: WorkItemCorroboration; inserted: boolean }> {
+	const workItemCorroborations = coreTable(db, d1WorkItemCorroborations);
 	const stance = params.stance ?? "corroborates";
 	const sessionId = params.sessionId ?? null;
 	const changed = or(
 		ne(workItemCorroborations.stance, stance),
 		ne(workItemCorroborations.evidenceRef, params.evidenceRef),
 		ne(workItemCorroborations.body, params.body),
-		sql`${workItemCorroborations.sessionId} IS NOT ${sessionId}`,
+		sql`${workItemCorroborations.sessionId} ${coreStore(db) === "postgres" ? sql`IS DISTINCT FROM` : sql`IS NOT`} ${sessionId}`,
 	);
 	const inserted = await db
 		.insert(workItemCorroborations)
@@ -264,6 +289,7 @@ export async function listWorkItemCorroborations(
 	db: DbQueryClient,
 	workItemId: string,
 ): Promise<WorkItemCorroboration[]> {
+	const workItemCorroborations = coreTable(db, d1WorkItemCorroborations);
 	return db
 		.select()
 		.from(workItemCorroborations)
@@ -275,6 +301,7 @@ export async function listWorkItemComments(
 	db: DbQueryClient,
 	workItemId: string,
 ): Promise<WorkItemComment[]> {
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	return db
 		.select()
 		.from(workItemComments)
@@ -292,6 +319,7 @@ export async function listRecentWorkItemComments(
 	db: DbQueryClient,
 	p: ListRecentWorkItemCommentsParams,
 ) {
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	return db
 		.select({
 			id: workItemComments.id,
@@ -321,6 +349,7 @@ export async function getLatestWorkItemCommentByAuthor(
 		authorId: string;
 	},
 ) {
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	const [row] = await db
 		.select({ body: workItemComments.body })
 		.from(workItemComments)
@@ -354,6 +383,7 @@ export async function listWorkCommentEvents(
 		limit: number;
 	},
 ): Promise<WorkCommentEventRow[]> {
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	return db
 		.select({
 			id: workItemComments.id,
@@ -386,6 +416,7 @@ export async function getLatestWorkCommentPosition(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<{ at: string; id: string } | null> {
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	const [row] = await db
 		.select({ at: workItemComments.createdAt, id: workItemComments.id })
 		.from(workItemComments)
