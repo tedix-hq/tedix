@@ -512,6 +512,7 @@ interface QueuedRequest {
 interface DecisionNote {
 	by: string;
 	tediId: string | null;
+	originTurnIds?: string[];
 	/** What the model reads: each decision and the call's result. */
 	text: string;
 	/** What the chat shows, e.g. "Approved the requested action." */
@@ -2578,6 +2579,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			const note: DecisionNote = {
 				by: input.by,
 				tediId: first.tedi_id,
+				originTurnIds: [
+					...new Set(
+						settled.flatMap((item) => {
+							const approval = rows.find(
+								(row) => row.approval_id === item.approvalId,
+							)!;
+							return this.#createOrigins(approval.turn_id);
+						}),
+					),
+				],
 				text: summaries.join("\n"),
 				displayText:
 					settled.length > 1
@@ -2594,17 +2605,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				this.#queueDecisionNote(conversationId, note);
 				continue;
 			}
-			const { turnId } = await this.sendTurn(
-				scope,
-				{
-					conversationId,
-					actorId: note.by,
-					actorKind: "user",
-					text: note.text,
-					...(note.tediId ? { tediId: note.tediId } : {}),
-				},
-				note.displayText,
-			);
+			const { turnId } = await this.#sendDecisionNotes(scope, conversationId, [
+				note,
+			]);
 			for (const item of settled) {
 				this.#store.put(`approval-result:${item.approvalId}`, {
 					applied: item.applied,
@@ -2826,11 +2829,28 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	async #continueAfterDecisions(scope: WorkspaceScope, conversationId: string) {
 		if (this.#runningTurnIn(conversationId)) return;
 		const notes = this.#takeDecisionNotes(conversationId);
-		const last = notes.at(-1);
-		if (!last) return;
-		await this.sendTurn(
+		if (notes.length)
+			await this.#sendDecisionNotes(scope, conversationId, notes);
+	}
+
+	#createOrigins(turnId: string): string[] {
+		return this.#store.get<string[]>(`create-origins:${turnId}`) ?? [turnId];
+	}
+
+	async #sendDecisionNotes(
+		scope: WorkspaceScope,
+		conversationId: string,
+		notes: DecisionNote[],
+	) {
+		const last = notes.at(-1)!;
+		const turnId = crypto.randomUUID();
+		this.#store.put(`create-origins:${turnId}`, [
+			...new Set(notes.flatMap((note) => note.originTurnIds ?? [])),
+		]);
+		return this.sendTurn(
 			scope,
 			{
+				turnId,
 				conversationId,
 				actorId: last.by,
 				actorKind: "user",
@@ -3020,6 +3040,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.ctx.storage.transactionSync(() => {
 			// The web grants table exists only once a turn has used the web.
 			this.#store.run(WEB_SCHEMA);
+			for (const turn of this.#store.exec<{ turn_id: string }>(
+				"SELECT turn_id FROM turns WHERE conversation_id = ?",
+				conversationId,
+			))
+				this.#store.delete(`create-origins:${turn.turn_id}`);
 			for (const approval of this.#store.exec<{ approval_id: string }>(
 				"SELECT approval_id FROM approvals WHERE conversation_id = ?",
 				conversationId,
@@ -3389,6 +3414,43 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			"output",
 		);
 		const creates = write.op === "create";
+		if (creates) {
+			// An approval continuation answers the original request, not a new
+			// request for another copy. Keep the existing proposal and its content.
+			const origins = this.#createOrigins(turn.turnId);
+			const repeated = this.#store
+				.exec<{ approval_id: string; turn_id: string }>(
+					"SELECT s.approval_id AS approval_id, a.turn_id AS turn_id FROM staged_changes s JOIN approvals a ON a.approval_id = s.approval_id WHERE s.conversation_id = ? AND s.kind = 'output' AND s.creates = 1 AND json_extract(s.state, '$.output.title') = ? AND json_extract(s.state, '$.output.kind') = ? ORDER BY s.rowid DESC",
+					turn.conversationId,
+					write.output.title,
+					write.output.kind,
+				)
+				.find((row) =>
+					this.#createOrigins(row.turn_id).some((id) => origins.includes(id)),
+				);
+			if (repeated) {
+				await this.#deciding.get(repeated.approval_id);
+				const prior = this.#staged.get(repeated.approval_id)!;
+				if (prior.status === "pending")
+					return {
+						ok: true,
+						value: {
+							...(JSON.parse(prior.state) as StagedOutputState).output,
+							staged: STAGED_NOTE,
+						},
+					};
+				if (prior.status === "applied" && prior.result_id)
+					return {
+						ok: true,
+						value: await this.#tenantDataPort(scope, turn.actor.kind).getOutput(
+							prior.result_id,
+						),
+					};
+				throw new Error(
+					"This file creation was already decided and is not pending. Do not propose it again unless the person asks.",
+				);
+			}
+		}
 		const applyArgs = creates
 			? [{ title: write.output.title, content: write.output.content }]
 			: [
@@ -5597,7 +5659,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						status: staged.ok ? "ok" : "error",
 						durationMs: Date.now() - started,
 						...(staged.ok
-							? { summary: "Staged for review, not applied" }
+							? {
+									summary:
+										typeof staged.value === "object" &&
+										staged.value !== null &&
+										"staged" in staged.value
+											? "Staged for review, not applied"
+											: "Already created; using the saved file",
+								}
 							: stepFailure(staged.error)),
 					});
 					return staged;

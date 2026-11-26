@@ -2010,6 +2010,131 @@ describe("WorkspaceDO", () => {
 		);
 	});
 
+	test("individual file approvals reuse creates in their continuations without duplicate cards", async () => {
+		await seedCore();
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		const ws = workspace(own);
+		await ws.outputQuery(own, { op: "initialize" });
+		const files = [
+			{
+				title: "Plan",
+				content: {
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "Original plan" }],
+				},
+			},
+			{
+				title: "Budget",
+				content: { kind: "sheet", columns: ["Cost"], rows: [[12]] },
+			},
+			{
+				title: "Deck",
+				content: {
+					kind: "presentation",
+					slides: [{ title: "Original slide", bullets: [] }],
+				},
+			},
+		];
+		const create = (inputs: unknown[] = files) =>
+			`export default async env => { const results = []; for (const file of ${JSON.stringify(inputs)}) results.push(await env.outputs.create(file)); return results; }`;
+		await ws.scriptModel(own, [
+			{ code: create() },
+			{ text: "Review the files." },
+		]);
+		const started = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Create a doc, sheet and deck",
+		});
+		await ws.awaitTurn(own, started.turnId, 20_000);
+		const cards = (
+			await ws.readEvents(own, {
+				conversationId: started.conversationId,
+				after: 0,
+			})
+		).filter((event) => event.type === "approval.requested");
+		expect(cards).toHaveLength(3);
+		for (const [index, card] of cards.entries()) {
+			// Simulate the model repeating every create, including files still
+			// waiting and files already approved. Changed content must not replace them.
+			const repeated = files.map((file) =>
+				file.content.kind === "sheet"
+					? { ...file, content: { ...file.content, rows: [[99]] } }
+					: file,
+			);
+			await ws.scriptModel(own, [
+				{ code: create(repeated) },
+				{ text: "Checked." },
+			]);
+			const decided = await ws.decideApproval(own, {
+				approvalId: card.approvalId,
+				decision: "approve",
+				by: "u1",
+			});
+			expect(decided.applied).toBe(true);
+			await ws.awaitTurn(own, decided.turnId!, 20_000);
+			expect(await ws.outputQuery(own, { op: "list" })).toHaveLength(index + 1);
+			expect(
+				(await ws.listConversations(own)).find(
+					(chat) => chat.id === started.conversationId,
+				)?.pendingApprovals ?? 0,
+			).toBe(2 - index);
+			const events = await ws.readEvents(own, {
+				conversationId: started.conversationId,
+				after: 0,
+			});
+			expect(
+				events.filter((event) => event.type === "approval.requested"),
+			).toHaveLength(3);
+			expect(
+				events.filter(
+					(event) =>
+						event.type === "approval.executed" && event.status === "applied",
+				),
+			).toHaveLength(index + 1);
+		}
+		const saved = await ws.outputQuery(own, { op: "list" });
+		expect(saved.map((file) => file.title).sort()).toEqual([
+			"Budget",
+			"Deck",
+			"Plan",
+		]);
+		for (const file of saved) {
+			const detail = await ws.outputQuery(own, {
+				op: "get",
+				outputId: file.id,
+			});
+			const revision = await ws.outputQuery(own, {
+				op: "revision",
+				revisionId: detail!.currentRevisionId!,
+			});
+			expect(
+				JSON.parse(await readOutputBody(testEnv.R2_BUCKET, revision!)),
+			).toEqual(files.find((input) => input.title === file.title)!.content);
+		}
+		// A later explicit request may intentionally create another copy.
+		await ws.scriptModel(own, [
+			{ code: create([files[0]!]) },
+			{ text: "Review another plan." },
+		]);
+		const next = await ws.sendTurn(own, {
+			conversationId: started.conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "Create another Plan doc",
+		});
+		await ws.awaitTurn(own, next.turnId, 20_000);
+		expect(
+			(
+				await ws.readEvents(own, {
+					conversationId: started.conversationId,
+					after: 0,
+				})
+			).filter((event) => event.type === "approval.requested"),
+		).toHaveLength(4);
+	});
+
 	test("a Doc edit in an asking mode is staged: the agent builds on it, nobody else sees it, and accepting applies it at its base", async () => {
 		await seedCore();
 		const ws = workspace() as Stub & {
@@ -2332,7 +2457,9 @@ describe("WorkspaceDO", () => {
 	});
 
 	test("approving a reply's held removals together applies each and continues once", async () => {
+		await seedCore();
 		const ws = workspace();
+		await ws.outputQuery(scope, { op: "initialize" });
 		// Three new files apply at once; removing a block from each waits.
 		const CREATE_THEN_TRIM = `export default async (env) => {
 			const docs = [];
