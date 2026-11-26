@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { DbQueryClient } from "../../query-client";
 import { type WorkItem, workAttempts } from "../../schema/work-items";
 import { workAdmissions } from "../../schema/work-factory";
@@ -46,6 +47,51 @@ export function failedAttemptsWait(
 	return `Failed ${count} times in a row on this task version. Recheck at ${new Date(retryAt).toISOString()}; revising the task wakes it sooner.`;
 }
 
+const RUN_ANSWER_MESSAGE_ID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The wait a run leaves when it ends on a question: the newest Attempt for this
+ * Work version settled `cancelled` carrying a `runQuestion`, and no answer was
+ * recorded in `questionContinuation`. This mirrors the dispatcher's
+ * `runQuestionAnswer` check so readiness names the same wait the lane enforces
+ * instead of reporting the item ready while the dispatcher skips it.
+ */
+export function unansweredRunQuestionWait(
+	item: Pick<WorkItem, "version" | "metadata">,
+	attempt: {
+		id: string;
+		outcome: string | null;
+		metadata: unknown;
+		workItemVersion: number;
+	},
+): string | undefined {
+	if (
+		attempt.outcome !== "cancelled" ||
+		attempt.workItemVersion !== item.version ||
+		!isRecord(attempt.metadata) ||
+		!isRecord(attempt.metadata.runQuestion) ||
+		attempt.metadata.dispatchVersion !== item.version
+	)
+		return;
+	const continuation = isRecord(item.metadata)
+		? item.metadata.questionContinuation
+		: undefined;
+	if (
+		isRecord(continuation) &&
+		continuation.attemptId === attempt.id &&
+		typeof continuation.messageId === "string" &&
+		RUN_ANSWER_MESSAGE_ID_RE.test(continuation.messageId)
+	)
+		return;
+	const question = attempt.metadata.runQuestion;
+	const text =
+		typeof question.text === "string"
+			? question.text.trim().replace(/\s+/g, " ").slice(0, 300)
+			: "";
+	return `Waiting for an answer to the run's question${text ? `: "${text}"` : ""}. The item's creator, owner or steward can answer with send_work_attempt_message; the run then resumes on a fresh Attempt.`;
+}
+
 /** Readiness uses durable history, including on runners without local receipts. */
 export async function workDeferralWait(
 	db: DbQueryClient,
@@ -54,6 +100,7 @@ export async function workDeferralWait(
 ): Promise<string | undefined> {
 	const attempts = await db
 		.select({
+			id: workAttempts.id,
 			outcome: workAttempts.outcome,
 			metadata: workAttempts.metadata,
 			startedAt: workAttempts.startedAt,
@@ -79,6 +126,10 @@ export async function workDeferralWait(
 	const failed = failedAttemptsWait(attempts, item.version, now);
 	if (failed) return failed;
 	const latest = attempts[0];
+	const questionWait = latest
+		? unansweredRunQuestionWait(item, latest)
+		: undefined;
+	if (questionWait) return questionWait;
 	const result = latest?.metadata.laneResult;
 	if (
 		!latest ||

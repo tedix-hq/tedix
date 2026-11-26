@@ -677,15 +677,23 @@ export async function workContext(
 	}
 	if (isRecord(parsed)) {
 		// The newest Attempt carries the reason a run failed; the brief still
-		// renders when this read fails.
-		const attempts = await listLedgerPage(
-			ctx,
-			"work.list_work_item_attempts",
-			{ id, limit: 1 },
-			"data",
-			"nextCursor",
-		);
-		parsed = { ...parsed, lastAttempt: itemsFromList(attempts.value)[0] };
+		// renders when this read fails. Readiness names waits such as an
+		// unanswered run question that the item row alone does not show.
+		const [attempts, readiness] = await Promise.all([
+			listLedgerPage(
+				ctx,
+				"work.list_work_item_attempts",
+				{ id, limit: 1 },
+				"data",
+				"nextCursor",
+			),
+			boardCall(ctx, "work.get_work_item_readiness", { id }),
+		]);
+		parsed = {
+			...parsed,
+			lastAttempt: itemsFromList(attempts.value)[0],
+			readiness: readiness.error ? null : readiness.value,
+		};
 	}
 	const value = parsed;
 	if (ctx.json) {

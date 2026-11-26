@@ -174,6 +174,13 @@ export function renderContextBrief(
 			console.log(`  Runner metrics: ${JSON.stringify(last.runnerMetrics)}`);
 	}
 
+	const readiness = readinessBrief(value.readiness);
+	if (readiness) {
+		console.log(
+			`\n${dim("Readiness:", color)} ${readiness.state}${readiness.detail ? ` — ${readiness.detail}` : ""}`,
+		);
+	}
+
 	const recent = comments.slice(-5);
 	if (recent.length > 0) {
 		console.log(
@@ -209,6 +216,30 @@ function lastAttemptBrief(attempt: unknown): {
 				? truncate(attempt.summary.trim().replace(/\s+/g, " "), 400)
 				: null,
 	};
+}
+
+/**
+ * The readiness state and its blocking detail, so a wait such as an
+ * unanswered run question is visible on the task instead of only in
+ * `work readiness`.
+ */
+function readinessBrief(readiness: unknown): {
+	state: string;
+	detail: string | null;
+} | null {
+	if (!isRecord(readiness) || typeof readiness.state !== "string") return null;
+	const reasons = Array.isArray(readiness.reasons)
+		? readiness.reasons.filter(isRecord)
+		: [];
+	const detail =
+		reasons
+			.map((reason) => reason.detail)
+			.filter(
+				(entry): entry is string =>
+					typeof entry === "string" && entry.trim() !== "",
+			)
+			.join("; ") || null;
+	return { state: readiness.state, detail };
 }
 
 /**
@@ -253,6 +284,7 @@ export function contextBriefJson(value: Record<string, unknown>): unknown {
 			ref: p.externalUrl ?? p.externalId ?? null,
 		})),
 		lastAttempt: lastAttemptBrief(value.lastAttempt),
+		readiness: readinessBrief(value.readiness),
 		commentCount: comments.length,
 		recentComments: comments.slice(-5).map((c) => ({
 			eventType: c.eventType ?? "comment",

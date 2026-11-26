@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { failedAttemptsWait } from "./deferral";
+import { failedAttemptsWait, unansweredRunQuestionWait } from "./deferral";
 
 const at = (minute: number) =>
 	new Date(Date.UTC(2026, 0, 5, 3, minute)).toISOString();
@@ -72,5 +72,71 @@ describe("failedAttemptsWait", () => {
 			run("failed", 3, 3),
 		];
 		expect(failedAttemptsWait(revised, 4, at(13))).toBeUndefined();
+	});
+});
+
+describe("unansweredRunQuestionWait", () => {
+	const item = { version: 3, metadata: {} };
+	const attempt = {
+		id: "44444444-4444-4444-8444-444444444444",
+		outcome: "cancelled",
+		metadata: {
+			dispatchVersion: 3,
+			runQuestion: { seq: 4, kind: "question", text: "Which table?" },
+		},
+		workItemVersion: 3,
+	};
+
+	it("names the wait and how to answer it while the question is open", () => {
+		const wait = unansweredRunQuestionWait(item, attempt);
+		expect(wait).toContain("Waiting for an answer to the run's question");
+		expect(wait).toContain("Which table?");
+		expect(wait).toContain("send_work_attempt_message");
+	});
+
+	it("clears once the run's question has an answer", () => {
+		const answered = {
+			version: 3,
+			metadata: {
+				questionContinuation: {
+					attemptId: attempt.id,
+					messageId: "55555555-5555-4555-8555-555555555555",
+				},
+			},
+		};
+		expect(unansweredRunQuestionWait(answered, attempt)).toBeUndefined();
+		// A continuation recorded for another Attempt answers nothing here.
+		expect(
+			unansweredRunQuestionWait(
+				{
+					version: 3,
+					metadata: {
+						questionContinuation: {
+							attemptId: "66666666-6666-4666-8666-666666666666",
+							messageId: "55555555-5555-4555-8555-555555555555",
+						},
+					},
+				},
+				attempt,
+			),
+		).toContain("Waiting for an answer");
+	});
+
+	it("ignores runs that settled otherwise or for an older version", () => {
+		expect(
+			unansweredRunQuestionWait(item, { ...attempt, outcome: "succeeded" }),
+		).toBeUndefined();
+		expect(
+			unansweredRunQuestionWait(item, { ...attempt, workItemVersion: 2 }),
+		).toBeUndefined();
+		expect(
+			unansweredRunQuestionWait(item, {
+				...attempt,
+				metadata: { dispatchVersion: 2, runQuestion: {} },
+			}),
+		).toBeUndefined();
+		expect(
+			unansweredRunQuestionWait(item, { ...attempt, metadata: {} }),
+		).toBeUndefined();
 	});
 });

@@ -367,7 +367,7 @@ export const WORK_ITEM_TOOLS: TediToolSpec[] = [
 		name: "send_work_attempt_message",
 		remoteName: "send_work_attempt_message",
 		description:
-			"Send a follow-up to the live run or answer an open question from the newest ended run on a Work Item you own or steward. A live follow-up is applied after the current turn ends, or right away if interrupt is set. An answer to an ended run resumes its session on a fresh Attempt.",
+			"Send a follow-up to the live run or answer an open question from the newest ended run on a Work Item you own, steward or created. A live follow-up is applied after the current turn ends, or right away if interrupt is set. An answer to an ended run resumes its session on a fresh Attempt.",
 		inputSchema: SEND_ATTEMPT_MESSAGE_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "workItems/sendAttemptMessage",
