@@ -10476,7 +10476,16 @@ describe("Home lists each person's workspace chats", () => {
 		});
 		await ws.rebuildPersonChats(scope, ["u2"]);
 		expect(await index.listPersonChats(owner)).toEqual(chats);
-		expect(await other.index.listPersonChats(other.owner)).toEqual([]);
+		// u2 did post in this workspace earlier in the file, so their index
+		// rebuilds to their own chats — never u1's conversation or the stale
+		// pre-restore entry recorded above.
+		const rebuiltOther = await other.index.listPersonChats(other.owner);
+		expect(rebuiltOther.map((chat) => chat.conversationId)).not.toContain(
+			turn.conversationId,
+		);
+		expect(rebuiltOther.map((chat) => chat.conversationId)).not.toContain(
+			"deleted-before-restore",
+		);
 		// A delayed pre-restore payload cannot reintroduce a deleted title.
 		expect(
 			await index.recordPersonChats(owner, {

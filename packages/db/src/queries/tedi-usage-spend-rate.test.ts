@@ -53,10 +53,11 @@ function insertCost(
 				id, tedi_id, org_id, gateway_log_id, gateway_id, snapshot_at, model,
 				provider, session_type, source, input_tokens, output_tokens,
 				cache_read_tokens, cache_write_tokens, total_tokens,
-				estimated_cost_usd, session_count, success, cached, data_quality
+				estimated_cost_usd, session_count, success, cached, data_quality,
+				cost_basis
 			) VALUES (?, 'tedi-1', 'org-1', ?, 'test-llm-gateway', ?, ?,
 				'azure-openai', 'tedi', 'ai-gateway-log', 100, 0, 0, 0, 100,
-				?, 1, 1, 0, ?)`,
+				?, 1, 1, 0, ?, 'legacy_estimate')`,
 		)
 		.run(
 			`cost-${seq}`,

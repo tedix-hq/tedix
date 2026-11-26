@@ -1401,13 +1401,16 @@ describe("hydrateAggregateRuntimeKinds — runtime-meta via apps/api binding", (
 		]);
 	});
 
-	it("no API_SERVICE binding leaves entries unmodified (permanent/dev case)", async () => {
+	it("no API_SERVICE binding fails safe and stamps every entry agent", async () => {
+		// The binding is required gateway-wide; a missing one throws inside the
+		// hydration call and lands on the same transient-outage fail-safe.
 		const entries = [{ slug: "a", namespace: "a" }];
 		const hydrated = await hydrateAggregateRuntimeKinds(entries, {
 			MCP_URL: "https://mcp.tedix.dev",
 		} as CloudflareEnv);
-		expect(hydrated).toEqual(entries);
-		expect(hydrated[0]?.runtimeKind).toBeUndefined();
+		expect(hydrated).toEqual([
+			{ slug: "a", namespace: "a", runtimeKind: "agent" },
+		]);
 	});
 
 	it("tolerates an enum-drifted runtime kind (hydrates identity, no kind override)", async () => {

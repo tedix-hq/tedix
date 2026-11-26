@@ -49,7 +49,7 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	]);
 	const changed = await updateWorkItemSpecification(db, {
 		...base,
-		executorReference: { type: "external_agent", id: "codex" },
+		executor: "codex",
 		expectedWorkItemVersion: accepted.version,
 	});
 	expect(changed.dispatchState).toBe("ready");
@@ -60,14 +60,14 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	// Handing it back to the routing rules lets them move it again.
 	const routed = await updateWorkItemSpecification(db, {
 		...base,
-		executorReference: { type: "external_agent", id: "any-local" },
+		executor: "any-local",
 		expectedWorkItemVersion: changed.version,
 	});
 	expect(routed.metadata?.onlyExecutor).toBe(false);
 	await expect(
 		updateWorkItemSpecification(db, {
 			...base,
-			executorReference: { type: "external_agent", id: "claude-code" },
+			executor: "claude-code",
 			expectedWorkItemVersion: accepted.version,
 		}),
 	).rejects.toThrow();
@@ -98,7 +98,7 @@ it("dispatches previously unassigned accepted Work to a human or tedi", async ()
 				orgId: "org",
 				workItemId: executor,
 				actor: { type: "user", id: "owner" },
-				executorReference: { type: executor, id: executor },
+				executor,
 			});
 			expect(updated.dispatchState).toBe("ready");
 			expect(updated.executorId).toBe(executor);

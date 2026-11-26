@@ -1,4 +1,3 @@
-import { workExecutorReference } from "@tedix/api-contract/schemas/work-items";
 import { call } from "@orpc/server";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import {
@@ -115,7 +114,7 @@ export async function assignAgentOnYes(
 			{
 				id: work.id,
 				expectedWorkItemVersion: work.version,
-				executorReference: workExecutorReference(executor),
+				executor,
 				laneDispatch: { state: "ready" },
 				...(tedi && work.stewardType !== "tedi"
 					? { stewardType: "tedi" as const, stewardId: tedi.id }

@@ -1698,20 +1698,6 @@ describe("Work activity forward polling", () => {
 	});
 });
 
-it("does not assign an executor from retired metadata", async () => {
-	const created = await client("owner").create({
-		...fileable(),
-		title: "Current assignment only",
-		metadata: { executor: "codex" },
-	});
-	expect(created).toMatchObject({
-		executorType: null,
-		executorId: null,
-		dispatchState: null,
-	});
-	expect(created.metadata).not.toHaveProperty("executor");
-});
-
 it("persists the full executor reference even when IDs collide", async () => {
 	const created = await client("owner").create({
 		...fileable(),

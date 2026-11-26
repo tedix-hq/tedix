@@ -2112,6 +2112,10 @@
 		{
 			"name": "20261126085942_billing_health_rebuild_covering_indexes/migration.sql",
 			"sha256": "57e36c90b326c27c9c1b7099f5e45df330b60d56d1a7c3ca3c32aef9b0e12a14"
+		},
+		{
+			"name": "20261126101840_restore_cost_rollup_stale_call_triggers/migration.sql",
+			"sha256": "b7de6b725bc9b40f9c393b6b2aec58c9cccf7ea52322faf1fd17c30104014f92"
 		}
 	]
 }

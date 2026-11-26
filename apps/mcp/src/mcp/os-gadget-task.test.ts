@@ -74,6 +74,14 @@ function execution(
 const ENV = {
 	ENVIRONMENT: "test",
 	API_URL: "https://api.test",
+	API_SERVICE: {
+		fetch: async (request: Request) =>
+			globalThis.fetch(request.url, {
+				method: request.method,
+				headers: request.headers,
+				body: await request.text(),
+			}),
+	},
 	DB: {} as unknown,
 } as unknown as CloudflareEnv;
 

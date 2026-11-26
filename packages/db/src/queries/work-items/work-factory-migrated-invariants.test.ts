@@ -236,7 +236,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 						orgId: "org",
 						workItemId: source,
 						actor: owner,
-						executorReference: { type: "external_agent" as const, id: "codex" },
+						executor: "codex",
 						updatedAt: now,
 					});
 				const readiness = await deriveWorkItemReadiness(db, {
@@ -286,7 +286,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 				orgId: "org",
 				workItemId: "started",
 				actor: agent,
-				executorReference: { type: "external_agent" as const, id: "codex" },
+				executor: "codex",
 				laneDispatch: { state: "ready" },
 				updatedAt: now,
 			});
@@ -312,14 +312,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 					orgId: "org",
 					workItemId: id,
 					actor: id === "created" ? agent : owner,
-					...(id === "created"
-						? {}
-						: {
-								executorReference: {
-									type: "external_agent" as const,
-									id: "codex",
-								},
-							}),
+					...(id === "created" ? {} : { executor: "codex" }),
 					...patch,
 					updatedAt: now,
 				});
