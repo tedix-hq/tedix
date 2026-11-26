@@ -12,6 +12,12 @@ import type {
 	ConnectionProviderTemplate,
 } from "@tedix/api-contract/schemas/connection-provider-templates";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import {
+	ConnectionAllowedResourcesSchema,
+	type ConnectionAllowedResources,
+} from "@tedix/api-contract/schemas/connections";
+import { coreTable } from "../core-store/client";
+import { organizations } from "../schema/organizations";
 import type { DbClient } from "../client";
 import type { ConnectionProviderRow } from "../schema/connection-providers";
 import type { DbQueryClient } from "../query-client";
@@ -20,6 +26,41 @@ import {
 	connectionProviders,
 	connectionProviderSettings,
 } from "../schema/connection-providers";
+
+/** One tenant read for the requested providers; absent policies remain unrestricted. */
+export async function listOrganizationConnectionAllowedResources(
+	db: DbQueryClient,
+	organizationId: string,
+	providerIds: readonly string[],
+): Promise<
+	Array<{
+		providerId: string;
+		allowedResources: ConnectionAllowedResources | null;
+	}>
+> {
+	const ids = [...new Set(providerIds)];
+	if (!ids.length) return [];
+	const table = coreTable(db, organizations);
+	const [row] = await db
+		.select({ metadata: table.metadata })
+		.from(table)
+		.where(eq(table.id, organizationId))
+		.limit(1);
+	if (!row)
+		throw new Error(
+			"Organization not found while resolving connection resources",
+		);
+	const limits = row.metadata?.connectionResourceLimits ?? {};
+	return ids.map((providerId) => {
+		const key = encodeURIComponent(providerId);
+		return {
+			providerId,
+			allowedResources: ConnectionAllowedResourcesSchema.nullable().parse(
+				Object.hasOwn(limits, key) ? limits[key] : null,
+			),
+		};
+	});
+}
 
 function toConnectionProviderTemplate(
 	row: ConnectionProviderRow,

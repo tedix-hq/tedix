@@ -6,6 +6,36 @@ import { organizations } from "../schema/organizations";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { connectionInstances } from "../schema/connection-instances";
+import type { ConnectionInstanceRow } from "../schema/connection-instances";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
+
+/** Missing, foreign and mismatched pairs are omitted; callers must deny missing slots. */
+export async function listOrganizationConnectionInstances(
+	db: DbQueryClient,
+	organizationId: string,
+	pairs: readonly { providerId: string; id: string }[],
+): Promise<
+	Array<Pick<ConnectionInstanceRow, "id" | "providerId" | "allowedResources">>
+> {
+	if (!pairs.length) return [];
+	const table = coreTable(db, connectionInstances);
+	const set = JSON.stringify(
+		pairs.map(({ providerId, id }) => ({ providerId, id })),
+	);
+	const matches =
+		coreStore(db) === "postgres"
+			? sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${set}::text::jsonb) AS pair(value) WHERE pair.value->>'id' = ${table.id} AND pair.value->>'providerId' = ${table.providerId})`
+			: sql`EXISTS (SELECT 1 FROM json_each(${set}) AS pair WHERE json_extract(pair.value, '$.id') = ${table.id} AND json_extract(pair.value, '$.providerId') = ${table.providerId})`;
+	return db
+		.select({
+			id: table.id,
+			providerId: table.providerId,
+			allowedResources: table.allowedResources,
+		})
+		.from(table)
+		.where(and(eq(table.organizationId, organizationId), matches));
+}
 
 export type ConnectionOwner =
 	| { userId: string; organizationId?: never }
