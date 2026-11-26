@@ -478,3 +478,52 @@ it("keeps the Stalled view quiet when a background signal fails, but reports a f
 		client.clear();
 	}
 });
+
+it("paints overview source rows before reading personal history", async () => {
+	const frames = new Map<number, FrameRequestCallback>();
+	let frameId = 0;
+	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+		frames.set(++frameId, callback);
+		return frameId;
+	});
+	vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+	const history = vi.mocked(osApi.learningFeedback.listInteractions);
+	history.mockClear();
+	history.mockResolvedValue({ events: [] });
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	try {
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<ActivityFeedApp
+						config={ActivityFeedConfigSchema.parse({
+							version: 1,
+							scope: "organization",
+							projects: [],
+						})}
+						navigation={{ showRunningNow: false }}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		expect(host.textContent).toContain(row.sentence);
+		expect(history).not.toHaveBeenCalled();
+		for (let paint = 0; paint < 2; paint++) {
+			await act(async () => {
+				const pending = [...frames.values()];
+				frames.clear();
+				for (const callback of pending) callback(performance.now());
+			});
+		}
+		await vi.waitFor(() => expect(history).toHaveBeenCalled());
+	} finally {
+		await act(async () => root.unmount());
+		client.clear();
+		vi.unstubAllGlobals();
+	}
+});

@@ -145,6 +145,8 @@ export function FocusFeed({
 		...userPreferencesQueryOptions(),
 		...workRefreshOptions,
 	});
+	const overview = navigation?.showRunningNow === false && !timeline;
+	const [historyReady, setHistoryReady] = useState(false);
 	const history = useQuery({
 		...osQuery.learningFeedback.listInteractions.queryOptions({
 			input: {
@@ -154,10 +156,10 @@ export function FocusFeed({
 			},
 		}),
 		...workRefreshOptions,
+		enabled: !overview || historyReady,
 	});
 	const storedPrefs =
 		preferences.data?.preferences.activityFeed ?? EMPTY_FEED_PREFERENCES;
-	const overview = navigation?.showRunningNow === false && !timeline;
 	const prefs =
 		overview && preferences.data?.preferences.activityOverviewScope === "all"
 			? { ...storedPrefs, projectIds: [] }
@@ -205,6 +207,17 @@ export function FocusFeed({
 			(f) => `factory-${f.source.workspaceId}-${f.source.label}`,
 		),
 	];
+	const sourceSettled =
+		(!sourceIds.length && !factories.pending) ||
+		sourceIds.some((id) => sources[id] && !sources[id].loading);
+	useEffect(() => {
+		if (!overview || !sourceSettled || historyReady) return;
+		// Give the source rows a paint before starting personal history reads.
+		let frame = requestAnimationFrame(() => {
+			frame = requestAnimationFrame(() => setHistoryReady(true));
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [overview, sourceSettled, historyReady]);
 	const factoryOrigins = new Map(
 		factories.sources.map((f) => [
 			`factory-${f.source.workspaceId}-${f.source.label}`,

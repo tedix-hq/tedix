@@ -4,10 +4,11 @@ import { workRefreshOptions } from "@/lib/work-refresh";
 import { WorkReadReporter } from "@/components/work-read-region";
 import { useEffect, useMemo, useRef } from "react";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
+import { operationalContextQueryOptions } from "@/lib/os-query-options";
 import {
-	osQuery,
-	operationalContextQueryOptions,
-} from "@/lib/os-query-options";
+	activityWorkPagesQueryOptions,
+	activityResultPagesQueryOptions,
+} from "@/lib/activity-feed-query-options";
 import { useWorkPrincipalNames } from "@/components/work-operations-shared";
 import { useOsLocale } from "@/lib/use-os-locale";
 import {
@@ -15,7 +16,6 @@ import {
 	workFeedItems,
 } from "@tedix/api-contract/utils/activity-feed";
 
-type Cursor = { at: string; id: string } | undefined;
 export interface FeedSourceState {
 	items: ActivityFeedItem[];
 	loading: boolean;
@@ -39,31 +39,11 @@ export function ActivityFeedSources({
 	const context = useQuery(operationalContextQueryOptions());
 	const names = useWorkPrincipalNames(context.data?.organization.id);
 	const work = useInfiniteQuery({
-		...osQuery.workItems.listActivity.infiniteOptions({
-			input: (cursor: Cursor) => ({ projectId, limit: pageSize, cursor }),
-			initialPageParam: undefined as Cursor,
-			getNextPageParam: (page) => page.nextCursor ?? undefined,
-		}),
+		...activityWorkPagesQueryOptions(projectId, pageSize),
 		...workRefreshOptions,
 	});
 	const results = useInfiniteQuery({
-		...osQuery.workItems.listAttemptProjection.infiniteOptions({
-			input: (cursor: Cursor) => ({
-				projectId,
-				limit: pageSize,
-				cursor,
-				outcomes: [
-					"succeeded",
-					"landed_unverified",
-					"failed",
-					"rejected",
-					"expired",
-					"cancelled",
-				],
-			}),
-			initialPageParam: undefined as Cursor,
-			getNextPageParam: (page) => page.nextCursor ?? undefined,
-		}),
+		...activityResultPagesQueryOptions(projectId, pageSize),
 		...workRefreshOptions,
 	});
 	const items = useMemo(

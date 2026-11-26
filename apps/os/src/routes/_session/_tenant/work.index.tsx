@@ -19,10 +19,13 @@ const WorkTriageView = lazy(() =>
 
 export const Route = createFileRoute("/_session/_tenant/work/")({
 	validateSearch: workHomeSearch,
-	loaderDeps: ({ search }) => ({ view: search.view }),
+	loaderDeps: ({ search }) => ({
+		view: search.view,
+		projectId: search.project,
+	}),
 	loader: ({ context, deps }) => {
 		if (deps.view !== "items" && deps.view !== "triage")
-			prefetchWorkDeck(context.queryClient, deps.view);
+			prefetchWorkDeck(context.queryClient, deps.view, deps.projectId);
 	},
 	component: WorkLanding,
 });

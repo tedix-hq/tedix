@@ -1,3 +1,7 @@
+import {
+	activityWorkPagesQueryOptions,
+	activityResultPagesQueryOptions,
+} from "@/lib/activity-feed-query-options";
 import { workSourceManifest } from "@tedix/api-contract/assets/work-view-blueprint";
 import type { QueryClient } from "@tanstack/react-query";
 import {
@@ -5,47 +9,28 @@ import {
 	ActivityFeedConfigSchema,
 } from "@tedix/api-contract/schemas/os-activity-feed";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
-import { FOCUS_HISTORY_SURFACES } from "@tedix/api-contract/utils/focus-feed";
 import {
 	osQuery,
 	firstDecisionPageOptions,
 	userPreferencesQueryOptions,
 	workAppsQueryOptions,
-	pendingApprovalsQueryOptions,
-	userProfileQueryOptions,
-	projectListQueryOptions,
 } from "@/lib/os-query-options";
 
 /** Warm canonical per-viewer queries while the Work route chunk is loading. */
-export function prefetchWorkDeck(client: QueryClient, view?: "feed" | "deck") {
+export function prefetchWorkDeck(
+	client: QueryClient,
+	view?: "feed" | "deck",
+	projectId?: string,
+) {
 	if (view === "deck") {
 		void import("@/components/decision-deck-app").catch(() => {});
 		void client.prefetchQuery(firstDecisionPageOptions());
 		void client.prefetchQuery(workAppsQueryOptions());
 		return;
 	}
-	void import("@/components/decision-deck-app").catch(() => {});
-	void import("@/components/activity-feed-app").catch(() => {});
-	void client.prefetchQuery(pendingApprovalsQueryOptions());
-	void client.prefetchQuery(
-		osQuery.workApprovals.listInbox.queryOptions({
-			input: { limit: 50, statuses: ["pending"] },
-		}),
-	);
-	void client.prefetchQuery(firstDecisionPageOptions());
-	void client.prefetchQuery(userProfileQueryOptions());
-	void client.prefetchQuery(projectListQueryOptions(100));
-	void client.prefetchQuery(
-		osQuery.learningFeedback.model.queryOptions({ input: {} }),
-	);
-	void client.prefetchQuery(
-		osQuery.learningFeedback.listInteractions.queryOptions({
-			input: { scopeKind: "personal", limit: 200 },
-		}),
-	);
 	void client
 		.fetchQuery(workAppsQueryOptions())
-		.then(async ({ items }) => {
+		.then(({ items }) => {
 			const feed = items.find(
 				({ currentRevision: { manifest } }) =>
 					manifest.navigation?.work === "feed" ||
@@ -58,63 +43,60 @@ export function prefetchWorkDeck(client: QueryClient, view?: "feed" | "deck") {
 						!items.some(
 							(item) => item.currentRevision.manifest.navigation?.workDefault,
 						)));
-			if (feed && landsOnFeed)
+			if (landsOnFeed) {
+				void import("@/components/activity-feed-app").catch(() => {});
 				prefetchActivityFeed(
 					client,
-					workSourceManifest(feed.currentRevision.manifest).config,
+					feed && workSourceManifest(feed.currentRevision.manifest).config,
+					projectId,
 				);
+				return;
+			}
 			const deck = items.find(
 				(item) =>
 					workSourceManifest(item.currentRevision.manifest).entry ===
 					"tedix:app/decision-deck",
 			);
+			if (!deck) return;
 			const parsed = DecisionDeckConfigSchema.safeParse(
-				deck && workSourceManifest(deck.currentRevision.manifest).config,
+				workSourceManifest(deck.currentRevision.manifest).config,
 			);
 			if (!parsed.success) return;
-			const config = parsed.data;
-			// The default unscoped Deck reads the same keys warmed above; reuse
-			// them instead of refetching (prefetchQuery refetches stale data).
-			void client
-				.ensureQueryData(
-					osQuery.workApprovals.listInbox.queryOptions({
-						input: {
-							projectId: config.projectId,
-							limit: config.limit,
-							statuses: ["pending"],
-						},
-					}),
-				)
-				.catch(() => {});
-			if (!config.projectId)
-				void client
-					.ensureQueryData(pendingApprovalsQueryOptions())
-					.catch(() => {});
-			await client
-				.ensureQueryData(
-					firstDecisionPageOptions(config.projectId, config.limit),
-				)
-				.catch(() => {});
+			void import("@/components/decision-deck-app").catch(() => {});
+			void client.prefetchQuery(
+				firstDecisionPageOptions(parsed.data.projectId, parsed.data.limit),
+			);
 		})
 		.catch(() => {});
 }
 
 /** Activity's first-paint reads, so they start with the app chunk, not after it. */
-function prefetchActivityFeed(client: QueryClient, value: unknown) {
-	const config = ActivityFeedConfigSchema.safeParse(value);
+function prefetchActivityFeed(
+	client: QueryClient,
+	value: unknown,
+	projectId?: string,
+) {
+	const config = ActivityFeedConfigSchema.safeParse(
+		value ?? { version: 1, scope: "organization", projects: [] },
+	);
 	const ignore = () => {};
 	void client.ensureQueryData(userPreferencesQueryOptions()).catch(ignore);
-	void client
-		.ensureQueryData(
-			osQuery.learningFeedback.listInteractions.queryOptions({
-				input: {
-					scopeKind: "personal",
-					limit: 200,
-					surfaces: FOCUS_HISTORY_SURFACES,
-				},
-			}),
-		)
-		.catch(ignore);
+	if (config.success) {
+		const scopes = new Set<string | undefined>([
+			...(config.data.scope === "organization" ? [projectId] : []),
+			...config.data.projects
+				.filter((p) => !projectId || p.id === projectId)
+				.map((p) => p.id),
+		]);
+		for (const scope of scopes) {
+			void client.prefetchInfiniteQuery(
+				activityWorkPagesQueryOptions(scope, config.data.pageSize),
+			);
+			void client.prefetchInfiniteQuery(
+				activityResultPagesQueryOptions(scope, config.data.pageSize),
+			);
+		}
+	}
 	const today = config.success ? config.data.today : undefined;
 	if (today)
 		void client
