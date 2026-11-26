@@ -362,7 +362,7 @@ function readContinuityHistory(
 	const scopePage = () =>
 		coreStore(db) === "d1"
 			? sql`json_each(${page}) AS s`
-			: sql`jsonb_array_elements(${page}::jsonb) AS s`;
+			: sql`jsonb_array_elements(${page}::text::jsonb) AS s`;
 	const key = sql<string>`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[0]')` : sql`s.value ->> 0`}`;
 	const orgId = sql<string>`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[1]')` : sql`s.value ->> 1`}`;
 	const isProject = sql`${coreStore(db) === "d1" ? sql`json_extract(s.value, '$[2]')` : sql`s.value ->> 2`} = 'project'`;
@@ -371,7 +371,7 @@ function readContinuityHistory(
 		coreStore(db) === "d1"
 			? sql`NOT EXISTS (SELECT 1 FROM json_each(${`[${[...owners.keys()].join(",")}]`}) AS v
  WHERE json_extract(v.value, '$[0]') = ${org} AND json_extract(v.value, '$[1]') = ${owner})`
-			: sql`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${`[${[...owners.keys()].join(",")}]`}::jsonb) AS v WHERE v.value ->> 0 = ${org} AND v.value ->> 1 = ${owner})`;
+			: sql`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${`[${[...owners.keys()].join(",")}]`}::text::jsonb) AS v WHERE v.value ->> 0 = ${org} AND v.value ->> 1 = ${owner})`;
 	const none = () => sql<string | null>`NULL`;
 	const timestamp = (julian: SQL) =>
 		coreStore(db) === "d1"
@@ -1161,7 +1161,7 @@ function readContinuityScopeSlicePostgres(
 			workAfter: scope.workEnd,
 		})) ?? [],
 	);
-	const records = sql`jsonb_to_recordset(${continuationPage}::jsonb) AS c(key text,id text,"orgId" text,kind text,name text,policy text,"createdAt" text,owner text,"objectiveId" text,"workAfter" text)`;
+	const records = sql`jsonb_to_recordset(${continuationPage}::text::jsonb) AS c(key text,id text,"orgId" text,kind text,name text,policy text,"createdAt" text,owner text,"objectiveId" text,"workAfter" text)`;
 	const continuationSelection = {
 		key: sql<string>`c.key`.as("key"),
 		id: sql<string>`c.id`.as("id"),
