@@ -180,6 +180,7 @@
 		"./queries/cognitive/platform-skills": "./src/queries/cognitive/platform-skills.ts",
 		"./queries/cognitive/skill-improvement-cleanup": "./src/queries/cognitive/skill-improvement-cleanup.ts",
 		"./queries/cognitive/skill-users": "./src/queries/cognitive/skill-users.ts",
+		"./queries/row-dependents": "./src/queries/row-dependents.ts",
 		"./queries/cognitive/skill-folders": "./src/queries/cognitive/skill-folders.ts",
 		"./queries/cognitive/skill-mcp-bindings": "./src/queries/cognitive/skill-mcp-bindings.ts",
 		"./queries/cognitive/skill-crystallization": "./src/queries/cognitive/skill-crystallization.ts",

@@ -8,6 +8,7 @@ import "@orpc/openapi/extensions/route";
 
 import { oc } from "@orpc/contract";
 import * as z from "zod";
+import { AcknowledgeDependentsSchema } from "../schemas/common";
 import { TediCronSyncResponseSchema } from "../schemas/tedi";
 import { baseErrors } from "../errors";
 import {
@@ -257,8 +258,9 @@ export const controlPlaneContract = oc
 							"Replacement runtime config; omitted to inherit the current head.",
 						),
 					status: ControlPlaneStatusSchema.optional().describe(
-						"Replacement lifecycle status; omitted to inherit the current head.",
+						"Replacement lifecycle status; omitted to inherit the current head. Publishing a non-active status archives the profile and is refused while tedis still pin it; acknowledgeDependents confirms that list.",
 					),
+					acknowledgeDependents: AcknowledgeDependentsSchema,
 				}),
 			)
 			.output(RuntimeProfileSchema),
@@ -288,7 +290,14 @@ export const controlPlaneContract = oc
 				path: "/runtime-profiles/{id}",
 				summary: "Delete runtime profile",
 			})
-			.input(z.object({ id: z.string() }))
+			.input(
+				z.object({
+					id: z.string(),
+					acknowledgeDependents: AcknowledgeDependentsSchema.describe(
+						"Archiving is refused while tedis still pin the profile; acknowledgeDependents confirms that list.",
+					),
+				}),
+			)
 			.output(z.object({ success: z.literal(true) })),
 
 		// =====================================================================
@@ -425,8 +434,9 @@ export const controlPlaneContract = oc
 							"Replacement policy definition; omitted to inherit the current head.",
 						),
 					status: ControlPlaneStatusSchema.optional().describe(
-						"Replacement lifecycle status; omitted to inherit the current head.",
+						"Replacement lifecycle status; omitted to inherit the current head. Publishing a non-active status archives the pack and is refused while tedis still use it; acknowledgeDependents confirms that list.",
 					),
+					acknowledgeDependents: AcknowledgeDependentsSchema,
 				}),
 			)
 			.output(PolicyPackSchema),
@@ -454,8 +464,15 @@ export const controlPlaneContract = oc
 				method: "DELETE",
 				path: "/policy-packs/{id}",
 				summary: "Delete policy pack",
+				description:
+					"Archiving is refused while tedis still use the pack; acknowledgeDependents confirms that list.",
 			})
-			.input(z.object({ id: z.string() }))
+			.input(
+				z.object({
+					id: z.string(),
+					acknowledgeDependents: AcknowledgeDependentsSchema,
+				}),
+			)
 			.output(z.object({ success: z.literal(true) })),
 
 		// =====================================================================
@@ -544,8 +561,9 @@ export const controlPlaneContract = oc
 							"Replacement workspace templates; omitted to inherit the current head.",
 						),
 					status: ControlPlaneStatusSchema.optional().describe(
-						"Replacement lifecycle status; omitted to inherit the current head.",
+						"Replacement lifecycle status; omitted to inherit the current head. Publishing a non-active status archives the set and is refused while tedis still pin it; acknowledgeDependents confirms that list.",
 					),
+					acknowledgeDependents: AcknowledgeDependentsSchema,
 				}),
 			)
 			.output(WorkspaceTemplateSetSchema),
@@ -575,7 +593,14 @@ export const controlPlaneContract = oc
 				path: "/workspace-templates/{id}",
 				summary: "Delete workspace template set",
 			})
-			.input(z.object({ id: z.string() }))
+			.input(
+				z.object({
+					id: z.string(),
+					acknowledgeDependents: AcknowledgeDependentsSchema.describe(
+						"Archiving is refused while tedis still pin the set; acknowledgeDependents confirms that list.",
+					),
+				}),
+			)
 			.output(z.object({ success: z.literal(true) })),
 
 		// =====================================================================

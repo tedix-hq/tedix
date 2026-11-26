@@ -25,7 +25,10 @@ import {
 	BlueprintApplyInputSchema,
 	BlueprintApplyReceiptSchema,
 } from "../schemas/blueprint-provisioning";
-import { JsonValueSchema } from "../schemas/common";
+import {
+	AcknowledgeDependentsSchema,
+	JsonValueSchema,
+} from "../schemas/common";
 import { ApprovalModeSchema } from "../schemas/workspace-agent-access";
 import {
 	OsInspectableWorkspaceSchema,
@@ -651,8 +654,14 @@ export const osWorkspacesContract = oc
 					method: "POST",
 					path: "/workspaces/{workspaceId}/archive",
 					summary: "Archive a Tedix OS workspace",
+					description:
+						"Archiving is refused while installations, share links, open collaboration proposals or factory schedules still point at the workspace; acknowledgeDependents confirms that list.",
 				})
-				.input(workspaceIdInput)
+				.input(
+					workspaceIdInput.extend({
+						acknowledgeDependents: AcknowledgeDependentsSchema,
+					}),
+				)
 				.output(z.object({ workspace: OsWorkspaceSchema })),
 			restore: oc
 				.route({
@@ -672,7 +681,13 @@ export const osWorkspacesContract = oc
 					description:
 						"Requires os:admin, an already-archived workspace, no retained collaboration proposals, and no unrevoked share links. Cascades its apps; outputs and immutable execution/audit evidence deliberately survive by stable id.",
 				})
-				.input(workspaceIdInput)
+				.input(
+					workspaceIdInput.extend({
+						acknowledgeDependents: AcknowledgeDependentsSchema.describe(
+							"Deleting is refused while installations, share links, open collaboration proposals, projects, apps or a factory schedule still point at the workspace; acknowledgeDependents confirms that list.",
+						),
+					}),
+				)
 				.output(z.object({ deleted: z.literal(true) })),
 			purgeArchived: oc
 				.route({
@@ -1464,8 +1479,14 @@ export const osWorkspacesContract = oc
 					method: "POST",
 					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/archive",
 					summary: "Archive a Tedix OS app",
+					description:
+						"Archiving is refused while share links, skill read grants, open collaboration proposals or live executions still point at the app; acknowledgeDependents confirms that list.",
 				})
-				.input(gadgetIdInput)
+				.input(
+					gadgetIdInput.extend({
+						acknowledgeDependents: AcknowledgeDependentsSchema,
+					}),
+				)
 				.output(z.object({ gadget: OsGadgetSchema })),
 			restore: oc
 				.route({
@@ -1555,7 +1576,13 @@ export const osWorkspacesContract = oc
 					description:
 						"Requires os:admin, an already-archived App, and no unrevoked share links. Deletes its immutable revision rows; execution and audit evidence deliberately survive by stable id.",
 				})
-				.input(gadgetIdInput)
+				.input(
+					gadgetIdInput.extend({
+						acknowledgeDependents: AcknowledgeDependentsSchema.describe(
+							"Deleting is refused while share links, skill read grants, open collaboration proposals or live executions still point at the app; acknowledgeDependents confirms that list.",
+						),
+					}),
+				)
 				.output(z.object({ deleted: z.literal(true) })),
 		}),
 		outputs: oc.router({
@@ -2151,8 +2178,14 @@ export const osWorkspacesContract = oc
 					method: "POST",
 					path: "/outputs/{outputId}/archive",
 					summary: "Archive a Tedix OS output",
+					description:
+						"Archiving is refused while share links, open collaboration proposals, Work links or a factory schedule still point at the output; acknowledgeDependents confirms that list.",
 				})
-				.input(outputIdInput)
+				.input(
+					outputIdInput.extend({
+						acknowledgeDependents: AcknowledgeDependentsSchema,
+					}),
+				)
 				.output(z.object({ output: OsOutputSchema })),
 			restore: oc
 				.route({
@@ -2172,7 +2205,13 @@ export const osWorkspacesContract = oc
 					description:
 						"Requires os:admin, an already-archived output, no retained collaboration proposals, and no unrevoked share links. Deletes its immutable semantic revisions while audit records and revoked share-link history remain independently attributable by stable id.",
 				})
-				.input(outputIdInput)
+				.input(
+					outputIdInput.extend({
+						acknowledgeDependents: AcknowledgeDependentsSchema.describe(
+							"Deleting is refused while share links, open collaboration proposals, Work links or a factory schedule still point at the output; acknowledgeDependents confirms that list.",
+						),
+					}),
+				)
 				.output(z.object({ deleted: z.literal(true) })),
 		}),
 		executions: oc.router({

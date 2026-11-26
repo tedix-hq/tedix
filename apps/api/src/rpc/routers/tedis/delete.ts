@@ -10,6 +10,7 @@ import { isPlatformPrincipal } from "@tedix/auth/types";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
 import { getTediById, retireTedi } from "@tedix/db/queries/tedis";
 import { auditActor, emitAuditEvent } from "../../audit-helpers";
+import { assertRowDependentsClear } from "../../row-dependents";
 import {
 	withAuthorization,
 	authedTedisOs,
@@ -245,6 +246,21 @@ export const deleteTediProcedure = authedTedisOs.delete
 				message: `Tedi "${tedi.name}" was already retired at ${tedi.retiredAt}`,
 			};
 		}
+
+		// Refuse to stop a worker other rows still point at — the tedi's own org,
+		// which is not necessarily the caller's on a platform-admin cross-org retire.
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "tedi",
+				id: tedi.id,
+				orgId: tedi.organizationId,
+				slug: tedi.slug,
+				noun: "tedi",
+				action: "retired",
+			},
+			input.acknowledgeDependents,
+		);
 
 		// Clean up Descope identity + FGA relations + AIH MCP server. The worker
 		// must stop being able to authenticate immediately; all three are

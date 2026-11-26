@@ -21,6 +21,7 @@ import {
 	ProjectMetadataSchema,
 } from "../schemas/work-attention";
 import {
+	AcknowledgeDependentsSchema,
 	JsonValueSchema,
 	PaginationMetaSchema,
 	PaginationSchema,
@@ -257,8 +258,15 @@ export const projectsContract = oc
 				method: "POST",
 				path: "/{id}/archive",
 				summary: "Archive project",
+				description:
+					"Archiving is refused while Work Items, a factory schedule, session bindings or intake filing still point at the project; acknowledgeDependents confirms that list.",
 			})
-			.input(z.object({ id: z.uuid() }))
+			.input(
+				z.object({
+					id: z.uuid(),
+					acknowledgeDependents: AcknowledgeDependentsSchema,
+				}),
+			)
 			.output(ProjectSchema),
 
 		restore: oc

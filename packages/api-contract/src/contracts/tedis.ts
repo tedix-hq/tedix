@@ -41,6 +41,7 @@ import {
 	RollbackTediCodeExecutionOutputSchema,
 } from "../schemas/tedi-durable-code";
 import {
+	AcknowledgeDependentsSchema,
 	JsonValueSchema,
 	PaginationMetaSchema,
 	PaginationSchema,
@@ -461,9 +462,13 @@ export const tedisContract = oc
 				path: "/{tediId}",
 				summary: "Delete (retire) tedi",
 				description:
-					"Retire an organization-owned tedi through the supported lifecycle path. The worker stops immediately — its Descope identity, FGA grants and AIH MCP server are purged, its runtime is archived, and its slug is freed for a replacement — but its row is retained, so its memory, rationale, skills, artifacts, growth history and audit trail are NOT destroyed. List them again with tedis.list?includeRetired=true. Destroying that cognitive state requires the platform-admin tedis.decommission hardPurge path.",
+					"Retire an organization-owned tedi through the supported lifecycle path. The worker stops immediately — its Descope identity, FGA grants and AIH MCP server are purged, its runtime is archived, and its slug is freed for a replacement — but its row is retained, so its memory, rationale, skills, artifacts, growth history and audit trail are NOT destroyed. List them again with tedis.list?includeRetired=true. Destroying that cognitive state requires the platform-admin tedis.decommission hardPurge path. Retirement is refused while workspaces, projects, schedules or other rows still depend on the tedi; acknowledgeDependents confirms that list.",
 			})
-			.input(TediIdParamSchema)
+			.input(
+				TediIdParamSchema.extend({
+					acknowledgeDependents: AcknowledgeDependentsSchema,
+				}),
+			)
 			.output(SuccessResponseSchema),
 
 		/**

@@ -159,6 +159,7 @@ import {
 	resolveCreator,
 } from "./os-workspaces-shared";
 import { requireOrgId } from "../org-scope";
+import { assertRowDependentsClear } from "../row-dependents";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -500,6 +501,18 @@ const gadgetsArchive = authorOs.gadgets.archive.handler(
 			context,
 			input.workspaceId,
 			input.gadgetId,
+		);
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "gadget",
+				id: gadget.id,
+				orgId: gadget.organizationId,
+				noun: "app",
+				action: "archived",
+			},
+			input.acknowledgeDependents,
+			queryDb(context),
 		);
 		const row = await updateOsGadget(
 			queryDb(context),

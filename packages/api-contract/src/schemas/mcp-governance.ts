@@ -222,6 +222,8 @@ export const OwnedChannelPublisherSlugSchema = z
 	.trim()
 	.min(1)
 	.max(100);
+/** Id of the tedi an organization lets publish to its owned channel. */
+export const OwnedChannelPublisherTediIdSchema = z.uuid();
 
 /**
  * Server-attributed owner/admin user authorization attached to the exact Work

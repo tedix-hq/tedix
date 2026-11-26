@@ -65,6 +65,7 @@ import type {
 	WorkspaceTemplateSetDefinition,
 } from "@tedix/db/schema/control-plane";
 import { requireOrganizationAccess, requireOrgId } from "../org-scope";
+import { assertRowDependentsClear } from "../row-dependents";
 import { auditActor } from "../audit-helpers";
 import {
 	AUTHZ,
@@ -349,13 +350,25 @@ const publishRuntimeProfileRevisionProcedure =
 	authedOs.publishRuntimeProfileRevision
 		.use(AUTHZ.settingsWrite)
 		.handler(async ({ input, context }) => {
-			requireOrgId(context);
+			const orgId = requireOrgId(context);
 			const existing = await getRuntimeProfileById(context.db, input.id);
 			assertOwnedControlPlaneRecord(
 				context,
 				existing,
 				"Runtime profile not found",
 			);
+			if (input.status != null && input.status !== "active")
+				await assertRowDependentsClear(
+					context,
+					{
+						kind: "runtime_profile",
+						id: input.id,
+						orgId: existing?.organizationId ?? orgId,
+						noun: "runtime profile",
+						action: "archived",
+					},
+					input.acknowledgeDependents,
+				);
 			return unwrapRevision(
 				await publishRuntimeProfileRevision(context.db, {
 					revisionId: input.id,
@@ -443,12 +456,23 @@ const rollbackRuntimeProfileRevisionProcedure =
 const deleteRuntimeProfileProcedure = authedOs.deleteRuntimeProfile
 	.use(AUTHZ.settingsWrite)
 	.handler(async ({ input, context }) => {
-		requireOrgId(context);
+		const orgId = requireOrgId(context);
 		const existing = await getRuntimeProfileById(context.db, input.id);
 		assertOwnedControlPlaneRecord(
 			context,
 			existing,
 			"Runtime profile not found",
+		);
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "runtime_profile",
+				id: input.id,
+				orgId: existing?.organizationId ?? orgId,
+				noun: "runtime profile",
+				action: "archived",
+			},
+			input.acknowledgeDependents,
 		);
 		unwrapRevision(
 			await publishRuntimeProfileRevision(context.db, {
@@ -692,6 +716,18 @@ const publishPolicyPackRevisionProcedure = authedOs.publishPolicyPackRevision
 		assertOwnedControlPlaneRecord(context, existing, "Policy pack not found");
 		assertValidModelCatalog(existing?.slug ?? "", input.definition);
 		assertRunnerRulesStayPublished(existing, input);
+		if (input.status != null && input.status !== "active")
+			await assertRowDependentsClear(
+				context,
+				{
+					kind: "policy_pack",
+					id: input.id,
+					orgId: existing?.organizationId ?? orgId,
+					noun: "policy pack",
+					action: "archived",
+				},
+				input.acknowledgeDependents,
+			);
 		const revised = unwrapRevision(
 			await publishPolicyPackRevision(context.db, {
 				revisionId: input.id,
@@ -777,6 +813,17 @@ const deletePolicyPackProcedure = authedOs.deletePolicyPack
 		const existing = await getPolicyPackById(context.db, input.id);
 		assertOwnedControlPlaneRecord(context, existing, "Policy pack not found");
 		assertRunnerRulesStayPublished(existing, { status: "archived" });
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "policy_pack",
+				id: input.id,
+				orgId: existing?.organizationId ?? orgId,
+				noun: "policy pack",
+				action: "archived",
+			},
+			input.acknowledgeDependents,
+		);
 		unwrapRevision(
 			await publishPolicyPackRevision(context.db, {
 				revisionId: input.id,
@@ -865,13 +912,25 @@ const publishWorkspaceTemplateSetRevisionProcedure =
 	authedOs.publishWorkspaceTemplateSetRevision
 		.use(AUTHZ.settingsWrite)
 		.handler(async ({ input, context }) => {
-			requireOrgId(context);
+			const orgId = requireOrgId(context);
 			const existing = await getWorkspaceTemplateSetById(context.db, input.id);
 			assertOwnedControlPlaneRecord(
 				context,
 				existing,
 				"Workspace template set not found",
 			);
+			if (input.status != null && input.status !== "active")
+				await assertRowDependentsClear(
+					context,
+					{
+						kind: "workspace_template_set",
+						id: input.id,
+						orgId: existing?.organizationId ?? orgId,
+						noun: "workspace template set",
+						action: "archived",
+					},
+					input.acknowledgeDependents,
+				);
 			return unwrapRevision(
 				await publishWorkspaceTemplateSetRevision(context.db, {
 					revisionId: input.id,
@@ -961,12 +1020,23 @@ const rollbackWorkspaceTemplateSetRevisionProcedure =
 const deleteWorkspaceTemplateSetProcedure = authedOs.deleteWorkspaceTemplateSet
 	.use(AUTHZ.settingsWrite)
 	.handler(async ({ input, context }) => {
-		requireOrgId(context);
+		const orgId = requireOrgId(context);
 		const existing = await getWorkspaceTemplateSetById(context.db, input.id);
 		assertOwnedControlPlaneRecord(
 			context,
 			existing,
 			"Workspace template set not found",
+		);
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "workspace_template_set",
+				id: input.id,
+				orgId: existing?.organizationId ?? orgId,
+				noun: "workspace template set",
+				action: "archived",
+			},
+			input.acknowledgeDependents,
 		);
 		unwrapRevision(
 			await publishWorkspaceTemplateSetRevision(context.db, {

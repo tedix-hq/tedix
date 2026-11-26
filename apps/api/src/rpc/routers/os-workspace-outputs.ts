@@ -105,6 +105,7 @@ import {
 	saveOsOutputPatch,
 } from "../../services/os-output-patch";
 import { requireOrgId } from "../org-scope";
+import { assertRowDependentsClear } from "../row-dependents";
 import {
 	outputMetadataChange,
 	publishWorkspaceChangeSafely,
@@ -890,6 +891,18 @@ const outputsRevise = authorOs.outputs.revise.handler(
 const outputsArchive = authorOs.outputs.archive.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "output",
+				id: output.id,
+				orgId: output.organizationId,
+				noun: "output",
+				action: "archived",
+			},
+			input.acknowledgeDependents,
+			queryDb(context),
+		);
 		const row = await updateOsOutput(
 			queryDb(context),
 			{ organizationId: output.organizationId, outputId: output.id },

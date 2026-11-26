@@ -47,6 +47,7 @@ import {
 
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { requireOrgId } from "../org-scope";
+import { assertRowDependentsClear } from "../row-dependents";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -676,7 +677,21 @@ const setAgentAccess = authorOs.workspaces.setAgentAccess.handler(
 
 const archive = authorOs.workspaces.archive.handler(
 	async ({ input, context }) => {
-		await requireWorkspace(context, input.workspaceId, { ownerOnly: true });
+		const workspace = await requireWorkspace(context, input.workspaceId, {
+			ownerOnly: true,
+		});
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "workspace",
+				id: workspace.id,
+				orgId: workspace.organizationId,
+				noun: "workspace",
+				action: "archived",
+			},
+			input.acknowledgeDependents,
+			queryDb(context),
+		);
 		const row = await updateOsWorkspace(
 			queryDb(context),
 			{
@@ -796,6 +811,18 @@ const deleteWorkspace = adminOs.workspaces.delete.handler(
 				"This workspace still has share links. Turn them off, then delete it.",
 			);
 		}
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "workspace",
+				id: workspace.id,
+				orgId: workspace.organizationId,
+				noun: "workspace",
+				action: "deleted",
+			},
+			input.acknowledgeDependents,
+			queryDb(context),
+		);
 		let removed: boolean;
 		try {
 			removed = await deleteWorkspaceWithDocuments(

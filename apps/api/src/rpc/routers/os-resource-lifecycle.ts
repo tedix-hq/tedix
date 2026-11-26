@@ -26,6 +26,7 @@ import { mapOsOutputRow } from "../../services/os-output-library";
 import { parseBlueprintLineage } from "../../services/os-blueprint-portability";
 import { assertOsWorkspaceChildVisible } from "../../services/os-workspace-visibility";
 import { requireOrgId } from "../org-scope";
+import { assertRowDependentsClear } from "../row-dependents";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -164,6 +165,18 @@ const deleteOutput = adminOs.outputs.delete.handler(
 				"Output has retained collaboration evidence and cannot be permanently deleted",
 			);
 		}
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "output",
+				id: output.id,
+				orgId: output.organizationId,
+				noun: "output",
+				action: "deleted",
+			},
+			input.acknowledgeDependents,
+			queryDb(context),
+		);
 		const removed = await deleteOsOutput(queryDb(context), {
 			organizationId: output.organizationId,
 			outputId: output.id,
@@ -196,6 +209,18 @@ const deleteGadget = adminOs.gadgets.delete.handler(
 			);
 		}
 		await requireNoActiveShares(context, "gadget", gadget.id);
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "gadget",
+				id: gadget.id,
+				orgId: gadget.organizationId,
+				noun: "app",
+				action: "deleted",
+			},
+			input.acknowledgeDependents,
+			queryDb(context),
+		);
 		const removed = await deleteOsGadget(queryDb(context), {
 			organizationId: gadget.organizationId,
 			gadgetId: gadget.id,

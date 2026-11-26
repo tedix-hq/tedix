@@ -2084,6 +2084,10 @@
 		{
 			"name": "20261126004200_read_marks/migration.sql",
 			"sha256": "760a510c5a8126c1d6649496ae5dd7c5511e601dd6e012333e47cd1d77419c57"
+		},
+		{
+			"name": "20261126005858_owned_channel_publisher_tedi_id/migration.sql",
+			"sha256": "c51a77bb12d82158032a3f1840be395326e463a84257584ba91bae1ede55897c"
 		}
 	]
 }

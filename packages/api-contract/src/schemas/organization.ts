@@ -25,6 +25,7 @@ import {
 	OwnedChannelCollectionSchema,
 	OwnedChannelNameSchema,
 	OwnedChannelPublisherSlugSchema,
+	OwnedChannelPublisherTediIdSchema,
 } from "./mcp-governance";
 import {
 	ApprovalModeSchema,
@@ -615,8 +616,11 @@ export const OrganizationMetadataSchema = z.object({
 	ownedChannel: z
 		.strictObject({
 			channel: OwnedChannelNameSchema,
+			publisherTediId: OwnedChannelPublisherTediIdSchema.optional().describe(
+				"Id of the one active tedi allowed to publish under a receipt; absent means no publish is approved. Preferred over publisherTediSlug, which a retired tedi releases.",
+			),
 			publisherTediSlug: OwnedChannelPublisherSlugSchema.optional().describe(
-				"Slug of the one active tedi allowed to publish under a receipt; absent means no publish is approved.",
+				"Slug of the one active tedi allowed to publish under a receipt; absent means no publish is approved. Legacy form of publisherTediId, resolved to the tedi id at read time.",
 			),
 			collection: OwnedChannelCollectionSchema.optional().describe(
 				"The content collection receipts cover, such as posts; absent means none can be issued or used.",

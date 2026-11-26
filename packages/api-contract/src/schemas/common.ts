@@ -96,6 +96,19 @@ export const UuidParamSchema = z.object({
 export type UuidParam = z.infer<typeof UuidParamSchema>;
 
 /**
+ * Owner override for archive, retire and delete calls: every dependent that
+ * would stop working must be named by the key the refusal lists. Same shape as
+ * the skill used-by acknowledgement.
+ */
+export const AcknowledgeDependentsSchema = z
+	.array(z.string().min(1).max(300))
+	.max(50)
+	.optional()
+	.describe(
+		"Only when archiving or retiring a row that is in use: the key of every dependent that will stop working, exactly as the refusal lists them.",
+	);
+
+/**
  * App ID path parameter
  */
 export const AppIdParamSchema = z.object({

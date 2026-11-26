@@ -56,6 +56,7 @@ import {
 import type { Project } from "@tedix/db/schema/projects";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { requireOrgIdOrInput } from "../org-scope";
+import { assertRowDependentsClear } from "../row-dependents";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -228,7 +229,18 @@ const updateProcedure = authOs.update
 const archiveProcedure = authOs.archive
 	.use(AUTHZ.objectiveWrite)
 	.handler(async ({ input, context }) => {
-		await assertProjectAccess(context, input.id);
+		const project = await assertProjectAccess(context, input.id);
+		await assertRowDependentsClear(
+			context,
+			{
+				kind: "project",
+				id: project.id,
+				orgId: project.orgId,
+				noun: "project",
+				action: "archived",
+			},
+			input.acknowledgeDependents,
+		);
 		const archived = await archiveProject(
 			context.db,
 			input.id,

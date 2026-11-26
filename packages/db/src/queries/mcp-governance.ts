@@ -776,6 +776,12 @@ async function verifyOwnedChannelAuthorizationProof(
 /** An organization's owned-channel settings from `metadata.ownedChannel`. */
 export interface OrganizationOwnedChannel {
 	channel: string;
+	/**
+	 * The configured publisher tedi's stable id. Slug-only legacy configs are
+	 * resolved to the id of the active tedi holding that slug here, so callers
+	 * never match on a slug a retirement can release.
+	 */
+	publisherTediId: string | null;
 	publisherTediSlug: string | null;
 	collection: string | null;
 	locales: string[];
@@ -812,9 +818,27 @@ export async function getOrganizationOwnedChannel(
 		typeof row?.config === "string" ? recordFromDbJson(row.config) : null;
 	const channel = trimmedText(config?.channel);
 	if (!config || !channel) return null;
+	const publisherTediSlug = trimmedText(config.publisherTediSlug);
+	let publisherTediId = trimmedText(config.publisherTediId);
+	if (!publisherTediId && publisherTediSlug) {
+		const tedis = coreTable(db, d1Tedis);
+		const [publisher] = await db
+			.select({ id: tedis.id })
+			.from(tedis)
+			.where(
+				and(
+					eq(tedis.organizationId, organizationId),
+					eq(tedis.slug, publisherTediSlug),
+					eq(tedis.status, "active"),
+				),
+			)
+			.limit(1);
+		publisherTediId = publisher?.id ?? null;
+	}
 	return {
 		channel,
-		publisherTediSlug: trimmedText(config.publisherTediSlug),
+		publisherTediId,
+		publisherTediSlug,
 		collection: trimmedText(config.collection),
 		locales: Array.isArray(config.locales)
 			? config.locales.flatMap((locale) => trimmedText(locale) ?? [])
@@ -898,12 +922,12 @@ export async function resolveWorkItemAuthorization(
 	);
 	if (
 		!ownedChannel ||
-		!ownedChannel.publisherTediSlug ||
+		!ownedChannel.publisherTediId ||
 		!ownedChannel.collection
 	) {
 		return denied("owned_channel_not_configured");
 	}
-	const publisherTediSlug = ownedChannel.publisherTediSlug;
+	const publisherTediId = ownedChannel.publisherTediId;
 	if (
 		input.args.collection !== ownedChannel.collection ||
 		typeof input.args.id !== "string" ||
@@ -934,7 +958,7 @@ export async function resolveWorkItemAuthorization(
 			and(
 				eq(workItems.accountableOwnerId, tedis.id),
 				eq(tedis.organizationId, input.organizationId),
-				eq(tedis.slug, publisherTediSlug),
+				eq(tedis.id, publisherTediId),
 				eq(tedis.status, "active"),
 			),
 		)
@@ -1268,7 +1292,7 @@ export async function resolveWorkItemAuthorization(
 			INNER JOIN tedis AS publisher
 				ON publisher.id = leaf.accountable_owner_id
 				AND publisher.organization_id = ${input.organizationId}
-				AND publisher.slug = ${publisherTediSlug}
+				AND publisher.id = ${publisherTediId}
 				AND publisher.status = 'active'
 			INNER JOIN work_attempts AS attempt
 				ON attempt.id = ${attemptId}
