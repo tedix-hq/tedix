@@ -98,13 +98,18 @@ const COMPACTION_SUMMARY_SHAPE =
 	"ordered work still to do; Files touched lists exact paths with what " +
 	"changed in each; Critical context holds exact commands run, exact error " +
 	"messages, identifiers, URLs and values needed to continue without " +
-	'rediscovering them. Write "none" for an empty section.';
+	'rediscovering them. Write "none" for an empty section. ' +
+	"Use at most 600 words TOTAL across all sections so the JSON finishes within " +
+	"the output budget. Prioritize the current goal, constraints, decisions still " +
+	"in effect and unresolved work. Collapse completed work to its outcomes; " +
+	"keep exact commands, errors and identifiers only when needed to continue. " +
+	"Do not transcribe logs or enumerate every tool call.";
 
 const COMPACTION_SYSTEM_PROMPT =
 	"You compress a span of an AI agent conversation into a concise factual " +
-	"summary so no important context is lost when the original messages are " +
-	"dropped. Preserve concrete decisions, established facts, user intent, " +
-	"tool calls and their results, and any unresolved threads. Omit filler and " +
+	"summary for continuing the task after the original messages are dropped. " +
+	"Preserve user intent, active constraints, concrete decisions and unresolved " +
+	"threads. Omit filler and " +
 	"pleasantries. Be terse and specific.\n\n" +
 	COMPACTION_SUMMARY_SHAPE +
 	"\n\nRespond with a JSON object of the exact shape " +
@@ -116,10 +121,10 @@ const UPDATE_COMPACTION_SYSTEM_PROMPT =
 	"You maintain a rolling summary of an AI agent conversation. You are given " +
 	"the PREVIOUS summary (in <previous-summary>) and only the NEW messages " +
 	"since it was written (in <new-messages>). Produce an UPDATED summary that " +
-	"PRESERVES all information from the previous summary and ADDS the new " +
-	"decisions, established facts, user intent, tool calls and their results, " +
-	"and unresolved threads from the new messages. Never drop prior facts; " +
-	"reconcile any that the new messages changed. Omit filler and pleasantries. " +
+	"keeps prior constraints, decisions still in effect and unresolved work, " +
+	"merges new facts and reconciles superseded facts. Recompress the previous " +
+	"summary together with the new messages into the same total word budget; " +
+	"do not append an ever-growing history. Omit filler and pleasantries. " +
 	"Be terse and specific.\n\n" +
 	COMPACTION_SUMMARY_SHAPE +
 	" Move items from In progress and Remaining into Done as the new messages " +

@@ -1123,6 +1123,24 @@ test("native threshold compaction cannot race a conversation reservation or usag
 				(await accounting.usage()).totalTokens,
 				historyRows === 32 ? 16 : 26,
 			);
+			for (let turn = 0; turn < 3; turn++) {
+				const followup = await conversation.submit(
+					{ type: "input", content: `continue ${turn}` },
+					BACKGROUND_CONTEXT,
+				);
+				assert.equal((await followup.wait(BACKGROUND_CONTEXT)).status, "done");
+			}
+			await pi.waitForIdle(BACKGROUND_CONTEXT);
+			await accounting.assertComplete();
+			assert.equal(
+				calls.filter((call) => call === "compaction").length,
+				historyRows === 32 ? 0 : 1,
+				"Settled compaction must not repeat on subsequent short turns",
+			);
+			assert.deepEqual(
+				receipts,
+				historyRows === 32 ? [16, 16, 16, 16] : [10, 16, 16, 16, 16],
+			);
 		} finally {
 			await pi.close(BACKGROUND_CONTEXT);
 		}
