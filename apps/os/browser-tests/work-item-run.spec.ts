@@ -12,7 +12,7 @@ import { startFixtureServer } from "./fixture-server";
 const LIVE = "/work/items/00000070-0000-4000-8000-000000000001";
 const FINISHED = "/work/items/00000070-0000-4000-8000-000000000004";
 
-const server = await startFixtureServer();
+const server = await startFixtureServer(undefined, { shared: false });
 const { origin } = server;
 let browser: Browser | undefined;
 try {
@@ -129,19 +129,23 @@ try {
 			.getByText("Stopping the current step to apply this")
 			.waitFor();
 
-		// A question the agent asks shows with its offered answers; picking
-		// one sends it as the answer and the question closes.
+		// Historical questions are log entries; decisions use Work Interactions.
 		await run
 			.getByLabel("Send a follow-up")
 			.fill(`Ask me a question (${theme})`);
 		await run.getByRole("button", { name: "Send", exact: true }).click();
-		const asks = run.getByRole("group", { name: "The agent asks" });
-		await asks.getByText("Should the last page be empty").waitFor();
+		await steps
+			.getByText("Should the last page be empty", { exact: false })
+			.waitFor();
+		assert.equal(
+			await run.getByRole("group", { name: "The agent asks" }).count(),
+			0,
+		);
+		assert.equal(await run.getByLabel("Your answer").count(), 0);
 		assert.equal(await overflow(), false, `question overflows at ${width}`);
-		await asks.getByRole("button", { name: "Leave it out" }).click();
-		await asks.waitFor({ state: "detached" });
-		// The first viewport's answer is still in the sample data.
-		await steps.getByText("You: Leave it out").last().waitFor();
+		await run.getByLabel("Send a follow-up").fill("Continue with the task");
+		await run.getByRole("button", { name: "Send", exact: true }).click();
+		await steps.getByText("You: Continue with the task").last().waitFor();
 
 		// Stopping asks first; declining leaves the run as it was.
 		await run.getByRole("button", { name: "Stop run" }).click();

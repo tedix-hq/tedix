@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { SLIDES_BLUEPRINT_VERSION } from "../../assets/office-editor-versions";
 import type { OsOutputContent } from "../../schemas/os-workspaces";
 import { OsBlueprintDefinitionSchema } from "../../schemas/os-workspaces";
 import { applyPresentationPatch } from "../../utils/presentation-patch";
@@ -80,7 +81,7 @@ describe("Slides blueprint", () => {
 		const gadget = definition.gadgets[0]!;
 		expect(gadget.manifest.config?.settings).toEqual({
 			slot: "launch_slides",
-			blueprintVersion: 28,
+			blueprintVersion: SLIDES_BLUEPRINT_VERSION,
 		});
 		expect(gadget.files!["client.js"].length).toBeGreaterThan(30_000);
 		expect(gadget.manifest.resourceGrants).toEqual([

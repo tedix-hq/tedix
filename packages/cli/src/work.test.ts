@@ -1918,7 +1918,7 @@ describe("canonical ID and title resolution", () => {
 	const FULL_A = "aaaaaa11-2222-4333-8444-555555555555";
 	const FULL_B = "aaaaaa22-2222-4333-8444-555555555555";
 
-	test("a full UUID reads context and the latest Attempt without a prefix lookup", async () => {
+	test("a full UUID reads context, readiness and the latest Attempt without a prefix lookup", async () => {
 		const { ctx, sources } = makeContext({}, undefined, (source) =>
 			source.includes("list_work_attempt_cli_rows")
 				? {
@@ -1944,12 +1944,14 @@ describe("canonical ID and title resolution", () => {
 		);
 		const result = await capture(`context ${FULL_A}`, ctx);
 		expect(result.code).toBe(0);
-		expect(sources).toHaveLength(2);
+		expect(sources).toHaveLength(3);
 		expect(sources[0]).toContain("get_work_items_by_id");
 		expect(sources[0]).toContain(`"id":"${FULL_A}"`);
 		expect(sources[1]).toContain("list_work_attempt_cli_rows");
 		expect(sources[1]).toContain(`"id":"${FULL_A}"`);
 		expect(sources[1]).toContain('"limit":1');
+		expect(sources[2]).toContain("get_work_item_readiness");
+		expect(sources[2]).toContain(`"id":"${FULL_A}"`);
 		expect(sources.join("\n")).not.toContain("list_work_item_cli_rows");
 		expect(JSON.parse(result.out[0]!).lastAttempt).toEqual({
 			outcome: "failed",

@@ -6,13 +6,13 @@ import { startFixtureServer } from "./fixture-server";
  * A run a tedi started for an agent shows as a card in the chat, read from
  * the stored events of the tedi's turn: it is there on first load and after a
  * reload, lists the newest eight steps with the rest one click away, links to
- * the task, asks before stopping, and lets the person answer the agent's
- * question. Set TEDIX_SCREENSHOT_DIR to save a phone screenshot.
+ * the task, asks before stopping, and keeps historical questions readable
+ * without answer controls. Set TEDIX_SCREENSHOT_DIR to save a phone screenshot.
  */
 const CHAT = "/chat?conversation=00000060-0000-4000-8000-00000000000a";
 const TASK = "/work/items/00000070-0000-4000-8000-000000000001";
 
-const server = await startFixtureServer();
+const server = await startFixtureServer(undefined, { shared: false });
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
@@ -70,26 +70,26 @@ try {
 	await dialog.waitFor({ state: "hidden" });
 	await card.getByRole("button", { name: "Stop run" }).waitFor();
 
-	// A question the agent asks shows on the card; the person answers
-	// there. The sample agent asks back when a task follow-up mentions a
-	// question.
+	// Historical questions remain in the log; decisions use Work Interactions.
 	await page.goto(`${server.origin}${TASK}`);
 	const taskRun = page.getByRole("region", { name: "Run", exact: true });
 	await taskRun.getByLabel("Send a follow-up").fill("Ask me a question");
 	await taskRun.getByRole("button", { name: "Send", exact: true }).click();
-	await taskRun.getByRole("group", { name: "The agent asks" }).waitFor();
+	await taskRun
+		.getByText("Should the last page be empty", { exact: false })
+		.waitFor();
 	await page.goto(`${server.origin}${CHAT}`);
-	const asks = card.getByRole("group", { name: "The agent asks" });
-	await asks.getByText("Should the last page be empty").waitFor();
-	assert.equal(await overflow(), false, `question overflows at 375px`);
-	await asks.getByLabel("Your answer").fill("Leave it out, please");
-	await asks.getByRole("button", { name: "Answer" }).click();
-	await asks.waitFor({ state: "detached" });
-	await card.getByText("You: Leave it out, please").waitFor();
-	// The question and answer pass eight steps: the oldest are one click away.
+	await card
+		.getByText("Should the last page be empty", { exact: false })
+		.waitFor();
+	assert.equal(
+		await card.getByRole("group", { name: "The agent asks" }).count(),
+		0,
+	);
+	assert.equal(await card.getByLabel("Your answer").count(), 0);
 	assert.equal(await entries.count(), 8);
-	await card.getByRole("button", { name: "Show all 11 steps" }).click();
-	assert.equal(await entries.count(), 11);
+	await card.getByRole("button", { name: "Show all 10 steps" }).click();
+	assert.equal(await entries.count(), 10);
 	assert.equal(await overflow(), false, `open card overflows at 375px`);
 	console.log("Chat run card on a phone passed");
 } finally {

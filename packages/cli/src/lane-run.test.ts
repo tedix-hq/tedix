@@ -486,42 +486,21 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 		).rejects.toThrow("unavailable");
 		expect(existsSync(out)).toBe(false);
 	});
-	it("launches an admitted Attempt's child when its first observation times out", async () => {
+	it("launches an admitted child without activity reports and records its final observation", async () => {
 		const { args, out } = fixture();
 		const reports: Record<string, unknown>[] = [];
-		let calls = 0;
 		expect(
 			await runLaneProcess(args, {
 				admitted: true,
 				heartbeatMs: 10,
 				report: async (input) => {
-					if (++calls === 1)
-						throw new Error("Work native command deadline exceeded");
 					reports.push(input);
 					return {};
 				},
 			}),
 		).toBe(0);
 		expect(existsSync(out)).toBe(true);
-		expect(reports.at(-1)!.state).toBe("done");
-	});
-	it("starts an admitted child without waiting for a pending activity report", async () => {
-		const { args, out } = fixture();
-		let spawned = false;
-		const run = runLaneProcess(args, {
-			admitted: true,
-			heartbeatMs: 10,
-			onSpawn: () => {
-				spawned = true;
-			},
-			report: async (input) => {
-				if (input.state === "working" && !spawned) return new Promise(() => {});
-				return {};
-			},
-		});
-		expect(await run).toBe(0);
-		expect(spawned).toBe(true);
-		expect(existsSync(out)).toBe(true);
+		expect(reports.map((input) => input.state)).toEqual(["done"]);
 	});
 	it("retains a complete idempotent observation when settlement fails, then replays that same lane", async () => {
 		const { args, out } = fixture();

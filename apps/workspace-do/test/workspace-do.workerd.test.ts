@@ -8137,8 +8137,16 @@ describe("workspace transport authorization", () => {
 
 			// The alarm still fails, so the runtime retries it; the line says why.
 			await runInDurableObject(ws, async (instance, state) => {
-				state.storage.sql.exec("DROP TABLE change_records");
-				await expect(instance.alarm!()).rejects.toThrow("change_records");
+				state.storage.sql.exec(
+					"ALTER TABLE queued_messages RENAME TO offline_messages",
+				);
+				try {
+					await expect(instance.alarm!()).rejects.toThrow("queued_messages");
+				} finally {
+					state.storage.sql.exec(
+						"ALTER TABLE offline_messages RENAME TO queued_messages",
+					);
+				}
 			});
 			expect(lines).toContainEqual(
 				expect.objectContaining({
