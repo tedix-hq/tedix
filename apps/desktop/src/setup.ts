@@ -500,6 +500,9 @@ type Verified = Partial<Record<Harness, VerifiedConnection>>;
 let verified: Verified | undefined;
 let serverGrants: McpAuthorization[] | undefined;
 let grantIdentity = "";
+/** When the server last answered; a failed read keeps that answer this long. */
+let grantsReadAt = 0;
+const GRANTS_KEPT_MS = 5 * 60_000;
 /** This Mac's own sign-in claims per agent host, from `setup agents --sign-ins`. */
 type LocalSignIn = { revision: string; clientId: string; consentId: string };
 let localSignIns: Record<string, LocalSignIn[]> = {};
@@ -1033,14 +1036,19 @@ async function revokeReplacedSignIns(claims: LocalSignIn[]): Promise<number> {
 }
 
 /** Reads the person's grants through Connect; never starts an agent or a model. */
+/**
+ * Reads the server's sign-ins for this organization. The last answer stays
+ * while the read runs (it can take 30 seconds) and through a failed read for
+ * up to five minutes, so one brief outage does not flag every agent; after
+ * that a stale grant is never reported as current.
+ */
 async function readConnectionGrants(): Promise<void> {
-	serverGrants = undefined;
-	localSignIns = {};
+	let read = false;
 	const org = organization();
 	const identity = `${loginIdentity}:${org}`;
-	if (!signedIn || !org) return;
-	const local = await readLocalSignIns(true);
 	try {
+		if (!signedIn || !org) return;
+		const local = await readLocalSignIns(true);
 		const discovery = await tedix(
 			[
 				"-w",
@@ -1080,9 +1088,16 @@ async function readConnectionGrants(): Promise<void> {
 			serverGrants = data.items;
 			grantIdentity = identity;
 			localSignIns = local;
+			grantsReadAt = Date.now();
+			read = true;
 		}
 	} catch {
-		// A failed background read must not report a cached grant as current.
+		// Cleared below.
+	} finally {
+		if (!read && Date.now() - grantsReadAt > GRANTS_KEPT_MS) {
+			serverGrants = undefined;
+			localSignIns = {};
+		}
 	}
 }
 
