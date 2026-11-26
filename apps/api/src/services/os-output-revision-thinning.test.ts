@@ -23,14 +23,16 @@ import {
 } from "./os-output-revision-thinning";
 
 const DAY = "2026-11-11";
-const now = new Date(`${DAY}T14:00:00.000Z`);
+const now = new Date("2026-11-12T14:00:00.000Z");
 
 function createFixture(options: { failRead?: () => Error | null } = {}) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("CREATE TABLE organizations (id TEXT PRIMARY KEY);");
 	// The tables that may point at a revision, with the columns the check reads.
 	sqlite.exec(`
-		CREATE TABLE workspace_output_index (id TEXT PRIMARY KEY, revision INTEGER, revision_id TEXT, is_current INTEGER, organization_id TEXT, workspace_id TEXT, output_id TEXT, revision_created_by_kind TEXT, revision_created_by_id TEXT, revision_created_at TEXT, skill_run_id TEXT, note TEXT, content_bytes INTEGER);
+		CREATE TABLE workspace_output_index (id TEXT PRIMARY KEY, revision INTEGER, revision_id TEXT, is_current INTEGER, organization_id TEXT, workspace_id TEXT, output_id TEXT, revision_created_by_kind TEXT, revision_created_by_id TEXT, revision_created_at TEXT, skill_run_id TEXT, note TEXT, content_bytes INTEGER, body_r2_key TEXT);
+		CREATE TABLE os_workspaces (id TEXT PRIMARY KEY, organization_id TEXT);
+		INSERT INTO os_workspaces VALUES ('ws-1', 'org-1');
 		CREATE TABLE workspace_activity (entity_id TEXT, revision INTEGER, change_record_id TEXT);
 		CREATE TABLE os_share_links (pinned_revision_id TEXT);
 		CREATE TABLE os_collaboration_proposals (base_revision_id TEXT, result_revision_id TEXT);
@@ -87,6 +89,10 @@ function createFixture(options: { failRead?: () => Error | null } = {}) {
 			const value = objects.get(key);
 			return value ? { arrayBuffer: async () => value } : null;
 		},
+		async delete(keys: string | string[]) {
+			for (const key of Array.isArray(keys) ? keys : [keys])
+				objects.delete(key);
+		},
 	};
 	const arm = (mode: OutputThinningMode) =>
 		bucket.put(
@@ -112,9 +118,11 @@ function createFixture(options: { failRead?: () => Error | null } = {}) {
 			by?: string;
 			note?: string | null;
 			skillRunId?: string;
+			bodyKey?: string;
 		} = {},
 	) => {
 		const by = row.by ?? "u1";
+		const bodyKey = row.bodyKey ?? `body-${id}`;
 		revisionSqlite
 			.prepare(
 				"INSERT INTO os_output_revisions (id, organization_id, output_id, revision, content, note, created_by_kind, created_by_id, created_at, skill_run_id, content_sha256, content_bytes, body_r2_key) VALUES (?, 'org-1', ?, ?, '', ?, ?, ?, ?, ?, ?, 100, ?)",
@@ -129,11 +137,11 @@ function createFixture(options: { failRead?: () => Error | null } = {}) {
 				`${DAY}T${at}.000Z`,
 				row.skillRunId ?? null,
 				`sha-${id}`,
-				`body-${id}`,
+				bodyKey,
 			);
 		sqlite
 			.prepare(
-				"INSERT INTO workspace_output_index VALUES (?, ?, ?, 0, 'org-1', 'ws-1', ?, ?, ?, ?, ?, ?, 100)",
+				"INSERT INTO workspace_output_index VALUES (?, ?, ?, 0, 'org-1', 'ws-1', ?, ?, ?, ?, ?, ?, 100, ?)",
 			)
 			.run(
 				`${row.outputId ?? "file"}:${number}`,
@@ -145,6 +153,7 @@ function createFixture(options: { failRead?: () => Error | null } = {}) {
 				`${DAY}T${at}.000Z`,
 				row.skillRunId ?? null,
 				row.note === undefined ? OS_OUTPUT_AUTOSAVE_NOTE : row.note,
+				bodyKey,
 			);
 	};
 	const kept = (outputId = "file") =>
@@ -206,10 +215,10 @@ function morning(f: ReturnType<typeof createFixture>) {
 	f.save("agent", "12:18:30", { by: "agent", note: OS_OUTPUT_AUTOSAVE_NOTE });
 	f.save("run", "12:18:40", { skillRunId: "run-1" });
 	f.save("b3", "12:19:00");
-	// Within the last hour: kept whatever they are.
-	f.save("young1", "13:10:00");
-	f.save("young2", "13:11:00");
-	f.save("current", "13:12:00");
+	// Within the last day: kept whatever they are.
+	f.save("young1", "15:10:00");
+	f.save("young2", "15:11:00");
+	f.save("current", "15:12:00");
 }
 
 describe("thinning auto-save revisions", () => {
@@ -222,7 +231,7 @@ describe("thinning auto-save revisions", () => {
 		expect(f.objects.size).toBe(0);
 	});
 
-	it("keeps one auto-save per ten minutes per person after the first hour, and everything that is not an auto-save", async () => {
+	it("keeps one auto-save per ten minutes per person after the first day, and everything that is not an auto-save", async () => {
 		const f = fixture();
 		morning(f);
 		await f.arm("apply");
@@ -256,13 +265,31 @@ describe("thinning auto-save revisions", () => {
 		expect(numbers).toEqual([1, 5, 8, 10, 11, 12, 13, 14, 15, 16]);
 		const report = f.json(result.reportKey!);
 		expect(report).toMatchObject({ mode: "apply", revisions: 6, bytes: 600 });
-		// A second pass an hour later finds nothing more of that morning.
+		// A second pass after the pause finds nothing more of that morning.
 		expect(await f.tick()).toMatchObject({ status: "waiting" });
-		const later = await f.tick(new Date(now.getTime() + 61 * 60_000));
-		// By then the last hour's saves have aged; the current revision is the
+		const later = await f.tick(new Date(now.getTime() + 25 * 60 * 60_000));
+		// By then the last day's saves have aged; the current revision is the
 		// one that stays for their ten minutes.
 		expect(later.tick.revisions).toBe(2);
 		expect(f.kept().slice(-2)).toEqual(["b3", "current"]);
+	});
+
+	it("deletes a stored body only when no workspace revision still references it", async () => {
+		const f = fixture();
+		f.file("file", "current");
+		f.save("first", "12:00:00", { note: null });
+		f.save("victim-1", "12:01:00", { bodyKey: "body-victim" });
+		f.save("victim-2", "12:02:00", { bodyKey: "body-victim" });
+		f.save("victim-3", "12:03:00", { bodyKey: "body-shared" });
+		f.save("keep-1", "12:04:00", { bodyKey: "body-shared" });
+		f.save("current", "15:00:00");
+		f.objects.set("body-victim", new ArrayBuffer(1));
+		f.objects.set("body-shared", new ArrayBuffer(1));
+		await f.arm("apply");
+		expect((await f.tick()).tick.revisions).toBe(3);
+		expect(f.kept()).toEqual(["first", "keep-1", "current"]);
+		expect(f.objects.has("body-victim")).toBe(false);
+		expect(f.objects.has("body-shared")).toBe(true);
 	});
 
 	it("reports what it would remove in a dry run, removes nothing and turns itself off", async () => {

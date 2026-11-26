@@ -79,6 +79,7 @@ export interface OutputQueryInputs {
 	revise: { params: outputs.CreateOsOutputRevisionParams; excerpt?: string };
 	mergeProposal: CommitCollaborationOutputParams;
 	thin: Parameters<typeof outputs.thinOsOutputRevisions>[2];
+	bodyReferences: { bodyKeys: string[] };
 	rebody: {
 		revisionId: string;
 		previousSha256: string;
@@ -118,6 +119,7 @@ export interface OutputQueryResults {
 		| Extract<outputs.CreateOsOutputRevisionResult, { ok: false }>;
 	mergeProposal: ReturnType<typeof outputs.mergeOsOutputProposal>;
 	thin: string[];
+	bodyReferences: string[];
 	rebody: boolean;
 	update: Awaited<ReturnType<typeof outputs.updateOsOutput>>;
 	delete: Awaited<ReturnType<typeof outputs.deleteOsOutput>>;
@@ -262,6 +264,10 @@ async function execute(
 		case "thin":
 			await owned(query.outputId);
 			return outputs.thinOsOutputRevisions(db, scope, query);
+		case "bodyReferences":
+			return [
+				...(await outputs.referencedOutputBodyKeys(db, scope, query.bodyKeys)),
+			];
 		case "rebody": {
 			const revision = await outputs.getOsOutputRevision(db, {
 				organizationId: scope.organizationId,

@@ -3,6 +3,7 @@ import {
 	deleteThinnedOutputIndex,
 	getOutputIndexMaxRowid,
 	listObjectOutputThinningCandidates,
+	listOutputBodyReferenceWorkspaces,
 } from "@tedix/db/queries/os-workspaces/output-revision-thinning";
 import type { WorkspaceOutputRuntime } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import type { DbQueryClient } from "@tedix/db/query-client";
@@ -16,17 +17,18 @@ import type { OutputBodyBucket } from "./os-output-revision-body-store";
  * Thins editor auto-save revisions out of file history.
  *
  * An editor saves a moment after each pause in typing. Every one of those
- * revisions is kept for an hour. After that this job keeps one auto-save per
+ * revisions is kept for a day. After that this job keeps one auto-save per
  * ten minutes per file and person and removes the rest, together with their
- * rows in the output index. What is always kept, and every reference that
- * protects a revision, is listed with the query that picks the candidates
+ * rows in the output index and any stored body no workspace revision still
+ * references. What is always kept, and every reference that protects a
+ * revision, is listed with the query that picks the candidates
  * (`listObjectOutputThinningCandidates`). Candidates come from the output
  * index; each workspace store rechecks and deletes its own revisions.
  *
- * Stored bodies are not deleted here. They are shared by content inside an
- * organization. Body collection stays paused until a complete inventory
- * includes every workspace object's historical revisions.
- * Stored images belong to the file and are not touched.
+ * Body collection asks every workspace store in the organization whether a
+ * removed revision's body is still referenced before deleting the R2 object.
+ * If the workspace directory is too large to inventory in one tick, bodies
+ * are left in place rather than risking a referenced object.
  *
  * It never starts on its own, because a deleted revision cannot be brought
  * back and revision numbers kept inside card-review feedback are not
@@ -85,7 +87,7 @@ export const DEFAULT_OUTPUT_THINNING_LIMITS: OutputThinningLimits = {
 	windowRows: 2_000,
 	maxRows: 40,
 	maxMs: 15_000,
-	keepAllMs: 60 * 60_000,
+	keepAllMs: 24 * 60 * 60_000,
 	passPauseMs: 60 * 60_000,
 };
 
@@ -139,6 +141,40 @@ export interface OutputThinningTickResult {
 
 function isBusy(error: unknown) {
 	return error instanceof D1ReadTimeoutError || isTransientD1ReadError(error);
+}
+
+async function deleteUnreferencedBodies(input: {
+	db: DbQueryClient;
+	runtime?: Pick<WorkspaceOutputRuntime, "outputQuery">;
+	bucket: OutputBodyBucket;
+	bodyKeys: Map<string, Set<string>>;
+}) {
+	for (const [organizationId, keys] of input.bodyKeys) {
+		const bodyKeys = [...keys];
+		if (!bodyKeys.length) continue;
+		const workspaceIds = await listOutputBodyReferenceWorkspaces(
+			input.db,
+			organizationId,
+		);
+		// Without a complete workspace inventory a body may still be referenced.
+		if (!workspaceIds) continue;
+		const referenced = new Set<string>();
+		for (const workspaceId of workspaceIds) {
+			if (!input.runtime) throw new Error("Workspace output store unavailable");
+			const rows = await input.runtime.outputQuery(
+				{ organizationId, workspaceId },
+				{ op: "bodyReferences", bodyKeys },
+			);
+			if (!Array.isArray(rows))
+				throw new Error("Workspace body reference check unavailable");
+			for (const key of rows) referenced.add(key);
+		}
+		const unreferenced = bodyKeys.filter((key) => !referenced.has(key));
+		if (!unreferenced.length) continue;
+		if (!input.bucket.delete)
+			throw new Error("Output body bucket cannot delete objects");
+		await input.bucket.delete(unreferenced);
+	}
 }
 
 export async function runOutputRevisionThinningTick(input: {
@@ -210,6 +246,7 @@ export async function runOutputRevisionThinningTick(input: {
 			});
 
 			const removed = new Set<string>();
+			const bodyKeys = new Map<string, Set<string>>();
 			const pending = new Set(candidates.map((row) => row.rowid));
 			const groups = new Map<string, typeof candidates>();
 			for (const candidate of candidates) {
@@ -245,8 +282,25 @@ export async function runOutputRevisionThinningTick(input: {
 					dryRun: mode === "dry_run",
 				});
 				for (const id of ids) removed.add(id);
-				if (mode === "apply") await deleteThinnedOutputIndex(db, ids);
+				if (mode === "apply") {
+					const removedHere = new Set(ids);
+					for (const row of group) {
+						if (!removedHere.has(row.revisionId) || !row.bodyR2Key) continue;
+						const keys = bodyKeys.get(row.organizationId) ?? new Set<string>();
+						keys.add(row.bodyR2Key);
+						bodyKeys.set(row.organizationId, keys);
+					}
+				}
 				for (const row of group) pending.delete(row.rowid);
+			}
+			if (mode === "apply" && removed.size) {
+				await deleteUnreferencedBodies({
+					db,
+					runtime: input.runtime,
+					bucket,
+					bodyKeys,
+				});
+				await deleteThinnedOutputIndex(db, [...removed]);
 			}
 			processed += candidates.length;
 

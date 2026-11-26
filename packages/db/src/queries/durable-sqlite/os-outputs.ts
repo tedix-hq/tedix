@@ -621,6 +621,33 @@ export async function referencedOutputBodyHashes(
 	return new Set(rows.flatMap((row) => (row.hash ? [row.hash] : [])));
 }
 
+/** Stored bodies still named by any revision in this workspace. */
+export async function referencedOutputBodyKeys(
+	db: TenantStoreDb,
+	scope: { organizationId: string; workspaceId: string },
+	keys: readonly string[],
+): Promise<Set<string>> {
+	if (!keys.length) return new Set();
+	if (
+		keys.length > OUTPUT_THINNING_MAX_LIMIT ||
+		keys.some((key) => !key || key.length > 1_024)
+	)
+		throw new Error("Invalid output body reference query");
+	const rows = await db
+		.selectDistinct({ key: osOutputRevisions.bodyR2Key })
+		.from(osOutputRevisions)
+		.innerJoin(osOutputs, eq(osOutputs.id, osOutputRevisions.outputId))
+		.where(
+			and(
+				eq(osOutputRevisions.organizationId, scope.organizationId),
+				eq(osOutputs.organizationId, scope.organizationId),
+				eq(osOutputs.workspaceId, scope.workspaceId),
+				sql`${osOutputRevisions.bodyR2Key} IN (SELECT value FROM json_each(${JSON.stringify(keys)}))`,
+			),
+		);
+	return new Set(rows.flatMap((row) => (row.key ? [row.key] : [])));
+}
+
 export interface OutputTransferSnapshot {
 	output: OsOutputRow;
 	revisions: OsOutputRevisionRow[];

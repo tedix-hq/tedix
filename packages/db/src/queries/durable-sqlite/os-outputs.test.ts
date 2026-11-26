@@ -350,6 +350,20 @@ describe("workspace object outputs", () => {
 		expect(
 			await tenant.referencedOutputBodyHashes(t.db, "org-1", [sha, "other"]),
 		).toEqual(new Set([sha]));
+		const scope = { organizationId: "org-1", workspaceId: "ws-1" };
+		expect(
+			await tenant.referencedOutputBodyKeys(t.db, scope, [
+				"org-1/outputs/out-1/rev-1",
+				"missing",
+			]),
+		).toEqual(new Set(["org-1/outputs/out-1/rev-1"]));
+		expect(
+			await tenant.referencedOutputBodyKeys(
+				t.db,
+				{ ...scope, workspaceId: "ws-2" },
+				["org-1/outputs/out-1/rev-1"],
+			),
+		).toEqual(new Set());
 	});
 
 	it("rejects an inline revision on the tenant plane", async () => {

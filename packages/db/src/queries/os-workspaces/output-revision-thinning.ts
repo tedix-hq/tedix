@@ -2,7 +2,10 @@ import { and, eq, inArray, sql, type SQLWrapper } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
 import { osReviewBatches, osShareLinks } from "../../schema/os-shares";
-import { osCollaborationProposals } from "../../schema/os-workspaces";
+import {
+	osCollaborationProposals,
+	osWorkspaces,
+} from "../../schema/os-workspaces";
 import { workEvidence } from "../../schema/work-items";
 import {
 	workspaceActivity,
@@ -12,14 +15,14 @@ import {
 /**
  * Thinning of editor auto-save revisions.
  *
- * An editor saves a moment after each pause in typing, so one hour of
+ * An editor saves a moment after each pause in typing, so one day of
  * editing leaves hundreds of revisions that differ by a few words. History
  * stays useful with far fewer. A revision may be removed only when ALL of
  * this holds:
  *
  * - it is an auto-save: written by a person, by no skill run, with the
  *   auto-save note (`autosaveNote`);
- * - it is older than `olderThan` (an hour: an open editor may still send an
+ * - it is older than `olderThan` (a day: an open editor may still send an
  *   edit based on anything younger);
  * - it is neither the file's current, newest nor first revision;
  * - a later revision of the same file by the same person exists in the same
@@ -38,6 +41,8 @@ export const OUTPUT_THINNING_MAX_WINDOW = 5_000;
 export const OUTPUT_THINNING_MAX_LIMIT = 40;
 /** Seconds in one window that keeps one auto-save per file and person. */
 export const OUTPUT_THINNING_WINDOW_SECONDS = 600;
+/** Workspace stores inventoried per body-collection pass; larger orgs skip bodies. */
+export const OUTPUT_THINNING_MAX_REFERENCE_WORKSPACES = 500;
 
 export interface OutputThinningCandidate {
 	rowid: number;
@@ -48,6 +53,8 @@ export interface OutputThinningCandidate {
 	revision: number;
 	/** Stored body size; several revisions may share one stored body. */
 	bytes: number;
+	/** R2 object holding the revision body; null for inline legacy rows. */
+	bodyR2Key: string | null;
 }
 
 /** Core references protect revisions regardless of which store owns their bodies. */
@@ -132,6 +139,7 @@ export async function listObjectOutputThinningCandidates(
 			outputId: i.outputId,
 			revision: i.revision,
 			bytes: sql<number>`coalesce(${i.contentBytes}, 0)`.as("revision_bytes"),
+			bodyR2Key: i.bodyR2Key,
 		})
 		.from(i)
 		.where(sql`${indexRowid} > ${params.after} AND ${indexRowid} <= ${params.through}
@@ -193,4 +201,21 @@ export async function unreferencedObjectOutputRevisions(
 				),
 			)
 	).map((row) => row.id);
+}
+
+/**
+ * Every workspace store that can still reference an organization body. Null
+ * means the inventory was truncated, so callers must not delete bodies.
+ */
+export async function listOutputBodyReferenceWorkspaces(
+	db: DbQueryClient,
+	organizationId: string,
+): Promise<string[] | null> {
+	const rows = await db
+		.select({ id: osWorkspaces.id })
+		.from(osWorkspaces)
+		.where(eq(osWorkspaces.organizationId, organizationId))
+		.limit(OUTPUT_THINNING_MAX_REFERENCE_WORKSPACES + 1);
+	if (rows.length > OUTPUT_THINNING_MAX_REFERENCE_WORKSPACES) return null;
+	return rows.map((row) => row.id);
 }

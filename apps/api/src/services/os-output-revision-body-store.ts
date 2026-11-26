@@ -11,6 +11,7 @@ import {
 export interface OutputBodyBucket {
 	get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
 	put(key: string, value: ArrayBuffer): Promise<unknown>;
+	delete?(keys: string | string[]): Promise<unknown>;
 }
 
 // Cache only verified immutable bytes, never revision metadata or access decisions.
