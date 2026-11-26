@@ -83,7 +83,10 @@ try {
 			const release = Promise.withResolvers<void>();
 			let reads = 0;
 			await page.route("**/osWorkspaces/outputs/get*", async (route) => {
-				if (mode === "delayed" && ++reads > 1) await release.promise;
+				if (mode === "delayed" && ++reads > 1) {
+					await page.evaluate(() => performance.mark("editor-read-held"));
+					await release.promise;
+				}
 				await route.continue();
 			});
 			const requests: { path: string; start: number; end: number }[] = [];
@@ -159,41 +162,41 @@ try {
 					end: timing.startTime + timing.responseEnd,
 				});
 			});
-			// A link to a file whose editor is not attached yet attaches it and
-			// opens the editor without a click, so that open is timed from the
-			// navigation.
-			let driverStarted = Date.now();
-			let started = driverStarted;
 			await page.goto(
-				`${tenantOrigin.origin}/workspace/${workspace.id}?${mode === "attach" ? `workpiece=output%3A${output.id}&pane=workpiece` : "pane=chat"}`,
+				`${tenantOrigin.origin}/workspace/${workspace.id}?pane=chat`,
 			);
-			if (mode !== "attach") {
-				const open = page
-					.getByRole("list", { name: "Files", exact: true })
-					.locator("button.workspace-outputs-row")
-					.filter({ hasText: `First ${kind}` });
-				await open.waitFor();
-				await open.evaluate((element) =>
-					element.addEventListener(
-						"click",
-						(event) => {
-							performance.mark("editor-open-click", {
-								startTime: event.timeStamp,
-							});
-						},
-						{ once: true, capture: true },
-					),
-				);
-				driverStarted = Date.now();
-				await open.click();
-				started = await page.evaluate(
-					() =>
-						performance.timeOrigin +
-						performance.getEntriesByName("editor-open-click")[0]!.startTime,
-				);
-			}
+			const open = page
+				.getByRole("list", { name: "Files", exact: true })
+				.locator("button.workspace-outputs-row")
+				.filter({
+					has: page.locator(".workspace-outputs-title").filter({
+						hasText: new RegExp(`^First ${kind}$`),
+					}),
+				});
+			await open.waitFor();
+			await open.evaluate((element) =>
+				element.addEventListener(
+					"click",
+					(event) => {
+						performance.mark("editor-open-click", {
+							startTime: event.timeStamp,
+						});
+					},
+					{ once: true, capture: true },
+				),
+			);
+			const driverStarted = Date.now();
+			await open.click();
+			const started = await page.evaluate(
+				() =>
+					performance.timeOrigin +
+					performance.getEntriesByName("editor-open-click")[0]!.startTime,
+			);
 			if (mode === "delayed") {
 				try {
+					await page.waitForFunction(
+						() => performance.getEntriesByName("editor-read-held").length > 0,
+					);
 					const snapshot = page.getByRole("region", {
 						name: "Saved version while editor opens",
 					});
@@ -203,6 +206,17 @@ try {
 							{ exact: true },
 						)
 						.waitFor();
+					if (kind === "sheet")
+						for (const text of ["First", "Second", "Third", "Fourth"])
+							assert(
+								await snapshot.getByText(text, { exact: true }).isVisible(),
+							);
+					assert(
+						!(await page
+							.locator('[data-app-runtime-frame][data-content-ready="true"]')
+							.count()),
+						"The saved version must stay readable before the held editor read returns",
+					);
 					await page.waitForFunction(
 						() => performance.getEntriesByName("editor-saved-paint").length > 0,
 					);
@@ -211,7 +225,9 @@ try {
 							performance.getEntriesByName("editor-saved-paint")[0]!.startTime -
 							performance.getEntriesByName("editor-open-click")[0]!.startTime,
 					);
-					console.log(JSON.stringify({ kind, mode, savedPaintMs }));
+					console.log(
+						JSON.stringify({ kind, mode, savedPaintMs, heldReads: reads - 1 }),
+					);
 					assert(
 						savedPaintMs < 2000,
 						`${kind} saved version must paint within 2000ms while editor reads are held`,
@@ -227,19 +243,18 @@ try {
 				.locator(kind === "sheet" ? "td[data-row]" : ".tiptap")
 				.first()
 				.waitFor({ timeout: 30000 });
-			if (mode !== "attach")
-				await page.waitForFunction(
-					() => performance.getEntriesByName("editor-first-paint").length > 0,
-				);
-			const paintedAt =
-				mode === "attach"
-					? Date.now()
-					: await page.evaluate(
-							() =>
-								performance.timeOrigin +
-								performance.getEntriesByName("editor-first-paint")[0]!
-									.startTime,
-						);
+			await page.waitForFunction(
+				() => performance.getEntriesByName("editor-first-paint").length > 0,
+			);
+			for (const text of kind === "sheet"
+				? ["First", "Second", "Third", "Fourth"]
+				: ["Saved text for editor timing."])
+				assert(await frame.getByText(text, { exact: true }).isVisible());
+			const paintedAt = await page.evaluate(
+				() =>
+					performance.timeOrigin +
+					performance.getEntriesByName("editor-first-paint")[0]!.startTime,
+			);
 			const firstPaintMs = Math.round(paintedAt - started);
 			console.log(
 				JSON.stringify({
@@ -257,11 +272,16 @@ try {
 						})),
 				}),
 			);
-			// The paint budget is for a click on a file; the attach open above
-			// also loads the page.
-			if (mode === "file")
+			if (mode !== "delayed")
 				timings.push({ kind: `${kind}:${mode}`, firstPaintMs });
 			assert(attached, "A file without an editor must get one attached");
+			if (mode === "attach")
+				assert(
+					requests.some((row) =>
+						row.path.endsWith("/gadgets/installOutputEditor"),
+					),
+					"The attach case must call the real editor attachment endpoint",
+				);
 			assert(
 				!requests.some((row) => row.path.endsWith("/osAppRuntime/open")),
 				"Office editors must open through the host without starting an app server session",
