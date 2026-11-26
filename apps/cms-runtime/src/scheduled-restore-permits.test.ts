@@ -15,6 +15,7 @@ import {
 import { tenantRuntimeEntrypointModule } from "./index";
 import { sweepCmsRestorePermitLeases } from "./cms-restore-permit-leases";
 import { PublicRestorePermits } from "./public-restore-permits";
+import { runScheduledFanout } from "./scheduled-fanout";
 
 const bindings = env as unknown as {
 	PLATFORM_DB: D1Database;
@@ -351,6 +352,86 @@ function tenant(source: string) {
 }
 
 describe("scheduled tenant runs", () => {
+	test("holds fanout slots through receipts and retains an unknown handler's permit", async () => {
+		const sites = await Promise.all(Array.from({ length: 6 }, site));
+		const receipts = Array.from({ length: 4 }, () =>
+			Promise.withResolvers<void>(),
+		);
+		const allReceiptsStarted = Promise.withResolvers<void>();
+		const tailCompleted = Promise.withResolvers<void>();
+		let receiptCount = 0;
+		const blockedStorage = new Proxy(storage, {
+			get(target, property) {
+				if (property === "put")
+					return async (name: string, value: string) => {
+						const index = sites.findIndex((identity) =>
+							name.includes(identity.siteId),
+						);
+						if (index < 4) {
+							if (++receiptCount === 4) allReceiptsStarted.resolve();
+							await receipts[index]!.promise;
+						}
+						return target.put(name, value);
+					};
+				const value = Reflect.get(target, property, target);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+		const started: number[] = [];
+		const errors = vi.fn();
+		const fanout = runScheduledFanout(
+			sites,
+			async (identity, attempted) => {
+				const index = sites.indexOf(identity);
+				const result = await runScheduledTenant(
+					db,
+					blockedStorage,
+					identity,
+					{
+						ready: async () => {
+							expect(
+								await countCmsRestorePermitsForSite(db, identity.siteId),
+							).toBe(0);
+						},
+						scheduled: async () => {
+							started.push(index);
+							attempted();
+							if (index === 4) throw new Error("RPC response lost");
+							return "done";
+						},
+					},
+					leaseContext,
+				);
+				if (index === 5) tailCompleted.resolve();
+				return result.admitted ? "succeeded" : "skipped";
+			},
+			errors,
+		);
+		await allReceiptsStarted.promise;
+		expect([...started].sort()).toEqual([0, 1, 2, 3]);
+		for (const identity of sites.slice(0, 4)) {
+			expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
+		}
+		receipts[0]!.resolve();
+		await tailCompleted.promise;
+		expect(await countCmsRestorePermitsForSite(db, sites[0]!.siteId)).toBe(0);
+		expect(await countCmsRestorePermitsForSite(db, sites[4]!.siteId)).toBe(1);
+		expect(
+			await reconcileScheduledCmsRestorePermits(db, storage, sites[4]!),
+		).toBe(0);
+		for (const receipt of receipts.slice(1)) receipt.resolve();
+		expect(await fanout).toEqual({
+			attempted: 6,
+			succeeded: 5,
+			skipped: 0,
+			failed: 1,
+		});
+		expect(errors).toHaveBeenCalledExactlyOnceWith(sites[4], expect.any(Error));
+		for (const identity of sites.filter((_, index) => index !== 4)) {
+			expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
+		}
+	});
+
 	test("a bundle that fails to start holds no permit and never blocks capture", async () => {
 		const identity = await site();
 		await expect(

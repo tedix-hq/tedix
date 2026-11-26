@@ -60,6 +60,7 @@ import {
 	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
 import { runScheduledTenantWithPermit } from "./scheduled-restore-permits";
+import { runScheduledFanout } from "./scheduled-fanout";
 import { sweepCmsRestorePermitLeases } from "./cms-restore-permit-leases";
 import { retainTenantBundles } from "./bundle-retention";
 import { r2RestHeaders } from "./r2-rest";
@@ -2485,13 +2486,6 @@ export default {
 			return;
 		}
 
-		const counters = {
-			attempted: 0,
-			succeeded: 0,
-			skipped: 0,
-			failed: 0,
-		};
-
 		let siteDrill: CmsSiteDrillIdentity | null = null;
 		try {
 			siteDrill = await readSiteDrillIdentity(env.RECOVERY_STORAGE);
@@ -2502,16 +2496,16 @@ export default {
 			);
 		}
 
-		for (const bundle of bundles) {
-			const slug = bundle.slug;
-			try {
+		const counters = await runScheduledFanout(
+			bundles,
+			async (bundle, attempted) => {
+				const slug = bundle.slug;
 				const org = await lookupOrg(env, slug);
 				if (!org) {
-					counters.skipped += 1;
 					console.warn(
 						`[cms-runtime] scheduled fanout skipped ${slug}: no CMS org`,
 					);
-					continue;
+					return "skipped";
 				}
 				const pause = await fixedSiteCronPauseDecision(
 					env.RECOVERY_STORAGE,
@@ -2522,19 +2516,17 @@ export default {
 					siteDrill,
 				);
 				if (pause.pause) {
-					counters.skipped += 1;
 					console.warn(
 						`[cms-runtime] scheduled fanout skipped ${slug}: ${pause.reason}`,
 					);
-					continue;
+					return "skipped";
 				}
 				const restoreEpoch = await getCmsRestoreEpoch(
 					createDbQueryClient(env.PLATFORM_DB),
 					{ siteId: org.siteId, slug },
 				);
 				if (restoreEpoch === null) {
-					counters.skipped += 1;
-					continue;
+					return "skipped";
 				}
 
 				await retainTenantBundles(
@@ -2578,11 +2570,10 @@ export default {
 					spans: {},
 				}) as TenantScheduledFetcher;
 				if (typeof tenantEntrypoint.scheduled !== "function") {
-					counters.skipped += 1;
 					console.warn(
 						`[cms-runtime] scheduled fanout skipped ${slug}: tenant entrypoint has no scheduled handler`,
 					);
-					continue;
+					return "skipped";
 				}
 
 				// Cron pauses drain exact scheduled permits separately from shared nested work.
@@ -2593,7 +2584,7 @@ export default {
 					{
 						ready: () => tenantEntrypoint.ready(),
 						scheduled: (completed) => {
-							counters.attempted += 1;
+							attempted();
 							return tenantEntrypoint.scheduled!(
 								{
 									cron: controller.cron,
@@ -2606,22 +2597,22 @@ export default {
 					ctx,
 				);
 				if (!permitted.admitted) {
-					counters.skipped += 1;
 					console.warn(
 						`[cms-runtime] scheduled fanout skipped ${slug}: scheduled write permit unavailable`,
 					);
 				} else {
 					if (!permitted.value.ok) throw new Error(permitted.value.error);
-					counters.succeeded += 1;
+					return "succeeded";
 				}
-			} catch (err) {
-				counters.failed += 1;
+				return "skipped";
+			},
+			(bundle, err) => {
 				console.error(
-					`[cms-runtime] scheduled fanout failed for ${slug}:`,
+					`[cms-runtime] scheduled fanout failed for ${bundle.slug}:`,
 					err,
 				);
-			}
-		}
+			},
+		);
 
 		console.log(
 			`[cms-runtime] scheduled fanout complete cron=${controller.cron} tenants=${bundles.length} attempted=${counters.attempted} succeeded=${counters.succeeded} skipped=${counters.skipped} failed=${counters.failed} durationMs=${Date.now() - startedAt}`,
