@@ -1,5 +1,6 @@
 import { coreDb } from "@tedix/db/core-store/scope";
 import { resolveOrganizationHostname } from "@tedix/db/queries/organization-domains";
+import { withTransientD1ReadRetry } from "@tedix/db/utils/d1-retry";
 import { implement } from "@orpc/server";
 import { osTenantContract } from "@tedix/api-contract/contracts/os-tenant";
 import {
@@ -26,8 +27,19 @@ import { osAudit, OS_TENANT_AUDIT } from "../os-audit";
 const osTenantOs = implement(osTenantContract).$context<BaseContext>();
 const service = osTenantOs.use(withServiceAuth).use(osAudit(OS_TENANT_AUDIT));
 
+/** D1 can refuse a read for a moment under load; the same read soon succeeds. */
+function readTenant<T>(label: string, read: () => Promise<T>): Promise<T> {
+	return withTransientD1ReadRetry(`os_tenant.${label}`, read, {
+		attempts: 4,
+		delayMs: 150 + Math.floor(Math.random() * 150),
+		timeoutMs: 3000,
+	});
+}
+
 const resolve = service.resolve.handler(async ({ input, context }) => {
-	const organization = await getOrganizationBySlug(context.db, input.slug);
+	const organization = await readTenant("resolve", () =>
+		getOrganizationBySlug(context.db, input.slug),
+	);
 	const provisioned = organization?.features?.os === true;
 	return {
 		provisioned,
@@ -44,9 +56,11 @@ const resolve = service.resolve.handler(async ({ input, context }) => {
 
 const resolveHostname = service.resolveHostname.handler(
 	async ({ input, context }) => {
-		const row = await resolveOrganizationHostname(
-			context.env.DB ? coreDb(context.env) : context.db,
-			input.hostname,
+		const row = await readTenant("resolve_hostname", () =>
+			resolveOrganizationHostname(
+				context.env.DB ? coreDb(context.env) : context.db,
+				input.hostname,
+			),
 		);
 		return {
 			provisioned: Boolean(row),

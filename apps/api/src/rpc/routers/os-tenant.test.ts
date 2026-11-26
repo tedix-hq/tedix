@@ -84,6 +84,39 @@ describe("osTenant.resolve", () => {
 			descopeTenantId: null,
 		});
 	});
+
+	it("rides out a brief D1 overload instead of refusing the tenant", async () => {
+		seedOrganization("provisioned", JSON.stringify({ os: true }));
+		const facade = createD1Facade(sqlite);
+		let refusals = 1;
+		const flaky = new Proxy(facade, {
+			get(target, key, receiver) {
+				if (key === "prepare" && refusals > 0) {
+					refusals -= 1;
+					return () => {
+						throw new Error(
+							"D1_ERROR: D1 DB is overloaded. Requests queued for too long.",
+						);
+					};
+				}
+				const value = Reflect.get(target, key, receiver);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+		const client = createRouterClient(osTenantContractRouter, {
+			context: {
+				...context(true),
+				db: createDbClient(flaky) as BaseContext["db"],
+			} as BaseContext,
+		});
+
+		await expect(client.resolve({ slug: "provisioned" })).resolves.toEqual({
+			provisioned: true,
+			organizationId: "org-provisioned",
+			descopeTenantId: null,
+		});
+		expect(refusals).toBe(0);
+	});
 });
 
 describe("osTenant.resolveHostname", () => {
