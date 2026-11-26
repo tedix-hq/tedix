@@ -263,9 +263,13 @@ if (import.meta.main) {
 					},
 				);
 				if (result.status === 0) return JSON.parse(result.stdout);
-				const transient = /unavailable/i.test(
-					`${result.stdout ?? ""}${result.stderr ?? ""}`,
-				);
+				// A read that hangs past its limit (killed, no exit status) is
+				// as transient as one the backend answers with "unavailable".
+				const transient =
+					result.status === null ||
+					/unavailable|timed out/i.test(
+						`${result.stdout ?? ""}${result.stderr ?? ""}`,
+					);
 				const pause = Math.min(3_000 * attempt, 15_000);
 				if (!transient || Date.now() + pause >= giveUpAt)
 					throw new Error(
