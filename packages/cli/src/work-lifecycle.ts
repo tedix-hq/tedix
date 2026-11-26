@@ -294,7 +294,8 @@ export async function workHeartbeat(
 					// alone would mistake them for a refusal.
 					const transient =
 						transientReadFailure(touch.error) ||
-						(touch.error.status === undefined && touch.error.code === undefined);
+						(touch.error.status === undefined &&
+							touch.error.code === undefined);
 					// Retry only after a confirmed renewal and inside that lease; a guessed
 					// lease never grants permission to keep trying.
 					if (
