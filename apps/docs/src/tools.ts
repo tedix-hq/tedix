@@ -160,18 +160,18 @@ async function ownedSite(
 	ctx: DocsToolContext,
 	siteId: string,
 ): Promise<DocsSite> {
-	return assertOwned(await getSiteById(ctx.env.DB, siteId), ctx.orgSlug);
+	return assertOwned(await getSiteById(ctx.env, siteId), ctx.orgSlug);
 }
 
 async function ownedChange(
 	ctx: DocsToolContext,
 	changeId: string,
 ): Promise<{ change: DocsChange; site: DocsSite }> {
-	const change = await getChange(ctx.env.DB, changeId);
+	const change = await getChange(ctx.env, changeId);
 	if (!change) throw new Error("Documentation change not found");
 	const site = await ownedSite(ctx, change.siteId);
 	return {
-		change: await syncChangeValidation(ctx.env.DB, change),
+		change: await syncChangeValidation(ctx.env, change),
 		site,
 	};
 }
@@ -202,7 +202,7 @@ async function queueBuild(
 			);
 		}
 	}
-	const build = await createBuild(ctx.env.DB, {
+	const build = await createBuild(ctx.env, {
 		siteId: input.site.id,
 		sourceBranch: input.sourceBranch,
 		proposalId: input.proposalId,
@@ -242,7 +242,7 @@ async function queueBuild(
 				.output({ encoding: "utf8", maxBytes: 16 * 1024 * 1024 })
 				.catch(() => undefined);
 		}
-		await updateBuildProgress(ctx.env.DB, build.id, {
+		await updateBuildProgress(ctx.env, build.id, {
 			status: "failed",
 			phase: "failed",
 			error: (error instanceof Error ? error.message : String(error)).slice(
@@ -278,7 +278,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 		},
 		async () =>
 			runTool(ctx, "list_docs_sites", async () => ({
-				sites: await listSites(ctx.env.DB, ctx.orgSlug),
+				sites: await listSites(ctx.env, ctx.orgSlug),
 			})),
 	);
 
@@ -349,7 +349,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 					throw new Error("Canonical URL must use HTTPS");
 				}
 				return {
-					site: await upsertSite(ctx.env.DB, {
+					site: await upsertSite(ctx.env, {
 						id: input.siteId,
 						orgSlug: ctx.orgSlug,
 						slug,
@@ -411,7 +411,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 				});
 				const importedRemote = await imported.remote;
 				return {
-					site: await upsertSite(ctx.env.DB, {
+					site: await upsertSite(ctx.env, {
 						...site,
 						id: site.id,
 						repositoryUrl: assertArtifactsRepositoryUrl(
@@ -455,7 +455,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 				const site = await ownedSite(ctx, siteId);
 				if (!site.activeBuildId)
 					throw new Error("Docs site has no active build");
-				const build = await getBuild(ctx.env.DB, site.activeBuildId);
+				const build = await getBuild(ctx.env, site.activeBuildId);
 				if (!build) throw new Error("Active Docs build not found");
 				return searchPublicDocs(ctx.env, site, build, query, limit);
 			}),
@@ -494,7 +494,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 		async ({ siteId, buildId }: { siteId: string; buildId: string }) =>
 			runTool(ctx, "publish_docs_build", async () => {
 				const site = await ownedSite(ctx, siteId);
-				const build = await getBuild(ctx.env.DB, buildId);
+				const build = await getBuild(ctx.env, buildId);
 				if (
 					!build ||
 					build.siteId !== site.id ||
@@ -505,7 +505,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 						"Only a completed preview from the configured branch can be published",
 					);
 				}
-				const activated = await activateBuild(ctx.env.DB, {
+				const activated = await activateBuild(ctx.env, {
 					buildId,
 					orgSlug: ctx.orgSlug,
 					siteId,
@@ -533,11 +533,11 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 		async ({ siteId, buildId }: { siteId: string; buildId: string }) =>
 			runTool(ctx, "rollback_docs_build", async () => {
 				const site = await ownedSite(ctx, siteId);
-				const build = await getBuild(ctx.env.DB, buildId);
+				const build = await getBuild(ctx.env, buildId);
 				if (!build || build.siteId !== site.id) {
 					throw new Error("Documentation build not found");
 				}
-				const activated = await activateBuild(ctx.env.DB, {
+				const activated = await activateBuild(ctx.env, {
 					buildId,
 					orgSlug: ctx.orgSlug,
 					siteId,
@@ -559,7 +559,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 		async ({ siteId }: { siteId: string }) =>
 			runTool(ctx, "list_docs_builds", async () => {
 				await ownedSite(ctx, siteId);
-				return { builds: await listBuilds(ctx.env.DB, siteId) };
+				return { builds: await listBuilds(ctx.env, siteId) };
 			}),
 	);
 
@@ -573,7 +573,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 		},
 		async ({ buildId }: { buildId: string }) =>
 			runTool(ctx, "get_docs_build", async () => {
-				const build = await getBuild(ctx.env.DB, buildId);
+				const build = await getBuild(ctx.env, buildId);
 				if (!build) throw new Error("Documentation build not found");
 				await ownedSite(ctx, build.siteId);
 				return { build };
@@ -591,7 +591,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 		},
 		async ({ buildId }: { buildId: string }) =>
 			runTool(ctx, "get_docs_preview_link", async () => {
-				const build = await getBuild(ctx.env.DB, buildId);
+				const build = await getBuild(ctx.env, buildId);
 				if (build?.status !== "complete") {
 					throw new Error("Documentation preview is not ready");
 				}
@@ -615,7 +615,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 		async ({ siteId }: { siteId: string }) =>
 			runTool(ctx, "list_docs_releases", async () => {
 				await ownedSite(ctx, siteId);
-				return { releases: await listReleases(ctx.env.DB, siteId) };
+				return { releases: await listReleases(ctx.env, siteId) };
 			}),
 	);
 
@@ -706,7 +706,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 			runTool(ctx, "propose_docs_change", async () => {
 				const site = await ownedSite(ctx, input.siteId);
 				const changeId = input.proposalId ?? crypto.randomUUID();
-				const existing = await getChange(ctx.env.DB, changeId);
+				const existing = await getChange(ctx.env, changeId);
 				if (existing) {
 					if (existing.siteId !== site.id) {
 						throw new Error("Proposal ID belongs to another site");
@@ -720,7 +720,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 					message: input.message,
 					path: input.path,
 				});
-				const change = await createChange(ctx.env.DB, {
+				const change = await createChange(ctx.env, {
 					id: changeId,
 					siteId: site.id,
 					path: input.path,
@@ -753,7 +753,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 				if (change.status === "validating" && change.previewBuildId) {
 					return {
 						change,
-						build: await getBuild(ctx.env.DB, change.previewBuildId),
+						build: await getBuild(ctx.env, change.previewBuildId),
 						idempotent: true,
 					};
 				}
@@ -762,7 +762,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 					sourceBranch: change.proposalBranch,
 					proposalId: change.id,
 				});
-				const updated = await setChangePreview(ctx.env.DB, {
+				const updated = await setChangePreview(ctx.env, {
 					changeId: change.id,
 					buildId: queued.build.id,
 				});
@@ -781,10 +781,10 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 		async ({ siteId }: { siteId: string }) =>
 			runTool(ctx, "list_docs_changes", async () => {
 				await ownedSite(ctx, siteId);
-				const changes = await listChanges(ctx.env.DB, siteId);
+				const changes = await listChanges(ctx.env, siteId);
 				return {
 					changes: await Promise.all(
-						changes.map((change) => syncChangeValidation(ctx.env.DB, change)),
+						changes.map((change) => syncChangeValidation(ctx.env, change)),
 					),
 				};
 			}),
@@ -834,7 +834,7 @@ export function buildDocsMcpServer(ctx: DocsToolContext) {
 				const { change, site } = await ownedChange(ctx, changeId);
 				const committed = await commitDocsChange(ctx.env, site, change);
 				return {
-					change: await markChangeCommitted(ctx.env.DB, {
+					change: await markChangeCommitted(ctx.env, {
 						changeId,
 						revision: committed.revision,
 						actor: ctx.actor,

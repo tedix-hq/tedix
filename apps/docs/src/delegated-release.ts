@@ -74,11 +74,11 @@ async function mainRevision(policy: Policy): Promise<string> {
 export async function scheduleDocsRelease(env: AppBindings): Promise<void> {
 	const policy = readPolicy(env);
 	if (!policy) return;
-	const site = await getSiteById(env.DB, policy.siteId);
+	const site = await getSiteById(env, policy.siteId);
 	if (!site || !matchesReleaseSource(site, policy) || !site.activeBuildId)
 		return;
 
-	const [latest] = await listReleases(env.DB, site.id);
+	const [latest] = await listReleases(env, site.id);
 	// A manual rollback holds automation until a maintainer publishes again.
 	if (
 		!latest ||
@@ -86,7 +86,7 @@ export async function scheduleDocsRelease(env: AppBindings): Promise<void> {
 		latest.buildId !== site.activeBuildId
 	)
 		return;
-	const active = await getBuild(env.DB, site.activeBuildId);
+	const active = await getBuild(env, site.activeBuildId);
 	const activeRevision = revision.safeParse(active?.sourceRevision);
 	if (!activeRevision.success) return;
 	const sourceRevision = await mainRevision(policy);
@@ -115,17 +115,17 @@ export async function checkDelegatedRelease(
 ): Promise<{ site: DocsSite; guard: DocsReleaseGuard } | null> {
 	const policy = readPolicy(env);
 	if (!policy || release.siteId !== policy.siteId) return null;
-	const site = await getSiteById(env.DB, release.siteId);
+	const site = await getSiteById(env, release.siteId);
 	if (
 		!site ||
 		!matchesReleaseSource(site, policy) ||
 		site.activeBuildId !== release.previousBuildId
 	)
 		return null;
-	const [latest] = await listReleases(env.DB, site.id);
+	const [latest] = await listReleases(env, site.id);
 	if (latest?.id !== release.previousReleaseId || latest.action !== "publish")
 		return null;
-	const active = await getBuild(env.DB, release.previousBuildId);
+	const active = await getBuild(env, release.previousBuildId);
 	if (
 		!revision.safeParse(release.sourceRevision).success ||
 		!revision.safeParse(release.previousRevision).success ||

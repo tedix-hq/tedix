@@ -99,11 +99,11 @@ export async function serveDocsPreview(input: {
 	pathname: string;
 	request: Request;
 }): Promise<Response> {
-	const build = await getBuild(input.env.DB, input.buildId);
+	const build = await getBuild(input.env, input.buildId);
 	if (build?.status !== "complete") {
 		return new Response("Documentation preview is not ready", { status: 404 });
 	}
-	const site = await getSiteById(input.env.DB, build.siteId);
+	const site = await getSiteById(input.env, build.siteId);
 	if (!site || site.orgSlug !== input.orgSlug) {
 		return new Response("Documentation preview not found", { status: 404 });
 	}

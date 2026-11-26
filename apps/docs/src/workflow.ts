@@ -420,132 +420,146 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<DocsBuildWorkflowParams>,
 		step: WorkflowStep,
 	): Promise<{ buildId: string; sourceRevision: string } | null> {
-		const payload = event.payload;
-		if (payload.operation === "release")
-			return this.runDelegatedRelease(payload, step);
-		const { siteId, buildId } = payload;
-		const site = await getSiteById(this.env.DB, siteId);
-		if (!site) throw new Error(`Docs site ${siteId} not found`);
-		const build = await getBuild(this.env.DB, buildId);
-		if (!build || build.siteId !== siteId)
-			throw new Error(`Docs build ${buildId} not found`);
-		if (event.payload.operation === "index") {
-			if (site.accessMode !== "public" || build.status !== "complete") {
-				throw new Error("Search indexing requires a completed public build");
-			}
-			// Keep indexing outside build failure/cleanup: this build is already published.
-			return step.do(
-				"index-public-build",
-				{ retries: { limit: 0, delay: "1 second" }, timeout: "15 minutes" },
-				() => indexPublicDocsBuild(this.env, site, build),
-			);
-		}
-		const sourceSite = {
-			...site,
-			branch: build.sourceBranch ?? site.branch,
-		};
-		try {
-			await updateBuildProgress(this.env.DB, buildId, {
-				status: "running",
-				phase: "building",
-			});
-			const snapshot = await step.do(
-				"checkout-build-and-stage",
-				{
-					retries: { limit: 2, delay: "10 seconds" },
-					timeout: "15 minutes",
-				},
-				() => checkoutAndBuild(this.env, sourceSite, buildId),
-			);
-			if (!snapshot)
-				throw new Error("Docs preview checkout did not produce a build");
-
-			await step.do("record-preview", async () => {
-				await completeBuild(this.env.DB, {
-					buildId,
-					siteId,
-					sourceRevision: snapshot.revision,
-					manifestKey: snapshot.manifestKey,
-				});
-			});
-			return { buildId, sourceRevision: snapshot.revision };
-		} catch (error) {
-			const message = errorMessage(error).slice(0, 4000);
-			await updateBuildProgress(this.env.DB, buildId, {
-				status: "failed",
-				phase: "failed",
-				error: message,
-			});
-			logDocsFailure("docs.build_failed", error);
-			throw error;
-		} finally {
-			const sandbox = getDocsSandbox(this.env, buildId);
-			await sandbox
-				.deleteFile(docsSourceAuthPath(buildId))
-				.catch(() => undefined);
-		}
-	}
-
-	private async runDelegatedRelease(
-		release: DelegatedDocsRelease,
-		step: WorkflowStep,
-	) {
-		const reservation = await step.do("reserve-release-build", async () => {
-			const checked = await checkDelegatedRelease(this.env, release);
-			return checked
-				? { site: checked.site, buildId: crypto.randomUUID() }
-				: null;
-		});
-		if (!reservation) return null;
-		const { buildId, site } = reservation;
-		const staged = await step.do(
-			"checkout-check-and-stage-release",
-			{ retries: { limit: 2, delay: "10 seconds" }, timeout: "15 minutes" },
-			() => checkoutAndBuild(this.env, site, buildId, release),
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => dispatchDocsBuild(this.env, event, step),
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (!staged) return null;
-		await step.do("record-checked-release", async () => {
-			if (!(await getBuild(this.env.DB, buildId))) {
-				await createBuild(this.env.DB, {
-					id: buildId,
-					siteId: site.id,
-					sourceBranch: "main",
-					requestedBy: docsReleaseActor,
+	}
+}
+
+async function dispatchDocsBuild(
+	env: AppBindings,
+	event: WorkflowEvent<DocsBuildWorkflowParams>,
+	step: WorkflowStep,
+): Promise<{ buildId: string; sourceRevision: string } | null> {
+	const payload = event.payload;
+	if (payload.operation === "release")
+		return runDelegatedDocsRelease(env, payload, step);
+	const { siteId, buildId } = payload;
+	const site = await getSiteById(env, siteId);
+	if (!site) throw new Error(`Docs site ${siteId} not found`);
+	const build = await getBuild(env, buildId);
+	if (!build || build.siteId !== siteId)
+		throw new Error(`Docs build ${buildId} not found`);
+	if (event.payload.operation === "index") {
+		if (site.accessMode !== "public" || build.status !== "complete") {
+			throw new Error("Search indexing requires a completed public build");
+		}
+		// Keep indexing outside build failure/cleanup: this build is already published.
+		return step.do(
+			"index-public-build",
+			{ retries: { limit: 0, delay: "1 second" }, timeout: "15 minutes" },
+			() => indexPublicDocsBuild(env, site, build),
+		);
+	}
+	const sourceSite = {
+		...site,
+		branch: build.sourceBranch ?? site.branch,
+	};
+	try {
+		await updateBuildProgress(env, buildId, {
+			status: "running",
+			phase: "building",
+		});
+		const snapshot = await step.do(
+			"checkout-build-and-stage",
+			{
+				retries: { limit: 2, delay: "10 seconds" },
+				timeout: "15 minutes",
+			},
+			() => checkoutAndBuild(env, sourceSite, buildId),
+		);
+		if (!snapshot)
+			throw new Error("Docs preview checkout did not produce a build");
+
+		await step.do("record-preview", async () => {
+			await completeBuild(env, {
+				buildId,
+				siteId,
+				sourceRevision: snapshot.revision,
+				manifestKey: snapshot.manifestKey,
+			});
+		});
+		return { buildId, sourceRevision: snapshot.revision };
+	} catch (error) {
+		const message = errorMessage(error).slice(0, 4000);
+		await updateBuildProgress(env, buildId, {
+			status: "failed",
+			phase: "failed",
+			error: message,
+		});
+		logDocsFailure("docs.build_failed", error);
+		throw error;
+	} finally {
+		const sandbox = getDocsSandbox(env, buildId);
+		await sandbox
+			.deleteFile(docsSourceAuthPath(buildId))
+			.catch(() => undefined);
+	}
+}
+
+async function runDelegatedDocsRelease(
+	env: AppBindings,
+	release: DelegatedDocsRelease,
+	step: WorkflowStep,
+) {
+	const reservation = await step.do("reserve-release-build", async () => {
+		const checked = await checkDelegatedRelease(env, release);
+		return checked
+			? { site: checked.site, buildId: crypto.randomUUID() }
+			: null;
+	});
+	if (!reservation) return null;
+	const { buildId, site } = reservation;
+	const staged = await step.do(
+		"checkout-check-and-stage-release",
+		{ retries: { limit: 2, delay: "10 seconds" }, timeout: "15 minutes" },
+		() => checkoutAndBuild(env, site, buildId, release),
+	);
+	if (!staged) return null;
+	await step.do("record-checked-release", async () => {
+		if (!(await getBuild(env, buildId))) {
+			await createBuild(env, {
+				id: buildId,
+				siteId: site.id,
+				sourceBranch: "main",
+				requestedBy: docsReleaseActor,
+			});
+		}
+		await completeBuild(env, {
+			buildId,
+			siteId: site.id,
+			sourceRevision: staged.revision,
+			manifestKey: staged.manifestKey,
+		});
+	});
+	await step.do("publish-checked-release", async () => {
+		const checked = await checkDelegatedRelease(env, release);
+		if (!checked) {
+			// A retry after the activation committed can still enqueue search.
+			const [latest] = await listReleases(env, site.id);
+			if (
+				latest?.buildId === buildId &&
+				latest.actor.id === docsReleaseActor.id
+			) {
+				await publicationReceipt(env, {
+					site: (await getSiteById(env, site.id)) ?? site,
+					release: latest,
 				});
 			}
-			await completeBuild(this.env.DB, {
-				buildId,
-				siteId: site.id,
-				sourceRevision: staged.revision,
-				manifestKey: staged.manifestKey,
-			});
+			return;
+		}
+		const activated = await activateBuild(env, {
+			buildId,
+			siteId: site.id,
+			orgSlug: checked.site.orgSlug,
+			action: "publish",
+			actor: docsReleaseActor,
+			guard: checked.guard,
 		});
-		await step.do("publish-checked-release", async () => {
-			const checked = await checkDelegatedRelease(this.env, release);
-			if (!checked) {
-				// A retry after the activation committed can still enqueue search.
-				const [latest] = await listReleases(this.env.DB, site.id);
-				if (
-					latest?.buildId === buildId &&
-					latest.actor.id === docsReleaseActor.id
-				) {
-					await publicationReceipt(this.env, {
-						site: (await getSiteById(this.env.DB, site.id)) ?? site,
-						release: latest,
-					});
-				}
-				return;
-			}
-			const activated = await activateBuild(this.env.DB, {
-				buildId,
-				siteId: site.id,
-				orgSlug: checked.site.orgSlug,
-				action: "publish",
-				actor: docsReleaseActor,
-				guard: checked.guard,
-			});
-			await publicationReceipt(this.env, activated);
-		});
-		return { buildId, sourceRevision: staged.revision };
-	}
+		await publicationReceipt(env, activated);
+	});
+	return { buildId, sourceRevision: staged.revision };
 }

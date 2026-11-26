@@ -407,22 +407,21 @@ it("persists a failed build and rethrows without logging source content", async 
 	const failure = new Error("private source /tenant/acme/docs/token.md");
 	const step = { do: vi.fn().mockRejectedValue(failure) };
 	const log = vi.spyOn(console, "error").mockImplementation(() => {});
+	const env = {
+		DB: {},
+		DOCS_BUILD_SANDBOX: { getByName: namespace.getByName },
+	};
 	try {
 		await expect(
 			DocsBuildWorkflow.prototype.run.call(
-				{
-					env: {
-						DB: {},
-						DOCS_BUILD_SANDBOX: { getByName: namespace.getByName },
-					},
-				} as unknown as DocsBuildWorkflow,
+				{ env } as unknown as DocsBuildWorkflow,
 				{
 					payload: { operation: "build", siteId: "site", buildId: "build" },
 				} as never,
 				step as never,
 			),
 		).rejects.toBe(failure);
-		expect(updateBuildProgress).toHaveBeenNthCalledWith(2, {}, "build", {
+		expect(updateBuildProgress).toHaveBeenNthCalledWith(2, env, "build", {
 			status: "failed",
 			phase: "failed",
 			error: failure.message,

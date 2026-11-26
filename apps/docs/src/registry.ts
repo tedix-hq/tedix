@@ -23,7 +23,8 @@ import {
 	listDocsSites,
 	upsertDocsSite,
 } from "@tedix/db/queries/docs-sites/sites";
-import { createDbQueryClient } from "@tedix/db/query-client";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import type {
 	DocsBuild as DocsBuildRow,
 	DocsChange as DocsChangeRow,
@@ -174,29 +175,29 @@ function mapRelease(row: DocsReleaseRow): DocsRelease {
 }
 
 export async function getSiteById(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	id: string,
 ): Promise<DocsSite | null> {
-	const row = await getDocsSiteById(createDbQueryClient(d1), id);
+	const row = await getDocsSiteById(coreQueryDb(env), id);
 	return row ? mapSite(row) : null;
 }
 
 export async function listSites(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	orgSlug: string,
 ): Promise<DocsSite[]> {
-	return (await listDocsSites(createDbQueryClient(d1), orgSlug)).map(mapSite);
+	return (await listDocsSites(coreQueryDb(env), orgSlug)).map(mapSite);
 }
 
 export async function upsertSite(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	input: UpsertDocsSiteInput,
 ): Promise<DocsSite> {
-	return mapSite(await upsertDocsSite(createDbQueryClient(d1), input));
+	return mapSite(await upsertDocsSite(coreQueryDb(env), input));
 }
 
 export async function createBuild(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	input: {
 		id?: string;
 		siteId: string;
@@ -205,19 +206,19 @@ export async function createBuild(
 		requestedBy: DocsActor;
 	},
 ): Promise<DocsBuild> {
-	return mapBuild(await createDocsBuild(createDbQueryClient(d1), input));
+	return mapBuild(await createDocsBuild(coreQueryDb(env), input));
 }
 
 export async function activateBuild(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	input: ActivateDocsBuildParams,
 ): Promise<{ site: DocsSite; release: DocsRelease }> {
-	const result = await activateDocsBuild(createDbQueryClient(d1), input);
+	const result = await activateDocsBuild(coreQueryDb(env), input);
 	return { site: mapSite(result.site), release: mapRelease(result.release) };
 }
 
 export async function createChange(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	input: {
 		id: string;
 		siteId: string;
@@ -230,51 +231,47 @@ export async function createChange(
 		proposedBy: DocsActor;
 	},
 ): Promise<DocsChange> {
-	return mapChange(await createDocsChange(createDbQueryClient(d1), input));
+	return mapChange(await createDocsChange(coreQueryDb(env), input));
 }
 
 export async function getChange(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	id: string,
 ): Promise<DocsChange | null> {
-	const row = await getDocsChange(createDbQueryClient(d1), id);
+	const row = await getDocsChange(coreQueryDb(env), id);
 	return row ? mapChange(row) : null;
 }
 
 export async function listChanges(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	siteId: string,
 ): Promise<DocsChange[]> {
-	return (await listDocsChanges(createDbQueryClient(d1), siteId)).map(
-		mapChange,
-	);
+	return (await listDocsChanges(coreQueryDb(env), siteId)).map(mapChange);
 }
 
 export async function setChangePreview(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	input: { changeId: string; buildId: string },
 ): Promise<DocsChange> {
-	return mapChange(await setDocsChangePreview(createDbQueryClient(d1), input));
+	return mapChange(await setDocsChangePreview(coreQueryDb(env), input));
 }
 
 export async function markChangeCommitted(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	input: {
 		changeId: string;
 		revision: string;
 		actor: DocsActor;
 	},
 ): Promise<DocsChange> {
-	return mapChange(
-		await markDocsChangeCommitted(createDbQueryClient(d1), input),
-	);
+	return mapChange(await markDocsChangeCommitted(coreQueryDb(env), input));
 }
 
 export async function syncChangeValidation(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	change: DocsChange,
 ): Promise<DocsChange> {
-	const row = await syncDocsChangeValidation(createDbQueryClient(d1), {
+	const row = await syncDocsChangeValidation(coreQueryDb(env), {
 		id: change.id,
 		status: change.status,
 		previewBuildId: change.previewBuildId,
@@ -283,24 +280,22 @@ export async function syncChangeValidation(
 }
 
 export async function listReleases(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	siteId: string,
 ): Promise<DocsRelease[]> {
-	return (await listDocsReleases(createDbQueryClient(d1), siteId)).map(
-		mapRelease,
-	);
+	return (await listDocsReleases(coreQueryDb(env), siteId)).map(mapRelease);
 }
 
 export async function getBuild(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	id: string,
 ): Promise<DocsBuild | null> {
-	const row = await getDocsBuild(createDbQueryClient(d1), id);
+	const row = await getDocsBuild(coreQueryDb(env), id);
 	return row ? mapBuild(row) : null;
 }
 
 export async function updateBuildProgress(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	buildId: string,
 	input: {
 		status: "running" | "failed";
@@ -309,11 +304,11 @@ export async function updateBuildProgress(
 		sourceRevision?: string | null;
 	},
 ): Promise<void> {
-	await updateDocsBuildProgress(createDbQueryClient(d1), { buildId, ...input });
+	await updateDocsBuildProgress(coreQueryDb(env), { buildId, ...input });
 }
 
 export async function completeBuild(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	input: {
 		buildId: string;
 		siteId: string;
@@ -321,12 +316,12 @@ export async function completeBuild(
 		manifestKey: string;
 	},
 ): Promise<void> {
-	await completeDocsBuild(createDbQueryClient(d1), input);
+	await completeDocsBuild(coreQueryDb(env), input);
 }
 
 export async function listBuilds(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	siteId: string,
 ): Promise<DocsBuild[]> {
-	return (await listDocsBuilds(createDbQueryClient(d1), siteId)).map(mapBuild);
+	return (await listDocsBuilds(coreQueryDb(env), siteId)).map(mapBuild);
 }
