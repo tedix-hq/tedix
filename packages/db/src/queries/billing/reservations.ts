@@ -15,14 +15,16 @@ import {
 import { aiCreditsForProviderCost } from "@tedix/api-contract/utils/credit-pricing";
 import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import { anyIds, coreStore, jsonParameter } from "../../core-store/dialect";
 import {
 	type BillingReservationStatus,
 	type BillingUsageReservation,
 	type BillingUsageSource,
 	anyBillingReservation,
-	billingAccounts,
-	billingPlanVersions,
-	billingUsageReservations,
+	billingAccounts as schemaBillingAccounts,
+	billingPlanVersions as schemaBillingPlanVersions,
+	billingUsageReservations as schemaBillingUsageReservations,
 } from "../../schema/billing";
 import type { NewProviderExecutionAttemptRow } from "../../schema/provider-executions";
 import { computeCostMicros } from "../../utils/model-pricing";
@@ -49,6 +51,10 @@ export async function getBillingReservationTokenEstimates(
 	db: DbClient,
 	reservationIds: string[],
 ) {
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	if (reservationIds.length === 0) return [];
 	return (
 		db
@@ -59,7 +65,9 @@ export async function getBillingReservationTokenEstimates(
 			})
 			.from(billingUsageReservations)
 			// bound-params: callers pass one AI Gateway log page, at most 50 rows.
-			.where(inArray(billingUsageReservations.id, [...new Set(reservationIds)]))
+			.where(
+				anyIds(db, billingUsageReservations.id, [...new Set(reservationIds)]),
+			)
 	);
 }
 
@@ -67,6 +75,10 @@ export async function getVoiceBillingReservation(
 	db: DbClient,
 	input: { organizationId: string; reservationId: string },
 ) {
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	const [row] = await db
 		.select()
 		.from(billingUsageReservations)
@@ -92,6 +104,10 @@ export async function listBillingUsageReservations(
 		limit?: number;
 	},
 ): Promise<BillingUsageReservation[]> {
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	return db
 		.select()
 		.from(billingUsageReservations)
@@ -138,13 +154,17 @@ export async function getBillingReservationFreshness(
 	db: DbClient,
 	nowMs: number,
 ): Promise<BillingReservationFreshness> {
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	const iso30d = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
 	const rows = await db
 		.select({ maxCreatedAt: billingUsageReservations.createdAt })
 		.from(billingUsageReservations)
 		.where(
 			and(
-				anyBillingReservation,
+				coreStore(db) === "d1" ? anyBillingReservation : undefined,
 				sql`${billingUsageReservations.createdAt} >= ${iso30d}`,
 			),
 		)
@@ -169,6 +189,12 @@ export function buildBillingReservationPreflightStatements(
 	db: DbClient,
 	input: BillingReservationPreflightInput,
 ) {
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
+	const billingPlanVersions = coreTable(db, schemaBillingPlanVersions);
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	// Scoped by organization as well as key: an unscoped read could hand one
 	// organization another's reservation and admit without reserving anything.
 	const existingStatement = db
@@ -411,6 +437,10 @@ export async function reserveBillingUsage(
 		credits?: number;
 	},
 ): Promise<BillingReservationDecision> {
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	const estimatedTokens =
 		input.estimatedInputTokens + input.estimatedOutputTokens;
 	if (
@@ -491,7 +521,7 @@ export async function reserveBillingUsage(
 	const reservationStatement = db.all(sql`
 		WITH pool AS ${poolQuery},
 		capacity AS ${capacityQuery}
-		INSERT INTO billing_usage_reservations (
+		INSERT INTO ${billingUsageReservations} (
 			id, organization_id, plan_version_id, tedi_id, user_id, status, source,
 			provider, model, estimated_input_tokens, estimated_output_tokens,
 			estimated_charge_micros, credits, period_start, period_end, run_id,
@@ -506,7 +536,7 @@ export async function reserveBillingUsage(
 			0, ${credits}, capacity.period_start, capacity.period_end,
 			${input.runId ?? null}, ${input.traceId ?? null},
 			${input.idempotencyKey}, NULL, ${input.expiresAt},
-			${JSON.stringify(input.metadata ?? {})}, ${input.now}, ${input.now}
+			${jsonParameter(db, input.metadata ?? {})}, ${input.now}, ${input.now}
 		FROM capacity
 		WHERE capacity.plan_version_id = ${plan?.id ?? null}
 			AND ${input.expiresAt} > ${input.now}
@@ -514,8 +544,8 @@ export async function reserveBillingUsage(
 		ON CONFLICT(idempotency_key) DO NOTHING
 		RETURNING
 			id,
-			plan_version_id AS planVersionId,
-			expires_at AS expiresAt,
+			plan_version_id AS "planVersionId",
+			expires_at AS "expiresAt",
 			credits
 	`);
 	const inserted = (await reservationStatement) as Array<
@@ -568,6 +598,10 @@ export async function releaseBillingReservation(
 		now: string;
 	},
 ): Promise<BillingUsageReservation | null> {
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	const [row] = await db
 		.update(billingUsageReservations)
 		.set({
@@ -591,6 +625,10 @@ export async function expireBillingReservations(
 	db: DbClient,
 	now: string,
 ): Promise<number> {
+	const billingUsageReservations = coreTable(
+		db,
+		schemaBillingUsageReservations,
+	);
 	const rows = await db
 		.update(billingUsageReservations)
 		.set({ status: "expired", updatedAt: now })
