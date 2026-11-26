@@ -149,6 +149,8 @@ export function createD1Facade(
 	const maxBoundParams =
 		options.maxBoundParams === undefined ? 100 : options.maxBoundParams;
 	let batchQueue: Promise<void> = Promise.resolve();
+	// Cache SQL-text validation, never SQLite statements or their bound values.
+	const validatedProjections = new Set<string>();
 
 	const wrap = (query: string) => {
 		if (EXPLICIT_TRANSACTION_CONTROL.test(query)) {
@@ -157,7 +159,10 @@ export function createD1Facade(
 					"Use db.batch() — D1 wraps a batch in an implicit transaction. [code: 7500]",
 			);
 		}
-		if (options.rejectDuplicateOutputColumns !== false) {
+		if (
+			options.rejectDuplicateOutputColumns !== false &&
+			!validatedProjections.has(query)
+		) {
 			const duplicates = duplicateOutputColumns(query);
 			if (duplicates.length > 0) {
 				throw new Error(
@@ -168,6 +173,11 @@ export function createD1Facade(
 						`SQL: ${query}`,
 				);
 			}
+			if (validatedProjections.size >= 128) {
+				const oldest = validatedProjections.values().next().value;
+				if (oldest !== undefined) validatedProjections.delete(oldest);
+			}
+			validatedProjections.add(query);
 		}
 		const patterns = likePatterns(query);
 		const oversizedLiteral = patterns.oversizedLiterals[0];

@@ -60,6 +60,41 @@ describe("D1 facade: LIKE/GLOB pattern cap", () => {
 			.all();
 		expect(result.results).toHaveLength(1);
 	});
+
+	it("rechecks bindings and runs prepare hooks for repeated SQL without sharing bound values", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		try {
+			sqlite.exec(
+				"CREATE TABLE t (id INTEGER PRIMARY KEY, title TEXT); INSERT INTO t VALUES (1,'first'),(2,'second')",
+			);
+			let prepares = 0;
+			const facade = createD1Facade(sqlite, {
+				maxBoundParams: 1,
+				onPrepare() {
+					prepares++;
+				},
+			});
+			const query = "select id from t where title LIKE ?";
+			const first = facade.prepare(query).bind("first");
+			const second = facade.withSession().prepare(query).bind("second");
+			expect((await first.all()).results).toEqual([{ id: 1 }]);
+			expect((await second.all()).results).toEqual([{ id: 2 }]);
+			expect(() => facade.prepare(query).bind("x".repeat(51))).toThrow(
+				/LIKE or GLOB pattern too complex/,
+			);
+			expect(() => facade.prepare(query).bind("first", "second")).toThrow(
+				/too many SQL variables/,
+			);
+			expect(prepares).toBe(4);
+			expect(() => facade.prepare("select id, id from t")).toThrow(
+				/duplicate output column/,
+			);
+			sqlite.exec("DROP TABLE t");
+			expect(() => facade.prepare(query)).toThrow(/no such table/);
+		} finally {
+			sqlite.close();
+		}
+	});
 });
 
 const db = createDbClient({} as D1Database);
