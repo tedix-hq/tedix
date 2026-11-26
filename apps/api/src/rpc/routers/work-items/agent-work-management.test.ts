@@ -389,16 +389,14 @@ describe("verified native artifact completion", () => {
 describe("owner-granted external-agent Work management", () => {
 	it("keeps budget and capacity changes reserved despite an organization management grant", async () => {
 		const { context, sqlite } = await fixture();
-		sqlite
-			.prepare("UPDATE external_agent_principals SET metadata=?")
-			.run(
-				JSON.stringify({
-					workManagement: {
-						scope: "organization",
-						actions: ["specification", "assignment", "cancellation"],
-					},
-				}),
-			);
+		sqlite.prepare("UPDATE external_agent_principals SET metadata=?").run(
+			JSON.stringify({
+				workManagement: {
+					scope: "organization",
+					actions: ["specification", "assignment", "cancellation"],
+				},
+			}),
+		);
 		await expect(
 			putBudgetEnvelopeProcedure["~orpc"].handler!({
 				context,
