@@ -5,14 +5,19 @@ import {
 	DYNAMIC_WORKER_COST_USD_MICROS,
 } from "@tedix/api-contract/utils/credit-pricing";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, gte, lt, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import {
+	and,
+	eq,
+	gte,
+	lt,
+	or,
+	sql,
+	type SQL,
+	type SQLWrapper,
+} from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { coreTable } from "../../core-store/client";
-import {
-	coreStore,
-	jsonRead,
-	jsonType,
-} from "../../core-store/dialect";
+import { coreStore, jsonRead, jsonType } from "../../core-store/dialect";
 import {
 	type BillingProviderUsage,
 	billingProviderUsage as schemaBillingProviderUsage,
@@ -87,9 +92,7 @@ export async function recordBillingProviderUsage(
 		duplicateConditions.push(eq(usage.gatewayLogId, input.gatewayLogId));
 	}
 	if (input.providerUsageId) {
-		duplicateConditions.push(
-			eq(usage.providerUsageId, input.providerUsageId),
-		);
+		duplicateConditions.push(eq(usage.providerUsageId, input.providerUsageId));
 	}
 	const [existing] = await db
 		.select()
@@ -417,8 +420,31 @@ function instant(db: object, value: SQLWrapper): SQL {
 		: sql`julianday(${value})`;
 }
 const EVIDENCE_TRIM_CHARS = String.fromCodePoint(
-	9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198,
-	8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279,
+	9,
+	10,
+	11,
+	12,
+	13,
+	32,
+	160,
+	5760,
+	8192,
+	8193,
+	8194,
+	8195,
+	8196,
+	8197,
+	8198,
+	8199,
+	8200,
+	8201,
+	8202,
+	8232,
+	8233,
+	8239,
+	8287,
+	12288,
+	65279,
 );
 
 /** SQLite date parsing alone accepts non-ISO strings. Keep stored allocation
@@ -498,28 +524,30 @@ export async function getWorkstationCostCoverage(
 				quality: scoped.quality,
 				occurred: scoped.occurred,
 				evidence: scoped.evidence,
-				chargePeriod:
-					jgetText(db, scoped.evidence, ["allocation", "chargePeriod"]).as(
-						"charge_period",
-					),
-				chargeTotal:
-					jgetNumber(db, scoped.evidence, [
-						"allocation",
-						"chargeTotalMicros",
-					]).as("charge_total"),
+				chargePeriod: jgetText(db, scoped.evidence, [
+					"allocation",
+					"chargePeriod",
+				]).as("charge_period"),
+				chargeTotal: jgetNumber(db, scoped.evidence, [
+					"allocation",
+					"chargeTotalMicros",
+				]).as("charge_total"),
 				share: jgetNumber(db, scoped.evidence, [
 					"allocation",
 					"shareBasisPoints",
 				]).as("share"),
-				numericOk:
-					sql<number>`CASE WHEN ${pg
+				numericOk: sql<number>`CASE WHEN ${
+					pg
 						? sql`pg_typeof(${scoped.quantity}) IN ('smallint','integer','bigint')`
-						: sql`typeof(${scoped.quantity}) = 'integer'`} AND ${scoped.quantity} BETWEEN 0 AND 9007199254740991
- AND ${pg
-						? sql`pg_typeof(${scoped.cost}) IN ('smallint','integer','bigint')`
-						: sql`typeof(${scoped.cost}) = 'integer'`} AND ${scoped.cost} BETWEEN 0 AND 9007199254740991 THEN 1 ELSE 0 END`.as(
-						"numeric_ok",
-					),
+						: sql`typeof(${scoped.quantity}) = 'integer'`
+				} AND ${scoped.quantity} BETWEEN 0 AND 9007199254740991
+ AND ${
+		pg
+			? sql`pg_typeof(${scoped.cost}) IN ('smallint','integer','bigint')`
+			: sql`typeof(${scoped.cost}) = 'integer'`
+ } AND ${scoped.cost} BETWEEN 0 AND 9007199254740991 THEN 1 ELSE 0 END`.as(
+					"numeric_ok",
+				),
 			})
 			.from(scoped),
 	);
@@ -535,11 +563,10 @@ export async function getWorkstationCostCoverage(
 				chargeTotal: fields.chargeTotal,
 				share: fields.share,
 				numericOk: fields.numericOk,
-				allocationStart:
-					(pg
-						? sql`substr(${fields.chargePeriod}, 1, GREATEST(${instrText(db, fields.chargePeriod, "..")} - 1, 0))`
-						: sql`substr(${fields.chargePeriod}, 1, ${instrText(db, fields.chargePeriod, "..")} - 1)`
-					).as("allocation_start"),
+				allocationStart: (pg
+					? sql`substr(${fields.chargePeriod}, 1, GREATEST(${instrText(db, fields.chargePeriod, "..")} - 1, 0))`
+					: sql`substr(${fields.chargePeriod}, 1, ${instrText(db, fields.chargePeriod, "..")} - 1)`
+				).as("allocation_start"),
 				allocationEnd:
 					sql<string>`substr(${fields.chargePeriod}, ${instrText(db, fields.chargePeriod, "..")} + 2)`.as(
 						"allocation_end",
@@ -582,8 +609,10 @@ export async function getWorkstationCostCoverage(
 			category: c.category,
 			numericOk: c.numericOk,
 			rows: sql<number>`COUNT(*)`,
-			seconds: sql<number>`COALESCE(SUM(${c.quantity}), 0)`,
-			cost: sql<number>`COALESCE(SUM(${c.cost}), 0)`,
+			// Postgres SUM(bigint) is numeric and drivers return it as text;
+			// float8 keeps the totals numeric for the safe-integer checks below.
+			seconds: sql<number>`COALESCE(SUM(${c.quantity})${pg ? sql`::float8` : sql``}, 0)`,
+			cost: sql<number>`COALESCE(SUM(${c.cost})${pg ? sql`::float8` : sql``}, 0)`,
 		})
 		.from(c)
 		.groupBy(c.category, c.numericOk);
@@ -730,7 +759,9 @@ export async function applyDynamicWorkerCostAllocation(
 	const greatest = (a: SQLWrapper, b: SQLWrapper) =>
 		pg ? sql`GREATEST(${a}, ${b})` : sql`MAX(${a}, ${b})`;
 	const shareDiv = (numerator: SQLWrapper, denominator: SQLWrapper) =>
-		pg ? sql`(${numerator})::float8 / ${denominator}` : sql`${numerator} / ${denominator}`;
+		pg
+			? sql`(${numerator})::float8 / ${denominator}`
+			: sql`${numerator} / ${denominator}`;
 	const modulo = (value: SQLWrapper, divisor: SQLWrapper) =>
 		pg
 			? sql`(${value} - trunc((${value}) / (${divisor})) * (${divisor}))`
@@ -767,9 +798,11 @@ export async function applyDynamicWorkerCostAllocation(
 					"quality",
 				),
 				evidence: pg
-					? sql<Record<string, JsonValue>>`jsonb_set(jsonb_set(${totals.metadata}, '{pricingStatus}', to_jsonb(CASE WHEN ${billedSql} IS NULL THEN 'pending' ELSE 'allocated' END)), '{allocation}', jsonb_build_object(
-   'basis', 'anonymous_worker_load_share', 'chargePeriod', ${`${input.periodStart}..${input.periodEnd}`},
-   'chargeSourceRef', ${input.evidenceRef}, 'chargeTotalMicros', ${totalSql},
+					? sql<
+							Record<string, JsonValue>
+						>`jsonb_set(jsonb_set(${totals.metadata}, '{pricingStatus}', to_jsonb(CASE WHEN ${billedSql} IS NULL THEN 'pending' ELSE 'allocated' END)), '{allocation}', jsonb_build_object(
+   'basis', 'anonymous_worker_load_share', 'chargePeriod', CAST(${`${input.periodStart}..${input.periodEnd}`} AS text),
+   'chargeSourceRef', CAST(${input.evidenceRef} AS text), 'chargeTotalMicros', ${totalSql},
    'billedQuantity', ${billedSql}, 'recordedQuantity', ${totals.n}
   ))`.as("evidence")
 					: sql<
