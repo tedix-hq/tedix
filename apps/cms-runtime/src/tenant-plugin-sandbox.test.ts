@@ -920,6 +920,119 @@ describe("parent-hosted Emdash sandbox runner", () => {
 		});
 	}, 15_000);
 
+	test("admits one declarative JSON field widget and rejects schema widening before install", async () => {
+		const host = pluginHost(
+			`widget-${crypto.randomUUID().slice(0, 12)}`,
+			crypto.randomUUID(),
+		);
+		const element = {
+			type: "text_input",
+			action_id: "caption",
+			label: "Caption",
+		};
+		const widget = {
+			name: "caption",
+			label: "Caption details",
+			fieldTypes: ["json"],
+			elements: [element],
+		};
+		const validate = (admin: unknown) =>
+			host.validateBundle(
+				{ ...SANDBOX_MANIFEST, admin } as PluginManifest,
+				SANDBOX_CODE,
+			);
+		expect(
+			await validate({ fieldWidgets: [widget], pages: [], widgets: [] }),
+		).toEqual({
+			ok: true,
+			value: null,
+		});
+		for (const admin of [
+			{ fieldWidgets: [] },
+			{ fieldWidgets: [widget, { ...widget, name: "second" }] },
+			{ fieldWidgets: [{ ...widget, fieldTypes: ["text"] }] },
+			{ fieldWidgets: [{ ...widget, elements: [] }] },
+			{ fieldWidgets: [{ ...widget, elements: Array(9).fill(element) }] },
+			{ fieldWidgets: [{ ...widget, elements: [element, element] }] },
+			{ fieldWidgets: [{ ...widget, entry: "admin.js" }] },
+			{ fieldWidgets: [{ ...widget, name: "other:caption" }] },
+			{ fieldWidgets: [{ ...widget, label: "x".repeat(129) }] },
+			...[
+				{ type: "media_picker" },
+				{ action_id: "__proto__" },
+				{ action_id: "constructor" },
+				{ action_id: "prototype" },
+				{ label: "" },
+				{ placeholder: "x".repeat(257) },
+				{ onChange: "fetch('/secret')" },
+				{ route: "read" },
+			].map((extra) => ({
+				fieldWidgets: [{ ...widget, elements: [{ ...element, ...extra }] }],
+			})),
+			{ fieldWidgets: [widget], entry: "admin.js" },
+			{ fieldWidgets: [widget], portableTextBlocks: [] },
+			{ fieldWidgets: [widget], editorActions: [] },
+		]) {
+			expect(await validate(admin)).toMatchObject({
+				ok: false,
+				error: expect.stringMatching(
+					/unsupported host access|Invalid sandbox plugin/,
+				),
+			});
+		}
+	}, 15_000);
+
+	test("revalidates widget metadata from each tenant's canonical bundle at execution", async () => {
+		const host = env as unknown as PluginHostEnv;
+		const suffix = crypto.randomUUID().slice(0, 12);
+		const tenantA = `widget-a-${suffix}`;
+		const tenantB = `widget-b-${suffix}`;
+		const manifest: PluginManifest = {
+			...SANDBOX_MANIFEST,
+			admin: {
+				fieldWidgets: [
+					{
+						name: "caption",
+						label: "Caption details",
+						fieldTypes: ["json"],
+						elements: [
+							{ type: "text_input", action_id: "caption", label: "Caption" },
+						],
+					},
+				],
+			},
+		};
+		await Promise.all([
+			createActiveRegistryPlugin(host, tenantA, manifest.id),
+			createActiveRegistryPlugin(host, tenantB, manifest.id),
+		]);
+		mockCanonicalBundle(tenantA, manifest);
+		mockCanonicalBundle(tenantB, {
+			...manifest,
+			admin: { ...manifest.admin, entry: "untrusted-admin.js" },
+		});
+		const invoke = (slug: string) =>
+			pluginHost(slug, crypto.randomUUID()).invokeHook(
+				manifest.id,
+				manifest.version,
+				"plugin:install",
+				{},
+			);
+		expect(await invoke(tenantA)).toEqual({ ok: true, value: "installed" });
+		expect(await invoke(tenantB)).toMatchObject({
+			ok: false,
+			error: expect.stringMatching(/unsupported host access/),
+		});
+		mockCanonicalBundle(tenantA, {
+			...manifest,
+			admin: { ...manifest.admin, settingsSchema: {} },
+		});
+		expect(await invoke(tenantA)).toMatchObject({
+			ok: false,
+			error: expect.stringMatching(/unsupported host access/),
+		});
+	}, 15_000);
+
 	test("tenant isolate can call its parent-pinned host without receiving Worker Loader", async () => {
 		const host = env as unknown as PluginHostEnv;
 		const slug = `runner-tenant-${crypto.randomUUID().slice(0, 12)}`;

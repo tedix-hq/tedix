@@ -39,6 +39,62 @@ bundle's compiled Emdash config and reports `activeBundle.databaseAdapter`;
 handoff requires `durableObjects`, not merely a source starter that has already
 been upgraded.
 
+## Registry editor contributions
+
+The parent plugin host supports one declarative JSON field widget per registry
+manifest. This is source support for the existing restricted plugin-host lane,
+not permission to enable the host for more sites or deploy tenant bundles.
+The manifest path is `admin.fieldWidgets`:
+
+```json
+{
+	"admin": {
+		"fieldWidgets": [
+			{
+				"name": "caption",
+				"label": "Caption details",
+				"fieldTypes": ["json"],
+				"elements": [
+					{
+						"type": "text_input",
+						"action_id": "caption",
+						"label": "Caption",
+						"placeholder": "Enter caption"
+					}
+				]
+			}
+		]
+	}
+}
+```
+
+This is an excerpt from an otherwise supported bundle: it still needs the
+`plugin:install` hook, backend code, zero host capabilities and no allowed
+network hosts. Installation validates the raw contribution before persistence;
+execution revalidates the active tenant's canonical bundle. Active registry
+metadata reaches EmDash's generic editor renderer without an admin script.
+A JSON collection field selects it with `widget: "pluginId:caption"`. Each
+`action_id` edits one property of that field's object, preserving its siblings.
+The normal content editor owns draft saving and publication; rendering the
+widget makes no plugin RPC.
+
+Widget names are lowercase letters, digits and hyphens, starting with a letter
+(at most 64 characters). A widget has 1–8 text inputs with unique lowercase
+`action_id` keys (letters, digits and underscores, starting with a letter,
+at most 64 characters; `constructor` and `prototype` are rejected). Labels
+are nonblank and at most 128 characters; optional placeholders are nonblank
+and at most 256. Unknown widget or element keys, other field/element types,
+custom admin entrypoints, settings, pages, dashboard widgets, editor actions
+and panels remain rejected. Empty `pages` and `widgets` arrays remain valid.
+Disabled registry plugins do not publish field widgets.
+
+Block Kit is the declarative authoring UI here, not a content block format.
+Portable Text objects use `_type` in rich-text content and are not admitted
+by this subset. Native versioned blocks use EmDash's separate block registry
+and retain their existing schema/version rules. None of these editor declarations
+adds a public-site renderer: public rendering remains an explicit native theme
+concern.
+
 ## Bindings
 
 - `LOADER` (worker_loaders) — Dynamic Worker isolate factory

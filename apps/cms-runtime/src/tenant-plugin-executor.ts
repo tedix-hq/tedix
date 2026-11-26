@@ -324,7 +324,62 @@ export class TenantPluginKvBridge extends WorkerEntrypoint<
 	}
 }
 
-function hasNoAdminExtensions(manifestInput: unknown): boolean {
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isEditorLabel(value: unknown, maxLength = 128): value is string {
+	return (
+		typeof value === "string" &&
+		value.trim().length > 0 &&
+		value.length <= maxLength
+	);
+}
+
+function hasSupportedFieldWidget(value: unknown): boolean {
+	if (!Array.isArray(value) || value.length !== 1) return false;
+	const widget: unknown = value[0];
+	if (
+		!isRecord(widget) ||
+		Object.keys(widget).some(
+			(key) => !["name", "label", "fieldTypes", "elements"].includes(key),
+		) ||
+		typeof widget.name !== "string" ||
+		!/^[a-z][a-z0-9-]{0,63}$/.test(widget.name) ||
+		!isEditorLabel(widget.label) ||
+		!Array.isArray(widget.fieldTypes) ||
+		widget.fieldTypes.length !== 1 ||
+		widget.fieldTypes[0] !== "json" ||
+		!Array.isArray(widget.elements) ||
+		widget.elements.length < 1 ||
+		widget.elements.length > 8
+	) {
+		return false;
+	}
+	const actionIds = new Set<string>();
+	return widget.elements.every((element: unknown) => {
+		if (
+			!isRecord(element) ||
+			Object.keys(element).some(
+				(key) => !["type", "action_id", "label", "placeholder"].includes(key),
+			) ||
+			element.type !== "text_input" ||
+			typeof element.action_id !== "string" ||
+			!/^[a-z][a-z0-9_]{0,63}$/.test(element.action_id) ||
+			["constructor", "prototype"].includes(element.action_id) ||
+			actionIds.has(element.action_id) ||
+			!isEditorLabel(element.label) ||
+			(element.placeholder !== undefined &&
+				!isEditorLabel(element.placeholder, 256))
+		) {
+			return false;
+		}
+		actionIds.add(element.action_id);
+		return true;
+	});
+}
+
+function hasSupportedAdminExtensions(manifestInput: unknown): boolean {
 	if (
 		!manifestInput ||
 		typeof manifestInput !== "object" ||
@@ -336,13 +391,14 @@ function hasNoAdminExtensions(manifestInput: unknown): boolean {
 	if (!admin || typeof admin !== "object" || Array.isArray(admin)) {
 		return false;
 	}
-	// Emdash emits these empty arrays even when a plugin has no admin UI.
-	// Check the raw object because its schema strips unknown keys on parse.
-	return Object.entries(admin).every(
-		([key, value]) =>
-			(key === "pages" || key === "widgets") &&
-			Array.isArray(value) &&
-			value.length === 0,
+	// Validate raw metadata: Emdash strips unknown widget keys but leaves
+	// element keys loose. Neither may silently admit a new host capability.
+	return Object.entries(admin).every(([key, value]) =>
+		key === "fieldWidgets"
+			? hasSupportedFieldWidget(value)
+			: (key === "pages" || key === "widgets") &&
+				Array.isArray(value) &&
+				value.length === 0,
 	);
 }
 
@@ -407,7 +463,7 @@ function assertSupportedManifest(
 		manifest.allowedHosts.length > 0 ||
 		Object.keys(manifest.declaredAccess ?? {}).length > 0 ||
 		Object.keys(manifest.storage ?? {}).length > 0 ||
-		!hasNoAdminExtensions(manifestInput) ||
+		!hasSupportedAdminExtensions(manifestInput) ||
 		manifest.mcp !== undefined ||
 		!Array.isArray(manifest.hooks) ||
 		!manifest.hooks.some(

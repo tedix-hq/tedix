@@ -353,7 +353,16 @@ index db1aa25cb..2d42c6de5 100644
  					const seedResult = await applySeed(db, seed, { onConflict: "skip" });
  					await new OptionsRepository(db).set(AUTO_SEED_COMPLETE_OPTION, true);
  					console.log("Auto-seeded default collections");
-@@ -3439,13 +3457,44 @@ var EmDashRuntime = class EmDashRuntime {
+@@ -3350,6 +3368,7 @@ var EmDashRuntime = class EmDashRuntime {
+ 				dashboardWidgets: widgets ?? [],
+ 				editorPanels: meta.admin?.editorPanels,
+-				editorActions: meta.admin?.editorActions
++				editorActions: meta.admin?.editorActions,
++				fieldWidgets: enabled ? meta.admin?.fieldWidgets : void 0
+ 			};
+ 		}
+ 		let manifestTaxonomies = [];
+@@ -3439,13 +3458,44 @@ var EmDashRuntime = class EmDashRuntime {
  		} catch {}
  	}
  	async handleContentList(collection, params) {
@@ -1165,7 +1174,15 @@ diff --git a/src/emdash-runtime.ts b/src/emdash-runtime.ts
 index 2faff456f..97c338ed8 100644
 --- a/src/emdash-runtime.ts
 +++ b/src/emdash-runtime.ts
-@@ -1709,13 +1709,26 @@ export class EmDashRuntime {
+@@ -860,6 +860,7 @@ const marketplaceManifestCache = new Map<
+ 			pages?: PluginAdminPage[];
+ 			widgets?: PluginDashboardWidget[];
+ 			settingsSchema?: Record<string, SettingField>;
++			fieldWidgets?: FieldWidgetConfig[];
+ 			editorPanels?: PluginManifest["admin"]["editorPanels"];
+ 			editorActions?: PluginManifest["admin"]["editorActions"];
+ 		};
+@@ -1709,13 +1710,26 @@ export class EmDashRuntime {
  		}
  	}
  
@@ -1236,7 +1253,15 @@ index 2faff456f..97c338ed8 100644
  						const seedResult = await applySeed(db, seed, { onConflict: "skip" });
  						await new OptionsRepository(db).set(AUTO_SEED_COMPLETE_OPTION, true);
  						console.log("Auto-seeded default collections");
-@@ -4234,9 +4256,47 @@ export class EmDashRuntime {
+@@ -4071,6 +4094,7 @@ export class EmDashRuntime {
+ 				editorPanels: meta.admin?.editorPanels,
+ 				editorActions: meta.admin?.editorActions,
++				fieldWidgets: enabled ? meta.admin?.fieldWidgets : undefined,
+ 			};
+ 		}
+ 
+ 		// Build taxonomies from database
+@@ -4234,9 +4258,47 @@ export class EmDashRuntime {
  			bylinesNone?: boolean;
  			includeInferredBylines?: boolean;
  			fieldFilters?: ContentFieldFilters;
