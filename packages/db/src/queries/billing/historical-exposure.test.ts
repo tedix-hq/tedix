@@ -511,7 +511,7 @@ async function finiteFixture() {
 	};
 	const eligible = async (g = grant, o = origin) => {
 		const rows = await f.db.all(
-			sql`SELECT CASE WHEN ${await finiteExecutionEligibilityPredicate(g, o)} THEN 1 ELSE 0 END AS allowed`,
+			sql`SELECT CASE WHEN ${await finiteExecutionEligibilityPredicate(f.db, g, o)} THEN 1 ELSE 0 END AS allowed`,
 		);
 		return (rows as { allowed: number }[])[0]!.allowed;
 	};
