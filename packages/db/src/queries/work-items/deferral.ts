@@ -101,7 +101,7 @@ export function unansweredRunQuestionWait(
 		typeof question.text === "string"
 			? question.text.trim().replace(/\s+/g, " ").slice(0, 300)
 			: "";
-	return `Waiting for an answer to the run's question${text ? `: "${text}"` : ""}. The item's creator, owner or steward can answer with send_work_attempt_message; the run then resumes on a fresh Attempt.`;
+	return `Waiting for an answer to the run's question${text ? `: "${text}"` : ""}. This ended run cannot accept answer messages. An organization owner/admin or the item's tedi owner/steward must record the answer in the Work description with update_work_item. The revised task can start a fresh Attempt; a Work comment alone does not resume it.`;
 }
 
 /** Readiness uses durable history, including on runners without local receipts. */

@@ -4660,10 +4660,13 @@ export class LaneDispatcher {
 					}
 					previous.recheckAt = 0;
 				}
-				if (previous && "runQuestion" in previous && previous.runQuestion) {
+				if (
+					previous?.version === item.version &&
+					hasRetiredQuestion(previous)
+				) {
 					observeSkip(
 						item,
-						"Migrate the retained question to a canonical Interaction before resuming",
+						"Waiting for an answer to the run's question. This ended run cannot accept answer messages. An organization owner/admin or the item's tedi owner/steward must record the answer in the Work description with update_work_item. The revised task can start a fresh Attempt; a Work comment alone does not resume it.",
 					);
 					continue;
 				}
@@ -6632,7 +6635,7 @@ export class LaneDispatcher {
 				this.log(
 					"legacy-question-held",
 					item.id,
-					"Migrate the retained question to a canonical Interaction before resuming",
+					"Waiting for an answer to the run's question. This ended run cannot accept answer messages. An organization owner/admin or the item's tedi owner/steward must record the answer in the Work description with update_work_item. The revised task can start a fresh Attempt; a Work comment alone does not resume it.",
 				);
 				preflightPaused = true;
 				return;

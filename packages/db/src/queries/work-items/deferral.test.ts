@@ -91,7 +91,10 @@ describe("unansweredRunQuestionWait", () => {
 		const wait = unansweredRunQuestionWait(item, attempt);
 		expect(wait).toContain("Waiting for an answer to the run's question");
 		expect(wait).toContain("Which table?");
-		expect(wait).toContain("send_work_attempt_message");
+		expect(wait).toContain("organization owner/admin");
+		expect(wait).toContain("tedi owner/steward");
+		expect(wait).toContain("update_work_item");
+		expect(wait).not.toContain("send_work_attempt_message");
 	});
 
 	it("clears once the run's question has an answer", () => {

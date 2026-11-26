@@ -13165,6 +13165,78 @@ describe("watching and steering a run", () => {
 		}
 	});
 
+	it("holds an ended question run until an authorized task revision records the answer", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.uniqueAttempts = true;
+		f.control.duringTurn = (turn) => {
+			const { outcome: _outcome, ...fence } = completedResult(f.items[0]!);
+			f.control.finalMessage =
+				turn.number === 1
+					? `TEDIX_LANE_RESULT ${JSON.stringify({
+							...fence,
+							outcome: "deferred",
+							reason: "Waiting for an answer",
+						})}`
+					: "Used subscriptions.";
+		};
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+
+		const settled = f.events.find((event) => event.verb === "settle")!;
+		expect(settled.args[settled.args.indexOf("--outcome") + 1]).toBe(
+			"cancelled",
+		);
+		// Recover a receipt from before asks moved to canonical Interactions.
+		const question = {
+			seq: 1,
+			at: 1,
+			kind: "question",
+			text: "Which table holds the plan?",
+		};
+		f.control.history.data[0]!.outcome = "cancelled";
+		f.control.history.data[0]!.metadata = {
+			dispatchVersion: f.items[0]!.version,
+			runQuestion: question,
+		};
+		// Even after the usual deferral timer, only an answer can wake this run.
+		const path = join(f.dir, `${item().id}-2.json`);
+		const waiting = JSON.parse(readFileSync(path, "utf8"));
+		waiting.recheckAt = 0;
+		waiting.runQuestion = question;
+		writeFileSync(path, JSON.stringify(waiting));
+		const restarted = f.restart();
+		await restarted.tick();
+		expect(
+			f.events.filter(
+				(event) => event.verb === "start" && event.args[4] === "work",
+			),
+		).toHaveLength(1);
+
+		// A Work comment or timer cannot answer this legacy run. An authorized
+		// specification update records the answer and advances the task version.
+		f.items[0]!.version++;
+		f.items[0]!.description += "\nAnswer: use subscriptions.";
+		await restarted.tick();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await restarted.drain();
+
+		expect(f.briefs).toHaveLength(2);
+		expect(f.briefs[1]).toContain("Answer: use subscriptions.");
+		expect(
+			f.events.filter(
+				(event) => event.verb === "start" && event.args[4] === "work",
+			),
+		).toHaveLength(2);
+		expect(
+			f.events.filter((event) => event.verb === "settle").at(-1)?.args,
+		).toContain("succeeded");
+	});
+
 	const liveFence = (f: ReturnType<typeof fixture>) => {
 		const saved = JSON.parse(
 			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
