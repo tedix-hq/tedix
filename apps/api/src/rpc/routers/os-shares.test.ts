@@ -1,3 +1,4 @@
+import { projects } from "@tedix/db/schema/projects";
 import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 /**
  * Share-links router: tenant binding, shown-once token contract, revocation,
@@ -12,6 +13,7 @@ import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
+	osReviewBatches,
 	osShareLinkInvitees,
 	osShareLinks,
 	osShareSessions,
@@ -49,6 +51,8 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(
 		schemaDdl(
+			projects,
+			osReviewBatches,
 			organizations,
 			tedis,
 			osOutputs,
@@ -392,7 +396,12 @@ describe("shares.revoke", () => {
 		const outputId = await seedOutput(h);
 		const { share } = await h.org1.shares.create(outputShareInput(outputId));
 
-		await h.outputs.outputs.archive({ outputId });
+		await expect(h.outputs.outputs.archive({ outputId })).rejects.toMatchObject(
+			{
+				code: "CONFLICT",
+				cause: { code: "ROW_IN_USE" },
+			},
+		);
 		await expect(h.outputs.outputs.delete({ outputId })).rejects.toMatchObject({
 			code: "BAD_REQUEST",
 		});
@@ -407,6 +416,7 @@ describe("shares.revoke", () => {
 		await expect(
 			h.org1.shares.previewRevoke({ shareId: share.id }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await h.outputs.outputs.archive({ outputId });
 		await expect(h.outputs.outputs.delete({ outputId })).resolves.toEqual({
 			deleted: true,
 		});

@@ -201,7 +201,7 @@ function budgetSettlementValues(
 		: sql`0`;
 	// `work_budget_reservation_update_guard` rejects consumption above the
 	// reserved amount; spend beyond the reservation is capped, not refused.
-	const finalMicros = sql`MIN(CASE WHEN ${committed} > 0 THEN ${committed} ELSE ${fallback} END, ${workBudgetReservations.amountMicros})`;
+	const finalMicros = sql`${coreStore(db) === "postgres" ? sql`LEAST` : sql`MIN`}(CASE WHEN ${committed} > 0 THEN ${committed} ELSE ${fallback} END, ${workBudgetReservations.amountMicros})`;
 	return {
 		state: sql<
 			"consumed" | "released"
@@ -1060,7 +1060,7 @@ export async function heartbeatWorkItemAttempt(
 	const workAttempts = coreTable(db, d1WorkAttempts);
 	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
 	const workBudgetReservations = coreTable(db, d1WorkBudgetReservations);
-	const expiresAt = sql<string>`min(${requestedExpiry}, coalesce(${jsonRead(db, workAttempts.metadata, ["taskContract", "deadline"])}, ${requestedExpiry}))`;
+	const expiresAt = sql<string>`${coreStore(db) === "postgres" ? sql`LEAST` : sql`MIN`}(${requestedExpiry}, coalesce(${jsonRead(db, workAttempts.metadata, ["taskContract", "deadline"])}, ${requestedExpiry}))`;
 	const heartbeatMutation = db
 		.update(workAttempts)
 		.set({
@@ -1131,7 +1131,7 @@ export async function heartbeatWorkItemAttempt(
 			...(params.costMicros === undefined
 				? {}
 				: {
-						consumedMicros: sql`MIN(${Math.max(0, Math.trunc(params.costMicros))}, ${workBudgetReservations.amountMicros})`,
+						consumedMicros: sql`${coreStore(db) === "postgres" ? sql`LEAST` : sql`MIN`}(${Math.max(0, Math.trunc(params.costMicros))}, ${workBudgetReservations.amountMicros})`,
 					}),
 			version: sql`${workBudgetReservations.version} + 1`,
 		})

@@ -35,6 +35,7 @@ import {
 	kernelRuntimeRuns,
 } from "../../schema/cognitive-runtime";
 import {
+	workAdmissions,
 	workInteractions,
 	workInteractionResponses,
 	workInteractionDeliveries,
@@ -114,6 +115,7 @@ for (const store of ["d1", "postgres"] as const)
 					kernelConversations,
 					kernelConversationGrants,
 					kernelRuntimeRuns,
+					workAdmissions,
 					workInteractions,
 					workInteractionResponses,
 					workInteractionDeliveries,
@@ -204,6 +206,7 @@ for (const store of ["d1", "postgres"] as const)
 					projectId: "trees",
 					title: "Pack",
 					disposition: "accepted",
+					admissionSpecRevision: "spec-waiting",
 					createdAt: at,
 				},
 				{
@@ -214,16 +217,22 @@ for (const store of ["d1", "postgres"] as const)
 					createdAt: at,
 				},
 			]);
-			await db.insert(coreTable(db, workItemRelations)).values({
-				id: "blocks",
+			await db.insert(coreTable(db, workAdmissions)).values({
+				id: "admission",
 				orgId: "orchard",
-				fromWorkItemId: "source",
-				toWorkItemId: "waiting",
-				relationType: "blocks",
+				workItemId: "waiting",
+				workItemVersion: 1,
+				admissionSpecRevision: "spec-waiting",
+				executorType: "tedi",
+				executorId: "gardener",
+				decision: "admitted",
+				decidedAt: at,
+				expiresAt: "2099-01-01T00:00:00.000Z",
 				createdAt: at,
 			});
 			await db.insert(coreTable(db, workAttempts)).values({
 				id: "attempt",
+				admissionId: "admission",
 				orgId: "orchard",
 				workItemId: "waiting",
 				executorType: "tedi",
@@ -234,6 +243,15 @@ for (const store of ["d1", "postgres"] as const)
 				heartbeatAt: at,
 				expiresAt: "2099-01-01T00:00:00.000Z",
 				metadata: { lane: true },
+			});
+			// A dependency can arrive after the attempt was admitted.
+			await db.insert(coreTable(db, workItemRelations)).values({
+				id: "blocks",
+				orgId: "orchard",
+				fromWorkItemId: "source",
+				toWorkItemId: "waiting",
+				relationType: "blocks",
+				createdAt: at,
 			});
 			await db.insert(coreTable(db, workInteractions)).values([
 				{

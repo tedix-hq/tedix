@@ -1,3 +1,4 @@
+import { projects } from "@tedix/db/schema/projects";
 import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 /**
  * Tedix OS audit emission, end to end through the real routers.
@@ -24,8 +25,14 @@ import { auditEvents } from "@tedix/db/schema/audit-events";
 import { osApprovalRules } from "@tedix/db/schema/os-approval-rules";
 import { organizations } from "@tedix/db/schema/organizations";
 import { providerInstallations } from "@tedix/db/schema/provider-installations";
-import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
 import {
+	osReviewBatches,
+	osShareSkillReadGrants,
+	osShareLinks,
+	osShareSessions,
+} from "@tedix/db/schema/os-shares";
+import {
+	osWorkspaceProjects,
 	osBlueprintRevisions,
 	osBlueprints,
 	osCollaborationProposals,
@@ -63,6 +70,10 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(
 		schemaDdl(
+			projects,
+			osWorkspaceProjects,
+			osShareSkillReadGrants,
+			osReviewBatches,
 			osWorkspaces,
 			osWorkspaceSummaries,
 			providerInstallations,

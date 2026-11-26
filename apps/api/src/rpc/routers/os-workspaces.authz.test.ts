@@ -1,3 +1,4 @@
+import { projects } from "@tedix/db/schema/projects";
 import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import blueprint from "../../../../os/dev/demo-pack/work-blueprint.json";
 import { policyPacks } from "@tedix/db/schema/control-plane";
@@ -12,8 +13,15 @@ import { policyPacks } from "@tedix/db/schema/control-plane";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
-import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
 import {
+	osReviewBatches,
+	osShareSkillReadGrants,
+	osShareLinks,
+	osShareSessions,
+} from "@tedix/db/schema/os-shares";
+import {
+	osWorkspaceProjects,
+	osCollaborationProposals,
 	osBlueprintRevisions,
 	osBlueprints,
 	osGadgetCode,
@@ -45,6 +53,11 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(
 		schemaDdl(
+			projects,
+			osWorkspaceProjects,
+			osCollaborationProposals,
+			osShareSkillReadGrants,
+			osReviewBatches,
 			policyPacks,
 			osWorkspaces,
 			osWorkspaceSummaries,

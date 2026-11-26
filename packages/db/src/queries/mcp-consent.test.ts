@@ -392,7 +392,7 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 		expect(await listMcpConsentGrants(db, key)).toHaveLength(2);
 	});
 
-	it(`keeps at most ${MAX_MCP_CONSENT_GRANTS_PER_CLIENT} newest grants per client`, async () => {
+	it("keeps live grants beyond the warning threshold and expires only idle grants", async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
 		onTestFinished(() => {
@@ -424,19 +424,48 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 			vi.setSystemTime(Date.now() + 1);
 		}
 		const grants = await listMcpConsentGrants(db, key);
-		expect(grants).toHaveLength(MAX_MCP_CONSENT_GRANTS_PER_CLIENT);
+		expect(grants).toHaveLength(MAX_MCP_CONSENT_GRANTS_PER_CLIENT + 3);
 		expect(grants[0]!.revision).toBe(
 			`r${MAX_MCP_CONSENT_GRANTS_PER_CLIENT + 1}`,
 		);
 		expect(
 			await getMcpConsentGrant(db, { ...key, revision: "old" }),
-		).toBeNull();
+		).not.toBeNull();
+		await db
+			.update(mcpConsentGrants)
+			.set({ lastUsedAt: "2026-12-31T00:00:00.000Z" });
+		vi.setSystemTime(new Date("2027-01-01T00:00:00.000Z"));
+		await db
+			.insert(mcpConsentGrants)
+			.values({
+				...active,
+				revision: "idle",
+				createdAt: "2026-10-01T00:00:00.000Z",
+			});
+		const next = {
+			...pending,
+			revision: "next",
+			expectedActiveRevision: expected,
+		};
+		await stageMcpConsentPending(db, next);
+		expect(await promoteMcpConsentPending(db, next)).toBe(true);
+		expect(await listMcpConsentGrants(db, key)).toHaveLength(
+			MAX_MCP_CONSENT_GRANTS_PER_CLIENT + 4,
+		);
 		expect(
 			await getMcpConsentGrant(db, { ...key, revision: "r00" }),
+		).not.toBeNull();
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "idle" }),
 		).toBeNull();
 	});
 
 	it("migration keeps an existing active selection valid and the next install additive", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-02T00:00:00.000Z"));
+		onTestFinished(() => {
+			vi.useRealTimers();
+		});
 		const { sqlite, db } = fixture({ grants: false });
 		await db.insert(mcpConsentSelections).values([
 			{ ...active, updatedAt: "2026-10-01T00:00:00.000Z" },
@@ -448,6 +477,20 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 			},
 		]);
 		sqlite.exec(GRANTS_MIGRATION);
+		// The other fixture tables already have these current columns.
+		const labels = readFileSync(
+			new URL(
+				"../../drizzle/20261126002804_mcp-consent-sign-in-labels/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		);
+		sqlite.exec(
+			labels
+				.split("--> statement-breakpoint")
+				.filter((statement) => statement.includes("`mcp_consent_grants`"))
+				.join("\n"),
+		);
 		expect(await listMcpConsentGrants(db, key)).toMatchObject([
 			{
 				revision: "old",

@@ -1,3 +1,4 @@
+import { projects } from "@tedix/db/schema/projects";
 import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 /**
  * Workspace collaborators end to end over D1: direct adds, share links, the
@@ -28,6 +29,7 @@ import {
 } from "@tedix/db/schema/os-collaborators";
 import { osShareLinks } from "@tedix/db/schema/os-shares";
 import {
+	osWorkspaceProjects,
 	osCollaborationProposals,
 	osGadgetRevisions,
 	osGadgets,
@@ -77,6 +79,8 @@ function createEnv() {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(
 		schemaDdl(
+			projects,
+			osWorkspaceProjects,
 			tedis,
 			kernelConversations,
 			kernelConversationGrants,

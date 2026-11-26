@@ -130,9 +130,9 @@ export async function listWorkResourcePools(
 			pool: workResourcePools,
 			// Explicit outer qualifiers survive Drizzle's single-table column rewriting.
 			activeReserved:
-				sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id="work_resource_pools"."org_id" AND r.pool_id="work_resource_pools"."id" AND r.state='active' AND r.expires_at>${p.at}),0)`.as(
-					"active_reserved",
-				),
+				sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id="work_resource_pools"."org_id" AND r.pool_id="work_resource_pools"."id" AND r.state='active' AND r.expires_at>${p.at}),0)`
+					.mapWith(Number)
+					.as("active_reserved"),
 		})
 		.from(workResourcePools)
 		.where(

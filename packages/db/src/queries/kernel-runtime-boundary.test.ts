@@ -474,7 +474,7 @@ describe("run-scoped runtime event reads under production statistics", () => {
 			limit: 5,
 		});
 		expect(routerRows.map((row) => row.id)).toEqual(["e-3", "e-2"]);
-		expect(statements.slice(1)).toHaveLength(2);
+		expect(statements.slice(1)).toHaveLength(1);
 		for (const statement of statements.slice(1)) {
 			expect(statement).toContain('+"tedi_runtime_events"."kind" in (?)');
 			expect(statement).not.toContain('"run_id" in (');

@@ -22,16 +22,13 @@ import {
 import { type AnySQLiteColumn, alias } from "drizzle-orm/sqlite-core";
 import { getLogStores, type DbClient } from "../client";
 import { coreTable } from "../core-store/client";
+import { prefixedColumns } from "../utils/select";
 import { anyIds, coreStore, jsonRead, unixTime } from "../core-store/dialect";
 import { auditEvents as schemaAuditEvents } from "../schema/audit-events";
-import {
-	tediApprovalRequests as schemaTediApprovalRequests,
-	approvalRequestStoredColumns,
-} from "../schema/approvals";
+import { tediApprovalRequests as schemaTediApprovalRequests } from "../schema/approvals";
 import {
 	chatDispatchIdempotency as schemaChatDispatchIdempotency,
 	kernelRuntimeRuns as schemaKernelRuntimeRuns,
-	kernelRuntimeRunStoredColumns,
 	kernelWakeQueue as schemaKernelWakeQueue,
 	tediArtifacts as schemaTediArtifacts,
 	tediRuntimeEvents as schemaTediRuntimeEvents,
@@ -592,16 +589,7 @@ export async function listTediApprovalRequests(
 ): Promise<TediApprovalRequestRow[]> {
 	const tediApprovalRequests = coreTable(db, schemaTediApprovalRequests);
 	return db
-		.select(
-			Object.fromEntries(
-				Object.keys(approvalRequestStoredColumns).map((key) => [
-					key,
-					getColumns(tediApprovalRequests)[
-						key as keyof typeof approvalRequestStoredColumns
-					],
-				]),
-			) as typeof approvalRequestStoredColumns,
-		)
+		.select(prefixedColumns(tediApprovalRequests, "approval"))
 		.from(tediApprovalRequests)
 		.where(
 			and(
@@ -623,16 +611,7 @@ export async function findDirectKernelParentRun(
 ): Promise<KernelRuntimeRunRow | null> {
 	const kernelRuntimeRuns = coreTable(db, schemaKernelRuntimeRuns);
 	const rows = await db
-		.select(
-			Object.fromEntries(
-				Object.keys(kernelRuntimeRunStoredColumns).map((key) => [
-					key,
-					getColumns(kernelRuntimeRuns)[
-						key as keyof typeof kernelRuntimeRunStoredColumns
-					],
-				]),
-			) as typeof kernelRuntimeRunStoredColumns,
-		)
+		.select(prefixedColumns(kernelRuntimeRuns, "run"))
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -650,16 +629,7 @@ export async function listRecentKernelRunsForOrganization(
 ): Promise<KernelRuntimeRunRow[]> {
 	const kernelRuntimeRuns = coreTable(db, schemaKernelRuntimeRuns);
 	return db
-		.select(
-			Object.fromEntries(
-				Object.keys(kernelRuntimeRunStoredColumns).map((key) => [
-					key,
-					getColumns(kernelRuntimeRuns)[
-						key as keyof typeof kernelRuntimeRunStoredColumns
-					],
-				]),
-			) as typeof kernelRuntimeRunStoredColumns,
-		)
+		.select(prefixedColumns(kernelRuntimeRuns, "run"))
 		.from(kernelRuntimeRuns)
 		.where(eq(kernelRuntimeRuns.organizationId, input.organizationId))
 		.orderBy(desc(kernelRuntimeRuns.updatedAt))

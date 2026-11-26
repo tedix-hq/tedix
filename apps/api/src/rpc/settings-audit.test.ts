@@ -30,6 +30,7 @@ const input = {
 	tediId: "tedi-a",
 	memberKey: "provider-a",
 	mcpServerId: "server-a",
+	revision: "sign-in-a",
 	value: "PRIVATE-CREDENTIAL",
 	endpoint: "PRIVATE-ENDPOINT",
 	clientId: "PRIVATE-CLIENT",

@@ -2,7 +2,11 @@ import { readMigrationFiles } from "drizzle-orm/migrator";
 import { fileURLToPath } from "node:url";
 import { coreTable } from "../core-store/client";
 import { createPGliteFacade } from "../test/pglite-facade";
-import { workInteractions } from "../schema/work-factory";
+import { workAdmissions, workInteractions } from "../schema/work-factory";
+import {
+	externalAgentPrincipals,
+	externalAgentSessions,
+} from "../schema/external-agent-identity";
 import { osWorkspaces, osGadgetExecutions } from "../schema/os-workspaces";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
@@ -457,6 +461,8 @@ it("keeps Postgres Attention counts, waiting asks and private runs scoped on fai
 				projectId: "project",
 				objectiveId: "objective",
 				title: "Running",
+				disposition: "accepted",
+				admissionSpecRevision: "spec-item",
 				createdAt: at,
 			},
 			{
@@ -472,8 +478,51 @@ it("keeps Postgres Attention counts, waiting asks and private runs scoped on fai
 				},
 			},
 		]);
+		const expiresAt = new Date(Date.now() + 300_000).toISOString();
+		await db.insert(coreTable(db, externalAgentPrincipals)).values({
+			id: "agent",
+			organizationId: "org-example",
+			key: "agent",
+			displayName: "Agent",
+			credentialBindingType: "owner_user",
+			credentialBindingId: "owner",
+			createdByType: "user",
+			createdById: "owner",
+		});
+		await db.insert(coreTable(db, externalAgentSessions)).values({
+			id: "session",
+			organizationId: "org-example",
+			principalId: "agent",
+			externalSessionKey: "codex:attention",
+			harness: "codex",
+			harnessVersion: "1",
+			modelProvider: "test",
+			modelId: "test",
+			modelVersion: "1",
+			identitySource: "explicit",
+			startedAt: at,
+			lastSeenAt: at,
+		});
+		await db.insert(coreTable(db, workAdmissions)).values({
+			id: "admission",
+			orgId: "org-example",
+			workItemId: "item",
+			workItemVersion: 1,
+			admissionSpecRevision: "spec-item",
+			executorType: "external_agent",
+			executorId: "agent",
+			executorSessionId: "session",
+			externalSessionKey: "codex:attention",
+			decision: "admitted",
+			decidedAt: at,
+			expiresAt,
+			createdAt: at,
+		});
 		await db.insert(coreTable(db, workAttempts)).values({
 			id: "attempt",
+			admissionId: "admission",
+			executorSessionId: "session",
+			externalSessionKey: "codex:attention",
 			orgId: "org-example",
 			workItemId: "item",
 			executorType: "external_agent",
@@ -481,7 +530,7 @@ it("keeps Postgres Attention counts, waiting asks and private runs scoped on fai
 			attemptNumber: 1,
 			startedAt: at,
 			heartbeatAt: at,
-			expiresAt: new Date(Date.now() + 300_000).toISOString(),
+			expiresAt,
 			metadata: { lane: 1 },
 		});
 		await db.insert(coreTable(db, kernelRuntimeRuns)).values({

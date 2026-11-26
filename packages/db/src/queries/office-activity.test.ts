@@ -15,6 +15,11 @@ import { workAgentSessions } from "../schema/work-agent-sessions";
 import { organizationMembers } from "../schema/organization-members";
 import { organizations } from "../schema/organizations";
 import {
+	externalAgentPrincipals,
+	externalAgentSessions,
+} from "../schema/external-agent-identity";
+import {
+	workAdmissions,
 	workInteractions,
 	workInteractionResponses,
 } from "../schema/work-factory";
@@ -331,6 +336,7 @@ describe.each(["d1", "postgres"] as const)(
 			async () => {
 				const { db, close } = await fixture(store);
 				const at = "2026-11-25T00:00:00.000Z";
+				const expiresAt = "2026-11-25T01:00:00.000Z";
 				try {
 					await db
 						.insert(coreTable(db, organizations))
@@ -345,6 +351,16 @@ describe.each(["d1", "postgres"] as const)(
 						stateSince: at,
 						lastEventAt: at,
 					});
+					await db.insert(coreTable(db, externalAgentPrincipals)).values({
+						id: "agent",
+						organizationId: "example",
+						key: "agent",
+						displayName: "Agent",
+						credentialBindingType: "owner_user",
+						credentialBindingId: "ada",
+						createdByType: "user",
+						createdById: "ada",
+					});
 					for (const [id, externalSessionKey] of [
 						["bare", "session"],
 						["prefixed", "codex:session"],
@@ -354,17 +370,49 @@ describe.each(["d1", "postgres"] as const)(
 							id,
 							orgId: "example",
 							title: id,
+							disposition: "accepted",
 							admissionSpecRevision: `spec-${id}`,
 							createdAt: at,
 							updatedAt: at,
 						});
+						await db.insert(coreTable(db, externalAgentSessions)).values({
+							id: `executor-session-${id}`,
+							organizationId: "example",
+							principalId: "agent",
+							externalSessionKey,
+							harness: id === "wrong" ? "claude-code" : "codex",
+							harnessVersion: "1",
+							modelProvider: "test",
+							modelId: "test",
+							modelVersion: "1",
+							identitySource: "explicit",
+							startedAt: at,
+							lastSeenAt: at,
+						});
+						await db.insert(coreTable(db, workAdmissions)).values({
+							id: `admission-${id}`,
+							orgId: "example",
+							workItemId: id,
+							workItemVersion: 1,
+							admissionSpecRevision: `spec-${id}`,
+							executorType: "external_agent",
+							executorId: "agent",
+							executorSessionId: `executor-session-${id}`,
+							externalSessionKey,
+							decision: "admitted",
+							decidedAt: at,
+							expiresAt,
+							createdAt: at,
+						});
 						await db.insert(coreTable(db, workAttempts)).values({
 							id: `attempt-${id}`,
+							admissionId: `admission-${id}`,
+							expiresAt,
 							orgId: "example",
 							workItemId: id,
 							executorType: "external_agent",
 							executorId: "agent",
-							executorSessionId: "executor-session",
+							executorSessionId: `executor-session-${id}`,
 							externalSessionKey,
 							attemptNumber: 1,
 							runtimeState: "finished",

@@ -25,6 +25,7 @@ import { auditEvents } from "../schema/audit-events";
 import { apps } from "../schema/apps";
 import { appTools } from "../schema/tools";
 import { projects } from "../schema/projects";
+import { workAdmissions } from "../schema/work-factory";
 import { tedis } from "../schema/tedis";
 import { workItems, workAttempts, workEvents } from "../schema/work-items";
 import * as external from "../schema/external-agent-identity";
@@ -129,6 +130,7 @@ for (const store of ["d1", "postgres"] as const)
 					tedis,
 					workItems,
 					workAttempts,
+					workAdmissions,
 					workEvents,
 					mcpToolApprovalGrants,
 					external.externalAgentPrincipals,
@@ -712,6 +714,7 @@ for (const store of ["d1", "postgres"] as const)
 				projectId: "project",
 				parentWorkItemId: "parent",
 				title: "Publish",
+				admissionSpecRevision: "spec-leaf",
 				workKind: "communication",
 				disposition: "accepted",
 				accountableOwnerType: "tedi",
@@ -719,8 +722,23 @@ for (const store of ["d1", "postgres"] as const)
 				metadata: { marketingCampaign: { key: "campaign" } },
 				createdAt: at,
 			});
+			await db.insert(coreTable(db, workAdmissions)).values({
+				id: "admission",
+				orgId: "org",
+				workItemId: "leaf",
+				workItemVersion: 1,
+				admissionSpecRevision: "spec-leaf",
+				executorType: "tedi",
+				executorId: "publisher",
+				decision: "admitted",
+				decidedAt: at,
+				expiresAt: later,
+				createdAt: at,
+			});
 			await db.insert(coreTable(db, workAttempts)).values({
 				id: "attempt",
+				admissionId: "admission",
+				expiresAt: later,
 				workItemId: "leaf",
 				orgId: "org",
 				executorType: "tedi",

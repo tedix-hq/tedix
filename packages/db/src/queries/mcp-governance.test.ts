@@ -1456,7 +1456,10 @@ describe("Work Item owned-channel authorization — real SQLite", () => {
 				resolveWorkItemAuthorization(db, ownedChannelCall),
 			).resolves.toMatchObject({
 				approved: false,
-				reason: "no_active_tedi_leaf",
+				reason:
+					mutation === "non-publisher"
+						? "owned_channel_not_configured"
+						: "no_active_tedi_leaf",
 			});
 		}
 	});

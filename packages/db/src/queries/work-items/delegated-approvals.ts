@@ -2,7 +2,7 @@ import { auditEvents as d1AuditEvents } from "../../schema/audit-events";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { organizationMembers as d1OrganizationMembers } from "../../schema/organization-members";
 import { tediApprovalRequests as d1TediApprovalRequests } from "../../schema/approvals";
-import { and, desc, eq, getColumns, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import {
 	DelegatedApprovalsPolicySchema,
 	DelegatedApprovalReceiptSchema,
@@ -10,6 +10,7 @@ import {
 import { delegatedCardAllowed } from "@tedix/api-contract/utils/delegated-approvals";
 import type { DbQueryClient } from "../../query-client";
 import { coreTable } from "../../core-store/client";
+import { prefixedColumns } from "../../utils/select";
 import { coreStore, jsonParameter, jsonRead } from "../../core-store/dialect";
 import { organizations as d1Organizations } from "../../schema/organizations";
 import { externalAgentPrincipals as d1ExternalAgentPrincipals } from "../../schema/external-agent-identity";
@@ -453,16 +454,8 @@ export async function getDelegatedRuntimeApproval(
 	id: string,
 ) {
 	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
-	const {
-		workItemId: _approvalWorkItemId,
-		executionStatus: _executionStatus,
-		executionDismissedAt: _executionDismissedAt,
-		consumedAt: _consumedAt,
-		delegatedOwnerId: _delegatedOwnerId,
-		...approvalRequestStoredColumns
-	} = getColumns(tediApprovalRequests);
 	const [row] = await db
-		.select(approvalRequestStoredColumns)
+		.select(prefixedColumns(tediApprovalRequests, "approval"))
 		.from(tediApprovalRequests)
 		.where(
 			and(

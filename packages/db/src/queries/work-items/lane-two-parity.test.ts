@@ -149,7 +149,7 @@ for (const store of ["d1", "postgres"] as const)
 				scopeType: "project",
 				scopeId: "trees",
 				limitMicros: 500_000,
-				reservationMicros: 50_000,
+				reservationMicros: 0,
 				currency: "credits",
 				now: at,
 			});
@@ -258,6 +258,10 @@ for (const store of ["d1", "postgres"] as const)
 			});
 			expect(listed.steps.map((step) => step.seq)).toEqual([1]);
 			expect(listed.live).toBe(true);
+			const first = await readWorkWaitPage(db, {
+				orgId: "orchard",
+				workItemId: "task",
+			});
 			const message = await sendWorkAttemptMessage(db, {
 				orgId: "orchard",
 				workItemId: "task",
@@ -268,10 +272,6 @@ for (const store of ["d1", "postgres"] as const)
 				at,
 			});
 			expect(message).toMatchObject({ kind: "follow_up" });
-			const first = await readWorkWaitPage(db, {
-				orgId: "orchard",
-				workItemId: "task",
-			});
 			const second = await readWorkWaitPage(db, {
 				orgId: "orchard",
 				workItemId: "task",
