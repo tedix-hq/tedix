@@ -97,7 +97,6 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	list_dispatcher_health: "dispatcherHealth/list",
 	get_runner_rules: "dispatcherHealth/getRunnerRules",
 	list_work_item_cli_rows: "workItems/listCliProjection",
-	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
 	add_comment: "workItems/addComment",
 	attach_work_case_item: "workItems/attachCaseWorkItem",
@@ -4449,14 +4448,14 @@ describe("native Work transport", () => {
 		expect(calls).toBe(1);
 		await fixture.client.close();
 	});
-	test("rejects namespace selectors for corroboration mutations", async () => {
+	test("rejects namespace selectors for comment observation mutations", async () => {
 		const fixture = makeContext({
 			as: "research-lead",
 			evidence: "artifact://reproduction",
 		});
-		await expect(runWork(`confirm ${ITEM}`, fixture.ctx)).rejects.toThrow(
-			"read-only",
-		);
+		await expect(
+			runWork(`comment ${ITEM} Observed result`, fixture.ctx),
+		).rejects.toThrow("read-only");
 		expect(fixture.nativeCalls).toEqual([]);
 	});
 });
@@ -4542,7 +4541,6 @@ describe("native dispatcher coverage", () => {
 				work: { campaign: "example", reason: "Example revocation" },
 			},
 			heartbeat: {},
-			confirm: { work: { evidence: "artifact://example" } },
 			settle: { work: { outcome: "succeeded" } },
 			"submit-evidence": {
 				work: {
@@ -4714,7 +4712,6 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(81);
 	});
 });
 
@@ -5477,6 +5474,28 @@ test("registers a lane on its admitted Attempt and rejects the flag on other ver
 });
 
 describe("comment text options", () => {
+	test("sends explicit observation evidence and stance, leaving ordinary notes uncredited", async () => {
+		for (const work of [
+			{},
+			{ evidence: "artifact://result", contradicts: true },
+		]) {
+			const { ctx, sources } = makeContext(work);
+			expect((await capture(`comment ${ITEM} Observed result`, ctx)).code).toBe(
+				0,
+			);
+			if (work.evidence)
+				expect(sources[0]).toContain(
+					'"observation":{"evidenceRef":"artifact://result","stance":"contradicts"}',
+				);
+			else expect(sources[0]).not.toContain('"observation"');
+		}
+		const { ctx, sources } = makeContext({ contradicts: true });
+		await expect(
+			capture(`comment ${ITEM} Observed result`, ctx),
+		).rejects.toThrow("requires --evidence");
+		expect(sources).toEqual([]);
+	});
+
 	test.each(["--body", "--message", "--text"])(
 		"posts the trimmed %s value",
 		async (flag) => {

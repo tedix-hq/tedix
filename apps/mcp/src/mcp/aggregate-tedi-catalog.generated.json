@@ -7870,25 +7870,46 @@
 				"properties": {
 					"id": {
 						"type": "string",
-						"format": "uuid"
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
 					},
 					"body": {
-						"type": "string"
-					},
-					"authorType": {
 						"type": "string",
-						"enum": ["user", "tedi", "system"]
+						"minLength": 1,
+						"maxLength": 10000
 					},
-					"authorId": {
-						"type": "string"
+					"observation": {
+						"description": "Explicit credential-derived observation. Ordinary comments and metadata never earn independent credit.",
+						"type": "object",
+						"properties": {
+							"evidenceRef": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 2000
+							},
+							"stance": {
+								"default": "corroborates",
+								"type": "string",
+								"enum": ["corroborates", "contradicts"]
+							}
+						},
+						"required": ["evidenceRef"],
+						"additionalProperties": false
+					},
+					"requestDelegation": {
+						"description": "Explicitly request executor assignment from this comment; requires specification authority. Ordinary comment text never changes assignment.",
+						"type": "boolean"
 					},
 					"metadata": {
+						"description": "Set decisionImpact to \"progress\" only for routine notes that change no decision facts. Such notes do not stale cards created by the same agent; unmarked and fact-changing comments still do.",
 						"type": "object",
-						"additionalProperties": true
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
 					}
 				},
-				"required": ["id", "body"],
-				"additionalProperties": false
+				"required": ["id", "body"]
 			},
 			"annotations": {
 				"readOnlyHint": false
@@ -9168,35 +9189,6 @@
 				"readOnlyHint": true
 			},
 			"rpcEndpoint": "workItems/listEvents",
-			"includeTediIdParam": false
-		},
-		{
-			"name": "work_item_corroborate",
-			"remoteName": "work_item_corroborate",
-			"description": "Corroborate an existing Work Item with an independently observed source reference.",
-			"inputSchema": {
-				"type": "object",
-				"properties": {
-					"id": {
-						"type": "string",
-						"format": "uuid"
-					},
-					"body": {
-						"type": "string",
-						"description": "How you independently reproduced/hit this. Defaults to a generic corroboration note."
-					},
-					"evidenceRef": {
-						"type": "string",
-						"description": "Required commit, artifact, or reproduction evidence ref."
-					}
-				},
-				"required": ["id", "body", "evidenceRef"],
-				"additionalProperties": false
-			},
-			"annotations": {
-				"readOnlyHint": false
-			},
-			"rpcEndpoint": "workItems/corroborate",
 			"includeTediIdParam": false
 		},
 		{

@@ -82,7 +82,24 @@ export async function workComment(
 		throw new Error("work comment requires a work item id and comment text");
 	}
 	id = await resolveWorkItemId(ctx, id);
-	const call = await postComment(ctx, id, text.trim());
+	if (ctx.work.contradicts && !ctx.work.evidence?.trim())
+		throw new Error("work comment --contradicts requires --evidence <ref>");
+	const call = await boardCall(
+		ctx,
+		mutationCallable(ctx.work.as, "work.add_comment"),
+		withSession(ctx, {
+			id,
+			body: text.trim(),
+			...(ctx.work.evidence?.trim()
+				? {
+						observation: {
+							evidenceRef: ctx.work.evidence.trim(),
+							stance: ctx.work.contradicts ? "contradicts" : "corroborates",
+						},
+					}
+				: {}),
+		}),
+	);
 	if (call.error) {
 		return fail(
 			ctx,
@@ -228,53 +245,6 @@ export async function workRevokeBlog(
 	return ok(ctx, call.value, () =>
 		console.log(
 			`${yellow("Revoked", ctx.color)} blog campaign ${campaignKey} on ${id}.`,
-		),
-	);
-}
-
-/**
- * Corroborate an EXISTING item you independently hit, instead of filing a
- * duplicate. Calls the canonical credential-derived corroboration ledger; a
- * stable principal counts once across every session and API key. Evidence is
- * mandatory because raw comments never affect ranking.
- */
-export async function workConfirm(
-	ctx: WorkContext,
-	id: string,
-): Promise<number> {
-	if (!id) throw new Error("work confirm requires a work item id");
-	id = await resolveWorkItemId(ctx, id);
-	const body =
-		ctx.work.note?.trim() ||
-		(ctx.work.contradicts
-			? "independently checked this settled claim and it does not hold"
-			: "independently reproduced this issue");
-	const evidence = ctx.work.evidence?.trim();
-	if (!evidence) {
-		throw new Error("work confirm requires --evidence <ref>");
-	}
-	if (ctx.work.as && isUuid(ctx.work.as)) {
-		throw new Error(
-			"work confirm cannot impersonate a tedi UUID; use its slug namespace or the tedi credential",
-		);
-	}
-	const callable = mutationCallable(ctx.work.as, "work.corroborate_work_items");
-	const call = await boardCall(ctx, callable, {
-		id,
-		evidenceRef: evidence,
-		stance: ctx.work.contradicts ? "contradicts" : "corroborates",
-		body,
-	});
-	if (call.error) {
-		return fail(
-			ctx,
-			call.error,
-			`Could not confirm ${id}: ${call.error.message}`,
-		);
-	}
-	return ok(ctx, call.value, () =>
-		console.log(
-			`${green("Confirmed", ctx.color)} ${id} (corroboration recorded).`,
 		),
 	);
 }

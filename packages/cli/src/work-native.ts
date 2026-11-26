@@ -160,7 +160,6 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	get_runner_rules: "dispatcherHealth/getRunnerRules",
 	claim_machine_tool_calls: "machines/claimToolCalls",
 	list_work_item_cli_rows: "workItems/listCliProjection",
-	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
 	add_comment: "workItems/addComment",
 	append_work_attempt_steps: "workItems/appendAttemptSteps",

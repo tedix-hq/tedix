@@ -63,7 +63,6 @@ import {
 	workComment,
 	workAuthorizeBlog,
 	workRevokeBlog,
-	workConfirm,
 	workHandoff,
 	workDelegate,
 } from "./work-collaboration";
@@ -152,14 +151,9 @@ export interface WorkOptions {
 	host?: string;
 	/** `handoff`: launch the host after reading the accepted item. */
 	launch?: boolean;
-	/**
-	 * `--contradicts`: this principal asserts the settled claim is FALSE, rather
-	 * than independently reproducing it. The ledger began as duplicate
-	 * suppression and could only agree; contradiction is what lets it carry the
-	 * after-the-fact correction AGENTS.md delegates to it.
-	 */
+	/** Contradict the settled claim with an explicit comment observation. */
 	contradicts?: boolean;
-	/** Evidence ref (`--evidence`) attached to a `confirm` corroboration. */
+	/** Evidence ref (`--evidence`) attached to an explicit comment observation. */
 	evidence?: string;
 	/** Stable key for retry-safe mutations that require one. */
 	idempotencyKey?: string;
@@ -283,7 +277,7 @@ Wait: wait <id> [--input '{"timeoutMs":20000,"cursor":{…}}'] [--json]
       Preserve the cursor for the next wait. Maximum timeout: 25000 ms.
 Checkpoint: checkpoint (read selected chat Work and bounded open requests addressed to you; no writes)
 Collaboration: comment <id> [text] [--body|--message|--text <text>]
-               confirm <id> --evidence <ref> [--contradicts]
+               comment <id> <text> --evidence <ref> [--contradicts]
 
 Use parent <id> <parent|none> to change or clear a parent later.
 --project files the item under a portfolio project and inherits its goal (--objective). For example:
@@ -349,7 +343,7 @@ they remain advisory and every start re-evaluates admission.
 An attempt id is a local lookup pointer scoped to workspace, actor, session, and Work Item;
 the server is the only judge of a stale Attempt.
 Settled means done: complete carries no evidence count and no review requirement, and a wrong
-claim is corrected with the confirm verb when noticed rather than prevented by pre-proof
+claim is corrected with an explicit comment observation when noticed rather than prevented by pre-proof
 (decisions/minimal-gates-over-pre-proof.md).
 
 Heartbeat --watch [seconds] keeps renewing only the original Attempt, about
@@ -385,7 +379,6 @@ const VERBS: Record<string, VerbHandler> = {
 	"authorize-blog": (ctx, id) => workAuthorizeBlog(ctx, id),
 	"revoke-blog": (ctx, id) => workRevokeBlog(ctx, id),
 	heartbeat: (ctx, id) => workHeartbeat(ctx, id),
-	confirm: (ctx, id) => workConfirm(ctx, id),
 	settle: (ctx, id) => workSettle(ctx, id),
 	"submit-evidence": (ctx, id) => workSubmitEvidence(ctx, id),
 	complete: (ctx, id) => workComplete(ctx, id),

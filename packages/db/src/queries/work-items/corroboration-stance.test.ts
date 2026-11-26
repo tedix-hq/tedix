@@ -2,15 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
-import { addWorkItemCorroboration } from "./comments";
+import { recordWorkConfirmation } from "./comments";
 
-/**
- * The ledger began as duplicate suppression — "I hit this too" — so every row
- * meant one thing and the table had no stance. After-the-fact correctness
- * ("a settled outcome that turns out to be false is fixed when someone
- * notices") needs `tedix work confirm` to record a contradiction too; a table
- * that can only agree cannot carry that.
- */
+/** Work event corrections retain identity, history and a single current stance. */
 const ORG = "org-1";
 const ITEM = "item-1";
 
@@ -52,19 +46,19 @@ describe("corroboration stance", () => {
 	it("keeps one row per principal — stance is not part of dedup", async () => {
 		// A principal that agreed and then changed its mind must not count twice;
 		// the ledger's whole value is that a stable principal counts once.
-		const first = await addWorkItemCorroboration(db, row());
+		const first = await recordWorkConfirmation(db, row());
 		expect(first.inserted).toBe(true);
-		const second = await addWorkItemCorroboration(
+		const second = await recordWorkConfirmation(
 			db,
 			row({ stance: "contradicts" }),
 		);
 		expect(second.inserted).toBe(false);
-		expect(second.corroboration.id).toBe(first.corroboration.id);
-		expect(second.corroboration.stance).toBe("contradicts");
+		expect(second.confirmation.id).toBe(first.confirmation.id);
+		expect(second.confirmation.stance).toBe("contradicts");
 	});
 
 	it("corrects changed observations while retaining their identity and creation time", async () => {
-		const first = await addWorkItemCorroboration(
+		const first = await recordWorkConfirmation(
 			db,
 			row({
 				id: "first",
@@ -72,7 +66,7 @@ describe("corroboration stance", () => {
 				createdAt: "2026-09-18T12:00:00.000Z",
 			}),
 		);
-		const corrected = await addWorkItemCorroboration(
+		const corrected = await recordWorkConfirmation(
 			db,
 			row({
 				id: "retry",
@@ -85,8 +79,8 @@ describe("corroboration stance", () => {
 			}),
 		);
 		expect(corrected).toMatchObject({ inserted: false });
-		expect(corrected.corroboration).toMatchObject({
-			id: first.corroboration.id,
+		expect(corrected.confirmation).toMatchObject({
+			id: first.confirmation.id,
 			orgId: ORG,
 			workItemId: ITEM,
 			principalType: "external_agent",
@@ -96,12 +90,12 @@ describe("corroboration stance", () => {
 			body: "the settled claim does not hold",
 			sessionId: "session-2",
 			occurredAt: "2026-09-18T13:00:00.000Z",
-			createdAt: first.corroboration.createdAt,
+			createdAt: first.confirmation.createdAt,
 		});
 	});
 
 	it("leaves a replay unchanged and clears session when it is omitted", async () => {
-		const first = await addWorkItemCorroboration(
+		const first = await recordWorkConfirmation(
 			db,
 			row({
 				id: "first",
@@ -110,17 +104,17 @@ describe("corroboration stance", () => {
 				createdAt: "2026-09-18T11:00:00.000Z",
 			}),
 		);
-		const cleared = await addWorkItemCorroboration(
+		const cleared = await recordWorkConfirmation(
 			db,
 			row({ id: "clear", occurredAt: "2026-09-18T13:00:00.000Z" }),
 		);
-		expect(cleared.corroboration).toMatchObject({
-			id: first.corroboration.id,
+		expect(cleared.confirmation).toMatchObject({
+			id: first.confirmation.id,
 			sessionId: null,
 			occurredAt: "2026-09-18T13:00:00.000Z",
-			createdAt: first.corroboration.createdAt,
+			createdAt: first.confirmation.createdAt,
 		});
-		const replay = await addWorkItemCorroboration(
+		const replay = await recordWorkConfirmation(
 			db,
 			row({
 				id: "replay",
@@ -129,21 +123,21 @@ describe("corroboration stance", () => {
 			}),
 		);
 		expect(replay).toMatchObject({ inserted: false });
-		expect(replay.corroboration).toMatchObject({
-			id: first.corroboration.id,
+		expect(replay.confirmation).toMatchObject({
+			id: first.confirmation.id,
 			occurredAt: "2026-09-18T13:00:00.000Z",
-			createdAt: first.corroboration.createdAt,
+			createdAt: first.confirmation.createdAt,
 		});
 	});
 
 	it("rejects a concurrent correction based on a stale history revision", async () => {
-		await addWorkItemCorroboration(db, row());
+		await recordWorkConfirmation(db, row());
 		const results = await Promise.allSettled([
-			addWorkItemCorroboration(
+			recordWorkConfirmation(
 				db,
 				row({ stance: "contradicts", body: "First correction" }),
 			),
-			addWorkItemCorroboration(
+			recordWorkConfirmation(
 				db,
 				row({ stance: "contradicts", body: "Other correction" }),
 			),
@@ -160,17 +154,17 @@ describe("corroboration stance", () => {
 	});
 
 	it("counts a different principal separately", async () => {
-		await addWorkItemCorroboration(db, row());
-		const other = await addWorkItemCorroboration(
+		await recordWorkConfirmation(db, row());
+		const other = await recordWorkConfirmation(
 			db,
 			row({ principalId: "agent-b", stance: "contradicts" }),
 		);
 		expect(other.inserted).toBe(true);
-		expect(other.corroboration.stance).toBe("contradicts");
+		expect(other.confirmation.stance).toBe("contradicts");
 	});
 
 	it("keeps every corroboration identity dimension isolated", async () => {
-		await addWorkItemCorroboration(db, row());
+		await recordWorkConfirmation(db, row());
 		for (const override of [
 			{ orgId: "org-2" },
 			{ workItemId: "item-2" },
@@ -178,7 +172,7 @@ describe("corroboration stance", () => {
 			{ principalType: "organization" as const },
 			{ principalId: "agent-b" },
 		]) {
-			const result = await addWorkItemCorroboration(db, row(override));
+			const result = await recordWorkConfirmation(db, row(override));
 			expect(result.inserted).toBe(true);
 		}
 	});

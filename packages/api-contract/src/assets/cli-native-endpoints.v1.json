@@ -41,7 +41,6 @@
 		"workItems/authorizePersonalCliRelease",
 		"workItems/cancel",
 		"workItems/complete",
-		"workItems/corroborate",
 		"workItems/create",
 		"workItems/createCase",
 		"workItems/detachCaseWorkItem",

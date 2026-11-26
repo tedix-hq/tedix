@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { externalAgentIdentityContractRouter } from "./external-agent-identity";
 import {
-	corroborationPrincipal,
+	workObservationPrincipal,
 	ownerHostClientRecordId,
 	verifiedExternalAgent,
 } from "./work-items-principal";
@@ -344,7 +344,7 @@ describe("owner-host Work identity", () => {
 		expect(await verifiedExternalAgent(userContext(OWNER), ORG)).toBeNull();
 		const opened = await client(userContext(OWNER)).openOwnerHostSession(TUPLE);
 		await expect(
-			corroborationPrincipal(
+			workObservationPrincipal(
 				userContext(OWNER, { ownerHostSessionId: opened.session.id }),
 				ORG,
 			),

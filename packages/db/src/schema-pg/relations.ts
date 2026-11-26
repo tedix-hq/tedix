@@ -603,27 +603,6 @@ const cognitionRelations = defineRelationsPart(schema, (r) => ({
 	},
 }));
 const coordinationRelations = defineRelationsPart(schema, (r) => ({
-	workItemCorroborations: {
-		organization: r.one.organizations({
-			from: r.workItemCorroborations.orgId,
-			to: r.organizations.id,
-		}),
-		// fk_work_item_corroboration_item_org is the org-scoped composite. The
-		// single-column work_item_id FK describes the same edge and is deliberately
-		// not declared a second time: two legs to work_items would make an
-		// argument-less reverse `many` ambiguous.
-		workItem: r.one.workItems({
-			from: [
-				r.workItemCorroborations.orgId,
-				r.workItemCorroborations.workItemId,
-			],
-			to: [r.workItems.orgId, r.workItems.id],
-		}),
-		// principalType/principalId is polymorphic (user | organization | tedi |
-		// external_agent) and sessionId is audit provenance that never
-		// participates in dedup, so neither is declared.
-	},
-
 	// =========================================================================
 	// EXTERNAL AGENT IDENTITY (composite org-scoped FKs)
 	// =========================================================================

@@ -123,32 +123,6 @@ export const WORK_ITEM_COMMENT_AUTHOR_TYPE_VALUES = [
 export type WorkItemCommentAuthorType =
 	(typeof WORK_ITEM_COMMENT_AUTHOR_TYPE_VALUES)[number];
 
-/**
- * What a second principal is asserting about a Work Item.
- *
- * The ledger began as duplicate suppression — "I hit this too" — which is why
- * every row before this column meant `corroborates` and the default backfills
- * them correctly. But AGENTS.md delegates correctness after the fact to this
- * ledger ("a settled outcome that turns out to be false is fixed when someone
- * notices"), and a table that can only agree cannot carry that. The stance is
- * the difference between a ranking signal and a detection plane.
- */
-export const WORK_ITEM_CORROBORATION_STANCE_VALUES = [
-	"corroborates",
-	"contradicts",
-] as const;
-export type WorkItemCorroborationStance =
-	(typeof WORK_ITEM_CORROBORATION_STANCE_VALUES)[number];
-
-export const WORK_ITEM_CORROBORATION_PRINCIPAL_TYPE_VALUES = [
-	"user",
-	"organization",
-	"tedi",
-	"external_agent",
-] as const;
-export type WorkItemCorroborationPrincipalType =
-	(typeof WORK_ITEM_CORROBORATION_PRINCIPAL_TYPE_VALUES)[number];
-
 export const WORK_ITEM_RELATION_TYPE_VALUES = [
 	"blocks",
 	"supersedes",
@@ -592,68 +566,6 @@ export const workItemComments = sqliteTable(
 export type WorkItemComment = typeof workItemComments.$inferSelect;
 export type NewWorkItemComment = typeof workItemComments.$inferInsert;
 
-/**
- * Principal-deduplicated evidence that an accountable actor independently
- * encountered and confirmed an existing Work Item. Comments remain the display
- * thread; only this credential-derived ledger affects ranking.
- */
-export const workItemCorroborations = sqliteTable(
-	"work_item_corroborations",
-	{
-		id: text("id").primaryKey(),
-		orgId: text("org_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		workItemId: text("work_item_id")
-			.notNull()
-			.references(() => workItems.id, { onDelete: "cascade" }),
-		principalType: text("principal_type", {
-			enum: WORK_ITEM_CORROBORATION_PRINCIPAL_TYPE_VALUES,
-		}).notNull(),
-		principalId: text("principal_id").notNull(),
-		/** Session is audit provenance only and never participates in dedup. */
-		sessionId: text("session_id"),
-		evidenceRef: text("evidence_ref").notNull(),
-		/**
-		 * Deliberately NOT part of the dedup target below: a principal counts
-		 * once per Work Item, and may change its mind without counting twice.
-		 */
-		stance: text("stance", { enum: WORK_ITEM_CORROBORATION_STANCE_VALUES })
-			.notNull()
-			.default("corroborates"),
-		body: text("body").notNull(),
-		occurredAt: text("occurred_at").notNull(),
-		createdAt: text("created_at")
-			.notNull()
-			.default(sql`(CURRENT_TIMESTAMP)`),
-	},
-	(table) => [
-		foreignKey({
-			name: "fk_work_item_corroboration_item_org",
-			columns: [table.orgId, table.workItemId],
-			foreignColumns: [workItems.orgId, workItems.id],
-		}).onDelete("cascade"),
-		uniqueIndex("uniq_work_item_corroboration_principal").on(
-			table.orgId,
-			table.workItemId,
-			table.principalType,
-			table.principalId,
-		),
-		check(
-			"chk_work_item_corroboration_principal_type",
-			sql`${table.principalType} IN ('user', 'organization', 'tedi', 'external_agent')`,
-		),
-		check(
-			"chk_work_item_corroboration_identity",
-			sql`length(${table.principalId}) > 0 AND length(${table.evidenceRef}) > 0`,
-		),
-	],
-);
-
-export type WorkItemCorroboration = typeof workItemCorroborations.$inferSelect;
-export type NewWorkItemCorroboration =
-	typeof workItemCorroborations.$inferInsert;
-
 export const workItemRelations = sqliteTable(
 	"work_item_relations",
 	{
@@ -955,86 +867,6 @@ export const workEvents = sqliteTable(
 
 export type WorkEvent = typeof workEvents.$inferSelect;
 export type NewWorkEvent = typeof workEvents.$inferInsert;
-
-/**
- * RETIRED SYSTEM-AUTHORED CORROBORATION OF ONE EVIDENCE ROW.
- *
- * Personal-agent outbound read these rows before the observation-ledger
- * cutover. History must be copied and reconciled per organization before
- * deploying that cutover. Keep this definition until the deployed reader and
- * credential-derived correction writer use Work events and ops authorizes
- * table removal. Completion does not require evidence review.
- *
- * `claimed` and `observed` preserve the original assertion and readback;
- * `observed_at`, verifier identity and comparison are historical facts.
- */
-export const workEvidenceVerifications = sqliteTable(
-	"work_evidence_verifications",
-	{
-		id: text("id").primaryKey(),
-		orgId: text("org_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		workItemId: text("work_item_id").notNull(),
-		/** The exact evidence row this observation corroborates or contradicts. */
-		evidenceId: text("evidence_id")
-			.notNull()
-			.references(() => workEvidence.id, { onDelete: "cascade" }),
-		/**
-		 * The observing component, e.g. `deployment_readback`. It is part of the
-		 * uniqueness key so one source cannot restate itself, while a genuinely
-		 * second source may still corroborate the same row.
-		 */
-		source: text("source").notNull(),
-		/**
-		 * Always `system`. A verification authored by the principal that submitted
-		 * the evidence would be the self-assertion this table exists to replace;
-		 * the query owner rejects that case before the insert is built and this
-		 * CHECK makes the storage layer say the same thing.
-		 */
-		verifierType: text("verifier_type", { enum: WORK_ACTOR_TYPE_VALUES })
-			.notNull()
-			.default("system"),
-		verifierId: text("verifier_id").notNull(),
-		/** What the evidence row asserted, as the verifier resolved it. */
-		claimed: text("claimed", { mode: "json" })
-			.$type<Record<string, JsonValue>>()
-			.notNull()
-			.default({}),
-		/** What the verifier independently read. */
-		observed: text("observed", { mode: "json" })
-			.$type<Record<string, JsonValue>>()
-			.notNull()
-			.default({}),
-		matchesClaim: integer("matches_claim", { mode: "boolean" }).notNull(),
-		observedAt: text("observed_at").notNull(),
-	},
-	(table) => [
-		foreignKey({
-			name: "fk_work_evidence_verification_item_org",
-			columns: [table.orgId, table.workItemId],
-			foreignColumns: [workItems.orgId, workItems.id],
-		}).onDelete("cascade"),
-		uniqueIndex("uniq_work_evidence_verification_source").on(
-			table.orgId,
-			table.evidenceId,
-			table.source,
-		),
-		index("idx_work_evidence_verifications_item").on(
-			table.orgId,
-			table.workItemId,
-		),
-		check(
-			"chk_work_evidence_verification_system_authored",
-			sql`${table.verifierType} = 'system'`,
-		),
-	],
-);
-
-export type WorkEvidenceVerification =
-	typeof workEvidenceVerifications.$inferSelect;
-export type NewWorkEvidenceVerification =
-	typeof workEvidenceVerifications.$inferInsert;
 
 export const WORK_ATTEMPT_STEP_KIND_VALUES = [
 	"started",

@@ -1878,42 +1878,6 @@ export type ReviewMarketingEvaluationInput = z.infer<
 	typeof ReviewMarketingEvaluationInputSchema
 >;
 
-export const WorkItemCorroborationPrincipalTypeSchema = z.enum([
-	"user",
-	"organization",
-	"tedi",
-	"external_agent",
-]);
-
-/**
- * What a second principal asserts about a settled claim. `corroborates` is the
- * original meaning of every row in this ledger and stays the default; the
- * ledger existed to suppress duplicate reports. `contradicts` is what makes it
- * a detection plane instead of a ranking signal — AGENTS.md delegates
- * after-the-fact correctness here, and a table that can only agree cannot
- * carry that.
- */
-export const WorkItemCorroborationStanceSchema = z
-	.enum(["corroborates", "contradicts"])
-	.describe(
-		"Whether this principal independently agrees with the Work Item's settled claim, or asserts it is false.",
-	);
-
-export const WorkItemCorroborationSchema = z.object({
-	id: z.uuid(),
-	orgId: z.uuid(),
-	workItemId: z.uuid(),
-	principalType: WorkItemCorroborationPrincipalTypeSchema,
-	principalId: z.string().min(1).max(300),
-	sessionId: z.string().max(300).nullable(),
-	evidenceRef: z.string().min(1).max(2_000),
-	stance: WorkItemCorroborationStanceSchema,
-	body: z.string().min(1).max(10_000),
-	occurredAt: z.string(),
-	createdAt: z.string(),
-});
-export type WorkItemCorroboration = z.infer<typeof WorkItemCorroborationSchema>;
-
 export const WorkItemRelationSchema = z.object({
 	id: z.uuid(),
 	orgId: z.uuid(),

@@ -1164,7 +1164,7 @@ describe("oRPC tool projection sync", () => {
 		const result = await runToolSchemaSync(db, {
 			mode: "projection",
 			apply: true,
-			endpoints: ["workItems/listCorroborations"],
+			endpoints: ["apps/listConfigVersions"],
 		});
 
 		expect(result).toMatchObject({ total: 1, created: 1, failed: 0 });

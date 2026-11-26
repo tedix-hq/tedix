@@ -14,11 +14,7 @@ import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { organizationSecrets } from "@tedix/db/schema/organization-secrets";
 import { userConfigs } from "@tedix/db/schema/user-configs";
-import {
-	workEvents,
-	workEvidence,
-	workEvidenceVerifications,
-} from "@tedix/db/schema/work-items";
+import { workEvents, workEvidence } from "@tedix/db/schema/work-items";
 import {
 	workInteractions,
 	workInteractionResponses,
@@ -32,24 +28,43 @@ import {
 } from "@tedix/db/queries/personal-agent-outbound";
 import { PersonalAgentOutcomeSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import {
-	addWorkItemCorroboration,
+	recordWorkConfirmation,
 	addWorkItemComment,
 } from "@tedix/db/queries/work-items/comments";
 import { personalAgentInboundContractRouter } from "../rpc/routers/personal-agent-inbound";
 import { personalAgentInboundRoutes } from "../personal-agent-inbound-routes";
 import type { BaseContext } from "../rpc/orpc";
 import { receivePersonalAgentFinding } from "./personal-agent-inbound";
-import { migrateWorkObservationHistoryPage } from "@tedix/db/queries/work-items/observation-history";
-import { reconcilePersonalAgentOutcomes as reconcileLedgerOutcomes } from "./personal-agent-outbound";
+import { reconcilePersonalAgentOutcomes } from "./personal-agent-outbound";
 
-async function reconcilePersonalAgentOutcomes(
-	...args: Parameters<typeof reconcileLedgerOutcomes>
+async function recordVerification(
+	db: ReturnType<typeof createDbClient>,
+	record: {
+		id: string;
+		orgId: string;
+		workItemId: string;
+		evidenceId: string;
+		source: string;
+		verifierType: string;
+		verifierId: string;
+		matchesClaim: boolean;
+		observedAt: string;
+	},
 ) {
-	await migrateWorkObservationHistoryPage(args[0], {
-		orgId: org,
-		kind: "verification",
+	await db.insert(workEvents).values({
+		id: `work-observation:verification:${record.id}`,
+		orgId: record.orgId,
+		workItemId: record.workItemId,
+		eventType: "work.observation_recorded",
+		actorType: "system",
+		actorId: "work-observation-migration",
+		payload: {
+			schema: "tedix.work-observation.v1",
+			kind: "verification",
+			record: { claimed: {}, observed: {}, ...record },
+		},
+		occurredAt: record.observedAt,
 	});
-	return reconcileLedgerOutcomes(...args);
 }
 
 const org = "11111111-1111-4111-8111-111111111111";
@@ -71,7 +86,6 @@ async function setup() {
 				workInteractions,
 				workInteractionResponses,
 				workEvidence,
-				workEvidenceVerifications,
 				tediEmailAddresses,
 			),
 	);
@@ -262,7 +276,7 @@ describe("personal-agent outbound", () => {
 				body: "Observed the cited result.",
 				occurredAt: new Date().toISOString(),
 			};
-			await addWorkItemCorroboration(h.db, observation);
+			await recordWorkConfirmation(h.db, observation);
 			await reconcilePersonalAgentOutcomes(h.db, {});
 			let rows = await listPersonalAgentOutcomes(h.db, {
 				orgId: org,
@@ -280,7 +294,7 @@ describe("personal-agent outbound", () => {
 				corroboratedOutcomes: 1,
 				verifiedOutcomes: 0,
 			});
-			await addWorkItemCorroboration(h.db, {
+			await recordWorkConfirmation(h.db, {
 				...observation,
 				stance: "contradicts",
 				body: "Result no longer matches.",
@@ -304,9 +318,9 @@ describe("personal-agent outbound", () => {
 				evidenceRef: "https://cedar.example/corrected",
 				occurredAt: new Date(Date.now() + 1).toISOString(),
 			};
-			await addWorkItemCorroboration(h.db, corrected);
+			await recordWorkConfirmation(h.db, corrected);
 			await reconcilePersonalAgentOutcomes(h.db, {});
-			await addWorkItemCorroboration(h.db, corrected);
+			await recordWorkConfirmation(h.db, corrected);
 			await reconcilePersonalAgentOutcomes(h.db, {});
 			const revised = await listPersonalAgentOutcomes(h.db, {
 				orgId: org,
@@ -379,7 +393,7 @@ describe("personal-agent outbound", () => {
 					submittedById: "fictional-runner",
 					submittedAt: new Date().toISOString(),
 				});
-				await h.db.insert(workEvidenceVerifications).values({
+				await recordVerification(h.db, {
 					id: `v-${n}`,
 					orgId: org,
 					workItemId: receipt.workItemId,
@@ -505,7 +519,7 @@ describe("personal-agent outbound", () => {
 				submittedById: "runner",
 				submittedAt: new Date().toISOString(),
 			});
-			await h.db.insert(workEvidenceVerifications).values({
+			await recordVerification(h.db, {
 				id: "v",
 				orgId: org,
 				workItemId: r.workItemId,

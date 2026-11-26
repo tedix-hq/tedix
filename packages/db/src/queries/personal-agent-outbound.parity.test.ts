@@ -19,8 +19,6 @@ import {
 	workEvents,
 	workItemComments,
 	workEvidence,
-	workEvidenceVerifications,
-	workItemCorroborations,
 } from "../schema/work-items";
 import {
 	workInteractions,
@@ -40,12 +38,6 @@ import {
 	listPersonalAgentOutcomes,
 	recordPersonalAgentOutcome,
 } from "./personal-agent-outbound";
-
-import {
-	addWorkItemCorroboration,
-	listWorkItemCorroborations,
-} from "./work-items/comments";
-import { migrateWorkObservationHistoryPage } from "./work-items/observation-history";
 
 const at = "2026-11-20T12:00:00.000Z";
 const enrollment: PersonalAgentEnrollment = {
@@ -95,7 +87,6 @@ for (const store of ["d1", "postgres"] as const)
 		let db: DbQueryClient;
 		let close: () => void | Promise<void>;
 		let rejectComment: () => Promise<void>;
-		let removeLegacyTables: () => Promise<void>;
 		beforeAll(async () => {
 			if (store === "d1") {
 				const sqlite = createMigratedSqlite();
@@ -103,12 +94,6 @@ for (const store of ["d1", "postgres"] as const)
 					createD1Facade(sqlite, { maxBoundParams: 100 }),
 				);
 				close = () => sqlite.close();
-				removeLegacyTables = async () => {
-					sqlite.exec(
-						"DROP TABLE work_evidence_verifications; DROP TABLE work_item_corroborations;",
-					);
-					expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-				};
 				rejectComment = async () => {
 					sqlite.exec(`CREATE TRIGGER reject_outbound_fixture BEFORE INSERT ON work_item_comments
 					 WHEN NEW.id='rollback' BEGIN SELECT RAISE(ABORT,'fixture comment failure'); END;`);
@@ -117,11 +102,6 @@ for (const store of ["d1", "postgres"] as const)
 				const fixture = await createPGliteFacade();
 				db = fixture.db;
 				close = fixture.close;
-				removeLegacyTables = async () => {
-					await fixture.engine.exec(
-						"DROP TABLE work_evidence_verifications; DROP TABLE work_item_corroborations;",
-					);
-				};
 				for (const migration of readMigrationFiles({
 					migrationsFolder: fileURLToPath(
 						new URL("../../drizzle-pg", import.meta.url),
@@ -362,114 +342,6 @@ for (const store of ["d1", "postgres"] as const)
 			});
 		});
 
-		it("copies confirmation pages per organization, reconciles fields and retains corrections", async () => {
-			const items = coreTable(db, workItems);
-			const [source] = await db
-				.select()
-				.from(items)
-				.where(eq(items.id, "work"));
-			await db
-				.insert(items)
-				.values({ ...source!, id: "migration-work", provenance: {} });
-			const legacy = coreTable(db, workItemCorroborations);
-			for (let n = 0; n < 26; n++)
-				await db.insert(legacy).values({
-					id: `legacy-${String(n).padStart(2, "0")}`,
-					orgId: "org",
-					workItemId: "migration-work",
-					principalType: "user",
-					principalId: `reader-${n}`,
-					sessionId: "old-session",
-					evidenceRef: "https://example.test/result",
-					stance: "corroborates",
-					body: "Original readback",
-					occurredAt: at,
-					createdAt: "2026-11-19T12:00:00.000Z",
-				});
-			expect(
-				await migrateWorkObservationHistoryPage(db, {
-					orgId: "other",
-					kind: "confirmation",
-				}),
-			).toMatchObject({ checked: 0 });
-			const first = await migrateWorkObservationHistoryPage(db, {
-				orgId: "org",
-				kind: "confirmation",
-			});
-			expect(first).toMatchObject({ checked: 25, done: false });
-			expect(
-				await migrateWorkObservationHistoryPage(db, {
-					orgId: "org",
-					kind: "confirmation",
-					after: first.after!,
-				}),
-			).toMatchObject({ checked: 1, done: true });
-			await migrateWorkObservationHistoryPage(db, {
-				orgId: "org",
-				kind: "confirmation",
-			});
-			const events = coreTable(db, workEvents);
-			const before = await db
-				.select()
-				.from(events)
-				.where(eq(events.workItemId, "migration-work"));
-			expect(before).toHaveLength(26);
-			const original = (
-				await db.select().from(legacy).where(eq(legacy.id, "legacy-00"))
-			)[0]!;
-			expect(
-				before.find(
-					(event) =>
-						event.payload.record &&
-						(event.payload.record as { id: string }).id === original.id,
-				)?.payload.record,
-			).toEqual(original);
-			const corrected = await addWorkItemCorroboration(db, {
-				...original,
-				id: "retry",
-				sessionId: "new-session",
-				stance: "contradicts",
-				body: "Correction",
-				occurredAt: "2026-11-21T12:00:00.000Z",
-			});
-			expect(corrected.corroboration).toMatchObject({
-				id: original.id,
-				createdAt: original.createdAt,
-				stance: "contradicts",
-			});
-			expect(
-				await listWorkItemCorroborations(db, "org", "migration-work"),
-			).toHaveLength(26);
-			expect(
-				await listWorkItemCorroborations(db, "other", "migration-work"),
-			).toEqual([]);
-			expect(
-				await db
-					.select()
-					.from(events)
-					.where(eq(events.workItemId, "migration-work")),
-			).toHaveLength(27);
-			// A conflicting pre-existing target must stop migration rather than skip data loss.
-			await db
-				.update(events)
-				.set({ payload: {} })
-				.where(eq(events.id, "work-observation:confirmation:legacy-00"));
-			await expect(
-				migrateWorkObservationHistoryPage(db, {
-					orgId: "org",
-					kind: "confirmation",
-				}),
-			).rejects.toThrow("reconciliation failed");
-			await db
-				.update(events)
-				.set({
-					payload: before.find(
-						(event) => event.id === "work-observation:confirmation:legacy-00",
-					)!.payload,
-				})
-				.where(eq(events.id, "work-observation:confirmation:legacy-00"));
-		});
-
 		it("keeps boolean verification observations and evidence-version comparisons in the backlog", async () => {
 			const evidence = coreTable(db, workEvidence);
 			await db.insert(evidence).values({
@@ -487,14 +359,14 @@ for (const store of ["d1", "postgres"] as const)
 				.update(evidence)
 				.set({ version: 2 })
 				.where(eq(evidence.id, "evidence"));
-			await db.insert(coreTable(db, workEvidenceVerifications)).values([
+			const observations = [
 				{
 					id: "verified",
 					orgId: "org",
 					workItemId: "work",
 					evidenceId: "evidence",
 					source: "checker-a",
-					verifierType: "system",
+					verifierType: "system" as const,
 					verifierId: "checker",
 					claimed: { evidenceVersion: "2" },
 					matchesClaim: true,
@@ -506,7 +378,7 @@ for (const store of ["d1", "postgres"] as const)
 					workItemId: "work",
 					evidenceId: "evidence",
 					source: "checker-stale",
-					verifierType: "system",
+					verifierType: "system" as const,
 					verifierId: "checker",
 					claimed: { evidenceVersion: "1" },
 					observed: { result: "old", fields: { count: 3 } },
@@ -519,29 +391,28 @@ for (const store of ["d1", "postgres"] as const)
 					workItemId: "work",
 					evidenceId: "evidence",
 					source: "checker-b",
-					verifierType: "system",
+					verifierType: "system" as const,
 					verifierId: "checker",
 					matchesClaim: false,
 					observedAt: at,
 				},
-			]);
-			expect(
-				await migrateWorkObservationHistoryPage(db, {
-					orgId: "other",
-					kind: "verification",
-				}),
-			).toMatchObject({ checked: 0 });
-			expect(
-				await migrateWorkObservationHistoryPage(db, {
-					orgId: "org",
-					kind: "verification",
-				}),
-			).toMatchObject({ checked: 3, done: true });
-			await migrateWorkObservationHistoryPage(db, {
-				orgId: "org",
-				kind: "verification",
-			});
-			await removeLegacyTables();
+			];
+			await db.insert(coreTable(db, workEvents)).values(
+				observations.map((record) => ({
+					id: `work-observation:verification:${record.id}`,
+					orgId: record.orgId,
+					workItemId: record.workItemId,
+					eventType: "work.observation_recorded",
+					actorType: "system" as const,
+					actorId: "work-observation-migration",
+					payload: {
+						schema: "tedix.work-observation.v1",
+						kind: "verification",
+						record: { claimed: {}, observed: {}, ...record },
+					},
+					occurredAt: record.observedAt,
+				})),
+			);
 			const rows = await listPersonalAgentOutcomeSources(db);
 			expect(rows.map((row) => row.observationState).sort()).toEqual([
 				"contradicted",

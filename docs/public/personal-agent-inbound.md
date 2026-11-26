@@ -100,6 +100,12 @@ observation version. Historical system readback records may be labeled
 the original response reference and supersede the prior outcome. Agent-session answers and
 relayed actor metadata do not become the represented person's own decision.
 
+Record an explicit observation with
+`tedix work comment <id> "Checked result" --evidence <ref>`; add
+`--contradicts` to correct a claim. The API uses `workItems/addComment` with
+`observation: { evidenceRef, stance }`. Identity comes from the credential;
+ordinary comments and caller-supplied metadata earn no independent credit.
+
 Work comments are always enabled. As the enrolling person, use
 `personalAgentInbound.configureDelivery` with
 `{"id":"<enrollment-id>","email":{"memberId":"<agent-member-id>","senderAddressId":"<sender-address-id>"}}`

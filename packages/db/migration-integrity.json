@@ -2132,6 +2132,10 @@
 		{
 			"name": "20261126133943_workspace_resource_provider_object/migration.sql",
 			"sha256": "7f71b412da7d6b5e2df53d8c92324ef2046bc7bc3baf32a1345c458654fee03f"
+		},
+		{
+			"name": "20261126153906_remove_work_verification_tables/migration.sql",
+			"sha256": "b83bcc7dde4728042feaf9ec9cbc7d8c7042bc8aa47f414e1149ae5633c33e2c"
 		}
 	]
 }

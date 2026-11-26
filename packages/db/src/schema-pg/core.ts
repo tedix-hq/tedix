@@ -12714,57 +12714,6 @@ export const workEvidence = pgTable(
 			.onUpdate("no action"),
 	],
 );
-export const workEvidenceVerifications = pgTable(
-	"work_evidence_verifications",
-	{
-		id: text("id").primaryKey(),
-		orgId: text("org_id").notNull(),
-		workItemId: text("work_item_id").notNull(),
-		evidenceId: text("evidence_id").notNull(),
-		source: text("source").notNull(),
-		verifierType: text("verifier_type").notNull().default("system"),
-		verifierId: text("verifier_id").notNull(),
-		claimed: jsonb("claimed").notNull().default({}),
-		observed: jsonb("observed").notNull().default({}),
-		matchesClaim: boolean("matches_claim").notNull(),
-		observedAt: text("observed_at").notNull(),
-	},
-	(t) => [
-		uniqueIndex("uniq_work_evidence_verification_source").on(
-			t["orgId"],
-			t["evidenceId"],
-			t["source"],
-		),
-		index("idx_work_evidence_verifications_item").on(
-			t["orgId"],
-			t["workItemId"],
-		),
-		foreignKey({
-			name: "work_evidence_verifications_org_id_organizations_id_fk",
-			columns: [t["orgId"]],
-			foreignColumns: [referencedColumn("organizations", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "work_evidence_verifications_evidence_id_work_evidence_id_fk",
-			columns: [t["evidenceId"]],
-			foreignColumns: [referencedColumn("work_evidence", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "fk_work_evidence_verification_item_org",
-			columns: [t["orgId"], t["workItemId"]],
-			foreignColumns: [
-				referencedColumn("work_items", "org_id"),
-				referencedColumn("work_items", "id"),
-			],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-	],
-);
 export const workInteractionAttention = pgTable(
 	"work_interaction_attention",
 	{
@@ -13164,60 +13113,6 @@ export const workItemComments = pgTable(
 			name: "work_item_comments_org_id_organizations_id_fk",
 			columns: [t["orgId"]],
 			foreignColumns: [referencedColumn("organizations", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-	],
-);
-export const workItemCorroborations = pgTable(
-	"work_item_corroborations",
-	{
-		id: text("id").primaryKey(),
-		orgId: text("org_id").notNull(),
-		workItemId: text("work_item_id").notNull(),
-		principalType: text("principal_type").notNull(),
-		principalId: text("principal_id").notNull(),
-		sessionId: text("session_id"),
-		evidenceRef: text("evidence_ref").notNull(),
-		stance: text("stance").notNull().default("corroborates"),
-		body: text("body").notNull(),
-		occurredAt: text("occurred_at").notNull(),
-		createdAt: text("created_at")
-			.notNull()
-			.default(
-				sql.raw(
-					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
-				),
-			),
-	},
-	(t) => [
-		uniqueIndex("uniq_work_item_corroboration_principal").on(
-			t["orgId"],
-			t["workItemId"],
-			t["principalType"],
-			t["principalId"],
-		),
-		foreignKey({
-			name: "work_item_corroborations_org_id_organizations_id_fk",
-			columns: [t["orgId"]],
-			foreignColumns: [referencedColumn("organizations", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "work_item_corroborations_work_item_id_work_items_id_fk",
-			columns: [t["workItemId"]],
-			foreignColumns: [referencedColumn("work_items", "id")],
-		})
-			.onDelete("cascade")
-			.onUpdate("no action"),
-		foreignKey({
-			name: "fk_work_item_corroboration_item_org",
-			columns: [t["orgId"], t["workItemId"]],
-			foreignColumns: [
-				referencedColumn("work_items", "org_id"),
-				referencedColumn("work_items", "id"),
-			],
 		})
 			.onDelete("cascade")
 			.onUpdate("no action"),
@@ -15886,7 +15781,6 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(workCases), workCases],
 	[getTableName(workEvents), workEvents],
 	[getTableName(workEvidence), workEvidence],
-	[getTableName(workEvidenceVerifications), workEvidenceVerifications],
 	[getTableName(workInteractionAttention), workInteractionAttention],
 	[
 		getTableName(workInteractionCardPresentations),
@@ -15902,7 +15796,6 @@ const tablesByName = new Map<string, PgTable>([
 	[getTableName(workInteractionResponses), workInteractionResponses],
 	[getTableName(workInteractions), workInteractions],
 	[getTableName(workItemComments), workItemComments],
-	[getTableName(workItemCorroborations), workItemCorroborations],
 	[getTableName(workItemOrgCounts), workItemOrgCounts],
 	[getTableName(workItemRelations), workItemRelations],
 	[getTableName(workItemSources), workItemSources],

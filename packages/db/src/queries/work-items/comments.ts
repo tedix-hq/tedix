@@ -10,9 +10,6 @@ import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkItemComment,
 	type WorkItemCommentAuthorType,
-	type WorkItemCorroboration,
-	type WorkItemCorroborationPrincipalType,
-	type WorkItemCorroborationStance,
 	workEvents as d1WorkEvents,
 	workItemComments as d1WorkItemComments,
 	workItems as d1WorkItems,
@@ -20,6 +17,7 @@ import {
 
 import { WorkControlError } from "./factory-validation";
 import {
+	type WorkConfirmation,
 	currentConfirmationEvent,
 	OBSERVATION_EVENT,
 	OBSERVATION_SCHEMA,
@@ -206,25 +204,25 @@ export async function addWorkItemCommentIfAbsent(
 	return { comment: await addWorkItemComment(db, params), inserted: true };
 }
 
-export interface AddWorkItemCorroborationParams {
+export interface AddWorkConfirmationParams {
 	id: string;
 	workItemId: string;
 	orgId: string;
-	principalType: WorkItemCorroborationPrincipalType;
+	principalType: WorkConfirmation["principalType"];
 	principalId: string;
 	sessionId?: string;
 	evidenceRef: string;
 	/** Defaults to `corroborates`, which is what every pre-stance row meant. */
-	stance?: WorkItemCorroborationStance;
+	stance?: WorkConfirmation["stance"];
 	body: string;
 	occurredAt: string;
 	createdAt?: string;
 }
 
-export async function addWorkItemCorroboration(
+export async function recordWorkConfirmation(
 	db: DbQueryClient,
-	params: AddWorkItemCorroborationParams,
-): Promise<{ corroboration: WorkItemCorroboration; inserted: boolean }> {
+	params: AddWorkConfirmationParams,
+): Promise<{ confirmation: WorkConfirmation; inserted: boolean }> {
 	const events = coreTable(db, d1WorkEvents);
 	const [previous] = await db
 		.select()
@@ -239,7 +237,7 @@ export async function addWorkItemCorroboration(
 			),
 		)
 		.limit(1);
-	const old = previous?.payload.record as WorkItemCorroboration | undefined;
+	const old = previous?.payload.record as WorkConfirmation | undefined;
 	const stance = params.stance ?? "corroborates";
 	const sessionId = params.sessionId ?? null;
 	if (
@@ -249,8 +247,8 @@ export async function addWorkItemCorroboration(
 		old.evidenceRef === params.evidenceRef &&
 		old.body === params.body
 	)
-		return { corroboration: old, inserted: false };
-	const corroboration: WorkItemCorroboration = {
+		return { confirmation: old, inserted: false };
+	const confirmation: WorkConfirmation = {
 		...params,
 		id: old?.id ?? params.id,
 		stance,
@@ -286,7 +284,7 @@ export async function addWorkItemCorroboration(
 			payload: {
 				schema: OBSERVATION_SCHEMA,
 				kind: "confirmation",
-				record: corroboration,
+				record: confirmation,
 				deliveryRevision: previous ? String(previous.sequence) : null,
 				summary: params.body,
 			},
@@ -299,27 +297,7 @@ export async function addWorkItemCorroboration(
 			"CONFLICT",
 			"Work confirmation changed; read the current observation before correcting it",
 		);
-	return { corroboration, inserted: !old };
-}
-
-export async function listWorkItemCorroborations(
-	db: DbQueryClient,
-	orgId: string,
-	workItemId: string,
-): Promise<WorkItemCorroboration[]> {
-	const events = coreTable(db, d1WorkEvents);
-	const rows = await db
-		.select({ payload: events.payload })
-		.from(events)
-		.where(
-			and(
-				eq(events.orgId, orgId),
-				eq(events.workItemId, workItemId),
-				currentConfirmationEvent(db, events),
-			),
-		)
-		.orderBy(asc(events.sequence));
-	return rows.map((row) => row.payload.record as WorkItemCorroboration);
+	return { confirmation, inserted: !old };
 }
 
 export async function listWorkItemComments(

@@ -1,23 +1,11 @@
 import {
-	isSameCanonicalParty,
-	resolveCanonicalWorkParties,
-} from "@tedix/db/queries/external-agent-identity/canonical-party";
-import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
-import {
-	addWorkItemCorroboration,
-	listWorkItemCorroborations,
-} from "@tedix/db/queries/work-items/comments";
-import {
 	setWorkItemParent,
 	removeWorkItemRelation,
 	addWorkItemRelation,
 } from "@tedix/db/queries/work-items/relations";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { ErrorCodes, createError, skipOutputValidation } from "../../orpc";
-import {
-	verifiedActiveWorkActor,
-	corroborationPrincipal,
-} from "../work-items-principal";
+import { verifiedActiveWorkActor } from "../work-items-principal";
 import {
 	getByIdProcedure,
 	getOrgGraphHealthProcedure,
@@ -35,89 +23,7 @@ import {
 	requireOwnerAdminWorkItemAuthor,
 	rethrowWorkItemWriteError,
 	authOs,
-	rethrowWorkControlError,
 } from "./policy-helpers";
-
-export const corroborateProcedure = authOs.corroborate.handler(
-	async ({ input, context }) => {
-		const workItem = await assertWorkItemAccess(context, input.id);
-		const principal = await corroborationPrincipal(context, workItem.orgId);
-		const attempts = await listWorkItemAttempts(context.db, {
-			orgId: workItem.orgId,
-			workItemId: workItem.id,
-		});
-		const activeAttempt = attempts.data.find((attempt) =>
-			["queued", "running", "waiting", "retrying"].includes(
-				attempt.runtimeState,
-			),
-		);
-		// Self-CORROBORATION is worthless: an executor agreeing with itself adds
-		// no independent principal, which is the only thing this ledger counts.
-		// Self-CONTRADICTION is the opposite — an executor saying "my settled
-		// claim was wrong" is the cheapest true signal the detection plane can
-		// receive, and refusing it would make honesty the one move the protocol
-		// forbids.
-		// Compare canonical PARTIES: an owner and their owner-host agent are one
-		// party, so the owner corroborating any attempt that agent executed is
-		// self-corroboration too (active or settled).
-		const externalExecutors = [
-			...new Set(
-				attempts.data
-					.filter((attempt) => attempt.executorType === "external_agent")
-					.map((attempt) => attempt.executorId),
-			),
-		]
-			.slice(0, 49)
-			.map((id) => ({ type: "external_agent", id }));
-		const parties = await resolveCanonicalWorkParties(context.db, {
-			organizationId: workItem.orgId,
-			parties: [principal, ...externalExecutors],
-		});
-		const executorRef = (attempt: (typeof attempts.data)[number]) => ({
-			type: attempt.executorType,
-			id: attempt.executorId,
-		});
-		const selfCorroboration =
-			(activeAttempt &&
-				isSameCanonicalParty(parties, executorRef(activeAttempt), principal)) ||
-			attempts.data.some(
-				(attempt) =>
-					parties.has(`external_agent:${attempt.executorId}`) &&
-					attempt.executorType === "external_agent" &&
-					isSameCanonicalParty(parties, executorRef(attempt), principal),
-			);
-		if (input.stance === "corroborates" && selfCorroboration) {
-			throw createError(
-				ErrorCodes.CONFLICT,
-				"The active executor cannot corroborate its own Work Item; it may contradict it",
-			);
-		}
-		try {
-			const result = await addWorkItemCorroboration(context.db, {
-				id: crypto.randomUUID(),
-				workItemId: workItem.id,
-				orgId: workItem.orgId,
-				principalType: principal.type,
-				principalId: principal.id,
-				sessionId: principal.sessionId,
-				evidenceRef: input.evidenceRef,
-				stance: input.stance,
-				body: input.body,
-				occurredAt: new Date().toISOString(),
-			});
-			return result.corroboration;
-		} catch (error) {
-			rethrowWorkControlError(error);
-		}
-	},
-);
-
-export const listCorroborationsProcedure = authOs.listCorroborations.handler(
-	async ({ input, context }) => {
-		const workItem = await assertWorkItemAccess(context, input.id);
-		return listWorkItemCorroborations(context.db, workItem.orgId, workItem.id);
-	},
-);
 
 async function relationActor(
 	context: Parameters<typeof verifiedActiveWorkActor>[0],

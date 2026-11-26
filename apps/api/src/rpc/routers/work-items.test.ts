@@ -1175,6 +1175,36 @@ describe("tedi Work stewardship", () => {
 });
 
 describe("Work Item router collaboration ledgers", () => {
+	function confirmations(id: string): { id: string; [key: string]: unknown }[] {
+		return sqlite
+			.prepare(
+				"SELECT payload FROM work_events WHERE org_id=? AND work_item_id=? AND event_type='work.observation_recorded' ORDER BY sequence",
+			)
+			.all(ORG_ID, id)
+			.map((row) => JSON.parse(row.payload as string).record);
+	}
+	async function observe(
+		c: ReturnType<typeof client>,
+		input: {
+			id: string;
+			body: string;
+			evidenceRef: string;
+			stance?: "corroborates" | "contradicts";
+		},
+	) {
+		const comment = await c.addComment({
+			id: input.id,
+			body: input.body,
+			observation: {
+				evidenceRef: input.evidenceRef,
+				stance: input.stance ?? "corroborates",
+			},
+		});
+		return confirmations(input.id).findLast(
+			(row) => row.id === comment.metadata?.observationId,
+		)!;
+	}
+
 	it("keeps lifecycle events server-authored and comment identity credential-derived", async () => {
 		const created = await client().create({
 			...PURPOSE,
@@ -1225,13 +1255,13 @@ describe("Work Item router collaboration ledgers", () => {
 				"2026-08-20T00:00:00.000Z",
 			);
 		await expect(
-			client().corroborate({
+			observe(client(), {
 				id: created.id,
 				evidenceRef: "artifact://self-claim",
 				body: "Attempted direct corroboration",
 			}),
 		).rejects.toThrow(/active immutable MCP session/);
-		expect(await client().listCorroborations({ id: created.id })).toEqual([]);
+		expect(await confirmations(created.id)).toEqual([]);
 	});
 	it("treats an owner and their owner-host agent as one party for corroboration", async () => {
 		const insertPrincipal = sqlite.prepare(
@@ -1269,14 +1299,14 @@ describe("Work Item router collaboration ledgers", () => {
 				runtimeState,
 			);
 			await expect(
-				client("owner").corroborate({
+				observe(client("owner"), {
 					id: created.id,
 					evidenceRef: "artifact://self",
 					body: "My own agent did it",
 				}),
 			).rejects.toMatchObject({ code: "CONFLICT" });
 			await expect(
-				client("owner").corroborate({
+				observe(client("owner"), {
 					id: created.id,
 					evidenceRef: "artifact://self",
 					body: "My own agent got it wrong",
@@ -1296,7 +1326,7 @@ describe("Work Item router collaboration ledgers", () => {
 			"running",
 		);
 		await expect(
-			client("owner").corroborate({
+			observe(client("owner"), {
 				id: independent.id,
 				evidenceRef: "artifact://independent",
 				body: "Reproduced independently",
@@ -1418,7 +1448,7 @@ describe("Work Item router collaboration ledgers", () => {
 			...PURPOSE,
 			title: "Reproduce incident",
 		});
-		const first = await client().corroborate({
+		const first = await observe(client(), {
 			id: created.id,
 			evidenceRef: "artifact://repro-1",
 			body: "Reproduced",
@@ -1428,14 +1458,14 @@ describe("Work Item router collaboration ledgers", () => {
 			principalId: `organization:${ORG_ID}`,
 		});
 		await expect(
-			client().corroborate({
+			observe(client(), {
 				id: created.id,
 				evidenceRef: "artifact://repro-1",
 				body: "Reproduced",
 			}),
 		).resolves.toMatchObject({ id: first.id });
 		await expect(
-			client().corroborate({
+			observe(client(), {
 				id: created.id,
 				evidenceRef: "artifact://repro-2",
 				body: "Different payload",
@@ -1445,7 +1475,12 @@ describe("Work Item router collaboration ledgers", () => {
 			evidenceRef: "artifact://repro-2",
 			body: "Different payload",
 		});
-		expect(await client().listCorroborations({ id: created.id })).toEqual([
+		expect(confirmations(created.id)).toEqual([
+			expect.objectContaining({
+				id: first.id,
+				evidenceRef: "artifact://repro-1",
+				body: "Reproduced",
+			}),
 			expect.objectContaining({
 				id: first.id,
 				evidenceRef: "artifact://repro-2",

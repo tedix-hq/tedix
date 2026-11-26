@@ -104,9 +104,7 @@ export function parseWorkOption(
 		case "--launch":
 			options.workLaunch = true;
 			break;
-		// `work confirm --contradicts`: the second principal asserts the settled
-		// claim is FALSE. Without it, `confirm` means "I reproduced this too",
-		// which is all this ledger could say before the stance column.
+		// An explicit comment observation may contradict the settled claim.
 		case "--contradicts":
 			options.workContradicts = true;
 			break;

@@ -11,7 +11,6 @@ import {
 	type TediToolSpec,
 } from "./aggregate-tedis-shared";
 
-const WORK_ITEM_AUTHOR_TYPE_ENUM = ["user", "tedi", "system"];
 const WORK_ITEM_RELATION_TYPE_ENUM = ["blocks", "duplicates", "references"];
 
 const WORK_ITEMS_LIST_SCHEMA: ToolInputJsonSchema = zodToToolInputJsonSchema(
@@ -29,36 +28,9 @@ const WORK_ITEM_CREATE_SCHEMA: ToolInputJsonSchema = zodToToolInputJsonSchema(
 	procedureInputSchema(workItemsContract.create),
 );
 
-const WORK_ITEM_COMMENT_SCHEMA: ToolInputJsonSchema = {
-	type: "object",
-	properties: {
-		id: { type: "string", format: "uuid" },
-		body: { type: "string" },
-		authorType: { type: "string", enum: WORK_ITEM_AUTHOR_TYPE_ENUM },
-		authorId: { type: "string" },
-		metadata: { type: "object", additionalProperties: true },
-	},
-	required: ["id", "body"],
-	additionalProperties: false,
-};
-
-const WORK_ITEM_CORROBORATE_SCHEMA: ToolInputJsonSchema = {
-	type: "object",
-	properties: {
-		id: { type: "string", format: "uuid" },
-		body: {
-			type: "string",
-			description:
-				"How you independently reproduced/hit this. Defaults to a generic corroboration note.",
-		},
-		evidenceRef: {
-			type: "string",
-			description: "Required commit, artifact, or reproduction evidence ref.",
-		},
-	},
-	required: ["id", "body", "evidenceRef"],
-	additionalProperties: false,
-};
+const WORK_ITEM_COMMENT_SCHEMA = zodToToolInputJsonSchema(
+	procedureInputSchema(workItemsContract.addComment),
+);
 
 const START_ATTEMPT_SCHEMA = zodToToolInputJsonSchema(
 	procedureInputSchema(workItemsContract.startAttempt),
@@ -406,16 +378,6 @@ export const WORK_ITEM_TOOLS: TediToolSpec[] = [
 		inputSchema: LIST_EVENTS_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "workItems/listEvents",
-		includeTediIdParam: false,
-	},
-	{
-		name: "work_item_corroborate",
-		remoteName: "work_item_corroborate",
-		description:
-			"Corroborate an existing Work Item with an independently observed source reference.",
-		inputSchema: WORK_ITEM_CORROBORATE_SCHEMA,
-		annotations: MUTATING,
-		rpcEndpoint: "workItems/corroborate",
 		includeTediIdParam: false,
 	},
 	{

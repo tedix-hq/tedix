@@ -95,7 +95,7 @@ import {
 } from "../../orpc";
 import {
 	assertTediAccess,
-	corroborationPrincipal,
+	workObservationPrincipal,
 	stampExternalAgentMetadata,
 	verifiedExternalAgent,
 	verifiedActiveUserMembership,
@@ -268,10 +268,10 @@ export async function resolveAttemptIdentity(
 }
 
 async function resolveActor(
-	context: Parameters<typeof corroborationPrincipal>[0],
+	context: Parameters<typeof workObservationPrincipal>[0],
 	orgId: string,
 ): Promise<WorkActor> {
-	const principal = await corroborationPrincipal(context, orgId);
+	const principal = await workObservationPrincipal(context, orgId);
 	if (principal.type === "organization") {
 		return {
 			type: "system",

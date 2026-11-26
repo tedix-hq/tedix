@@ -507,7 +507,6 @@
 		"./queries/work-attention": "./src/queries/work-attention.ts",
 		"./queries/request-filings": "./src/queries/request-filings.ts",
 		"./queries/work-item-sources": "./src/queries/work-item-sources.ts",
-		"./queries/work-items/observation-history": "./src/queries/work-items/observation-history.ts",
 		"./queries/work-items/comments": "./src/queries/work-items/comments.ts",
 		"./queries/work-items/activity": "./src/queries/work-items/activity.ts",
 		"./queries/work-items/purpose": "./src/queries/work-items/purpose.ts",

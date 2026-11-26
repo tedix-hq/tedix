@@ -1,0 +1,181 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2f16e3bb-85a1-4a72-8e42-8268c18363f5",
+  "prevIds": [
+    "03b3506b-ef91-4694-9e09-b5662f695f03"
+  ],
+  "footprints": [
+    {
+      "statementType": "drop_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "work_evidence_verifications"
+      ],
+      "writes": [
+        "s|tbl|public.work_evidence_verifications",
+        "n|tbl|public.work_evidence_verifications",
+        "e|tbl|public.work_evidence_verifications",
+        "n|rel|public.work_evidence_verifications",
+        "n|type|public.work_evidence_verifications"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "drop_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "work_item_corroborations"
+      ],
+      "writes": [
+        "s|tbl|public.work_item_corroborations",
+        "n|tbl|public.work_item_corroborations",
+        "e|tbl|public.work_item_corroborations",
+        "n|rel|public.work_item_corroborations",
+        "n|type|public.work_item_corroborations"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "tables\u0000[\"public\",\"work_evidence_verifications\"]"
+    },
+    {
+      "op": "drop",
+      "key": "tables\u0000[\"public\",\"work_item_corroborations\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"org_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"work_item_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"evidence_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"source\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"verifier_type\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"verifier_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"claimed\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"observed\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"matches_claim\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_evidence_verifications\",\"observed_at\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"org_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"work_item_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"principal_type\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"principal_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"session_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"evidence_ref\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"stance\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"body\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"occurred_at\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"work_item_corroborations\",\"created_at\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"idx_work_evidence_verifications_item\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"work_evidence_verifications\",\"work_evidence_verifications_org_id_organizations_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"work_evidence_verifications\",\"work_evidence_verifications_evidence_id_work_evidence_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"work_evidence_verifications\",\"fk_work_evidence_verification_item_org\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"work_item_corroborations\",\"work_item_corroborations_org_id_organizations_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"work_item_corroborations\",\"work_item_corroborations_work_item_id_work_items_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"work_item_corroborations\",\"fk_work_item_corroboration_item_org\"]"
+    },
+    {
+      "op": "drop",
+      "key": "pks\u0000[\"public\",\"work_evidence_verifications\",\"work_evidence_verifications_pkey\"]"
+    },
+    {
+      "op": "drop",
+      "key": "pks\u0000[\"public\",\"work_item_corroborations\",\"work_item_corroborations_pkey\"]"
+    }
+  ]
+}

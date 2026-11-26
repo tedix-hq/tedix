@@ -142,8 +142,6 @@ import {
 	WorkEventSchema,
 	WorkItemClassSchema,
 	WorkItemCommentSchema,
-	WorkItemCorroborationSchema,
-	WorkItemCorroborationStanceSchema,
 	WorkItemDispositionSchema,
 	WorkItemKindSchema,
 	WorkItemOwnerTypeSchema,
@@ -1329,6 +1327,18 @@ export const workItemsContract = oc
 					.object({
 						id: z.uuid(),
 						body: z.string().min(1).max(10000),
+						observation: z
+							.object({
+								evidenceRef: z.string().trim().min(1).max(2_000),
+								stance: z
+									.enum(["corroborates", "contradicts"])
+									.default("corroborates"),
+							})
+							.strict()
+							.optional()
+							.describe(
+								"Explicit credential-derived observation. Ordinary comments and metadata never earn independent credit.",
+							),
 						requestDelegation: z
 							.boolean()
 							.optional()
@@ -1345,32 +1355,6 @@ export const workItemsContract = oc
 					),
 			)
 			.output(WorkItemCommentSchema),
-
-		corroborate: oc
-			.route({
-				method: "POST",
-				path: "/{id}/corroborations",
-				summary: "Corroborate an existing Work Item",
-				successStatus: 201,
-			})
-			.input(
-				z.object({
-					id: z.uuid(),
-					evidenceRef: z.string().trim().min(1).max(2_000),
-					stance: WorkItemCorroborationStanceSchema.default("corroborates"),
-					body: z.string().trim().min(1).max(10_000),
-				}),
-			)
-			.output(WorkItemCorroborationSchema),
-
-		listCorroborations: oc
-			.route({
-				method: "GET",
-				path: "/{id}/corroborations",
-				summary: "List canonical Work Item corroborations",
-			})
-			.input(z.object({ id: z.uuid() }))
-			.output(z.array(WorkItemCorroborationSchema)),
 
 		setParent: oc
 			.route({

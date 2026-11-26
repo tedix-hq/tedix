@@ -1,7 +1,7 @@
 /**
  * Work Items — principal-typing plumbing for the router: gateway-verified
  * external-agent identity, accountable-principal resolution for the
- * corroboration ledger, and the reserved external-agent metadata stamp.
+ * Work observation ledger, and the reserved external-agent metadata stamp.
  */
 
 import { resolveAuthorizedExternalAgentMcpSession } from "@tedix/db/queries/external-agent-identity/mcp-credentials";
@@ -258,10 +258,10 @@ export async function verifiedActiveWorkActor(
  * `user | organization | tedi | external_agent` — and how each is derived from
  * the authenticated context (gateway-verified external agent first, then tedi,
  * then user JWT, then org-scoped API key). Add a new principal type HERE, not
- * at a call site, so the corroboration ledger and every future
+ * at a call site, so the Work observation ledger and every future
  * principal-typed surface stay in agreement.
  */
-export async function corroborationPrincipal(
+export async function workObservationPrincipal(
 	context: BaseContext,
 	orgId: string,
 ): Promise<{

@@ -95,7 +95,7 @@ import { decisionEdges } from "../../schema/decision-graph";
 import { workItemComments, workEvents } from "../../schema/work-items";
 import {
 	addWorkItemComment,
-	addWorkItemCorroboration,
+	recordWorkConfirmation,
 	decisionRelevantWorkComment,
 	recordWorkDecisionContinuation,
 } from "./comments";
@@ -605,7 +605,7 @@ for (const store of ["d1", "postgres"] as const)
 				version: 1,
 				metadata: { decisionContinuation: { responseId: "answer" } },
 			});
-			const corroboration = {
+			const confirmation = {
 				id: "corroboration",
 				orgId: "orchard",
 				workItemId: workId,
@@ -616,16 +616,16 @@ for (const store of ["d1", "postgres"] as const)
 				occurredAt: later,
 				createdAt: later,
 			};
-			expect((await addWorkItemCorroboration(db, corroboration)).inserted).toBe(
+			expect((await recordWorkConfirmation(db, confirmation)).inserted).toBe(
 				true,
 			);
 			expect(
 				(
-					await addWorkItemCorroboration(db, {
-						...corroboration,
+					await recordWorkConfirmation(db, {
+						...confirmation,
 						sessionId: "session",
 					})
-				).corroboration.sessionId,
+				).confirmation.sessionId,
 			).toBe("session");
 		});
 		it("reads large graph sets and the shared deck snapshot without mixing organizations", async () => {

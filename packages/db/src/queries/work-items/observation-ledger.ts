@@ -68,3 +68,18 @@ export function currentConfirmationEvent(
 		),
 	);
 }
+
+/** Persisted confirmation payload in Work events, independent of retired tables. */
+export type WorkConfirmation = {
+	id: string;
+	orgId: string;
+	workItemId: string;
+	principalType: "user" | "organization" | "tedi" | "external_agent";
+	principalId: string;
+	sessionId: string | null;
+	evidenceRef: string;
+	stance: "corroborates" | "contradicts";
+	body: string;
+	occurredAt: string;
+	createdAt: string;
+};

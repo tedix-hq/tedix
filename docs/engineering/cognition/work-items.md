@@ -141,11 +141,14 @@ the latest stance per principal applies. An executor may contradict its own
 claim; agreeing with the same canonical party adds no independent credit.
 Ordinary comments never become independent verification.
 
-`work_evidence` remains optional telemetry. Before the cutover, personal-agent
-outbound read both `work_evidence_verifications` and `work_item_corroborations`.
-Their definitions remain until operators copy and reconcile every organization's
-history and deploy the event reader and writer. Table removal follows that
-readback under separate authorization. Settlement is not proof of deployment.
+`work_evidence` remains optional telemetry. Personal-agent outbound previously
+read the retired verification tables; it now reads credential-derived Work events.
+Explicit observations use the existing comment endpoint's `observation` input;
+ordinary comment text and metadata add no independent credit. The removal
+migration rejects any source row whose full event copy has not been reconciled.
+Operators must verify the deployed cutover, reconcile every organization and
+obtain destructive migration authorization before applying it. Settlement is
+not proof of deployment.
 
 Coding commits link through one contiguous final trailer paragraph:
 
@@ -196,7 +199,7 @@ proposal for the same revision and exact key.
 | Create, comment, open an interaction              | Yes                     | Any verified active actor (`verifiedActiveWorkActor`)                 |
 | Accept the specification                          | Yes, with `work:accept` | Owner/admin users unscoped; tedis and agents need `WORK_ACCEPT_SCOPE` |
 | Start, heartbeat, settle an Attempt               | Yes                     | Tedi or verified external-agent session; users cannot execute         |
-| Complete; corroborate; propose an approval        | Yes                     | Completion CAS; once per principal; any principal                     |
+| Complete; observe; propose an approval            | Yes                     | Completion CAS; once per principal; any principal                     |
 | Decide an admission approval                      | Not an external agent   | Designated user or tedi distinct from the requester                   |
 | Cancel; replace admission spec; pools and budgets | No                      | Owner/admin user                                                      |
 
