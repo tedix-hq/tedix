@@ -20,6 +20,7 @@ import { listWorkActivity } from "./queries/work-items/activity";
 import { listWorkApprovalInbox } from "./queries/work-items/approvals";
 import { listPersonalCardStyleRules } from "./queries/work-items/card-style-rules";
 import { listWorkItemsPage } from "./queries/work-items/crud";
+import { reconcileWorkInteractionConditions } from "./queries/work-items/interactions";
 import {
 	getWorkspaceReadMarker,
 	listWorkspaceFeedPositions,
@@ -136,6 +137,20 @@ describe("hot production query plans", () => {
 		expect(lastPlan()).toContain(
 			"SEARCH work_items USING COVERING INDEX idx_work_items_org_project_disposition (org_id=? AND project_id=? AND disposition=?)",
 		);
+	});
+
+	it("sweeps an organization's open requests in creation order without reading closed ones", async () => {
+		const { query, lastPlan } = fixture();
+		await reconcileWorkInteractionConditions(query, {
+			orgId: "org-1",
+			now: "2026-11-27T12:00:00.000Z",
+			limit: 50,
+		});
+		const plan = lastPlan("work_interactions");
+		expect(plan).toContain(
+			"SEARCH work_interactions USING INDEX idx_work_interactions_org_status_created (org_id=? AND status=?)",
+		);
+		expect(plan).not.toContain("USE TEMP B-TREE");
 	});
 
 	it("reads pending filing lessons through the surface-and-kind index", async () => {

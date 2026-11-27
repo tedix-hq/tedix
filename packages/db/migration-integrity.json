@@ -2148,6 +2148,10 @@
 		{
 			"name": "20261126222945_agent-session-event-sequence/migration.sql",
 			"sha256": "a0d0f6fc5607deac3be22e31ecaa516376bef19faecfc75a9823345a4708cd31"
+		},
+		{
+			"name": "20261127121522_work-interactions-open-sweep-index/migration.sql",
+			"sha256": "b969e635077def8743d1f5954a86e1d5840023bcf764f34ddaac42da3eb86a19"
 		}
 	]
 }

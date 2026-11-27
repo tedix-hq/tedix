@@ -423,6 +423,15 @@ export const workInteractions = sqliteTable(
 			table.workItemId,
 			table.createdAt,
 		),
+		// Open requests of an organization in creation order: the condition
+		// sweep stops at its limit instead of reading and sorting every
+		// request the organization ever had.
+		index("idx_work_interactions_org_status_created").on(
+			table.orgId,
+			table.status,
+			table.createdAt,
+			table.id,
+		),
 		check(
 			"chk_work_interaction_context",
 			sql`${table.workItemId} IS NOT NULL OR ${table.caseId} IS NOT NULL OR ${table.projectId} IS NOT NULL`,

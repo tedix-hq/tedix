@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_interactions_org_status_created` ON `work_interactions` (`org_id`,`status`,`created_at`,`id`);
