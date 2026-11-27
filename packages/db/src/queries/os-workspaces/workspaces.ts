@@ -63,29 +63,19 @@ export function isOsWorkspaceVisibleTo(
 /** SQL twin of `isOsWorkspaceVisibleTo` over `os_workspaces`. */
 export function osWorkspaceVisibleToPredicate(
 	viewer: OsWorkspaceViewer,
-	db?: DbQueryClient,
+	db: DbQueryClient,
 ): SQL {
-	const osWorkspaces = db ? coreTable(db, d1OsWorkspaces) : d1OsWorkspaces;
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	if (viewer.onlyWorkspaceIds)
 		return viewer.onlyWorkspaceIds.length
-			? db
-				? anyIds(db, osWorkspaces.id, viewer.onlyWorkspaceIds)
-				: sql`${osWorkspaces.id} in (select value from json_each(${JSON.stringify(viewer.onlyWorkspaceIds)}))`
+			? anyIds(db, osWorkspaces.id, viewer.onlyWorkspaceIds)
 			: sql`0 = 1`;
 	const userIds = [...new Set(viewer.userIds)];
 	const workspaceIds = [...new Set(viewer.workspaceIds ?? [])];
 	return or(
 		eq(osWorkspaces.visibility, "org"),
-		userIds.length
-			? db
-				? anyIds(db, osWorkspaces.ownerUserId, userIds)
-				: inArray(osWorkspaces.ownerUserId, userIds)
-			: undefined,
-		workspaceIds.length
-			? db
-				? anyIds(db, osWorkspaces.id, workspaceIds)
-				: inArray(osWorkspaces.id, workspaceIds)
-			: undefined,
+		userIds.length ? anyIds(db, osWorkspaces.ownerUserId, userIds) : undefined,
+		workspaceIds.length ? anyIds(db, osWorkspaces.id, workspaceIds) : undefined,
 	) as SQL;
 }
 

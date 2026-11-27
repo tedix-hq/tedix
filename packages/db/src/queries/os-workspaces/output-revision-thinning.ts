@@ -1,15 +1,19 @@
 import { and, eq, inArray, sql, type SQLWrapper } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
-import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
-import { osReviewBatches, osShareLinks } from "../../schema/os-shares";
+import { kernelRuntimeRuns as d1KernelRuntimeRuns } from "../../schema/cognitive-runtime";
 import {
-	osCollaborationProposals,
-	osWorkspaces,
+	osReviewBatches as d1OsReviewBatches,
+	osShareLinks as d1OsShareLinks,
+} from "../../schema/os-shares";
+import {
+	osCollaborationProposals as d1OsCollaborationProposals,
+	osWorkspaces as d1OsWorkspaces,
 } from "../../schema/os-workspaces";
-import { workEvidence } from "../../schema/work-items";
+import { workEvidence as d1WorkEvidence } from "../../schema/work-items";
 import {
-	workspaceActivity,
-	workspaceOutputIndex,
+	workspaceActivity as d1WorkspaceActivity,
+	workspaceOutputIndex as d1WorkspaceOutputIndex,
 } from "../../schema/workspace-feed";
 
 /**
@@ -59,10 +63,17 @@ export interface OutputThinningCandidate {
 
 /** Core references protect revisions regardless of which store owns their bodies. */
 function outputRevisionUnreferenced(
+	db: DbQueryClient,
 	revisionId: SQLWrapper,
 	outputId: SQLWrapper,
 	revision: SQLWrapper,
 ) {
+	const workspaceActivity = coreTable(db, d1WorkspaceActivity);
+	const osShareLinks = coreTable(db, d1OsShareLinks);
+	const osCollaborationProposals = coreTable(db, d1OsCollaborationProposals);
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const osReviewBatches = coreTable(db, d1OsReviewBatches);
+	const workEvidence = coreTable(db, d1WorkEvidence);
 	return sql`NOT EXISTS (
 				SELECT 1 FROM ${workspaceActivity}
 				WHERE ${workspaceActivity.entityId} = ${outputId}
@@ -92,11 +103,12 @@ export async function getOutputIndexMaxRowid(
 ): Promise<number> {
 	const [row] = await db
 		.select({
-			maxRowid: sql<number>`coalesce(max(${workspaceOutputIndex}.rowid), 0)`.as(
-				"max_rowid",
-			),
+			maxRowid:
+				sql<number>`coalesce(max(${d1WorkspaceOutputIndex}.rowid), 0)`.as(
+					"max_rowid",
+				),
 		})
-		.from(workspaceOutputIndex);
+		.from(d1WorkspaceOutputIndex);
 	return row?.maxRowid ?? 0;
 }
 
@@ -127,7 +139,7 @@ export async function listObjectOutputThinningCandidates(
 		!params.autosaveNote
 	)
 		throw new Error("Invalid output thinning bounds");
-	const i = workspaceOutputIndex;
+	const i = d1WorkspaceOutputIndex;
 	const indexRowid = sql<number>`${i}.rowid`;
 	const window = sql`CAST(${OUTPUT_THINNING_WINDOW_SECONDS} AS INTEGER)`;
 	return db
@@ -153,7 +165,7 @@ export async function listObjectOutputThinningCandidates(
  AND EXISTS (SELECT 1 FROM ${i} AS kept WHERE kept.output_id = ${i.outputId}
  AND kept.revision_created_by_kind = ${i.revisionCreatedByKind} AND kept.revision_created_by_id = ${i.revisionCreatedById}
  AND kept.revision > ${i.revision} AND unixepoch(kept.revision_created_at) / ${window} = unixepoch(${i.revisionCreatedAt}) / ${window})
- AND ${outputRevisionUnreferenced(i.revisionId, i.outputId, i.revision)}`)
+ AND ${outputRevisionUnreferenced(db, i.revisionId, i.outputId, i.revision)}`)
 		.orderBy(indexRowid)
 		.limit(params.limit);
 }
@@ -166,6 +178,7 @@ export async function deleteThinnedOutputIndex(
 	if (!revisionIds.length) return;
 	if (revisionIds.length > OUTPUT_THINNING_MAX_LIMIT)
 		throw new Error("Too many revisions in one thinning batch");
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	await db.delete(workspaceOutputIndex).where(
 		and(
 			// bound-params: the function rejects more than 40 revision ids.
@@ -184,7 +197,7 @@ export async function unreferencedObjectOutputRevisions(
 	if (!revisionIds.length) return [];
 	if (revisionIds.length > OUTPUT_THINNING_MAX_LIMIT)
 		throw new Error("Too many revisions in one thinning batch");
-	const i = workspaceOutputIndex;
+	const i = coreTable(db, d1WorkspaceOutputIndex);
 	return (
 		await db
 			.select({ id: i.revisionId })
@@ -197,7 +210,7 @@ export async function unreferencedObjectOutputRevisions(
 					// bound-params: the function rejects more than 40 revision ids.
 					inArray(i.revisionId, revisionIds),
 					eq(i.isCurrent, 0),
-					outputRevisionUnreferenced(i.revisionId, i.outputId, i.revision),
+					outputRevisionUnreferenced(db, i.revisionId, i.outputId, i.revision),
 				),
 			)
 	).map((row) => row.id);
@@ -211,6 +224,7 @@ export async function listOutputBodyReferenceWorkspaces(
 	db: DbQueryClient,
 	organizationId: string,
 ): Promise<string[] | null> {
+	const osWorkspaces = coreTable(db, d1OsWorkspaces);
 	const rows = await db
 		.select({ id: osWorkspaces.id })
 		.from(osWorkspaces)

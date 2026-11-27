@@ -1,6 +1,6 @@
 import { getOsWorkspace } from "./os-workspaces/workspaces";
 import { and, eq } from "drizzle-orm";
-import { tedis } from "../schema/tedis";
+import { tedis as d1Tedis } from "../schema/tedis";
 import type { DbQueryClient } from "../query-client";
 import {
 	osWorkspaces as d1OsWorkspaces,
@@ -460,6 +460,7 @@ async function readWorkspaceTedi(
 	organizationId: string,
 	tediId: string,
 ) {
+	const tedis = coreTable(database, d1Tedis);
 	const [tedi] = await database
 		.select({
 			status: tedis.status,
