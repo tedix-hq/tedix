@@ -7,6 +7,7 @@ import { createPGliteFacade } from "@tedix/db/test/pglite-facade";
 import { expect, it, vi } from "vite-plus/test";
 import { createContext } from "../rpc/context";
 import { invalidateIdentityCache } from "./identity-cache-invalidation";
+import { reserveVoiceUsage } from "./voice-billing";
 
 vi.mock("@tedix/db/core-store/client", async (original) => ({
 	...(await original<typeof import("@tedix/db/core-store/client")>()),
@@ -54,6 +55,56 @@ it.each(["d1", "postgres"] as const)(
 				}
 			});
 			if (pg) expect(close).toHaveBeenCalledOnce();
+		} finally {
+			sqlite?.close();
+			await pg?.close();
+		}
+	},
+);
+
+it.each(["d1", "postgres"] as const)(
+	"checks voice pricing on the selected %s store without a D1 fallback",
+	async (dialect) => {
+		const ddl = `CREATE TABLE provider_model_rate_versions (
+			id text PRIMARY KEY, provider text, model_id text, deployment_scope text,
+			input_token_min integer, input_token_max integer, effective_from text,
+			input_microusd_per_million integer, output_microusd_per_million integer,
+			cache_read_microusd_per_million integer, cache_write_microusd_per_million integer,
+			currency text, evidence_uri text, evidence_digest text, verified_at text,
+			published_at text, published_by text, change_reason text, supersedes_rate_version_id text
+		)`;
+		const sqlite = dialect === "d1" ? new DatabaseSync(":memory:") : undefined;
+		const pg = dialect === "postgres" ? await createPGliteFacade() : undefined;
+		if (sqlite) sqlite.exec(ddl);
+		if (pg) await pg.engine.exec(ddl);
+		if (pg)
+			vi.mocked(createCoreStore).mockReturnValue({
+				db: pg.db,
+				close: async () => {},
+			});
+		const env = {
+			CORE_STORE: dialect,
+			DB: sqlite ? createD1Facade(sqlite) : undefined,
+			TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+		};
+		try {
+			await withCoreStore(env, async () => {
+				await expect(
+					reserveVoiceUsage(
+						env,
+						{ organizationId: "org-example", source: "kernel" },
+						{
+							provider: "azure-openai",
+							model: "gpt-transcribe",
+							deploymentScope: "example-scope",
+							usageKind: "voice_stt",
+							unit: "seconds",
+							estimatedQuantity: 120,
+						},
+						"2026-07-27T12:00:00.000Z",
+					),
+				).rejects.toMatchObject({ code: "pricing_unavailable" });
+			});
 		} finally {
 			sqlite?.close();
 			await pg?.close();

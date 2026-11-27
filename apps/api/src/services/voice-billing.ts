@@ -15,6 +15,7 @@
  */
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
 import { type DbClient } from "@tedix/db/client";
 import { resolveDirectProviderUsagePrice } from "@tedix/db/queries/billing/provider-model-rates";
 import {
@@ -38,8 +39,7 @@ import { BILLING_POLICY_DENIED_MESSAGE } from "../rpc/routers/kernel/billing-res
 /** Same hold lifetime as kernel and runtime inference reservations. */
 const VOICE_HOLD_MS = 10 * 60 * 1_000;
 
-export interface VoiceBillingEnv {
-	DB: D1Database;
+export interface VoiceBillingEnv extends CoreStoreEnv {
 	TEDIX_BILLING_SETTLEMENT_MODE?: string;
 	TEDIX_STRIPE_MODE?: string;
 }
@@ -61,13 +61,13 @@ export class VoiceCreditRefusal extends VoiceBillingRefusal {
 }
 
 function priceUnits(
-	d1: D1Database,
+	db: DbClient,
 	attempt: VoiceBillingAttempt,
 	quantity: number,
 	occurredAt: string,
 ) {
 	return resolveDirectProviderUsagePrice(
-		d1,
+		db,
 		{
 			provider: attempt.provider,
 			modelId: attempt.model,
@@ -106,7 +106,7 @@ export async function reserveVoiceUsage(
 		throw new Error("Voice credit admission requires managed settlement");
 	assertQuantity(attempt.estimatedQuantity, "estimate");
 	const quote = await priceUnits(
-		env.DB,
+		coreDb(env),
 		attempt,
 		attempt.estimatedQuantity,
 		admittedAt,
@@ -146,7 +146,7 @@ async function settleVoiceUsage(
 	now: string,
 ) {
 	assertQuantity(usage.quantity, "usage");
-	const priced = await priceUnits(env.DB, attempt, usage.quantity, admittedAt);
+	const priced = await priceUnits(db, attempt, usage.quantity, admittedAt);
 	if (priced.costUsd === null)
 		throw new Error(
 			`Voice rate no longer resolves for ${attempt.provider}/${attempt.model}: ${priced.reason}`,
