@@ -105,3 +105,48 @@ describe("d1SessionConstraintFor", () => {
 		expect(d1SessionConstraintFor(at("/v1/apps"))).toBe("first-primary");
 	});
 });
+
+describe("CORE_WRITE_FREEZE", () => {
+	it("refuses writes before database access and keeps reads working", async () => {
+		const withSession = vi.fn(() => ({ getBookmark: () => "after-query" }));
+		const call = async (method: "GET" | "POST") => {
+			const request = new Request("https://api.internal/rpc/run", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ json: {} }),
+			});
+			const context = createContext(request, {
+				DB: { withSession },
+				CORE_WRITE_FREEZE: "1",
+			} as unknown as CloudflareEnv);
+			const procedure = os
+				.$context<BaseContext>()
+				.route({ method })
+				.handler(({ context }) => {
+					void context.db;
+					return "ok";
+				});
+			const handler = new RPCHandler(
+				{ run: procedure },
+				{ clientInterceptors: [withD1ReadRouting] },
+			);
+			const { response } = await handler.handle(request, {
+				prefix: "/rpc",
+				context,
+			});
+			return { status: response?.status, body: await response?.json() };
+		};
+
+		const write = await call("POST");
+		expect(write.status).toBe(503);
+		expect(write.body.json).toMatchObject({
+			code: "SERVICE_UNAVAILABLE",
+			message: expect.stringContaining("Writes are paused for maintenance"),
+		});
+		expect(withSession).not.toHaveBeenCalled();
+
+		const read = await call("GET");
+		expect(read.status).toBe(200);
+		expect(withSession).toHaveBeenCalledExactlyOnceWith("first-unconstrained");
+	});
+});
