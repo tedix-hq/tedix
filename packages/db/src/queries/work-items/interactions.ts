@@ -485,7 +485,7 @@ export async function createRepositoryCiAlert(
 					createdAt: sql<string>`${p.now}`.as("created_at"),
 					metadata: sql<
 						Record<string, JsonValue>
-					>`${coreStore(db) === "postgres" ? sql`${metadata}::jsonb` : sql`${metadata}`}`.as(
+					>`${coreStore(db) === "postgres" ? sql`${metadata}::text::jsonb` : sql`${metadata}`}`.as(
 						"metadata",
 					),
 				})

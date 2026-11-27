@@ -187,10 +187,10 @@ function appDraftPreviewContent(db: DbQueryClient, content: string) {
 		return sql<string>`case when pg_input_is_valid(${content}, 'jsonb') then
 			case when pg_input_is_valid(${osCollaborationProposals.content}, 'jsonb') then
 				case when jsonb_typeof(${osCollaborationProposals.content}::jsonb -> 'sourceBlueprintRevisionId') = 'string'
-					then jsonb_set(${content}::jsonb, '{sourceBlueprintRevisionId}',
+					then jsonb_set(${content}::text::jsonb, '{sourceBlueprintRevisionId}',
 						${osCollaborationProposals.content}::jsonb -> 'sourceBlueprintRevisionId')::text
-					else (${content}::jsonb - 'sourceBlueprintRevisionId')::text end
-				else (${content}::jsonb - 'sourceBlueprintRevisionId')::text end
+					else (${content}::text::jsonb - 'sourceBlueprintRevisionId')::text end
+				else (${content}::text::jsonb - 'sourceBlueprintRevisionId')::text end
 			else ${content} end`;
 	}
 	return sql<string>`case

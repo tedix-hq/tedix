@@ -857,7 +857,7 @@ export async function measureGraphProjectionBacklog(
 			})
 			.from(
 				coreStore(db) === "postgres"
-					? sql`jsonb_array_elements(${input}::jsonb) AS candidates(value)`
+					? sql`jsonb_array_elements(${input}::text::jsonb) AS candidates(value)`
 					: sql`json_each(${input})`,
 			),
 	);
@@ -1012,7 +1012,7 @@ export async function hydrateCanonicalGraphProjectionRows(
 			})
 			.from(
 				postgres
-					? sql`jsonb_array_elements(${document}::jsonb) AS events(value)`
+					? sql`jsonb_array_elements(${document}::text::jsonb) AS events(value)`
 					: sql`json_each(${document})`,
 			),
 	);

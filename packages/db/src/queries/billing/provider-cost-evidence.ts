@@ -181,7 +181,7 @@ export function effectiveCallCostsRelation(
 								sql`${snapshotValue(db, sql`value`, tediCallCosts, key)} AS ${sql.identifier(c.name)}`,
 						),
 						sql`, `,
-					)} FROM jsonb_array_elements(${JSON.stringify(archivedRows)}::jsonb) AS archived(value))`
+					)} FROM jsonb_array_elements(${JSON.stringify(archivedRows)}::text::jsonb) AS archived(value))`
 				: new QueryBuilder()
 						.select(
 							Object.fromEntries(

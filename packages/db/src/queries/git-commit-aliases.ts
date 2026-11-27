@@ -27,7 +27,7 @@ export function createCommitResolver(db: DbQueryClient) {
 					.select({ key: sql<string>`value`.as("alias_key") })
 					.from(
 						coreStore(db) === "postgres"
-							? sql`jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb) AS candidate(value)`
+							? sql`jsonb_array_elements_text(${JSON.stringify(keys)}::text::jsonb) AS candidate(value)`
 							: sql`json_each(${JSON.stringify(keys)})`,
 					),
 			);

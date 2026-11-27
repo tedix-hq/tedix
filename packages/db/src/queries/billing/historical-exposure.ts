@@ -387,7 +387,7 @@ function exposureSetFence(
  AND NOT EXISTS (SELECT 1 FROM json_each(${membersJson}) j WHERE json_extract(j.value,'$.id')=e.id AND json_extract(j.value,'$.hash')=e.request_hash AND json(json_extract(j.value,'$.payload'))=json(e.payload) AND json_extract(j.value,'$.objectId')=e.object_id AND json_extract(j.value,'$.generation')=e.generation AND json_extract(j.value,'$.snapshotId')=e.snapshot_id AND json_extract(j.value,'$.sourceHash')=e.source_hash AND json_extract(j.value,'$.objectName')=e.object_name))`;
 	return sql`(SELECT COUNT(*) FROM billing_historical_exposures WHERE organization_id=${organizationId} AND tedi_id=${tediId})=${count}
  AND NOT EXISTS (SELECT 1 FROM billing_historical_exposures e WHERE e.organization_id=${organizationId} AND e.tedi_id=${tediId}
- AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${membersJson}::jsonb) AS j(value) WHERE (j.value #>> '{id}')=e.id AND (j.value #>> '{hash}')=e.request_hash AND (j.value -> 'payload')=e.payload AND (j.value #>> '{objectId}')=e.object_id AND (j.value #>> '{generation}')::numeric=e.generation AND (j.value #>> '{snapshotId}')=e.snapshot_id AND (j.value #>> '{sourceHash}')=e.source_hash AND (j.value #>> '{objectName}')=e.object_name))`;
+ AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${membersJson}::text::jsonb) AS j(value) WHERE (j.value #>> '{id}')=e.id AND (j.value #>> '{hash}')=e.request_hash AND (j.value -> 'payload')=e.payload AND (j.value #>> '{objectId}')=e.object_id AND (j.value #>> '{generation}')::numeric=e.generation AND (j.value #>> '{snapshotId}')=e.snapshot_id AND (j.value #>> '{sourceHash}')=e.source_hash AND (j.value #>> '{objectName}')=e.object_name))`;
 }
 
 /** Full fixed recorded-row proof. No original name is replaced by current custody. */
@@ -421,7 +421,7 @@ function finiteExposureFence(
  AND json_extract(j.value,'$.exposure.observedAt')=e.observed_at AND e.exposure='UNKNOWN'))`;
 	return sql`(SELECT COUNT(*) FROM billing_historical_exposures WHERE organization_id=${p.organizationId} AND tedi_id=${p.tediId})=${p.exposures.length}
  AND NOT EXISTS (SELECT 1 FROM billing_historical_exposures e WHERE e.organization_id=${p.organizationId} AND e.tedi_id=${p.tediId}
- AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${facts}::jsonb) AS j(value) WHERE (j.value #>> '{exposure,id}')=e.id
+ AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${facts}::text::jsonb) AS j(value) WHERE (j.value #>> '{exposure,id}')=e.id
  AND (j.value -> 'exposure')=e.payload
  AND (j.value #>> '{operationId}')=e.operation_id
  AND (j.value #>> '{exposure,rootObjectName}')=e.object_name

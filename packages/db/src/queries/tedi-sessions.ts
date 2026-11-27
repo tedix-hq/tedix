@@ -180,7 +180,7 @@ export async function bulkSoftDeleteTediSessionStates(
 	);
 	const source =
 		coreStore(db) === "postgres"
-			? sql`jsonb_array_elements(${entries}::jsonb) AS entry(value)`
+			? sql`jsonb_array_elements(${entries}::text::jsonb) AS entry(value)`
 			: sql`json_each(${entries}) AS entry`;
 	await db
 		.insert(tediSessionStates)

@@ -336,7 +336,7 @@ export async function listCatalogApps(
 				? postgres
 					? sql`COALESCE((
 						SELECT (match.value->>'score')::double precision * 500
-						FROM jsonb_array_elements(${semanticMatchesJson}::jsonb) AS match(value)
+						FROM jsonb_array_elements(${semanticMatchesJson}::text::jsonb) AS match(value)
 						WHERE match.value->>'id' = ${appCatalog.id}
 					), 0)`
 					: sql`COALESCE((

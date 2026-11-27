@@ -1183,7 +1183,7 @@ function approvedHomeApprovalHistoryGuard(
 		and (select count(*) from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.organizationId} = ${input.organizationId} and ${kernelRuntimeEvents.runId} = ${input.runId} and ${kernelRuntimeEvents.kind} = 'approval.resolved') = ${proof.events.length}
 		and not exists (
 			select 1 from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.organizationId} = ${input.organizationId} and ${kernelRuntimeEvents.runId} = ${input.runId} and ${kernelRuntimeEvents.kind} = 'approval.resolved'
-			and not exists (select 1 from jsonb_array_elements(${JSON.stringify(proof.events)}::jsonb) as approval_snapshot(value) where
+			and not exists (select 1 from jsonb_array_elements(${JSON.stringify(proof.events)}::text::jsonb) as approval_snapshot(value) where
 				${kernelRuntimeEvents.id} IS NOT DISTINCT FROM ${field("id")}
 				and ${kernelRuntimeEvents.organizationId} IS NOT DISTINCT FROM ${field("organizationId")}
 				and ${kernelRuntimeEvents.runId} IS NOT DISTINCT FROM ${field("runId")}
@@ -1516,7 +1516,7 @@ function approvedHomeResumeScope(
 		eq(kernelRuntimeRuns.conversationId, input.conversationId),
 		sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["homeDelegationResume", "version"], "number")} = 1`,
 		postgres(db)
-			? sql`(${kernelRuntimeRuns.metadata} #>> ${pgTextArray(["homeDelegationResume", "approvalEventSet"])}::text[]) IS NOT DISTINCT FROM (${JSON.stringify({ proof: input.approvalEventSet ?? null })}::jsonb #>> '{proof}')`
+			? sql`(${kernelRuntimeRuns.metadata} #>> ${pgTextArray(["homeDelegationResume", "approvalEventSet"])}::text[]) IS NOT DISTINCT FROM (${JSON.stringify({ proof: input.approvalEventSet ?? null })}::text::jsonb #>> '{proof}')`
 			: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.approvalEventSet') is json_extract(${JSON.stringify({ proof: input.approvalEventSet ?? null })}, '$.proof')`,
 		...(
 			[

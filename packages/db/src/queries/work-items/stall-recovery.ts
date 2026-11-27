@@ -1437,7 +1437,10 @@ function readContinuityScopeSlicePostgres(
 		.leftJoin(
 			coordinator,
 			and(
-				eq(coordinator.id, sql`${page.policy}::jsonb->>'coordinatorTediId'`),
+				eq(
+					coordinator.id,
+					sql`${page.policy}::text::jsonb->>'coordinatorTediId'`,
+				),
 				eq(coordinator.organizationId, page.orgId),
 				eq(coordinator.status, "active"),
 			),
