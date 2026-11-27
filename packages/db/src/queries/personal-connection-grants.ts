@@ -1,17 +1,27 @@
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
 	ConnectionConsumerGrantsSchema,
 	type ConnectionConsumerGrants,
 } from "@tedix/api-contract/schemas/connections";
 import type { DbQueryClient } from "../query-client";
-import { users } from "../schema/users";
+import { users as schemaUsers } from "../schema/users";
+import { coreTable } from "../core-store/client";
+import { jsonRead, jsonWrite } from "../core-store/dialect";
+
+function personalConnectionGrantsKey(
+	organizationId: string,
+	providerId: string,
+	instanceId?: string,
+) {
+	return `${encodeURIComponent(organizationId)}:${encodeURIComponent(providerId)}:${encodeURIComponent(instanceId ?? "")}`;
+}
 
 export function personalConnectionGrantsPath(
 	organizationId: string,
 	providerId: string,
 	instanceId?: string,
 ) {
-	return `$.connectionConsumerGrants."${encodeURIComponent(organizationId)}:${encodeURIComponent(providerId)}:${encodeURIComponent(instanceId ?? "")}"`;
+	return `$.connectionConsumerGrants."${personalConnectionGrantsKey(organizationId, providerId, instanceId)}"`;
 }
 
 export async function getPersonalConnectionConsumerGrants(
@@ -21,11 +31,18 @@ export async function getPersonalConnectionConsumerGrants(
 	providerId: string,
 	instanceId?: string,
 ): Promise<ConnectionConsumerGrants> {
+	const users = coreTable(db, schemaUsers);
 	const [row] = await db
 		.select({
-			policy: sql<
-				string | null
-			>`json_extract(${users.metadata}, ${personalConnectionGrantsPath(organizationId, providerId, instanceId)})`,
+			policy: jsonRead(
+				db,
+				users.metadata,
+				[
+					"connectionConsumerGrants",
+					personalConnectionGrantsKey(organizationId, providerId, instanceId),
+				],
+				"json",
+			),
 		})
 		.from(users)
 		.where(eq(users.id, userId))
@@ -33,7 +50,9 @@ export async function getPersonalConnectionConsumerGrants(
 	if (!row) throw new Error("Connection owner not found");
 	return row.policy === null
 		? { mode: "all" }
-		: ConnectionConsumerGrantsSchema.parse(JSON.parse(row.policy));
+		: ConnectionConsumerGrantsSchema.parse(
+				typeof row.policy === "string" ? JSON.parse(row.policy) : row.policy,
+			);
 }
 
 export async function setPersonalConnectionConsumerGrants(
@@ -44,11 +63,20 @@ export async function setPersonalConnectionConsumerGrants(
 	policy: ConnectionConsumerGrants,
 	instanceId?: string,
 ) {
+	const users = coreTable(db, schemaUsers);
 	const validated = ConnectionConsumerGrantsSchema.parse(policy);
 	const [row] = await db
 		.update(users)
 		.set({
-			metadata: sql`json_set(coalesce(${users.metadata}, '{}'), ${personalConnectionGrantsPath(organizationId, providerId, instanceId)}, json(${JSON.stringify(validated)}))`,
+			metadata: jsonWrite(
+				db,
+				users.metadata,
+				[
+					"connectionConsumerGrants",
+					personalConnectionGrantsKey(organizationId, providerId, instanceId),
+				],
+				validated,
+			),
 			updatedAt: new Date().toISOString(),
 		})
 		.where(eq(users.id, userId))
