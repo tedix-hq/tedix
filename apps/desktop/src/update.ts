@@ -248,8 +248,10 @@ open "$2"
  * Puts the ready app next to the installed one, then quits so a small
  * script can swap them and open the new one. The copy happens while this
  * app still shows its window; a copy that fails leaves the app running.
+ * With `reopen` false the app is already quitting: the swap runs once it
+ * has exited and opens nothing.
  */
-export async function restartToUpdate(): Promise<void> {
+export async function restartToUpdate(reopen = true): Promise<void> {
 	if (!ready) return;
 	const installed = installedBundle();
 	const next = join(dirname(installed), `.${basename(installed)}.update`);
@@ -269,10 +271,14 @@ export async function restartToUpdate(): Promise<void> {
 		ready = { ...ready, bundle: next };
 		log(`update: ${ready.version} placed in ${Date.now() - started} ms`);
 	}
-	log(`update: restarting into ${ready.version}`);
-	spawn("/bin/sh", ["-c", SWAP, "sh", String(process.pid), installed, next], {
+	log(
+		`update: ${reopen ? "restarting into" : "installing on quit"} ${ready.version}`,
+	);
+	// On quit the swap runs once the app has exited and opens nothing.
+	const script = reopen ? SWAP : SWAP.replace(/^open .*$/m, "");
+	spawn("/bin/sh", ["-c", script, "sh", String(process.pid), installed, next], {
 		detached: true,
 		stdio: "ignore",
 	}).unref();
-	app.quit();
+	if (reopen) app.quit();
 }

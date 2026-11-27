@@ -135,7 +135,10 @@ and open Tedix there. Your current macOS user keeps its demo and sign-ins.
 If you quit Tedix while tasks are running on your Mac, they continue where
 they stopped when you open Tedix again.
 
-When a new version is available, **Update Tedix** appears in the app menu
-and the menu bar menu. It installs only when you click it.
+Tedix looks for a new version every hour, and again when you come back to
+its window after 15 minutes or more. It downloads a new version by itself.
+Then **Update ready** appears in the sidebar, and **Update Tedix** in the
+app menu and the menu bar menu. Click it to update now, or quit Tedix: the
+downloaded version is installed when Tedix quits and opens next time.
 
 Tedix Cloud is open by invitation; see [Release status](./release-status.md).

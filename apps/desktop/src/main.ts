@@ -1283,6 +1283,12 @@ function createMainWindow(): void {
 		backgroundColor: restoring && !restoring.dark ? "#fafafa" : "#0a0a0a",
 	});
 	mainWindow = window;
+	// Coming back to the window looks for an update when the last look is
+	// older than 15 minutes, like Hermes; the hourly look stays as it is.
+	window.on("focus", () => {
+		if (Date.now() - (lastCheckAt ?? 0) > FOCUS_CHECK_MS)
+			void checkForUpdates(false);
+	});
 	// Closing the window leaves Tedix in the menu bar, with its runners;
 	// only Quit ends the app.
 	// Kept whenever it changes: an update or a quit can end the app before
@@ -1656,6 +1662,8 @@ async function checkForUpdates(
 	openSettings("general");
 	void publish();
 }
+/** How old the last look may be before coming back to the window looks again. */
+const FOCUS_CHECK_MS = 15 * 60_000;
 /** The sooner look after one that failed; the hourly one stays as it is. */
 let checkAgain: ReturnType<typeof setTimeout> | undefined;
 /** How long a check waits for the command-line tool and setup state. */
@@ -1910,6 +1918,8 @@ async function askToQuit(): Promise<void> {
 	app.quit();
 }
 let quitAsking = false;
+/** A downloaded update is being put in place as the app quits. */
+let installingOnQuit = false;
 
 let tray: Tray | undefined;
 
@@ -2565,6 +2575,19 @@ else if (process.argv.includes("--local-model")) {
 			}
 			if (!quitting) log(`quit: asked by ${quitSource}`);
 			quitting = true;
+			// A downloaded update installs on the way out, like Goose and
+			// Sparkle; the next start is the new version. Not when macOS shuts
+			// down or the app is signalled: the swap could be cut off midway.
+			if (byHand && readyVersion() && !installingOnQuit) {
+				installingOnQuit = true;
+				event.preventDefault();
+				void restartToUpdate(false)
+					.catch((error: Error) =>
+						log(`update: not installed on quit (${error.message})`),
+					)
+					.finally(() => app.quit());
+				return;
+			}
 			if (!runnersRunning()) {
 				exitSoon();
 				return void stopRunners();
