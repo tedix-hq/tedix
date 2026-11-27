@@ -307,6 +307,8 @@ let failure: string | undefined;
 let fetchFailure: string | undefined;
 /** Check for Updates… is looking now. */
 let checking = false;
+/** Any look for updates is running, asked for or not. */
+let looking = false;
 /** The version this start updated to, for the one-time "Updated to …" line. */
 let updatedTo: string | undefined;
 let pageDark = nativeTheme.shouldUseDarkColors;
@@ -1596,9 +1598,13 @@ async function checkForUpdates(
 	inSettings = false,
 ): Promise<void> {
 	if (checking) return;
+	// One look at a time: a look by itself (timer, window focus) runs
+	// without "Checking…", and a second one would download twice.
+	if (looking && !asked) return;
+	looking = true;
 	const from = Date.now();
 	log(
-		`update: checking (${!asked ? "on a timer" : inSettings ? "asked in Settings" : "asked from the menu"})`,
+		`update: checking (${!asked ? "by itself" : inSettings ? "asked in Settings" : "asked from the menu"})`,
 	);
 	let problem = "";
 	let failed = false;
@@ -1642,6 +1648,7 @@ async function checkForUpdates(
 		failed = true;
 	} finally {
 		checking = false;
+		looking = false;
 	}
 	lastCheck = problem || "Up to date";
 	lastCheckAt = Date.now();
