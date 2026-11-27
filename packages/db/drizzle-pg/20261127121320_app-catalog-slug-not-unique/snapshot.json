@@ -1,0 +1,32 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "ab88cdf7-102e-45b4-a039-e0f020809912",
+	"prevIds": ["45525c9e-f0ea-4755-9381-85d0ca9ef94b"],
+	"footprints": [
+		{
+			"statementType": "drop_unique",
+			"statementTarget": ["table", "catalog", "app_catalog"],
+			"writes": [
+				"s|uq|catalog.app_catalog.app_catalog_slug_key",
+				"n|uq|catalog.app_catalog.app_catalog_slug_key",
+				"e|uq|catalog.app_catalog.app_catalog_slug_key",
+				"n|con|catalog.app_catalog.app_catalog_slug_key",
+				"n|rel|catalog.app_catalog_slug_key"
+			],
+			"reads": [
+				"n|tbl|catalog.app_catalog",
+				"n|sch|catalog",
+				"e|col|catalog.app_catalog.slug"
+			],
+			"sharedWrites": ["e|uniqueness|catalog.app_catalog.slug"]
+		}
+	],
+	"deltas": [
+		{
+			"op": "drop",
+			"key": "uniques\u0000[\"catalog\",\"app_catalog\",\"app_catalog_slug_key\"]"
+		}
+	]
+}

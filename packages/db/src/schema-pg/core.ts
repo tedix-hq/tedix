@@ -312,7 +312,7 @@ export const appCatalog = catalogSchema.table(
 	"app_catalog",
 	{
 		id: text("id").primaryKey(),
-		slug: text("slug").unique(),
+		slug: text("slug"),
 		name: text("name").notNull(),
 		description: text("description"),
 		modelDescription: text("model_description"),

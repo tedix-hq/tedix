@@ -1,0 +1,1 @@
+ALTER TABLE "catalog"."app_catalog" DROP CONSTRAINT "app_catalog_slug_key";
