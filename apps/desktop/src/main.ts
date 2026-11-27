@@ -120,6 +120,8 @@ const PANEL_LINKS: Record<
 	string
 > = {
 	"chatgpt-plugins": "https://chatgpt.com/plugins",
+	"install-chatgpt": "https://openai.com/chatgpt/desktop/",
+	"install-claude": "https://claude.com/download",
 	"claude-connectors": "https://claude.ai/settings/connectors",
 	"install-claude-code": "https://claude.com/product/claude-code",
 	"install-codex": "https://openai.com/codex/",

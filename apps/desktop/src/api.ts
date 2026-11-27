@@ -72,6 +72,8 @@ export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 export type PanelLink =
 	| "chatgpt-app"
 	| "chatgpt-plugins"
+	| "install-chatgpt"
+	| "install-claude"
 	| "claude-connectors"
 	| "claude-app"
 	| "cursor-app"

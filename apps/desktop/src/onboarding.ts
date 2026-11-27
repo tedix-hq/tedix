@@ -331,9 +331,27 @@ function screenFor(id: StepId, now: PanelState): Screen {
 						title: looking ? "Looking for apps…" : "No apps found yet",
 						sub: looking
 							? "This takes a few seconds."
-							: "Install Claude or ChatGPT. Tedix finds it when you come back.",
+							: "Choose an app below, then install it in Applications. Tedix finds it automatically and shows the next steps here.",
 						control: looking && el("span", "spinner"),
 					}),
+					...(
+						[
+							["chatgpt", "ChatGPT"],
+							["claude", "Claude"],
+						] as const
+					).map(([id, name]) =>
+						row({
+							key: `install:${id}`,
+							icon: "bubble",
+							title: name,
+							sub: "Opens the official download page in your browser.",
+							control: button(
+								`Get ${name}`,
+								"plain",
+								() => void tedixShell.open(`install-${id}`),
+							),
+						}),
+					),
 				],
 		primary: openTedix,
 	};
