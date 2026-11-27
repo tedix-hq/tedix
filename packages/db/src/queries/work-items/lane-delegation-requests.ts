@@ -1,12 +1,4 @@
-import {
-	and,
-	asc,
-	eq,
-	getColumns,
-	sql,
-	type SQL,
-	type SQLWrapper,
-} from "drizzle-orm";
+import { and, asc, eq, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { coreTable } from "../../core-store/client";
 import { coreStore, jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
@@ -18,6 +10,7 @@ import {
 	workItemComments as d1WorkItemComments,
 	workItems as d1WorkItems,
 } from "../../schema/work-items";
+import { selectedStoredColumns } from "./factory-state";
 
 /** Metadata source of the request a lane raises when Work needs an owner's permission. */
 export const LANE_DELEGATION_SOURCE = "lane-dispatch-blocker";
@@ -77,14 +70,11 @@ function laneSql(db: DbQueryClient) {
 		isCheck,
 		laneRequest: sql`${workInteractions.source}=${LANE_DELEGATION_SOURCE}`,
 		superseded: sql`(${askMoved} OR ${delegated} OR ${duplicate})`,
-		storedColumns: Object.fromEntries(
-			Object.keys(workInteractionStoredColumns).map((key) => [
-				key,
-				getColumns(workInteractions)[
-					key as keyof typeof workInteractionStoredColumns
-				],
-			]),
-		) as typeof workInteractionStoredColumns,
+		storedColumns: selectedStoredColumns(
+			db,
+			d1WorkInteractions,
+			workInteractionStoredColumns,
+		),
 	};
 }
 

@@ -1,20 +1,8 @@
 /** Organization purpose revisions and the deterministic owner-attention brief. */
 
 import { coreTable } from "../core-store/client";
-import { coreStore } from "../core-store/dialect";
 import type { WorkItem } from "../schema/work-items";
-import {
-	and,
-	desc,
-	eq,
-	getColumns,
-	gt,
-	gte,
-	inArray,
-	isNull,
-	lte,
-	sql,
-} from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type OrganizationPurposeCharter,
@@ -25,6 +13,7 @@ import {
 	workItems as d1WorkItems,
 	workItemStoredColumns,
 } from "../schema/work-items";
+import { selectedStoredColumns } from "./work-items/factory-state";
 
 export interface CreatePurposeCharterRevisionParams {
 	id: string;
@@ -363,9 +352,7 @@ export async function getOrganizationOwnerBrief(
 				),
 			),
 		db
-			.select(
-				coreStore(db) === "d1" ? workItemStoredColumns : getColumns(workItems),
-			)
+			.select(selectedStoredColumns(db, d1WorkItems, workItemStoredColumns))
 			.from(workItems)
 			.where(
 				and(
@@ -376,9 +363,7 @@ export async function getOrganizationOwnerBrief(
 			.orderBy(desc(workItems.updatedAt), desc(workItems.createdAt))
 			.limit(500),
 		db
-			.select(
-				coreStore(db) === "d1" ? workItemStoredColumns : getColumns(workItems),
-			)
+			.select(selectedStoredColumns(db, d1WorkItems, workItemStoredColumns))
 			.from(workItems)
 			.where(
 				and(
