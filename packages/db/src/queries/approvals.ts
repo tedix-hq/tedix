@@ -1,5 +1,16 @@
 import { chunkForBoundParams } from "../utils/batch";
 import { prefixedColumns } from "../utils/select";
+import { coreTable } from "../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonRead,
+	jsonWrite,
+	jsonParameter,
+	jsonType,
+	booleanValue,
+	containsText,
+} from "../core-store/dialect";
 import type { z } from "zod";
 import type { DelegatedApprovalReceiptSchema } from "@tedix/api-contract/schemas/delegated-approvals";
 /**
@@ -18,6 +29,7 @@ import {
 } from "./decision-graph-writers";
 import {
 	type AnyColumn,
+	type SQLWrapper,
 	and,
 	desc,
 	eq,
@@ -29,10 +41,10 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
-import { apps } from "../schema/apps";
-import { workItems } from "../schema/work-items";
-import { appTools } from "../schema/tools";
+import { kernelRuntimeRuns as d1KernelRuntimeRuns } from "../schema/cognitive-runtime";
+import { apps as d1Apps } from "../schema/apps";
+import { workItems as d1WorkItems } from "../schema/work-items";
+import { appTools as d1AppTools } from "../schema/tools";
 import type { KernelRuntimeRunUpdate } from "./kernel-runtime-runs";
 import { osWorkspaceChildVisibleToPredicate } from "./os-workspaces/workspaces";
 import {
@@ -42,19 +54,42 @@ import {
 	openOwnerToolRun,
 	ownerToolRunStatus,
 	pendingApproval,
-	tediApprovalRequests,
+	tediApprovalRequests as d1TediApprovalRequests,
 	approvalRequestStoredColumns,
-	tediProvisionalOutcomes,
+	tediProvisionalOutcomes as d1TediProvisionalOutcomes,
 } from "../schema/approvals";
 import { auditWriteTable } from "./audit-delivery";
-import { decisionEdges } from "../schema/decision-graph";
-import { tedis } from "../schema/tedis";
-import { tediApprovalDependencyEvents } from "../schema/approval-simulations";
-import { getAffectedRows } from "../utils/d1-result";
+import { decisionEdges as d1DecisionEdges } from "../schema/decision-graph";
+import { tedis as d1Tedis } from "../schema/tedis";
+import { tediApprovalDependencyEvents as d1TediApprovalDependencyEvents } from "../schema/approval-simulations";
 import {
 	buildInsertAuditEventStatement,
 	type InsertAuditEventParams,
 } from "./audit";
+
+function storedApprovalColumns(table: typeof d1TediApprovalRequests) {
+	return Object.fromEntries(
+		Object.keys(approvalRequestStoredColumns).map((key) => [
+			key,
+			table[key as keyof typeof approvalRequestStoredColumns],
+		]),
+	) as typeof approvalRequestStoredColumns;
+}
+function ownerRunStatus(db: object, table: typeof d1TediApprovalRequests) {
+	return coreStore(db) === "postgres"
+		? jsonRead(db, table.payload, ["execution", "status"])
+		: ownerToolRunStatus;
+}
+function openOwnerRun(db: object, table: typeof d1TediApprovalRequests) {
+	return coreStore(db) === "postgres"
+		? and(
+				eq(table.status, "approved"),
+				eq(table.actionType, "mcp.tool_call"),
+				sql`${ownerRunStatus(db, table)} IN ('queued', 'running', 'failed')`,
+				isNull(jsonRead(db, table.payload, ["execution", "dismissedAt"])),
+			)!
+		: openOwnerToolRun;
+}
 
 // ============================================================================
 // Types
@@ -143,6 +178,15 @@ export async function listApprovalRequests(
 	db: DbClient,
 	options: ListApprovalRequestsOptions,
 ): Promise<{ data: TediApprovalRequest[]; total: number }> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const executionStatus =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "status"])
+			: tediApprovalRequests.executionStatus;
+	const executionDismissedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "dismissedAt"])
+			: tediApprovalRequests.executionDismissedAt;
 	const { orgId, limit = 50, offset = 0 } = options;
 
 	const conditions: ReturnType<typeof eq>[] = [];
@@ -163,14 +207,14 @@ export async function listApprovalRequests(
 		conditions.push(
 			eq(tediApprovalRequests.status, "approved"),
 			eq(tediApprovalRequests.actionType, "mcp.tool_call"),
-			sql`${tediApprovalRequests.executionStatus} IN ('queued', 'running', 'failed')`,
-			sql`${tediApprovalRequests.executionDismissedAt} IS NULL`,
+			sql`${executionStatus} IN ('queued', 'running', 'failed')`,
+			sql`${executionDismissedAt} IS NULL`,
 			// A passed window can never run again; History keeps the row.
 			gt(tediApprovalRequests.expiresAt, new Date().toISOString()),
 		);
 	}
-	const conversationId = sql`COALESCE(json_extract(${tediApprovalRequests.payload}, '$.homeConversationId'), json_extract(${tediApprovalRequests.payload}, '$.conversationId'), (SELECT conversation_id FROM kernel_runtime_runs WHERE organization_id = ${tediApprovalRequests.orgId} AND id = json_extract(${tediApprovalRequests.payload}, '$.homeRunId')))`;
-	const workspaceId = sql`COALESCE(json_extract(${tediApprovalRequests.payload}, '$.workspaceId'), (SELECT workspace_id FROM kernel_conversations WHERE organization_id = ${tediApprovalRequests.orgId} AND conversation_id = ${conversationId}))`;
+	const conversationId = sql`COALESCE(${jsonRead(db, tediApprovalRequests.payload, ["homeConversationId"])}, ${jsonRead(db, tediApprovalRequests.payload, ["conversationId"])}, (SELECT conversation_id FROM kernel_runtime_runs WHERE organization_id = ${tediApprovalRequests.orgId} AND id = ${jsonRead(db, tediApprovalRequests.payload, ["homeRunId"])}))`;
+	const workspaceId = sql`COALESCE(${jsonRead(db, tediApprovalRequests.payload, ["workspaceId"])}, (SELECT workspace_id FROM kernel_conversations WHERE organization_id = ${tediApprovalRequests.orgId} AND conversation_id = ${conversationId}))`;
 	if (options.workspaceId) {
 		if (!orgId) return { data: [], total: 0 };
 		conditions.push(sql`${workspaceId} = ${options.workspaceId}`);
@@ -179,7 +223,7 @@ export async function listApprovalRequests(
 		if (!orgId) return { data: [], total: 0 };
 		const personId = options.viewerUserId;
 		conditions.push(
-			sql`(json_extract(${tediApprovalRequests.payload}, '$.approverUserId') IS NULL OR json_extract(${tediApprovalRequests.payload}, '$.approverUserId') = ${personId})`,
+			sql`(${jsonRead(db, tediApprovalRequests.payload, ["approverUserId"])} IS NULL OR ${jsonRead(db, tediApprovalRequests.payload, ["approverUserId"])} = ${personId})`,
 			sql`NOT EXISTS (SELECT 1 FROM tedis AS personal WHERE personal.id = ${tediApprovalRequests.tediId} AND personal.organization_id = ${tediApprovalRequests.orgId} AND personal.scope = 'personal' AND (personal.owner_user_id IS NULL OR personal.owner_user_id <> ${personId}))`,
 			sql`(NOT EXISTS (SELECT 1 FROM kernel_conversation_grants AS grants WHERE grants.organization_id = ${tediApprovalRequests.orgId} AND grants.conversation_id = ${conversationId}) OR EXISTS (SELECT 1 FROM kernel_conversation_grants AS mine WHERE mine.organization_id = ${tediApprovalRequests.orgId} AND mine.conversation_id = ${conversationId} AND mine.grantee_descope_user_id = ${personId}))`,
 			osWorkspaceChildVisibleToPredicate(db, orgId, workspaceId, {
@@ -191,7 +235,7 @@ export async function listApprovalRequests(
 	const whereClause = and(...conditions);
 
 	const data = await db
-		.select(approvalRequestStoredColumns)
+		.select(storedApprovalColumns(tediApprovalRequests))
 		.from(tediApprovalRequests)
 		.where(whereClause)
 		.orderBy(desc(tediApprovalRequests.createdAt))
@@ -211,8 +255,9 @@ export async function getApprovalRequestById(
 	id: string,
 	orgId?: string,
 ): Promise<TediApprovalRequest | undefined> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	const results = await db
-		.select(approvalRequestStoredColumns)
+		.select(storedApprovalColumns(tediApprovalRequests))
 		.from(tediApprovalRequests)
 		.where(
 			and(
@@ -227,6 +272,18 @@ export async function getApprovalRequestsByIds(
 	db: DbClient,
 	p: { orgId: string; ids: string[] },
 ): Promise<TediApprovalRequest[]> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	if (coreStore(db) === "postgres") {
+		return db
+			.select(storedApprovalColumns(tediApprovalRequests))
+			.from(tediApprovalRequests)
+			.where(
+				and(
+					eq(tediApprovalRequests.orgId, p.orgId),
+					anyIds(db, tediApprovalRequests.id, p.ids),
+				),
+			);
+	}
 	const rows: TediApprovalRequest[] = [];
 	// Production statistics otherwise choose an organization-only scan for 50 IDs.
 	for (const ids of chunkForBoundParams([...new Set(p.ids)], 50)) {
@@ -251,6 +308,7 @@ export async function listProvisionalOutcomes(
 	db: DbClient,
 	input: { orgId: string; tediId?: string; limit?: number },
 ): Promise<TediProvisionalOutcome[]> {
+	const tediProvisionalOutcomes = coreTable(db, d1TediProvisionalOutcomes);
 	const conditions = [eq(tediProvisionalOutcomes.orgId, input.orgId)];
 	if (input.tediId) {
 		conditions.push(eq(tediProvisionalOutcomes.tediId, input.tediId));
@@ -267,6 +325,7 @@ export async function getProvisionalOutcomeById(
 	db: DbClient,
 	id: string,
 ): Promise<TediProvisionalOutcome | undefined> {
+	const tediProvisionalOutcomes = coreTable(db, d1TediProvisionalOutcomes);
 	const rows = await db
 		.select()
 		.from(tediProvisionalOutcomes)
@@ -339,6 +398,7 @@ export function buildCreateApprovalRequestStatement(
 	db: DbClient,
 	data: CreateApprovalRequestParams,
 ) {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	return db
 		.insert(tediApprovalRequests)
 		.values({
@@ -356,7 +416,7 @@ export function buildCreateApprovalRequestStatement(
 			expiresAt: data.expiresAt,
 			workflowId: data.workflowId ?? null,
 		})
-		.returning(approvalRequestStoredColumns);
+		.returning(storedApprovalColumns(tediApprovalRequests));
 }
 
 /** One immutable payment rejection may create only one human review request. */
@@ -364,6 +424,7 @@ export async function ensurePaymentBudgetOverrideRequest(
 	db: DbClient,
 	data: CreateApprovalRequestParams,
 ): Promise<{ request: TediApprovalRequest; created: boolean }> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	if (
 		data.actionType !== "payment_budget_override" ||
 		data.payload.kind !== "payment_budget_override" ||
@@ -379,7 +440,7 @@ export async function ensurePaymentBudgetOverrideRequest(
 			workflowId: data.workflowId ?? null,
 		})
 		.onConflictDoNothing({ target: tediApprovalRequests.id })
-		.returning(approvalRequestStoredColumns);
+		.returning(storedApprovalColumns(tediApprovalRequests));
 	if (created) {
 		await recordApprovalCardCreation(db, created);
 		return { request: created, created: true };
@@ -407,6 +468,7 @@ export async function ensureProvisionalPromotionApprovalRequest(
 	db: DbClient,
 	data: EnsureProvisionalPromotionApprovalParams,
 ): Promise<{ request: TediApprovalRequest; created: boolean }> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	const payload = {
 		kind: "provisional_outcome_promotion_v2",
 		provisionalOutcomeId: data.provisionalOutcomeId,
@@ -427,7 +489,7 @@ export async function ensureProvisionalPromotionApprovalRequest(
 			workflowId: data.workflowId,
 		})
 		.onConflictDoNothing({ target: tediApprovalRequests.id })
-		.returning(approvalRequestStoredColumns);
+		.returning(storedApprovalColumns(tediApprovalRequests));
 	if (rows[0]) {
 		await recordApprovalCardCreation(db, rows[0]);
 		return { request: rows[0], created: true };
@@ -454,6 +516,7 @@ export async function createProvisionalOutcome(
 	db: DbClient,
 	data: CreateProvisionalOutcomeParams,
 ): Promise<TediProvisionalOutcome> {
+	const tediProvisionalOutcomes = coreTable(db, d1TediProvisionalOutcomes);
 	const rows = await db
 		.insert(tediProvisionalOutcomes)
 		.values({
@@ -472,6 +535,7 @@ export async function promoteProvisionalOutcome(
 	db: DbClient,
 	params: TransitionProvisionalOutcomeParams & { approvalRequestId: string },
 ): Promise<TediProvisionalOutcome | undefined> {
+	const tediProvisionalOutcomes = coreTable(db, d1TediProvisionalOutcomes);
 	const rows = await db
 		.update(tediProvisionalOutcomes)
 		.set({
@@ -495,6 +559,7 @@ export async function rollbackProvisionalOutcome(
 	db: DbClient,
 	params: TransitionProvisionalOutcomeParams & { reason: string },
 ): Promise<TediProvisionalOutcome | undefined> {
+	const tediProvisionalOutcomes = coreTable(db, d1TediProvisionalOutcomes);
 	const rows = await db
 		.update(tediProvisionalOutcomes)
 		.set({
@@ -522,6 +587,11 @@ export async function resolveApprovalRequest(
 	id: string,
 	params: ResolveApprovalRequestParams,
 ): Promise<TediApprovalRequest | undefined> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const tediApprovalDependencyEvents = coreTable(
+		db,
+		d1TediApprovalDependencyEvents,
+	);
 	const resolvedAt = new Date().toISOString();
 	const conditions = [
 		eq(tediApprovalRequests.id, id),
@@ -554,18 +624,6 @@ export async function resolveApprovalRequest(
 		params.status !== "cancelled" && params.resolution == null
 			? await getApprovalRequestById(db, id)
 			: undefined;
-	const edges =
-		params.status === "cancelled"
-			? []
-			: [
-					buildApprovalResolutionEdgesStatement(db, {
-						id,
-						resolvedAt,
-						note:
-							params.resolution ??
-							`${params.status}: ${approval?.description ?? ""}`,
-					}),
-				];
 	const update = db
 		.update(tediApprovalRequests)
 		.set({
@@ -578,12 +636,43 @@ export async function resolveApprovalRequest(
 				: {}),
 			...(params.delegatedApproval
 				? {
-						payload: sql`json_set(${tediApprovalRequests.payload}, '$.delegatedApproval', json(${JSON.stringify(params.delegatedApproval)}), '$.delegatedDecisionId', ${decisionId})`,
+						payload: jsonWrite(
+							db,
+							jsonWrite(
+								db,
+								tediApprovalRequests.payload,
+								["delegatedApproval"],
+								params.delegatedApproval,
+							),
+							["delegatedDecisionId"],
+							decisionId,
+						),
 					}
 				: {}),
 		})
 		.where(and(...conditions))
-		.returning(approvalRequestStoredColumns);
+		.returning(storedApprovalColumns(tediApprovalRequests));
+	if (coreStore(db) === "postgres") {
+		return resolvePostgresApproval(db, update, params, {
+			id,
+			decisionId,
+			resolvedAt,
+			note:
+				params.resolution ?? `${params.status}: ${approval?.description ?? ""}`,
+		});
+	}
+	const edges =
+		params.status === "cancelled"
+			? []
+			: [
+					buildApprovalResolutionEdgesStatement(db, {
+						id,
+						resolvedAt,
+						note:
+							params.resolution ??
+							`${params.status}: ${approval?.description ?? ""}`,
+					}),
+				];
 	const results = params.delegatedApproval
 		? (
 				await db.batch([
@@ -622,7 +711,7 @@ export async function resolveApprovalRequest(
 							.where(
 								and(
 									eq(tediApprovalRequests.id, id),
-									sql`json_extract(${tediApprovalRequests.payload},'$.delegatedDecisionId')=${decisionId}`,
+									sql`${jsonRead(db, tediApprovalRequests.payload, ["delegatedDecisionId"])}=${decisionId}`,
 								),
 							),
 					),
@@ -632,21 +721,99 @@ export async function resolveApprovalRequest(
 	return results[0];
 }
 
+/** RETURNING fences dependent writes to this CAS, including same-time retries. */
+async function resolvePostgresApproval(
+	db: DbClient,
+	update: SQLWrapper,
+	params: ResolveApprovalRequestParams,
+	p: { id: string; decisionId: string; resolvedAt: string; note: string },
+) {
+	const table = coreTable(db, d1TediApprovalRequests);
+	const edges = coreTable(db, d1DecisionEdges);
+	const resolved = db
+		.$with("resolved", storedApprovalColumns(table))
+		.as(update.getSQL());
+	const recordedEdges = db.$with("recorded_edges", { id: edges.id }).as(
+		buildApprovalResolutionEdgesStatement(
+			db,
+			{ id: p.id, resolvedAt: p.resolvedAt, note: p.note },
+			resolved as unknown as typeof d1TediApprovalRequests,
+		)
+			.returning({ id: edges.id })
+			.getSQL(),
+	);
+	const auditTable = auditWriteTable(db);
+	const audited = params.delegatedApproval
+		? [
+				db.$with("audited", { id: auditTable.id }).as(
+					db
+						.insert(auditTable)
+						.select(
+							db
+								.select({
+									id: sql<string>`${p.decisionId}`.as("id"),
+									organizationId: resolved.orgId,
+									actorId: sql<string>`${params.delegatedApproval.actorId}`.as(
+										"actor_id",
+									),
+									actorType:
+										sql<string>`${params.delegatedApproval.actorType}`.as(
+											"actor_type",
+										),
+									action: sql<string>`'approval_request.delegated_decision'`.as(
+										"action",
+									),
+									resourceType: sql<string>`'approval_request'`.as(
+										"resource_type",
+									),
+									resourceId: resolved.id,
+									metadata: jsonParameter(db, {
+										status: params.status,
+										receipt: params.delegatedApproval,
+									}).as("metadata"),
+									timestamp: sql<Date>`${p.resolvedAt}::timestamptz`.as(
+										"timestamp",
+									),
+								})
+								.from(resolved),
+						)
+						.returning({ id: auditTable.id })
+						.getSQL(),
+				),
+			]
+		: [];
+	const [rows] = await db.batch([
+		db
+			.with(resolved, recordedEdges, ...audited)
+			.select()
+			.from(resolved),
+	]);
+	return rows[0];
+}
+
 /** Must immediately follow the approval CAS: changes() fences even same-time retries. */
 function buildApprovalResolutionEdgesStatement(
 	db: DbClient,
 	p: { id: string; resolvedAt: string; note: string },
+	resolved?: typeof d1TediApprovalRequests,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const tediApprovalRequests =
+		resolved ?? coreTable(db, d1TediApprovalRequests);
+	const decisionEdges = coreTable(db, d1DecisionEdges);
 	const note = containsCardSecret([p.note])
 		? "Recorded decision"
 		: p.note.replace(/\s+/g, " ").trim().slice(0, 280);
-	const workId = sql<string>`json_extract(${tediApprovalRequests.payload}, '$.workItemId')`;
+	const workId = sql<string>`${jsonRead(db, tediApprovalRequests.payload, ["workItemId"])}`;
 	return db
 		.insert(decisionEdges)
 		.select(
 			db
 				.select({
-					id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
+					id: (coreStore(db) === "postgres"
+						? sql<string>`gen_random_uuid()::text`
+						: sql<string>`lower(hex(randomblob(16)))`
+					).as("id"),
 					orgId: tediApprovalRequests.orgId,
 					fromKind: sql<"deck_card" | "work_item">`edge.from_kind`.as(
 						"from_kind",
@@ -675,7 +842,7 @@ function buildApprovalResolutionEdgesStatement(
 					union all select 'deck_card', 'decided_by'
 					union all select 'work_item', 'decided_by') edge`,
 					sql`edge.from_kind = 'deck_card' or (
-					json_type(${tediApprovalRequests.payload}, '$.workItemId') = 'text'
+					${jsonType(db, tediApprovalRequests.payload, ["workItemId"])} = 'string'
 					and exists (select 1 from ${workItems}
 						where ${workItems.orgId} = ${tediApprovalRequests.orgId}
 							and ${workItems.id} = ${workId})
@@ -683,10 +850,10 @@ function buildApprovalResolutionEdgesStatement(
 				)
 				.where(
 					and(
-						eq(tediApprovalRequests.id, p.id),
+						resolved ? undefined : eq(tediApprovalRequests.id, p.id),
 						inArray(tediApprovalRequests.status, ["approved", "rejected"]),
 						eq(tediApprovalRequests.resolvedAt, p.resolvedAt),
-						sql`changes() = 1`,
+						resolved ? undefined : sql`changes() = 1`,
 					),
 				),
 		)
@@ -704,7 +871,10 @@ function buildApprovalResolutionEdgesStatement(
 				confidence: sql`excluded.confidence`,
 				evidenceRef: sql`excluded.evidence_ref`,
 				note: sql`excluded.note`,
-				occurredAt: sql`min(${decisionEdges.occurredAt}, excluded.occurred_at)`,
+				occurredAt:
+					coreStore(db) === "postgres"
+						? sql`least(${decisionEdges.occurredAt}, excluded.occurred_at)`
+						: sql`min(${decisionEdges.occurredAt}, excluded.occurred_at)`,
 				updatedAt: sql`excluded.updated_at`,
 			},
 		});
@@ -714,6 +884,8 @@ export async function supersedeToolReviewApprovals(
 	db: DbClient,
 	input: { organizationId: string; appId: string },
 ) {
+	const appTools = coreTable(db, d1AppTools);
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	return db
 		.update(tediApprovalRequests)
 		.set({
@@ -727,11 +899,11 @@ export async function supersedeToolReviewApprovals(
 				eq(tediApprovalRequests.orgId, input.organizationId),
 				eq(tediApprovalRequests.actionType, "mcp.tool_catalog_change"),
 				eq(tediApprovalRequests.status, "pending"),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.appId') = ${input.appId}`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["appId"])} = ${input.appId}`,
 				sql`not exists (select 1 from ${appTools} where ${appTools.appId} = ${input.appId} and ${appTools.reviewState} = 'pending')`,
 			),
 		)
-		.returning(approvalRequestStoredColumns);
+		.returning(storedApprovalColumns(tediApprovalRequests));
 }
 
 /** Snapshot, re-batch and replace the app's queue in one D1 transaction. */
@@ -746,6 +918,9 @@ export async function reconcileToolReviewApproval(
 		expiresAt: string;
 	},
 ) {
+	const apps = coreTable(db, d1Apps);
+	const appTools = coreTable(db, d1AppTools);
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	const id = crypto.randomUUID();
 	const batchId = crypto.randomUUID();
 	const ownedApp = sql`exists (select 1 from ${apps} where ${apps.id} = ${input.appId} and ${apps.organizationId} = ${input.organizationId})`;
@@ -769,14 +944,17 @@ export async function reconcileToolReviewApproval(
 				resolvedAt: input.createdAt,
 				resolution:
 					"Superseded: upstream tools changed. Review the latest card; no tools were approved.",
-				payload: sql`json_set(${tediApprovalRequests.payload}, '$.supersededBy', case when ${count} > 0 then ${id} else null end)`,
+				payload:
+					coreStore(db) === "postgres"
+						? sql`${tediApprovalRequests.payload} || jsonb_build_object('supersededBy', case when ${count} > 0 then ${id}::text else null end)`
+						: sql`json_set(${tediApprovalRequests.payload}, '$.supersededBy', case when ${count} > 0 then ${id} else null end)`,
 			})
 			.where(
 				and(
 					eq(tediApprovalRequests.orgId, input.organizationId),
 					eq(tediApprovalRequests.actionType, "mcp.tool_catalog_change"),
 					eq(tediApprovalRequests.status, "pending"),
-					sql`json_extract(${tediApprovalRequests.payload}, '$.appId') = ${input.appId}`,
+					sql`${jsonRead(db, tediApprovalRequests.payload, ["appId"])} = ${input.appId}`,
 					ownedApp,
 				),
 			),
@@ -795,11 +973,14 @@ export async function reconcileToolReviewApproval(
 							sql<string>`'Review ' || ${count} || ' upstream tool change' || case when ${count} = 1 then '' else 's' end || ' for ' || ${input.appName}`.as(
 								"description",
 							),
-						payload: sql<
-							Record<string, JsonValue>
-						>`json_object('kind', 'mcp_tool_catalog_change', 'appId', ${input.appId}, 'reviewBatchId', ${batchId}, 'expectedCount', ${count}, 'changes', json((select json_group_array(json_object('rowId', pending.id, 'toolId', pending.tool_id, 'schemaSourceHash', coalesce(json_extract(pending.review_pending, '$.schemaSourceHash'), pending.schema_source_hash), 'diff', json(pending.review_diff))) from ${appTools} pending where ${pending})))`.as(
-							"payload",
-						),
+						payload: (coreStore(db) === "postgres"
+							? sql<
+									Record<string, JsonValue>
+								>`jsonb_build_object('kind', 'mcp_tool_catalog_change', 'appId', ${input.appId}::text, 'reviewBatchId', ${batchId}::text, 'expectedCount', ${count}, 'changes', (select coalesce(jsonb_agg(jsonb_build_object('rowId', pending.id, 'toolId', pending.tool_id, 'schemaSourceHash', coalesce(pending.review_pending->>'schemaSourceHash', pending.schema_source_hash), 'diff', pending.review_diff)), '[]'::jsonb) from ${appTools} pending where ${pending}))`
+							: sql<
+									Record<string, JsonValue>
+								>`json_object('kind', 'mcp_tool_catalog_change', 'appId', ${input.appId}, 'reviewBatchId', ${batchId}, 'expectedCount', ${count}, 'changes', json((select json_group_array(json_object('rowId', pending.id, 'toolId', pending.tool_id, 'schemaSourceHash', coalesce(json_extract(pending.review_pending, '$.schemaSourceHash'), pending.schema_source_hash), 'diff', json(pending.review_diff))) from ${appTools} pending where ${pending})))`
+						).as("payload"),
 						status: sql<ApprovalStatus>`'pending'`.as("status"),
 						createdAt: sql<string>`${input.createdAt}`.as("created_at"),
 						expiresAt: sql<string>`${input.expiresAt}`.as("expires_at"),
@@ -813,7 +994,7 @@ export async function reconcileToolReviewApproval(
 						),
 					),
 			)
-			.returning(approvalRequestStoredColumns),
+			.returning(storedApprovalColumns(tediApprovalRequests)),
 	]);
 	if (created[0]) await recordApprovalCardCreation(db, created[0]);
 	return created;
@@ -823,24 +1004,29 @@ export async function reconcileToolReviewApproval(
  * Copy a held upstream definition onto the row being approved. Rows without
  * one (new tools) already carry their reviewed definition and keep it.
  */
-function approvedPendingDefinition() {
-	const field = (column: AnyColumn, key: string) =>
-		sql`case when ${appTools.reviewPending} is null then ${column} else json_extract(${appTools.reviewPending}, ${`$.${key}`}) end`;
+function approvedPendingDefinition(db: DbClient) {
+	const appTools = coreTable(db, d1AppTools);
+	const field = (
+		column: AnyColumn,
+		key: string,
+		kind: "text" | "json" = "text",
+	) =>
+		sql`case when ${appTools.reviewPending} is null then ${column} else ${jsonRead(db, appTools.reviewPending, [key], kind)} end`;
 	return {
 		toolTypeId: field(appTools.toolTypeId, "toolTypeId"),
-		config: field(appTools.config, "config"),
-		inputSchema: field(appTools.inputSchema, "inputSchema"),
-		outputSchema: field(appTools.outputSchema, "outputSchema"),
+		config: field(appTools.config, "config", "json"),
+		inputSchema: field(appTools.inputSchema, "inputSchema", "json"),
+		outputSchema: field(appTools.outputSchema, "outputSchema", "json"),
 		title: field(appTools.title, "title"),
 		description: field(appTools.description, "description"),
-		icons: field(appTools.icons, "icons"),
+		icons: field(appTools.icons, "icons", "json"),
 		executionTaskSupport: field(
 			appTools.executionTaskSupport,
 			"executionTaskSupport",
 		),
-		annotations: field(appTools.annotations, "annotations"),
+		annotations: field(appTools.annotations, "annotations", "json"),
 		writeCapability: field(appTools.writeCapability, "writeCapability"),
-		meta: field(appTools.meta, "meta"),
+		meta: field(appTools.meta, "meta", "json"),
 		schemaDialect: field(appTools.schemaDialect, "schemaDialect"),
 		schemaSource: field(appTools.schemaSource, "schemaSource"),
 		schemaSourceRef: field(appTools.schemaSourceRef, "schemaSourceRef"),
@@ -857,6 +1043,9 @@ export async function resolveToolCatalogApprovalRequest(
 		status: "approved";
 	},
 ): Promise<TediApprovalRequest | undefined> {
+	const apps = coreTable(db, d1Apps);
+	const appTools = coreTable(db, d1AppTools);
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	const resolvedAt = new Date().toISOString();
 	const resolutionStatement = db
 		.update(tediApprovalRequests)
@@ -873,38 +1062,50 @@ export async function resolveToolCatalogApprovalRequest(
 				eq(tediApprovalRequests.status, "pending"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_catalog_change"),
 				gt(tediApprovalRequests.expiresAt, resolvedAt),
-				sql`json_type(${tediApprovalRequests.payload}, '$.appId') = 'text'`,
-				sql`json_type(${tediApprovalRequests.payload}, '$.reviewBatchId') = 'text'`,
-				sql`json_type(${tediApprovalRequests.payload}, '$.expectedCount') = 'integer'`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.expectedCount') > 0`,
+				sql`${jsonType(db, tediApprovalRequests.payload, ["appId"])} = 'string'`,
+				sql`${jsonType(db, tediApprovalRequests.payload, ["reviewBatchId"])} = 'string'`,
+				coreStore(db) === "postgres"
+					? sql`${jsonType(db, tediApprovalRequests.payload, ["expectedCount"])} = 'number' AND ${jsonRead(db, tediApprovalRequests.payload, ["expectedCount"], "number")} = trunc(${jsonRead(db, tediApprovalRequests.payload, ["expectedCount"], "number")})`
+					: sql`json_type(${tediApprovalRequests.payload}, '$.expectedCount') = 'integer'`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["expectedCount"], "number")} > 0`,
 				sql`exists (
 					select 1 from ${apps}
-					where ${apps.id} = json_extract(${tediApprovalRequests.payload}, '$.appId')
+					where ${apps.id} = ${jsonRead(db, tediApprovalRequests.payload, ["appId"])}
 						and ${apps.organizationId} = ${tediApprovalRequests.orgId}
 				)`,
 				sql`(
 					select count(*) from ${appTools} pending
-					where pending.app_id = json_extract(${tediApprovalRequests.payload}, '$.appId')
+					where pending.app_id = ${jsonRead(db, tediApprovalRequests.payload, ["appId"])}
 						and pending.review_state = 'pending'
-				) = json_extract(${tediApprovalRequests.payload}, '$.expectedCount')`,
-				sql`not exists (
+				) = ${jsonRead(db, tediApprovalRequests.payload, ["expectedCount"], "number")}`,
+				coreStore(db) === "postgres"
+					? sql`not exists (
 					select 1 from ${appTools} pending
-					where pending.app_id = json_extract(${tediApprovalRequests.payload}, '$.appId')
+					where pending.app_id = ${jsonRead(db, tediApprovalRequests.payload, ["appId"])}
 						and pending.review_state = 'pending'
-						and (pending.review_batch_id is not json_extract(${tediApprovalRequests.payload}, '$.reviewBatchId')
+						and (pending.review_batch_id IS DISTINCT FROM ${jsonRead(db, tediApprovalRequests.payload, ["reviewBatchId"])}
+							or not exists (select 1 from jsonb_array_elements(CASE WHEN jsonb_typeof(${tediApprovalRequests.payload}->'changes')='array' THEN ${tediApprovalRequests.payload}->'changes' ELSE '[]'::jsonb END) change(value)
+								where change.value->>'rowId' = pending.id
+									and change.value->>'schemaSourceHash' = coalesce(pending.review_pending->>'schemaSourceHash', pending.schema_source_hash)))
+				)`
+					: sql`not exists (
+					select 1 from ${appTools} pending
+					where pending.app_id = ${jsonRead(db, tediApprovalRequests.payload, ["appId"])}
+						and pending.review_state = 'pending'
+						and (pending.review_batch_id is not ${jsonRead(db, tediApprovalRequests.payload, ["reviewBatchId"])}
 							or not exists (select 1 from json_each(${tediApprovalRequests.payload}, '$.changes') change
 								where json_extract(change.value, '$.rowId') = pending.id
 									and json_extract(change.value, '$.schemaSourceHash') = coalesce(json_extract(pending.review_pending, '$.schemaSourceHash'), pending.schema_source_hash)))
 				)`,
 			),
 		)
-		.returning(approvalRequestStoredColumns);
+		.returning(storedApprovalColumns(tediApprovalRequests));
 	const [resolvedRows] = await db.batch([
 		resolutionStatement,
 		db
 			.update(appTools)
 			.set({
-				...approvedPendingDefinition(),
+				...approvedPendingDefinition(db),
 				reviewState: "live",
 				reviewDiff: null,
 				reviewBatchId: null,
@@ -914,8 +1115,8 @@ export async function resolveToolCatalogApprovalRequest(
 			.where(
 				and(
 					eq(appTools.reviewState, "pending"),
-					sql`${appTools.appId} = (select json_extract(approved.payload, '$.appId') from ${tediApprovalRequests} approved where approved.id = ${id} and approved.status = 'approved' and approved.resolved_at = ${resolvedAt})`,
-					sql`${appTools.reviewBatchId} = (select json_extract(approved.payload, '$.reviewBatchId') from ${tediApprovalRequests} approved where approved.id = ${id} and approved.status = 'approved' and approved.resolved_at = ${resolvedAt})`,
+					sql`${appTools.appId} = (select ${jsonRead(db, sql`approved.payload`, ["appId"])} from ${tediApprovalRequests} approved where approved.id = ${id} and approved.status = 'approved' and approved.resolved_at = ${resolvedAt})`,
+					sql`${appTools.reviewBatchId} = (select ${jsonRead(db, sql`approved.payload`, ["reviewBatchId"])} from ${tediApprovalRequests} approved where approved.id = ${id} and approved.status = 'approved' and approved.resolved_at = ${resolvedAt})`,
 				),
 			)
 			.returning({ id: appTools.id }),
@@ -947,6 +1148,7 @@ export async function expireStaleApprovals(
 		dueIds?: string[];
 	} = {},
 ): Promise<number> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	const now = new Date().toISOString();
 	const result = await db
 		.update(tediApprovalRequests)
@@ -967,15 +1169,16 @@ export async function expireStaleApprovals(
 				pendingApproval,
 				// bound-params: internal selector from claimWorkDue, LIMIT 50.
 				options.dueIds
-					? inArray(tediApprovalRequests.id, options.dueIds)
+					? anyIds(db, tediApprovalRequests.id, options.dueIds)
 					: undefined,
 				sql`${tediApprovalRequests.expiresAt} <= ${now}`,
 				options.organizationId
 					? eq(tediApprovalRequests.orgId, options.organizationId)
 					: undefined,
 			),
-		);
-	return getAffectedRows(result);
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return result.length;
 }
 
 export interface AdmitKernelAutoWriteParams {
@@ -992,6 +1195,8 @@ export async function admitKernelAutoWrite(
 	db: DbClient,
 	input: AdmitKernelAutoWriteParams,
 ): Promise<boolean> {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	if (input.approval.expiresAt <= input.resolvedAt)
 		throw new Error("Auto approval expired before execution");
 	// A strict approval PK insert is the replay fence. Never ignore a collision:
@@ -1009,7 +1214,7 @@ export async function admitKernelAutoWrite(
 				resolution: input.resolution,
 				workflowId: input.approval.workflowId ?? null,
 			})
-			.returning(approvalRequestStoredColumns),
+			.returning(storedApprovalColumns(tediApprovalRequests)),
 		db
 			.update(kernelRuntimeRuns)
 			.set({ metadata: input.metadata, updatedAt: input.resolvedAt })
@@ -1019,7 +1224,7 @@ export async function admitKernelAutoWrite(
 					eq(kernelRuntimeRuns.organizationId, input.approval.orgId),
 					eq(kernelRuntimeRuns.status, "running"),
 					isNull(
-						sql`json_extract(${kernelRuntimeRuns.metadata}, '$.kernelWriteExecutedAt')`,
+						sql`${jsonRead(db, kernelRuntimeRuns.metadata, ["kernelWriteExecutedAt"])}`,
 					),
 				),
 			)
@@ -1033,6 +1238,7 @@ export async function findPendingOwnerToolApproval(
 	db: DbClient,
 	input: { organizationId: string; fingerprint: string; now: string },
 ): Promise<{ id: string } | undefined> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	const [row] = await db
 		.select({ id: tediApprovalRequests.id })
 		.from(tediApprovalRequests)
@@ -1042,7 +1248,7 @@ export async function findPendingOwnerToolApproval(
 				eq(tediApprovalRequests.status, "pending"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') = ${input.fingerprint}`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["fingerprint"])} = ${input.fingerprint}`,
 			),
 		)
 		.orderBy(desc(tediApprovalRequests.createdAt))
@@ -1061,10 +1267,20 @@ export async function consumeOwnerToolApproval(
 		work?: { id: string; version: number };
 	},
 ): Promise<boolean> {
+	const workItems = coreTable(db, d1WorkItems);
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const executionStatus =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "status"])
+			: tediApprovalRequests.executionStatus;
+	const consumedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["consumedAt"])
+			: tediApprovalRequests.consumedAt;
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`CASE WHEN ${tediApprovalRequests.executionStatus} = 'failed' THEN json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now}, '$.execution.retryable', json('false')) ELSE json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now}) END`,
+			payload: sql`CASE WHEN ${executionStatus} = 'failed' THEN ${jsonWrite(db, jsonWrite(db, tediApprovalRequests.payload, ["consumedAt"], input.now), ["execution", "retryable"], false)} ELSE ${jsonWrite(db, tediApprovalRequests.payload, ["consumedAt"], input.now)} END`,
 		})
 		.where(
 			and(
@@ -1073,8 +1289,8 @@ export async function consumeOwnerToolApproval(
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') = ${input.fingerprint}`,
-				sql`${tediApprovalRequests.consumedAt} IS NULL`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["fingerprint"])} = ${input.fingerprint}`,
+				sql`${consumedAt} IS NULL`,
 				input.work
 					? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${input.organizationId} AND ${workItems.id}=${input.work.id} AND ${workItems.version}=${input.work.version} AND ${workItems.disposition}='accepted')`
 					: undefined,
@@ -1125,10 +1341,29 @@ export async function dismissOwnerToolApprovalExecution(
 		staleBefore: string;
 	},
 ): Promise<boolean> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const executionStatus =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "status"])
+			: tediApprovalRequests.executionStatus;
+	const executionDismissedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "dismissedAt"])
+			: tediApprovalRequests.executionDismissedAt;
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution.dismissedAt', ${input.now}, '$.execution.dismissedBy', ${input.dismissedBy})`,
+			payload: jsonWrite(
+				db,
+				jsonWrite(
+					db,
+					tediApprovalRequests.payload,
+					["execution", "dismissedAt"],
+					input.now,
+				),
+				["execution", "dismissedBy"],
+				input.dismissedBy,
+			),
 		})
 		.where(
 			and(
@@ -1136,11 +1371,11 @@ export async function dismissOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.orgId, input.organizationId),
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
-				sql`${tediApprovalRequests.executionDismissedAt} IS NULL`,
+				sql`${executionDismissedAt} IS NULL`,
 				sql`(
-					${tediApprovalRequests.executionStatus} IN ('queued', 'failed')
-					OR (${tediApprovalRequests.executionStatus} = 'running'
-						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
+					${executionStatus} IN ('queued', 'failed')
+					OR (${executionStatus} = 'running'
+						AND ${jsonRead(db, tediApprovalRequests.payload, ["execution", "startedAt"])} < ${input.staleBefore})
 				)`,
 			),
 		)
@@ -1168,6 +1403,19 @@ export async function reclaimOwnerToolApprovalExecution(
 		attempt: number;
 	},
 ): Promise<boolean> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const executionStatus =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "status"])
+			: tediApprovalRequests.executionStatus;
+	const executionDismissedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "dismissedAt"])
+			: tediApprovalRequests.executionDismissedAt;
+	const consumedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["consumedAt"])
+			: tediApprovalRequests.consumedAt;
 	const execution: OwnerToolApprovalExecution = {
 		status: "running",
 		startedAt: input.now,
@@ -1178,7 +1426,10 @@ export async function reclaimOwnerToolApprovalExecution(
 		.update(tediApprovalRequests)
 		.set({
 			// Retain the deferral marker so a cut-off automatic retry can be recovered.
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(json_set(${JSON.stringify(execution)}, '$.nextAttemptAt', json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt'))))`,
+			payload:
+				coreStore(db) === "postgres"
+					? sql`${tediApprovalRequests.payload} || jsonb_build_object('execution', ${jsonParameter(db, execution)} || jsonb_build_object('nextAttemptAt', ${jsonRead(db, tediApprovalRequests.payload, ["execution", "nextAttemptAt"])}))`
+					: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(json_set(${JSON.stringify(execution)}, '$.nextAttemptAt', ${jsonRead(db, tediApprovalRequests.payload, ["execution", "nextAttemptAt"])})))`,
 		})
 		.where(
 			and(
@@ -1188,14 +1439,14 @@ export async function reclaimOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
 				sql`(
-					${tediApprovalRequests.executionStatus} = 'failed'
-					OR (${tediApprovalRequests.executionStatus} = 'queued'
-						AND json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${input.now})
-					OR (${tediApprovalRequests.executionStatus} = 'running'
-						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
+					${executionStatus} = 'failed'
+					OR (${executionStatus} = 'queued'
+						AND ${jsonRead(db, tediApprovalRequests.payload, ["execution", "nextAttemptAt"])} <= ${input.now})
+					OR (${executionStatus} = 'running'
+						AND ${jsonRead(db, tediApprovalRequests.payload, ["execution", "startedAt"])} < ${input.staleBefore})
 				)`,
-				sql`${tediApprovalRequests.consumedAt} IS NULL`,
-				sql`${tediApprovalRequests.executionDismissedAt} IS NULL`,
+				sql`${consumedAt} IS NULL`,
+				sql`${executionDismissedAt} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1211,6 +1462,11 @@ export async function claimOwnerToolApprovalExecution(
 	db: DbClient,
 	input: { id: string; organizationId: string; now: string },
 ): Promise<boolean> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const consumedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["consumedAt"])
+			: tediApprovalRequests.consumedAt;
 	const execution: OwnerToolApprovalExecution = {
 		status: "running",
 		startedAt: input.now,
@@ -1218,7 +1474,12 @@ export async function claimOwnerToolApprovalExecution(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(${JSON.stringify(execution)}))`,
+			payload: jsonWrite(
+				db,
+				tediApprovalRequests.payload,
+				["execution"],
+				execution,
+			),
 		})
 		.where(
 			and(
@@ -1227,10 +1488,10 @@ export async function claimOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') IS NOT NULL`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution') IS NULL`,
-				sql`${tediApprovalRequests.consumedAt} IS NULL`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["kind"])} = 'mcp_tool_call'`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["fingerprint"])} IS NOT NULL`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["execution"])} IS NULL`,
+				sql`${consumedAt} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1246,6 +1507,11 @@ export async function queueOwnerToolApprovalExecution(
 	db: DbClient,
 	input: { id: string; organizationId: string; now: string },
 ): Promise<boolean> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const consumedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["consumedAt"])
+			: tediApprovalRequests.consumedAt;
 	const execution: OwnerToolApprovalExecution = {
 		status: "queued",
 		startedAt: input.now,
@@ -1254,7 +1520,12 @@ export async function queueOwnerToolApprovalExecution(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(${JSON.stringify(execution)}))`,
+			payload: jsonWrite(
+				db,
+				tediApprovalRequests.payload,
+				["execution"],
+				execution,
+			),
 		})
 		.where(
 			and(
@@ -1263,10 +1534,10 @@ export async function queueOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') IS NOT NULL`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution') IS NULL`,
-				sql`${tediApprovalRequests.consumedAt} IS NULL`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["kind"])} = 'mcp_tool_call'`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["fingerprint"])} IS NOT NULL`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["execution"])} IS NULL`,
+				sql`${consumedAt} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1292,6 +1563,11 @@ export async function requeueStaleContinuableOwnerToolApprovals(
 		maxTransientRetries?: number;
 	},
 ): Promise<number> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const executionStatus =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "status"])
+			: tediApprovalRequests.executionStatus;
 	if (input.endpoints.length === 0) return 0;
 	const execution: OwnerToolApprovalExecution = {
 		status: "queued",
@@ -1302,31 +1578,34 @@ export async function requeueStaleContinuableOwnerToolApprovals(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify(execution)}), '$.transientRetries', coalesce(json_extract(${tediApprovalRequests.payload}, '$.transientRetries'), 0) + (${tediApprovalRequests.executionStatus} = 'failed'))`,
+			payload:
+				coreStore(db) === "postgres"
+					? sql`(${tediApprovalRequests.payload} - 'consumedAt') || jsonb_build_object('execution', ${jsonParameter(db, execution)}, 'transientRetries', coalesce(${jsonRead(db, tediApprovalRequests.payload, ["transientRetries"], "number")}, 0) + CASE WHEN ${executionStatus} = 'failed' THEN 1 ELSE 0 END)`
+					: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify(execution)}), '$.transientRetries', coalesce(${jsonRead(db, tediApprovalRequests.payload, ["transientRetries"], "number")}, 0) + (${executionStatus} = 'failed'))`,
 		})
 		.where(
 			and(
 				// Approved, a tool call, not dismissed: stated as
 				// idx_approval_requests_open_execution's own condition, then
 				// narrowed to the two run states this sweep can re-queue.
-				openOwnerToolRun,
-				sql`${ownerToolRunStatus} IN ('running', 'failed')`,
+				openOwnerRun(db, tediApprovalRequests),
+				sql`${ownerRunStatus(db, tediApprovalRequests)} IN ('running', 'failed')`,
 				gt(tediApprovalRequests.expiresAt, input.now),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.target.transport') = 'rpc'`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["kind"])} = 'mcp_tool_call'`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["target", "transport"])} = 'rpc'`,
 				// bound-params: CONTINUABLE_OWNER_TOOL_ENDPOINTS, a fixed one-entry list
 				inArray(
-					sql`json_extract(${tediApprovalRequests.payload}, '$.target.endpoint')`,
+					sql`${jsonRead(db, tediApprovalRequests.payload, ["target", "endpoint"])}`,
 					[...input.endpoints],
 				),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.args.dryRun') = 0`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["args", "dryRun"], "boolean")} = ${booleanValue(db, false)}`,
 				sql`(
-					(${tediApprovalRequests.executionStatus} = 'running'
-						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
-					OR (${tediApprovalRequests.executionStatus} = 'failed'
-						AND coalesce(json_extract(${tediApprovalRequests.payload}, '$.transientRetries'), 0) < ${input.maxTransientRetries ?? 30}
-						AND (instr(json_extract(${tediApprovalRequests.payload}, '$.execution.error'), 'SERVICE_UNAVAILABLE') > 0
-							OR instr(json_extract(${tediApprovalRequests.payload}, '$.execution.error'), 'timed out') > 0))
+					(${executionStatus} = 'running'
+						AND ${jsonRead(db, tediApprovalRequests.payload, ["execution", "startedAt"])} < ${input.staleBefore})
+					OR (${executionStatus} = 'failed'
+						AND coalesce(${jsonRead(db, tediApprovalRequests.payload, ["transientRetries"], "number")}, 0) < ${input.maxTransientRetries ?? 30}
+						AND (${containsText(db, jsonRead(db, tediApprovalRequests.payload, ["execution", "error"]), "SERVICE_UNAVAILABLE")}
+							OR ${containsText(db, jsonRead(db, tediApprovalRequests.payload, ["execution", "error"]), "timed out")}))
 				)`,
 			),
 		)
@@ -1355,10 +1634,26 @@ export async function continueOwnerToolApprovalExecution(
 		continuation: Record<string, unknown>;
 	},
 ): Promise<boolean> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const executionStatus =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "status"])
+			: tediApprovalRequests.executionStatus;
+	const executionDismissedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "dismissedAt"])
+			: tediApprovalRequests.executionDismissedAt;
+	const consumedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["consumedAt"])
+			: tediApprovalRequests.consumedAt;
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.args', json(${JSON.stringify(input.args)}), '$.execution', json(${JSON.stringify(input.execution)}), '$.continuation', json(${JSON.stringify(input.continuation)}))`,
+			payload:
+				coreStore(db) === "postgres"
+					? sql`(${tediApprovalRequests.payload} - 'consumedAt') || jsonb_build_object('args', ${jsonParameter(db, input.args)}, 'execution', ${jsonParameter(db, input.execution)}, 'continuation', ${jsonParameter(db, input.continuation)})`
+					: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.args', json(${JSON.stringify(input.args)}), '$.execution', json(${JSON.stringify(input.execution)}), '$.continuation', json(${JSON.stringify(input.continuation)}))`,
 		})
 		.where(
 			and(
@@ -1367,10 +1662,10 @@ export async function continueOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
-				sql`${tediApprovalRequests.executionStatus} = 'running'`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') = ${input.startedAt}`,
-				sql`${tediApprovalRequests.consumedAt} IS NOT NULL`,
-				sql`${tediApprovalRequests.executionDismissedAt} IS NULL`,
+				sql`${executionStatus} = 'running'`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["execution", "startedAt"])} = ${input.startedAt}`,
+				sql`${consumedAt} IS NOT NULL`,
+				sql`${executionDismissedAt} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1388,6 +1683,15 @@ export async function recordOwnerToolApprovalExecution(
 		credentialFailureBeforeDispatch?: boolean;
 	},
 ): Promise<OwnerToolApprovalExecution | null> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const executionStatus =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["execution", "status"])
+			: tediApprovalRequests.executionStatus;
+	const consumedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["consumedAt"])
+			: tediApprovalRequests.consumedAt;
 	const releaseCredentialFailure =
 		input.credentialFailureBeforeDispatch === true &&
 		input.execution.status === "failed" &&
@@ -1395,18 +1699,21 @@ export async function recordOwnerToolApprovalExecution(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: releaseCredentialFailure
-				? sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify({ ...input.execution, retryable: true })}))`
-				: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(CASE WHEN ${tediApprovalRequests.consumedAt} IS NOT NULL THEN json_set(${JSON.stringify(input.execution)}, '$.retryable', json('false')) ELSE ${JSON.stringify(input.execution)} END))`,
+			payload:
+				coreStore(db) === "postgres"
+					? sql`(CASE WHEN ${releaseCredentialFailure} THEN ${tediApprovalRequests.payload} - 'consumedAt' ELSE ${tediApprovalRequests.payload} END) || jsonb_build_object('execution', CASE WHEN ${releaseCredentialFailure} THEN ${jsonParameter(db, { ...input.execution, retryable: true })} WHEN ${consumedAt} IS NOT NULL THEN ${jsonParameter(db, { ...input.execution, retryable: false })} ELSE ${jsonParameter(db, input.execution)} END)`
+					: releaseCredentialFailure
+						? sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify({ ...input.execution, retryable: true })}))`
+						: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(CASE WHEN ${consumedAt} IS NOT NULL THEN json_set(${JSON.stringify(input.execution)}, '$.retryable', json('false')) ELSE ${JSON.stringify(input.execution)} END))`,
 		})
 		.where(
 			and(
 				eq(tediApprovalRequests.id, input.id),
 				eq(tediApprovalRequests.orgId, input.organizationId),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') = ${input.execution.startedAt}`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["execution", "startedAt"])} = ${input.execution.startedAt}`,
 				...(releaseCredentialFailure
-					? [eq(tediApprovalRequests.executionStatus, "running")]
+					? [sql`${executionStatus} = 'running'`]
 					: []),
 			),
 		)
@@ -1428,6 +1735,7 @@ export async function consumeHomeToolApprovalCall(
 	db: DbClient,
 	input: { id: string; organizationId: string; slot: string; now: string },
 ): Promise<boolean> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	if (!/^(?:user|tenant)_[0-9a-f]{64}$/.test(input.slot))
 		throw new Error("Invalid Home approval call slot");
 	const path = `$.consumedCalls.${input.slot}`;
@@ -1435,7 +1743,10 @@ export async function consumeHomeToolApprovalCall(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_insert(json_set(${tediApprovalRequests.payload}, ${path}, ${input.now}), ${userPath}, ${input.now})`,
+			payload:
+				coreStore(db) === "postgres"
+					? sql`${tediApprovalRequests.payload} || jsonb_build_object('consumedCalls', coalesce(${jsonRead(db, tediApprovalRequests.payload, ["consumedCalls"], "json")}, '{}'::jsonb) || jsonb_build_object(${input.slot}::text, ${input.now}::text) || CASE WHEN ${jsonRead(db, tediApprovalRequests.payload, ["consumedCalls", input.slot.replace("tenant_", "user_")])} IS NULL THEN jsonb_build_object(${input.slot.replace("tenant_", "user_")}::text, ${input.now}::text) ELSE '{}'::jsonb END)`
+					: sql`json_insert(json_set(${tediApprovalRequests.payload}, ${path}, ${input.now}), ${userPath}, ${input.now})`,
 		})
 		.where(
 			and(
@@ -1444,7 +1755,7 @@ export async function consumeHomeToolApprovalCall(
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "home.tool_write"),
 				gt(tediApprovalRequests.expiresAt, input.now),
-				sql`json_extract(${tediApprovalRequests.payload}, ${path}) IS NULL`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["consumedCalls", input.slot])} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1457,6 +1768,7 @@ export async function getApprovalAnchor(
 	organizationId: string,
 	approverUserId?: string,
 ): Promise<{ id: string } | undefined> {
+	const tedis = coreTable(db, d1Tedis);
 	const [row] = await db
 		.select({ id: tedis.id })
 		.from(tedis)
@@ -1489,6 +1801,11 @@ export async function failConsumedStaleOwnerToolRuns(
 	db: DbClient,
 	input: { now: string; staleBefore: string },
 ): Promise<number> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
+	const consumedAt =
+		coreStore(db) === "postgres"
+			? jsonRead(db, tediApprovalRequests.payload, ["consumedAt"])
+			: tediApprovalRequests.consumedAt;
 	const execution: OwnerToolApprovalExecution = {
 		status: "failed",
 		startedAt: input.now,
@@ -1500,15 +1817,18 @@ export async function failConsumedStaleOwnerToolRuns(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(json_set(${JSON.stringify(execution)}, '$.startedAt', json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt'))))`,
+			payload:
+				coreStore(db) === "postgres"
+					? sql`${tediApprovalRequests.payload} || jsonb_build_object('execution', ${jsonParameter(db, execution)} || jsonb_build_object('startedAt', ${jsonRead(db, tediApprovalRequests.payload, ["execution", "startedAt"])}))`
+					: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(json_set(${JSON.stringify(execution)}, '$.startedAt', ${jsonRead(db, tediApprovalRequests.payload, ["execution", "startedAt"])})))`,
 		})
 		.where(
 			and(
-				openOwnerToolRun,
-				sql`${ownerToolRunStatus} = 'running'`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore}`,
-				sql`${tediApprovalRequests.consumedAt} IS NOT NULL`,
+				openOwnerRun(db, tediApprovalRequests),
+				sql`${ownerRunStatus(db, tediApprovalRequests)} = 'running'`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["kind"])} = 'mcp_tool_call'`,
+				sql`${jsonRead(db, tediApprovalRequests.payload, ["execution", "startedAt"])} < ${input.staleBefore}`,
+				sql`${consumedAt} IS NOT NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1520,27 +1840,47 @@ export async function listDueOwnerToolApprovals(
 	now: string,
 	limit = 100,
 ) {
+	const table = coreTable(db, d1TediApprovalRequests);
+	const postgres = coreStore(db) === "postgres";
+	// The Postgres scaffold's derived columns are not generated from payload.
+	const status = postgres
+		? jsonRead(db, table.payload, ["execution", "status"])
+		: table.executionStatus;
+	const dismissed = postgres
+		? jsonRead(db, table.payload, ["execution", "dismissedAt"])
+		: table.executionDismissedAt;
+	const consumed = postgres
+		? jsonRead(db, table.payload, ["consumedAt"])
+		: table.consumedAt;
+	const started = jsonRead(db, table.payload, ["execution", "startedAt"]);
+	const nextAttempt = jsonRead(db, table.payload, [
+		"execution",
+		"nextAttemptAt",
+	]);
 	return db
-		.select(approvalRequestStoredColumns)
-		.from(tediApprovalRequests)
+		.select(storedApprovalColumns(table))
+		.from(table)
 		.where(
 			and(
 				// Approved, a tool call, not dismissed: stated as
 				// idx_approval_requests_open_execution's own condition, then
 				// narrowed to the two run states that can be due.
-				openOwnerToolRun,
-				sql`${ownerToolRunStatus} IN ('queued', 'running')`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
-				sql`(${tediApprovalRequests.executionStatus} = 'queued' OR (${tediApprovalRequests.executionStatus} = 'running' AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${new Date(Date.parse(now) - STALE_OWNER_TOOL_RUN_MS).toISOString()}))`,
+				postgres
+					? and(
+							eq(table.status, "approved"),
+							eq(table.actionType, "mcp.tool_call"),
+							isNull(dismissed),
+						)
+					: openOwnerToolRun,
+				sql`${status} IN ('queued', 'running')`,
+				sql`${jsonRead(db, table.payload, ["kind"])} = 'mcp_tool_call'`,
+				sql`(${status} = 'queued' OR (${status} = 'running' AND ${started} < ${new Date(Date.parse(now) - STALE_OWNER_TOOL_RUN_MS).toISOString()}))`,
 				// A stale run is due whether or not a deferral scheduled it: a call run
 				// inside the approving request has no nextAttemptAt when that request is cut off.
-				sql`(${tediApprovalRequests.executionStatus} = 'running' OR json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${now})`,
-				sql`${tediApprovalRequests.consumedAt} IS NULL`,
+				sql`(${status} = 'running' OR ${nextAttempt} <= ${now})`,
+				isNull(consumed),
 			),
 		)
-		.orderBy(
-			sql`json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt')`,
-			tediApprovalRequests.id,
-		)
+		.orderBy(postgres ? sql`${nextAttempt} NULLS FIRST` : nextAttempt, table.id)
 		.limit(limit);
 }
