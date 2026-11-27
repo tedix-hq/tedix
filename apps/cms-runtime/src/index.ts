@@ -1,3 +1,4 @@
+import { withCmsCoreStore, cmsDb, cmsQueryDb } from "./core-store";
 import {
 	loadPoppyDiscovery,
 	POPPY_DISCOVERY_PATH,
@@ -80,8 +81,7 @@ import type {
 	CollectionDeletionGuardInput,
 	CollectionDeletionGuardResult,
 } from "emdash";
-import { listTenantBundleVersions } from "@tedix/provisioning/cms";
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { listTenantBundles } from "@tedix/db/queries/tenant-bundles";
 import {
 	deleteExpiredCmsBundleRetentionPermits,
 	getCmsRestoreEpoch,
@@ -137,7 +137,6 @@ import {
 	tenantDbQueryFamily,
 } from "./emdash-db";
 import {
-	getDb,
 	resolveSlug,
 	isWwwCompanionPublicPath,
 	wwwCompanionRedirect,
@@ -247,11 +246,11 @@ async function lookupActiveBundle(
 	env: Env,
 	slug: string,
 ): Promise<TenantBundle | null> {
-	return getActiveTenantBundle(getDb(env.PLATFORM_DB), slug);
+	return getActiveTenantBundle(cmsDb(env), slug);
 }
 
 async function listActiveBundles(env: Env): Promise<TenantBundle[]> {
-	return listActiveTenantBundles(getDb(env.PLATFORM_DB));
+	return listActiveTenantBundles(cmsDb(env));
 }
 
 /** Recovery refuses duplicate active rows hidden by normal serving's LIMIT 1. */
@@ -259,10 +258,7 @@ export async function lookupUniqueRecoveryBundle(
 	env: Env,
 	slug: string,
 ): Promise<RecoveryBundleIdentity | null> {
-	const versions = await listTenantBundleVersions(
-		{ platformDb: env.PLATFORM_DB, bundlesBucket: env.TENANT_BUNDLES },
-		slug,
-	);
+	const versions = await listTenantBundles(cmsQueryDb(env), slug);
 	const active = versions.filter((version) => version.isActive);
 	return active.length === 1
 		? { slug, version: active[0]!.version, etag: active[0]!.etag }
@@ -1795,13 +1791,13 @@ async function fetchCmsSite(
 	try {
 		const site =
 			knownPageCacheConfig === undefined
-				? await getCmsSiteBySlug(createDbQueryClient(env.PLATFORM_DB), slug)
+				? await getCmsSiteBySlug(cmsQueryDb(env), slug)
 				: null;
 		const pageCacheConfig = knownPageCacheConfig ?? site?.config ?? {};
 		const pageRevision = pageCacheConfig.pageCacheRevision ?? "0";
 		const restoreEpoch =
 			knownRestoreEpoch ??
-			(await getCmsRestoreEpoch(createDbQueryClient(env.PLATFORM_DB), {
+			(await getCmsRestoreEpoch(cmsQueryDb(env), {
 				siteId: org.siteId,
 				slug,
 			}));
@@ -2223,7 +2219,7 @@ async function serveWarmMarketingPage(
 		(error) => ctx.abort(error),
 	);
 	const permitted = await withCmsRestoreResponsePermit(
-		createDbQueryClient(env.PLATFORM_DB),
+		cmsQueryDb(env),
 		page.identity,
 		() =>
 			finishTenantResponse(
@@ -2277,7 +2273,7 @@ function isCmsDatabaseUnavailable(error: unknown): boolean {
 	return false;
 }
 
-export default {
+const runtime = {
 	async fetch(
 		request: Request,
 		env: Env,
@@ -2344,7 +2340,7 @@ export default {
 			}
 		}
 		try {
-			await sweepCmsRestorePermitLeases(createDbQueryClient(env.PLATFORM_DB));
+			await sweepCmsRestorePermitLeases(cmsQueryDb(env));
 		} catch (error) {
 			console.error("[cms-runtime] restore lease sweep failed:", error);
 		}
@@ -2403,7 +2399,7 @@ export default {
 		};
 		const serve = async (): Promise<Response> => {
 			const expiresAt = Date.now() + MARKETING_ROUTE_TTL_MS;
-			const db = createDbQueryClient(env.PLATFORM_DB);
+			const db = cmsQueryDb(env);
 			const isPublicAlias =
 				(request.method === "GET" || request.method === "HEAD") &&
 				isWwwCompanionPublicPath(url.pathname);
@@ -2601,22 +2597,16 @@ export default {
 			),
 		);
 		try {
-			await sweepCmsRestorePermitLeases(
-				createDbQueryClient(env.PLATFORM_DB),
-				true,
-			);
+			await sweepCmsRestorePermitLeases(cmsQueryDb(env), true);
 		} catch (error) {
 			console.error("[cms-runtime] restore lease sweep failed:", error);
 		}
 		// Only retention runs have a platform-bounded lifetime.
 		if (new Date(controller.scheduledTime).getUTCMinutes() === 7) {
 			ctx.waitUntil(
-				deleteExpiredCmsBundleRetentionPermits(
-					createDbQueryClient(env.PLATFORM_DB),
-					{
-						limit: 1_000,
-					},
-				).then(
+				deleteExpiredCmsBundleRetentionPermits(cmsQueryDb(env), {
+					limit: 1_000,
+				}).then(
 					(removed) => {
 						if (removed > 0)
 							console.info(
@@ -2689,17 +2679,17 @@ export default {
 					);
 					return "skipped";
 				}
-				const restoreEpoch = await getCmsRestoreEpoch(
-					createDbQueryClient(env.PLATFORM_DB),
-					{ siteId: org.siteId, slug },
-				);
+				const restoreEpoch = await getCmsRestoreEpoch(cmsQueryDb(env), {
+					siteId: org.siteId,
+					slug,
+				});
 				if (restoreEpoch === null) {
 					return "skipped";
 				}
 
 				await retainTenantBundles(
 					env,
-					createDbQueryClient(env.PLATFORM_DB),
+					cmsQueryDb(env),
 					{
 						siteId: org.siteId,
 						slug,
@@ -2746,7 +2736,7 @@ export default {
 
 				// Cron pauses drain exact scheduled permits separately from shared nested work.
 				const permitted = await runScheduledTenantWithPermit(
-					createDbQueryClient(env.PLATFORM_DB),
+					cmsQueryDb(env),
 					env.RECOVERY_STORAGE,
 					{ siteId: org.siteId, slug, restoreEpoch },
 					{
@@ -2786,6 +2776,25 @@ export default {
 			`[cms-runtime] scheduled fanout complete cron=${controller.cron} tenants=${bundles.length} attempted=${counters.attempted} succeeded=${counters.succeeded} skipped=${counters.skipped} failed=${counters.failed} durationMs=${Date.now() - startedAt}`,
 		);
 	},
+} satisfies ExportedHandler<Env>;
+
+export default {
+	fetch: (request: Request, env: Env, ctx: ExecutionContext) =>
+		withCmsCoreStore(
+			env,
+			() => runtime.fetch(request, env, ctx),
+			(promise) => ctx.waitUntil(promise),
+		),
+	scheduled: (
+		controller: ScheduledController,
+		env: Env,
+		ctx: ExecutionContext,
+	) =>
+		withCmsCoreStore(
+			env,
+			() => runtime.scheduled(controller, env, ctx),
+			(promise) => ctx.waitUntil(promise),
+		),
 } satisfies ExportedHandler<Env>;
 
 export { EmDashDB } from "./emdash-db";

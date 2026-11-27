@@ -1,6 +1,6 @@
+import { type CmsCoreStoreEnv, cmsDb } from "./core-store";
 import type { SiteRoutingPolicy } from "@tedix/api-contract/schemas/site-routing";
 import { runtimePermitOwnerId } from "./runtime-permit-owner";
-import { createDbClient } from "@tedix/db/client";
 import {
 	listPublicCatalogSitemapSlugs,
 	listPublicChatgptObservations,
@@ -231,7 +231,7 @@ async function contact(request: Request, env: MarketingEnv): Promise<Response> {
 	}
 }
 
-export interface MarketingEnv {
+export interface MarketingEnv extends CmsCoreStoreEnv {
 	PLATFORM_DB: D1Database;
 	API_SERVICE?: Fetcher;
 	API_URL: string;
@@ -400,7 +400,7 @@ export async function marketingResponse(
 		env.CLI_DOWNLOAD_HOST,
 	);
 	if (download) return download;
-	const db = createDbClient(env.PLATFORM_DB);
+	const db = cmsDb(env);
 	const routing = await getSiteRoutingPolicy(db);
 	const retainedMedia = await retainedMediaResponse(request, env, routing);
 	if (retainedMedia) return retainedMedia;
@@ -539,7 +539,7 @@ async function catalogApiResponse(
 	url: URL,
 	path: string,
 	env: MarketingEnv,
-	db: ReturnType<typeof createDbClient>,
+	db: ReturnType<typeof cmsDb>,
 	visitor: string | null,
 ): Promise<Response> {
 	const q = url.searchParams;

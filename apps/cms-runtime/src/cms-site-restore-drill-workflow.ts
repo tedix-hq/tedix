@@ -1,3 +1,4 @@
+import { withCmsCoreStore, withCmsCoreStoreSteps } from "./core-store";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	WorkflowEntrypoint,
@@ -678,11 +679,14 @@ export class CmsSiteRestoreDrillWorkflow extends WorkflowEntrypoint<
 	object
 > {
 	async run(event: WorkflowEvent<object>, step: WorkflowStep) {
-		return runCmsSiteRestoreDrill(
-			this.env,
-			step,
-			event.instanceId,
-			event.payload,
-		);
+		step = withCmsCoreStoreSteps(this.env, step);
+		return withCmsCoreStore(this.env, async () => {
+			return runCmsSiteRestoreDrill(
+				this.env,
+				step,
+				event.instanceId,
+				event.payload,
+			);
+		});
 	}
 }

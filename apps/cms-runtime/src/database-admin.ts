@@ -10,7 +10,7 @@ import {
 	inspectCmsMediaBucket,
 	provisionCmsMediaBucket,
 } from "@tedix/provisioning/cms";
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { cmsQueryDb } from "./core-store";
 import {
 	getCmsDeprovisionOperation,
 	getLatestSucceededCmsDeprovisionBySlug,
@@ -60,7 +60,7 @@ async function cmsDeprovisionDeleteGuard(
 		);
 	}
 	try {
-		const db = createDbQueryClient(env.PLATFORM_DB);
+		const db = cmsQueryDb(env);
 		const site = await getCmsSiteBySlug(db, slug);
 		if (!site || site.id !== siteId || site.status !== "paused") {
 			return jsonResponse(
@@ -155,7 +155,7 @@ export async function databaseRecoverAdminResponse(args: {
 	}
 	try {
 		const receipt = await getLatestSucceededCmsDeprovisionBySlug(
-			createDbQueryClient(env.PLATFORM_DB),
+			cmsQueryDb(env),
 			slug,
 		);
 		if (!receipt)
@@ -470,7 +470,7 @@ export async function databaseSchemaDiagnosticResponse(args: {
 
 /** An uncertain provider create keeps its exact-site claim for reconciliation. */
 async function withCmsMediaBucketPermit<T>(
-	db: ReturnType<typeof createDbQueryClient>,
+	db: ReturnType<typeof cmsQueryDb>,
 	identity: { siteId: string; slug: string; restoreEpoch: number },
 	enter: typeof enterCmsRestorePermit,
 	run: () => Promise<T>,
@@ -553,9 +553,9 @@ export async function mediaBucketAdminResponse(args: {
 			);
 		}
 		let site: Awaited<ReturnType<typeof getCmsSiteBySlug>>;
-		let db: ReturnType<typeof createDbQueryClient>;
+		let db: ReturnType<typeof cmsQueryDb>;
 		try {
-			db = createDbQueryClient(env.PLATFORM_DB);
+			db = cmsQueryDb(env);
 			site = await getCmsSiteBySlug(db, slug);
 		} catch {
 			return cmsRestoreFenceResponse();

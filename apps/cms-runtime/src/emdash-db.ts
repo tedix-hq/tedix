@@ -1,3 +1,4 @@
+import { withCmsCoreStore, cmsDb, cmsQueryDb } from "./core-store";
 import { durableObjectIdFromName } from "@tedix/worker-kit/durable-objects";
 import {
 	themePreviewSnapshot,
@@ -39,8 +40,6 @@ import type {
 	CollectionDeletionGuardInput,
 	CollectionDeletionGuardResult,
 } from "emdash";
-import { createDbClient } from "@tedix/db/client";
-import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	checkCmsRestoreWriteAdmission,
 	closeCmsRestoreFence,
@@ -475,7 +474,7 @@ export class EmDashDB extends EmdashSqlDB {
 				this.pageCacheLastTarget = entryBucket;
 				try {
 					await rotateCmsSitePageCacheRevision(
-						createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),
+						cmsQueryDb(this.siteDrillEnv()),
 						{ ...identity, revision: crypto.randomUUID(), entryBucket },
 					);
 				} catch (error) {
@@ -518,40 +517,46 @@ export class EmDashDB extends EmdashSqlDB {
 		run: () => Promise<T>,
 		write: boolean,
 	): Promise<T> {
-		const env = this.siteDrillEnv();
-		if (
-			this.ctx.id.toString() !==
-			durableObjectIdFromName(env.DB_DO, env, identity.slug).toString()
-		)
-			throw new CmsRestoreFenceUnavailableError();
-		const db = createDbQueryClient(env.PLATFORM_DB);
-		const queries = this.databasePermits.forRequest(
-			(task) => this.ctx.waitUntil(task),
-			false,
-			(error) => this.ctx.abort(error.message),
-		);
-		const result = await withCmsRestorePermit(
-			db,
-			identity,
+		return withCmsCoreStore(
+			this.siteDrillEnv(),
 			async () => {
+				const env = this.siteDrillEnv();
 				if (
-					write &&
-					!(await checkCmsRestoreWriteAdmission(db, identity).catch(
-						() => false,
-					))
+					this.ctx.id.toString() !==
+					durableObjectIdFromName(env.DB_DO, env, identity.slug).toString()
 				)
 					throw new CmsRestoreFenceUnavailableError();
-				return run();
+				const db = cmsQueryDb(env);
+				const queries = this.databasePermits.forRequest(
+					(task) => this.ctx.waitUntil(task),
+					false,
+					(error) => this.ctx.abort(error.message),
+				);
+				const result = await withCmsRestorePermit(
+					db,
+					identity,
+					async () => {
+						if (
+							write &&
+							!(await checkCmsRestoreWriteAdmission(db, identity).catch(
+								() => false,
+							))
+						)
+							throw new CmsRestoreFenceUnavailableError();
+						return run();
+					},
+					{
+						// Publish the cold reservation before the next caller enters.
+						enter: (db, permit) =>
+							this.ctx.blockConcurrencyWhile(() => queries.enter(db, permit)),
+						leave: queries.leave,
+					},
+				);
+				if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
+				return result.value;
 			},
-			{
-				// Publish the cold reservation before the next caller enters.
-				enter: (db, permit) =>
-					this.ctx.blockConcurrencyWhile(() => queries.enter(db, permit)),
-				leave: queries.leave,
-			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
-		return result.value;
 	}
 
 	/** Tenant storage, session and egress operations run in the caller's
@@ -636,11 +641,21 @@ export class EmDashDB extends EmdashSqlDB {
 
 	private siteDrillEnv(): Pick<
 		Env,
-		"DB_DO" | "RECOVERY_STORAGE" | "PLATFORM_DB" | "TENANT_BUNDLES"
+		| "DB_DO"
+		| "RECOVERY_STORAGE"
+		| "CORE_STORE"
+		| "CORE_HYPERDRIVE"
+		| "PLATFORM_DB"
+		| "TENANT_BUNDLES"
 	> {
 		return this.env as unknown as Pick<
 			Env,
-			"DB_DO" | "RECOVERY_STORAGE" | "PLATFORM_DB" | "TENANT_BUNDLES"
+			| "DB_DO"
+			| "RECOVERY_STORAGE"
+			| "CORE_STORE"
+			| "CORE_HYPERDRIVE"
+			| "PLATFORM_DB"
+			| "TENANT_BUNDLES"
 		>;
 	}
 
@@ -1202,42 +1217,48 @@ export class EmDashDB extends EmdashSqlDB {
 	async closeCmsSiteRestoreFence(
 		input: CmsSiteRestoreIdentity,
 	): Promise<boolean> {
-		this.assertCmsSiteRestoreObject(input);
-		const primary = (
-			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDB }
-		).primary;
-		if (primary) return await primary.closeCmsSiteRestoreFence(input);
-		const key = JSON.stringify([
-			input.siteId,
-			input.slug,
-			input.generation,
-			input.captureId,
-		]);
-		if (this.closingRestore) {
-			if (this.closingRestore.key !== key)
-				throw new CmsRestoreFenceUnavailableError();
-			return await this.closingRestore.result;
-		}
-		const result = (async () => {
-			await publishedFallback(
-				this.siteDrillEnv(),
-				input.slug,
-			).publishedFallback(input.slug, {
-				action: "block",
-				token: `restore:${input.generation}`,
-			});
-			await Promise.all([...this.activeWrites]);
-			return await closeCmsRestoreFence(
-				createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),
-				input,
-			);
-		})();
-		this.closingRestore = { key, result };
-		try {
-			return await result;
-		} finally {
-			this.closingRestore = undefined;
-		}
+		return withCmsCoreStore(
+			this.siteDrillEnv(),
+			async () => {
+				this.assertCmsSiteRestoreObject(input);
+				const primary = (
+					this.ctx.storage as DurableObjectStorage & { primary?: EmDashDB }
+				).primary;
+				if (primary) return await primary.closeCmsSiteRestoreFence(input);
+				const key = JSON.stringify([
+					input.siteId,
+					input.slug,
+					input.generation,
+					input.captureId,
+				]);
+				if (this.closingRestore) {
+					if (this.closingRestore.key !== key)
+						throw new CmsRestoreFenceUnavailableError();
+					return await this.closingRestore.result;
+				}
+				const result = (async () => {
+					await publishedFallback(
+						this.siteDrillEnv(),
+						input.slug,
+					).publishedFallback(input.slug, {
+						action: "block",
+						token: `restore:${input.generation}`,
+					});
+					await Promise.all([...this.activeWrites]);
+					return await closeCmsRestoreFence(
+						cmsQueryDb(this.siteDrillEnv()),
+						input,
+					);
+				})();
+				this.closingRestore = { key, result };
+				try {
+					return await result;
+				} finally {
+					this.closingRestore = undefined;
+				}
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	/** A one-shot provider schedule: an unacknowledged intent is never retried. */
@@ -1248,136 +1269,155 @@ export class EmDashDB extends EmdashSqlDB {
 			direction: "target" | "undo";
 		},
 	): Promise<{ undoBookmark: string }> {
-		this.assertCmsSiteRestoreObject(input);
-		const primary = this.cmsSiteRestorePrimary();
-		if (primary) return primary.scheduleCmsSiteRestore(input);
-		const env = this.env as unknown as Pick<
-			Env,
-			"PLATFORM_DB" | "RECOVERY_STORAGE" | "TENANT_BUNDLES"
-		>;
-		const db = createDbClient(env.PLATFORM_DB);
-		const [fence, permits, receipt, authority] = await Promise.all([
-			getCmsRestoreFenceState(db, input),
-			countCmsRestoreAdministrativePermitsForSite(db, input.siteId),
-			readCmsSiteRestoreReceipt(env.RECOVERY_STORAGE, input),
-			readRecoveryAuthority(env as Env, input.slug),
-		]);
-		if (
-			fence.fence?.generation !== input.generation ||
-			fence.fence.captureId !== input.captureId ||
-			fence.fence.restoreEpoch === null ||
-			permits !== 0 ||
-			!receipt ||
-			receipt.receipt.phase !==
-				(input.direction === "target"
-					? "target-schedule-intent"
-					: "undo-schedule-intent") ||
-			(input.direction === "undo" && receipt.receipt.mode !== "roundtrip") ||
-			!receipt.receipt.undoCaptureId ||
-			authority?.siteId !== input.siteId ||
-			authority.bundle.version !== receipt.receipt.bundle.version ||
-			authority.bundle.etag !== receipt.receipt.bundle.etag
-		)
-			throw new Error("CMS restore schedule authority changed");
-		const sourceCaptureId =
-			input.direction === "target"
-				? input.captureId
-				: receipt.receipt.undoCaptureId;
-		const captureIdentity = { ...input, captureId: sourceCaptureId };
-		const [controlObject, manifestObject] = await Promise.all([
-			env.RECOVERY_STORAGE.get(
-				`${cmsRecoveryPrefix(input.siteId, sourceCaptureId)}control.json`,
-			),
-			env.RECOVERY_STORAGE.get(
-				`${cmsRecoveryPrefix(input.siteId, sourceCaptureId)}manifest.json`,
-			),
-		]);
-		const control = controlObject ? await controlObject.json() : null;
-		const manifest = manifestObject ? await manifestObject.json() : null;
-		if (
-			!isCmsRecoveryControl(control, captureIdentity) ||
-			control.state !== "verified" ||
-			!isCmsRecoveryManifest(manifest, captureIdentity) ||
-			manifest.version !== 2 ||
-			Date.now() >= Date.parse(manifest.retainUntil) ||
-			(input.direction === "target"
-				? manifest.bookmark !== input.bookmark
-				: receipt.receipt.undoBookmark !== input.bookmark) ||
-			manifest.bundle.version !== receipt.receipt.bundle.version ||
-			manifest.bundle.etag !== receipt.receipt.bundle.etag
-		)
-			throw new Error("CMS restore schedule capture changed");
-		const expectedCurrentDigest =
-			input.direction === "target"
-				? await (async () => {
-						const undo = await env.RECOVERY_STORAGE.get(
-							`${cmsRecoveryPrefix(input.siteId, receipt.receipt.undoCaptureId!)}manifest.json`,
-						);
-						const value = undo ? await undo.json() : null;
-						const undoIdentity = {
-							...input,
-							captureId: receipt.receipt.undoCaptureId!,
-						};
-						if (
-							!isCmsRecoveryManifest(value, undoIdentity) ||
-							value.version !== 2
-						)
-							throw new Error("CMS restore undo capture unavailable");
-						return value.databaseDigest;
-					})()
-				: receipt.receipt.databaseDigest;
-		if (
-			!expectedCurrentDigest ||
-			input.expectedDatabaseDigest !== expectedCurrentDigest
-		)
-			throw new Error("CMS restore current digest unavailable");
-		const result = await this.ctx.blockConcurrencyWhile(async () => {
-			try {
+		return withCmsCoreStore(
+			this.siteDrillEnv(),
+			async () => {
+				this.assertCmsSiteRestoreObject(input);
+				const primary = this.cmsSiteRestorePrimary();
+				if (primary) return primary.scheduleCmsSiteRestore(input);
+				const env = this.env as unknown as Pick<
+					Env,
+					| "CORE_STORE"
+					| "CORE_HYPERDRIVE"
+					| "PLATFORM_DB"
+					| "RECOVERY_STORAGE"
+					| "TENANT_BUNDLES"
+				>;
+				const db = cmsDb(env);
+				const [fence, permits, receipt, authority] = await Promise.all([
+					getCmsRestoreFenceState(db, input),
+					countCmsRestoreAdministrativePermitsForSite(db, input.siteId),
+					readCmsSiteRestoreReceipt(env.RECOVERY_STORAGE, input),
+					readRecoveryAuthority(env as Env, input.slug),
+				]);
 				if (
-					digestCmsRecoverySqlite(this.ctx.storage.sql) !==
-					expectedCurrentDigest
+					fence.fence?.generation !== input.generation ||
+					fence.fence.captureId !== input.captureId ||
+					fence.fence.restoreEpoch === null ||
+					permits !== 0 ||
+					!receipt ||
+					receipt.receipt.phase !==
+						(input.direction === "target"
+							? "target-schedule-intent"
+							: "undo-schedule-intent") ||
+					(input.direction === "undo" &&
+						receipt.receipt.mode !== "roundtrip") ||
+					!receipt.receipt.undoCaptureId ||
+					authority?.siteId !== input.siteId ||
+					authority.bundle.version !== receipt.receipt.bundle.version ||
+					authority.bundle.etag !== receipt.receipt.bundle.etag
 				)
-					throw new Error("CMS restore current database changed");
-				const undoBookmark =
-					await this.ctx.storage.onNextSessionRestoreBookmark(input.bookmark);
-				return { ok: true as const, undoBookmark };
-			} catch (error) {
-				return { ok: false as const, error };
-			}
-		});
-		if (!result.ok) throw result.error;
-		if (!result.undoBookmark)
-			throw new Error("CMS restore schedule acknowledgement unavailable");
-		return { undoBookmark: result.undoBookmark };
+					throw new Error("CMS restore schedule authority changed");
+				const sourceCaptureId =
+					input.direction === "target"
+						? input.captureId
+						: receipt.receipt.undoCaptureId;
+				const captureIdentity = { ...input, captureId: sourceCaptureId };
+				const [controlObject, manifestObject] = await Promise.all([
+					env.RECOVERY_STORAGE.get(
+						`${cmsRecoveryPrefix(input.siteId, sourceCaptureId)}control.json`,
+					),
+					env.RECOVERY_STORAGE.get(
+						`${cmsRecoveryPrefix(input.siteId, sourceCaptureId)}manifest.json`,
+					),
+				]);
+				const control = controlObject ? await controlObject.json() : null;
+				const manifest = manifestObject ? await manifestObject.json() : null;
+				if (
+					!isCmsRecoveryControl(control, captureIdentity) ||
+					control.state !== "verified" ||
+					!isCmsRecoveryManifest(manifest, captureIdentity) ||
+					manifest.version !== 2 ||
+					Date.now() >= Date.parse(manifest.retainUntil) ||
+					(input.direction === "target"
+						? manifest.bookmark !== input.bookmark
+						: receipt.receipt.undoBookmark !== input.bookmark) ||
+					manifest.bundle.version !== receipt.receipt.bundle.version ||
+					manifest.bundle.etag !== receipt.receipt.bundle.etag
+				)
+					throw new Error("CMS restore schedule capture changed");
+				const expectedCurrentDigest =
+					input.direction === "target"
+						? await (async () => {
+								const undo = await env.RECOVERY_STORAGE.get(
+									`${cmsRecoveryPrefix(input.siteId, receipt.receipt.undoCaptureId!)}manifest.json`,
+								);
+								const value = undo ? await undo.json() : null;
+								const undoIdentity = {
+									...input,
+									captureId: receipt.receipt.undoCaptureId!,
+								};
+								if (
+									!isCmsRecoveryManifest(value, undoIdentity) ||
+									value.version !== 2
+								)
+									throw new Error("CMS restore undo capture unavailable");
+								return value.databaseDigest;
+							})()
+						: receipt.receipt.databaseDigest;
+				if (
+					!expectedCurrentDigest ||
+					input.expectedDatabaseDigest !== expectedCurrentDigest
+				)
+					throw new Error("CMS restore current digest unavailable");
+				const result = await this.ctx.blockConcurrencyWhile(async () => {
+					try {
+						if (
+							digestCmsRecoverySqlite(this.ctx.storage.sql) !==
+							expectedCurrentDigest
+						)
+							throw new Error("CMS restore current database changed");
+						const undoBookmark =
+							await this.ctx.storage.onNextSessionRestoreBookmark(
+								input.bookmark,
+							);
+						return { ok: true as const, undoBookmark };
+					} catch (error) {
+						return { ok: false as const, error };
+					}
+				});
+				if (!result.ok) throw result.error;
+				if (!result.undoBookmark)
+					throw new Error("CMS restore schedule acknowledgement unavailable");
+				return { undoBookmark: result.undoBookmark };
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	/** Abort the old session only after the schedule acknowledgement is durable. */
 	async restartCmsSiteRestore(
 		input: CmsSiteRestoreIdentity & { direction: "target" | "undo" },
 	): Promise<void> {
-		this.assertCmsSiteRestoreObject(input);
-		const primary = this.cmsSiteRestorePrimary();
-		if (primary) return primary.restartCmsSiteRestore(input);
-		const env = this.env as unknown as Pick<
-			Env,
-			"PLATFORM_DB" | "RECOVERY_STORAGE"
-		>;
-		const [state, receipt] = await Promise.all([
-			getCmsRestoreFenceState(createDbClient(env.PLATFORM_DB), input),
-			readCmsSiteRestoreReceipt(env.RECOVERY_STORAGE, input),
-		]);
-		if (
-			state.fence?.generation !== input.generation ||
-			state.fence.captureId !== input.captureId ||
-			receipt?.receipt.phase !==
-				(input.direction === "target"
-					? "target-scheduled"
-					: "undo-scheduled") ||
-			!receipt.receipt.undoBookmark ||
-			(input.direction === "undo" && !receipt.receipt.redoBookmark)
-		)
-			throw new Error("CMS restore restart authority changed");
-		this.ctx.abort();
+		return withCmsCoreStore(
+			this.siteDrillEnv(),
+			async () => {
+				this.assertCmsSiteRestoreObject(input);
+				const primary = this.cmsSiteRestorePrimary();
+				if (primary) return primary.restartCmsSiteRestore(input);
+				const env = this.env as unknown as Pick<
+					Env,
+					"CORE_STORE" | "CORE_HYPERDRIVE" | "PLATFORM_DB" | "RECOVERY_STORAGE"
+				>;
+				const [state, receipt] = await Promise.all([
+					getCmsRestoreFenceState(cmsDb(env), input),
+					readCmsSiteRestoreReceipt(env.RECOVERY_STORAGE, input),
+				]);
+				if (
+					state.fence?.generation !== input.generation ||
+					state.fence.captureId !== input.captureId ||
+					receipt?.receipt.phase !==
+						(input.direction === "target"
+							? "target-scheduled"
+							: "undo-scheduled") ||
+					!receipt.receipt.undoBookmark ||
+					(input.direction === "undo" && !receipt.receipt.redoBookmark)
+				)
+					throw new Error("CMS restore restart authority changed");
+				this.ctx.abort();
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 }
 

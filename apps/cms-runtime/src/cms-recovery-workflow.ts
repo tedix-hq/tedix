@@ -1,3 +1,9 @@
+import {
+	withCmsCoreStore,
+	withCmsCoreStoreSteps,
+	cmsDb,
+	cmsQueryDb,
+} from "./core-store";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	WorkflowEntrypoint,
@@ -5,8 +11,6 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { createHash } from "node:crypto";
-import { createDbClient } from "@tedix/db/client";
-import { createDbQueryClient } from "@tedix/db/query-client";
 import { getCmsSiteBySlug } from "@tedix/db/queries/cms-sites";
 import {
 	abortCmsCaptureCronPause,
@@ -15,7 +19,7 @@ import {
 	confirmCmsCaptureCronPause,
 	releaseCmsCaptureCronPause,
 } from "@tedix/db/queries/cms-restore-fences";
-import { listTenantBundleVersions } from "@tedix/provisioning/cms";
+import { listTenantBundles } from "@tedix/db/queries/tenant-bundles";
 import {
 	copyAndVerifyMediaObject,
 	digestSourceMediaObject,
@@ -259,18 +263,18 @@ export async function readVerifiedCmsRecoveryCapture(
 
 /** Fresh storage authority; recovery does not require a human Descope tenant. */
 export async function readRecoveryAuthority(
-	env: Pick<Env, "PLATFORM_DB" | "TENANT_BUNDLES">,
+	env: Pick<
+		Env,
+		"CORE_STORE" | "CORE_HYPERDRIVE" | "PLATFORM_DB" | "TENANT_BUNDLES"
+	>,
 	slug: string,
 ): Promise<{
 	siteId: string;
 	bundle: { version: number; etag: string };
 } | null> {
 	const [site, versions] = await Promise.all([
-		getCmsSiteBySlug(createDbClient(env.PLATFORM_DB), slug),
-		listTenantBundleVersions(
-			{ platformDb: env.PLATFORM_DB, bundlesBucket: env.TENANT_BUNDLES },
-			slug,
-		),
+		getCmsSiteBySlug(cmsDb(env), slug),
+		listTenantBundles(cmsQueryDb(env), slug),
 	]);
 	const active = versions.filter((version) => version.isActive);
 	return site?.status === "active" && active.length === 1
@@ -518,62 +522,76 @@ export class CmsRecoveryWorkflow extends WorkflowEntrypoint<
 	CmsRecoveryParams
 > {
 	async run(event: WorkflowEvent<CmsRecoveryParams>, step: WorkflowStep) {
-		const db = createDbQueryClient(this.env.PLATFORM_DB);
-		try {
-			const pauseClaimed = await step.do("claim-capture-cron-pause", () =>
-				claimCmsCaptureCronPause(db, event.payload),
-			);
-			if (!pauseClaimed)
-				throw new Error("CMS recovery scheduled-write pause unavailable");
-			const pauseConfirmed = await step.do("confirm-capture-cron-pause", () =>
-				confirmCmsCaptureCronPause(db, event.payload),
-			);
-			if (!pauseConfirmed)
-				throw new Error("CMS recovery scheduled-write pause unavailable");
-			await captureCmsRecovery(this.env, step, event.payload, () =>
-				assertCmsCaptureCronPause(db, event.payload),
-			);
-			await step.do("assert-capture-pause-before-release", async () => {
-				if (!(await assertCmsCaptureCronPause(db, event.payload)))
-					throw new Error(
-						"CMS recovery scheduled-write pause expired after publication",
-					);
-			});
-			await step.do("release-capture-cron-pause", async () => {
-				if (!(await releaseCmsCaptureCronPause(db, event.payload)))
-					throw new Error("CMS recovery scheduled-write pause release failed");
-			});
-			await step.do("mark-capture-verified", async () => {
-				const key = cmsRecoveryControlKey(
-					event.payload.siteId,
-					event.payload.captureId,
-				);
-				const stored = await this.env.RECOVERY_STORAGE.get(key);
-				const control = stored ? await stored.json() : null;
-				if (
-					!isCmsRecoveryControl(control, event.payload) ||
-					(control.state !== "running" && control.state !== "verified")
-				)
-					throw new Error("CMS recovery control changed before completion");
-				if (control.state === "running")
-					await putCmsRecoveryControl(this.env.RECOVERY_STORAGE, {
-						...control,
-						state: "verified",
-					});
-			});
-			return { captureId: event.payload.captureId, status: "verified" };
-		} catch (error) {
+		step = withCmsCoreStoreSteps(this.env, step);
+		return withCmsCoreStore(this.env, async () => {
 			try {
-				await step.do("abort-failed-capture-cron-pause", () =>
-					abortCmsCaptureCronPause(db, event.payload),
+				const pauseClaimed = await step.do("claim-capture-cron-pause", () =>
+					claimCmsCaptureCronPause(cmsQueryDb(this.env), event.payload),
 				);
-			} catch (cleanupError) {
-				console.error(
-					"[cms-runtime] failed capture pause cleanup failed",
-					cleanupError,
+				if (!pauseClaimed)
+					throw new Error("CMS recovery scheduled-write pause unavailable");
+				const pauseConfirmed = await step.do("confirm-capture-cron-pause", () =>
+					confirmCmsCaptureCronPause(cmsQueryDb(this.env), event.payload),
 				);
+				if (!pauseConfirmed)
+					throw new Error("CMS recovery scheduled-write pause unavailable");
+				await captureCmsRecovery(this.env, step, event.payload, () =>
+					assertCmsCaptureCronPause(cmsQueryDb(this.env), event.payload),
+				);
+				await step.do("assert-capture-pause-before-release", async () => {
+					if (
+						!(await assertCmsCaptureCronPause(
+							cmsQueryDb(this.env),
+							event.payload,
+						))
+					)
+						throw new Error(
+							"CMS recovery scheduled-write pause expired after publication",
+						);
+				});
+				await step.do("release-capture-cron-pause", async () => {
+					if (
+						!(await releaseCmsCaptureCronPause(
+							cmsQueryDb(this.env),
+							event.payload,
+						))
+					)
+						throw new Error(
+							"CMS recovery scheduled-write pause release failed",
+						);
+				});
+				await step.do("mark-capture-verified", async () => {
+					const key = cmsRecoveryControlKey(
+						event.payload.siteId,
+						event.payload.captureId,
+					);
+					const stored = await this.env.RECOVERY_STORAGE.get(key);
+					const control = stored ? await stored.json() : null;
+					if (
+						!isCmsRecoveryControl(control, event.payload) ||
+						(control.state !== "running" && control.state !== "verified")
+					)
+						throw new Error("CMS recovery control changed before completion");
+					if (control.state === "running")
+						await putCmsRecoveryControl(this.env.RECOVERY_STORAGE, {
+							...control,
+							state: "verified",
+						});
+				});
+				return { captureId: event.payload.captureId, status: "verified" };
+			} catch (error) {
+				try {
+					await step.do("abort-failed-capture-cron-pause", () =>
+						abortCmsCaptureCronPause(cmsQueryDb(this.env), event.payload),
+					);
+				} catch (cleanupError) {
+					console.error(
+						"[cms-runtime] failed capture pause cleanup failed",
+						cleanupError,
+					);
+				}
+				throw error;
 			}
-			throw error;
-		}
+		});
 	}
 }

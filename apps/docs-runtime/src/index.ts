@@ -1,11 +1,12 @@
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { coreQueryDb, withCoreStore } from "@tedix/db/core-store/scope";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
 import type { SessionBrokerRpc } from "@tedix/auth/session-broker";
 import { authorizeDocsSiteRequest, handleDocsSessionBroker } from "./access";
 import { contentFreeDocsException, docsLogger } from "./log";
 import { parseHostAliases, resolveSiteSlug, serveDocsSite } from "./serving";
 import { getRuntimeDocsSiteBySlug } from "./site-adapter";
 
-type DocsRuntimeEnv = {
+type DocsRuntimeEnv = CoreStoreEnv & {
 	DB: D1Database;
 	DOCS_BUILDS: R2Bucket;
 	ENVIRONMENT: string;
@@ -43,9 +44,8 @@ export default {
 				parseHostAliases(env.DOCS_HOST_ALIASES),
 			);
 			if (!slug) return new Response("Not Found", { status: 404 });
-			const site = await getRuntimeDocsSiteBySlug(
-				createDbQueryClient(env.DB),
-				slug,
+			const site = await withCoreStore(env, () =>
+				getRuntimeDocsSiteBySlug(coreQueryDb(env), slug),
 			);
 			if (!site) return new Response("Not Found", { status: 404 });
 			const brokerResponse = await handleDocsSessionBroker(request, env, site);

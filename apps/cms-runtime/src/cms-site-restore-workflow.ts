@@ -1,3 +1,4 @@
+import { withCmsCoreStore, withCmsCoreStoreSteps, cmsDb } from "./core-store";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { publishedFallback } from "./published-fallback";
 import {
@@ -6,7 +7,6 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { createHash } from "node:crypto";
-import { createDbClient } from "@tedix/db/client";
 import {
 	countCmsRestoreAdministrativePermitsForSite,
 	deleteCmsRestoreRuntimePermits,
@@ -101,10 +101,7 @@ async function assertExactFence(
 	env: Env,
 	identity: CmsSiteRestoreIdentity,
 ): Promise<void> {
-	const state = await getCmsRestoreFenceState(
-		createDbClient(env.PLATFORM_DB),
-		identity,
-	);
+	const state = await getCmsRestoreFenceState(cmsDb(env), identity);
 	if (
 		state.fence?.generation !== identity.generation ||
 		state.fence.captureId !== identity.captureId ||
@@ -363,7 +360,7 @@ export async function runCmsSiteRestore(
 		for (let attempt = 0; attempt < 60; attempt++) {
 			if (
 				(await countCmsRestoreAdministrativePermitsForSite(
-					createDbClient(env.PLATFORM_DB),
+					cmsDb(env),
 					identity.siteId,
 				)) === 0
 			) {
@@ -377,7 +374,7 @@ export async function runCmsSiteRestore(
 	await assertExactFence(env, identity);
 	if (
 		(await countCmsRestoreAdministrativePermitsForSite(
-			createDbClient(env.PLATFORM_DB),
+			cmsDb(env),
 			identity.siteId,
 		)) !== 0
 	)
@@ -553,19 +550,10 @@ export async function runCmsSiteRestore(
 		);
 	});
 	await step.do("release-exact-fence", async () => {
-		await deleteCmsRestoreRuntimePermits(
-			createDbClient(env.PLATFORM_DB),
-			identity,
-		);
-		const released = await releaseCmsRestoreFence(
-			createDbClient(env.PLATFORM_DB),
-			identity,
-		);
+		await deleteCmsRestoreRuntimePermits(cmsDb(env), identity);
+		const released = await releaseCmsRestoreFence(cmsDb(env), identity);
 		if (!released) {
-			const state = await getCmsRestoreFenceState(
-				createDbClient(env.PLATFORM_DB),
-				identity,
-			);
+			const state = await getCmsRestoreFenceState(cmsDb(env), identity);
 			if (
 				state.fence?.generation === identity.generation &&
 				state.fence.captureId === identity.captureId
@@ -592,6 +580,9 @@ export class CmsSiteRestoreWorkflow extends WorkflowEntrypoint<
 	CmsSiteRestoreParams
 > {
 	async run(event: WorkflowEvent<CmsSiteRestoreParams>, step: WorkflowStep) {
-		return runCmsSiteRestore(this.env, step, event.payload);
+		step = withCmsCoreStoreSteps(this.env, step);
+		return withCmsCoreStore(this.env, () =>
+			runCmsSiteRestore(this.env, step, event.payload),
+		);
 	}
 }

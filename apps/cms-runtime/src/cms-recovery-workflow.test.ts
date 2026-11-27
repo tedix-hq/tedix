@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 
 const authority = vi.hoisted(() => ({
 	getCmsSiteBySlug: vi.fn(),
-	listTenantBundleVersions: vi.fn(),
+	listTenantBundles: vi.fn(),
 }));
 const capturePause = vi.hoisted(() => ({
 	abort: vi.fn(),
@@ -26,8 +26,8 @@ vi.mock("@tedix/db/queries/cms-restore-fences", () => ({
 vi.mock("@tedix/db/queries/cms-sites", () => ({
 	getCmsSiteBySlug: authority.getCmsSiteBySlug,
 }));
-vi.mock("@tedix/provisioning/cms", () => ({
-	listTenantBundleVersions: authority.listTenantBundleVersions,
+vi.mock("@tedix/db/queries/tenant-bundles", () => ({
+	listTenantBundles: authority.listTenantBundles,
 }));
 vi.mock("cloudflare:workers", () => ({ WorkflowEntrypoint: class {} }));
 import {
@@ -58,7 +58,7 @@ describe("CMS recovery workflow", () => {
 			id: "site-1",
 			status: "active",
 		});
-		authority.listTenantBundleVersions
+		authority.listTenantBundles
 			.mockReset()
 			.mockResolvedValue([{ isActive: true, version: 7, etag: "bundle-7" }]);
 	});

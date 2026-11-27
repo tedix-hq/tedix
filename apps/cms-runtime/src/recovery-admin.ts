@@ -4,8 +4,7 @@ import {
 	type CmsSiteRestoreReceipt,
 } from "./cms-site-restore-receipt";
 import { CmsRestoreFenceUnavailableError } from "./tenant-restore-fence";
-import { createDbClient } from "@tedix/db/client";
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { cmsDb, cmsQueryDb } from "./core-store";
 import { getCmsDeprovisionOperation } from "@tedix/db/queries/cms-deprovision-operations";
 import {
 	abortCmsCaptureCronPause,
@@ -179,13 +178,13 @@ export async function cmsRecoveryAdminResponse(args: {
 			{ status: 400 },
 		);
 	let purgePermit: {
-		db: ReturnType<typeof createDbQueryClient>;
+		db: ReturnType<typeof cmsQueryDb>;
 		permitId: string;
 		restoreEpoch: number;
 	} | null = null;
 	if (request.method === "DELETE") {
 		try {
-			const db = createDbQueryClient(env.PLATFORM_DB);
+			const db = cmsQueryDb(env);
 			const site = await getCmsSiteBySlug(db, slug);
 			if (site?.id === siteId) {
 				const permitId = `admin:recovery-purge:${crypto.randomUUID()}`;
@@ -319,10 +318,7 @@ export async function cmsRecoveryAdminResponse(args: {
 			);
 		}
 		if (control.state === "purged") {
-			await abortCmsCaptureCronPause(
-				createDbQueryClient(env.PLATFORM_DB),
-				identity,
-			);
+			await abortCmsCaptureCronPause(cmsQueryDb(env), identity);
 			return jsonResponse(
 				{ ok: true, siteId, captureId, status: "purged" },
 				{ headers: { "Cache-Control": "no-store" } },
@@ -347,10 +343,7 @@ export async function cmsRecoveryAdminResponse(args: {
 					{ status: 409 },
 				);
 		}
-		await abortCmsCaptureCronPause(
-			createDbQueryClient(env.PLATFORM_DB),
-			identity,
-		);
+		await abortCmsCaptureCronPause(cmsQueryDb(env), identity);
 		await purgeCmsRecoveryObjects(env.RECOVERY_STORAGE, control);
 		return jsonResponse(
 			{ ok: true, siteId, captureId, status: "purged" },
@@ -420,7 +413,7 @@ export async function cmsSiteRestoreAdminResponse(args: {
 			{ ok: false, error: "site ID required" },
 			{ status: 400 },
 		);
-	const db = createDbClient(env.PLATFORM_DB);
+	const db = cmsDb(env);
 	const site = await getCmsSiteBySlug(db, slug);
 	if (site?.id !== siteId)
 		return jsonResponse(

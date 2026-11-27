@@ -1,3 +1,4 @@
+import { cmsDb } from "./core-store";
 import {
 	THEME_PREVIEW_PATH,
 	themeCandidateKey,
@@ -5,7 +6,7 @@ import {
 	type CmsThemeCandidate,
 } from "@tedix/provisioning/cms-theme-candidate";
 import type { Env } from "./env";
-import { getDb, lookupOrg, resolveSlug, type OrgInfo } from "./public-proxy";
+import { lookupOrg, resolveSlug, type OrgInfo } from "./public-proxy";
 import { getCmsRestoreEpoch } from "@tedix/db/queries/cms-restore-fences";
 import { withSharedCmsRestorePermit } from "./tenant-restore-fence";
 import { imageTransformResponse } from "./tenant-media";
@@ -49,7 +50,7 @@ export async function serveThemePreview(
 	)
 		return reject();
 	const org = await lookupOrg(env, slug, true);
-	const restoreEpoch = await getCmsRestoreEpoch(getDb(env.PLATFORM_DB), {
+	const restoreEpoch = await getCmsRestoreEpoch(cmsDb(env), {
 		siteId: candidate.siteId,
 		slug,
 	});

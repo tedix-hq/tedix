@@ -1,5 +1,5 @@
 import { isMarketingHost, type MarketingEnv } from "./marketing";
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import { cmsDb } from "./core-store";
 import {
 	getCmsSiteByActiveWwwAlias,
 	getCmsSiteByHostname,
@@ -12,18 +12,6 @@ import {
 } from "@tedix/tenant-directory";
 import { normalizeWebMcpToolPacks, type WebMcpToolPack } from "./webmcp";
 import { type Env } from "./env";
-// ── Drizzle client (per-isolate; D1 binding rebound per request) ──
-
-let cachedDb: DbClient | null = null;
-let cachedDbBinding: D1Database | null = null;
-export function getDb(d1: D1Database): DbClient {
-	if (cachedDbBinding !== d1 || !cachedDb) {
-		cachedDb = createDbClient(d1);
-		cachedDbBinding = d1;
-	}
-	return cachedDb;
-}
-
 // ── Hostname → slug ───────────────────────────────────────────────
 
 /** Grammar, environment domains, and slug rules come from tenant-directory. */
@@ -47,7 +35,7 @@ export async function resolveSlug(
 	// Every custom-domain request reads the active mapping. A cached hit could
 	// continue serving a removed hostname, or serve the previous tenant after a
 	// domain transfer.
-	const db = getDb(env.PLATFORM_DB);
+	const db = cmsDb(env);
 	const site = await getCmsSiteByHostname(db, hostname);
 	return site ? { slug: site.slug, customDomain: true } : null;
 }
@@ -94,7 +82,7 @@ export async function wwwCompanionRedirect(
 	// every request. A removed or transferred alias must stop redirecting now.
 	const site =
 		knownSite === undefined
-			? await getCmsSiteByActiveWwwAlias(getDb(env.PLATFORM_DB), url.hostname)
+			? await getCmsSiteByActiveWwwAlias(cmsDb(env), url.hostname)
 			: knownSite;
 	if (!site?.customDomain) return null;
 	const target = new URL(`https://${site.customDomain}`);
@@ -851,7 +839,7 @@ export async function lookupOrg(
 	const cached = orgCache.get(slug);
 	if (!fresh && cached && cached.expiresAt > now) return cached.info;
 
-	const db = getDb(env.PLATFORM_DB);
+	const db = cmsDb(env);
 	const site = await getCmsSiteBySlug(db, slug);
 
 	if (!site || site.status !== "active") {
