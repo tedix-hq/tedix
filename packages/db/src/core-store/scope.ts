@@ -70,6 +70,9 @@ export async function withCoreStore<T>(
 	const store = createCoreStore(env);
 	// Audit and telemetry history stays in the LOGS_DB partitions.
 	configureLogStore(store.db, env, [], postgresClientView(store.db));
+	// Audit writes queue on the core outbox, drained to the organization log
+	// store and LOGS_DB, exactly as the D1 delivery bindings do.
+	configureAuditDelivery(store.db, env);
 	const background: Promise<unknown>[] = [];
 	try {
 		return await storage.run(

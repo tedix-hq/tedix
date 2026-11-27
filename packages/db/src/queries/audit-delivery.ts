@@ -1,5 +1,5 @@
 import type { DbQueryClient } from "../query-client";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import {
 	configureLogStore,
 	createDbClient,
@@ -21,8 +21,8 @@ const reading = new WeakSet<object>();
 const pending = new WeakSet<object>();
 
 export function auditWriteTable(db: object): typeof auditEvents {
-	return auditDeliveryBindings(db) && coreStore(db) === "d1"
-		? (auditDeliveryOutbox as unknown as typeof auditEvents)
+	return auditDeliveryBindings(db)
+		? (coreTable(db, auditDeliveryOutbox) as unknown as typeof auditEvents)
 		: coreTable(db, auditEvents);
 }
 
@@ -145,16 +145,29 @@ export async function drainAuditDeliveryOutbox(
 	db: DbClient,
 	bindings: object,
 ): Promise<number> {
-	if (coreStore(db) !== "d1") return 0;
-	configureLogStore(db, bindings);
+	const store = coreStore(db);
+	if (store !== "d1" && store !== "postgres") return 0;
+	// The Postgres main handle must stay a client view, not a D1 wrapper of $client.
+	configureLogStore(
+		db,
+		bindings,
+		[],
+		store === "postgres" ? postgresClientView(db) : undefined,
+	);
 	const logs = getLogStores(db)?.logs;
 	const runtime = (bindings as { WORKSPACE_RUNTIME?: OrganizationAuditRuntime })
 		.WORKSPACE_RUNTIME;
-	// IDs include deterministic receipts; lexical ordering lets new UUIDs starve them.
+	const outbox = coreTable(db, auditDeliveryOutbox);
+	// IDs include deterministic receipts; on D1 rowid order keeps new UUIDs from
+	// starving them. Postgres has no rowid, so oldest event time drains first.
 	const rows = await db
 		.select()
-		.from(auditDeliveryOutbox)
-		.orderBy(sql`rowid`)
+		.from(outbox)
+		.orderBy(
+			...(store === "postgres"
+				? [asc(outbox.timestamp), asc(outbox.id)]
+				: [sql`rowid`]),
+		)
 		.limit(500);
 	if (!rows.length) return 0;
 	if (!logs || !runtime)
@@ -232,9 +245,7 @@ export async function drainAuditDeliveryOutbox(
 				if (JSON.stringify(projected.get(saved.id)) !== JSON.stringify(saved))
 					throw new Error(`Audit projection mismatch: ${saved.id}`);
 			}
-			await db
-				.delete(auditDeliveryOutbox)
-				.where(anyIds(db, auditDeliveryOutbox.id, eventIds));
+			await db.delete(outbox).where(anyIds(db, outbox.id, eventIds));
 			delivered += events.length;
 		} catch (error) {
 			failures.push(error);

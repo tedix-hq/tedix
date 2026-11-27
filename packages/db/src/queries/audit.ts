@@ -95,16 +95,21 @@ export async function insertAuditEvent(
 	db: DbClient,
 	event: InsertAuditEventParams,
 ): Promise<string> {
-	const target = auditDeliveryBindings(db)
-		? db
-		: MCP_TELEMETRY_ACTIONS.has(event.action) ||
-			  event.action === "interaction.expiry.run" ||
-			  (event.action === "approval.approved" &&
-					(event.actorId === "policy" ||
-						event.metadata?.resolvedBy === "policy" ||
-						event.metadata?.resolverProvenance === "policy"))
-			? (getLogStores(db)?.logs ?? db)
-			: db;
+	// High-volume routine receipts skip the outbox on Postgres and land in
+	// LOGS_DB directly; D1 keeps queueing everything for the organization log.
+	const routine =
+		MCP_TELEMETRY_ACTIONS.has(event.action) ||
+		event.action === "interaction.expiry.run" ||
+		(event.action === "approval.approved" &&
+			(event.actorId === "policy" ||
+				event.metadata?.resolvedBy === "policy" ||
+				event.metadata?.resolverProvenance === "policy"));
+	const target =
+		auditDeliveryBindings(db) && coreStore(db) === "d1"
+			? db
+			: routine
+				? (getLogStores(db)?.logs ?? db)
+				: db;
 	// Keep attribution inline: a dictionary lookup must not block the audit write.
 	const { id, statement } = buildInsertAuditEventStatement(target, event);
 	await statement;
@@ -189,9 +194,10 @@ export async function insertMcpAuditEventsBatch(
 ): Promise<void> {
 	if (events.some((event) => !MCP_TELEMETRY_ACTIONS.has(event.action)))
 		throw new Error("Only MCP execution telemetry may use the log batch");
-	const target = auditDeliveryBindings(db)
-		? db
-		: (getLogStores(db)?.logs ?? db);
+	const target =
+		auditDeliveryBindings(db) && coreStore(db) === "d1"
+			? db
+			: (getLogStores(db)?.logs ?? db);
 	const table = auditWriteTable(target);
 	// Eleven bound columns per row; eight rows stay below D1's 100-param cap.
 	const [first, ...rest] = chunkForBoundParams(events, 8).map((chunk) =>
@@ -356,7 +362,7 @@ export function buildInsertAuditEventStatement(
 		ipAddress: event.ipAddress ?? null,
 		userAgent: event.userAgent ?? null,
 		timestamp: event.occurredAt ?? new Date(),
-		...(auditDeliveryBindings(db) && coreStore(db) === "d1"
+		...(auditDeliveryBindings(db)
 			? { ignoreDuplicates: event.ignoreDuplicates ?? false }
 			: {}),
 	};

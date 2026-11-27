@@ -15,6 +15,14 @@ import type { OrganizationAuditEvent } from "./durable-sqlite/organization-log-r
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { configureLogStore, createDbClient } from "../client";
+import { postgresClientView } from "../core-store/client";
+import { configureAuditDelivery } from "./audit-delivery-context";
+import { createPGliteFacade } from "../test/pglite-facade";
+import { pgTableDdl } from "../test/pg-schema-ddl";
+import {
+	auditDeliveryOutbox as pgAuditDeliveryOutbox,
+	auditEvents as pgAuditEvents,
+} from "../schema-pg/core";
 import { auditDeliveryOutbox, auditEvents } from "../schema/audit-events";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { logPartition } from "../schema/logs-db";
@@ -752,5 +760,97 @@ it("delivers older expiry receipts before newer events with smaller IDs", async 
 	} finally {
 		main.sqlite.close();
 		logs.sqlite.close();
+	}
+});
+
+it("queues Postgres audit writes on the outbox and drains them to LOGS_DB", async () => {
+	const pg = await createPGliteFacade();
+	const logs = store();
+	try {
+		for (const ddl of [
+			...pgTableDdl(pgAuditEvents),
+			...pgTableDdl(pgAuditDeliveryOutbox),
+		])
+			await pg.engine.exec(ddl);
+		const delivered = new Map<string, OrganizationAuditEvent[]>();
+		const bindings = {
+			LOGS_DB: logs.binding,
+			WORKSPACE_RUNTIME: {
+				async organizationAuditAppend(
+					org: string,
+					events: OrganizationAuditEvent[],
+				) {
+					delivered.set(org, events);
+					return { status: "live" as const, value: events };
+				},
+			},
+		};
+		configureLogStore(pg.db, bindings, [], postgresClientView(pg.db));
+		configureAuditDelivery(pg.db, bindings);
+		const change = { ...event, action: "organization.updated" };
+		await insertAuditEvent(pg.db, { ...change, id: "pending" });
+		await insertAuditEvent(pg.db, {
+			...event,
+			id: "telemetry",
+			action: "mcp.tool.execute",
+		});
+		await insertAuditEvent(pg.db, {
+			...event,
+			id: "policy",
+			action: "approval.approved",
+			metadata: { resolvedBy: "policy" },
+		});
+		await insertMcpAuditEventsBatch(pg.db, [
+			{ ...event, id: "batch-telemetry" },
+		]);
+		await insertAuditEventsBatch(pg.db, [
+			{ ...change, id: "batch-pending", organizationId: "org-other" },
+		]);
+		// Routine receipts write straight to LOGS_DB; the rest waits on the outbox.
+		expect(
+			logs.sqlite.prepare("SELECT id FROM audit_events ORDER BY id").all(),
+		).toEqual([
+			{ id: "batch-telemetry" },
+			{ id: "policy" },
+			{ id: "telemetry" },
+		]);
+		expect(
+			(
+				await pg.engine.query(
+					"SELECT id FROM audit_delivery_outbox ORDER BY id",
+				)
+			).rows,
+		).toEqual([{ id: "batch-pending" }, { id: "pending" }]);
+		expect(
+			(await pg.engine.query("SELECT count(*)::int AS n FROM audit_events"))
+				.rows,
+		).toEqual([{ n: 0 }]);
+		const found = await searchAuditEvents(pg.db, {
+			organizationId: event.organizationId,
+		});
+		expect(found.data.map((row) => row.id).sort()).toEqual([
+			"batch-telemetry",
+			"pending",
+			"policy",
+			"telemetry",
+		]);
+		expect(await drainAuditDeliveryOutbox(pg.db, bindings)).toBe(2);
+		expect(delivered.get("org-other")?.map((row) => row.id)).toEqual([
+			"batch-pending",
+		]);
+		expect(
+			(
+				await pg.engine.query(
+					"SELECT count(*)::int AS n FROM audit_delivery_outbox",
+				)
+			).rows,
+		).toEqual([{ n: 0 }]);
+		expect(
+			logs.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get(),
+		).toEqual({ n: 5 });
+		expect(await drainAuditDeliveryOutbox(pg.db, bindings)).toBe(0);
+	} finally {
+		logs.sqlite.close();
+		await pg.close();
 	}
 });
