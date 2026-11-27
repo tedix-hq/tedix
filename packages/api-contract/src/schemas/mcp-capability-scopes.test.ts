@@ -232,6 +232,9 @@ describe("MCP capability scope mapping", () => {
 	});
 
 	it("uses the Docs contract for reads, builds and publication", () => {
+		expect(
+			toolToGranularCapabilityScope("tedix__list_managed_docs_sites"),
+		).toBe("mcp:content.read");
 		for (const [name, scope] of Object.entries(DOCS_TOOL_SCOPES)) {
 			expect(toolToGranularCapabilityScope(`docs_tedix__${name}`)).toBe(scope);
 		}

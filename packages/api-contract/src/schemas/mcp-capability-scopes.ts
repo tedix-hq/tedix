@@ -306,6 +306,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	get_tedi_email_attachment: "mcp:messaging",
 	get_tedi_email_message_source: "mcp:messaging",
 	list_sites: "mcp:content",
+	list_managed_docs_sites: "mcp:content",
 	create_cms_site: "mcp:content",
 	begin_cms_domain: "mcp:content",
 	get_cms_domain: "mcp:content",
