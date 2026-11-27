@@ -25,54 +25,34 @@ type IdentityHostEnv = Pick<
 const TEDIX_IDENTITY_PATH =
 	/^\/poppy-agent\/([a-z0-9][a-z0-9-]{0,127})\/(client|jwks)\.json$/;
 
-// The Worker's env is fixed for the isolate, like the verifier's caches.
-let identityHostEnv: IdentityHostEnv | undefined;
-
 /**
- * A tedi's Poppy identity documents live on this Worker's own origin, and a
- * Worker's fetch to its own hostname never reaches its route. Render those
- * documents with the loader the public route uses; every other client_id
- * keeps the guarded network fetch.
+ * A tedi's Poppy identity documents live on this Worker's own origin. The
+ * verifier's public-URL guard refuses that origin, and a Worker's fetch to
+ * its own hostname never reaches its route, so documents there are rendered
+ * with the loader the public route uses. Every other client_id keeps the
+ * guarded network fetch.
  */
-async function fetchIdentityDocument(
-	url: string,
-	init?: RequestInit,
-): Promise<Response> {
-	const env = identityHostEnv;
-	const target = new URL(url);
-	const match = env ? TEDIX_IDENTITY_PATH.exec(target.pathname) : null;
-	const inProcess = Boolean(
-		env && match && target.origin === new URL(env.API_URL).origin,
-	);
-	let status = 0;
-	try {
-		if (!env || !match || !inProcess) {
-			const response = await fetch(url, init);
-			status = response.status;
-			return response;
-		}
-		const doc = await loadPoppyAgentPublicDocument(
+function loadOwnIdentityDocument(env: IdentityHostEnv) {
+	return async (url: string): Promise<Record<string, unknown> | null> => {
+		const match = TEDIX_IDENTITY_PATH.exec(new URL(url).pathname);
+		if (!match) return null;
+		return loadPoppyAgentPublicDocument(
 			env,
 			createDbClient(env.DB),
 			match[1]!,
 			match[2] as "client" | "jwks",
 		);
-		status = doc ? 200 : 404;
-		return doc
-			? Response.json(doc)
-			: new Response("Not found", { status: 404 });
-	} finally {
-		console.log(
-			JSON.stringify({
-				_tr: "personal_agent_identity_document",
-				host: target.host,
-				path: target.pathname.slice(0, 200),
-				hostEnvSet: Boolean(env),
-				inProcess,
-				status,
-			}),
-		);
-	}
+	};
+}
+
+// One verifier per isolate, like its caches; the Worker env is fixed there.
+let verifier: ReturnType<typeof createPersonalAgentSessionVerifier> | undefined;
+function verifierFor(env: IdentityHostEnv) {
+	verifier ??= createPersonalAgentSessionVerifier({
+		ownOrigin: new URL(env.API_URL).origin,
+		loadOwnDocument: loadOwnIdentityDocument(env),
+	});
+	return verifier;
 }
 
 function jwtSegment(token: string, index: number): Record<string, unknown> {
@@ -134,17 +114,12 @@ function logRefusal(
 	);
 }
 
-const verify = createPersonalAgentSessionVerifier({
-	fetchFn: fetchIdentityDocument,
-});
-
 /** Verifies identity, then persists continuity; never mints account authority. */
 export async function verifySignedOutPersonalAgentSession(
 	db: DbClient,
 	input: z.infer<typeof PersonalAgentSessionRequestSchema>,
-	env?: IdentityHostEnv,
+	env: IdentityHostEnv,
 ) {
-	if (env) identityHostEnv = env;
 	const app = await getAppByIdForOrganization(
 		db,
 		input.appId,
@@ -182,7 +157,7 @@ export async function verifySignedOutPersonalAgentSession(
 		if (input.sessionToken !== null)
 			headers.set("Poppy-Session", input.sessionToken);
 		if (input.version !== null) headers.set("Poppy-Version", input.version);
-		const session = await verify({
+		const session = await verifierFor(env)({
 			request: new Request(input.url, { method: input.method, headers }),
 			audience: `https://${config.data.domain.toLowerCase()}`,
 			policy: config.data,

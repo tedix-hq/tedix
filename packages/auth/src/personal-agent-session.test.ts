@@ -296,3 +296,57 @@ describe("personal agent Session verification", () => {
 		expect(f.fetchFn).toHaveBeenCalledTimes(4);
 	});
 });
+
+describe("agent identities hosted on the verifier's own origin", () => {
+	// A Tedix door verifies tedis whose client_id lives on its own API origin,
+	// which the public-URL guard refuses; 27 Nov 2026 every such shopper was
+	// refused with invalid_session before its keys were even read.
+	it("loads own-origin documents in-process and keeps that origin blocked otherwise", async () => {
+		const { createPersonalAgentClient, generatePersonalAgentSigningKey } =
+			await import("./personal-agent-client");
+		const ownOrigin = "https://api.tedix.dev";
+		const ownClientId = `${ownOrigin}/poppy-agent/shopper/client.json`;
+		const client = createPersonalAgentClient({
+			clientId: ownClientId,
+			jwksUri: `${ownOrigin}/poppy-agent/shopper/jwks.json`,
+			signingKey: await generatePersonalAgentSigningKey(),
+		});
+		const docs: Record<string, Record<string, unknown>> = {
+			[ownClientId]: (await client.clientMetadata()) as Record<string, unknown>,
+			[`${ownOrigin}/poppy-agent/shopper/jwks.json`]:
+				(await client.jwks()) as unknown as Record<string, unknown>,
+		};
+		const request = async () =>
+			new Request(resource, {
+				method: "POST",
+				headers: await client.sessionHeaders({
+					audience,
+					url: resource,
+					method: "POST",
+					identity: {
+						id: "shopper",
+						name: "shopper",
+						userId: "tedi:shopper",
+						agentId: "tedi:shopper",
+					},
+				}),
+			});
+		const fetchFn = vi.fn();
+		const own = createPersonalAgentSessionVerifier({
+			fetchFn,
+			ownOrigin,
+			loadOwnDocument: async (url) => docs[url] ?? null,
+		});
+		await expect(
+			own({ request: await request(), audience }),
+		).resolves.toMatchObject({
+			clientId: ownClientId,
+		});
+		expect(fetchFn).not.toHaveBeenCalled();
+		const guarded = createPersonalAgentSessionVerifier({ fetchFn });
+		await expect(
+			guarded({ request: await request(), audience }),
+		).rejects.toMatchObject({ code: "invalid_session" });
+		expect(fetchFn).not.toHaveBeenCalled();
+	});
+});

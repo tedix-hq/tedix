@@ -77,6 +77,13 @@ export function createPersonalAgentSessionVerifier(
 	options: {
 		fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
 		now?: () => number;
+		/**
+		 * The verifying host's own HTTPS origin, which hosts its agents'
+		 * identity documents. The public-URL guard refuses that origin, so
+		 * documents there come from `loadOwnDocument` instead of the network.
+		 */
+		ownOrigin?: string;
+		loadOwnDocument?: (url: string) => Promise<Record<string, unknown> | null>;
 	} = {},
 ) {
 	const now = options.now ?? Date.now;
@@ -84,8 +91,29 @@ export function createPersonalAgentSessionVerifier(
 	const pending = new Map<string, Promise<ClientKeys>>();
 	// Failed lookups and unknown kids also consume the refresh budget.
 	const attempts = new Map<string, number>();
+	const ownOrigin = options.loadOwnDocument ? options.ownOrigin : undefined;
+
+	function isOwn(raw: string): boolean {
+		if (!ownOrigin || raw.length > 2048 || !URL.canParse(raw)) return false;
+		const url = new URL(raw);
+		return url.protocol === "https:" && url.origin === ownOrigin;
+	}
+
+	/** An agent URL: on this host's own origin, or a guarded public one. */
+	function agentUrl(raw: string) {
+		if (!isOwn(raw)) return publicHttps(raw);
+		const url = new URL(raw);
+		requireValue(!url.username && !url.password && !url.hash);
+		return url;
+	}
 
 	async function document(url: string): Promise<Record<string, unknown>> {
+		if (isOwn(url)) {
+			agentUrl(url);
+			const own = await options.loadOwnDocument!(url);
+			requireValue(own);
+			return own;
+		}
 		publicHttps(url);
 		const response = await guardedFetch(
 			url,
@@ -143,7 +171,7 @@ export function createPersonalAgentSessionVerifier(
 			requireValue(metadata.client_id === clientId);
 			requireValue(typeof metadata.jwks_uri === "string");
 			requireValue(
-				publicHttps(metadata.jwks_uri).host === publicHttps(clientId).host,
+				agentUrl(metadata.jwks_uri).host === agentUrl(clientId).host,
 			);
 			const jwks = await document(metadata.jwks_uri);
 			requireValue(
@@ -188,7 +216,7 @@ export function createPersonalAgentSessionVerifier(
 				typeof header.poppy_dlg === "string" && identifier(unverified.iss),
 			);
 			const clientId = unverified.iss;
-			publicHttps(clientId);
+			agentUrl(clientId);
 			requireValue(!input.policy?.blockedClientIds?.includes(clientId));
 			requireValue(
 				!input.policy?.allowedClientIds ||

@@ -4,6 +4,10 @@ import { PersonalAgentSessionFailure } from "@tedix/auth/personal-agent-session"
 import { PersonalAgentSessionResultSchema } from "@tedix/api-contract/schemas/personal-agent-session";
 import { verifySignedOutPersonalAgentSession } from "./personal-agent-session";
 
+const env = {
+	API_URL: "https://api.example.test",
+} as unknown as CloudflareEnv;
+
 const mocks = vi.hoisted(() => ({
 	app: vi.fn(),
 	organization: vi.fn(),
@@ -58,7 +62,7 @@ const session = {
 describe("signed-out protocol resource boundary", () => {
 	it("distinguishes new Session creation for lifecycle auditing", async () => {
 		mocks.session.mockResolvedValue("started");
-		expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
+		expect(await verifySignedOutPersonalAgentSession(db, input, env)).toEqual({
 			status: "accepted",
 			sessionCreated: true,
 			identity: session,
@@ -76,7 +80,7 @@ describe("signed-out protocol resource boundary", () => {
 		mocks.session.mockResolvedValue("accepted");
 	});
 	it("binds the app to the organization and the Session to its protocol audience", async () => {
-		expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
+		expect(await verifySignedOutPersonalAgentSession(db, input, env)).toEqual({
 			status: "accepted",
 			identity: session,
 		});
@@ -117,10 +121,14 @@ describe("signed-out protocol resource boundary", () => {
 		};
 		for (const identity of [session, later]) {
 			mocks.verify.mockResolvedValue(identity);
-			const result = await verifySignedOutPersonalAgentSession(db, {
-				...input,
-				sessionToken: "untrusted-claims-are-not-identity",
-			});
+			const result = await verifySignedOutPersonalAgentSession(
+				db,
+				{
+					...input,
+					sessionToken: "untrusted-claims-are-not-identity",
+				},
+				env,
+			);
 			expect(PersonalAgentSessionResultSchema.parse(result)).toEqual({
 				status: "accepted",
 				identity,
@@ -145,9 +153,11 @@ describe("signed-out protocol resource boundary", () => {
 			{ metadata: { mcpConfig: { authMode: "authenticated" } } },
 		]) {
 			mocks.app.mockResolvedValue(app);
-			expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
-				status: "not_configured",
-			});
+			expect(await verifySignedOutPersonalAgentSession(db, input, env)).toEqual(
+				{
+					status: "not_configured",
+				},
+			);
 		}
 		expect(mocks.verify).not.toHaveBeenCalled();
 		expect(mocks.session).not.toHaveBeenCalled();
@@ -159,7 +169,7 @@ describe("signed-out protocol resource boundary", () => {
 			"https://mcp.example/other",
 		]) {
 			expect(
-				await verifySignedOutPersonalAgentSession(db, { ...input, url }),
+				await verifySignedOutPersonalAgentSession(db, { ...input, url }, env),
 			).toEqual({ status: "not_configured" });
 		}
 		expect(mocks.verify).not.toHaveBeenCalled();
@@ -174,9 +184,11 @@ describe("signed-out protocol resource boundary", () => {
 			},
 		]) {
 			mocks.organization.mockResolvedValue(value);
-			expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
-				status: "not_configured",
-			});
+			expect(await verifySignedOutPersonalAgentSession(db, input, env)).toEqual(
+				{
+					status: "not_configured",
+				},
+			);
 		}
 		expect(mocks.verify).not.toHaveBeenCalled();
 	});
@@ -184,28 +196,30 @@ describe("signed-out protocol resource boundary", () => {
 		"rejects %s before any Session lookup or mutation",
 		async (code) => {
 			mocks.verify.mockRejectedValue(new PersonalAgentSessionFailure(code));
-			expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
-				status: code,
-			});
+			expect(await verifySignedOutPersonalAgentSession(db, input, env)).toEqual(
+				{
+					status: code,
+				},
+			);
 			expect(mocks.rate).not.toHaveBeenCalled();
 			expect(mocks.session).not.toHaveBeenCalled();
 		},
 	);
 	it("applies the per-client limit before persisting another Session", async () => {
 		mocks.rate.mockResolvedValue(false);
-		expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
+		expect(await verifySignedOutPersonalAgentSession(db, input, env)).toEqual({
 			status: "rate_limited",
 		});
 		expect(mocks.session).not.toHaveBeenCalled();
 	});
 	it("returns ended state and propagates storage failure without relabeling it", async () => {
 		mocks.session.mockResolvedValue("session_ended");
-		expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
+		expect(await verifySignedOutPersonalAgentSession(db, input, env)).toEqual({
 			status: "session_ended",
 		});
 		mocks.session.mockRejectedValue(new Error("D1 unavailable"));
 		await expect(
-			verifySignedOutPersonalAgentSession(db, input),
+			verifySignedOutPersonalAgentSession(db, input, env),
 		).rejects.toThrow("D1 unavailable");
 	});
 });
