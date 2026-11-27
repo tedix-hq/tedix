@@ -8,6 +8,8 @@ import { createMigratedSqlite } from "./test/migrated-sqlite";
 function fixture(duration = 1_001) {
 	let clock = 0;
 	vi.spyOn(performance, "now").mockImplementation(() => clock);
+	// Keep raw() instance probes off unless a test samples them.
+	vi.spyOn(Math, "random").mockReturnValue(0.99);
 	const log = vi.spyOn(console, "warn").mockImplementation(() => {});
 	const result = {
 		results: [{ value: 7 }],
@@ -59,7 +61,8 @@ describe("slow D1 observation", () => {
 						: method === "raw"
 							? await statement.raw()
 							: await statement.first();
-			expect(observed).toBe(result);
+			// first() reads through all(), the same D1 query with meta.
+			expect(observed).toBe(method === "first" ? result.results[0] : result);
 			expect(database.prepare).toHaveBeenCalledWith(sql);
 			expect(native.bind).toHaveBeenCalledWith("private-binding");
 			expect(log).toHaveBeenCalledOnce();
@@ -217,7 +220,7 @@ describe("per-request D1 ledger", () => {
 				"ok",
 				"org-fictional",
 			],
-			doubles: [1, 30, 500, 3, 1, 0],
+			doubles: [1, 30, 500, 3, 1, 0, 0],
 		});
 		const failure = new Error("private-failure");
 		await expect(
@@ -253,7 +256,7 @@ describe("per-request D1 ledger", () => {
 				.length,
 		).toBe(95);
 		expect(writeDataPoint.mock.calls.at(-1)![0].doubles).toEqual([
-			0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0,
 		]);
 		await withD1Ledger("outer", () => withD1Ledger("job", async () => {}), {
 			analytics,
@@ -274,6 +277,39 @@ describe("per-request D1 ledger", () => {
 			),
 		).rejects.toBe(failure);
 		expect(await withD1Ledger("local", async () => 9)).toBe(9);
+	});
+
+	it("counts replica answers for first() and sampled raw() without changing results", async () => {
+		const { db, database, native, result } = fixture(5);
+		const writeDataPoint = vi.fn();
+		const replica = { served_by_primary: false, served_by_region: "EEUR" };
+		Object.assign(result.meta, replica);
+		const rows = [[7]];
+		native.raw = vi.fn(async () => rows) as never;
+		vi.mocked(Math.random).mockReturnValueOnce(0.99).mockReturnValueOnce(0);
+		const values = await withD1Ledger(
+			"GET /replica",
+			async () => [
+				await db.prepare("SELECT 1").first(),
+				await db
+					.prepare("SELECT 1")
+					.first("missing")
+					.catch((e) => e.message),
+				await db.prepare("SELECT 2").raw(),
+				await db.prepare("SELECT 3").raw(),
+			],
+			{ analytics: { sink: { writeDataPoint }, worker: "fixture-worker" } },
+		);
+		expect(values).toEqual([
+			{ value: 7 },
+			"D1_COLUMN_NOTFOUND: Column not found (missing)",
+			rows,
+			rows,
+		]);
+		// Unsampled raw() is unknown; the probe is not counted as a statement.
+		expect(database.prepare).toHaveBeenCalledTimes(5);
+		expect(writeDataPoint.mock.calls[0]![0].doubles.slice(0, 1)).toEqual([4]);
+		expect(writeDataPoint.mock.calls[0]![0].doubles.slice(5)).toEqual([3, 3]);
 	});
 
 	it("caps a 244-call fan-out across clients and releases permits after errors", async () => {

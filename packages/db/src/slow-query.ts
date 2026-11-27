@@ -17,6 +17,7 @@ const requestLogger = createLogger<{
 	maxInFlight: number;
 	overloaded: number;
 	servedByReplica: number;
+	servedKnown: number;
 	servedRegions: string;
 	topShapes: string;
 	topReadShapes: string;
@@ -47,8 +48,10 @@ type Ledger = {
 	inFlight: number;
 	maxInFlight: number;
 	overloaded: number;
-	/** Statements a D1 read replica answered, from `meta.served_by_primary`. */
+	/** Statements a read replica answered: `meta.served_by_primary`, or a raw() probe. */
 	servedByReplica: number;
+	/** Statements whose answering instance is known; the share's denominator. */
+	servedKnown: number;
 	/** Regions that answered, from `meta.served_by_region`. */
 	servedRegions: Set<string>;
 	shapes: Map<
@@ -95,6 +98,7 @@ export async function withD1Ledger<T>(
 		maxInFlight: 0,
 		overloaded: 0,
 		servedByReplica: 0,
+		servedKnown: 0,
 		servedRegions: new Set(),
 		shapes: new Map(),
 		reads: new Map(),
@@ -140,6 +144,7 @@ export async function withD1Ledger<T>(
 						ledger.rowsWritten,
 						ledger.maxInFlight,
 						ledger.servedByReplica,
+						ledger.servedKnown,
 					],
 				});
 			} catch {
@@ -165,6 +170,7 @@ export async function withD1Ledger<T>(
 				maxInFlight: ledger.maxInFlight,
 				overloaded: ledger.overloaded,
 				servedByReplica: ledger.servedByReplica,
+				servedKnown: ledger.servedKnown,
 				servedRegions: [...ledger.servedRegions].join(","),
 				topReadShapes: [...ledger.shapes]
 					.sort((a, b) => b[1].rowsRead - a[1].rowsRead)
@@ -240,6 +246,8 @@ function begin(): Ledger | undefined {
 	return ledger;
 }
 
+type Served = { served_by_primary?: boolean; served_by_region?: string };
+
 function tally(
 	ledger: Ledger | undefined,
 	sql: string,
@@ -247,6 +255,7 @@ function tally(
 	result: D1Result | undefined,
 	returned: number,
 	error: unknown,
+	served = result?.meta as Served | undefined,
 ): void {
 	if (!ledger) return;
 	ledger.inFlight -= 1;
@@ -255,9 +264,7 @@ function tally(
 	ledger.rowsRead += result?.meta?.rows_read ?? 0;
 	ledger.rowsWritten += result?.meta?.rows_written ?? 0;
 	ledger.rowsReturned += returned;
-	const served = result?.meta as
-		| { served_by_primary?: boolean; served_by_region?: string }
-		| undefined;
+	if (typeof served?.served_by_primary === "boolean") ledger.servedKnown += 1;
 	if (served?.served_by_primary === false) ledger.servedByReplica += 1;
 	if (served?.served_by_region)
 		ledger.servedRegions.add(served.served_by_region);
@@ -301,6 +308,12 @@ const logger = createLogger<{
 // Keep quoted identifiers, but remove literals and comments even in raw SQL.
 const SQL_TOKENS =
 	/"(?:""|[^"])*"|`(?:``|[^`])*`|\[(?:[^\]])*\]|(?:x)?'(?:''|[^'])*'|--[^\r\n]*|\/\*[\s\S]*?\*\/|\b(?:0x[\da-f]+|\d+(?:\.\d*)?(?:e[+-]?\d+)?)\b/gi;
+/**
+ * `raw()` results carry no meta, and Drizzle selects use `raw()`. One call in
+ * this many runs a trivial `SELECT 1` beside it on the same database or session
+ * to learn which instance that session reaches.
+ */
+const RAW_INSTANCE_SAMPLE = 50;
 const observed = new WeakMap<object, object>();
 const bindingKeys = new WeakMap<object, object>();
 
@@ -358,6 +371,17 @@ function report(
 	);
 }
 
+/** Never rejects: a failed probe leaves the instance unknown. */
+async function sampleInstance(
+	database: Pick<D1Database, "prepare">,
+): Promise<Served | undefined> {
+	try {
+		return (await database.prepare("SELECT 1").all()).meta as Served;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Observe native execution without changing SQL, bindings, results or errors. */
 export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 	database: T,
@@ -385,7 +409,27 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 						let result: D1Result | undefined;
 						let returned = 0;
 						let failure: unknown;
+						const probe =
+							key === "raw" && ledger && Math.random() * RAW_INSTANCE_SAMPLE < 1
+								? sampleInstance(database)
+								: undefined;
 						try {
+							if (key === "first") {
+								// D1's first() is all() keeping row 0; all() also returns meta.
+								result = (await target.all()) as D1Result;
+								const row = (result.results[0] ?? null) as Record<
+									string,
+									unknown
+								> | null;
+								returned = row == null ? 0 : 1;
+								const column = args[0] as string | undefined;
+								if (row == null || column === undefined) return row;
+								if (row[column] === undefined)
+									throw new Error(
+										`D1_COLUMN_NOTFOUND: Column not found (${column})`,
+									);
+								return row[column];
+							}
 							const valueResult = await Reflect.apply(value, target, args);
 							if (key === "all" || key === "run")
 								result = valueResult as D1Result;
@@ -395,6 +439,7 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 							failure = error;
 							throw error;
 						} finally {
+							const served = probe ? await probe : (result?.meta as Served);
 							release?.();
 							tally(
 								ledger,
@@ -403,6 +448,7 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 								result,
 								returned,
 								failure,
+								served,
 							);
 							report(
 								sql,
