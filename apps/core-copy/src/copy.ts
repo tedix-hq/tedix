@@ -342,6 +342,18 @@ export async function copyTable(
 	} catch (error) {
 		const overloaded = isD1Overloaded(error);
 		const message = error instanceof Error ? error.message : String(error);
+		if (/different copy plan/.test(message)) {
+			// The saved checkpoint no longer matches this table's plan (its page
+			// size changed). Start the table over: writes are upserts.
+			await store.putTableProgress({
+				table: tableName,
+				status: "pending",
+				pages: 0,
+				lastError: message,
+				updatedAt: now(),
+			});
+			return { table: tableName, done: false, pages: 0, status: "pending" };
+		}
 		await store.putTableProgress(
 			progress(overloaded ? "paused" : "error", latest, message),
 		);
