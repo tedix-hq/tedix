@@ -59,7 +59,7 @@ import {
 } from "cloudflare:workers";
 
 import { coreTable } from "@tedix/db/core-store/client";
-import { coreDb } from "@tedix/db/core-store/scope";
+import { coreDb, withCoreStore } from "@tedix/db/core-store/scope";
 import { mcpTasks as taskTable } from "@tedix/db/schema/mcp-tasks";
 import { toJsonRecord, toJsonValue } from "@tedix/db/utils/json";
 import { eq } from "drizzle-orm";
@@ -261,7 +261,6 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<GenericTasksWorkflowParams>,
 		step: WorkflowStep,
 	): Promise<void> {
-		const { withCoreStore } = await import("@tedix/db/core-store/scope");
 		return withCoreStore(
 			this.env,
 			() => this.runInner(event, step),
@@ -274,25 +273,27 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 		step: WorkflowStep,
 	): Promise<void> {
 		const { taskId } = event.payload;
-		const db = coreDb(this.env);
-		const mcpTasks = coreTable(db, taskTable);
 
 		// Step 1 — load the task lifecycle scalars (Serializable across the step
 		// boundary). The exec-config + caller snapshots (JSON objects) are re-read
 		// inside the dispatch step where they are consumed.
-		const task = await step.do("load-task", async () => {
-			const rows = await db
-				.select({
-					status: mcpTasks.status,
-					cancelRequestedAt: mcpTasks.cancelRequestedAt,
-					orgId: mcpTasks.orgId,
-					appId: mcpTasks.appId,
-				})
-				.from(mcpTasks)
-				.where(eq(mcpTasks.taskId, taskId))
-				.limit(1);
-			return rows[0] ?? null;
-		});
+		const task = await step.do("load-task", () =>
+			withCoreStore(this.env, async () => {
+				const db = coreDb(this.env);
+				const mcpTasks = coreTable(db, taskTable);
+				const rows = await db
+					.select({
+						status: mcpTasks.status,
+						cancelRequestedAt: mcpTasks.cancelRequestedAt,
+						orgId: mcpTasks.orgId,
+						appId: mcpTasks.appId,
+					})
+					.from(mcpTasks)
+					.where(eq(mcpTasks.taskId, taskId))
+					.limit(1);
+				return rows[0] ?? null;
+			}),
+		);
 
 		if (!task) {
 			// Nothing to execute — the row was deleted/expired before the workflow
@@ -311,15 +312,19 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 
 		// Step 2 — honor cooperative cancellation requested via tasks/cancel.
 		if (task.cancelRequestedAt) {
-			await step.do("write-cancelled", async () => {
-				await db
-					.update(mcpTasks)
-					.set({
-						status: "cancelled",
-						updatedAt: new Date().toISOString(),
-					})
-					.where(eq(mcpTasks.taskId, taskId));
-			});
+			await step.do("write-cancelled", () =>
+				withCoreStore(this.env, async () => {
+					const db = coreDb(this.env);
+					const mcpTasks = coreTable(db, taskTable);
+					await db
+						.update(mcpTasks)
+						.set({
+							status: "cancelled",
+							updatedAt: new Date().toISOString(),
+						})
+						.where(eq(mcpTasks.taskId, taskId));
+				}),
+			);
 			await this.publishCurrentTaskState(taskId, task.orgId, task.appId);
 			return;
 		}
@@ -330,156 +335,167 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 		// side-effecting dispatch (no double-dispatch). The dispatch step itself
 		// short-circuits if the row is already terminal (defends against a retry
 		// of this step after a prior successful dispatch+terminal write).
-		const outcome = await step.do<DispatchOutcome>("dispatch", async () => {
-			// SHORT-CIRCUIT — re-read the row; if a prior run already drove it
-			// terminal, do not dispatch again. This makes the dispatch step
-			// idempotent across Workflow retries.
-			const current = await db
-				.select({
-					status: mcpTasks.status,
-					cancelRequestedAt: mcpTasks.cancelRequestedAt,
-					orgId: mcpTasks.orgId,
-					toolName: mcpTasks.toolName,
-					inputRequests: mcpTasks.inputRequests,
-				})
-				.from(mcpTasks)
-				.where(eq(mcpTasks.taskId, taskId))
-				.limit(1);
-			const row = current[0];
-			// Row vanished (deleted/expired) — terminal no-op, do not write.
-			if (!row) return { kind: "noop" } as DispatchOutcome;
-			if (
-				row.status === "completed" ||
-				row.status === "failed" ||
-				row.status === "cancelled"
-			) {
-				// Already terminal from a prior run — nothing to dispatch and the
-				// terminal write must not touch the row (no clobber on retry).
-				return { kind: "noop" } as DispatchOutcome;
-			}
-			// Cancel requested before dispatch — honor it without dispatching.
-			if (row.cancelRequestedAt) {
-				return { kind: "cancelled" } as DispatchOutcome;
-			}
+		const outcome = await step.do<DispatchOutcome>("dispatch", () =>
+			withCoreStore(this.env, async () => {
+				const db = coreDb(this.env);
+				const mcpTasks = coreTable(db, taskTable);
+				// SHORT-CIRCUIT — re-read the row; if a prior run already drove it
+				// terminal, do not dispatch again. This makes the dispatch step
+				// idempotent across Workflow retries.
+				const current = await db
+					.select({
+						status: mcpTasks.status,
+						cancelRequestedAt: mcpTasks.cancelRequestedAt,
+						orgId: mcpTasks.orgId,
+						toolName: mcpTasks.toolName,
+						inputRequests: mcpTasks.inputRequests,
+					})
+					.from(mcpTasks)
+					.where(eq(mcpTasks.taskId, taskId))
+					.limit(1);
+				const row = current[0];
+				// Row vanished (deleted/expired) — terminal no-op, do not write.
+				if (!row) return { kind: "noop" } as DispatchOutcome;
+				if (
+					row.status === "completed" ||
+					row.status === "failed" ||
+					row.status === "cancelled"
+				) {
+					// Already terminal from a prior run — nothing to dispatch and the
+					// terminal write must not touch the row (no clobber on retry).
+					return { kind: "noop" } as DispatchOutcome;
+				}
+				// Cancel requested before dispatch — honor it without dispatching.
+				if (row.cancelRequestedAt) {
+					return { kind: "cancelled" } as DispatchOutcome;
+				}
 
-			const snapshot = isRecord(row.inputRequests) ? row.inputRequests : {};
-			const inputArgs = isRecord(snapshot.input) ? snapshot.input : {};
-			const execConfig = isRecord(snapshot.execConfig)
-				? (snapshot.execConfig as ExecConfigSnapshot)
-				: undefined;
-			const caller = isRecord(snapshot.caller)
-				? (snapshot.caller as CapturedCallerSnapshot)
-				: undefined;
-			// Caller org reference, else the row's org. Used for the org boundary.
-			const orgId = caller?.organizationId ?? row.orgId;
-			const toolName =
-				typeof row.toolName === "string" ? row.toolName : undefined;
+				const snapshot = isRecord(row.inputRequests) ? row.inputRequests : {};
+				const inputArgs = isRecord(snapshot.input) ? snapshot.input : {};
+				const execConfig = isRecord(snapshot.execConfig)
+					? (snapshot.execConfig as ExecConfigSnapshot)
+					: undefined;
+				const caller = isRecord(snapshot.caller)
+					? (snapshot.caller as CapturedCallerSnapshot)
+					: undefined;
+				// Caller org reference, else the row's org. Used for the org boundary.
+				const orgId = caller?.organizationId ?? row.orgId;
+				const toolName =
+					typeof row.toolName === "string" ? row.toolName : undefined;
 
-			// FAIL CLOSED — no caller org boundary means we cannot scope the
-			// dispatch; refuse before fetch (and record the fail-closed decision so
-			// it is observable, not silent).
-			if (!orgId) {
+				// FAIL CLOSED — no caller org boundary means we cannot scope the
+				// dispatch; refuse before fetch (and record the fail-closed decision so
+				// it is observable, not silent).
+				if (!orgId) {
+					emitDispatchAudit("terminal", {
+						taskId,
+						toolName,
+						orgId: caller?.organizationId ?? "",
+						caller,
+						outcome: "failed",
+						errorCode: MISSING_ORG_ERROR.code,
+					});
+					return {
+						kind: "failed",
+						error: MISSING_ORG_ERROR,
+					} as DispatchOutcome;
+				}
+
+				emitDispatchAudit("start", { taskId, toolName, orgId, caller });
+
+				const result = await this.runTool(
+					taskId,
+					orgId,
+					inputArgs,
+					execConfig,
+					caller,
+				);
+
 				emitDispatchAudit("terminal", {
 					taskId,
 					toolName,
-					orgId: caller?.organizationId ?? "",
+					orgId,
 					caller,
-					outcome: "failed",
-					errorCode: MISSING_ORG_ERROR.code,
+					outcome: result.ok ? "completed" : "failed",
+					...(result.ok ? {} : { errorCode: result.error.code }),
 				});
-				return { kind: "failed", error: MISSING_ORG_ERROR } as DispatchOutcome;
-			}
-
-			emitDispatchAudit("start", { taskId, toolName, orgId, caller });
-
-			const result = await this.runTool(
-				taskId,
-				orgId,
-				inputArgs,
-				execConfig,
-				caller,
-			);
-
-			emitDispatchAudit("terminal", {
-				taskId,
-				toolName,
-				orgId,
-				caller,
-				outcome: result.ok ? "completed" : "failed",
-				...(result.ok ? {} : { errorCode: result.error.code }),
-			});
-			// The post-dispatch cancel re-read lives in the write-terminal step, not
-			// here: once this step returns its outcome Cloudflare Workflows memoizes
-			// it, so a retry can never re-run runTool (no double-dispatch). Doing the
-			// cancel re-read here would re-open that window — a throw on the read
-			// after a successful fetch would retry the whole step and re-dispatch.
-			return result.ok
-				? ({ kind: "completed", result: result.result } as DispatchOutcome)
-				: ({ kind: "failed", error: result.error } as DispatchOutcome);
-		});
+				// The post-dispatch cancel re-read lives in the write-terminal step, not
+				// here: once this step returns its outcome Cloudflare Workflows memoizes
+				// it, so a retry can never re-run runTool (no double-dispatch). Doing the
+				// cancel re-read here would re-open that window — a throw on the read
+				// after a successful fetch would retry the whole step and re-dispatch.
+				return result.ok
+					? ({ kind: "completed", result: result.result } as DispatchOutcome)
+					: ({ kind: "failed", error: result.error } as DispatchOutcome);
+			}),
+		);
 
 		// ── Step 4 (split) — WRITE TERMINAL only. Consumes the persisted outcome
 		// from the dispatch step; never re-dispatches. A retry of this step simply
 		// re-writes the same terminal status (idempotent).
-		await step.do("write-terminal", async () => {
-			const now = new Date().toISOString();
-			if (outcome.kind === "noop") {
-				// The row was already terminal (or vanished) when the dispatch step
-				// ran — leave it exactly as-is. This is the retry-safe short-circuit:
-				// never clobber a prior completed/failed/cancelled status.
-				return;
-			}
-			if (outcome.kind === "cancelled") {
-				// Pre-dispatch cancellation — no side effect ran; flip to cancelled.
-				await db
-					.update(mcpTasks)
-					.set({ status: "cancelled", updatedAt: now })
-					.where(eq(mcpTasks.taskId, taskId));
-				return;
-			}
-			// A dispatch ran (completed/failed). Re-read the cancel marker here
-			// (moved out of the dispatch step to keep that step memoizable / avoid
-			// the re-dispatch window): a cancel that landed mid-dispatch still wins
-			// over a late-completing run. This read is in the write-terminal step so
-			// a throw on it cannot re-run runTool.
-			const fresh = await db
-				.select({ cancelRequestedAt: mcpTasks.cancelRequestedAt })
-				.from(mcpTasks)
-				.where(eq(mcpTasks.taskId, taskId))
-				.limit(1);
-			if (fresh[0]?.cancelRequestedAt) {
-				await db
-					.update(mcpTasks)
-					.set({ status: "cancelled", updatedAt: now })
-					.where(eq(mcpTasks.taskId, taskId));
-				return;
-			}
-			if (outcome.kind === "completed") {
+		await step.do("write-terminal", () =>
+			withCoreStore(this.env, async () => {
+				const db = coreDb(this.env);
+				const mcpTasks = coreTable(db, taskTable);
+				const now = new Date().toISOString();
+				if (outcome.kind === "noop") {
+					// The row was already terminal (or vanished) when the dispatch step
+					// ran — leave it exactly as-is. This is the retry-safe short-circuit:
+					// never clobber a prior completed/failed/cancelled status.
+					return;
+				}
+				if (outcome.kind === "cancelled") {
+					// Pre-dispatch cancellation — no side effect ran; flip to cancelled.
+					await db
+						.update(mcpTasks)
+						.set({ status: "cancelled", updatedAt: now })
+						.where(eq(mcpTasks.taskId, taskId));
+					return;
+				}
+				// A dispatch ran (completed/failed). Re-read the cancel marker here
+				// (moved out of the dispatch step to keep that step memoizable / avoid
+				// the re-dispatch window): a cancel that landed mid-dispatch still wins
+				// over a late-completing run. This read is in the write-terminal step so
+				// a throw on it cannot re-run runTool.
+				const fresh = await db
+					.select({ cancelRequestedAt: mcpTasks.cancelRequestedAt })
+					.from(mcpTasks)
+					.where(eq(mcpTasks.taskId, taskId))
+					.limit(1);
+				if (fresh[0]?.cancelRequestedAt) {
+					await db
+						.update(mcpTasks)
+						.set({ status: "cancelled", updatedAt: now })
+						.where(eq(mcpTasks.taskId, taskId));
+					return;
+				}
+				if (outcome.kind === "completed") {
+					await db
+						.update(mcpTasks)
+						.set({
+							status: "completed",
+							result: toJsonRecord(outcome.result),
+							updatedAt: now,
+						})
+						.where(eq(mcpTasks.taskId, taskId));
+					return;
+				}
 				await db
 					.update(mcpTasks)
 					.set({
-						status: "completed",
-						result: toJsonRecord(outcome.result),
+						status: "failed",
+						error: {
+							code: outcome.error.code,
+							message: outcome.error.message,
+							...(outcome.error.data === undefined
+								? {}
+								: { data: toJsonValue(outcome.error.data) }),
+						},
 						updatedAt: now,
 					})
 					.where(eq(mcpTasks.taskId, taskId));
-				return;
-			}
-			await db
-				.update(mcpTasks)
-				.set({
-					status: "failed",
-					error: {
-						code: outcome.error.code,
-						message: outcome.error.message,
-						...(outcome.error.data === undefined
-							? {}
-							: { data: toJsonValue(outcome.error.data) }),
-					},
-					updatedAt: now,
-				})
-				.where(eq(mcpTasks.taskId, taskId));
-		});
+			}),
+		);
 		if (outcome.kind !== "noop") {
 			await this.publishCurrentTaskState(taskId, task.orgId, task.appId);
 		}
