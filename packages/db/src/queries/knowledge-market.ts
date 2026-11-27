@@ -41,11 +41,17 @@ import {
 	ne,
 	sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreStore } from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
 import type { DbClient } from "../client";
-import { skillEntries, skillUsageEvents } from "../schema/cognitive";
-import { memoryFacts } from "../schema/memory-graph";
-import { tediRationaleRecords } from "../schema/rationale-records";
+import {
+	skillEntries as schemaSkillEntries,
+	skillUsageEvents as schemaSkillUsageEvents,
+} from "../schema/cognitive";
+import { memoryFacts as schemaMemoryFacts } from "../schema/memory-graph";
+import { tediRationaleRecords as schemaTediRationaleRecords } from "../schema/rationale-records";
 import { chunkForBoundParams } from "../utils/batch";
 import { extractFactIdsFromFlywheelEvidence } from "./flywheel/evidence-fact-ids";
 import { evidenceReferencesFactsSql } from "./flywheel/evidence-references-facts";
@@ -561,6 +567,14 @@ export async function getKnowledgeMarketReport(
 	access: { orgId: string },
 	options: { windowDays?: number } = {},
 ): Promise<KnowledgeMarketReport> {
+	const skillEntries = coreTable(db, schemaSkillEntries);
+	const skillUsageEvents = coreTable(db, schemaSkillUsageEvents);
+	const memoryFacts = coreTable(db, schemaMemoryFacts);
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	const windowDays = Math.min(
 		Math.max(options.windowDays ?? KNOWLEDGE_MARKET_DEFAULT_WINDOW_DAYS, 1),
 		90,
@@ -662,7 +676,9 @@ export async function getKnowledgeMarketReport(
 					and(
 						eq(tediRationaleRecords.orgId, access.orgId),
 						gte(tediRationaleRecords.createdAt, since),
-						evidenceReferencesFactsSql(),
+						coreStore(db) === "postgres"
+							? sql`CAST(${tediRationaleRecords.evidence} AS text) ~* '"(factIds?|fact_ids?|memoryFactIds?|memory_fact_ids?|retrievedFactIds?|retrieved_fact_ids?|retrievedFacts|retrieved_facts|usedFactIds|used_fact_ids|ignoredFactIds|ignored_fact_ids|notUsedFactIds|not_used_fact_ids|failedFactIds|failed_fact_ids)"'`
+							: evidenceReferencesFactsSql(),
 					),
 				)
 				.orderBy(desc(tediRationaleRecords.createdAt))

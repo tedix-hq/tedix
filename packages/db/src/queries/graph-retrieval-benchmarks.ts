@@ -1,3 +1,5 @@
+import { coreTable } from "../core-store/client";
+import { jsonParameter } from "../core-store/dialect";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
@@ -15,11 +17,11 @@ import {
 	type GraphRetrievalBenchmarkRun,
 	type GraphRetrievalBenchmarkSuite,
 	type GraphRetrievalGraduationEvaluation,
-	graphRetrievalBenchmarkCases,
-	graphRetrievalBenchmarkResults,
-	graphRetrievalBenchmarkRuns,
-	graphRetrievalBenchmarkSuites,
-	graphRetrievalGraduationEvaluations,
+	graphRetrievalBenchmarkCases as schemaGraphRetrievalBenchmarkCases,
+	graphRetrievalBenchmarkResults as schemaGraphRetrievalBenchmarkResults,
+	graphRetrievalBenchmarkRuns as schemaGraphRetrievalBenchmarkRuns,
+	graphRetrievalBenchmarkSuites as schemaGraphRetrievalBenchmarkSuites,
+	graphRetrievalGraduationEvaluations as schemaGraphRetrievalGraduationEvaluations,
 } from "../schema/graph-retrieval-benchmarks";
 import {
 	aggregateGraphRetrievalCases,
@@ -75,6 +77,10 @@ export async function createGraphRetrievalBenchmarkSuite(
 		createdAt: string;
 	},
 ): Promise<GraphRetrievalBenchmarkSuite> {
+	const graphRetrievalBenchmarkSuites = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkSuites,
+	);
 	const [created] = await db
 		.insert(graphRetrievalBenchmarkSuites)
 		.values({
@@ -120,6 +126,10 @@ export async function getGraphRetrievalBenchmarkSuite(
 	db: DbClient,
 	input: { organizationId: string; suiteId: string },
 ): Promise<GraphRetrievalBenchmarkSuite | null> {
+	const graphRetrievalBenchmarkSuites = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkSuites,
+	);
 	const [row] = await db
 		.select()
 		.from(graphRetrievalBenchmarkSuites)
@@ -160,6 +170,10 @@ export async function addGraphRetrievalBenchmarkCase(
 		createdAt: string;
 	},
 ): Promise<GraphRetrievalBenchmarkCase> {
+	const graphRetrievalBenchmarkCases = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkCases,
+	);
 	try {
 		const [created] = await db
 			.insert(graphRetrievalBenchmarkCases)
@@ -219,6 +233,10 @@ export async function listGraphRetrievalBenchmarkCases(
 		limit?: number;
 	},
 ): Promise<GraphRetrievalBenchmarkCase[]> {
+	const graphRetrievalBenchmarkCases = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkCases,
+	);
 	return db
 		.select()
 		.from(graphRetrievalBenchmarkCases)
@@ -260,6 +278,14 @@ export async function lockGraphRetrievalBenchmarkSuite(
 		lockedAt: string;
 	},
 ): Promise<GraphRetrievalBenchmarkSuite> {
+	const graphRetrievalBenchmarkCases = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkCases,
+	);
+	const graphRetrievalBenchmarkSuites = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkSuites,
+	);
 	const [suite] = await db
 		.select()
 		.from(graphRetrievalBenchmarkSuites)
@@ -416,6 +442,10 @@ export async function startGraphRetrievalBenchmarkRun(
 	db: DbClient,
 	input: StartGraphRetrievalBenchmarkRunInput,
 ): Promise<GraphRetrievalBenchmarkRun> {
+	const graphRetrievalBenchmarkRuns = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkRuns,
+	);
 	try {
 		const [created] = await db
 			.insert(graphRetrievalBenchmarkRuns)
@@ -460,6 +490,10 @@ export async function startGraphRetrievalBenchmarkRunPair(
 	baselineRun: GraphRetrievalBenchmarkRun;
 	graphRun: GraphRetrievalBenchmarkRun;
 }> {
+	const graphRetrievalBenchmarkRuns = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkRuns,
+	);
 	const { baseline, graph } = input;
 	const samePairDefinition =
 		baseline.id !== graph.id &&
@@ -558,6 +592,10 @@ export async function recordGraphRetrievalBenchmarkResult(
 		createdAt: string;
 	},
 ): Promise<GraphRetrievalBenchmarkResult> {
+	const graphRetrievalBenchmarkResults = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkResults,
+	);
 	const [created] = await db
 		.insert(graphRetrievalBenchmarkResults)
 		.values({
@@ -610,6 +648,10 @@ export async function listGraphRetrievalBenchmarkResults(
 	db: DbClient,
 	input: { organizationId: string; runId: string; limit?: number },
 ): Promise<GraphRetrievalBenchmarkResult[]> {
+	const graphRetrievalBenchmarkResults = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkResults,
+	);
 	return db
 		.select()
 		.from(graphRetrievalBenchmarkResults)
@@ -632,6 +674,14 @@ export async function completeGraphRetrievalBenchmarkRun(
 		completedAt: string;
 	},
 ): Promise<GraphRetrievalBenchmarkRun> {
+	const graphRetrievalBenchmarkRuns = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkRuns,
+	);
+	const graphRetrievalBenchmarkSuites = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkSuites,
+	);
 	const [run] = await db
 		.select()
 		.from(graphRetrievalBenchmarkRuns)
@@ -759,6 +809,14 @@ export async function completeEligibleGraphRetrievalBenchmarkRunPair(
 	baselineRun: GraphRetrievalBenchmarkRun;
 	graphRun: GraphRetrievalBenchmarkRun;
 }> {
+	const graphRetrievalBenchmarkRuns = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkRuns,
+	);
+	const graphRetrievalBenchmarkSuites = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkSuites,
+	);
 	const runs = await db
 		.select()
 		.from(graphRetrievalBenchmarkRuns)
@@ -879,36 +937,36 @@ export async function completeEligibleGraphRetrievalBenchmarkRunPair(
 		.update(graphRetrievalBenchmarkRuns)
 		.set({
 			status: "completed",
-			caseCount: sql<number>`CASE
+			caseCount: sql<number>`CAST(CASE
 				WHEN ${graphRetrievalBenchmarkRuns.id} = ${baselineRun.id}
 				THEN ${baselineCompleted.aggregate.caseCount}
 				ELSE ${graphCompleted.aggregate.caseCount}
-			END`,
+			END AS bigint)`,
 			aggregateMetrics: sql<GraphBenchmarkAggregateMetrics>`CASE
 				WHEN ${graphRetrievalBenchmarkRuns.id} = ${baselineRun.id}
-				THEN ${JSON.stringify(baselineCompleted.aggregate)}
-				ELSE ${JSON.stringify(graphCompleted.aggregate)}
+				THEN ${jsonParameter(db, baselineCompleted.aggregate)}
+				ELSE ${jsonParameter(db, graphCompleted.aggregate)}
 			END`,
-			totalInputTokens: sql<number>`CASE
+			totalInputTokens: sql<number>`CAST(CASE
 				WHEN ${graphRetrievalBenchmarkRuns.id} = ${baselineRun.id}
 				THEN ${baselineCompleted.totalInputTokens}
 				ELSE ${graphCompleted.totalInputTokens}
-			END`,
-			totalOutputTokens: sql<number>`CASE
+			END AS bigint)`,
+			totalOutputTokens: sql<number>`CAST(CASE
 				WHEN ${graphRetrievalBenchmarkRuns.id} = ${baselineRun.id}
 				THEN ${baselineCompleted.totalOutputTokens}
 				ELSE ${graphCompleted.totalOutputTokens}
-			END`,
-			totalLatencyMs: sql<number>`CASE
+			END AS bigint)`,
+			totalLatencyMs: sql<number>`CAST(CASE
 				WHEN ${graphRetrievalBenchmarkRuns.id} = ${baselineRun.id}
 				THEN ${baselineCompleted.totalLatencyMs}
 				ELSE ${graphCompleted.totalLatencyMs}
-			END`,
-			totalCostUsd: sql<number>`CASE
+			END AS bigint)`,
+			totalCostUsd: sql<number>`CAST(CASE
 				WHEN ${graphRetrievalBenchmarkRuns.id} = ${baselineRun.id}
 				THEN ${baselineCompleted.totalCostUsd}
 				ELSE ${graphCompleted.totalCostUsd}
-			END`,
+			END AS double precision)`,
 			eligible: true,
 			completedAt: input.completedAt,
 		})
@@ -954,6 +1012,10 @@ export async function getGraphRetrievalBenchmarkRun(
 	db: DbClient,
 	input: { organizationId: string; runId: string },
 ): Promise<GraphRetrievalBenchmarkRun | null> {
+	const graphRetrievalBenchmarkRuns = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkRuns,
+	);
 	const [row] = await db
 		.select()
 		.from(graphRetrievalBenchmarkRuns)
@@ -982,6 +1044,14 @@ export async function evaluateStoredGraphRetrievalGraduation(
 	graphRun: GraphRetrievalBenchmarkRun;
 	result: GraphRetrievalGraduationResult;
 }> {
+	const graphRetrievalBenchmarkRuns = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkRuns,
+	);
+	const graphRetrievalBenchmarkSuites = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkSuites,
+	);
 	const runs = await db
 		.select()
 		.from(graphRetrievalBenchmarkRuns)
@@ -1086,6 +1156,10 @@ export async function recordGraphRetrievalGraduationEvaluation(
 		evaluatedAt: string;
 	},
 ): Promise<GraphRetrievalGraduationEvaluation> {
+	const graphRetrievalGraduationEvaluations = coreTable(
+		db,
+		schemaGraphRetrievalGraduationEvaluations,
+	);
 	const [created] = await db
 		.insert(graphRetrievalGraduationEvaluations)
 		.values({

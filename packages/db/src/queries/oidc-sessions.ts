@@ -1,10 +1,12 @@
+import { coreTable } from "../core-store/client";
+import { jsonRead } from "../core-store/dialect";
 import { and, eq, gt, lte, isNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
-import { oidcSessions } from "../schema/oidc-sessions";
-import { organizations } from "../schema/organizations";
-import { principalIdentities } from "../schema/principal-identities";
-import { organizationMembers } from "../schema/organization-members";
-import { users } from "../schema/users";
+import { oidcSessions as schemaOidcSessions } from "../schema/oidc-sessions";
+import { organizations as schemaOrganizations } from "../schema/organizations";
+import { principalIdentities as schemaPrincipalIdentities } from "../schema/principal-identities";
+import { organizationMembers as schemaOrganizationMembers } from "../schema/organization-members";
+import { users as schemaUsers } from "../schema/users";
 import { prefixedColumns } from "../utils/select";
 
 /** Resolve live session, configuration, and membership in one database round trip. */
@@ -13,6 +15,11 @@ export async function resolveOidcSessionContext(
 	id: string,
 	now: number,
 ) {
+	const oidcSessions = coreTable(db, schemaOidcSessions);
+	const organizations = coreTable(db, schemaOrganizations);
+	const principalIdentities = coreTable(db, schemaPrincipalIdentities);
+	const organizationMembers = coreTable(db, schemaOrganizationMembers);
+	const users = coreTable(db, schemaUsers);
 	const [row] = await db
 		.select({
 			session: prefixedColumns(oidcSessions, "oidc_session"),
@@ -38,7 +45,7 @@ export async function resolveOidcSessionContext(
 				eq(principalIdentities.provider, "oidc"),
 				eq(
 					principalIdentities.issuer,
-					sql<string>`json_extract(${organizations.metadata}, '$.identityProvider.issuer')`,
+					jsonRead(db, organizations.metadata, ["identityProvider", "issuer"]),
 				),
 				eq(principalIdentities.subject, oidcSessions.subject),
 				eq(principalIdentities.principalType, "user"),
@@ -60,7 +67,7 @@ export async function resolveOidcSessionContext(
 				eq(oidcSessions.id, id),
 				eq(oidcSessions.kind, "session"),
 				gt(oidcSessions.expiresAt, now),
-				sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+				isNull(jsonRead(db, organizations.metadata, ["retiredAt"])),
 			),
 		)
 		.limit(1);
@@ -83,8 +90,9 @@ export async function resolveOidcSessionContext(
 
 export async function insertOidcRecord(
 	db: DbQueryClient,
-	record: typeof oidcSessions.$inferInsert,
+	record: typeof schemaOidcSessions.$inferInsert,
 ) {
+	const oidcSessions = coreTable(db, schemaOidcSessions);
 	await db.batch([
 		db
 			.delete(oidcSessions)
@@ -97,6 +105,7 @@ export async function consumeOidcLogin(
 	id: string,
 	now: number,
 ) {
+	const oidcSessions = coreTable(db, schemaOidcSessions);
 	const [row] = await db
 		.delete(oidcSessions)
 		.where(
@@ -110,16 +119,18 @@ export async function consumeOidcLogin(
 	return row;
 }
 export async function deleteOidcSession(db: DbQueryClient, id: string) {
+	const oidcSessions = coreTable(db, schemaOidcSessions);
 	await db.delete(oidcSessions).where(eq(oidcSessions.id, id));
 }
 export async function getOidcOrganization(db: DbQueryClient, id: string) {
+	const organizations = coreTable(db, schemaOrganizations);
 	const [row] = await db
 		.select({ id: organizations.id, metadata: organizations.metadata })
 		.from(organizations)
 		.where(
 			and(
 				eq(organizations.id, id),
-				sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+				isNull(jsonRead(db, organizations.metadata, ["retiredAt"])),
 			),
 		)
 		.limit(1);
@@ -132,6 +143,9 @@ export async function resolveOidcMember(
 	issuer: string,
 	subject: string,
 ) {
+	const principalIdentities = coreTable(db, schemaPrincipalIdentities);
+	const organizationMembers = coreTable(db, schemaOrganizationMembers);
+	const users = coreTable(db, schemaUsers);
 	const [row] = await db
 		.select({
 			userId: users.id,

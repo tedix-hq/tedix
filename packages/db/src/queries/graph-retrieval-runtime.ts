@@ -1,13 +1,19 @@
+import { coreTable } from "../core-store/client";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreStore } from "../core-store/dialect";
 import type { DbClient } from "../client";
-import { graphProjectionReadiness } from "../schema/graph-projection";
+import { graphProjectionReadiness as schemaGraphProjectionReadiness } from "../schema/graph-projection";
 import {
-	graphRetrievalBenchmarkCases,
-	graphRetrievalBenchmarkRuns,
-	graphRetrievalGraduationEvaluations,
+	graphRetrievalBenchmarkCases as schemaGraphRetrievalBenchmarkCases,
+	graphRetrievalBenchmarkRuns as schemaGraphRetrievalBenchmarkRuns,
+	graphRetrievalGraduationEvaluations as schemaGraphRetrievalGraduationEvaluations,
 } from "../schema/graph-retrieval-benchmarks";
-import { memoryEdges, memoryFacts } from "../schema/memory-graph";
+import {
+	memoryEdges as schemaMemoryEdges,
+	memoryFacts as schemaMemoryFacts,
+} from "../schema/memory-graph";
 import { chunkForBoundParams } from "../utils/batch";
 
 /** D1 caps bound parameters at 100 per statement; keep IN() lists ≤50. */
@@ -17,6 +23,10 @@ export async function getGraphProjectionReadinessSnapshot(
 	db: DbClient,
 	organizationId: string,
 ) {
+	const graphProjectionReadiness = coreTable(
+		db,
+		schemaGraphProjectionReadiness,
+	);
 	const [row] = await db
 		.select()
 		.from(graphProjectionReadiness)
@@ -29,6 +39,10 @@ export async function getGraphRetrievalBenchmarkCaseById(
 	db: DbClient,
 	input: { organizationId: string; caseId: string },
 ) {
+	const graphRetrievalBenchmarkCases = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkCases,
+	);
 	const [row] = await db
 		.select()
 		.from(graphRetrievalBenchmarkCases)
@@ -46,6 +60,7 @@ export async function listCanonicalBenchmarkFacts(
 	db: DbClient,
 	input: { organizationId: string; factIds: string[] },
 ) {
+	const memoryFacts = coreTable(db, schemaMemoryFacts);
 	if (input.factIds.length === 0) return [];
 	const selectChunk = (chunk: string[]) =>
 		db
@@ -77,6 +92,12 @@ export async function listCanonicalBenchmarkEdges(
 	db: DbClient,
 	input: { organizationId: string; sourceFactIds: string[] },
 ) {
+	const memoryEdges = coreTable(db, schemaMemoryEdges);
+	const memoryFacts = coreTable(db, schemaMemoryFacts);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	if (input.sourceFactIds.length === 0) return [];
 	const sourceFacts = alias(memoryFacts, "benchmark_source_facts");
 	const targetFacts = alias(memoryFacts, "benchmark_target_facts");
@@ -117,6 +138,14 @@ export async function getLatestGraphRetrievalPairEvaluation(
 	db: DbClient,
 	input: { organizationId: string; pairedRunKey: string },
 ) {
+	const graphRetrievalBenchmarkRuns = coreTable(
+		db,
+		schemaGraphRetrievalBenchmarkRuns,
+	);
+	const graphRetrievalGraduationEvaluations = coreTable(
+		db,
+		schemaGraphRetrievalGraduationEvaluations,
+	);
 	const [graphRun] = await db
 		.select({ id: graphRetrievalBenchmarkRuns.id })
 		.from(graphRetrievalBenchmarkRuns)

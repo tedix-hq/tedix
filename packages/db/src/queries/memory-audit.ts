@@ -1,3 +1,6 @@
+import { sql as statementSql } from "drizzle-orm";
+import type { DbQueryClient } from "../query-client";
+import { coreStore } from "../core-store/dialect";
 import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
 export type BrainAuditScope = "self" | "org" | "visible" | "all";
 export type BrainAuditTopicKeyState = "any" | "missing" | "present";
@@ -84,14 +87,16 @@ export type BrainAuditResult = {
 type QueryValue = string | number | null;
 
 export interface BrainAuditDeps extends TenantScope {
-	db: {
-		prepare(sql: string): {
-			bind(...args: QueryValue[]): {
-				first<T>(): Promise<T | null>;
-				all<T>(): Promise<{ results?: T[] }>;
-			};
-		};
-	};
+	db:
+		| DbQueryClient
+		| {
+				prepare(sql: string): {
+					bind(...args: QueryValue[]): {
+						first<T>(): Promise<T | null>;
+						all<T>(): Promise<{ results?: T[] }>;
+					};
+				};
+		  };
 	tediId: string;
 }
 
@@ -345,24 +350,50 @@ async function groupCounts(
 	);
 }
 
-// Stays raw: BrainAuditDeps.db is the minimal D1 executor contract (a checked
-// db-access exception) that tedi-runtime and its tests supply, not a Drizzle client.
-async function runFirst<T>(
+// Raw D1 executors remain supported for the tenant SQLite and runtime callers.
+function auditStatement(
+	db: DbQueryClient,
+	query: string,
+	params: QueryValue[],
+) {
+	if (coreStore(db) === "postgres") {
+		query = query
+			.replace(
+				/json_extract\(metadata, '\$\.([A-Za-z]+)'\)/g,
+				"(metadata ->> '$1')",
+			)
+			.replace(/\binstr\(/g, "strpos(")
+			.replace(/\bAS ([A-Za-z][A-Za-z0-9]*)/g, 'AS "$1"');
+	}
+	const parts = query.split("?");
+	return statementSql.join(
+		parts.flatMap((part, i) =>
+			i === 0
+				? [statementSql.raw(part)]
+				: [statementSql`${params[i - 1]}`, statementSql.raw(part)],
+		),
+		statementSql.raw(""),
+	);
+}
+async function runFirst<T extends object>(
 	db: BrainAuditDeps["db"],
 	sql: string,
 	params: QueryValue[],
 ): Promise<T | null> {
+	if (!("prepare" in db))
+		return (await db.all<T>(auditStatement(db, sql, params)))[0] ?? null;
 	return db
 		.prepare(sql)
 		.bind(...params)
 		.first<T>();
 }
 
-async function runAll<T>(
+async function runAll<T extends object>(
 	db: BrainAuditDeps["db"],
 	sql: string,
 	params: QueryValue[],
 ): Promise<T[]> {
+	if (!("prepare" in db)) return db.all<T>(auditStatement(db, sql, params));
 	const result = await db
 		.prepare(sql)
 		.bind(...params)

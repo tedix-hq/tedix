@@ -4,7 +4,8 @@ import {
 } from "../../slow-query";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { policyPacks } from "../../schema/control-plane";
+import { policyPacks as schemaPolicyPacks } from "../../schema/control-plane";
+import { coreTable } from "../../core-store/client";
 
 /** Read an ownerless platform publication; tenant-owned and revoked heads grant nothing. */
 export async function getActiveSystemPolicyDefinition(
@@ -20,6 +21,7 @@ export function invalidateSystemPolicySnapshot(db: DbQueryClient): void {
 
 /** Ownerless system heads share a snapshot until a policy write or invocation end. */
 export async function getActiveSystemPolicy(db: DbQueryClient, slug: string) {
+	const policyPacks = coreTable(db, schemaPolicyPacks);
 	const allRows = await memoizeD1InvocationRead(
 		"system-policy",
 		db.$client,

@@ -1,3 +1,18 @@
+import {
+	and,
+	asc,
+	eq,
+	gt,
+	gte,
+	lt,
+	lte,
+	sql,
+	type SQLWrapper,
+} from "drizzle-orm";
+import { QueryBuilder } from "drizzle-orm/sqlite-core";
+import type { DbQueryClient } from "../query-client";
+import { anyIds, coreStore } from "../core-store/dialect";
+
 /** Raw storage rows for evidence, without Drizzle's timestamp/JSON coercion. */
 export type HistoryRow = Record<string, unknown>;
 export type HistoryRead = (
@@ -77,18 +92,44 @@ export const HISTORY_TABLES: readonly HistoryTable[] = [
 	{ table: "work_events", time: "occurred_at", owner: "org_id", logs: false },
 ];
 
-const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
-
-/** The transport is supplied by the operator; all SQL stays in this owner. */
-export function createHistoryReader(read: HistoryRead) {
+/** Callback transports compile D1 builders without opening a local database. */
+export function createHistoryReader(source: HistoryRead | DbQueryClient) {
+	const db: Pick<DbQueryClient, "select"> =
+		typeof source === "function"
+			? (new QueryBuilder() as unknown as Pick<DbQueryClient, "select">)
+			: source;
+	const postgres = coreStore(db) === "postgres";
+	const sequence = sql.identifier(postgres ? "sequence" : "rowid");
+	const read = async (
+		query: SQLWrapper & { toSQL(): { sql: string; params: unknown[] } },
+	): Promise<HistoryRow[]> => {
+		const built = query.toSQL();
+		const rows =
+			typeof source === "function"
+				? await source(built.sql, built.params as (string | number | null)[])
+				: await source.all<HistoryRow>(query.getSQL());
+		return postgres
+			? rows.map((row) =>
+					Object.hasOwn(row, "__rowid")
+						? { ...row, __rowid: Number(row.__rowid) }
+						: row,
+				)
+			: rows;
+	};
 	return {
 		async owners(table: "skill_runs" | "tedis", organization: string) {
 			const ids: string[] = [];
 			let after = "";
 			while (true) {
 				const rows = await read(
-					`SELECT id FROM ${quote(table)} WHERE organization_id = ? AND id > ? ORDER BY id LIMIT 500`,
-					[organization, after],
+					db
+						.select({ id: sql`id` })
+						.from(sql`${sql.identifier(table)}`)
+						.where(
+							and(eq(sql`organization_id`, organization), gt(sql`id`, after)),
+						)
+						.orderBy(asc(sql`id`))
+						.limit(500),
 				);
 				for (const row of rows) ids.push(String(row.id));
 				if (rows.length < 500) return ids;
@@ -97,10 +138,15 @@ export function createHistoryReader(read: HistoryRead) {
 		},
 		async highWater(table: HistoryTable) {
 			const rows = await read(
-				`SELECT COALESCE(MAX(rowid), 0) AS high_water FROM ${quote(table.table)}`,
-				[],
+				db
+					.select({
+						high_water: sql`coalesce(max(${sequence}), 0)`.as("high_water"),
+					})
+					.from(sql`${sql.identifier(table.table)}`),
 			);
-			const value = rows[0]?.high_water;
+			const value = postgres
+				? Number(rows[0]?.high_water)
+				: rows[0]?.high_water;
 			if (typeof value !== "number" || !Number.isSafeInteger(value))
 				throw new Error("Invalid history high water");
 			return value;
@@ -116,31 +162,40 @@ export function createHistoryReader(read: HistoryRead) {
 				owners?: string[];
 			},
 		) {
-			const owner = table.indirect
-				? `${quote(table.owner)} IN (SELECT value FROM json_each(?))`
-				: `${quote(table.owner)} = ?`;
-			const values: (string | number | null)[] = [
+			const owner = sql.identifier(table.owner);
+			const conditions = [
 				table.indirect
-					? JSON.stringify(params.owners ?? [])
-					: params.organization,
-				params.after,
-				params.highWater,
+					? anyIds(db, owner, params.owners ?? [])
+					: eq(owner, params.organization),
+				gt(sequence, params.after),
+				lte(sequence, params.highWater),
 			];
-			let range = "";
 			if (table.time) {
+				const column = sql.identifier(table.time);
 				const time = table.epoch
-					? quote(table.time)
-					: `julianday(${quote(table.time)})`;
-				const bound = table.epoch ? "?" : "julianday(?)";
-				range = ` AND ${time} >= ${bound} AND ${time} < ${bound}`;
-				values.push(
-					table.epoch ? Date.parse(params.from) / 1000 : params.from,
-					table.epoch ? Date.parse(params.to) / 1000 : params.to,
+					? column
+					: postgres
+						? sql`CAST(${column} AS timestamptz)`
+						: sql`julianday(${column})`;
+				const bound = (value: string) =>
+					table.epoch
+						? Date.parse(value) / 1000
+						: postgres
+							? sql`CAST(${value} AS timestamptz)`
+							: sql`julianday(${value})`;
+				conditions.push(
+					gte(time, bound(params.from)),
+					lt(time, bound(params.to)),
 				);
 			}
+			// Execute without Drizzle row decoding: archives retain physical column names and storage values.
 			return read(
-				`SELECT rowid AS __rowid, * FROM ${quote(table.table)} WHERE ${owner} AND rowid > ? AND rowid <= ?${range} ORDER BY rowid LIMIT 500`,
-				values,
+				db
+					.select({ __rowid: sql`${sequence}`.as("__rowid"), row: sql`*` })
+					.from(sql`${sql.identifier(table.table)}`)
+					.where(and(...conditions))
+					.orderBy(asc(sequence))
+					.limit(500),
 			);
 		},
 	};

@@ -20,18 +20,21 @@
  */
 
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreStore } from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
 import type { DbClient } from "../client";
 import {
 	type CapabilityPaceLayer,
-	capabilityLinks,
-	orgCapabilities,
+	capabilityLinks as schemaCapabilityLinks,
+	orgCapabilities as schemaOrgCapabilities,
 } from "../schema/capabilities";
-import { tediObjectives } from "../schema/tedi-objectives";
+import { tediObjectives as schemaTediObjectives } from "../schema/tedi-objectives";
 import {
 	type WorkItemDisposition,
-	workItemRelations,
-	workItems,
+	workItemRelations as schemaWorkItemRelations,
+	workItems as schemaWorkItems,
 } from "../schema/work-items";
 import { chunkForBoundParams } from "../utils/batch";
 
@@ -143,6 +146,12 @@ function toNumber(value: unknown): number {
  * blocker no longer gates, and a terminal dependent is not blocked work).
  */
 function canonEdgeQuery(db: DbClient, orgId: string, projectId?: string) {
+	const workItemRelations = coreTable(db, schemaWorkItemRelations);
+	const workItems = coreTable(db, schemaWorkItems);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	const relation = workItemRelations;
 	const wb = alias(workItems, "wb");
 	const wd = alias(workItems, "wd");
@@ -174,6 +183,7 @@ export async function getOrgGraphHealth(
 	db: DbClient,
 	params: GetOrgGraphHealthParams,
 ): Promise<OrgGraphHealthReport> {
+	const workItems = coreTable(db, schemaWorkItems);
 	const { orgId } = params;
 	const projectId = params.projectId;
 	const projectWhere = projectId
@@ -390,6 +400,15 @@ async function computeCapabilityStall(
 	available: boolean;
 	note?: string;
 }> {
+	const capabilityLinks = coreTable(db, schemaCapabilityLinks);
+	const orgCapabilities = coreTable(db, schemaOrgCapabilities);
+	const tediObjectives = coreTable(db, schemaTediObjectives);
+	const workItemRelations = coreTable(db, schemaWorkItemRelations);
+	const workItems = coreTable(db, schemaWorkItems);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	// capability → objective links for this org.
 	const linkRows = await db
 		.select({

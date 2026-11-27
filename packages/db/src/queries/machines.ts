@@ -18,7 +18,9 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreStore } from "../core-store/dialect";
 import {
 	MACHINE_COMMAND_ANSWER_WINDOW_MS,
 	MACHINE_FILE_ANSWER_WINDOW_MS,
@@ -33,11 +35,12 @@ import {
 	MACHINE_WRITE_TOOL_NAMES,
 	type MachineToolName,
 } from "@tedix/api-contract/schemas/machines";
+import { coreTable } from "../core-store/client";
 import type { DbQueryClient } from "../query-client";
-import { dispatcherHealthReports } from "../schema/dispatcher-health";
+import { dispatcherHealthReports as schemaDispatcherHealthReports } from "../schema/dispatcher-health";
 import {
-	machineToolCalls,
-	machineToolPolls,
+	machineToolCalls as schemaMachineToolCalls,
+	machineToolPolls as schemaMachineToolPolls,
 	type MachineToolCallRequesterType,
 	type MachineToolCallRow,
 } from "../schema/machines";
@@ -61,6 +64,8 @@ export async function listMachines(
 	db: DbQueryClient,
 	params: { orgId: string; at?: string },
 ): Promise<ListMachinesResult[]> {
+	const dispatcherHealthReports = coreTable(db, schemaDispatcherHealthReports);
+	const machineToolPolls = coreTable(db, schemaMachineToolPolls);
 	const now = Date.parse(params.at ?? new Date().toISOString());
 	const [rows, polls] = await db.batch([
 		db
@@ -139,6 +144,7 @@ export async function listMachineOwners(
 	db: DbQueryClient,
 	params: { orgId: string },
 ): Promise<Map<string, string | null>> {
+	const dispatcherHealthReports = coreTable(db, schemaDispatcherHealthReports);
 	const rows = await db
 		.selectDistinct({
 			machineName: dispatcherHealthReports.machineName,
@@ -177,6 +183,7 @@ export async function isMachineReporter(
 		reportedBy: string;
 	},
 ): Promise<boolean> {
+	const dispatcherHealthReports = coreTable(db, schemaDispatcherHealthReports);
 	const rows = await db
 		.select({ reporterId: dispatcherHealthReports.reporterId })
 		.from(dispatcherHealthReports)
@@ -214,6 +221,11 @@ export async function createMachineToolCall(
 	db: DbQueryClient,
 	params: CreateMachineToolCallParams,
 ): Promise<MachineToolCallRow | null> {
+	const machineToolCalls = coreTable(db, schemaMachineToolCalls);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	const at = params.at ?? new Date().toISOString();
 	const expiresAt = new Date(
 		Date.parse(at) + MACHINE_TOOL_CALL_CLAIM_WINDOW_MS,
@@ -277,6 +289,7 @@ function buildSettleOverdueStatement(
 		scope: { id: string } | { machineName: string };
 	},
 ) {
+	const machineToolCalls = coreTable(db, schemaMachineToolCalls);
 	const answerDeadline = new Date(
 		Date.parse(params.at) - MACHINE_TOOL_CALL_ANSWER_WINDOW_MS,
 	).toISOString();
@@ -312,6 +325,7 @@ export async function readMachineToolCall(
 	db: DbQueryClient,
 	params: { orgId: string; id: string; at?: string },
 ): Promise<MachineToolCallRow | null> {
+	const machineToolCalls = coreTable(db, schemaMachineToolCalls);
 	const at = params.at ?? new Date().toISOString();
 	const [, rows] = await db.batch([
 		buildSettleOverdueStatement(db, {
@@ -377,6 +391,12 @@ export async function claimMachineToolCalls(
 	db: DbQueryClient,
 	params: ClaimMachineToolCallsParams,
 ): Promise<ClaimMachineToolCallsResult> {
+	const machineToolCalls = coreTable(db, schemaMachineToolCalls);
+	const machineToolPolls = coreTable(db, schemaMachineToolPolls);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
 	const at = params.at ?? new Date().toISOString();
 	const limit = Math.min(Math.max(1, Math.trunc(params.limit)), 10);
 	const machine = and(
@@ -535,6 +555,7 @@ export async function listMachineToolCallsInRange(
 		limit: number;
 	},
 ): Promise<ListedMachineToolCallRow[]> {
+	const machineToolCalls = coreTable(db, schemaMachineToolCalls);
 	const { after } = params;
 	const orderBy = params.order === "newest" ? desc : asc;
 	const beyondCursor = params.order === "newest" ? lt : gt;
