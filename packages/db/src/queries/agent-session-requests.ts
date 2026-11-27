@@ -812,25 +812,57 @@ export async function rebuildFailedAgentSession(
 			eq(agentSessionEvents.harness, params.harness),
 			eq(agentSessionEvents.sessionKey, params.sessionKey),
 		);
-		// The DELETE receipt fences the reset in one statement; Postgres has no changes().
-		const [result] = await db.all<{ count: number }>(sql`
-			WITH removed AS (
-				DELETE FROM ${agentSessionRequests}
-				WHERE ${requestOwner} AND ${ready}
-					AND (SELECT count(*) FROM ${agentSessionRequests} AS rebuild_request WHERE ${requestScope}) = ${params.expectedRequests}
-				RETURNING id
-			), reset AS (
-				UPDATE ${agentSessionEvents}
-				SET status = 'pending', body_archived_at = NULL, attempts = 0, claimed_at = NULL, processed_at = NULL
-				WHERE ${eventOwner} AND ${ready}
-					AND (SELECT count(*) FROM ${agentSessionRequests} AS rebuild_request WHERE ${requestScope}) = ${params.expectedRequests}
-					AND (SELECT count(*) FROM removed) = ${params.expectedRequests}
-				RETURNING id
-			)
-			SELECT CASE WHEN (SELECT count(*) FROM removed) = ${params.expectedRequests}
-				AND count(*) = ${params.expectedEvents} THEN count(*) ELSE 0 END AS count
-			FROM reset
-		`);
+		const requestCount = db
+			.select({ count: sql<number>`count(*)` })
+			.from(requests)
+			.where(requestScope);
+		// Consume the DELETE receipt in the same statement; Postgres has no changes().
+		const removed = db.$with("removed", { id: agentSessionRequests.id }).as(
+			db
+				.delete(agentSessionRequests)
+				.where(
+					and(
+						requestOwner,
+						ready,
+						sql`(${requestCount}) = ${params.expectedRequests}`,
+					),
+				)
+				.returning({ id: agentSessionRequests.id })
+				.getSQL(),
+		);
+		const removedCount = db
+			.select({ count: sql<number>`count(*)` })
+			.from(removed);
+		const reset = db.$with("reset", { id: agentSessionEvents.id }).as(
+			db
+				.update(agentSessionEvents)
+				.set({
+					status: "pending",
+					bodyArchivedAt: null,
+					attempts: 0,
+					claimedAt: null,
+					processedAt: null,
+				})
+				.where(
+					and(
+						eventOwner,
+						ready,
+						sql`(${requestCount}) = ${params.expectedRequests}`,
+						sql`(${removedCount}) = ${params.expectedRequests}`,
+					),
+				)
+				.returning({ id: agentSessionEvents.id })
+				.getSQL(),
+		);
+		const [result] = await db
+			.with(removed, reset)
+			.select({
+				count:
+					sql<number>`CASE WHEN (${removedCount}) = ${params.expectedRequests} AND count(*) = ${params.expectedEvents} THEN count(*) ELSE 0 END`.mapWith(
+						Number,
+					),
+			})
+			.from(reset);
 		return Number(result?.count ?? 0);
 	}
 	const [removed, reset] = await db.batch([
@@ -1409,7 +1441,7 @@ export async function getAgentSessionRequestPrompts(
 								]),
 								eq(agentSessionEvents.kind, "prompt"),
 								// An empty string matches no event: `source_at` is never empty.
-								sql`${agentSessionEvents.sourceAt} = ${coreStore(db) === "postgres" ? sql.raw("greatest") : sql.raw("max")}(${sql.join(
+								sql`${agentSessionEvents.sourceAt} = ${coreStore(db) === "postgres" ? sql`greatest` : sql`max`}(${sql.join(
 									AGENT_SESSION_EVENT_STATUS_VALUES.map(newestPromptAt),
 									sql`, `,
 								)})`,
