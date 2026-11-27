@@ -1233,7 +1233,9 @@ function showMain(): void {
 async function showLaunchWindow(): Promise<void> {
 	// Saved window bounds and a closed setup window do not prove sign-in.
 	const browserSession = os?.webContents.session;
-	let hasSession = false;
+	// Only a clear "not signed in" opens the welcome screen. A slow or failed
+	// answer opens Tedix as usual: its page asks to sign in when it must.
+	let signedOut = false;
 	try {
 		const response = await browserSession?.fetch(
 			`${osOrigin()}/auth/session-broker/status`,
@@ -1247,10 +1249,12 @@ async function showLaunchWindow(): Promise<void> {
 		const status = (await response?.json()) as
 			| { authenticated?: boolean; renewalRequired?: boolean }
 			| undefined;
-		hasSession =
-			status?.authenticated === true || status?.renewalRequired === true;
+		signedOut =
+			response?.ok === true &&
+			status?.authenticated === false &&
+			status?.renewalRequired !== true;
 	} catch {
-		// The welcome screen still offers the demo when the network is down.
+		// Offline or slow: not proof of being signed out.
 	}
 	if (
 		quitting ||
@@ -1259,8 +1263,8 @@ async function showLaunchWindow(): Promise<void> {
 		setupWindow?.isVisible()
 	)
 		return;
-	if (hasSession || appSignIn.state === "in") showMain();
-	else openSetup();
+	if (signedOut && appSignIn.state !== "in") openSetup();
+	else showMain();
 }
 
 /** Without a visible window, Tedix lives in the menu bar only. */
@@ -2558,6 +2562,8 @@ else if (process.argv.includes("--local-model")) {
 		// While the first-run setup is open, it stays in front of the Tedix window.
 		app.on("activate", () => {
 			if (routingLaunch || localChosen) return;
+			// Signed in, the Dock reopens Tedix itself, not the welcome screen.
+			if (appSignIn.state === "in") return showMain();
 			if (setupWindow && !setupWindow.isDestroyed()) return setupWindow.show();
 			if (appSignIn.state === "out" && !mainWindow?.isVisible())
 				return openSetup();
