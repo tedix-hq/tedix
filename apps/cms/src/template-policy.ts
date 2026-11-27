@@ -50,6 +50,7 @@ export const LOCKED_FILES = [
 	"src/plugins/tedix-tedi-bridge/index.ts",
 	"src/plugins/tedix-site-builder/index.ts",
 	"src/plugins/tedix-site-builder/admin.tsx",
+	"src/plugins/tedix-site-builder/i18n.ts",
 	// Public site URL helper — drives canonical/og:url/llms.txt emission
 	// against the customer's reverse-proxy host. Imported by the locked
 	// discovery routes; locking it keeps the helper signature stable.

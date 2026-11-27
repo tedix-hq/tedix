@@ -410,7 +410,7 @@ export default defineConfig({
 			exclude: ["@phosphor-icons/react"],
 		},
 		resolve: {
-			dedupe: ["react", "react-dom"],
+			dedupe: ["react", "react-dom", "@lingui/core", "@lingui/react"],
 		},
 		server: {
 			allowedHosts: true,

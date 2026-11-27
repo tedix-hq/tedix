@@ -1,11 +1,18 @@
 // @vitest-environment happy-dom
-import { act, createElement, createRoot } from "./test-utils/template-react";
-import { afterEach, expect, it, vi } from "vite-plus/test";
+import {
+	act,
+	createElement,
+	createRoot,
+	templateI18n,
+	withTemplateI18n,
+} from "./test-utils/template-react";
+import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import {
 	pages,
 	PublishDeliveries,
 } from "../templates/tedix/src/plugins/tedix-site-builder/admin";
 
+beforeEach(() => templateI18n.loadAndActivate({ locale: "en", messages: {} }));
 afterEach(() => vi.unstubAllGlobals());
 it("shows pending and failed totals and queues a CSRF-protected retry", async () => {
 	const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -36,7 +43,7 @@ it("shows pending and failed totals and queues a CSRF-protected retry", async ()
 	const root = createRoot(container);
 	try {
 		await act(async () => {
-			root.render(createElement(PublishDeliveries));
+			root.render(withTemplateI18n(createElement(PublishDeliveries)));
 		});
 		expect(container.textContent).toContain("3 pending · 1 failed");
 		expect(container.textContent).toContain("Memory sync");
@@ -80,7 +87,7 @@ it("leaves a mounted editor for its pinned organization without using the public
 	const root = createRoot(container);
 	try {
 		await act(async () => {
-			root.render(createElement(pages["/back-to-tedix"]));
+			root.render(withTemplateI18n(createElement(pages["/back-to-tedix"])));
 		});
 		expect(replace).toHaveBeenCalledExactlyOnceWith(
 			"https://acme.os.tedix.dev/sites",

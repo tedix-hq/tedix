@@ -5,8 +5,17 @@ import { pathToFileURL } from "node:url";
 import {
 	createElement,
 	renderToStaticMarkup,
+	templateI18n,
+	withTemplateI18n,
 } from "./test-utils/template-react";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import {
 	fields,
 	pages,
@@ -14,16 +23,19 @@ import {
 import { createPlugin } from "../templates/tedix/src/plugins/tedix-site-builder/index";
 
 vi.mock("emdash", () => ({ definePlugin: (plugin: unknown) => plugin }));
+beforeEach(() => templateI18n.loadAndActivate({ locale: "en", messages: {} }));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("native generated search text widget", () => {
 	it("renders generated text collapsed and read-only without calling onChange", () => {
 		const onChange = vi.fn();
 		const markup = renderToStaticMarkup(
-			createElement(fields["derived-search-text"], {
-				value: "<script>not executable</script>",
-				onChange,
-			} as never),
+			withTemplateI18n(
+				createElement(fields["derived-search-text"], {
+					value: "<script>not executable</script>",
+					onChange,
+				} as never),
+			),
 		);
 		expect(markup).toContain("<details>");
 		expect(markup).toContain("&lt;script&gt;not executable&lt;/script&gt;");
@@ -53,7 +65,9 @@ describe("native generated search text widget", () => {
 describe("native editing navigation", () => {
 	it("keeps code management separate from native preview and editing", () => {
 		vi.stubGlobal("__TEDIX_OS_SITES_URL__", "https://acme.os.tedix.dev/sites");
-		const markup = renderToStaticMarkup(createElement(pages["/development"]));
+		const markup = renderToStaticMarkup(
+			withTemplateI18n(createElement(pages["/development"])),
+		);
 		expect(markup).toContain("Code and deployments");
 		expect(markup).toContain("https://acme.os.tedix.dev/sites");
 		expect(markup).not.toContain("<iframe");
@@ -63,6 +77,53 @@ describe("native editing navigation", () => {
 		]);
 		expect(createPlugin().admin).not.toHaveProperty("widgets");
 	});
+});
+
+it("restores plugin catalogs before navigation and pages render on boot and locale switches", () => {
+	vi.stubGlobal("__TEDIX_OS_SITES_URL__", "https://acme.os.tedix.dev/sites");
+	const require = createRequire(
+		new URL("../templates/tedix/package.json", import.meta.url),
+	);
+	const directory = dirname(require.resolve("@emdash-cms/admin"));
+	const chunk = readdirSync(directory).find(
+		(name) => name.startsWith("App-") && name.endsWith(".js"),
+	)!;
+	const host = readFileSync(`${directory}/${chunk}`, "utf8");
+	const resolver = host.match(
+		/function resolvePluginPageLabel[\s\S]+?(?=\n\/\*\*)/,
+	)?.[0];
+	const translator = host.match(
+		/function declaredLabelTranslator[\s\S]+?(?=\n\/\*\*)/,
+	)?.[0];
+	if (!resolver || !translator)
+		throw new Error("Installed host label translation path not found");
+	const translateLabel = new Function(
+		"i18n",
+		`${resolver}; ${translator}; return (label) => resolvePluginPageLabel(label, "tedix-site-builder", declaredLabelTranslator(i18n, id => i18n._(id)));`,
+	)(templateI18n);
+	for (const [locale, title, empty] of [
+		["de", "Code und Bereitstellungen", "Noch kein Suchtext vorhanden."],
+		["en", "Code and deployments", "No search text yet."],
+		["ar", "البرمجة والنشر", "لا يوجد نص بحث بعد."],
+		["de", "Code und Bereitstellungen", "Noch kein Suchtext vorhanden."],
+	] as const) {
+		templateI18n.loadAndActivate({
+			locale,
+			messages: { host: ["Host message"] },
+		});
+		expect(templateI18n._("host")).toBe("Host message");
+		expect(translateLabel(createPlugin().admin!.pages![1]!.label)).toBe(title);
+		const page = renderToStaticMarkup(
+			withTemplateI18n(createElement(pages["/development"])),
+		);
+		const widget = renderToStaticMarkup(
+			withTemplateI18n(
+				createElement(fields["derived-search-text"], { value: "" }),
+			),
+		);
+		expect(page).toContain(`<h1>${title}</h1>`);
+		expect(widget).toContain(empty);
+	}
 });
 
 describe("registry declarative field widget", () => {

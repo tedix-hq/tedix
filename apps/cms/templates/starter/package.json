@@ -17,6 +17,8 @@
 		"@emdash-cms/cloudflare": "1.6.0",
 		"@emdash-cms/plugin-embeds": "^0.1.60",
 		"@emdash-cms/plugin-forms": "^0.2.14",
+		"@lingui/core": "5.9.5",
+		"@lingui/react": "5.9.5",
 		"@orpc/client": "2.0.0-beta.50",
 		"astro": "^7.4.13",
 		"emdash": "1.6.0",

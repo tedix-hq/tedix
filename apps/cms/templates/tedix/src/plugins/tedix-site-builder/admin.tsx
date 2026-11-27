@@ -1,34 +1,40 @@
+import "./i18n";
+import { useLingui } from "@lingui/react";
 import { apiFetch } from "emdash/plugin-utils";
 import { useEffect, useState, type ComponentType } from "react";
 
 declare const __TEDIX_OS_SITES_URL__: string;
 
 function BackToTedixPage() {
+	const { _ } = useLingui();
 	useEffect(() => {
 		window.location.replace(__TEDIX_OS_SITES_URL__);
 	}, []);
-	return <a href={__TEDIX_OS_SITES_URL__}>Back to Tedix</a>;
+	return <a href={__TEDIX_OS_SITES_URL__}>{_("Back to Tedix")}</a>;
 }
 
 function SiteDevelopmentPage() {
+	const { _ } = useLingui();
 	return (
 		<section>
-			<h1>Code and deployments</h1>
+			<h1>{_("Code and deployments")}</h1>
 			<PublishDeliveries />
 			<p>
-				Edit content, media, menus and site settings in EmDash. Use the content
-				editor to preview and publish changes.
+				{_(
+					"Edit content, media, menus and site settings in EmDash. Use the content editor to preview and publish changes.",
+				)}
 			</p>
 			<p>
-				For theme code, domains and deployments, open Sites in your Tedix
-				workspace.
+				{_(
+					"For theme code, domains and deployments, open Sites in your Tedix workspace.",
+				)}
 			</p>
 			<a
 				href={__TEDIX_OS_SITES_URL__}
 				target="_blank"
 				rel="noopener noreferrer"
 			>
-				Open Sites
+				{_("Open Sites")}
 			</a>
 		</section>
 	);
@@ -53,6 +59,7 @@ function deliveryUrl(plugin: string, action: string) {
 	return `${prefix}/_emdash/api/plugins/${plugin}/deliveries/${action}`;
 }
 export function PublishDeliveries() {
+	const { _ } = useLingui();
 	const [statuses, setStatuses] = useState<Record<string, DeliveryStatus>>({});
 	const [error, setError] = useState("");
 	async function refresh() {
@@ -76,7 +83,11 @@ export function PublishDeliveries() {
 			setError("");
 		} catch (error) {
 			setError(
-				error instanceof Error ? error.message : "Delivery status unavailable.",
+				error instanceof Error &&
+					error.message ===
+						"Delivery status unavailable. Administrator access is required."
+					? error.message
+					: "Delivery status unavailable.",
 			);
 		}
 	}
@@ -94,57 +105,63 @@ export function PublishDeliveries() {
 				throw new Error("Could not queue the retry. Refresh and try again.");
 			await refresh();
 		} catch (error) {
-			setError(error instanceof Error ? error.message : "Retry unavailable.");
+			setError(
+				error instanceof Error &&
+					error.message === "Could not queue the retry. Refresh and try again."
+					? error.message
+					: "Retry unavailable.",
+			);
 		}
 	}
 	return (
-		<section aria-label="Publish deliveries">
-			<h2>Publish deliveries</h2>
+		<section aria-label={_("Publish deliveries")}>
+			<h2>{_("Publish deliveries")}</h2>
 			<p>
-				Publishing is independent of memory sync and newsletter delivery. Failed
-				deliveries retry automatically up to eight times. Sent means the
-				provider accepted the request.
+				{_(
+					"Publishing is independent of memory sync and newsletter delivery. Failed deliveries retry automatically up to eight times. Sent means the provider accepted the request.",
+				)}
 			</p>
-			{error && <p role="alert">{error}</p>}
+			{error && <p role="alert">{_(error)}</p>}
 			<button type="button" onClick={() => void refresh()}>
-				Refresh deliveries
+				{_("Refresh deliveries")}
 			</button>
 			{deliveryPlugins.map((plugin) => (
 				<div key={plugin.id}>
-					<h3>{plugin.label}</h3>
+					<h3>{_(plugin.label)}</h3>
 					{statuses[plugin.id] ? (
 						<>
 							<p>
-								{statuses[plugin.id]!.pending} pending ·{" "}
-								{statuses[plugin.id]!.failed} failed
+								{_("{pending} pending · {failed} failed", {
+									pending: statuses[plugin.id]!.pending,
+									failed: statuses[plugin.id]!.failed,
+								})}
 							</p>
 							<ul>
 								{statuses[plugin.id]!.receipts.filter(
 									(receipt) => receipt.status === "failed",
 								).map((receipt) => (
 									<li key={receipt.id}>
-										{receipt.recipient} · {receipt.attempts} attempts{" "}
+										<bdi>{receipt.recipient}</bdi> ·{" "}
+										{_("{attempts} attempts", { attempts: receipt.attempts })}{" "}
 										<button
 											type="button"
 											onClick={() => void retry(plugin.id, receipt.id)}
 										>
-											Retry delivery
+											{_("Retry delivery")}
 										</button>
 									</li>
 								))}
 							</ul>
 						</>
 					) : (
-						<p>Loading delivery status…</p>
+						<p>{_("Loading delivery status…")}</p>
 					)}
 				</div>
 			))}
 			<p>
-				For plain webhooks, use the upstream{" "}
 				<a href="https://plugins.emdashcms.com/plugins/@plugins.emdashcms.com/webhook-notifier">
-					Webhook Notifier
-				</a>{" "}
-				plugin.
+					{_("For plain webhooks, use the Webhook Notifier plugin.")}
+				</a>
 			</p>
 		</section>
 	);
@@ -157,15 +174,20 @@ export const pages = {
 
 // Search text is produced by the page-search hook; editors change the page blocks.
 export function DerivedSearchText({ value }: { value: unknown }) {
+	const { _ } = useLingui();
 	return (
 		<details>
-			<summary>Generated search text</summary>
+			<summary>{_("Generated search text")}</summary>
 			<p>
-				This text is generated when page sections are saved. Edit the sections
-				to update it.
+				{_(
+					"This text is generated when page sections are saved. Edit the sections to update it.",
+				)}
 			</p>
-			<p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-				{typeof value === "string" && value ? value : "No search text yet."}
+			<p
+				dir="auto"
+				style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+			>
+				{typeof value === "string" && value ? value : _("No search text yet.")}
 			</p>
 		</details>
 	);
