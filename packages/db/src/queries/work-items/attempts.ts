@@ -265,6 +265,7 @@ function buildAttemptExpiryStatements(
 			),
 		)
 		.returning({ expiredAttemptId: workAttempts.id });
+	// Keep D1 on the admission index rather than walking the organization's pools.
 	const expireResources = db
 		.update(workResourceReservations)
 		.set({
@@ -274,8 +275,11 @@ function buildAttemptExpiryStatements(
 		})
 		.where(
 			and(
-				eq(workResourceReservations.orgId, timedOut.orgId),
+				coreStore(db) === "d1"
+					? sql`+${workResourceReservations.orgId} = ${timedOut.orgId}`
+					: eq(workResourceReservations.orgId, timedOut.orgId),
 				eq(workResourceReservations.workItemId, timedOut.workItemId),
+				sql`${workResourceReservations.admissionId} = ${timedOut.admissionId}`,
 				eq(workResourceReservations.state, "active"),
 				sql`${workResourceReservations.expiresAt} <= ${at}`,
 				sql`EXISTS (SELECT 1 FROM work_attempts AS timed_out_attempt WHERE timed_out_attempt.id = ${timedOut.id} AND timed_out_attempt.admission_id = ${workResourceReservations.admissionId} AND timed_out_attempt.org_id = ${workResourceReservations.orgId} AND timed_out_attempt.work_item_id = ${workResourceReservations.workItemId} AND timed_out_attempt.version = ${nextVersion} AND timed_out_attempt.runtime_state = 'expired' AND timed_out_attempt.finished_at = ${at})`,
@@ -293,8 +297,11 @@ function buildAttemptExpiryStatements(
 		})
 		.where(
 			and(
-				eq(workBudgetReservations.orgId, timedOut.orgId),
+				coreStore(db) === "d1"
+					? sql`+${workBudgetReservations.orgId} = ${timedOut.orgId}`
+					: eq(workBudgetReservations.orgId, timedOut.orgId),
 				eq(workBudgetReservations.workItemId, timedOut.workItemId),
+				sql`${workBudgetReservations.admissionId} = ${timedOut.admissionId}`,
 				eq(workBudgetReservations.state, "active"),
 				sql`${workBudgetReservations.expiresAt} <= ${at}`,
 				sql`EXISTS (SELECT 1 FROM work_attempts AS timed_out_attempt WHERE timed_out_attempt.id = ${timedOut.id} AND timed_out_attempt.admission_id = ${workBudgetReservations.admissionId} AND timed_out_attempt.org_id = ${workBudgetReservations.orgId} AND timed_out_attempt.work_item_id = ${workBudgetReservations.workItemId} AND timed_out_attempt.version = ${nextVersion} AND timed_out_attempt.runtime_state = 'expired' AND timed_out_attempt.finished_at = ${at})`,
@@ -1413,6 +1420,7 @@ export async function settleWorkItemAttempt(
 					),
 				),
 		);
+		// As in expiry, seek the admission before checking its winning Attempt.
 		const releaseResources = db
 			.update(workResourceReservations)
 			.set({
@@ -1422,8 +1430,11 @@ export async function settleWorkItemAttempt(
 			})
 			.where(
 				and(
-					eq(workResourceReservations.orgId, params.orgId),
+					coreStore(db) === "d1"
+						? sql`+${workResourceReservations.orgId} = ${params.orgId}`
+						: eq(workResourceReservations.orgId, params.orgId),
 					eq(workResourceReservations.workItemId, params.workItemId),
+					sql`${workResourceReservations.admissionId} = ${prior.admissionId}`,
 					eq(workResourceReservations.state, "active"),
 					sql`EXISTS (SELECT 1 FROM work_attempts AS settlement_winner WHERE settlement_winner.id=${params.attemptId} AND settlement_winner.admission_id=${workResourceReservations.admissionId} AND settlement_winner.org_id=${workResourceReservations.orgId} AND settlement_winner.work_item_id=${workResourceReservations.workItemId} AND settlement_winner.version=${prior.version + 1} AND settlement_winner.runtime_state=${runtimeState})`,
 				),
@@ -1444,8 +1455,11 @@ export async function settleWorkItemAttempt(
 			})
 			.where(
 				and(
-					eq(workBudgetReservations.orgId, params.orgId),
+					coreStore(db) === "d1"
+						? sql`+${workBudgetReservations.orgId} = ${params.orgId}`
+						: eq(workBudgetReservations.orgId, params.orgId),
 					eq(workBudgetReservations.workItemId, params.workItemId),
+					sql`${workBudgetReservations.admissionId} = ${prior.admissionId}`,
 					eq(workBudgetReservations.state, "active"),
 					sql`EXISTS (SELECT 1 FROM work_attempts AS settlement_winner WHERE settlement_winner.id=${params.attemptId} AND settlement_winner.admission_id=${workBudgetReservations.admissionId} AND settlement_winner.org_id=${workBudgetReservations.orgId} AND settlement_winner.work_item_id=${workBudgetReservations.workItemId} AND settlement_winner.version=${prior.version + 1} AND settlement_winner.runtime_state=${runtimeState})`,
 				),

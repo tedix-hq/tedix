@@ -13,6 +13,11 @@ import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { tableDdl } from "../../test/schema-ddl";
+import {
+	workResourceReservations,
+	workBudgetReservations,
+} from "../../schema/work-factory";
 import { sweepElapsedWorkAttempts } from "./attempts";
 
 const ORG = "org-1";
@@ -239,7 +244,13 @@ describe("sweepElapsedWorkAttempts", () => {
 		expect(attemptRow("boundary")?.runtime_state).toBe("expired");
 	});
 
-	it("retires reservations under the same policy the admission path uses", async () => {
+	it("retires only the elapsed admission's reservations through its indexes", async () => {
+		for (const table of [workResourceReservations, workBudgetReservations])
+			sqlite.exec(tableDdl(table).slice(1).join("\n"));
+		const queries: string[] = [];
+		const indexed = createDbQueryClient(
+			createD1Facade(sqlite, { onPrepare: (query) => queries.push(query) }),
+		);
 		seedAttempt({
 			id: "a-1",
 			workItemId: "w-1",
@@ -251,7 +262,12 @@ describe("sweepElapsedWorkAttempts", () => {
 			workItemId: "w-1",
 			expiresAt: PAST,
 		});
-		await sweepElapsedWorkAttempts(db, { now: NOW });
+		seedReservations({
+			admissionId: "adm-other",
+			workItemId: "w-1",
+			expiresAt: PAST,
+		});
+		await sweepElapsedWorkAttempts(indexed, { now: NOW });
 		const settled = reservationStates("adm-1");
 		expect(settled.resource).toMatchObject({
 			state: "expired",
@@ -264,6 +280,22 @@ describe("sweepElapsedWorkAttempts", () => {
 			consumed_micros: null,
 			settled_at: NOW,
 		});
+		expect(reservationStates("adm-other").resource.state).toBe("active");
+		expect(reservationStates("adm-other").budget.state).toBe("active");
+		const updates = queries.filter((query) =>
+			/^update "work_(resource|budget)_reservations"/.test(query),
+		);
+		expect(updates).toHaveLength(2);
+		for (const query of updates) {
+			const plan = sqlite
+				.prepare(`EXPLAIN QUERY PLAN ${query}`)
+				.all(...Array.from(query.matchAll(/\?/g), () => null))
+				.map((row) => String(row.detail))
+				.join("\n");
+			expect(plan, query).toMatch(
+				/USING INDEX uniq_work_(resource|budget)_reservation_admission_\w+ \(admission_id=\?\)/,
+			);
+		}
 	});
 
 	it("consumes only the spend committed before the lease elapsed", async () => {
