@@ -1,4 +1,4 @@
-import { coreQueryDb } from "@tedix/db/core-store/scope";
+import { coreQueryDb, withCoreStore } from "@tedix/db/core-store/scope";
 import { requireUnrestrictedCmsModels } from "./data-residency";
 import {
 	WorkflowEntrypoint,
@@ -680,7 +680,6 @@ export class ImageGenerationWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<ImageGenerationWorkflowParams>,
 		step: WorkflowStep,
 	): Promise<ImageGenerationResult> {
-		const { withCoreStore } = await import("@tedix/db/core-store/scope");
 		return withCoreStore(
 			this.env,
 			() => this.runInner(event, step),
@@ -706,7 +705,10 @@ export class ImageGenerationWorkflow extends WorkflowEntrypoint<
 			const defaults = await step.do(
 				"load-tenant-image-defaults",
 				{ retries: { limit: 2, delay: "2 seconds" }, timeout: "20 seconds" },
-				() => loadTenantDefaults(this.env.DB, params.orgSlug),
+				() =>
+					withCoreStore(this.env, () =>
+						loadTenantDefaults(this.env.DB, params.orgSlug),
+					),
 			);
 			const prompt = buildPrompt(params, defaults);
 			const model = params.model ?? defaults.model ?? DEFAULT_MODEL;
@@ -730,37 +732,38 @@ export class ImageGenerationWorkflow extends WorkflowEntrypoint<
 			const generated = await step.do(
 				"generate-image",
 				{ retries: { limit: 1, delay: "5 seconds" }, timeout: "2 minutes" },
-				async () => {
-					await requireUnrestrictedCmsModels(this.env.DB, params.orgSlug);
-					await assertCmsVertexDailyBudget(this.env.DB);
-					const startedAt = Date.now();
-					try {
-						const result = await generateGeminiImage(
-							this.env.GEMINI_API_KEY,
-							model,
-							prompt,
-							apiAspectRatio,
-						);
-						await recordCmsVertexImageCall(this.env.DB, {
-							orgSlug: params.orgSlug,
-							jobId,
-							model,
-							success: true,
-							callDurationMs: Date.now() - startedAt,
-							usageMetadata: result.usageMetadata,
-						});
-						return result;
-					} catch (error) {
-						await recordCmsVertexImageCall(this.env.DB, {
-							orgSlug: params.orgSlug,
-							jobId,
-							model,
-							success: false,
-							callDurationMs: Date.now() - startedAt,
-						});
-						throw error;
-					}
-				},
+				() =>
+					withCoreStore(this.env, async () => {
+						await requireUnrestrictedCmsModels(this.env.DB, params.orgSlug);
+						await assertCmsVertexDailyBudget(this.env.DB);
+						const startedAt = Date.now();
+						try {
+							const result = await generateGeminiImage(
+								this.env.GEMINI_API_KEY,
+								model,
+								prompt,
+								apiAspectRatio,
+							);
+							await recordCmsVertexImageCall(this.env.DB, {
+								orgSlug: params.orgSlug,
+								jobId,
+								model,
+								success: true,
+								callDurationMs: Date.now() - startedAt,
+								usageMetadata: result.usageMetadata,
+							});
+							return result;
+						} catch (error) {
+							await recordCmsVertexImageCall(this.env.DB, {
+								orgSlug: params.orgSlug,
+								jobId,
+								model,
+								success: false,
+								callDurationMs: Date.now() - startedAt,
+							});
+							throw error;
+						}
+					}),
 			);
 			const bytes = base64ToBytes(generated.dataBase64);
 			const dimensions = inferDimensions(bytes, generated.mimeType);
@@ -793,13 +796,15 @@ export class ImageGenerationWorkflow extends WorkflowEntrypoint<
 				"upload-media",
 				{ retries: { limit: 2, delay: "2 seconds" }, timeout: "45 seconds" },
 				() =>
-					mediaUpload(cmsCtx, {
-						filename,
-						mimeType: generated.mimeType,
-						dataBase64: generated.dataBase64,
-						alt: params.alt ?? params.title ?? params.prompt,
-						caption: params.caption,
-					}),
+					withCoreStore(this.env, () =>
+						mediaUpload(cmsCtx, {
+							filename,
+							mimeType: generated.mimeType,
+							dataBase64: generated.dataBase64,
+							alt: params.alt ?? params.title ?? params.prompt,
+							caption: params.caption,
+						}),
+					),
 			);
 			if (uploadResult.isError) {
 				throw new Error(uploadResult.content[0]?.text ?? "Media upload failed");
@@ -820,7 +825,10 @@ export class ImageGenerationWorkflow extends WorkflowEntrypoint<
 				await step.do(
 					"attach-to-content",
 					{ retries: { limit: 0, delay: "2 seconds" }, timeout: "45 seconds" },
-					() => attachGeneratedImage(cmsCtx, params.attachTo!, mediaValue),
+					() =>
+						withCoreStore(this.env, () =>
+							attachGeneratedImage(cmsCtx, params.attachTo!, mediaValue),
+						),
 				);
 
 				attached = {

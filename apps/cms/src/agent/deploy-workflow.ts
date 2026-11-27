@@ -1,3 +1,4 @@
+import { withCoreStore } from "@tedix/db/core-store/scope";
 import { readThemeCandidate, stageThemeCandidate } from "./theme-candidate";
 import { identifyThemeRelease } from "./theme-release";
 import { platformThemeManifest } from "./theme-dependencies";
@@ -308,7 +309,6 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 		url: string;
 		candidateId?: string;
 	}> {
-		const { withCoreStore } = await import("@tedix/db/core-store/scope");
 		return withCoreStore(
 			this.env,
 			() => this.runInner(event, step),
@@ -372,51 +372,53 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 			permitOptions?: { retainPermitOnUnknownProcessOutcome: true },
 		) => {
 			currentPhase = name;
-			return step.do(name, config, async () => {
-				failureDetails = undefined;
-				try {
-					return await withSitePermit(operation, permitOptions);
-				} catch (error) {
-					failureDetails ??= {
-						phase: name,
-						...(error instanceof CmsDeployFailure ? error.block : undefined),
-						code:
-							error instanceof CmsDeployFailure
-								? error.code
-								: "DEPLOY_STEP_FAILED",
-						retryable:
-							error instanceof CmsDeployFailure
-								? error.retryable
-								: !(
-										error instanceof NonRetryableError ||
-										error instanceof CmsUnknownProcessOutcomeError
-									),
-						rollback: "not_required",
-						correlationId: jobId,
-					};
-					console.error("cms.deploy.failed", {
-						jobId,
-						...failureDetails,
-						error,
-						errorMessage: errorMessage(error),
-					});
-					await record(
-						name,
-						"failed",
-						"Deploy step failed",
-						failureDetails,
-					).catch(() => undefined);
-					// The permit helper must see the original type so it can retain
-					// the fence. The Workflow engine must then stop retrying this
-					// step, because the native process may still be running.
-					if (error instanceof CmsDeployFailure && !error.retryable)
-						throw new NonRetryableError(error.message);
-					if (error instanceof CmsUnknownProcessOutcomeError) {
-						throw new NonRetryableError(error.message);
+			return step.do(name, config, () =>
+				withCoreStore(env, async () => {
+					failureDetails = undefined;
+					try {
+						return await withSitePermit(operation, permitOptions);
+					} catch (error) {
+						failureDetails ??= {
+							phase: name,
+							...(error instanceof CmsDeployFailure ? error.block : undefined),
+							code:
+								error instanceof CmsDeployFailure
+									? error.code
+									: "DEPLOY_STEP_FAILED",
+							retryable:
+								error instanceof CmsDeployFailure
+									? error.retryable
+									: !(
+											error instanceof NonRetryableError ||
+											error instanceof CmsUnknownProcessOutcomeError
+										),
+							rollback: "not_required",
+							correlationId: jobId,
+						};
+						console.error("cms.deploy.failed", {
+							jobId,
+							...failureDetails,
+							error,
+							errorMessage: errorMessage(error),
+						});
+						await record(
+							name,
+							"failed",
+							"Deploy step failed",
+							failureDetails,
+						).catch(() => undefined);
+						// The permit helper must see the original type so it can retain
+						// the fence. The Workflow engine must then stop retrying this
+						// step, because the native process may still be running.
+						if (error instanceof CmsDeployFailure && !error.retryable)
+							throw new NonRetryableError(error.message);
+						if (error instanceof CmsUnknownProcessOutcomeError) {
+							throw new NonRetryableError(error.message);
+						}
+						throw error;
 					}
-					throw error;
-				}
-			});
+				}),
+			);
 		};
 		const record = (
 			phase: string,
@@ -455,13 +457,15 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 					"cleanup-staging",
 					{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
 					() =>
-						withSitePermit(async () => ({
-							deleted: await cleanupStagedBundle(
-								env.SITE_BUILDER_STORAGE,
-								orgSlug,
-								stagingAttemptId,
-							),
-						})),
+						withCoreStore(env, () =>
+							withSitePermit(async () => ({
+								deleted: await cleanupStagedBundle(
+									env.SITE_BUILDER_STORAGE,
+									orgSlug,
+									stagingAttemptId,
+								),
+							})),
+						),
 				);
 			} catch (error) {
 				console.warn(
