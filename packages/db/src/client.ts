@@ -59,6 +59,7 @@ export function configureLogStore(
 	db: DbClient,
 	bindings: object,
 	archives: readonly LogArchiveSource[] = [],
+	main: DbClient = createDbClient(db.$client),
 ): void {
 	const seen = new Set<D1Database>();
 	const partitions = Object.entries(bindings)
@@ -71,7 +72,7 @@ export function configureLogStore(
 		});
 	if (!partitions.length && !archives.length) return;
 	logStores.set(db, {
-		main: createDbClient(db.$client),
+		main,
 		logs: partitions.find((partition) => partition.binding === "LOGS_DB")?.db,
 		partitions,
 		archives: [...archives],

@@ -32,6 +32,16 @@ export function coreTable<T extends Parameters<typeof getTableName>[0]>(
 	if (!pg) throw new Error(`Missing Postgres table: ${getTableName(table)}`);
 	return pg as unknown as T;
 }
+/**
+ * A second handle on the same Postgres client. Log-store reads mark the
+ * "main" store they read, so it must not be the scope client itself.
+ */
+export function postgresClientView(db: DbClient): DbClient {
+	const view = new Proxy(db, {});
+	pgClients.add(view);
+	registerCoreStore(view, "postgres");
+	return view;
+}
 /** Bind native Pg builders to the shared query surface, with one atomic batch adapter.
  * Lanes must select coreTable() and replace SQLite SQL before enabling their query paths. */
 export function adaptPostgresClient(

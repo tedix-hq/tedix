@@ -16,9 +16,13 @@
  * its work inside `withCoreStore`.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createDbClient, type DbClient } from "../client";
+import { configureLogStore, createDbClient, type DbClient } from "../client";
 import { createDbQueryClient, type DbQueryClient } from "../query-client";
-import { createCoreStore, type CoreStoreEnv } from "./client";
+import {
+	createCoreStore,
+	postgresClientView,
+	type CoreStoreEnv,
+} from "./client";
 import {
 	configureAuditDelivery,
 	withAuditDelivery,
@@ -48,6 +52,8 @@ export async function withCoreStore<T>(
 ): Promise<T> {
 	if (isD1CoreStore(env)) return withAuditDelivery(env, fn);
 	const store = createCoreStore(env);
+	// Audit and telemetry history stays in the LOGS_DB partitions.
+	configureLogStore(store.db, env, [], postgresClientView(store.db));
 	try {
 		return await storage.run({ db: store.db, close: store.close }, fn);
 	} finally {
