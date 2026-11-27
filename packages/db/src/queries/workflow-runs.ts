@@ -1,11 +1,13 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { anyIds } from "../core-store/dialect";
 import {
 	type NewWorkflowRunLedger,
 	type WorkflowRunLedger,
 	type WorkflowRunStatus,
-	workflowRunLedger,
+	workflowRunLedger as schemaWorkflowRunLedger,
 } from "../schema/workflow-runs";
 
 export type WorkflowRunRecordInput = {
@@ -25,6 +27,7 @@ export async function createWorkflowRunRecord(
 	db: DbClient,
 	input: WorkflowRunRecordInput,
 ): Promise<WorkflowRunLedger> {
+	const workflowRunLedger = coreTable(db, schemaWorkflowRunLedger);
 	const now = new Date().toISOString();
 	const id = crypto.randomUUID();
 	const values: NewWorkflowRunLedger = {
@@ -41,13 +44,10 @@ export async function createWorkflowRunRecord(
 		output: input.output ?? null,
 		error: input.error ?? null,
 	};
-	await db.insert(workflowRunLedger).values(values);
-
 	const [record] = await db
-		.select()
-		.from(workflowRunLedger)
-		.where(eq(workflowRunLedger.id, id))
-		.limit(1);
+		.insert(workflowRunLedger)
+		.values(values)
+		.returning();
 	if (!record) throw new Error(`Failed to create workflow run record: ${id}`);
 	return record;
 }
@@ -64,7 +64,8 @@ export async function completeWorkflowRunRecord(
 		error?: string | null;
 	},
 ): Promise<WorkflowRunLedger | null> {
-	await db
+	const workflowRunLedger = coreTable(db, schemaWorkflowRunLedger);
+	const [record] = await db
 		.update(workflowRunLedger)
 		.set({
 			status: update.status,
@@ -75,13 +76,8 @@ export async function completeWorkflowRunRecord(
 			output: update.output ?? null,
 			error: update.error ?? null,
 		})
-		.where(eq(workflowRunLedger.id, id));
-
-	const [record] = await db
-		.select()
-		.from(workflowRunLedger)
 		.where(eq(workflowRunLedger.id, id))
-		.limit(1);
+		.returning();
 	return record ?? null;
 }
 
@@ -89,6 +85,7 @@ export async function getRecentWorkflowRunRecords(
 	db: DbClient,
 	options: { workflowType?: string; limit?: number } = {},
 ): Promise<WorkflowRunLedger[]> {
+	const workflowRunLedger = coreTable(db, schemaWorkflowRunLedger);
 	const limit = options.limit ?? 20;
 	const query = db
 		.select()
@@ -107,37 +104,37 @@ export async function getRecentWorkflowRunRecords(
 
 /**
  * Return the latest durable ledger row for every requested platform workflow
- * type. The two-stage query avoids a global recent-run sample, which can hide
+ * type. The per-type maximum avoids a global recent-run sample, which can hide
  * quiet workflow types behind one noisy workflow.
  */
 export async function getLatestWorkflowRunRecordsByTypes(
 	db: DbClient,
 	workflowTypes: string[],
 ): Promise<WorkflowRunLedger[]> {
+	const workflowRunLedger = coreTable(db, schemaWorkflowRunLedger);
 	const types = [...new Set(workflowTypes)];
 	if (types.length === 0) return [];
 
-	const maxima = await db
+	const maxima = db
 		.select({
 			workflowType: workflowRunLedger.workflowType,
-			startedAt: sql<string>`max(${workflowRunLedger.startedAt})`,
+			startedAt: sql<string>`max(${workflowRunLedger.startedAt})`.as(
+				"max_started_at",
+			),
 		})
 		.from(workflowRunLedger)
-		.where(inArray(workflowRunLedger.workflowType, types))
-		.groupBy(workflowRunLedger.workflowType);
-	if (maxima.length === 0) return [];
+		.where(anyIds(db, workflowRunLedger.workflowType, types))
+		.groupBy(workflowRunLedger.workflowType)
+		.as("maxima");
 
 	const latest = await db
-		.select()
+		.select(getColumns(workflowRunLedger))
 		.from(workflowRunLedger)
-		.where(
-			or(
-				...maxima.map((row) =>
-					and(
-						eq(workflowRunLedger.workflowType, row.workflowType),
-						eq(workflowRunLedger.startedAt, row.startedAt),
-					),
-				),
+		.innerJoin(
+			maxima,
+			and(
+				eq(workflowRunLedger.workflowType, maxima.workflowType),
+				eq(workflowRunLedger.startedAt, maxima.startedAt),
 			),
 		)
 		.orderBy(desc(workflowRunLedger.startedAt), desc(workflowRunLedger.id));
