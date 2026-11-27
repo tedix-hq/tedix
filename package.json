@@ -193,7 +193,8 @@
 		"emdash@1.6.0": "patches/emdash@1.6.0.patch",
 		"@emdash-cms/cloudflare@1.6.0": "patches/@emdash-cms/cloudflare@1.6.0.patch",
 		"agents@0.33.0": "patches/agents@0.33.0.patch",
-		"@modelcontextprotocol/server-memory@2.2.1": "patches/@modelcontextprotocol/server-memory@2.2.1.patch"
+		"@modelcontextprotocol/server-memory@2.2.1": "patches/@modelcontextprotocol/server-memory@2.2.1.patch",
+		"postgres@4.1.1": "patches/postgres@4.1.1.patch"
 	},
 	"trustedDependencies": [
 		"esbuild",

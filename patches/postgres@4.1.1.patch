@@ -1,0 +1,15 @@
+diff --git a/src/connection.js b/src/connection.js
+index 1cf7a3527a12b800d7cb6b775cf85e846b79a646..809f2c332ea872e34b48152fdd8a492506a17547 100644
+--- a/src/connection.js
++++ b/src/connection.js
+@@ -502,7 +502,9 @@ export function Connection(ready, options, events) {
+ 
+     const { oids, values } = built
+     for (let i = 0; i < oids.length; i++) {
+-      if (!oids[i] && values[i] !== null && !(typeof values[i] === 'number' && isFinite(values[i])))
++      // Text-format strings with an unspecified type: the server infers it from
++      // the statement, as postgres.js 3 relied on. Avoids a Describe round trip.
++      if (!oids[i] && values[i] !== null && typeof values[i] !== 'string' && !(typeof values[i] === 'number' && isFinite(values[i])))
+         return false
+     }
+     return x.loose = true

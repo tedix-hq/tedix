@@ -145,18 +145,12 @@ export function createCoreStore(env: CoreStoreEnv): {
 		// so a finished request stops holding one.
 		connect_timeout: 10,
 		idle_timeout: 5,
-		// int8 as a JS number, as D1 returned it. postgres.js defaults to a
-		// string, which breaks counts and every bigint read through a D1 table
-		// definition (for example a skill revision failing its number schema).
-		types: {
-			int8: {
-				to: 20,
-				from: [20],
-				serialize: (value: number | bigint | string) => String(value),
-				parse: (value: string) => Number(value),
-			},
-		},
 	});
+	// int8 as a JS number, as D1 returned it; postgres.js defaults to a string,
+	// which broke counts and bigint reads through D1 table definitions. Set as
+	// a parser, not a custom type: any custom serializer makes postgres.js
+	// describe every query first, an extra round trip per query.
+	sql.options.parsers[20] = Number;
 	const native = drizzle({ client: sql, relations });
 	const run: RunAtomicBatch = async (statements) => {
 		// postgres.js 4 sends one extended-protocol batch with one Sync.
