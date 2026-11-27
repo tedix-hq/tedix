@@ -1,6 +1,9 @@
 import { grantOsWorkspaceAccess } from "@tedix/db/queries/os-collaborators";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
-import { auditEvents } from "@tedix/db/schema/audit-events";
+import {
+	auditDeliveryOutbox,
+	auditEvents,
+} from "@tedix/db/schema/audit-events";
 import {
 	osWorkspaceCollaborators,
 	osWorkspaceAccessEdges,
@@ -7997,6 +8000,7 @@ describe("workspace transport authorization", () => {
 		const { ws, privateScope } = await fixture();
 		await testEnv.DB.batch([
 			testEnv.DB.prepare(ddl(auditEvents)),
+			testEnv.DB.prepare(ddl(auditDeliveryOutbox)),
 			testEnv.DB.prepare(
 				"INSERT OR REPLACE INTO organization_members (id, organization_id, descope_user_id, email, role, status, kind) VALUES ('fixture-admin', ?, 'fictional-admin', 'admin@example.test', 'admin', 'active', 'human')",
 			).bind(privateScope.organizationId),
