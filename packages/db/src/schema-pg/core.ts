@@ -1005,6 +1005,13 @@ export const apps = pgTable(
 		index("idx_app_active_config_version").on(t["activeConfigVersionId"]),
 		index("idx_app_source").on(t["sourceAppId"]),
 		index("idx_app_catalog").on(t["catalogAppId"]),
+		// The MCP consent check resolves resources through these expressions.
+		index("idx_app_mcp_audience").on(
+			sql`COALESCE(NULLIF(${t["metadata"]} #>> '{mcpConfig,expectedAudience}', ''), 'https://' || COALESCE(${t["customMcpDomain"]}, ${t["slug"]} || '.mcp.tedix.dev') || '/mcp')`,
+		),
+		index("idx_app_mcp_descope_resource").on(
+			sql`(${t["metadata"]} #>> '{mcpConfig,descopeResourceId}')`,
+		),
 		foreignKey({
 			name: "apps_organization_id_organizations_id_fk",
 			columns: [t["organizationId"]],
@@ -5882,6 +5889,8 @@ export const mcpConsentGrants = pgTable(
 		clientId: text("client_id").notNull(),
 		revision: text("revision").notNull(),
 		appId: text("app_id").notNull(),
+		clientName: text("client_name"),
+		device: text("device"),
 		selectedTenantIds: jsonb("selected_tenant_ids").notNull(),
 		approvedScopes: jsonb("approved_scopes").notNull(),
 		createdAt: text("created_at")
@@ -5891,6 +5900,7 @@ export const mcpConsentGrants = pgTable(
 					"to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
 				),
 			),
+		lastUsedAt: text("last_used_at"),
 	},
 	(t) => [
 		primaryKey({
@@ -5910,6 +5920,8 @@ export const mcpConsentPending = pgTable(
 		mcpServerId: text("mcp_server_id").notNull(),
 		clientId: text("client_id").notNull(),
 		appId: text("app_id").notNull(),
+		clientName: text("client_name"),
+		device: text("device"),
 		revision: text("revision").notNull(),
 		expectedActiveRevision: text("expected_active_revision"),
 		selectedTenantIds: jsonb("selected_tenant_ids").notNull(),
@@ -5941,6 +5953,8 @@ export const mcpConsentSelections = pgTable(
 		mcpServerId: text("mcp_server_id").notNull(),
 		clientId: text("client_id").notNull(),
 		appId: text("app_id").notNull(),
+		clientName: text("client_name"),
+		device: text("device"),
 		revision: text("revision").notNull(),
 		status: text("status").notNull(),
 		selectedTenantIds: jsonb("selected_tenant_ids").notNull(),

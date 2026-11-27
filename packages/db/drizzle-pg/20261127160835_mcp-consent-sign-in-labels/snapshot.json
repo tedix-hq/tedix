@@ -1,0 +1,293 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "8af24143-b727-492d-b25f-504dbc23ab6f",
+	"prevIds": ["7fa67d49-8cc0-4441-86e1-3981b19443e7"],
+	"footprints": [
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"mcp_consent_grants",
+				"client_name"
+			],
+			"writes": [
+				"s|col|public.mcp_consent_grants.client_name",
+				"n|col|public.mcp_consent_grants.client_name",
+				"e|col|public.mcp_consent_grants.client_name"
+			],
+			"reads": ["n|tbl|public.mcp_consent_grants", "n|sch|public"]
+		},
+		{
+			"statementType": "add_column",
+			"statementTarget": ["column", "public", "mcp_consent_grants", "device"],
+			"writes": [
+				"s|col|public.mcp_consent_grants.device",
+				"n|col|public.mcp_consent_grants.device",
+				"e|col|public.mcp_consent_grants.device"
+			],
+			"reads": ["n|tbl|public.mcp_consent_grants", "n|sch|public"]
+		},
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"mcp_consent_grants",
+				"last_used_at"
+			],
+			"writes": [
+				"s|col|public.mcp_consent_grants.last_used_at",
+				"n|col|public.mcp_consent_grants.last_used_at",
+				"e|col|public.mcp_consent_grants.last_used_at"
+			],
+			"reads": ["n|tbl|public.mcp_consent_grants", "n|sch|public"]
+		},
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"mcp_consent_pending",
+				"client_name"
+			],
+			"writes": [
+				"s|col|public.mcp_consent_pending.client_name",
+				"n|col|public.mcp_consent_pending.client_name",
+				"e|col|public.mcp_consent_pending.client_name"
+			],
+			"reads": ["n|tbl|public.mcp_consent_pending", "n|sch|public"]
+		},
+		{
+			"statementType": "add_column",
+			"statementTarget": ["column", "public", "mcp_consent_pending", "device"],
+			"writes": [
+				"s|col|public.mcp_consent_pending.device",
+				"n|col|public.mcp_consent_pending.device",
+				"e|col|public.mcp_consent_pending.device"
+			],
+			"reads": ["n|tbl|public.mcp_consent_pending", "n|sch|public"]
+		},
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"mcp_consent_selections",
+				"client_name"
+			],
+			"writes": [
+				"s|col|public.mcp_consent_selections.client_name",
+				"n|col|public.mcp_consent_selections.client_name",
+				"e|col|public.mcp_consent_selections.client_name"
+			],
+			"reads": ["n|tbl|public.mcp_consent_selections", "n|sch|public"]
+		},
+		{
+			"statementType": "add_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"mcp_consent_selections",
+				"device"
+			],
+			"writes": [
+				"s|col|public.mcp_consent_selections.device",
+				"n|col|public.mcp_consent_selections.device",
+				"e|col|public.mcp_consent_selections.device"
+			],
+			"reads": ["n|tbl|public.mcp_consent_selections", "n|sch|public"]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": ["index", "public", "apps", "idx_app_mcp_audience"],
+			"writes": [
+				"s|idx|public.idx_app_mcp_audience",
+				"n|idx|public.idx_app_mcp_audience",
+				"e|idx|public.idx_app_mcp_audience",
+				"n|rel|public.idx_app_mcp_audience"
+			],
+			"reads": ["n|tbl|public.apps", "n|sch|public"]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"apps",
+				"idx_app_mcp_descope_resource"
+			],
+			"writes": [
+				"s|idx|public.idx_app_mcp_descope_resource",
+				"n|idx|public.idx_app_mcp_descope_resource",
+				"e|idx|public.idx_app_mcp_descope_resource",
+				"n|rel|public.idx_app_mcp_descope_resource"
+			],
+			"reads": ["n|tbl|public.apps", "n|sch|public"]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "mcp_consent_grants",
+				"name": "client_name",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "mcp_consent_grants",
+				"name": "device",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "mcp_consent_grants",
+				"name": "last_used_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "mcp_consent_pending",
+				"name": "client_name",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "mcp_consent_pending",
+				"name": "device",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "mcp_consent_selections",
+				"name": "client_name",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "mcp_consent_selections",
+				"name": "device",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "apps",
+				"name": "idx_app_mcp_audience",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "COALESCE(NULLIF(\"metadata\" #>> '{mcpConfig,expectedAudience}', ''), 'https://' || COALESCE(\"custom_mcp_domain\", \"slug\" || '.mcp.tedix.dev') || '/mcp')",
+						"isExpression": true,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "apps",
+				"name": "idx_app_mcp_descope_resource",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "(\"metadata\" #>> '{mcpConfig,descopeResourceId}')",
+						"isExpression": true,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		}
+	]
+}

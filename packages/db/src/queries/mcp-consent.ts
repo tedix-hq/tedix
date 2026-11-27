@@ -11,16 +11,23 @@ import {
 	type SQLWrapper,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../core-store/client";
+import {
+	anyIds,
+	booleanValue,
+	coreStore,
+	jsonParameter,
+} from "../core-store/dialect";
 import { prefixedColumns } from "../utils/select";
 import type { DbQueryClient } from "../query-client";
-import { apps } from "../schema/apps";
-import { organizations } from "../schema/organizations";
-import { organizationMembers } from "../schema/organization-members";
+import { apps as d1Apps } from "../schema/apps";
+import { organizations as d1Organizations } from "../schema/organizations";
+import { organizationMembers as d1OrganizationMembers } from "../schema/organization-members";
 import {
-	mcpConsentGrants,
-	mcpConsentSelections,
-	mcpConsentPending,
-	mcpInboundClientAttempts,
+	mcpConsentGrants as d1McpConsentGrants,
+	mcpConsentSelections as d1McpConsentSelections,
+	mcpConsentPending as d1McpConsentPending,
+	mcpInboundClientAttempts as d1McpInboundClientAttempts,
 	type McpConsentGrantRow,
 	type McpInboundClientAttemptRow,
 	type NewMcpConsentPendingRow,
@@ -64,21 +71,40 @@ function grantIdleCutoff(nowMs = Date.now()) {
 		.slice(0, 19);
 }
 
-function grantIdleCondition() {
+function grantIdleCondition(db: object) {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
+	if (coreStore(db) === "postgres") {
+		// Stored stamps are ISO or `YYYY-MM-DD HH:MM:SS` UTC text; compare instants.
+		// An unreadable stamp is NULL, as datetime() makes it on D1.
+		const used = sql`COALESCE(${mcpConsentGrants.lastUsedAt}, ${mcpConsentGrants.createdAt})`;
+		return sql`CASE WHEN pg_input_is_valid(${used}, 'timestamp with time zone') THEN date_trunc('second', CASE WHEN ${used} ~ '(Z|z|[+-][0-9]{2}:?[0-9]{2})$' THEN ${used}::timestamptz ELSE ${used}::timestamp AT TIME ZONE 'UTC' END) END < (${grantIdleCutoff()}::timestamp AT TIME ZONE 'UTC')`;
+	}
 	return sql`datetime(COALESCE(${mcpConsentGrants.lastUsedAt}, ${mcpConsentGrants.createdAt})) < ${grantIdleCutoff()}`;
 }
 
 /** Grants still inside the idle window count as live; expired ones do not. */
-function grantLiveCondition() {
-	return sql`NOT (${grantIdleCondition()})`;
+function grantLiveCondition(db: object) {
+	return sql`NOT (${grantIdleCondition(db)})`;
 }
 
-function grantKeyCondition(key: McpConsentSelectionKey) {
+function grantKeyCondition(db: object, key: McpConsentSelectionKey) {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
 	return and(
 		eq(mcpConsentGrants.descopeUserId, key.descopeUserId),
 		eq(mcpConsentGrants.mcpServerId, key.mcpServerId),
 		eq(mcpConsentGrants.clientId, key.clientId),
 	);
+}
+
+/** The grant's selected tenant ids (a JSON string array) include one tenant. */
+function selectsTenant(
+	db: object,
+	column: SQLWrapper,
+	descopeTenantId: string,
+) {
+	return coreStore(db) === "postgres"
+		? sql`${column} @> jsonb_build_array(${descopeTenantId}::text)`
+		: sql`EXISTS (SELECT 1 FROM json_each(${column}) WHERE json_each.value = ${descopeTenantId})`;
 }
 
 // These fragments must stay textually identical to the idx_app_mcp_audience
@@ -90,11 +116,17 @@ interface AppAudienceColumns {
 	slug: SQLWrapper;
 }
 
-function appAudience(app: AppAudienceColumns) {
+// The Postgres forms match idx_app_mcp_audience / idx_app_mcp_descope_resource
+// in schema-pg/core.ts; metadata is jsonb there, so it needs no validity guard.
+function appAudience(db: object, app: AppAudienceColumns) {
+	if (coreStore(db) === "postgres")
+		return sql`COALESCE(NULLIF(${app.metadata} #>> '{mcpConfig,expectedAudience}', ''), 'https://' || COALESCE(${app.customMcpDomain}, ${app.slug} || '.mcp.tedix.dev') || '/mcp')`;
 	return sql`COALESCE(NULLIF(CASE WHEN json_valid(${app.metadata}) THEN json_extract(${app.metadata}, '$.mcpConfig.expectedAudience') END, ''), 'https://' || COALESCE(${app.customMcpDomain}, ${app.slug} || '.mcp.tedix.dev') || '/mcp')`;
 }
 
-function appDescopeResourceId(app: { metadata: SQLWrapper }) {
+function appDescopeResourceId(db: object, app: { metadata: SQLWrapper }) {
+	if (coreStore(db) === "postgres")
+		return sql`(${app.metadata} #>> '{mcpConfig,descopeResourceId}')`;
 	return sql`CASE WHEN json_valid(${app.metadata}) THEN json_extract(${app.metadata}, '$.mcpConfig.descopeResourceId') END`;
 }
 
@@ -107,6 +139,8 @@ export async function replaceMcpConsentSelection(
 	db: DbQueryClient,
 	input: ReplaceMcpConsentSelectionParams,
 ): Promise<McpConsentSelectionRow> {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
+	const mcpConsentSelections = coreTable(db, d1McpConsentSelections);
 	const now = new Date().toISOString();
 	const upsert = db
 		.insert(mcpConsentSelections)
@@ -129,7 +163,7 @@ export async function replaceMcpConsentSelection(
 			},
 		})
 		.returning();
-	const clear = db.delete(mcpConsentGrants).where(grantKeyCondition(input));
+	const clear = db.delete(mcpConsentGrants).where(grantKeyCondition(db, input));
 	const [[row]] =
 		input.status === "active"
 			? await db.batch([
@@ -158,6 +192,9 @@ export async function revokeMcpConsentGrant(
 	db: DbQueryClient,
 	key: McpConsentSelectionKey & { revision: string },
 ) {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
+	const mcpConsentSelections = coreTable(db, d1McpConsentSelections);
+	const mcpConsentPending = coreTable(db, d1McpConsentPending);
 	await db.batch([
 		db
 			.update(mcpConsentSelections)
@@ -179,7 +216,7 @@ export async function revokeMcpConsentGrant(
 			.delete(mcpConsentGrants)
 			.where(
 				and(
-					grantKeyCondition(key),
+					grantKeyCondition(db, key),
 					eq(mcpConsentGrants.revision, key.revision),
 				),
 			),
@@ -224,11 +261,16 @@ function buildMcpConsentGrantStatement(
 	db: DbQueryClient,
 	key: McpConsentSelectionKey & { revision: string },
 ) {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
+	const mcpConsentSelections = coreTable(db, d1McpConsentSelections);
 	const columns = (
-		table: typeof mcpConsentGrants | typeof mcpConsentSelections,
+		table: typeof d1McpConsentGrants | typeof d1McpConsentSelections,
 		priority: number,
 	) => ({
-		priority: sql<number>`${priority}`.as("grant_priority"),
+		priority: (coreStore(db) === "postgres"
+			? sql<number>`${priority}::integer`
+			: sql<number>`${priority}`
+		).as("grant_priority"),
 		appId: sql`${table.appId}`.mapWith(table.appId).as("grant_app_id"),
 		revision: sql`${table.revision}`
 			.mapWith(table.revision)
@@ -249,9 +291,9 @@ function buildMcpConsentGrantStatement(
 		.from(mcpConsentGrants)
 		.where(
 			and(
-				grantKeyCondition(key),
+				grantKeyCondition(db, key),
 				eq(mcpConsentGrants.revision, key.revision),
-				grantLiveCondition(),
+				grantLiveCondition(db),
 			),
 		)
 		.unionAll(
@@ -279,14 +321,15 @@ export async function finalizeMcpConsentGrant(
 	touchDue: boolean,
 ): Promise<McpConsentGrantResult | null> {
 	if (!touchDue) return getMcpConsentGrant(db, key);
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
 	const [row] = await db
 		.update(mcpConsentGrants)
 		.set({ lastUsedAt: new Date().toISOString() })
 		.where(
 			and(
-				grantKeyCondition(key),
+				grantKeyCondition(db, key),
 				eq(mcpConsentGrants.revision, key.revision),
-				grantLiveCondition(),
+				grantLiveCondition(db),
 			),
 		)
 		.returning({
@@ -308,6 +351,10 @@ export async function getMcpConsentVerificationState(
 		selectedTenantIds: string[];
 	},
 ) {
+	const apps = coreTable(db, d1Apps);
+	const organizations = coreTable(db, d1Organizations);
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
 	const grant = buildMcpConsentGrantStatement(db, input).as("active_grant");
 	const memberOrg = alias(organizations, "member_org");
 	const gateway = alias(apps, "gateway");
@@ -315,11 +362,34 @@ export async function getMcpConsentVerificationState(
 	type Membership = {
 		organizationId: string;
 		descopeTenantId: string;
-		status: typeof organizationMembers.$inferSelect.status;
+		status: typeof d1OrganizationMembers.$inferSelect.status;
 		inboundClientPolicyJson: string | null;
 		gatewaySlug: string | null;
 	};
-	const memberships = sql<string>`(SELECT json_group_array(json_object(
+	const memberships = (
+		coreStore(db) === "postgres"
+			? // #>> yields SQL NULL for absent and JSON null, and unquoted text
+				// for a string, like json_extract on D1.
+				sql<string>`(SELECT COALESCE(json_agg(json_build_object(
+		'organizationId', ${memberOrg.id}, 'descopeTenantId', ${memberOrg.descopeTenantId},
+		'status', ${organizationMembers.status},
+		'inboundClientPolicyJson', (${memberOrg.metadata} #>> '{mcpInboundClientPolicy}'),
+		'gatewaySlug', (SELECT ${gateway.slug} FROM ${apps} AS "gateway"
+			WHERE ${gateway.organizationId} = ${memberOrg.id}
+			AND ${gateway.metadata} #>> '{mcpConfig,authMode}' = 'authenticated'
+			AND ${gateway.metadata} #> '{mcpConfig,codeMode}' = 'true'::jsonb
+			AND ((jsonb_typeof(${gateway.metadata} #> '{mcpConfig,aggregateApps}') = 'array'
+					AND ${gateway.metadata} #> '{mcpConfig,aggregateApps}' <> '[]'::jsonb)
+				OR (jsonb_typeof(${gateway.metadata} #> '{mcpConfig,aggregateTedis}') = 'array'
+					AND ${gateway.metadata} #> '{mcpConfig,aggregateTedis}' <> '[]'::jsonb)
+				OR right(${gateway.slug}, 8) = '-unified')
+			ORDER BY (right(${gateway.slug}, 8) = '-unified') DESC LIMIT 1)
+	)), '[]'::json)::text FROM ${organizations} AS "member_org" INNER JOIN ${organizationMembers}
+		ON ${organizationMembers.organizationId} = ${memberOrg.id}
+		AND ${organizationMembers.descopeUserId} = ${input.descopeUserId}
+		WHERE ${anyIds(db, memberOrg.descopeTenantId, input.selectedTenantIds)}
+		AND ${memberOrg.metadata} #>> '{retiredAt}' IS NULL)`
+			: sql<string>`(SELECT json_group_array(json_object(
 		'organizationId', ${memberOrg.id}, 'descopeTenantId', ${memberOrg.descopeTenantId},
 		'status', ${organizationMembers.status},
 		'inboundClientPolicyJson', (json_extract(${memberOrg.metadata}, '$.mcpInboundClientPolicy') || ''),
@@ -335,10 +405,9 @@ export async function getMcpConsentVerificationState(
 		ON ${organizationMembers.organizationId} = ${memberOrg.id}
 		AND ${organizationMembers.descopeUserId} = ${input.descopeUserId}
 		WHERE ${memberOrg.descopeTenantId} IN (SELECT value FROM json_each(${JSON.stringify(input.selectedTenantIds)}))
-		AND json_extract(${memberOrg.metadata}, '$.retiredAt') IS NULL)`.mapWith(
-		(value): Membership[] => JSON.parse(value),
-	);
-	const pending = alias(mcpConsentPending, "pending_grant");
+		AND json_extract(${memberOrg.metadata}, '$.retiredAt') IS NULL)`
+	).mapWith((value): Membership[] => JSON.parse(value));
+	const pending = alias(coreTable(db, d1McpConsentPending), "pending_grant");
 	const rows = await db
 		.select({
 			resource: {
@@ -348,11 +417,11 @@ export async function getMcpConsentVerificationState(
 				metadata: apps.metadata,
 				descopeTenantId: organizations.descopeTenantId,
 			},
-			resourceUrl: appAudience(apps).as("resource_url"),
+			resourceUrl: appAudience(db, apps).as("resource_url"),
 			resourceUrlOwners:
-				sql<number>`(SELECT count(*) FROM ${apps} AS "audience_owner" INNER JOIN ${organizations} AS "owner_org" ON "owner_org"."id" = ${owner.organizationId} WHERE ${appAudience(owner)} = ${appAudience(apps)})`.as(
-					"resource_url_owners",
-				),
+				sql<number>`(SELECT count(*) FROM ${apps} AS "audience_owner" INNER JOIN ${organizations} AS "owner_org" ON "owner_org"."id" = ${owner.organizationId} WHERE ${appAudience(db, owner)} = ${appAudience(db, apps)})`
+					.mapWith(Number)
+					.as("resource_url_owners"),
 			current: {
 				appId: grant.appId,
 				revision: grant.revision,
@@ -364,7 +433,7 @@ export async function getMcpConsentVerificationState(
 			pending: prefixedColumns(pending, "pending"),
 			memberships: memberships.as("memberships"),
 			touchDue:
-				sql<boolean>`EXISTS (SELECT 1 FROM ${mcpConsentGrants} WHERE ${grantKeyCondition(input)} AND ${mcpConsentGrants.revision} = ${input.revision} AND ${grantLiveCondition()} AND (${mcpConsentGrants.lastUsedAt} IS NULL OR ${mcpConsentGrants.lastUsedAt} < ${new Date(Date.now() - MCP_CONSENT_GRANT_TOUCH_INTERVAL_MS).toISOString()}))`
+				sql<boolean>`EXISTS (SELECT 1 FROM ${mcpConsentGrants} WHERE ${grantKeyCondition(db, input)} AND ${mcpConsentGrants.revision} = ${input.revision} AND ${grantLiveCondition(db)} AND (${mcpConsentGrants.lastUsedAt} IS NULL OR ${mcpConsentGrants.lastUsedAt} < ${new Date(Date.now() - MCP_CONSENT_GRANT_TOUCH_INTERVAL_MS).toISOString()}))`
 					.mapWith(Boolean)
 					.as("touch_due"),
 		})
@@ -380,7 +449,7 @@ export async function getMcpConsentVerificationState(
 				eq(pending.revision, input.revision),
 			),
 		)
-		.where(sql`${appDescopeResourceId(apps)} = ${input.mcpServerId}`)
+		.where(sql`${appDescopeResourceId(db, apps)} = ${input.mcpServerId}`)
 		.limit(2);
 	if (rows.length !== 1) return null;
 	const row = rows[0]!;
@@ -412,10 +481,11 @@ export async function listMcpConsentGrants(
 	db: DbQueryClient,
 	key: McpConsentSelectionKey,
 ): Promise<McpConsentGrantRow[]> {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
 	return db
 		.select()
 		.from(mcpConsentGrants)
-		.where(and(grantKeyCondition(key), grantLiveCondition()))
+		.where(and(grantKeyCondition(db, key), grantLiveCondition(db)))
 		.orderBy(desc(mcpConsentGrants.createdAt), desc(mcpConsentGrants.revision));
 }
 
@@ -424,10 +494,11 @@ export async function countLiveMcpConsentGrants(
 	db: DbQueryClient,
 	key: McpConsentSelectionKey,
 ): Promise<number> {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
 	const [row] = await db
 		.select({ count: sql<number>`COUNT(*)` })
 		.from(mcpConsentGrants)
-		.where(and(grantKeyCondition(key), grantLiveCondition()));
+		.where(and(grantKeyCondition(db, key), grantLiveCondition(db)));
 	return Number(row?.count ?? 0);
 }
 
@@ -437,13 +508,14 @@ export async function listMcpConsentSignIns(
 	descopeUserId: string,
 	input: { limit: number; offset: number },
 ) {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
 	return db
 		.select()
 		.from(mcpConsentGrants)
 		.where(
 			and(
 				eq(mcpConsentGrants.descopeUserId, descopeUserId),
-				grantLiveCondition(),
+				grantLiveCondition(db),
 			),
 		)
 		.orderBy(desc(mcpConsentGrants.createdAt), desc(mcpConsentGrants.revision))
@@ -460,7 +532,9 @@ export async function listMcpConsentSignInsForTenant(
 	descopeTenantId: string,
 	input: { limit: number; offset: number },
 ) {
-	const grants = mcpConsentGrants;
+	const grants = coreTable(db, d1McpConsentGrants);
+	const organizations = coreTable(db, d1Organizations);
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	return db
 		.select({
 			descopeUserId: grants.descopeUserId,
@@ -491,8 +565,8 @@ export async function listMcpConsentSignInsForTenant(
 		)
 		.where(
 			and(
-				sql`EXISTS (SELECT 1 FROM json_each(${grants.selectedTenantIds}) WHERE json_each.value = ${descopeTenantId})`,
-				grantLiveCondition(),
+				selectsTenant(db, grants.selectedTenantIds, descopeTenantId),
+				grantLiveCondition(db),
 			),
 		)
 		.orderBy(desc(grants.createdAt), desc(grants.revision))
@@ -504,6 +578,7 @@ export async function getMcpConsentSelection(
 	db: DbQueryClient,
 	key: McpConsentSelectionKey,
 ): Promise<McpConsentSelectionRow | null> {
+	const mcpConsentSelections = coreTable(db, d1McpConsentSelections);
 	const [row] = await db
 		.select()
 		.from(mcpConsentSelections)
@@ -528,6 +603,7 @@ export async function listMcpConsentSelections(
 		offset: number;
 	},
 ) {
+	const mcpConsentSelections = coreTable(db, d1McpConsentSelections);
 	return db
 		.select()
 		.from(mcpConsentSelections)
@@ -555,6 +631,8 @@ export async function disableMcpConsentSelection(
 		revision: string;
 	},
 ) {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
+	const mcpConsentSelections = coreTable(db, d1McpConsentSelections);
 	const disable = db
 		.update(mcpConsentSelections)
 		.set({
@@ -577,7 +655,7 @@ export async function disableMcpConsentSelection(
 		.delete(mcpConsentGrants)
 		.where(
 			and(
-				grantKeyCondition(input),
+				grantKeyCondition(db, input),
 				sql`EXISTS (SELECT 1 FROM ${mcpConsentSelections} WHERE ${mcpConsentSelections.descopeUserId} = ${input.descopeUserId} AND ${mcpConsentSelections.mcpServerId} = ${input.mcpServerId} AND ${mcpConsentSelections.clientId} = ${input.clientId} AND ${mcpConsentSelections.revision} = ${input.revision} AND ${mcpConsentSelections.status} = 'revoked')`,
 			),
 		);
@@ -590,6 +668,8 @@ export async function getMcpConsentResource(
 	db: DbQueryClient,
 	resource: { mcpServerId: string } | { resourceUrl: string },
 ) {
+	const apps = coreTable(db, d1Apps);
+	const organizations = coreTable(db, d1Organizations);
 	const rows = await db
 		.select({
 			appId: apps.id,
@@ -602,8 +682,8 @@ export async function getMcpConsentResource(
 		.innerJoin(organizations, eq(apps.organizationId, organizations.id))
 		.where(
 			"mcpServerId" in resource
-				? sql`${appDescopeResourceId(apps)} = ${resource.mcpServerId}`
-				: sql`${appAudience(apps)} = ${resource.resourceUrl}`,
+				? sql`${appDescopeResourceId(db, apps)} = ${resource.mcpServerId}`
+				: sql`${appAudience(db, apps)} = ${resource.resourceUrl}`,
 		)
 		.limit(2);
 	return rows.length === 1 ? rows[0]! : null;
@@ -633,6 +713,7 @@ export async function stageMcpConsentPending(
 			),
 		]),
 	].sort();
+	const mcpConsentPending = coreTable(db, d1McpConsentPending);
 	const [row] = await db
 		.insert(mcpConsentPending)
 		.values({ ...input, approvedScopes })
@@ -645,6 +726,7 @@ export async function getMcpConsentPending(
 	db: DbQueryClient,
 	key: McpConsentSelectionKey & { revision: string },
 ) {
+	const mcpConsentPending = coreTable(db, d1McpConsentPending);
 	const [row] = await db
 		.select()
 		.from(mcpConsentPending)
@@ -679,8 +761,9 @@ export async function promoteMcpConsentPending(
 	},
 ) {
 	const now = new Date().toISOString();
-	const selections = mcpConsentSelections;
-	const grants = mcpConsentGrants;
+	const pg = coreStore(db) === "postgres";
+	const selections = coreTable(db, d1McpConsentSelections);
+	const grants = coreTable(db, d1McpConsentGrants);
 	const selectionKey = and(
 		eq(selections.descopeUserId, input.descopeUserId),
 		eq(selections.mcpServerId, input.mcpServerId),
@@ -740,7 +823,7 @@ export async function promoteMcpConsentPending(
 				),
 			),
 		);
-	const p = alias(mcpConsentPending, "p");
+	const p = alias(coreTable(db, d1McpConsentPending), "p");
 	const a = alias(selections, "a");
 	const sameClient = and(
 		eq(a.descopeUserId, p.descopeUserId),
@@ -773,13 +856,17 @@ export async function promoteMcpConsentPending(
 						eq(p.clientId, input.clientId),
 						eq(p.appId, input.appId),
 						eq(p.revision, input.revision),
-						sql`${p.expectedActiveRevision} IS ${input.expectedActiveRevision}`,
+						pg
+							? sql`${p.expectedActiveRevision} IS NOT DISTINCT FROM ${input.expectedActiveRevision}::text`
+							: sql`${p.expectedActiveRevision} IS ${input.expectedActiveRevision}`,
 						gt(p.expiresAt, now),
-						sql`${p.selectedTenantIds} = ${JSON.stringify([...input.selectedTenantIds].sort())}`,
-						sql`${p.approvedScopes} = ${JSON.stringify([...input.approvedScopes].sort())}`,
+						sql`${p.selectedTenantIds} = ${jsonParameter(db, [...input.selectedTenantIds].sort())}`,
+						sql`${p.approvedScopes} = ${jsonParameter(db, [...input.approvedScopes].sort())}`,
 						or(
 							and(
-								sql`${input.expectedActiveRevision} IS NULL`,
+								pg
+									? sql`${input.expectedActiveRevision}::text IS NULL`
+									: sql`${input.expectedActiveRevision} IS NULL`,
 								notExists(
 									db
 										.select({ one: sql`1` })
@@ -846,7 +933,7 @@ export async function promoteMcpConsentPending(
 		.onConflictDoNothing();
 	// Sign-ins idle past the TTL are removed instead of pruned by count; an
 	// active installation keeps refreshing last_used_at so it never lapses.
-	const expire = db.delete(grants).where(and(grantKey, grantIdleCondition()));
+	const expire = db.delete(grants).where(and(grantKey, grantIdleCondition(db)));
 	const [, rows] = await db.batch([preserve, promote, grant, expire]);
 	return rows.length === 1;
 }
@@ -877,6 +964,7 @@ export async function recordMcpInboundClientAttempt(
 	db: DbQueryClient,
 	input: RecordMcpInboundClientAttemptParams,
 ) {
+	const mcpInboundClientAttempts = coreTable(db, d1McpInboundClientAttempts);
 	const denied = input.allowed ? 0 : 1;
 	const since = new Date(
 		Date.parse(input.at) - input.minIntervalSeconds * 1000,
@@ -913,7 +1001,7 @@ export async function recordMcpInboundClientAttempt(
 				deniedCount: sql`${mcpInboundClientAttempts.deniedCount} + ${denied}`,
 				lastSeenAt: input.at,
 			},
-			setWhere: sql`${mcpInboundClientAttempts.lastSeenAt} < ${since} OR ${mcpInboundClientAttempts.lastStage} <> ${input.stage} OR ${mcpInboundClientAttempts.lastMode} <> ${input.mode} OR ${mcpInboundClientAttempts.lastListed} <> ${input.listed ? 1 : 0} OR ${mcpInboundClientAttempts.lastAllowed} <> ${input.allowed ? 1 : 0}`,
+			setWhere: sql`${mcpInboundClientAttempts.lastSeenAt} < ${since} OR ${mcpInboundClientAttempts.lastStage} <> ${input.stage} OR ${mcpInboundClientAttempts.lastMode} <> ${input.mode} OR ${mcpInboundClientAttempts.lastListed} <> ${booleanValue(db, input.listed)} OR ${mcpInboundClientAttempts.lastAllowed} <> ${booleanValue(db, input.allowed)}`,
 		});
 }
 
@@ -922,6 +1010,7 @@ export async function listMcpInboundClientAttempts(
 	db: DbQueryClient,
 	organizationId: string,
 ): Promise<McpInboundClientAttemptRow[]> {
+	const mcpInboundClientAttempts = coreTable(db, d1McpInboundClientAttempts);
 	return db
 		.select()
 		.from(mcpInboundClientAttempts)
@@ -938,18 +1027,22 @@ export async function listMcpConsentGrantClientsForTenant(
 	db: DbQueryClient,
 	descopeTenantId: string,
 ) {
+	const mcpConsentGrants = coreTable(db, d1McpConsentGrants);
 	return db
 		.select({
 			mcpServerId: mcpConsentGrants.mcpServerId,
 			clientId: mcpConsentGrants.clientId,
-			people: sql<number>`COUNT(DISTINCT ${mcpConsentGrants.descopeUserId})`,
+			people:
+				sql<number>`COUNT(DISTINCT ${mcpConsentGrants.descopeUserId})`.mapWith(
+					Number,
+				),
 			lastGrantedAt: sql<string>`MAX(${mcpConsentGrants.createdAt})`,
 		})
 		.from(mcpConsentGrants)
 		.where(
 			and(
-				sql`EXISTS (SELECT 1 FROM json_each(${mcpConsentGrants.selectedTenantIds}) WHERE json_each.value = ${descopeTenantId})`,
-				grantLiveCondition(),
+				selectsTenant(db, mcpConsentGrants.selectedTenantIds, descopeTenantId),
+				grantLiveCondition(db),
 			),
 		)
 		.groupBy(mcpConsentGrants.mcpServerId, mcpConsentGrants.clientId)
