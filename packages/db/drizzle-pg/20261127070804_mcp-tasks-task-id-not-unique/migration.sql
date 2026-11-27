@@ -1,0 +1,1 @@
+ALTER TABLE "mcp_tasks" DROP CONSTRAINT "mcp_tasks_task_id_key";

@@ -1,0 +1,32 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "45525c9e-f0ea-4755-9381-85d0ca9ef94b",
+	"prevIds": ["0303f9e0-8081-49ec-a504-742aaf8a8917"],
+	"footprints": [
+		{
+			"statementType": "drop_unique",
+			"statementTarget": ["table", "public", "mcp_tasks"],
+			"writes": [
+				"s|uq|public.mcp_tasks.mcp_tasks_task_id_key",
+				"n|uq|public.mcp_tasks.mcp_tasks_task_id_key",
+				"e|uq|public.mcp_tasks.mcp_tasks_task_id_key",
+				"n|con|public.mcp_tasks.mcp_tasks_task_id_key",
+				"n|rel|public.mcp_tasks_task_id_key"
+			],
+			"reads": [
+				"n|tbl|public.mcp_tasks",
+				"n|sch|public",
+				"e|col|public.mcp_tasks.task_id"
+			],
+			"sharedWrites": ["e|uniqueness|public.mcp_tasks.task_id"]
+		}
+	],
+	"deltas": [
+		{
+			"op": "drop",
+			"key": "uniques\u0000[\"public\",\"mcp_tasks\",\"mcp_tasks_task_id_key\"]"
+		}
+	]
+}

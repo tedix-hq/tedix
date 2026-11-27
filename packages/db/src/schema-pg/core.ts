@@ -6327,7 +6327,7 @@ export const mcpTasks = pgTable(
 	"mcp_tasks",
 	{
 		id: text("id").primaryKey(),
-		taskId: text("task_id").notNull().unique(),
+		taskId: text("task_id").notNull(),
 		orgId: text("org_id").notNull(),
 		subjectUserId: text("subject_user_id"),
 		appId: text("app_id").notNull(),
