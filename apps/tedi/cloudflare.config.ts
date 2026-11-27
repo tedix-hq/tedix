@@ -82,7 +82,10 @@ export default defineConfig(({ mode }) => {
 							}),
 						}
 					: {}),
-				CORE_STORE: bindings.text("d1"),
+				// Production reads it from the deploy values: switching is an ops edit.
+				CORE_STORE: bindings.text(
+					production ? live.vars("tedi", "CORE_STORE", "d1") : "d1",
+				),
 				// Tedi workspace persistence, namespaced per tedi (tedis/{tediId}/*).
 				TEDI_STORAGE: bindings.r2({
 					...live.r2("tedi", { name: "public-installation-bucket" }),

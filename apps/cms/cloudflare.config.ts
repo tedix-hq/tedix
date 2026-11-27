@@ -121,7 +121,10 @@ export default defineConfig(({ mode }) => {
 							}),
 						}
 					: {}),
-				CORE_STORE: bindings.text("d1"),
+				// Production reads it from the deploy values: switching is an ops edit.
+				CORE_STORE: bindings.text(
+					production ? live.vars("cms", "CORE_STORE", "d1") : "d1",
+				),
 				SITE_BUILDER_STORAGE: bindings.r2({
 					...live.r2("cms", { name: "public-installation-bucket" }),
 					dev: { remote: remoteDev },

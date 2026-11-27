@@ -118,7 +118,10 @@ export default defineConfig(({ mode }) => {
 							}),
 						}
 					: {}),
-				CORE_STORE: bindings.text("d1"),
+				// Production reads it from the deploy values: switching is an ops edit.
+				CORE_STORE: bindings.text(
+					production ? live.vars("mcp", "CORE_STORE", "d1") : "d1",
+				),
 				// Precomputed aggregate tool surface, read by a cold isolate instead of
 				// re-running the live fan-out.
 				AGGREGATE_CACHE: bindings.r2({

@@ -163,7 +163,10 @@ export default defineConfig(({ mode }) => {
 							}),
 						}
 					: {}),
-				CORE_STORE: bindings.text("d1"),
+				// Production reads it from the deploy values: switching is an ops edit.
+				CORE_STORE: bindings.text(
+					production ? live.vars("cms-runtime", "CORE_STORE", "d1") : "d1",
+				),
 				// Shared session storage, prefixed per tenant.
 				SESSION: bindings.kv({
 					id: live.kv("cmsRuntimeSession", "00000000000000000000000000000000"),

@@ -82,7 +82,10 @@ export default defineConfig(({ mode }) => {
 							}),
 						}
 					: {}),
-				CORE_STORE: bindings.text("d1"),
+				// Production reads it from the deploy values: switching is an ops edit.
+				CORE_STORE: bindings.text(
+					production ? live.vars("skill-runtime", "CORE_STORE", "d1") : "d1",
+				),
 				// Step outputs over 16 KiB, keyed by {runId}/{path}; smaller payloads
 				// stay inline in skill_run_artifacts.content_inline.
 				SKILL_ARTIFACTS: bindings.r2({

@@ -69,7 +69,10 @@ export default defineConfig(({ mode }) => {
 							}),
 						}
 					: {}),
-				CORE_STORE: bindings.text("d1"),
+				// Production reads it from the deploy values: switching is an ops edit.
+				CORE_STORE: bindings.text(
+					production ? live.vars("docs-runtime", "CORE_STORE", "d1") : "d1",
+				),
 				DOCS_BUILDS: bindings.r2({
 					...live.r2("docsBuilds", { name: "public-installation-bucket" }),
 					dev: { remote: false },
