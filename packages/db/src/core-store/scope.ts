@@ -64,6 +64,9 @@ export async function withCoreStore<T>(
 	graceMs = UNTRACKED_CLOSE_DELAY_MS,
 ): Promise<T> {
 	if (isD1CoreStore(env)) return withAuditDelivery(env, fn);
+	// A nested scope (an entrypoint wrapping serveFetch, say) reuses the open
+	// client instead of holding a second one for the same request.
+	if (storage.getStore()) return await fn();
 	const store = createCoreStore(env);
 	// Audit and telemetry history stays in the LOGS_DB partitions.
 	configureLogStore(store.db, env, [], postgresClientView(store.db));

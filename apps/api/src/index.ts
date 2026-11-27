@@ -193,15 +193,21 @@ export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	}
 
 	override async fetch(request: Request): Promise<Response> {
-		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		const { withCoreStore, trackCoreStoreWork, TRACKED_CLOSE_DELAY_MS } =
+			await import("@tedix/db/core-store/scope");
+		const ctx = tracked(this.ctx, trackCoreStoreWork);
 		return withCoreStore(
 			this.env,
-			() => this.serveInternalFetch(request),
+			() => this.serveInternalFetch(request, ctx),
 			(promise) => this.ctx.waitUntil(promise),
+			TRACKED_CLOSE_DELAY_MS,
 		);
 	}
 
-	private async serveInternalFetch(request: Request): Promise<Response> {
+	private async serveInternalFetch(
+		request: Request,
+		ctx: ExecutionContext,
+	): Promise<Response> {
 		if (
 			new URL(request.url).pathname === "/__internal/identity-cache/invalidate"
 		) {
@@ -232,7 +238,7 @@ export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 					workspaceSessionAccess(request, this.env),
 			);
 		}
-		return serveFetch(request, this.env, this.ctx);
+		return serveFetch(request, this.env, ctx);
 	}
 }
 

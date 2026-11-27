@@ -138,7 +138,9 @@ export function createCoreStore(env: CoreStoreEnv): {
 	const sql = postgres(env.CORE_HYPERDRIVE.connectionString, {
 		prepare: false,
 		fetch_types: false,
-		max: 5,
+		// postgres.js pipelines parallel queries on one connection, and each
+		// connection costs ~128 KB of a 128 MB isolate.
+		max: 2,
 		// Fail fast when Hyperdrive has no slot, and let idle connections go
 		// so a finished request stops holding one.
 		connect_timeout: 10,
