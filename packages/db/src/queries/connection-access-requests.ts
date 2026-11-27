@@ -3,16 +3,23 @@ import {
 	ConnectionAccessRequestSchema,
 	type ConnectionAccessRequest,
 } from "@tedix/api-contract/schemas/connections";
-import type { DbQueryClient } from "../query-client";
-import { organizationMembers } from "../schema/organization-members";
-import { connectionInstances } from "../schema/connection-instances";
-import { connectionProviders } from "../schema/connection-providers";
-import { organizations } from "../schema/organizations";
-import { users } from "../schema/users";
-import { tedis } from "../schema/tedis";
-import { skillEntries } from "../schema/cognitive";
+import { coreTable } from "../core-store/client";
 import {
-	workInteractionResponses,
+	booleanValue,
+	coreStore,
+	jsonRead,
+	pgTextArray,
+} from "../core-store/dialect";
+import type { DbQueryClient } from "../query-client";
+import { organizationMembers as d1OrganizationMembers } from "../schema/organization-members";
+import { connectionInstances as d1ConnectionInstances } from "../schema/connection-instances";
+import { connectionProviders as d1ConnectionProviders } from "../schema/connection-providers";
+import { organizations as d1Organizations } from "../schema/organizations";
+import { users as d1Users } from "../schema/users";
+import { tedis as d1Tedis } from "../schema/tedis";
+import { skillEntries as d1SkillEntries } from "../schema/cognitive";
+import {
+	workInteractionResponses as d1WorkInteractionResponses,
 	type WorkInteraction,
 } from "../schema/work-factory";
 import { createWorkItem, getWorkItemById } from "./work-items/crud";
@@ -32,6 +39,8 @@ export async function getConnectionAccessOwner(
 		personalUserId?: string;
 	},
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const connectionInstances = coreTable(db, d1ConnectionInstances);
 	const instance = input.connectionInstanceId
 		? (
 				await db
@@ -77,6 +86,11 @@ export async function createConnectionAccessRequest(
 	input: ConnectionAccessRequest,
 	workItemId?: string | null,
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const connectionInstances = coreTable(db, d1ConnectionInstances);
+	const connectionProviders = coreTable(db, d1ConnectionProviders);
+	const tedis = coreTable(db, d1Tedis);
+	const skillEntries = coreTable(db, d1SkillEntries);
 	const request = ConnectionAccessRequestSchema.parse(input);
 	const [tedi] = await db
 		.select({ name: tedis.name })
@@ -199,6 +213,13 @@ export async function buildConnectionAccessGrantStatements(
 	responseId: string,
 	responder: { type: string; id: string },
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const connectionInstances = coreTable(db, d1ConnectionInstances);
+	const organizations = coreTable(db, d1Organizations);
+	const users = coreTable(db, d1Users);
+	const tedis = coreTable(db, d1Tedis);
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const workInteractionResponses = coreTable(db, d1WorkInteractionResponses);
 	const input = ConnectionAccessRequestSchema.parse(
 		request.metadata.connectionAccess,
 	);
@@ -248,7 +269,7 @@ export async function buildConnectionAccessGrantStatements(
 		? sql`EXISTS (SELECT 1 FROM ${connectionInstances} WHERE ${connectionInstances.id}=${input.connectionInstanceId} AND ${connectionInstances.providerId}=${input.providerId} AND ${connectionInstances.ownerUserId}=${member.subject} AND ${input.scope === "user" ? sql`${connectionInstances.organizationId} IS NULL` : sql`${connectionInstances.organizationId}=${input.organizationId}`})`
 		: sql`1=1`;
 	const valid = and(liveConsumer, liveSkill, liveOwner, liveAccount)!;
-	const receipt = sql`EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${request.orgId} AND ${workInteractionResponses.id}=${responseId} AND ${workInteractionResponses.interactionId}=${request.id} AND ${workInteractionResponses.responderType}='user' AND ${workInteractionResponses.responderId}=${input.ownerUserId} AND ${workInteractionResponses.responseKind}='handoff_accepted' AND ${workInteractionResponses.resolvesRequest}=1)`;
+	const receipt = sql`EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${request.orgId} AND ${workInteractionResponses.id}=${responseId} AND ${workInteractionResponses.interactionId}=${request.id} AND ${workInteractionResponses.responderType}='user' AND ${workInteractionResponses.responderId}=${input.ownerUserId} AND ${workInteractionResponses.responseKind}='handoff_accepted' AND ${workInteractionResponses.resolvesRequest}=${booleanValue(db, true)})`;
 	const table = input.scope === "user" ? users : organizations;
 	const capacities: SQL[] = [];
 	const statements = [
@@ -263,15 +284,53 @@ export async function buildConnectionAccessGrantStatements(
 						instanceId,
 					)
 				: `$.connectionConsumerGrants."${encodeURIComponent(input.providerId)}:${encodeURIComponent(instanceId ?? "")}"`;
-		const arrayPath = `${path}.${input.skill ? "skills" : "tediIds"}`;
+		const arrayKey = input.skill ? "skills" : "tediIds";
+		const arrayPath = `${path}.${arrayKey}`;
 		const consumer = input.skill
 			? JSON.stringify(input.skill)
 			: JSON.stringify(input.tediId);
+		const ownerId =
+			input.scope === "user" ? input.ownerUserId : input.organizationId;
+		if (coreStore(db) === "postgres") {
+			// Both paths end in one quoted key: `$.connectionConsumerGrants."<key>"`.
+			const grant = [
+				"connectionConsumerGrants",
+				path.slice(path.indexOf('"') + 1, -1),
+			];
+			const mode = jsonRead(db, table.metadata, [...grant, "mode"]);
+			const list = jsonRead(db, table.metadata, [...grant, arrayKey], "json");
+			const listPath = pgTextArray([...grant, arrayKey]);
+			const same = input.skill
+				? sql`value ->> 'id' = ${input.skill.id}::text AND value -> 'revision' = to_jsonb(${input.skill.revision}::bigint)`
+				: sql`value = to_jsonb(${input.tediId}::text)`;
+			const elements = sql`jsonb_array_elements(CASE WHEN jsonb_typeof(${list}) = 'array' THEN ${list} ELSE '[]'::jsonb END) AS value`;
+			// json_array_length() is NULL for an absent or JSON-null list and 0 for a non-array.
+			const length = sql`CASE WHEN coalesce(jsonb_typeof(${list}), 'null') = 'null' THEN NULL WHEN jsonb_typeof(${list}) = 'array' THEN jsonb_array_length(${list}) ELSE 0 END`;
+			capacities.push(
+				sql`EXISTS (SELECT 1 FROM ${table} WHERE ${table.id}=${ownerId} AND (${mode} IS NULL OR ${mode}='all' OR (${length}<100 OR EXISTS (SELECT 1 FROM ${elements} WHERE ${same}))))`,
+			);
+			return db
+				.update(table)
+				.set({
+					// json_insert(..., '[#]') appends to an array, creates an absent one, and leaves anything else.
+					metadata: sql`jsonb_set(${table.metadata}, ${listPath}::text[], CASE WHEN jsonb_typeof(${list}) = 'array' THEN ${list} || jsonb_build_array(${consumer}::text::jsonb) WHEN ${list} IS NULL THEN jsonb_build_array(${consumer}::text::jsonb) ELSE ${list} END, true)`,
+					updatedAt: new Date().toISOString(),
+				})
+				.where(
+					and(
+						eq(table.id, ownerId),
+						receipt,
+						valid,
+						sql`${mode}='selected'`,
+						sql`NOT EXISTS (SELECT 1 FROM ${elements} WHERE ${same})`,
+					),
+				);
+		}
 		const same = input.skill
 			? sql`json_extract(value, '$.id')=${input.skill.id} AND json_extract(value, '$.revision')=${input.skill.revision}`
 			: sql`value=${input.tediId}`;
 		capacities.push(
-			sql`EXISTS (SELECT 1 FROM ${table} WHERE ${table.id}=${input.scope === "user" ? input.ownerUserId : input.organizationId} AND (json_extract(${table.metadata}, ${`${path}.mode`}) IS NULL OR json_extract(${table.metadata}, ${`${path}.mode`})='all' OR (json_array_length(json_extract(${table.metadata}, ${arrayPath}))<100 OR EXISTS (SELECT 1 FROM json_each(json_extract(${table.metadata}, ${arrayPath})) WHERE ${same}))))`,
+			sql`EXISTS (SELECT 1 FROM ${table} WHERE ${table.id}=${ownerId} AND (json_extract(${table.metadata}, ${`${path}.mode`}) IS NULL OR json_extract(${table.metadata}, ${`${path}.mode`})='all' OR (json_array_length(json_extract(${table.metadata}, ${arrayPath}))<100 OR EXISTS (SELECT 1 FROM json_each(json_extract(${table.metadata}, ${arrayPath})) WHERE ${same}))))`,
 		);
 		return db
 			.update(table)
@@ -281,10 +340,7 @@ export async function buildConnectionAccessGrantStatements(
 			})
 			.where(
 				and(
-					eq(
-						table.id,
-						input.scope === "user" ? input.ownerUserId : input.organizationId,
-					),
+					eq(table.id, ownerId),
 					receipt,
 					valid,
 					sql`json_extract(${table.metadata}, ${`${path}.mode`})='selected'`,

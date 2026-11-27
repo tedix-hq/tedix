@@ -3,6 +3,7 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../core-store/client";
 import type { DbQueryClient } from "../query-client";
 import {
 	type ApprovalExecutionError,
@@ -12,11 +13,11 @@ import {
 	type TediApprovalDependencyEvent,
 	type TediApprovalExecutionReceipt,
 	type TediApprovalSimulation,
-	tediApprovalDependencyEvents,
-	tediApprovalExecutionReceipts,
-	tediApprovalSimulations,
+	tediApprovalDependencyEvents as d1TediApprovalDependencyEvents,
+	tediApprovalExecutionReceipts as d1TediApprovalExecutionReceipts,
+	tediApprovalSimulations as d1TediApprovalSimulations,
 } from "../schema/approval-simulations";
-import { tediApprovalRequests } from "../schema/approvals";
+import { tediApprovalRequests as d1TediApprovalRequests } from "../schema/approvals";
 
 export class ApprovalSimulationScopeError extends Error {
 	constructor(message: string) {
@@ -99,6 +100,7 @@ async function requireApprovalRequest(
 	organizationId: string,
 	approvalRequestId: string,
 ): Promise<void> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	const rows = await db
 		.select({ id: tediApprovalRequests.id })
 		.from(tediApprovalRequests)
@@ -124,6 +126,7 @@ async function requireSimulation(
 		simulationId: string;
 	},
 ): Promise<TediApprovalSimulation> {
+	const tediApprovalSimulations = coreTable(db, d1TediApprovalSimulations);
 	const rows = await db
 		.select()
 		.from(tediApprovalSimulations)
@@ -152,6 +155,10 @@ async function dependencyWouldCreateCycle(
 		prerequisiteApprovalRequestId: string;
 	},
 ): Promise<boolean> {
+	const tediApprovalDependencyEvents = coreTable(
+		db,
+		d1TediApprovalDependencyEvents,
+	);
 	// Raw: WITH RECURSIVE reachability; Drizzle has no recursive CTE builder.
 	const rows = (await db.all(sql`
 		WITH RECURSIVE active_edges(dependent_id, prerequisite_id) AS (
@@ -187,6 +194,7 @@ export async function recordApprovalSimulation(
 	db: DbQueryClient,
 	input: RecordApprovalSimulationParams,
 ): Promise<TediApprovalSimulation> {
+	const tediApprovalSimulations = coreTable(db, d1TediApprovalSimulations);
 	await requireApprovalRequest(
 		db,
 		input.organizationId,
@@ -216,6 +224,7 @@ export async function listApprovalSimulations(
 	db: DbQueryClient,
 	input: { organizationId: string; approvalRequestId: string },
 ): Promise<TediApprovalSimulation[]> {
+	const tediApprovalSimulations = coreTable(db, d1TediApprovalSimulations);
 	return db
 		.select()
 		.from(tediApprovalSimulations)
@@ -240,6 +249,7 @@ export async function hasApprovalProvenanceRequest(
 	db: DbQueryClient,
 	input: { organizationId: string; approvalRequestId: string },
 ): Promise<boolean> {
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	const rows = await db
 		.select({ id: tediApprovalRequests.id })
 		.from(tediApprovalRequests)
@@ -270,6 +280,7 @@ export async function listApprovalSimulationPage(
 	records: TediApprovalSimulation[];
 	nextCursor: { timestamp: string; id: string } | null;
 }> {
+	const tediApprovalSimulations = coreTable(db, d1TediApprovalSimulations);
 	const limit = provenancePageLimit(options.limit);
 	const cursor = options.cursor;
 	const rows = await db
@@ -315,6 +326,10 @@ export async function listApprovalExecutionReceiptPage(
 	records: TediApprovalExecutionReceipt[];
 	nextCursor: { timestamp: string; id: string } | null;
 }> {
+	const tediApprovalExecutionReceipts = coreTable(
+		db,
+		d1TediApprovalExecutionReceipts,
+	);
 	const limit = provenancePageLimit(options.limit);
 	const cursor = options.cursor;
 	const rows = await db
@@ -358,6 +373,10 @@ export async function declareApprovalDependency(
 	db: DbQueryClient,
 	input: DeclareApprovalDependencyParams,
 ): Promise<TediApprovalDependencyEvent> {
+	const tediApprovalDependencyEvents = coreTable(
+		db,
+		d1TediApprovalDependencyEvents,
+	);
 	if (
 		input.dependentApprovalRequestId === input.prerequisiteApprovalRequestId
 	) {
@@ -403,6 +422,10 @@ export async function invalidateApprovalDependency(
 	db: DbQueryClient,
 	input: InvalidateApprovalDependencyParams,
 ): Promise<TediApprovalDependencyEvent> {
+	const tediApprovalDependencyEvents = coreTable(
+		db,
+		d1TediApprovalDependencyEvents,
+	);
 	const declaredRows = await db
 		.select()
 		.from(tediApprovalDependencyEvents)
@@ -461,6 +484,10 @@ export async function listApprovalDependencyEvents(
 	db: DbQueryClient,
 	input: { organizationId: string; dependentApprovalRequestId: string },
 ): Promise<TediApprovalDependencyEvent[]> {
+	const tediApprovalDependencyEvents = coreTable(
+		db,
+		d1TediApprovalDependencyEvents,
+	);
 	return db
 		.select()
 		.from(tediApprovalDependencyEvents)
@@ -492,6 +519,10 @@ export async function listActiveApprovalDependencies(
 		relation?: "dependent" | "prerequisite" | "either";
 	},
 ): Promise<TediApprovalDependencyEvent[]> {
+	const tediApprovalDependencyEvents = coreTable(
+		db,
+		d1TediApprovalDependencyEvents,
+	);
 	const ids = [...new Set(input.approvalRequestIds)].slice(0, 50);
 	if (ids.length === 0) return [];
 	const invalidated = alias(tediApprovalDependencyEvents, "invalidated");
@@ -540,6 +571,11 @@ export function buildInsertApprovalExecutionReceiptStatement(
 	db: DbQueryClient,
 	input: RecordApprovalExecutionReceiptParams,
 ) {
+	const tediApprovalExecutionReceipts = coreTable(
+		db,
+		d1TediApprovalExecutionReceipts,
+	);
+	const tediApprovalRequests = coreTable(db, d1TediApprovalRequests);
 	if (input.simulationId || input.baselineFenceOutcome !== "not_checked")
 		throw new Error(
 			"Batched Home receipt requires a fresh, unsimulated approval",
@@ -567,6 +603,10 @@ export async function recordApprovalExecutionReceipt(
 	db: DbQueryClient,
 	input: RecordApprovalExecutionReceiptParams,
 ): Promise<TediApprovalExecutionReceipt> {
+	const tediApprovalExecutionReceipts = coreTable(
+		db,
+		d1TediApprovalExecutionReceipts,
+	);
 	if (input.baselineFenceOutcome === "stale" && input.outcome === "succeeded") {
 		throw new Error(
 			"A stale baseline fence cannot produce a successful receipt",
@@ -619,6 +659,10 @@ export async function listApprovalExecutionReceipts(
 	db: DbQueryClient,
 	input: { organizationId: string; approvalRequestId: string },
 ): Promise<TediApprovalExecutionReceipt[]> {
+	const tediApprovalExecutionReceipts = coreTable(
+		db,
+		d1TediApprovalExecutionReceipts,
+	);
 	return db
 		.select()
 		.from(tediApprovalExecutionReceipts)

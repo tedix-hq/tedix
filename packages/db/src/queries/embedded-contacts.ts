@@ -5,6 +5,7 @@ import {
 	type EmbeddedContactProfilePatch,
 } from "@tedix/api-contract/schemas/embedded-contact";
 import type { DbClient } from "../client";
+import { anyIds, coreStore, jsonRead } from "../core-store/dialect";
 import {
 	embeddedContactUsers as users,
 	providerInstallations as installations,
@@ -28,15 +29,19 @@ const companyColumns = {
 	companyProfile: installations.companyProfile,
 	fallbackName: organizations.name,
 };
-const companyName = sql<
-	string | null
->`CASE WHEN ${installations.companyProfile} IS NULL THEN ${organizations.name} ELSE json_extract(${installations.companyProfile}, '$.name') END`;
+function companyName(db: object) {
+	return sql<
+		string | null
+	>`CASE WHEN ${installations.companyProfile} IS NULL THEN ${organizations.name} ELSE ${jsonRead(db, installations.companyProfile, ["name"])} END`;
+}
 // `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
 // character search failed as a D1_ERROR. `instr` takes the bound substring at
 // any length and needs no wildcard escaping; `lower` on both sides keeps
 // LIKE's ASCII case-insensitivity.
-function contains(column: SQL, search: string) {
-	return sql`instr(lower(${column}), lower(${search})) > 0`;
+function contains(db: object, column: SQL, search: string) {
+	return coreStore(db) === "postgres"
+		? sql`strpos(lower(${column}), lower(${search}::text)) > 0`
+		: sql`instr(lower(${column}), lower(${search})) > 0`;
 }
 
 export async function resolveProviderContactInstallation(
@@ -163,7 +168,7 @@ export async function identifyEmbeddedContact(
 							input.providerOrganizationId,
 						),
 						current
-							? sql`json_extract(${installations.companyProfile}, '$.revision') = ${current.revision}`
+							? sql`${jsonRead(db, installations.companyProfile, ["revision"], "number")} = ${current.revision}`
 							: isNull(installations.companyProfile),
 					),
 				)
@@ -268,13 +273,13 @@ export async function listEmbeddedContacts(
 		const filter = and(
 			scope,
 			input.hostUserIds
-				? sql`${users.hostUserId} IN (SELECT value FROM json_each(${JSON.stringify(input.hostUserIds)}))`
+				? anyIds(db, users.hostUserId, input.hostUserIds)
 				: undefined,
 			input.search
 				? or(
-						contains(sql`${users.name}`, input.search),
-						contains(sql`${users.email}`, input.search),
-						contains(sql`${users.hostUserId}`, input.search),
+						contains(db, sql`${users.name}`, input.search),
+						contains(db, sql`${users.email}`, input.search),
+						contains(db, sql`${users.hostUserId}`, input.search),
 					)
 				: undefined,
 		);
@@ -306,7 +311,7 @@ export async function listEmbeddedContacts(
 								installations.providerOrganizationId,
 								input.providerOrganizationId,
 							),
-							sql`${installations.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
+							anyIds(db, installations.id, ids),
 						),
 					)
 			: [];
@@ -316,8 +321,8 @@ export async function listEmbeddedContacts(
 		scope,
 		input.search
 			? or(
-					contains(companyName, input.search),
-					contains(sql`${installations.externalTenantId}`, input.search),
+					contains(db, companyName(db), input.search),
+					contains(db, sql`${installations.externalTenantId}`, input.search),
 				)
 			: undefined,
 	);

@@ -8,6 +8,7 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreStore } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import type {
 	ApiKey,
@@ -55,15 +56,20 @@ export async function getApiKeyByHash(
  * contract-valid, and the check must live in the shared WHERE — not a
  * caller-side filter — so paged rows and `total` always agree. D1 rejects
  * LIKE/GLOB patterns over 50 bytes, so the shape is spelled as short
- * positional checks equivalent to the v1-v5 UUID pattern.
+ * positional checks equivalent to the v1-v5 UUID pattern. Postgres uses the
+ * same pattern as one regular expression.
  */
-const API_KEY_UUID_ID = and(
-	sql`lower(${apiKeys.id}) GLOB '????????-????-????-????-????????????'`,
-	sql`lower(${apiKeys.id}) NOT GLOB '*[^0-9a-f-]*'`,
-	sql`length(replace(${apiKeys.id}, '-', '')) = 32`,
-	sql`substr(lower(${apiKeys.id}), 15, 1) BETWEEN '1' AND '5'`,
-	sql`substr(lower(${apiKeys.id}), 20, 1) IN ('8', '9', 'a', 'b')`,
-);
+function apiKeyUuidId(db: object) {
+	if (coreStore(db) === "postgres")
+		return sql`lower(${apiKeys.id}) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'`;
+	return and(
+		sql`lower(${apiKeys.id}) GLOB '????????-????-????-????-????????????'`,
+		sql`lower(${apiKeys.id}) NOT GLOB '*[^0-9a-f-]*'`,
+		sql`length(replace(${apiKeys.id}, '-', '')) = 32`,
+		sql`substr(lower(${apiKeys.id}), 15, 1) BETWEEN '1' AND '5'`,
+		sql`substr(lower(${apiKeys.id}), 20, 1) IN ('8', '9', 'a', 'b')`,
+	);
+}
 
 export interface ListApiKeysPageOptions {
 	status?: ApiKeyStatus;
@@ -94,7 +100,7 @@ export async function listApiKeysPage(
 		eq(apiKeys.organizationId, organizationId),
 		opts?.status ? eq(apiKeys.status, opts.status) : undefined,
 		opts?.environment ? eq(apiKeys.environment, opts.environment) : undefined,
-		API_KEY_UUID_ID,
+		apiKeyUuidId(db),
 	);
 	const limit = opts?.limit ?? 50;
 	const offset = opts?.offset ?? 0;

@@ -1,5 +1,6 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql, type SQLWrapper } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreStore, jsonParameter } from "../../core-store/dialect";
 import { tediControlPlaneBindingHistory } from "../../schema/control-plane-history";
 import {
 	policyPacks,
@@ -135,7 +136,7 @@ export async function publishRuntimeProfileRevision(
 						"published_by",
 					),
 					config:
-						sql<string>`${JSON.stringify(input.config ?? source.config)}`.as(
+						sql<string>`${jsonParameter(db, input.config ?? source.config)}`.as(
 							"config",
 						),
 					createdAt: sql<string>`${now}`.as("created_at"),
@@ -236,7 +237,7 @@ export async function publishPolicyPackRevision(
 						"published_by",
 					),
 					definition:
-						sql<string>`${JSON.stringify(input.definition ?? source.definition)}`.as(
+						sql<string>`${jsonParameter(db, input.definition ?? source.definition)}`.as(
 							"definition",
 						),
 					createdAt: sql<string>`${now}`.as("created_at"),
@@ -339,7 +340,7 @@ export async function publishWorkspaceTemplateSetRevision(
 						"published_by",
 					),
 					templates:
-						sql<string>`${JSON.stringify(input.templates ?? source.templates)}`.as(
+						sql<string>`${jsonParameter(db, input.templates ?? source.templates)}`.as(
 							"templates",
 						),
 					createdAt: sql<string>`${now}`.as("created_at"),
@@ -385,18 +386,59 @@ export async function rebindTediControlPlaneRevision(
 				? { policyPackId: params.revisionId }
 				: { workspaceTemplateSetId: params.revisionId };
 	const now = new Date().toISOString();
+	const bindingCondition = and(
+		eq(tedis.id, params.tediId),
+		eq(tedis.organizationId, params.organizationId),
+		params.expectedRevisionId === null
+			? isNull(column)
+			: eq(column, params.expectedRevisionId),
+	);
+	const historyRow = (source: {
+		id: SQLWrapper;
+		organizationId: SQLWrapper;
+	}) => ({
+		id: sql<string>`${crypto.randomUUID()}`.as("id"),
+		organizationId: sql<string>`${source.organizationId}`.as("organization_id"),
+		tediId: sql<string>`${source.id}`.as("tedi_id"),
+		kind: sql<typeof params.kind>`${params.kind}`.as("kind"),
+		previousRevisionId: sql<
+			string | null
+		>`${params.expectedRevisionId}::text`.as("previous_revision_id"),
+		revisionId: sql<string>`${params.revisionId}`.as("revision_id"),
+		changedBy: sql<string | null>`${params.changedBy ?? null}::text`.as(
+			"changed_by",
+		),
+		changeReason: sql<string | null>`${params.changeReason ?? null}::text`.as(
+			"change_reason",
+		),
+		effectiveAt: sql<string>`${now}`.as("effective_at"),
+	});
+	if (coreStore(db) === "postgres") {
+		// One statement: history is written only for the row this update changed.
+		const updated = db
+			.$with("updated", {
+				id: tedis.id,
+				organizationId: tedis.organizationId,
+			})
+			.as(
+				db
+					.update(tedis)
+					.set({ ...field, updatedAt: now })
+					.where(bindingCondition)
+					.returning({ id: tedis.id, organizationId: tedis.organizationId })
+					.getSQL(),
+			);
+		const history = await db
+			.with(updated)
+			.insert(tediControlPlaneBindingHistory)
+			.select(db.select(historyRow(updated)).from(updated))
+			.returning({ id: tediControlPlaneBindingHistory.id });
+		return history.length === 1;
+	}
 	const updateBinding = db
 		.update(tedis)
 		.set({ ...field, updatedAt: now })
-		.where(
-			and(
-				eq(tedis.id, params.tediId),
-				eq(tedis.organizationId, params.organizationId),
-				params.expectedRevisionId === null
-					? isNull(column)
-					: eq(column, params.expectedRevisionId),
-			),
-		)
+		.where(bindingCondition)
 		.returning({ id: tedis.id });
 	const recordHistory = db
 		.insert(tediControlPlaneBindingHistory)

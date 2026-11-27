@@ -1,4 +1,5 @@
 import { and, desc, eq, lte, sql } from "drizzle-orm";
+import { coreStore } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import {
 	calendarCoordinatorConfigurations as configurations,
@@ -337,7 +338,10 @@ export async function getCalendarCoordinatorForSubscription(
 			and(
 				eq(configurations.organizationId, organizationId),
 				eq(configurations.mode, "active"),
-				sql`EXISTS(SELECT 1 FROM json_each(json_extract(${configurations.configuration}, '$.subscriptionIds')) WHERE value=${subscriptionId})`,
+				coreStore(db) === "postgres"
+					? // configuration is a text column on Postgres too.
+						sql`jsonb_typeof(${configurations.configuration}::jsonb -> 'subscriptionIds') = 'array' AND ${configurations.configuration}::jsonb -> 'subscriptionIds' @> jsonb_build_array(${subscriptionId}::text)`
+					: sql`EXISTS(SELECT 1 FROM json_each(json_extract(${configurations.configuration}, '$.subscriptionIds')) WHERE value=${subscriptionId})`,
 			),
 		)
 		.limit(2);

@@ -8,7 +8,7 @@ import type { DbQueryClient } from "../query-client";
 import { connectionInstances } from "../schema/connection-instances";
 import type { ConnectionInstanceRow } from "../schema/connection-instances";
 import { coreTable } from "../core-store/client";
-import { coreStore } from "../core-store/dialect";
+import { coreStore, jsonRead, jsonWrite } from "../core-store/dialect";
 
 /** Missing, foreign and mismatched pairs are omitted; callers must deny missing slots. */
 export async function listOrganizationConnectionInstances(
@@ -205,7 +205,10 @@ export async function recordConnectionGrant(
 	return db
 		.update(connectionInstances)
 		.set({
-			tokenIds: sql`CASE WHEN EXISTS (SELECT 1 FROM json_each(${connectionInstances.tokenIds}) WHERE value = ${params.tokenId}) THEN ${connectionInstances.tokenIds} ELSE json_insert(${connectionInstances.tokenIds}, '$[#]', ${params.tokenId}) END`,
+			tokenIds:
+				coreStore(db) === "postgres"
+					? sql`CASE WHEN ${connectionInstances.tokenIds} @> jsonb_build_array(${params.tokenId}::text) THEN ${connectionInstances.tokenIds} ELSE ${connectionInstances.tokenIds} || jsonb_build_array(${params.tokenId}::text) END`
+					: sql`CASE WHEN EXISTS (SELECT 1 FROM json_each(${connectionInstances.tokenIds}) WHERE value = ${params.tokenId}) THEN ${connectionInstances.tokenIds} ELSE json_insert(${connectionInstances.tokenIds}, '$[#]', ${params.tokenId}) END`,
 			...(params.tokenSub
 				? {
 						tokenSub: sql`coalesce(${connectionInstances.tokenSub}, ${params.tokenSub})`,
@@ -253,9 +256,14 @@ export async function getOrganizationConnectionAllowedResources(
 	const path = `$.connectionResourceLimits."${encodeURIComponent(providerId)}"`;
 	const [row] = await db
 		.select({
-			policy: sql<
-				string | null
-			>`json_extract(${organizations.metadata}, ${path})`,
+			policy: sql<string | null>`${
+				coreStore(db) === "postgres"
+					? jsonRead(db, organizations.metadata, [
+							"connectionResourceLimits",
+							encodeURIComponent(providerId),
+						])
+					: sql`json_extract(${organizations.metadata}, ${path})`
+			}`,
 		})
 		.from(organizations)
 		.where(eq(organizations.id, organizationId))
@@ -281,7 +289,15 @@ export async function setOrganizationConnectionAllowedResources(
 	const [row] = await db
 		.update(organizations)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), ${path}, json(${JSON.stringify(validated)}))`,
+			metadata:
+				coreStore(db) === "postgres"
+					? jsonWrite(
+							db,
+							organizations.metadata,
+							["connectionResourceLimits", encodeURIComponent(providerId)],
+							validated,
+						)
+					: sql`json_set(coalesce(${organizations.metadata}, '{}'), ${path}, json(${JSON.stringify(validated)}))`,
 			updatedAt: new Date().toISOString(),
 		})
 		.where(eq(organizations.id, organizationId))
