@@ -1846,8 +1846,14 @@ async function issueMcpCredentialForOrganization(
 	const server = await loadMcpServerRegistration(aihEnv, mcpServerId, {
 		fresh,
 	});
+	// Enrollment can outlive resource approvals. Mint only their intersection;
+	// an existing federated bearer above must still pass the strict scope check.
+	const approved = new Set(extractMcpApprovedScopeNames(server.approvedScopes));
+	const approvedRequestedScopes = input.scopes.filter((scope) =>
+		approved.has(scope),
+	);
 	const scopes = resolveExternalAgentMcpClientScopes(
-		input.scopes,
+		approvedRequestedScopes.length > 0 ? approvedRequestedScopes : input.scopes,
 		server.approvedScopes,
 	);
 	const issuedAt = new Date();

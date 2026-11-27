@@ -7,6 +7,7 @@ import {
 	loadDescopeMcpServer,
 } from "@tedix/auth/aih-client";
 import { validateToken } from "@tedix/auth/jwt";
+import { verifyExchangedToken } from "@tedix/auth/token-exchange";
 import { verifyExternalAgentWorkloadGrant } from "@tedix/auth/workload-identity";
 import { createDbClient } from "@tedix/db/client";
 import { apiKeys } from "@tedix/db/schema/api-keys";
@@ -344,8 +345,23 @@ describe("external-agent M2M binding", () => {
 		).toEqual({ n: 0 });
 	});
 
-	it("exchanges the session credential under the grant without a per-session client", async () => {
-		const created = await bootstrapM2m();
+	it("exchanges only approved scopes when enrollment requests a scope the resource no longer approves", async () => {
+		const requestedScopes = ["mcp:work.read", "connections.execute"];
+		vi.mocked(loadDescopeMcpServer).mockResolvedValue({
+			approvedScopes: {
+				connectionsScopes: requestedScopes.map((name) => ({ name })),
+			},
+		} as never);
+		const created = await bootstrapM2m(requestedScopes);
+		forgetMcpServerRegistrations();
+		vi.mocked(loadDescopeMcpServer).mockResolvedValue({
+			approvedScopes: {
+				connectionsScopes: [
+					{ name: "mcp:work.read" },
+					{ name: "mcp:work.write" },
+				],
+			},
+		} as never);
 		const edge = client(
 			context({ type: "service-binding", path: "authorizeWorkloadSession" }),
 		);
@@ -354,7 +370,7 @@ describe("external-agent M2M binding", () => {
 			principalId: created.id,
 			subjectToken: m2mToken(),
 			...tuple,
-			scopes: ["mcp:work.read"],
+			scopes: requestedScopes,
 		});
 		const ctx = context({
 			type: "service-binding",
@@ -368,10 +384,14 @@ describe("external-agent M2M binding", () => {
 			organizationId: ORG,
 			principalId: created.id,
 			sessionId: authorized.session.id,
-			scopes: ["mcp:work.read"],
+			scopes: requestedScopes,
 			mcpServerUrl: RESOURCE,
 		});
-		expect(issued.accessToken).toMatch(/^eyJ/);
+		const claims = await verifyExchangedToken(issued.accessToken, {
+			secret: ENV.PLATFORM_SERVICE_TOKEN,
+			audience: RESOURCE,
+		});
+		expect(claims.scopes).toEqual(["mcp:work.read"]);
 		expect(issued.clientRecordId).toMatch(/^session:/);
 		expect(issued.expiresIn).toBeLessThanOrEqual(300);
 		expect(createDescopeMcpServerClient).toHaveBeenCalledTimes(1); // Principal enrollment only.
@@ -379,10 +399,15 @@ describe("external-agent M2M binding", () => {
 		expect(
 			sqlite
 				.prepare(
-					"SELECT client_record_id FROM external_agent_mcp_credentials WHERE session_id = ?",
+					"SELECT client_record_id, scopes FROM external_agent_mcp_credentials WHERE session_id = ?",
 				)
 				.all(authorized.session.id),
-		).toEqual([{ client_record_id: issued.clientRecordId }]);
+		).toEqual([
+			{
+				client_record_id: issued.clientRecordId,
+				scopes: JSON.stringify(["mcp:work.read"]),
+			},
+		]);
 	});
 
 	it("deletes the binding client when the principal is disabled", async () => {
