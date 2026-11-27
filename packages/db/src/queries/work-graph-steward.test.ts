@@ -186,7 +186,7 @@ describe("work graph steward canonical detectors", () => {
 			workItemIds: ids,
 			derivedAt: NOW,
 		});
-		expect(statements).toHaveLength(6);
+		expect(statements).toHaveLength(2);
 		expect(
 			statements.filter((query) =>
 				query.includes('as "has_resource_requirement"'),
@@ -209,7 +209,7 @@ describe("work graph steward canonical detectors", () => {
 				}),
 			),
 		);
-		expect(statements).toHaveLength(ids.length * 3);
+		expect(statements).toHaveLength(ids.length);
 		expect(batched).toEqual(singles);
 		expect(batched[0]!.state).toBe("evaluation_required");
 		expect(batched[1]!.state).toBe("evaluation_required");

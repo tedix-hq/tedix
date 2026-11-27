@@ -13,7 +13,7 @@ import {
 import { capApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { WORK_DELEGATION_DEFAULTS } from "@tedix/api-contract/schemas/lane-execution";
 import {
-	hasOwnerWorkDelegation,
+	ownerWorkDelegation,
 	ownerWorkApprovalStatements,
 	matchesWorkApprovalVersion,
 	ownerWorkApprovalIsCurrent,
@@ -23,7 +23,7 @@ import {
 	laneResourceKeys,
 	type LaneExecutionPolicy,
 } from "@tedix/api-contract/schemas/lane-execution";
-import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, eq, getColumns, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { coreTable } from "../../core-store/client";
 import {
@@ -39,6 +39,7 @@ import {
 	workEvents as d1WorkEvents,
 	workItemRelations as d1WorkItemRelations,
 	workItems as d1WorkItems,
+	workItemStoredColumns,
 } from "../../schema/work-items";
 import {
 	workAdmissions as d1WorkAdmissions,
@@ -356,7 +357,45 @@ async function evaluate(
 	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
 	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
 	const workResourcePools = coreTable(db, d1WorkResourcePools);
-	const item = await requireWorkItem(db, p.orgId, p.workItemId);
+	const columns = getColumns(workItems);
+	const [facts] = await db
+		.select({
+			...(Object.fromEntries(
+				Object.keys(workItemStoredColumns).map((key) => [
+					key,
+					columns[key as keyof typeof columns],
+				]),
+			) as typeof workItemStoredColumns),
+			attemptLimitAvailable: workAttemptLimitAvailable(db).as(
+				"attempt_limit_available",
+			),
+			ownerDelegated: ownerWorkDelegation(db, workItems, p.now).as(
+				"owner_delegated",
+			),
+			rootBudgetAvailable:
+				sql<boolean>`${rootAttemptBudgetAvailable(p.orgId, p.workItemId)}`.as(
+					"root_budget_available",
+				),
+			runningAttemptId: sql<string | null>`${sql`(
+			SELECT a.id FROM ${workAttempts} a WHERE a.org_id=${p.orgId}
+			AND a.work_item_id=${workItems.id} AND a.runtime_state IN ('queued','running','waiting','retrying')
+			AND a.expires_at>${p.now} LIMIT 1
+		)`}`.as("running_attempt_id"),
+			blockingRelationId: sql<string | null>`${sql`(
+			SELECT r.id FROM ${workItemRelations} r JOIN ${workItems} blocker ON blocker.id=r.from_work_item_id
+			WHERE r.org_id=${p.orgId} AND r.to_work_item_id=${workItems.id} AND r.relation_type='blocks'
+			AND blocker.disposition NOT IN ('completed','cancelled') LIMIT 1
+		)`}`.as("blocking_relation_id"),
+		})
+		.from(workItems)
+		.where(and(eq(workItems.orgId, p.orgId), eq(workItems.id, p.workItemId)))
+		.limit(1);
+	if (!facts)
+		throw new WorkControlError(
+			"NOT_FOUND",
+			`Work Item ${p.workItemId} was not found`,
+		);
+	const item = facts;
 	const empty = { item, requirements: [], envelopes: [] };
 	const contractRefusal = await taskContractRefusal(db, item, p.now);
 	if (contractRefusal)
@@ -381,14 +420,7 @@ async function evaluate(
 			...empty,
 			rejection: { code: "not_accepted", reason: "Work Item is not accepted" },
 		};
-	const [attemptLimit] = await db
-		.select({
-			available: workAttemptLimitAvailable(db).as("attempt_limit_available"),
-		})
-		.from(workItems)
-		.where(and(eq(workItems.orgId, p.orgId), eq(workItems.id, item.id)))
-		.limit(1);
-	if (!attemptLimit?.available)
+	if (!facts.attemptLimitAvailable)
 		return {
 			...empty,
 			rejection: {
@@ -423,13 +455,16 @@ async function evaluate(
 		};
 	}
 	{
-		const [budget] = await db
-			.select({
-				available: sql<boolean>`${rootAttemptBudgetAvailable(p.orgId, root.id)}`,
-			})
-			.from(workItems)
-			.where(eq(workItems.id, root.id))
-			.limit(1);
+		const [budget] =
+			ancestors.length === 1
+				? [{ available: facts.rootBudgetAvailable }]
+				: await db
+						.select({
+							available: sql<boolean>`${rootAttemptBudgetAvailable(p.orgId, root.id)}`,
+						})
+						.from(workItems)
+						.where(eq(workItems.id, root.id))
+						.limit(1);
 		if (!budget?.available)
 			return {
 				...empty,
@@ -439,26 +474,7 @@ async function evaluate(
 				},
 			};
 	}
-	const running = (
-		await db
-			.select({ id: workAttempts.id })
-			.from(workAttempts)
-			.where(
-				and(
-					eq(workAttempts.orgId, p.orgId),
-					eq(workAttempts.workItemId, p.workItemId),
-					inArray(workAttempts.runtimeState, [
-						"queued",
-						"running",
-						"waiting",
-						"retrying",
-					]),
-					sql`${workAttempts.expiresAt}>${p.now}`,
-				),
-			)
-			.limit(1)
-	)[0];
-	if (running)
+	if (facts.runningAttemptId)
 		return {
 			...empty,
 			rejection: {
@@ -480,23 +496,7 @@ async function evaluate(
 				reason: `Waiting for exact-call approval ${approvalWait.id}`,
 			},
 		};
-	const blocker = (
-		await db
-			.select({ id: workItemRelations.id })
-			.from(workItemRelations)
-			.innerJoin(workItems, eq(workItems.id, workItemRelations.fromWorkItemId))
-			.where(
-				and(
-					eq(workItemRelations.orgId, p.orgId),
-					eq(workItemRelations.toWorkItemId, p.workItemId),
-					eq(workItemRelations.relationType, "blocks"),
-					ne(workItems.disposition, "completed"),
-					ne(workItems.disposition, "cancelled"),
-				),
-			)
-			.limit(1)
-	)[0];
-	if (blocker)
+	if (facts.blockingRelationId)
 		return {
 			...empty,
 			rejection: {
@@ -589,7 +589,7 @@ async function evaluate(
 				})
 			: new Map<string, string>();
 	const ownerHostExecutor = parties.has(workPartyKey(executor));
-	const ownerDelegated = await hasOwnerWorkDelegation(db, item, p.now);
+	const ownerDelegated = Boolean(facts.ownerDelegated);
 	const independentApprovals = approvals.filter(
 		(approval) =>
 			(ownerDelegated &&

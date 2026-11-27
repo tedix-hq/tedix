@@ -26,7 +26,6 @@ import {
 	getColumns,
 	inArray,
 	lt,
-	lte,
 	ne,
 	or,
 	sql,
@@ -507,38 +506,81 @@ export async function deriveWorkItemsReadiness(
 					),
 				),
 		);
-		const [rows, approvals, history] = await db.batch([
-			db
-				.select({
-					...workItemSelection(db),
-					changedAt: workDeferralChangedAt(db, workItems).as(
-						"deferral_change_at",
-					),
-					ownerDelegated: ownerWorkDelegation(db, workItems, derivedAt).as(
-						"owner_delegated",
-					),
-					attemptLimitAvailable: workAttemptLimitAvailable(db).as(
-						"attempt_limit_available",
-					),
-					blockingDependencyId: sql<string | null>`${sql`(
+		const historyRows = db
+			.$with("readiness_history")
+			.as(buildWorkDeferralHistoryStatement(db, params.orgId, ids));
+		const jsonObject =
+			coreStore(db) === "postgres" ? sql`jsonb_build_object` : sql`json_object`;
+		const jsonArray =
+			coreStore(db) === "postgres" ? sql`jsonb_agg` : sql`json_group_array`;
+		const rows = await db
+			.with(approvalRows, historyRows)
+			.select({
+				...workItemSelection(db),
+				approvalReceipts: sql<WorkAdmissionApprovalReceipt[]>`${sql`(
+						SELECT ${jsonArray}(${jsonObject}(
+							'workItemId', ${approvalRows.workItemId},
+							'workItemVersion', ${approvalRows.workItemVersion},
+							'authorityKey', ${approvalRows.authorityKey},
+							'action', ${approvalRows.action}
+						)) FROM ${approvalRows}
+						WHERE ${approvalRows.workItemId}=${workItems.id} AND ${approvalRows.rank}<=1000
+					)`}`
+					.mapWith(
+						(value) =>
+							(typeof value === "string" ? JSON.parse(value) : value) ?? [],
+					)
+					.as("approval_receipts"),
+				history: sql<ReadinessCapacity["history"]>`${sql`(
+						SELECT ${jsonArray}(${jsonObject}(
+							'id', h.id, 'workItemId', h.work_item_id, 'rank', h.attempt_history_rank,
+							'outcome', h.outcome, 'metadata', h.metadata,
+							'startedAt', h.started_at, 'finishedAt', h.finished_at,
+							'workItemVersion', h.work_item_version
+						)) FROM (SELECT * FROM ${historyRows}
+							WHERE ${historyRows.workItemId}=${workItems.id}
+							ORDER BY ${historyRows.rank}) h
+					)`}`
+					.mapWith((value) => {
+						const history: ReadinessCapacity["history"] =
+							(typeof value === "string" ? JSON.parse(value) : value) ?? [];
+						return history.map((attempt) => ({
+							...attempt,
+							metadata:
+								typeof attempt.metadata === "string"
+									? JSON.parse(attempt.metadata)
+									: attempt.metadata,
+						}));
+					})
+					.as("deferral_history"),
+				changedAt: workDeferralChangedAt(db, workItems).as(
+					"deferral_change_at",
+				),
+				ownerDelegated: ownerWorkDelegation(db, workItems, derivedAt).as(
+					"owner_delegated",
+				),
+				attemptLimitAvailable: workAttemptLimitAvailable(db).as(
+					"attempt_limit_available",
+				),
+				blockingDependencyId: sql<string | null>`${sql`(
 					SELECT blocker.id FROM ${workItemRelations} relation
 					JOIN ${workItems} blocker ON blocker.org_id=${params.orgId} AND blocker.id=relation.from_work_item_id
 					WHERE relation.org_id=${params.orgId} AND relation.to_work_item_id=${workItems.id}
 						AND relation.relation_type='blocks' AND blocker.disposition NOT IN ('completed','cancelled')
 					LIMIT 1
 				)`}`.as("blocking_dependency_id"),
-					// Nested SQL preserves outer-column qualification in SELECT projections.
-					activeAttemptId: sql<string | null>`${sql`(
+				// Nested SQL preserves outer-column qualification in SELECT projections.
+				activeAttemptId: sql<string | null>`${sql`(
 					SELECT a.id FROM ${workAttempts} a
 					WHERE a.org_id=${params.orgId} AND a.work_item_id=${workItems.id}
 						AND a.runtime_state IN ('queued','running','waiting','retrying')
 						AND a.expires_at>${derivedAt} LIMIT 1
 				)`}`.as("active_attempt_id"),
-					hasResourceRequirement: sql<boolean>`${sql`EXISTS (
+				hasResourceRequirement: sql<boolean>`${sql`EXISTS (
 					SELECT 1 FROM ${workResourceRequirements} r
 					WHERE r.org_id=${params.orgId} AND r.work_item_id=${workItems.id}
 				)`}`.as("has_resource_requirement"),
-					hasBudgetEnvelope: sql<boolean>`${sql`EXISTS (
+				hasBudgetEnvelope: sql<boolean>`${sql`EXISTS (
 					SELECT 1 FROM ${workBudgetEnvelopes} e
 					WHERE e.org_id=${params.orgId} AND ${enabledPredicate} AND e.currency<>${CREDIT_BUDGET_CURRENCY}
 						AND (
@@ -551,34 +593,23 @@ export async function deriveWorkItemsReadiness(
 							))
 						)
 				)`}`.as("has_budget_envelope"),
-					hasSpentCreditBudget: sql<boolean>`${sql`EXISTS (
+				hasSpentCreditBudget: sql<boolean>`${sql`EXISTS (
 					SELECT 1 FROM ${workBudgetEnvelopes} e
 					WHERE e.org_id=${params.orgId} AND ${enabledPredicate} AND e.currency=${CREDIT_BUDGET_CURRENCY}
 						AND e.mode='stop' AND e.alerted_percent>=100
 				)`}`.as("has_spent_credit_budget"),
-				})
-				.from(workItems)
-				// bound-params: 40 Work IDs plus fixed org, currency and time predicates.
-				.where(
-					and(eq(workItems.orgId, params.orgId), anyIds(db, workItems.id, ids)),
-				),
-			db
-				.with(approvalRows)
-				.select()
-				.from(approvalRows)
-				.where(lte(approvalRows.rank, 1000)),
-			buildWorkDeferralHistoryStatement(db, params.orgId, ids),
-		]);
+			})
+			.from(workItems)
+			// bound-params: 40 Work IDs plus fixed org, currency and time predicates.
+			.where(
+				and(eq(workItems.orgId, params.orgId), anyIds(db, workItems.id, ids)),
+			);
 		const facts = new Map(
 			rows.map((row) => [
 				row.id,
 				{
 					...row,
 					item: normalizeWorkItemRow(row),
-					approvalReceipts: approvals.filter(
-						(approval) => approval.workItemId === row.id,
-					),
-					history: history.filter((attempt) => attempt.workItemId === row.id),
 					ownerDelegated: Boolean(row.ownerDelegated),
 					attemptLimitAvailable: Boolean(row.attemptLimitAvailable),
 				},

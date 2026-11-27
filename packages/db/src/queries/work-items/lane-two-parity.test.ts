@@ -20,6 +20,7 @@ import {
 	workItems,
 } from "../../schema/work-items";
 import { getWorkApprovalProposal } from "./approvals";
+import { deriveWorkItemReadiness } from "./readiness";
 import {
 	appendWorkAttemptSteps,
 	listWorkAttemptSteps,
@@ -288,6 +289,17 @@ for (const store of ["d1", "postgres"] as const)
 				workItemId: "task",
 			});
 			expect(attempts.data.map((attempt) => attempt.id)).toEqual(["attempt"]);
+			const readiness = await deriveWorkItemReadiness(db, {
+				orgId: "orchard",
+				workItemId: "task",
+				derivedAt: at,
+			});
+			expect(
+				readiness.gates.find((gate) => gate.gate === "attempt"),
+			).toMatchObject({
+				evaluation: "failed",
+				detail: "Active attempt attempt",
+			});
 			const holders = await listLiveWorkAttemptHolders(db, {
 				orgId: "orchard",
 			});
