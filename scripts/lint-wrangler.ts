@@ -198,6 +198,13 @@ export const BINDING_PARITY_EXCEPTIONS: readonly BindingParityException[] = [
 		reason:
 			"remote development shares production D1; a development cron would run a second skill-run reconciler against live runs",
 	},
+	{
+		file: "apps/core-copy/cloudflare.config.ts",
+		envName: "development",
+		family: "cron",
+		reason:
+			"a development cron would run a second copy walker against the live D1 source",
+	},
 ];
 
 /**

@@ -1,5 +1,12 @@
 {
 	"drizzleOutsideDb": {
+		"apps/core-copy/scripts/generate-plan.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "apps/core-copy:copy-plan-generator",
+			"binding": "schema-pg and schema introspection imports",
+			"reason": "The cutover plan generator introspects the pg-core and D1 schemas at build time to emit the committed copy plan; it never executes a statement against a database."
+		},
 		"apps/mcp/src/mcp/generic-task-store.ts": {
 			"storagePlane": "edge-enforcement-d1",
 			"disposition": "approved",
@@ -29,6 +36,13 @@
 			"owner": "apps/cms:cms-control-plane-storage",
 			"binding": "D1Database db",
 			"reason": "This centralized CMS storage owner coordinates platform app metadata with tenant_bundles lifecycle reads and atomic rollback writes for provisioning and deploy workflows."
+		},
+		"apps/core-copy/src/index.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "apps/core-copy:paced-d1-source-reader",
+			"binding": "env.DB D1Database",
+			"reason": "The paced cutover copy Worker is the reviewed storage owner for raw keyset D1 reads: it pages every core table with pacing, overload backoff and checkpoints that no @tedix/db/queries module expresses, and it never writes to D1."
 		},
 		"apps/skill-runtime/src/db.ts": {
 			"storagePlane": "runtime-enforcement-d1",

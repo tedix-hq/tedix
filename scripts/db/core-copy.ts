@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
-import { gunzipSync } from "node:zlib";
-import { setTimeout as sleep } from "node:timers/promises";
+
+// fs/zlib stay out of the module graph so the paced-copy Worker can import the
+// copy engine; only the local file/archive helpers below touch them.
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Row = Record<string, unknown>;
 type Scalar = string | number | null;
@@ -230,6 +231,8 @@ export async function copyPages(options: {
 	save(state: CopyState): Promise<void>;
 	pageSize?: number;
 	pauseMs?: number;
+	/** Stop after this many pages and return the checkpointed state. */
+	maxPages?: number;
 	wait?: (ms: number) => Promise<unknown>;
 }) {
 	const { table, source, query, save } = options;
@@ -241,9 +244,13 @@ export async function copyPages(options: {
 		size < 1 ||
 		size > 500 ||
 		!Number.isFinite(pause) ||
-		pause < 0
+		pause < 0 ||
+		(options.maxPages !== undefined &&
+			(!Number.isInteger(options.maxPages) || options.maxPages < 1))
 	)
-		throw new Error("pageSize must be 1..500 and pauseMs nonnegative");
+		throw new Error(
+			"pageSize must be 1..500, pauseMs nonnegative and maxPages positive",
+		);
 	const plan = hash({ table, source: source.id, size });
 	let state: CopyState = options.state ?? {
 		format: "tedix-core-copy/v1",
@@ -256,6 +263,7 @@ export async function copyPages(options: {
 	if (state.format !== "tedix-core-copy/v1" || state.plan !== plan)
 		throw new Error("Checkpoint belongs to a different copy plan");
 	if (options.state) await verifyCopy(table, query, state);
+	let pages = 0;
 	let advancedSourceRowid = 0;
 	if (
 		table.sourceRowid &&
@@ -304,15 +312,24 @@ export async function copyPages(options: {
 		}
 		// Save only after the target accepted and checked the whole page.
 		await save(state);
+		pages += 1;
+		if (
+			options.maxPages !== undefined &&
+			pages >= options.maxPages &&
+			!state.done
+		)
+			return state;
 	}
 	return state;
 }
 
 export async function saveCheckpoint(path: string, state: CopyState) {
+	const { writeFile, rename } = await import("node:fs/promises");
 	await writeFile(`${path}.tmp`, JSON.stringify(state) + "\n", { mode: 0o600 });
 	await rename(`${path}.tmp`, path);
 }
 export async function loadCheckpoint(path: string): Promise<CopyState> {
+	const { readFile } = await import("node:fs/promises");
 	return JSON.parse(await readFile(path, "utf8")) as CopyState;
 }
 
@@ -452,6 +469,7 @@ export function archiveSource(options: {
 			const digest = /-([a-f0-9]{64})\.ndjson\.gz$/.exec(key)?.[1];
 			if (digest && createHash("sha256").update(bytes).digest("hex") !== digest)
 				throw new Error("Archive object checksum mismatch");
+			const { gunzipSync } = await import("node:zlib");
 			const rows = gunzipSync(bytes, { maxOutputLength: 16 * 1024 * 1024 })
 				.toString("utf8")
 				.split("\n")

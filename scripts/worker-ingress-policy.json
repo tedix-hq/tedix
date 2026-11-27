@@ -14,6 +14,13 @@
 		"reason": "Stable cookie-isolated workers.dev byte origin; the API verifies signed artifact/media capabilities before serving content, and version preview URLs are disabled."
 	},
 	{
+		"app": "apps/core-copy",
+		"kind": "application-authenticated",
+		"workersDev": true,
+		"previewUrls": false,
+		"reason": "Cutover copy Worker; admin routes require the CORE_COPY_ADMIN_TOKEN shared secret and only /healthz is public."
+	},
+	{
 		"app": "apps/cms",
 		"kind": "application-authenticated",
 		"workersDev": false,

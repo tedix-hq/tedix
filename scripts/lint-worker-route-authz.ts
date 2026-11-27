@@ -290,6 +290,14 @@ export const WORKER_APPS: WorkerAppConfig[] = [
 		guards: {},
 	},
 	{
+		app: "apps/core-copy",
+		pathnameFiles: ["apps/core-copy/src/index.ts"],
+		guards: {
+			"\\brequireAdmin\\s*\\(":
+				"Every admin route (/schema, /copy, /verify, /status, /run) requires the CORE_COPY_ADMIN_TOKEN shared secret before touching D1 or Postgres.",
+		},
+	},
+	{
 		app: "apps/cms-runtime",
 		pathnameFiles: ["apps/cms-runtime/src/index.ts"],
 		guards: {

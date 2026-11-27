@@ -1,0 +1,39 @@
+{
+	"name": "@tedix/core-copy",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Paced D1-to-Postgres copy Worker for the core store cutover: schema apply, per-table copy, verify, status and a cron walker.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .cloudflare .wrangler dist",
+		"clear-port": "../../scripts/clear-port.sh --app core-copy",
+		"types": "cf workers types --mode production",
+		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
+		"build": "vp build",
+		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"generate:plan": "bun scripts/generate-plan.ts",
+		"generate:migrations": "bun scripts/generate-migrations.ts",
+		"type-check": "bun run types && tsc --noEmit",
+		"test": "bun run test:run",
+		"test:run": "bun test src",
+		"test:ci": "bun run test:run"
+	},
+	"dependencies": {
+		"@tedix/db": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
+		"@tedix/worker-kit": "workspace:*",
+		"drizzle-orm": "catalog:",
+		"postgres": "^4.1.1"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "catalog:",
+		"@cloudflare/workers-types": "catalog:",
+		"@electric-sql/pglite": "^0.6.0",
+		"@tedix/tsconfig": "workspace:*",
+		"cf": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}

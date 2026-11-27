@@ -9,6 +9,7 @@ export default defineConfig({
 			"docs/DOCS_MAP.md",
 			"packages/db/drizzle/**/snapshot.json",
 			"**/worker-configuration.d.ts",
+			"apps/core-copy/src/*.generated.ts",
 			"**/routeTree.gen.ts",
 			"apps/cms/src/template-snapshot.ts",
 		],

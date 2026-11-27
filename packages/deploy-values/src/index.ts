@@ -27,6 +27,7 @@ export type DeployValues = {
 	container(surface: string, fallback: string): string;
 	d1(name: string, fallback: D1Value): D1Value;
 	kv(name: string, fallback: string): string;
+	hyperdrive(name: string, fallback: string): string;
 	r2(bucketKey: string, fallback: R2Value): R2Value;
 	aiSearch(key: string, fallback: string): string;
 	analytics(key: string, fallback: string): string;
@@ -147,6 +148,8 @@ export function deployValues(options: DeployValuesOptions): DeployValues {
 					}
 				: fallback,
 		kv: (name, fallback) => string(["kv", name, "id"], fallback),
+		hyperdrive: (name, fallback) =>
+			string(["hyperdrive", name, "id"], fallback),
 		r2: (bucketKey, fallback) => {
 			if (!values) return fallback;
 			const name = string(["r2", "buckets", bucketKey], fallback.name);

@@ -169,6 +169,27 @@
         "webmcp-evals": "0.1.1",
       },
     },
+    "apps/core-copy": {
+      "name": "@tedix/core-copy",
+      "version": "0.1.0",
+      "dependencies": {
+        "@tedix/db": "workspace:*",
+        "@tedix/deploy-values": "workspace:*",
+        "@tedix/worker-kit": "workspace:*",
+        "drizzle-orm": "catalog:",
+        "postgres": "^4.1.1",
+      },
+      "devDependencies": {
+        "@cloudflare/vite-plugin": "catalog:",
+        "@cloudflare/workers-types": "catalog:",
+        "@electric-sql/pglite": "^0.6.0",
+        "@tedix/tsconfig": "workspace:*",
+        "cf": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vite-plus": "catalog:",
+      },
+    },
     "apps/desktop": {
       "name": "@tedix/desktop",
       "version": "0.1.0",
@@ -2443,6 +2464,8 @@
     "@tedix/container-runtime": ["@tedix/container-runtime@workspace:packages/container-runtime"],
 
     "@tedix/context-core": ["@tedix/context-core@workspace:packages/context-core"],
+
+    "@tedix/core-copy": ["@tedix/core-copy@workspace:apps/core-copy"],
 
     "@tedix/db": ["@tedix/db@workspace:packages/db"],
 

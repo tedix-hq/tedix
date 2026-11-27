@@ -1,0 +1,8 @@
+{
+	"extends": "@tedix/tsconfig/cloudflare.json",
+	"compilerOptions": {
+		"types": ["node"]
+	},
+	"include": ["src/**/*.ts", ".cloudflare/types/index.d.ts", "scripts/**/*.ts"],
+	"exclude": ["node_modules", "src/**/*.test.ts"]
+}
