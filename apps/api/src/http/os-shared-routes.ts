@@ -7,9 +7,11 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// signed session exists, so it is an allowlisted read with no tenant data.
 	app.get("/widget/branding/:tenant", async (c) => {
 		const { handleWidgetBranding } = await import("../lib/widget-branding");
+		const { coreDb, isD1CoreStore } =
+			await import("@tedix/db/core-store/scope");
 		return handleWidgetBranding(
 			c.req.param("tenant"),
-			c.env.DB,
+			c.env.DB || !isD1CoreStore(c.env) ? coreDb(c.env) : undefined,
 			c.req.query("locale"),
 			{
 				request: c.req.raw,

@@ -16,6 +16,7 @@ import { Hono } from "hono";
 import { expect, it, vi } from "vite-plus/test";
 import { createContext } from "../rpc/context";
 import { apiKeyContext, userContext } from "../rpc/test-context";
+import { registerOsSharedRoutes } from "./os-shared-routes";
 import { registerPoppyAgentRoutes } from "./poppy-agent-routes";
 
 vi.mock("@tedix/db/core-store/client", async (original) => ({
@@ -24,7 +25,7 @@ vi.mock("@tedix/db/core-store/client", async (original) => ({
 }));
 
 it.each(["d1", "postgres"] as const)(
-	"serves public identity documents and RPC contexts from %s",
+	"serves public branding, identity documents and RPC contexts from %s",
 	async (dialect) => {
 		const sqlite = dialect === "d1" ? createMigratedSqlite() : undefined;
 		const pg = dialect === "postgres" ? await createPGliteFacade() : undefined;
@@ -32,6 +33,7 @@ it.each(["d1", "postgres"] as const)(
 			if (pg) await pg.engine.exec(ddl);
 			else sqlite!.exec(ddl);
 		};
+		vi.stubGlobal("caches", { default: undefined });
 		try {
 			if (pg) {
 				for (const migration of readMigrationFiles({
@@ -47,6 +49,7 @@ it.each(["d1", "postgres"] as const)(
 			}
 			await execute(`
 INSERT INTO organizations (id, name, slug) VALUES ('org-example', 'Example', 'example');
+UPDATE organizations SET metadata = '{"tediWidget":{"title":"Example assistant","version":1}}' WHERE id = 'org-example';
 INSERT INTO tedis (id, organization_id, name, slug) VALUES ('tedi-example', 'org-example', 'Example', 'example-agent');
 INSERT INTO auth_context_cache_state (id, version) VALUES (1, 'selected-store') ON CONFLICT (id) DO UPDATE SET version = 'selected-store';
 `);
@@ -68,6 +71,7 @@ VALUES ('secret-example', 'tedi-example', '${POPPY_AGENT_SIGNING_KEY_SECRET}', '
 			} as CloudflareEnv;
 			const app = new Hono<{ Bindings: CloudflareEnv }>();
 			registerPoppyAgentRoutes(app);
+			registerOsSharedRoutes(app);
 			await withCoreStore(env, async () => {
 				const context = createContext(
 					new Request("https://api.example.test/rpc/read"),
@@ -107,8 +111,15 @@ VALUES ('secret-example', 'tedi-example', '${POPPY_AGENT_SIGNING_KEY_SECRET}', '
 					(await app.request("/poppy-agent/missing/client.json", {}, env))
 						.status,
 				).toBe(404);
+				const branding = await app.request("/widget/branding/example", {}, env);
+				expect(branding.status).toBe(200);
+				expect(await branding.json()).toMatchObject({
+					branding: { title: "Example assistant" },
+					version: 1,
+				});
 			});
 		} finally {
+			vi.unstubAllGlobals();
 			sqlite?.close();
 			await pg?.close();
 		}
