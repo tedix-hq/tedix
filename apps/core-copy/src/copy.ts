@@ -45,14 +45,14 @@ export const LARGE_ROW_PAGE_SIZES: Record<string, number> = {
 export const PAUSE_MS = 250;
 /** Pages one cron tick may copy before yielding to the next schedule. */
 /**
- * Pages per 5-minute tick. A page takes about 4 s end to end (1 s pause, the
+ * Pages per tick for a single lane. A page takes about 4 s end to end (1 s pause, the
  * D1 read, the Postgres upsert, the checkpoint), so 60 pages fit one tick.
  */
 export const CRON_PAGE_BUDGET = 60;
 /**
- * Longer than a normal tick (about 3–5 minutes). A tick the runtime kills
- * never clears its lease, so it stays short enough to block only the next
- * tick.
+ * Longer than a normal tick (about 3–5 minutes), so the two-minute cron
+ * never starts a second tick beside a running one. A tick the runtime kills
+ * never clears its lease, so it stays short enough to block only a few.
  */
 export const CRON_LEASE_MS = 6 * 60_000;
 
@@ -323,7 +323,7 @@ export async function copyTable(
 			progress(overloaded ? "paused" : "error", latest, message),
 		);
 		if (overloaded) {
-			// The run keeps going: the next cron tick, five minutes later,
+			// The run keeps going: the next cron tick
 			// resumes this table from its checkpoint.
 			await store.setRunState({
 				mode: "running",

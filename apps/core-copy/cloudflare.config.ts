@@ -43,7 +43,7 @@ export default defineConfig(({ mode }) => {
 			previewUrls: productionIngress.previewUrls,
 			// The cron only walks the plan while the run state says running.
 			triggers: production
-				? [triggers.scheduled({ schedule: "*/5 * * * *" })]
+				? [triggers.scheduled({ schedule: "*/2 * * * *" })]
 				: undefined,
 			observability: {
 				enabled: true,
