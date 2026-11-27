@@ -197,7 +197,8 @@ describe("core-copy worker", () => {
 				`SELECT count(*)::int AS n FROM organizations`,
 			);
 			expect((mid.rows[0] as { n: number }).n).toBe(500);
-			expect((await store.runState()).mode).toBe("paused");
+			// The run stays on; the next tick resumes the paused table.
+			expect((await store.runState()).mode).toBe("running");
 
 			// Resume with a healthy D1: the checkpoint continues at page 2.
 			const resumed = d1Port(sqlite);

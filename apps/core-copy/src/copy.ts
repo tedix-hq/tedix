@@ -53,7 +53,9 @@ export interface CopyPorts {
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function isD1Overloaded(error: unknown): boolean {
-	return /overloaded/i.test(
+	// D1 refuses or resets for a moment under platform stalls; the same read
+	// succeeds later, so these pause the table instead of failing it.
+	return /overloaded|was reset|temporarily unavailable/i.test(
 		error instanceof Error ? error.message : String(error),
 	);
 }
@@ -239,9 +241,11 @@ export async function copyTable(
 			progress(overloaded ? "paused" : "error", latest, message),
 		);
 		if (overloaded) {
+			// The run keeps going: the next cron tick, five minutes later,
+			// resumes this table from its checkpoint.
 			await store.setRunState({
-				mode: "paused",
-				note: `D1 overloaded during ${tableName}; resume with POST /run`,
+				mode: "running",
+				note: `D1 refused a read during ${tableName} at ${now()}; resuming next tick`,
 				updatedAt: now(),
 			});
 		}
