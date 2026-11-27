@@ -421,9 +421,27 @@ export class DocsBuildWorkflow extends WorkflowEntrypoint<
 		step: WorkflowStep,
 	): Promise<{ buildId: string; sourceRevision: string } | null> {
 		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		const env = this.env;
+		// Workflow callbacks cross an RPC boundary that drops run()'s async context.
+		const scopedStep = new Proxy(step, {
+			get(target, key) {
+				if (key === "do")
+					return (...args: unknown[]) => {
+						const index = typeof args[1] === "function" ? 1 : 2;
+						const callback = args[index] as (
+							...args: unknown[]
+						) => Promise<unknown>;
+						args[index] = (...callbackArgs: unknown[]) =>
+							withCoreStore(env, () => callback(...callbackArgs));
+						return Reflect.apply(target.do, target, args);
+					};
+				const value = Reflect.get(target, key, target);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
 		return withCoreStore(
 			this.env,
-			() => dispatchDocsBuild(this.env, event, step),
+			() => dispatchDocsBuild(this.env, event, scopedStep),
 			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
