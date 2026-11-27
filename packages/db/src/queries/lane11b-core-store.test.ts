@@ -5,7 +5,12 @@ import { createDbClient, type DbClient } from "../client";
 import { coreTable } from "../core-store/client";
 import { tediApprovalRequests } from "../schema/approvals";
 import { skillEntries } from "../schema/cognitive";
-import { kernelRuntimeEvents } from "../schema/cognitive-runtime";
+import { auditEvents } from "../schema/audit-events";
+import { policyPacks } from "../schema/control-plane";
+import {
+	kernelRuntimeEvents,
+	kernelWakeQueue,
+} from "../schema/cognitive-runtime";
 import { tediCronExecutions } from "../schema/cron-executions";
 import { memoryFacts } from "../schema/memory-graph";
 import { organizations } from "../schema/organizations";
@@ -28,6 +33,18 @@ import {
 	hasActiveMemoryFactSource,
 	listHomePlanDecisionEvents,
 } from "./home-reflection";
+import {
+	getActivePolicyPackDefinition,
+	getOrganizationTedi,
+} from "./kernel-runtime-support";
+import {
+	listWithdrawnSteeringMessageIds,
+	steeringWithdrawalEventId,
+} from "./kernel-runtime-steering";
+import {
+	listHomeRunAuditReferences,
+	listHomeRunWakeReceipts,
+} from "./kernel-home-run-trace";
 
 const stores = ["d1", "postgres"] as const;
 for (const store of stores) {
@@ -245,6 +262,132 @@ for (const store of stores) {
 				limit: 10,
 			});
 			expect(decisions.map((row) => row.id)).toEqual(["ev-1"]);
+		});
+
+		it("reads policy packs and organization tedis", async () => {
+			const packs = coreTable(db, policyPacks);
+			await db.insert(packs).values([
+				{
+					id: "pack-org",
+					organizationId: "org",
+					name: "Org Policy",
+					slug: "org-policy",
+					scope: "organization",
+					status: "active",
+					version: 1,
+					target: "tedi",
+					definition: { source: "organization" },
+				},
+				{
+					id: "pack-system",
+					name: "System Default",
+					slug: "system-default",
+					scope: "system",
+					status: "active",
+					version: 3,
+					target: "tedi",
+					publishedAt: "2026-01-01T00:00:00.000Z",
+					definition: { source: "system" },
+				},
+			]);
+			expect(await getActivePolicyPackDefinition(db, "org")).toEqual({
+				source: "organization",
+			});
+			expect(await getActivePolicyPackDefinition(db, "org-empty")).toEqual({
+				source: "system",
+			});
+			expect(
+				await getOrganizationTedi(db, {
+					id: "tedi-1",
+					organizationId: "org",
+				}),
+			).toMatchObject({ id: "tedi-1", organizationId: "org" });
+		});
+
+		it("lists withdrawn steering message ids", async () => {
+			const events = coreTable(db, kernelRuntimeEvents);
+			await db.insert(events).values([
+				{
+					id: steeringWithdrawalEventId("org", "m-1"),
+					organizationId: "org",
+					kind: "message.progress",
+					conversationId: "conv-1",
+					messageId: "m-1",
+					createdAt: "2026-11-25T10:00:00.000Z",
+				},
+				{
+					id: steeringWithdrawalEventId("org", "m-2"),
+					organizationId: "org",
+					kind: "message.progress",
+					conversationId: "conv-1",
+					messageId: "m-2",
+					createdAt: "2026-11-25T10:01:00.000Z",
+				},
+				{
+					id: "ev-unrelated",
+					organizationId: "org",
+					kind: "message.progress",
+					conversationId: "conv-1",
+					messageId: "m-3",
+					createdAt: "2026-11-25T10:02:00.000Z",
+				},
+			]);
+			const withdrawn = await listWithdrawnSteeringMessageIds(db, {
+				organizationId: "org",
+				conversationId: "conv-1",
+				messageIds: ["m-1", "m-2", "m-3"],
+			});
+			expect(withdrawn.sort()).toEqual(["m-1", "m-2"]);
+		});
+
+		it("lists home run wake receipts and audit references", async () => {
+			const wakes = coreTable(db, kernelWakeQueue);
+			await db.insert(wakes).values({
+				id: "wake-1",
+				organizationId: "org",
+				parentConversationId: "conv-1",
+				childRunId: "child-1",
+				childStatus: "completed",
+				queuedAt: "2026-11-25T10:00:00.000Z",
+			});
+			const receipts = await listHomeRunWakeReceipts(db, {
+				organizationId: "org",
+				childRunIds: ["child-1", "child-2"],
+				limit: 10,
+			});
+			expect(receipts.map((row) => row.id)).toEqual(["wake-1"]);
+
+			const audit = coreTable(db, auditEvents);
+			await db.insert(audit).values([
+				{
+					id: "aud-1",
+					organizationId: "org",
+					actorId: "user-1",
+					actorType: "user",
+					action: "work.updated",
+					resourceType: "work_item",
+					metadata: { traceId: "child-1" },
+					timestamp: new Date("2026-11-25T10:00:00.000Z"),
+				},
+				{
+					id: "aud-2",
+					organizationId: "org",
+					actorId: "user-1",
+					actorType: "user",
+					action: "work.updated",
+					resourceType: "work_item",
+					metadata: { traceId: "child-9" },
+					timestamp: new Date("2026-11-25T10:01:00.000Z"),
+				},
+			]);
+			const references = await listHomeRunAuditReferences(db, {
+				organizationId: "org",
+				childRunIds: ["child-1"],
+				from: new Date("2026-11-24T00:00:00.000Z"),
+				to: new Date("2026-11-26T00:00:00.000Z"),
+				limit: 10,
+			});
+			expect(references).toEqual([{ id: "aud-1", traceId: "child-1" }]);
 		});
 	});
 }
