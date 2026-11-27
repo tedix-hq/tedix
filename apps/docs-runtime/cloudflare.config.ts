@@ -57,6 +57,19 @@ export default defineConfig(({ mode }) => {
 					}),
 					dev: { remote: false },
 				}),
+				// Core tables stay on D1 while CORE_STORE is "d1"; "postgres" switches
+				// them to this Hyperdrive config. Only production binds it.
+				...(production
+					? {
+							CORE_HYPERDRIVE: bindings.hyperdrive({
+								id: live.hyperdrive(
+									"hyperdrive",
+									"00000000000000000000000000000000",
+								),
+							}),
+						}
+					: {}),
+				CORE_STORE: bindings.text("d1"),
 				DOCS_BUILDS: bindings.r2({
 					...live.r2("docsBuilds", { name: "public-installation-bucket" }),
 					dev: { remote: false },
