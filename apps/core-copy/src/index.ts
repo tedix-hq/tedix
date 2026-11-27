@@ -8,6 +8,7 @@ import {
 	copyTable,
 	cronTick,
 	hyperdriveQuery,
+	resetCopy,
 	verifyTable,
 	type CopyPorts,
 } from "./copy.ts";
@@ -38,7 +39,9 @@ async function requireAdmin(
 }
 
 function portsFor(env: Env): { ports: CopyPorts; end(): Promise<void> } {
-	const { query, end } = hyperdriveQuery(env.HYPERDRIVE.connectionString);
+	const { query, copyQuery, end } = hyperdriveQuery(
+		env.HYPERDRIVE.connectionString,
+	);
 	return {
 		ports: {
 			readD1: async (sql, params) => {
@@ -48,6 +51,7 @@ function portsFor(env: Env): { ports: CopyPorts; end(): Promise<void> } {
 				return result.results as Record<string, unknown>[];
 			},
 			query,
+			copyQuery,
 			store: new ProgressStore(doCheckpointStore(env.COPY_CHECKPOINTS, env)),
 		},
 		end,
@@ -123,6 +127,26 @@ export default {
 						fromPage: Number.isInteger(from) && from >= 0 ? from : undefined,
 					}),
 				);
+			} catch (error) {
+				return jsonError(error);
+			} finally {
+				await end();
+			}
+		}
+		if (url.pathname === "/reset" && request.method === "POST") {
+			const denied = await requireAdmin(request, env);
+			if (denied) return denied;
+			const body = (await request.json().catch(() => ({}))) as {
+				confirm?: string;
+			};
+			if (body.confirm !== "truncate-core-copy")
+				return Response.json(
+					{ error: 'confirm must be "truncate-core-copy"' },
+					{ status: 400 },
+				);
+			const { ports, end } = portsFor(env);
+			try {
+				return Response.json(await resetCopy(ports));
 			} catch (error) {
 				return jsonError(error);
 			} finally {

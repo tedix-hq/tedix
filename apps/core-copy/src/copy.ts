@@ -50,6 +50,12 @@ export interface CopyPorts {
 	readD1(sql: string, params: Scalar[]): Promise<Row[]>;
 	/** Postgres target through Hyperdrive (or a test double). */
 	query: PgQuery;
+	/**
+	 * Postgres access for copied pages: triggers and foreign-key checks are off
+	 * for these writes, because the copy moves rows (derived tables included)
+	 * as D1 holds them, in plan order rather than dependency order.
+	 */
+	copyQuery?: PgQuery;
 	store: ProgressStore;
 	/** Test hook: replaces the real timer. */
 	wait?: (ms: number) => Promise<unknown>;
@@ -227,7 +233,7 @@ export async function copyTable(
 		const result = await copyPages({
 			table,
 			source,
-			query: ports.query,
+			query: ports.copyQuery ?? ports.query,
 			state: latest,
 			save,
 			onReceipt,
@@ -262,6 +268,21 @@ export async function copyTable(
 			lastError: message,
 		};
 	}
+}
+
+/**
+ * POST /reset: empties every planned Postgres table and drops all
+ * checkpoints, so the copy starts again from nothing. Only while idle.
+ */
+export async function resetCopy(
+	ports: CopyPorts,
+): Promise<{ truncated: number }> {
+	if ((await ports.store.runState()).mode !== "idle")
+		throw new Error("Stop the run (POST /run stop) before a reset");
+	const tables = coreCopyPlan().map((entry) => quoteIdent(entry.table));
+	await ports.query(`TRUNCATE ${tables.join(", ")} CASCADE`, []);
+	await ports.store.clearAll();
+	return { truncated: tables.length };
 }
 
 /** POST /verify: checks the Postgres rows against the page receipts only. */
@@ -379,6 +400,7 @@ export async function cronTick(ports: CopyPorts): Promise<CopyResult | null> {
 /** postgres.js query port over a Hyperdrive connection string. */
 export function hyperdriveQuery(connectionString: string): {
 	query: PgQuery;
+	copyQuery: PgQuery;
 	end(): Promise<void>;
 } {
 	const sql = postgres(connectionString, {
@@ -400,6 +422,21 @@ export function hyperdriveQuery(connectionString: string): {
 					? await conn.unsafe(text)
 					: await conn.unsafe(text, params as never[]);
 			return { rows: rows as unknown as Row[] };
+		},
+		copyQuery: async (text, params) => {
+			const conn = await connection();
+			await conn.unsafe("BEGIN");
+			try {
+				// Replica mode skips user triggers and foreign-key checks for this
+				// transaction only.
+				await conn.unsafe("SET LOCAL session_replication_role = replica");
+				const rows = await conn.unsafe(text, params as never[]);
+				await conn.unsafe("COMMIT");
+				return { rows: rows as unknown as Row[] };
+			} catch (error) {
+				await conn.unsafe("ROLLBACK").catch(() => undefined);
+				throw error;
+			}
 		},
 		end: async () => {
 			const conn = await reserved?.catch(() => undefined);

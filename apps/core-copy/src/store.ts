@@ -5,11 +5,13 @@ import type { CopyReceipt, CopyState } from "../../../scripts/db/core-copy.ts";
 export interface CheckpointStore {
 	get(key: string): Promise<string | null>;
 	put(key: string, value: string): Promise<void>;
+	clear?(): Promise<void>;
 }
 
 interface CheckpointStub {
 	get(key: string): Promise<string | null>;
 	put(key: string, value: string): Promise<void>;
+	clear(): Promise<void>;
 }
 
 /**
@@ -31,6 +33,7 @@ export function doCheckpointStore(
 		put: async (key, value) => {
 			await stub.put(key, value);
 		},
+		clear: () => stub.clear(),
 	};
 }
 
@@ -70,6 +73,10 @@ export const receiptKey = (table: string, index: number) =>
 export class ProgressStore {
 	constructor(private readonly kv: CheckpointStore) {}
 
+	async clearAll(): Promise<void> {
+		if (!this.kv.clear) throw new Error("Checkpoint store cannot be cleared");
+		await this.kv.clear();
+	}
 	async runState(): Promise<RunState> {
 		const raw = await this.kv.get(RUN_KEY);
 		if (!raw) return { mode: "idle", updatedAt: new Date(0).toISOString() };

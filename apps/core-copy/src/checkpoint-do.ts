@@ -16,4 +16,9 @@ export class CheckpointDO extends DurableObject<Env> {
 	async put(key: string, value: string): Promise<void> {
 		await this.ctx.storage.put(key, value);
 	}
+
+	/** Drops every checkpoint, receipt and the run state (POST /reset). */
+	async clear(): Promise<void> {
+		await this.ctx.storage.deleteAll();
+	}
 }
