@@ -55,6 +55,7 @@ async function fixture(
 	});
 	const { KernelDOv4 } = await import("./kernel-do");
 	const fake = {
+		env: {},
 		turnContext: async () => ({ db }),
 		schedule: vi.fn(async () => ({ id: "schedule" })),
 		runPlannerStep: vi.fn(async () => ({})),

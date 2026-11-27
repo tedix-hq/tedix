@@ -142,6 +142,16 @@ function historyCheckpointStorageKey(conversationId: string): string {
 	return `history-checkpoint:${conversationId}`;
 }
 
+function withStore<T>(
+	env: CloudflareEnv,
+	ctx: Pick<DurableObjectState, "waitUntil">,
+	fn: () => T | Promise<T>,
+): Promise<T> {
+	return import("@tedix/db/core-store/scope").then(({ withCoreStore }) =>
+		withCoreStore(env, fn, (promise) => ctx.waitUntil(promise)),
+	);
+}
+
 export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	override initialState: KernelState = INITIAL_KERNEL_STATE;
 
@@ -152,29 +162,31 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * sweep as a backstop, not the normal recovery path.
 	 */
 	override async onStart(): Promise<void> {
-		// Warm the turn-context module on every cold activation so the first `processTurn` on this instance does not pay the
-		// dynamic import between `enqueuedAt` and `workStartedAt`. Not awaited: the import is memoized and `turnContext()`
-		// joins it.
-		void this.turnContextModule().catch(() => {});
-		const organizationId =
-			this.state.organizationId ?? this.ctx.id.name ?? null;
-		if (!organizationId) return;
-		try {
-			const context = await this.turnContext();
-			await recoverPendingInboxWake({
-				delayMs: this.inboxWakeDelayMs(),
-				hasPendingWake: async () =>
-					(
-						await import("@tedix/db/queries/kernel-do-storage")
-					).hasPendingKernelWake(context.db, organizationId),
-				ensureAlarm: (targetMs) => this.ensureStorageAlarm(targetMs),
-			});
-		} catch (error) {
-			console.warn(
-				"[inboxWake] cold-start recovery failed",
-				kernelErrorMessage(error),
-			);
-		}
+		return withStore(this.env, this.ctx, async () => {
+			// Warm the turn-context module on every cold activation so the first `processTurn` on this instance does not pay the
+			// dynamic import between `enqueuedAt` and `workStartedAt`. Not awaited: the import is memoized and `turnContext()`
+			// joins it.
+			void this.turnContextModule().catch(() => {});
+			const organizationId =
+				this.state.organizationId ?? this.ctx.id.name ?? null;
+			if (!organizationId) return;
+			try {
+				const context = await this.turnContext();
+				await recoverPendingInboxWake({
+					delayMs: this.inboxWakeDelayMs(),
+					hasPendingWake: async () =>
+						(
+							await import("@tedix/db/queries/kernel-do-storage")
+						).hasPendingKernelWake(context.db, organizationId),
+					ensureAlarm: (targetMs) => this.ensureStorageAlarm(targetMs),
+				});
+			} catch (error) {
+				console.warn(
+					"[inboxWake] cold-start recovery failed",
+					kernelErrorMessage(error),
+				);
+			}
+		});
 	}
 
 	private inboxWakeDelayMs(): number {
@@ -196,24 +208,27 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	private readonly runSteering = new HomeRunSteering(this.ctx.storage.kv);
 
 	async controlRunSteering(input: RuntimeRunSteeringInput) {
-		if (input.action === "enqueue") {
-			const { getKernelRuntimeRun } =
-				await import("@tedix/db/queries/kernel-runtime-runs");
-			const context = await this.turnContext();
-			const organizationId = this.state.organizationId ?? this.ctx.id.name;
-			if (!organizationId) throw new Error("Home organization is unavailable");
-			const run = await getKernelRuntimeRun(context.db, {
-				id: input.runId,
-				organizationId,
-			});
-			if (
-				!run ||
-				run.conversationId !== input.sessionKey ||
-				!["queued", "running"].includes(run.status)
-			)
-				throw new Error("Home run is no longer active");
-		}
-		return this.runSteering.control(input);
+		return withStore(this.env, this.ctx, async () => {
+			if (input.action === "enqueue") {
+				const { getKernelRuntimeRun } =
+					await import("@tedix/db/queries/kernel-runtime-runs");
+				const context = await this.turnContext();
+				const organizationId = this.state.organizationId ?? this.ctx.id.name;
+				if (!organizationId)
+					throw new Error("Home organization is unavailable");
+				const run = await getKernelRuntimeRun(context.db, {
+					id: input.runId,
+					organizationId,
+				});
+				if (
+					!run ||
+					run.conversationId !== input.sessionKey ||
+					!["queued", "running"].includes(run.status)
+				)
+					throw new Error("Home run is no longer active");
+			}
+			return this.runSteering.control(input);
+		});
 	}
 
 	/**
@@ -276,7 +291,9 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	}
 
 	/** The SDK owns the wake; alarm() drains custom timers after SDK jobs retire. */
-	async wakeKernelTimers(): Promise<void> {}
+	async wakeKernelTimers(): Promise<void> {
+		return withStore(this.env, this.ctx, async () => {});
+	}
 
 	private blockedDescendantsHost() {
 		const owner = this;
@@ -304,7 +321,9 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		approvalRequestId: string;
 		delegatedTediId?: string | null;
 	}): Promise<void> {
-		return mirrorChildApprovalBlocked(this.blockedDescendantsHost(), input);
+		return withStore(this.env, this.ctx, async () => {
+			return mirrorChildApprovalBlocked(this.blockedDescendantsHost(), input);
+		});
 	}
 
 	async clearChildApprovalBlocked(input: {
@@ -312,7 +331,9 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		childRunId: string;
 		approvalRequestId?: string | null;
 	}): Promise<void> {
-		return clearChildApprovalBlocked(this.blockedDescendantsHost(), input);
+		return withStore(this.env, this.ctx, async () => {
+			return clearChildApprovalBlocked(this.blockedDescendantsHost(), input);
+		});
 	}
 
 	/** Track active progress and persist delivery events through the turn lifecycle. */
@@ -460,43 +481,49 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * double-inserts. Returns the same result shape the inline path produces, so `enqueueMessage` can return it verbatim.
 	 */
 	async processTurn(input: KernelTurnWorkInput): Promise<KernelTurnWorkResult> {
-		const enteredAtMs = Date.now();
-		// Self-restart onto current code if a newer deployment is live (retires the DO-rename tax — see abortIfStaleCode).
-		// Must run before any work/persist so the reset is clean; the edge re-drives the turn on the fresh instance.
-		this.abortIfStaleCode(input.callerVersionId);
-		this.setState({ ...this.state, organizationId: input.organizationId });
-		// Start the semantic recall now — before the turn body's dynamic module imports, `turnContext()`, the intercept reads
-		// and everything else on the way to context assembly. One recall can take seconds; started inside assembly it becomes
-		// the whole `planning → preparing_context` stage. Started here it overlaps the enqueue→work gap; assembly takes it
-		// only if it has settled (RELEVANCE_RECALL_BUDGET_MS, default 0) and otherwise blends the conversation's previous
-		// stored recall. The helper never rejects, and `agent-memory.ts` is a dependency-free leaf, so this adds nothing to
-		// the DO's eager module graph. Ids only: canonical D1 still hydrates and authorizes every candidate before prompt
-		// assembly.
-		const relevanceCandidates = this.startIngressRecall(input);
-		// Persist recovery before any context read or planner handoff can strand the
-		// already-admitted run. The scheduled planner carries this exact watchdog so
-		// it does not arm a second one.
-		const [watchdogId] = await Promise.all([
-			this.armTurnWatchdog(input),
-			this.afterTurnMaintenance(input.organizationId),
-		]);
-		const plannerInput: KernelPlannerStepInput = watchdogId
-			? { ...input, ingressWatchdogId: watchdogId }
-			: input;
-		// Non-blocking planner (flag-gated, default off — see `kernelAsyncPlannerEnabled`): schedule the planner off this RPC
-		// so the DO thread is freed immediately and concurrent same-org Home turns interleave instead of serializing behind
-		// one planner pass. The work runs in `runPlannerStep` via the alarm (which fires because `alarm()` now calls
-		// `super.alarm()`). The persist-first run row is already durable, so the ack `enqueueMessage` builds from the
-		// sentinel carries the real run id; the caller recovers the answer via the MCP tasks extension (poll task.id). Every
-		// turn is an LLM route now (no fast-path short-circuit), so all turns are eligible for off-thread dispatch when the
-		// flag is on.
-		if (kernelAsyncPlannerEnabled(this.env)) {
-			await this.schedule(0, "runPlannerStep", plannerInput);
-			return {
-				[KERNEL_ASYNC_DISPATCH_MARKER]: true,
-			} as unknown as KernelTurnWorkResult;
-		}
-		return this.runPlannerStep(plannerInput, relevanceCandidates, enteredAtMs);
+		return withStore(this.env, this.ctx, async () => {
+			const enteredAtMs = Date.now();
+			// Self-restart onto current code if a newer deployment is live (retires the DO-rename tax — see abortIfStaleCode).
+			// Must run before any work/persist so the reset is clean; the edge re-drives the turn on the fresh instance.
+			this.abortIfStaleCode(input.callerVersionId);
+			this.setState({ ...this.state, organizationId: input.organizationId });
+			// Start the semantic recall now — before the turn body's dynamic module imports, `turnContext()`, the intercept reads
+			// and everything else on the way to context assembly. One recall can take seconds; started inside assembly it becomes
+			// the whole `planning → preparing_context` stage. Started here it overlaps the enqueue→work gap; assembly takes it
+			// only if it has settled (RELEVANCE_RECALL_BUDGET_MS, default 0) and otherwise blends the conversation's previous
+			// stored recall. The helper never rejects, and `agent-memory.ts` is a dependency-free leaf, so this adds nothing to
+			// the DO's eager module graph. Ids only: canonical D1 still hydrates and authorizes every candidate before prompt
+			// assembly.
+			const relevanceCandidates = this.startIngressRecall(input);
+			// Persist recovery before any context read or planner handoff can strand the
+			// already-admitted run. The scheduled planner carries this exact watchdog so
+			// it does not arm a second one.
+			const [watchdogId] = await Promise.all([
+				this.armTurnWatchdog(input),
+				this.afterTurnMaintenance(input.organizationId),
+			]);
+			const plannerInput: KernelPlannerStepInput = watchdogId
+				? { ...input, ingressWatchdogId: watchdogId }
+				: input;
+			// Non-blocking planner (flag-gated, default off — see `kernelAsyncPlannerEnabled`): schedule the planner off this RPC
+			// so the DO thread is freed immediately and concurrent same-org Home turns interleave instead of serializing behind
+			// one planner pass. The work runs in `runPlannerStep` via the alarm (which fires because `alarm()` now calls
+			// `super.alarm()`). The persist-first run row is already durable, so the ack `enqueueMessage` builds from the
+			// sentinel carries the real run id; the caller recovers the answer via the MCP tasks extension (poll task.id). Every
+			// turn is an LLM route now (no fast-path short-circuit), so all turns are eligible for off-thread dispatch when the
+			// flag is on.
+			if (kernelAsyncPlannerEnabled(this.env)) {
+				await this.schedule(0, "runPlannerStep", plannerInput);
+				return {
+					[KERNEL_ASYNC_DISPATCH_MARKER]: true,
+				} as unknown as KernelTurnWorkResult;
+			}
+			return this.runPlannerStep(
+				plannerInput,
+				relevanceCandidates,
+				enteredAtMs,
+			);
+		});
 	}
 
 	private async armTurnWatchdog(
@@ -688,217 +715,223 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		/** `processTurn` entry clock: splits enqueue→work into edge→DO and DO→work. */
 		enteredAtMs?: number,
 	): Promise<KernelTurnWorkResult> {
-		this.setState({ ...this.state, organizationId: input.organizationId });
-		let watchdogId = input.ingressWatchdogId;
-		if (!watchdogId) {
-			[watchdogId] = await Promise.all([
-				this.armTurnWatchdog(input),
-				this.afterTurnMaintenance(input.organizationId),
+		return withStore(this.env, this.ctx, async () => {
+			this.setState({ ...this.state, organizationId: input.organizationId });
+			let watchdogId = input.ingressWatchdogId;
+			if (!watchdogId) {
+				[watchdogId] = await Promise.all([
+					this.armTurnWatchdog(input),
+					this.afterTurnMaintenance(input.organizationId),
+				]);
+			}
+			// The scheduled (alarm) path has no ingress recall: start one here so its
+			// late result still lands in storage for the conversation's next turn.
+			const candidatesInFlight =
+				relevanceCandidates ?? this.startIngressRecall(input);
+			const [
+				context,
+				previousRelevanceRecall,
+				previousHistoryCheckpoint,
+				previousInventorySnapshot,
+			] = await Promise.all([
+				this.turnContext(),
+				this.readPreviousRelevanceRecall(input.conversationId),
+				this.readPersistedHistoryCheckpoint(input.conversationId),
+				this.readInventorySnapshot(input.conversationId),
 			]);
-		}
-		// The scheduled (alarm) path has no ingress recall: start one here so its
-		// late result still lands in storage for the conversation's next turn.
-		const candidatesInFlight =
-			relevanceCandidates ?? this.startIngressRecall(input);
-		const [
-			context,
-			previousRelevanceRecall,
-			previousHistoryCheckpoint,
-			previousInventorySnapshot,
-		] = await Promise.all([
-			this.turnContext(),
-			this.readPreviousRelevanceRecall(input.conversationId),
-			this.readPersistedHistoryCheckpoint(input.conversationId),
-			this.readInventorySnapshot(input.conversationId),
-		]);
-		// One stage-timing collector per turn, shared between the turn body (which marks the serial stage boundaries and
-		// attaches the snapshot to the run's terminal metadata write) and the progress seam's answer-delta batcher (which
-		// marks the first durable flush). Advisory, in-memory only.
-		const stageTimings = createKernelTurnStageTimings();
-		const progress = this.startTurnProgress(
-			context,
-			input.runId,
-			input.conversationId,
-			input.organizationId,
-			stageTimings,
-			typeof input.runRowMetadata.redriveCount === "number"
-				? input.runRowMetadata.redriveCount
-				: 0,
-		);
-		// Per-turn abort controller (docs/engineering/cognition/kernel-execution-model.md "Operator cancel"): registered
-		// before the turn body runs so a `cancelTurn(runId)` RPC landing concurrently (this DO is single-threaded, but the
-		// RPC and this method interleave at `await` points) can always find it. `plannerAbortSignal` is threaded into
-		// `runKernelTurnWork`'s deps → `runKernel` → `planKernelRoute`, which combines it with its own internal timeout/idle
-		// signals.
-		const abortController = new AbortController();
-		this.turnAbortControllers.set(input.runId, abortController);
-		// Clear active progress exactly once. Cancel the stall watchdog only after
-		// the turn settles; an exceptional exit still needs it to terminalize the run.
-		let turnEnded = false;
-		const endTurn = async (cancelWatchdog: boolean): Promise<void> => {
-			if (turnEnded) return;
-			turnEnded = true;
-			await progress.end();
-			if (cancelWatchdog && watchdogId) {
+			// One stage-timing collector per turn, shared between the turn body (which marks the serial stage boundaries and
+			// attaches the snapshot to the run's terminal metadata write) and the progress seam's answer-delta batcher (which
+			// marks the first durable flush). Advisory, in-memory only.
+			const stageTimings = createKernelTurnStageTimings();
+			const progress = this.startTurnProgress(
+				context,
+				input.runId,
+				input.conversationId,
+				input.organizationId,
+				stageTimings,
+				typeof input.runRowMetadata.redriveCount === "number"
+					? input.runRowMetadata.redriveCount
+					: 0,
+			);
+			// Per-turn abort controller (docs/engineering/cognition/kernel-execution-model.md "Operator cancel"): registered
+			// before the turn body runs so a `cancelTurn(runId)` RPC landing concurrently (this DO is single-threaded, but the
+			// RPC and this method interleave at `await` points) can always find it. `plannerAbortSignal` is threaded into
+			// `runKernelTurnWork`'s deps → `runKernel` → `planKernelRoute`, which combines it with its own internal timeout/idle
+			// signals.
+			const abortController = new AbortController();
+			this.turnAbortControllers.set(input.runId, abortController);
+			// Clear active progress exactly once. Cancel the stall watchdog only after
+			// the turn settles; an exceptional exit still needs it to terminalize the run.
+			let turnEnded = false;
+			const endTurn = async (cancelWatchdog: boolean): Promise<void> => {
+				if (turnEnded) return;
+				turnEnded = true;
+				await progress.end();
+				if (cancelWatchdog && watchdogId) {
+					try {
+						await this.cancelSchedule(watchdogId);
+					} catch {
+						// Best-effort: if the cancel is missed, failStuckTurn's CAS no-ops a turn that already reached a terminal status.
+					}
+				}
+			};
+			const { ingressWatchdogId: _ingressWatchdogId, ...turnInput } = input;
+			try {
+				const result = await (
+					await loadTurnWork()
+				).runKernelTurnWork(
+					{
+						...(await loadKernelTurnDelegation()).buildKernelTurnWorkDeps(
+							context,
+						),
+						scheduleRouteRedrive: (saved) => this.scheduleRouteRedrive(saved),
+						onProgress: progress.onProgress,
+						flushStreamedProgress: progress.flush,
+						holdAfterSettle: progress.holdAfterSettle,
+						plannerAbortSignal: abortController.signal,
+						readSteering: async () => this.runSteering.read(input.runId),
+						...(candidatesInFlight
+							? { relevanceCandidates: candidatesInFlight }
+							: {}),
+						...(previousRelevanceRecall ? { previousRelevanceRecall } : {}),
+						...(previousHistoryCheckpoint ? { previousHistoryCheckpoint } : {}),
+						onHistoryCheckpoint: (checkpoint) =>
+							this.ctx.waitUntil(
+								this.storePersistedHistoryCheckpoint(
+									input.conversationId,
+									checkpoint,
+								),
+							),
+						...(previousInventorySnapshot ? { previousInventorySnapshot } : {}),
+						onInventorySnapshot: (snapshot) =>
+							this.ctx.waitUntil(
+								this.storeInventorySnapshot(input.conversationId, snapshot),
+							),
+						// This DO is the org's single kernel instance, so the cache it
+						// reads through is the one `invalidateContextCache` reaches.
+						contextCache: getKernelContextCache(),
+						stageTimings,
+					},
+					turnInput,
+				);
+				// Inbox-wake: if a child completion was stranded while this turn ran, arm the wake alarm so it fires shortly after
+				// the turn ends. onTurnEnded is fail-soft (never throws).
+				this.ctx.waitUntil(this.onTurnEnded(input.conversationId));
+				await endTurn(true);
+				// Late stage marks (after the terminal write took its snapshot) ride on the in-memory result only: the enqueue
+				// response shows where the time after `completedAt` went; the run row is never rewritten.
+				stageTimings.mark("doEnded");
+				const metadata = result?.run?.metadata;
+				const timings =
+					metadata && typeof metadata === "object"
+						? (metadata as Record<string, unknown>).kernelTurnTimings
+						: undefined;
+				if (timings && typeof timings === "object") {
+					const snapshot = timings as Record<string, unknown>;
+					result.run.metadata = {
+						...(metadata as Record<string, unknown>),
+						kernelTurnTimings: {
+							...snapshot,
+							stages: {
+								...(snapshot.stages as Record<string, number> | undefined),
+								...stageTimings.lateStages(),
+							},
+							...(enteredAtMs !== undefined
+								? { doEnterToWorkMs: stageTimings.startedAtMs - enteredAtMs }
+								: {}),
+						},
+					} as typeof result.run.metadata;
+				}
+				return result;
+			} finally {
+				// Failed turns need the same durable recovery wake as successful turns.
 				try {
-					await this.cancelSchedule(watchdogId);
-				} catch {
-					// Best-effort: if the cancel is missed, failStuckTurn's CAS no-ops a turn that already reached a terminal status.
+					this.ctx.waitUntil(this.afterTurnMaintenance(input.organizationId));
+				} catch (error) {
+					console.warn(
+						"[kernel] recovery wake registration failed",
+						kernelErrorMessage(error),
+					);
+				}
+				await endTurn(false);
+				// Only remove our own controller — a redriven turn with the same runId (persist-first idempotency: same run row
+				// re-enters runPlannerStep) could otherwise delete a fresher controller registered by the new pass after this stale
+				// `finally` runs.
+				if (this.turnAbortControllers.get(input.runId) === abortController) {
+					this.turnAbortControllers.delete(input.runId);
 				}
 			}
-		};
-		const { ingressWatchdogId: _ingressWatchdogId, ...turnInput } = input;
-		try {
-			const result = await (
-				await loadTurnWork()
-			).runKernelTurnWork(
-				{
-					...(await loadKernelTurnDelegation()).buildKernelTurnWorkDeps(
-						context,
-					),
-					scheduleRouteRedrive: (saved) => this.scheduleRouteRedrive(saved),
-					onProgress: progress.onProgress,
-					flushStreamedProgress: progress.flush,
-					holdAfterSettle: progress.holdAfterSettle,
-					plannerAbortSignal: abortController.signal,
-					readSteering: async () => this.runSteering.read(input.runId),
-					...(candidatesInFlight
-						? { relevanceCandidates: candidatesInFlight }
-						: {}),
-					...(previousRelevanceRecall ? { previousRelevanceRecall } : {}),
-					...(previousHistoryCheckpoint ? { previousHistoryCheckpoint } : {}),
-					onHistoryCheckpoint: (checkpoint) =>
-						this.ctx.waitUntil(
-							this.storePersistedHistoryCheckpoint(
-								input.conversationId,
-								checkpoint,
-							),
-						),
-					...(previousInventorySnapshot ? { previousInventorySnapshot } : {}),
-					onInventorySnapshot: (snapshot) =>
-						this.ctx.waitUntil(
-							this.storeInventorySnapshot(input.conversationId, snapshot),
-						),
-					// This DO is the org's single kernel instance, so the cache it
-					// reads through is the one `invalidateContextCache` reaches.
-					contextCache: getKernelContextCache(),
-					stageTimings,
-				},
-				turnInput,
-			);
-			// Inbox-wake: if a child completion was stranded while this turn ran, arm the wake alarm so it fires shortly after
-			// the turn ends. onTurnEnded is fail-soft (never throws).
-			this.ctx.waitUntil(this.onTurnEnded(input.conversationId));
-			await endTurn(true);
-			// Late stage marks (after the terminal write took its snapshot) ride on the in-memory result only: the enqueue
-			// response shows where the time after `completedAt` went; the run row is never rewritten.
-			stageTimings.mark("doEnded");
-			const metadata = result?.run?.metadata;
-			const timings =
-				metadata && typeof metadata === "object"
-					? (metadata as Record<string, unknown>).kernelTurnTimings
-					: undefined;
-			if (timings && typeof timings === "object") {
-				const snapshot = timings as Record<string, unknown>;
-				result.run.metadata = {
-					...(metadata as Record<string, unknown>),
-					kernelTurnTimings: {
-						...snapshot,
-						stages: {
-							...(snapshot.stages as Record<string, number> | undefined),
-							...stageTimings.lateStages(),
-						},
-						...(enteredAtMs !== undefined
-							? { doEnterToWorkMs: stageTimings.startedAtMs - enteredAtMs }
-							: {}),
-					},
-				} as typeof result.run.metadata;
-			}
-			return result;
-		} finally {
-			// Failed turns need the same durable recovery wake as successful turns.
-			try {
-				this.ctx.waitUntil(this.afterTurnMaintenance(input.organizationId));
-			} catch (error) {
-				console.warn(
-					"[kernel] recovery wake registration failed",
-					kernelErrorMessage(error),
-				);
-			}
-			await endTurn(false);
-			// Only remove our own controller — a redriven turn with the same runId (persist-first idempotency: same run row
-			// re-enters runPlannerStep) could otherwise delete a fresher controller registered by the new pass after this stale
-			// `finally` runs.
-			if (this.turnAbortControllers.get(input.runId) === abortController) {
-				this.turnAbortControllers.delete(input.runId);
-			}
-		}
+		});
 	}
 
 	/** A durable, once-only retry of the original saved turn, with no new ingress. */
 	async scheduleRouteRedrive(input: KernelTurnWorkInput): Promise<void> {
-		await this.schedule(20, "redriveRoute", input);
+		return withStore(this.env, this.ctx, async () => {
+			await this.schedule(20, "redriveRoute", input);
+		});
 	}
 
 	async redriveRoute(input: KernelTurnWorkInput): Promise<void> {
-		const context = await this.turnContext();
-		const { getKernelRuntimeRun, transitionKernelRuntimeRunStatus } =
-			await import("@tedix/db/queries/kernel-runtime-runs");
-		const run = await getKernelRuntimeRun(context.db, {
-			id: input.runId,
-			organizationId: input.organizationId,
-		});
-		const metadata = run?.metadata as Record<string, unknown> | undefined;
-		if (
-			!run ||
-			run.status !== "queued" ||
-			!metadata?.routeRetryAt ||
-			(typeof metadata.routeRetryCount === "number" &&
-				metadata.routeRetryCount >= 1) ||
-			run.childRunId ||
-			run.delegatedTediId ||
-			metadata.abortRequestedAt
-		)
-			return;
-		const saved = metadata.redriveInput as KernelTurnWorkInput | undefined;
-		if (
-			!saved ||
-			saved.runId !== run.id ||
-			saved.organizationId !== run.organizationId ||
-			saved.conversationId !== run.conversationId
-		)
-			return;
-		const retryAt = Date.parse(String(metadata.routeRetryAt));
-		if (!Number.isFinite(retryAt)) return;
-		if (Date.now() < retryAt) {
-			await this.schedule(new Date(retryAt), "redriveRoute", input);
-			return;
-		}
-		const nextMetadata = {
-			...metadata,
-			routeRetryCount: 1,
-			routeRetryAt: null,
-			redriveCount:
-				(typeof metadata.redriveCount === "number"
-					? metadata.redriveCount
-					: 0) + 1,
-		};
-		const claimed = await transitionKernelRuntimeRunStatus(context.db, {
-			id: input.runId,
-			organizationId: input.organizationId,
-			fromStatus: "queued",
-			patch: {
-				status: "running",
-				completedAt: null,
-				updatedAt: new Date().toISOString(),
-				metadata: nextMetadata,
-			},
-		});
-		if (!claimed) return;
-		await this.runPlannerStep({
-			...saved,
-			runRowMetadata: nextMetadata,
-			assistantMessageId: `${saved.assistantMessageId}:route-redrive`,
+		return withStore(this.env, this.ctx, async () => {
+			const context = await this.turnContext();
+			const { getKernelRuntimeRun, transitionKernelRuntimeRunStatus } =
+				await import("@tedix/db/queries/kernel-runtime-runs");
+			const run = await getKernelRuntimeRun(context.db, {
+				id: input.runId,
+				organizationId: input.organizationId,
+			});
+			const metadata = run?.metadata as Record<string, unknown> | undefined;
+			if (
+				!run ||
+				run.status !== "queued" ||
+				!metadata?.routeRetryAt ||
+				(typeof metadata.routeRetryCount === "number" &&
+					metadata.routeRetryCount >= 1) ||
+				run.childRunId ||
+				run.delegatedTediId ||
+				metadata.abortRequestedAt
+			)
+				return;
+			const saved = metadata.redriveInput as KernelTurnWorkInput | undefined;
+			if (
+				!saved ||
+				saved.runId !== run.id ||
+				saved.organizationId !== run.organizationId ||
+				saved.conversationId !== run.conversationId
+			)
+				return;
+			const retryAt = Date.parse(String(metadata.routeRetryAt));
+			if (!Number.isFinite(retryAt)) return;
+			if (Date.now() < retryAt) {
+				await this.schedule(new Date(retryAt), "redriveRoute", input);
+				return;
+			}
+			const nextMetadata = {
+				...metadata,
+				routeRetryCount: 1,
+				routeRetryAt: null,
+				redriveCount:
+					(typeof metadata.redriveCount === "number"
+						? metadata.redriveCount
+						: 0) + 1,
+			};
+			const claimed = await transitionKernelRuntimeRunStatus(context.db, {
+				id: input.runId,
+				organizationId: input.organizationId,
+				fromStatus: "queued",
+				patch: {
+					status: "running",
+					completedAt: null,
+					updatedAt: new Date().toISOString(),
+					metadata: nextMetadata,
+				},
+			});
+			if (!claimed) return;
+			await this.runPlannerStep({
+				...saved,
+				runRowMetadata: nextMetadata,
+				assistantMessageId: `${saved.assistantMessageId}:route-redrive`,
+			});
 		});
 	}
 
@@ -913,7 +946,9 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * Returns whether a live controller was actually aborted, for logging/observability only.
 	 */
 	async cancelTurn(runId: string): Promise<boolean> {
-		return abortKernelTurn(this.turnAbortControllers, runId);
+		return withStore(this.env, this.ctx, async () => {
+			return abortKernelTurn(this.turnAbortControllers, runId);
+		});
 	}
 
 	/**
@@ -922,14 +957,16 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * fire-and-forget by `invalidateKernelContextCache`.
 	 */
 	async invalidateContextCache(reason: string): Promise<void> {
-		const organizationId =
-			this.state.organizationId ?? this.ctx.id.name ?? null;
-		if (!organizationId) return;
-		getKernelContextCache().invalidate(organizationId);
-		console.info({
-			component: "kernel.context",
-			event: "cache_invalidated",
-			reason,
+		return withStore(this.env, this.ctx, async () => {
+			const organizationId =
+				this.state.organizationId ?? this.ctx.id.name ?? null;
+			if (!organizationId) return;
+			getKernelContextCache().invalidate(organizationId);
+			console.info({
+				component: "kernel.context",
+				event: "cache_invalidated",
+				reason,
+			});
 		});
 	}
 
@@ -944,37 +981,41 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		organizationId?: string;
 		conversationId?: string;
 	}): Promise<void> {
-		const runId = payload?.runId;
-		const organizationId = payload?.organizationId;
-		if (!runId || !organizationId) return;
-		const context = await this.turnContext();
-		try {
-			const submissionBridge = await loadRuntimeSubmissionBridge();
-			const now = new Date().toISOString();
-			const updated = await (
-				await import("@tedix/db/queries/kernel-do-storage")
-			).failActiveKernelRun(context.db, {
-				id: runId,
-				organizationId,
-				progressDetail: KERNEL_TURN_STUCK_DETAIL,
-				now,
-			});
-			if (!updated) return; // already settled — watchdog lost the race
-			await submissionBridge.settleKernelSubmission(context.db, {
-				runId,
-				organizationId,
-				conversationId: payload?.conversationId ?? "",
-				outcome: "failed",
-				error: KERNEL_TURN_STUCK_DETAIL,
-			});
-			console.warn(`[kernel] stall-watchdog failed a stuck turn run=${runId}`);
-		} catch (error) {
-			console.warn(
-				"[kernel] failStuckTurn error",
-				runId,
-				kernelErrorMessage(error),
-			);
-		}
+		return withStore(this.env, this.ctx, async () => {
+			const runId = payload?.runId;
+			const organizationId = payload?.organizationId;
+			if (!runId || !organizationId) return;
+			const context = await this.turnContext();
+			try {
+				const submissionBridge = await loadRuntimeSubmissionBridge();
+				const now = new Date().toISOString();
+				const updated = await (
+					await import("@tedix/db/queries/kernel-do-storage")
+				).failActiveKernelRun(context.db, {
+					id: runId,
+					organizationId,
+					progressDetail: KERNEL_TURN_STUCK_DETAIL,
+					now,
+				});
+				if (!updated) return; // already settled — watchdog lost the race
+				await submissionBridge.settleKernelSubmission(context.db, {
+					runId,
+					organizationId,
+					conversationId: payload?.conversationId ?? "",
+					outcome: "failed",
+					error: KERNEL_TURN_STUCK_DETAIL,
+				});
+				console.warn(
+					`[kernel] stall-watchdog failed a stuck turn run=${runId}`,
+				);
+			} catch (error) {
+				console.warn(
+					"[kernel] failStuckTurn error",
+					runId,
+					kernelErrorMessage(error),
+				);
+			}
+		});
 	}
 
 	/** Ensure detached turns retain a fail-soft reconciliation wake. */
@@ -1007,17 +1048,19 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	async ensureRequestReconciliation(payload: {
 		organizationId: string;
 	}): Promise<void> {
-		const now = Math.floor(Date.now() / 1000);
-		if (
-			this.getSchedules().some(
-				(schedule) =>
-					schedule.callback === "reconcileRequests" &&
-					schedule.time > now &&
-					schedule.time <= now + 1,
+		return withStore(this.env, this.ctx, async () => {
+			const now = Math.floor(Date.now() / 1000);
+			if (
+				this.getSchedules().some(
+					(schedule) =>
+						schedule.callback === "reconcileRequests" &&
+						schedule.time > now &&
+						schedule.time <= now + 1,
+				)
 			)
-		)
-			return;
-		await this.schedule(1, "reconcileRequests", payload);
+				return;
+			await this.schedule(1, "reconcileRequests", payload);
+		});
 	}
 
 	/** Existing maintenance invokes this independently of turn and execution settlement. */
@@ -1025,41 +1068,45 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		organizationId: string;
 		deadline?: number;
 	}): Promise<number> {
-		const { reconcileDueHomeKernelRequests } =
-			await import("./request-home-source");
-		const { withD1Ledger } = await import("@tedix/db/slow-query");
-		// The caller's ledger does not cross the Durable Object RPC boundary.
-		return withD1Ledger(
-			"kernel-request-reconcile",
-			async () =>
-				reconcileDueHomeKernelRequests(
-					await this.turnContext(),
-					payload.organizationId,
-					payload.deadline,
-				),
-			{
-				alwaysLog: true,
-				analytics: {
-					sink: this.env.D1_REQUESTS,
-					worker: "tedix-api",
-					organizationId: payload.organizationId,
+		return withStore(this.env, this.ctx, async () => {
+			const { reconcileDueHomeKernelRequests } =
+				await import("./request-home-source");
+			const { withD1Ledger } = await import("@tedix/db/slow-query");
+			// The caller's ledger does not cross the Durable Object RPC boundary.
+			return withD1Ledger(
+				"kernel-request-reconcile",
+				async () =>
+					reconcileDueHomeKernelRequests(
+						await this.turnContext(),
+						payload.organizationId,
+						payload.deadline,
+					),
+				{
+					alwaysLog: true,
+					analytics: {
+						sink: this.env.D1_REQUESTS,
+						worker: "tedix-api",
+						organizationId: payload.organizationId,
+					},
 				},
-			},
-		);
+			);
+		});
 	}
 
 	/** Scheduled callback; reconciliation retains the same durable schedule name. */
 	async reconcileRuns(payload: { organizationId: string }): Promise<void> {
-		return reconcileRuns(
-			{
-				turnContext: () => this.turnContext(),
-				schedule: (delay, callback, input) =>
-					this.schedule(delay, callback, input),
-				ensureReconciliationSchedule: (id) =>
-					this.ensureReconciliationSchedule(id),
-			},
-			payload,
-		);
+		return withStore(this.env, this.ctx, async () => {
+			return reconcileRuns(
+				{
+					turnContext: () => this.turnContext(),
+					schedule: (delay, callback, input) =>
+						this.schedule(delay, callback, input),
+					ensureReconciliationSchedule: (id) =>
+						this.ensureReconciliationSchedule(id),
+				},
+				payload,
+			);
+		});
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -1078,29 +1125,31 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		childRunId: string,
 		childStatus: string,
 	): Promise<void> {
-		try {
-			// If a turn is actively running for this conversation, strand: arm the
-			// alarm from onTurnEnded instead to avoid injecting over an in-flight turn.
-			const activeTurn = this.state.activeTurn;
-			if (activeTurn && activeTurn.conversationId === parentConversationId) {
-				await this.ctx.storage.put(INBOX_WAKE_STRANDED_KEY, true);
-				await this.ctx.storage.put(
-					INBOX_WAKE_STRANDED_CONV_KEY,
-					parentConversationId,
-				);
+		return withStore(this.env, this.ctx, async () => {
+			try {
+				// If a turn is actively running for this conversation, strand: arm the
+				// alarm from onTurnEnded instead to avoid injecting over an in-flight turn.
+				const activeTurn = this.state.activeTurn;
+				if (activeTurn && activeTurn.conversationId === parentConversationId) {
+					await this.ctx.storage.put(INBOX_WAKE_STRANDED_KEY, true);
+					await this.ctx.storage.put(
+						INBOX_WAKE_STRANDED_CONV_KEY,
+						parentConversationId,
+					);
+					console.warn(
+						"[inboxWake] active turn in progress — stranded wake queued",
+						{ parentConversationId, childRunId, childStatus },
+					);
+					return;
+				}
+				await this.ensureStorageAlarm(Date.now() + this.inboxWakeDelayMs());
+			} catch (error) {
 				console.warn(
-					"[inboxWake] active turn in progress — stranded wake queued",
-					{ parentConversationId, childRunId, childStatus },
+					"[inboxWake] scheduleWakeAlarm failed",
+					kernelErrorMessage(error),
 				);
-				return;
 			}
-			await this.ensureStorageAlarm(Date.now() + this.inboxWakeDelayMs());
-		} catch (error) {
-			console.warn(
-				"[inboxWake] scheduleWakeAlarm failed",
-				kernelErrorMessage(error),
-			);
-		}
+		});
 	}
 
 	/**
@@ -1111,119 +1160,126 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * not masked.
 	 */
 	async alarm(): Promise<void> {
-		let sdkAlarmError: unknown;
-		const rethrowSdkAlarmError = () => {
-			if (sdkAlarmError !== undefined) throw sdkAlarmError;
-		};
-		// Dispatch SDK callbacks first, including wakeKernelTimers. Kernel timers are named schedules in the lifecycle queue,
-		// so SDK maintenance cannot overwrite an earlier inbox deadline. The no-op wake is retired before custom processing
-		// below schedules its next deadline. Keep this boundary to also drain raw alarms persisted before the SDK migration.
-		// A dispatch failure must not skip custom timers, and is rethrown after them.
-		try {
-			await super.alarm();
-		} catch (error) {
-			sdkAlarmError = error;
-			console.warn(
-				"[kernel] super.alarm() schedule dispatch failed",
-				{
-					memoryLimitReset: isDurableObjectMemoryLimitReset(error),
-				},
-				kernelErrorMessage(error),
-			);
-		}
-		await this.processBlockedDescendantAlarm();
-		const context = await this.turnContext();
-		// Resolve organizationId: prefer live state (set when a turn starts),
-		// fall back to the DO's stable idFromName key which is the org UUID.
-		const organizationId =
-			this.state.organizationId ?? this.ctx.id.name ?? null;
-		if (!organizationId) {
-			console.warn("[inboxWake] alarm fired but no organizationId resolvable");
-			rethrowSdkAlarmError();
-			return;
-		}
-		try {
-			// Drain unacked rows for this org.
-			const pendingRows = await (
-				await import("@tedix/db/queries/kernel-do-storage")
-			).listPendingKernelWakes(context.db, {
-				organizationId,
-				limit: 50,
-			});
-			if (pendingRows.length === 0) {
+		return withStore(this.env, this.ctx, async () => {
+			let sdkAlarmError: unknown;
+			const rethrowSdkAlarmError = () => {
+				if (sdkAlarmError !== undefined) throw sdkAlarmError;
+			};
+			// Dispatch SDK callbacks first, including wakeKernelTimers. Kernel timers are named schedules in the lifecycle queue,
+			// so SDK maintenance cannot overwrite an earlier inbox deadline. The no-op wake is retired before custom processing
+			// below schedules its next deadline. Keep this boundary to also drain raw alarms persisted before the SDK migration.
+			// A dispatch failure must not skip custom timers, and is rethrown after them.
+			try {
+				await super.alarm();
+			} catch (error) {
+				sdkAlarmError = error;
+				console.warn(
+					"[kernel] super.alarm() schedule dispatch failed",
+					{
+						memoryLimitReset: isDurableObjectMemoryLimitReset(error),
+					},
+					kernelErrorMessage(error),
+				);
+			}
+			await this.processBlockedDescendantAlarm();
+			const context = await this.turnContext();
+			// Resolve organizationId: prefer live state (set when a turn starts),
+			// fall back to the DO's stable idFromName key which is the org UUID.
+			const organizationId =
+				this.state.organizationId ?? this.ctx.id.name ?? null;
+			if (!organizationId) {
+				console.warn(
+					"[inboxWake] alarm fired but no organizationId resolvable",
+				);
 				rethrowSdkAlarmError();
 				return;
 			}
-			// Group by parentConversationId to build one synthetic turn per conversation.
-			const byConversation = new Map<
-				string,
-				Array<(typeof pendingRows)[number]>
-			>();
-			for (const row of pendingRows) {
-				const list = byConversation.get(row.parentConversationId) ?? [];
-				list.push(row);
-				byConversation.set(row.parentConversationId, list);
-			}
-			const ackedAt = new Date().toISOString();
-			for (const [conversationId, rows] of byConversation) {
-				const n = rows.length;
-				const wakeContent = `[System: ${n} delegated task${n === 1 ? "" : "s"} completed — summarize the results for the operator in this thread]`;
-				const kernelInboxRunIds = rows.map((r) => r.childRunId);
-				try {
-					const turnInput = await (
-						await loadKernelTurnDelegation()
-					).startKernelTurn(context, {
-						organizationId,
-						conversationId,
-						content: wakeContent,
-						descopeUserId: undefined,
-						source: "kernel.inboxWakeAlarm",
-						metadata: {
-							dispatchMode: "kernel-inbox-wake",
-							kernelInboxRunIds,
-							inboxWakeRowIds: rows.map((r) => r.id),
-						},
-					});
-					// Run the synthetic wake turn synchronously (not via processTurn,
-					// which would re-schedule under the async planner flag) so the
-					// wake-queue rows below are acked only after the turn completes.
-					await this.runPlannerStep(turnInput);
-					// Ack rows after successful turn injection.
-					for (const row of rows) {
-						try {
-							await (
-								await import("@tedix/db/queries/kernel-do-storage")
-							).acknowledgeKernelWake(context.db, {
-								id: row.id,
-								ackedAt,
-							});
-						} catch (ackError) {
-							console.warn(
-								"[inboxWake] row ack failed",
-								row.id,
-								kernelErrorMessage(ackError),
-							);
+			try {
+				// Drain unacked rows for this org.
+				const pendingRows = await (
+					await import("@tedix/db/queries/kernel-do-storage")
+				).listPendingKernelWakes(context.db, {
+					organizationId,
+					limit: 50,
+				});
+				if (pendingRows.length === 0) {
+					rethrowSdkAlarmError();
+					return;
+				}
+				// Group by parentConversationId to build one synthetic turn per conversation.
+				const byConversation = new Map<
+					string,
+					Array<(typeof pendingRows)[number]>
+				>();
+				for (const row of pendingRows) {
+					const list = byConversation.get(row.parentConversationId) ?? [];
+					list.push(row);
+					byConversation.set(row.parentConversationId, list);
+				}
+				const ackedAt = new Date().toISOString();
+				for (const [conversationId, rows] of byConversation) {
+					const n = rows.length;
+					const wakeContent = `[System: ${n} delegated task${n === 1 ? "" : "s"} completed — summarize the results for the operator in this thread]`;
+					const kernelInboxRunIds = rows.map((r) => r.childRunId);
+					try {
+						const turnInput = await (
+							await loadKernelTurnDelegation()
+						).startKernelTurn(context, {
+							organizationId,
+							conversationId,
+							content: wakeContent,
+							descopeUserId: undefined,
+							source: "kernel.inboxWakeAlarm",
+							metadata: {
+								dispatchMode: "kernel-inbox-wake",
+								kernelInboxRunIds,
+								inboxWakeRowIds: rows.map((r) => r.id),
+							},
+						});
+						// Run the synthetic wake turn synchronously (not via processTurn,
+						// which would re-schedule under the async planner flag) so the
+						// wake-queue rows below are acked only after the turn completes.
+						await this.runPlannerStep(turnInput);
+						// Ack rows after successful turn injection.
+						for (const row of rows) {
+							try {
+								await (
+									await import("@tedix/db/queries/kernel-do-storage")
+								).acknowledgeKernelWake(context.db, {
+									id: row.id,
+									ackedAt,
+								});
+							} catch (ackError) {
+								console.warn(
+									"[inboxWake] row ack failed",
+									row.id,
+									kernelErrorMessage(ackError),
+								);
+							}
 						}
+					} catch (error) {
+						console.warn(
+							"[inboxWake] alarm turn injection failed",
+							{ conversationId, n },
+							kernelErrorMessage(error),
+						);
 					}
-				} catch (error) {
+				}
+			} catch (error) {
+				if (isDurableObjectMemoryLimitReset(error)) {
 					console.warn(
-						"[inboxWake] alarm turn injection failed",
-						{ conversationId, n },
+						"[inboxWake] alarm drain hit Durable Object memory limit reset",
 						kernelErrorMessage(error),
 					);
+					throw error;
 				}
-			}
-		} catch (error) {
-			if (isDurableObjectMemoryLimitReset(error)) {
 				console.warn(
-					"[inboxWake] alarm drain hit Durable Object memory limit reset",
+					"[inboxWake] alarm drain failed",
 					kernelErrorMessage(error),
 				);
-				throw error;
 			}
-			console.warn("[inboxWake] alarm drain failed", kernelErrorMessage(error));
-		}
-		rethrowSdkAlarmError();
+			rethrowSdkAlarmError();
+		});
 	}
 
 	/**
@@ -1233,21 +1289,28 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * processed shortly after the parent turn ends.
 	 */
 	async onTurnEnded(conversationId: string): Promise<void> {
-		try {
-			const stranded = await this.ctx.storage.get<boolean>(
-				INBOX_WAKE_STRANDED_KEY,
-			);
-			const strandedConv = await this.ctx.storage.get<string>(
-				INBOX_WAKE_STRANDED_CONV_KEY,
-			);
-			if (!stranded || strandedConv !== conversationId) return;
-			// Clear the stranded flag.
-			await this.ctx.storage.delete(INBOX_WAKE_STRANDED_KEY);
-			await this.ctx.storage.delete(INBOX_WAKE_STRANDED_CONV_KEY);
-			// Schedule the wake alarm at now+500ms.
-			await this.ensureStorageAlarm(Date.now() + INBOX_WAKE_STRANDED_DELAY_MS);
-		} catch (error) {
-			console.warn("[inboxWake] onTurnEnded failed", kernelErrorMessage(error));
-		}
+		return withStore(this.env, this.ctx, async () => {
+			try {
+				const stranded = await this.ctx.storage.get<boolean>(
+					INBOX_WAKE_STRANDED_KEY,
+				);
+				const strandedConv = await this.ctx.storage.get<string>(
+					INBOX_WAKE_STRANDED_CONV_KEY,
+				);
+				if (!stranded || strandedConv !== conversationId) return;
+				// Clear the stranded flag.
+				await this.ctx.storage.delete(INBOX_WAKE_STRANDED_KEY);
+				await this.ctx.storage.delete(INBOX_WAKE_STRANDED_CONV_KEY);
+				// Schedule the wake alarm at now+500ms.
+				await this.ensureStorageAlarm(
+					Date.now() + INBOX_WAKE_STRANDED_DELAY_MS,
+				);
+			} catch (error) {
+				console.warn(
+					"[inboxWake] onTurnEnded failed",
+					kernelErrorMessage(error),
+				);
+			}
+		});
 	}
 }
