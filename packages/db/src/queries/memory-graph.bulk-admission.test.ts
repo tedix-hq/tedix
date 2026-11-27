@@ -36,6 +36,7 @@ function mockDb() {
 				},
 			}),
 		}),
+		batch: async (queries: Promise<NewMemoryFact[]>[]) => Promise.all(queries),
 	} as unknown as DbClient;
 	return { db, inserted };
 }

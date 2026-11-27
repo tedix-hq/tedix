@@ -357,7 +357,7 @@ async function evaluate(
 	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
 	const workApprovalDecisions = coreTable(db, d1WorkApprovalDecisions);
 	const workResourcePools = coreTable(db, d1WorkResourcePools);
-	const columns = getColumns(workItems);
+	const columns = getColumns(coreTable(db, d1WorkItems));
 	const [facts] = await db
 		.select({
 			...(Object.fromEntries(
