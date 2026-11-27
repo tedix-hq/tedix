@@ -1,4 +1,5 @@
 import { anyIds } from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
 /**
  * Read-only inspection of a workspace by an organization owner or admin.
  *
@@ -23,8 +24,8 @@ import {
 	readAuditStores,
 } from "./audit-delivery";
 import { compareTimestampId, mergeLogStoreRows } from "../utils/log-store";
-import { organizationMembers } from "../schema/organization-members";
-import { osWorkspaces } from "../schema/os-workspaces";
+import { organizationMembers as schemaOrganizationMembers } from "../schema/organization-members";
+import { osWorkspaces as schemaOsWorkspaces } from "../schema/os-workspaces";
 
 const RESOURCE_TYPE = "os_workspace";
 
@@ -65,6 +66,7 @@ export async function isOrganizationInspector(
 	organizationId: string,
 	userId: string,
 ): Promise<boolean> {
+	const organizationMembers = coreTable(db, schemaOrganizationMembers);
 	const [member] = await db
 		.select({
 			role: organizationMembers.role,
@@ -98,6 +100,7 @@ export async function hasActiveOsWorkspaceInspection(
 	now = Date.now(),
 ): Promise<boolean> {
 	if (!userId) return false;
+	const osWorkspaces = coreTable(db, schemaOsWorkspaces);
 	const [workspace] = await db
 		.select({ status: osWorkspaces.status })
 		.from(osWorkspaces)
@@ -125,6 +128,8 @@ export async function listOsWorkspacesForInspection(
 	organizationId: string,
 	limit = 500,
 ) {
+	const osWorkspaces = coreTable(db, schemaOsWorkspaces);
+	const organizationMembers = coreTable(db, schemaOrganizationMembers);
 	return db
 		.select({
 			id: osWorkspaces.id,
@@ -162,6 +167,7 @@ export async function listOsWorkspaceInspections(
 ) {
 	const events = await inspectionEvents(db, scope, limit);
 	if (!events.length) return [];
+	const organizationMembers = coreTable(db, schemaOrganizationMembers);
 	const members = await db
 		.select({
 			id: organizationMembers.descopeUserId,
