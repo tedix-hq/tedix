@@ -1,9 +1,20 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+	afterAll,
+	beforeAll,
+	describe,
+	expect,
+	mock,
+	spyOn,
+	test,
+} from "bun:test";
 import { Database } from "bun:sqlite";
+import { AsyncResource } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import { coreTable } from "@tedix/db/core-store/client";
+import * as coreStoreClient from "@tedix/db/core-store/client";
+import { coreDb, withCoreStore } from "@tedix/db/core-store/scope";
 import { eq } from "drizzle-orm";
 import { apps } from "@tedix/db/schema/apps";
 import { tedis } from "@tedix/db/schema/tedis";
@@ -40,9 +51,25 @@ import {
 	updateSkillRunAfterControl,
 } from "../src/db";
 
+let workflowFactory: (input: {
+	env: unknown;
+	metadata: unknown;
+	ctx: unknown;
+}) => Promise<{ run(event: unknown, step: unknown): Promise<unknown> }>;
+mock.module("cloudflare:workers", () => ({ WorkerEntrypoint: class {} }));
+mock.module("@cloudflare/dynamic-workflows", () => ({
+	createDynamicWorkflowEntrypoint: (factory: typeof workflowFactory) => {
+		workflowFactory = factory;
+		return class {};
+	},
+}));
+await import("../src/skill-workflow");
+
 for (const store of ["d1", "postgres"] as const) {
 	describe(`skill runtime core store: ${store}`, () => {
 		let db: DbClient;
+		let binding: D1Database;
+		let legacySqlite: Database | undefined;
 		let close: () => void | Promise<void>;
 		beforeAll(async () => {
 			if (store === "d1") {
@@ -61,11 +88,22 @@ for (const store of ["d1", "postgres"] as const) {
 				]) {
 					for (const ddl of tableDdl(table)) sqlite.exec(ddl);
 				}
-				db = createDbClient(createD1Facade(sqlite));
+				binding = createD1Facade(sqlite);
+				db = createDbClient(binding);
 				close = () => sqlite.close();
 			} else {
 				const fixture = await createPGliteFacade();
 				db = fixture.db;
+				// The separately owned epoch and runtime-pin helpers still use D1.
+				legacySqlite = new Database(":memory:");
+				for (const table of [
+					skillRuns,
+					skillRunArtifacts,
+					skillWorkflowSources,
+				]) {
+					for (const ddl of tableDdl(table)) legacySqlite.exec(ddl);
+				}
+				binding = createD1Facade(legacySqlite);
 				close = fixture.close;
 				for (const migration of readMigrationFiles({
 					migrationsFolder: fileURLToPath(
@@ -109,6 +147,143 @@ for (const store of ["d1", "postgres"] as const) {
 		}, 30_000);
 		afterAll(async () => {
 			await close?.();
+			legacySqlite?.close();
+		});
+
+		test("seals grounding and terminal evidence across detached Workflow callbacks", async () => {
+			const engine = new AsyncResource("workflow-engine");
+			const closeStepStore = mock(async () => {});
+			const createStore = spyOn(
+				coreStoreClient,
+				"createCoreStore",
+			).mockImplementation(() => ({ db, close: closeStepStore }));
+			const env = {
+				CORE_STORE: store,
+				DB: binding,
+				ENVIRONMENT: "production",
+				PLATFORM_SERVICE_TOKEN: "example-token",
+				WORKER_VERSION: { id: "example-version" },
+				SKILL_ARTIFACTS: {},
+				LOADER: {
+					get: () => ({
+						getEntrypoint: () => ({
+							run: async () => {
+								if (failTenant) throw new Error("tenant failed");
+								return { saved: true };
+							},
+						}),
+					}),
+				},
+			};
+			let failTenant = false;
+			try {
+				for (const outcome of ["completed", "failed"] as const) {
+					failTenant = outcome === "failed";
+					const runId = `detached-${outcome}`;
+					const input = {
+						runId,
+						skillId: "skill",
+						tediId: "tedi",
+						orgId: "org",
+						workflowInstanceId: runId,
+						params: {},
+						workflowSource: "export default {}",
+						skillDoc: "Procedure",
+						skillRevision: 1,
+						runtimeEnvironment: "production" as const,
+						capabilityManifest: {
+							mcp: {},
+							network: false,
+							rationale: { mode: "off" },
+							expectedAnnotations: { destructive: false, readOnly: false },
+							grounding: { required: true, minCausalScore: 1, enforce: "warn" },
+						},
+					};
+					await createSkillRun(db, input);
+					if (store === "postgres")
+						await createSkillRun(createDbClient(binding), input);
+					await insertSkillRunArtifactOnce(db, {
+						id: `context-${runId}`,
+						runId,
+						path: "factory/context.json",
+						mimeType: "application/json",
+						sizeBytes: 4,
+						contentInline: "null",
+						contentR2Key: null,
+						sha256: null,
+						attempt: 1,
+						outcome: "success",
+					});
+					const workflow = await workflowFactory({
+						env,
+						metadata: { runId, skillId: "skill", tediId: "tedi", orgId: "org" },
+						ctx: {
+							exports: new Proxy({}, { get: () => () => ({}) }),
+							waitUntil: () => {},
+						},
+					});
+					const steps: string[] = [];
+					const before = closeStepStore.mock.calls.length;
+					const result = workflow.run(
+						{},
+						{
+							do(
+								name: string,
+								optionsOrCallback: unknown,
+								callback?: () => Promise<unknown>,
+							) {
+								steps.push(name);
+								return engine.runInAsyncScope(() => {
+									if (store === "postgres")
+										expect(() => coreDb(env)).toThrow(
+											"requires a withCoreStore scope",
+										);
+									return (
+										typeof optionsOrCallback === "function"
+											? optionsOrCallback
+											: callback!
+									)();
+								});
+							},
+						},
+					);
+					if (failTenant) await expect(result).rejects.toThrow("tenant failed");
+					else await expect(result).resolves.toEqual({ saved: true });
+					expect(steps).toEqual(
+						outcome === "completed"
+							? [
+									"tedix epoch 0 tool refusal check",
+									"tedix epoch 0 grounding policy",
+									"tedix epoch 0 completed fence",
+								]
+							: ["tedix epoch 0 failed fence"],
+					);
+					if (store === "postgres")
+						expect(closeStepStore.mock.calls.length - before).toBe(
+							steps.length,
+						);
+					const { getWorkflowExecutionEpochOutcome } =
+						await import("../src/workflow-restart");
+					expect(
+						await withCoreStore(env, () =>
+							getWorkflowExecutionEpochOutcome(binding, runId, 0),
+						),
+					).toMatchObject({ outcome });
+					if (!failTenant)
+						expect(
+							JSON.parse(
+								(await getSkillRunArtifactInlineContent(
+									db,
+									runId,
+									"evidence/policy.json",
+								))!,
+							),
+						).toMatchObject({ verdict: "warn" });
+				}
+			} finally {
+				createStore.mockRestore();
+				engine.emitDestroy();
+			}
 		});
 
 		test("pins snapshots, fences restarts and seals organization-scoped receipts", async () => {

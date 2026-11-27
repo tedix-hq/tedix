@@ -392,6 +392,7 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 							return withCoreStore(
 								env,
 								async () => {
+									// Workflow callbacks lose run()'s async context across RPC.
 									const nativeStep = step as WorkflowStep;
 									try {
 										// Crossing the Dynamic Worker RPC boundary happens before this
@@ -402,38 +403,39 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 										);
 										const refusedStep = await nativeStep.do(
 											`tedix epoch ${snapshot.executionEpoch} tool refusal check`,
-											async () => {
-												const receipts: unknown[] = [];
-												let after = "";
-												for (;;) {
-													const rows = await listWorkflowCallReceiptStorage(
-														env.DB,
-														snapshot.orgId,
-														meta.runId!,
-														snapshot.executionEpoch,
-														after,
-													);
-													for (const row of rows) {
-														const content =
-															row.content_inline ??
-															(row.content_r2_key
-																? await (
-																		await env.SKILL_ARTIFACTS.get(
-																			row.content_r2_key,
-																		)
-																	)?.text()
-																: null);
-														if (!content)
-															throw new Error(
-																"WORKFLOW_CALL_RECEIPT_UNAVAILABLE",
-															);
-														receipts.push(JSON.parse(content));
+											() =>
+												withCoreStore(env, async () => {
+													const receipts: unknown[] = [];
+													let after = "";
+													for (;;) {
+														const rows = await listWorkflowCallReceiptStorage(
+															env.DB,
+															snapshot.orgId,
+															meta.runId!,
+															snapshot.executionEpoch,
+															after,
+														);
+														for (const row of rows) {
+															const content =
+																row.content_inline ??
+																(row.content_r2_key
+																	? await (
+																			await env.SKILL_ARTIFACTS.get(
+																				row.content_r2_key,
+																			)
+																		)?.text()
+																	: null);
+															if (!content)
+																throw new Error(
+																	"WORKFLOW_CALL_RECEIPT_UNAVAILABLE",
+																);
+															receipts.push(JSON.parse(content));
+														}
+														if (rows.length < 200) break;
+														after = rows.at(-1)!.path;
 													}
-													if (rows.length < 200) break;
-													after = rows.at(-1)!.path;
-												}
-												return fullyRefusedWorkflowStep(receipts);
-											},
+													return fullyRefusedWorkflowStep(receipts);
+												}),
 										);
 										if (refusedStep) {
 											const { NonRetryableError } =
@@ -462,14 +464,16 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 													},
 													timeout: "30 seconds",
 												},
-												async () =>
-													enforceGroundingPolicy({
-														organizationId: snapshot.orgId,
-														db: env.DB,
-														artifacts: env.SKILL_ARTIFACTS,
-														runId: meta.runId!,
-														policy: manifest.grounding,
-													}),
+												() =>
+													withCoreStore(env, () =>
+														enforceGroundingPolicy({
+															organizationId: snapshot.orgId,
+															db: env.DB,
+															artifacts: env.SKILL_ARTIFACTS,
+															runId: meta.runId!,
+															policy: manifest.grounding,
+														}),
+													),
 											);
 											// The enforcement ratchet. `enforce: "fail"` marks the RUN failed
 											// when the sealed verdict is a violation — thrown outside the
@@ -513,16 +517,17 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 												},
 												timeout: "30 seconds",
 											},
-											async () => {
-												await recordWorkflowExecutionEpochOutcome({
-													db: env.DB,
-													runId: meta.runId!,
-													executionEpoch: snapshot.executionEpoch,
-													outcome: "completed",
-													terminalFingerprint,
-												});
-												return true;
-											},
+											() =>
+												withCoreStore(env, async () => {
+													await recordWorkflowExecutionEpochOutcome({
+														db: env.DB,
+														runId: meta.runId!,
+														executionEpoch: snapshot.executionEpoch,
+														outcome: "completed",
+														terminalFingerprint,
+													});
+													return true;
+												}),
 										);
 										return output;
 									} catch (error) {
@@ -540,16 +545,17 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 												},
 												timeout: "30 seconds",
 											},
-											async () => {
-												await recordWorkflowExecutionEpochOutcome({
-													db: env.DB,
-													runId: meta.runId!,
-													executionEpoch: snapshot.executionEpoch,
-													outcome: "failed",
-													terminalFingerprint,
-												});
-												return true;
-											},
+											() =>
+												withCoreStore(env, async () => {
+													await recordWorkflowExecutionEpochOutcome({
+														db: env.DB,
+														runId: meta.runId!,
+														executionEpoch: snapshot.executionEpoch,
+														outcome: "failed",
+														terminalFingerprint,
+													});
+													return true;
+												}),
 										);
 										throw error;
 									}
