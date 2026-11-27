@@ -9,7 +9,12 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { coreTable } from "../core-store/client";
-import { coreStore, jsonParameter, jsonRead } from "../core-store/dialect";
+import {
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	pgTextArray,
+} from "../core-store/dialect";
 import {
 	agentSessionRequests as schemaAgentSessionRequests,
 	type AgentSessionRequestRow,
@@ -56,7 +61,7 @@ function metadataFlag(
 	key: "pending" | "actionable" | "autoCreated",
 ) {
 	return coreStore(db) === "postgres"
-		? sql`${metadata} #> ${sql.raw(`'{${key}}'`)} = 'true'::jsonb`
+		? sql`${metadata} #> ${pgTextArray([key])}::text[] = 'true'::jsonb`
 		: sql`${jsonRead(db, metadata, [key])} = 1`;
 }
 

@@ -312,8 +312,8 @@ export function providerExecutionRetryPredicate(
 	// SQLite's `IS` takes any operand; Postgres needs IS NOT DISTINCT FROM.
 	const same = (column: string, value: string | null | undefined) =>
 		postgres
-			? sql`${sql.raw(column)} IS NOT DISTINCT FROM ${value ?? null}::text`
-			: sql`${sql.raw(column)} IS ${value ?? null}`;
+			? sql`${sql.identifier(column)} IS NOT DISTINCT FROM ${value ?? null}::text`
+			: sql`${sql.identifier(column)} IS ${value ?? null}`;
 	const identity = balancedConjunction([
 		sql`organization_id=${e.organizationId}`,
 		sql`idempotency_key=${e.idempotencyKey}`,
