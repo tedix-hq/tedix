@@ -36,6 +36,11 @@ export const LARGE_ROW_PAGE_SIZES: Record<string, number> = {
 	skill_run_artifacts: 100,
 	// A 500-row page came to about 145 MB.
 	os_gadget_code_blobs: 10,
+	// Ticks copying these side by side ran out of Worker memory.
+	provider_execution_attempts: 100,
+	work_attempt_steps: 100,
+	work_agent_sessions: 100,
+	external_agent_sessions: 100,
 };
 export const PAUSE_MS = 250;
 /** Pages one cron tick may copy before yielding to the next schedule. */
@@ -44,8 +49,12 @@ export const PAUSE_MS = 250;
  * D1 read, the Postgres upsert, the checkpoint), so 60 pages fit one tick.
  */
 export const CRON_PAGE_BUDGET = 60;
-/** Longer than any tick; a tick that dies leaves this lease to expire. */
-export const CRON_LEASE_MS = 12 * 60_000;
+/**
+ * Longer than a normal tick (about 3–5 minutes). A tick the runtime kills
+ * never clears its lease, so it stays short enough to block only the next
+ * tick.
+ */
+export const CRON_LEASE_MS = 6 * 60_000;
 
 export interface CopyPorts {
 	/** Read-only D1 access; every call is a SELECT the copy engine issues. */
@@ -230,8 +239,13 @@ export async function copyTable(
 	let count = existing?.pages ?? 0;
 	// Fixed once pages exist; a table that failed before its first page can
 	// still pick up a new size.
+	// Pages resume by rowid, so a smaller size can apply mid-table: a size
+	// lowered for memory takes effect on the next tick.
 	const pageSize = existing?.state
-		? (existing.pageSize ?? PAGE_SIZE)
+		? Math.min(
+				existing.pageSize ?? PAGE_SIZE,
+				LARGE_ROW_PAGE_SIZES[tableName] ?? PAGE_SIZE,
+			)
 		: (options.pageSize ?? LARGE_ROW_PAGE_SIZES[tableName] ?? PAGE_SIZE);
 	const water =
 		latest !== undefined && existing?.highWater !== undefined
@@ -420,12 +434,14 @@ export async function copyStatus(ports: CopyPorts): Promise<StatusReport> {
  * A table D1 refused stays paused and is resumed by a later tick.
  */
 /** Tables copied side by side per tick, each lane on its own connection. */
-export const CRON_LANES = 8;
+// Eight lanes ran the Worker out of memory when several large-row tables
+// were in flight together.
+export const CRON_LANES = 4;
 /**
- * Pages per lane per tick. Eight lanes stay under D1's 1,000 queries per
+ * Pages per lane per tick. The lanes stay under D1's 1,000 queries per
  * invocation, with room for the window and hot-start probes.
  */
-export const LANE_PAGE_BUDGET = 90;
+export const LANE_PAGE_BUDGET = 100;
 
 export interface LanePorts {
 	ports: CopyPorts;
