@@ -32,7 +32,7 @@ export async function personalAgentInterfaces(
 		target.href === `${base}/poppy/feedback` && input.method === "POST";
 	if (!tasks && !(feedback && interfaces.feedback))
 		return { status: "not_configured" as const };
-	const session = await verifySignedOutPersonalAgentSession(db, input);
+	const session = await verifySignedOutPersonalAgentSession(db, input, env);
 	if (session.status !== "accepted") return session;
 	const receipt = {
 		status: session.status,

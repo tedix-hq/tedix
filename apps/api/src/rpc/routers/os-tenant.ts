@@ -138,7 +138,7 @@ export const osTenantContractRouter = osTenantOs.router({
 	),
 	personalAgentSession: service.personalAgentSession.handler(
 		({ input, context }) =>
-			verifySignedOutPersonalAgentSession(context.db, input),
+			verifySignedOutPersonalAgentSession(context.db, input, context.env),
 	),
 	personalAgentDiscovery,
 	resolve,

@@ -137,6 +137,7 @@ describe("signed-out Company Agent service", () => {
 		expect(mocks.verify).toHaveBeenCalledWith(
 			db,
 			expect.objectContaining({ sessionToken: "fictional-proof" }),
+			env,
 		);
 		expect(mocks.tedi).toHaveBeenCalledWith(
 			db,

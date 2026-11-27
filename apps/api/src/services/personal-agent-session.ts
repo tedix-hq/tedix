@@ -5,7 +5,7 @@ import {
 import { PersonalAgentDiscoveryConfigSchema } from "@tedix/api-contract/schemas/organization";
 import type { PersonalAgentSessionRequestSchema } from "@tedix/api-contract/schemas/personal-agent-session";
 import type * as z from "zod";
-import type { DbClient } from "@tedix/db/client";
+import { createDbClient, type DbClient } from "@tedix/db/client";
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
 import {
 	getOrganizationById,
@@ -15,14 +15,54 @@ import {
 	consumePersonalAgentClientRate,
 	continuePersonalAgentSession,
 } from "@tedix/db/queries/personal-agent-sessions";
+import { loadPoppyAgentPublicDocument } from "./poppy-agent-identity";
 
-const verify = createPersonalAgentSessionVerifier();
+type IdentityHostEnv = Pick<
+	CloudflareEnv,
+	"API_URL" | "SECRETS_MASTER_KEY" | "DB"
+>;
+
+const TEDIX_IDENTITY_PATH =
+	/^\/poppy-agent\/([a-z0-9][a-z0-9-]{0,127})\/(client|jwks)\.json$/;
+
+// The Worker's env is fixed for the isolate, like the verifier's caches.
+let identityHostEnv: IdentityHostEnv | undefined;
+
+/**
+ * A tedi's Poppy identity documents live on this Worker's own origin, and a
+ * Worker's fetch to its own hostname never reaches its route. Render those
+ * documents with the loader the public route uses; every other client_id
+ * keeps the guarded network fetch.
+ */
+async function fetchIdentityDocument(
+	url: string,
+	init?: RequestInit,
+): Promise<Response> {
+	const env = identityHostEnv;
+	const target = new URL(url);
+	const match = env ? TEDIX_IDENTITY_PATH.exec(target.pathname) : null;
+	if (!env || !match || target.origin !== new URL(env.API_URL).origin)
+		return fetch(url, init);
+	const doc = await loadPoppyAgentPublicDocument(
+		env,
+		createDbClient(env.DB),
+		match[1]!,
+		match[2] as "client" | "jwks",
+	);
+	return doc ? Response.json(doc) : new Response("Not found", { status: 404 });
+}
+
+const verify = createPersonalAgentSessionVerifier({
+	fetchFn: fetchIdentityDocument,
+});
 
 /** Verifies identity, then persists continuity; never mints account authority. */
 export async function verifySignedOutPersonalAgentSession(
 	db: DbClient,
 	input: z.infer<typeof PersonalAgentSessionRequestSchema>,
+	env?: IdentityHostEnv,
 ) {
+	if (env) identityHostEnv = env;
 	const app = await getAppByIdForOrganization(
 		db,
 		input.appId,

@@ -75,7 +75,7 @@ describe("personal agent interfaces", () => {
 			feedbackEndpoint: `${config.mcpUrl}/poppy/feedback`,
 		});
 		expect(mocks.organization).toHaveBeenCalledWith(db, input.organizationId);
-		expect(mocks.verify).toHaveBeenCalledWith(db, input);
+		expect(mocks.verify).toHaveBeenCalledWith(db, input, env);
 		expect(mocks.intake).not.toHaveBeenCalled();
 	});
 	it.each([
