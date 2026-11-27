@@ -131,6 +131,12 @@ const BUILTIN_APP_GUIDE: Record<
 			"Filter by state, harness or project; counts follow the filters.",
 		],
 	},
+	"agent-scorecard": {
+		shows: [
+			"Each agent's last 7 days per kind of task: landed, verified and first-try rates, time and cost per landed task, human asks, and changes fixed or reverted within 7 days.",
+		],
+		interactions: ["Read only."],
+	},
 	"outbound-review": {
 		shows: ["Outbound drafts with their status, filtered and searchable."],
 		interactions: [

@@ -17,6 +17,7 @@ import { machineToolCalls as d1Machines } from "../../schema/machines";
 import { tedis as d1Tedis, tediCallCosts as d1Costs } from "../../schema/tedis";
 import { billingUsageCharges as d1Charges } from "../../schema/billing";
 import { workAgentSessions as d1Sessions } from "../../schema/work-agent-sessions";
+import { workInteractions as d1Interactions } from "../../schema/work-factory";
 import {
 	workAttempts as d1Attempts,
 	workItems as d1Work,
@@ -44,11 +45,13 @@ export async function readAgentScorecardHistory(
 			gte(unixTime(db, at), Math.floor(Date.parse(input.since) / 1000)),
 			lte(unixTime(db, at), Math.floor(Date.parse(input.now) / 1000)),
 		);
-	const [rows, observations] = await Promise.all([
+	const interactions = coreTable(db, d1Interactions);
+	const [rows, observations, asks] = await Promise.all([
 		db
 			.select({
 				id: attempts.id,
 				workItemId: attempts.workItemId,
+				attemptNumber: attempts.attemptNumber,
 				executorType: attempts.executorType,
 				executorId: attempts.executorId,
 				externalSessionKey: attempts.externalSessionKey,
@@ -56,6 +59,12 @@ export async function readAgentScorecardHistory(
 				finishedAt: attempts.finishedAt,
 				outcome: attempts.outcome,
 				metadata: attempts.metadata,
+				workKind: work.workKind,
+				riskLevel: work.riskLevel,
+				size: jsonRead(db, work.metadata, ["size"]),
+				tags: jsonRead(db, work.metadata, ["tags"], "json").mapWith((value) =>
+					typeof value === "string" ? JSON.parse(value) : value,
+				),
 				sessionId: sql<string | null>`${sessions.id}`.as(
 					"scorecard_session_id",
 				),
@@ -147,8 +156,23 @@ export async function readAgentScorecardHistory(
 					inWindow(work.createdAt),
 				),
 			),
+		// Human interventions: asks a person had to answer, counted per Work
+		// item by the scorecard service against its Attempt windows.
+		db
+			.select({
+				id: interactions.id,
+				workItemId: interactions.workItemId,
+				createdAt: interactions.createdAt,
+			})
+			.from(interactions)
+			.where(
+				and(
+					eq(interactions.orgId, input.orgId),
+					inWindow(interactions.createdAt),
+				),
+			),
 	]);
-	return { rows, observations };
+	return { rows, observations, interactions: asks };
 }
 
 /** Lean execution and usage facts; each source retains its own identity. */

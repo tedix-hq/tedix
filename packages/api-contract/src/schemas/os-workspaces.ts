@@ -44,10 +44,12 @@ import {
 import {
 	OFFICE_ENTRY,
 	AGENTS_ENTRY,
+	AGENT_SCORECARD_ENTRY,
 	WORK_DISPATCH_ENTRY,
 	WorkDispatchConfigSchema,
 	OfficeConfigSchema,
 	AgentsConfigSchema,
+	AgentScorecardConfigSchema,
 } from "./os-session-apps";
 import { ModelRefSchema } from "./model-catalog";
 import {
@@ -757,17 +759,19 @@ export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
 							? OfficeConfigSchema
 							: value.entry.trim() === AGENTS_ENTRY
 								? AgentsConfigSchema
-								: value.entry.trim() === DECISION_DECK_ENTRY
-									? DecisionDeckConfigSchema
-									: value.entry.trim() === ACTIVITY_FEED_ENTRY
-										? ActivityFeedConfigSchema
-										: value.entry.trim() === WORK_DISPATCH_ENTRY
-											? WorkDispatchConfigSchema
-											: value.entry.trim() === WORK_MAP_ENTRY
-												? WorkMapConfigSchema
-												: value.entry.trim() === APP_RUNTIME_ENTRY
-													? AppRuntimeConfigSchema
-													: null;
+								: value.entry.trim() === AGENT_SCORECARD_ENTRY
+									? AgentScorecardConfigSchema
+									: value.entry.trim() === DECISION_DECK_ENTRY
+										? DecisionDeckConfigSchema
+										: value.entry.trim() === ACTIVITY_FEED_ENTRY
+											? ActivityFeedConfigSchema
+											: value.entry.trim() === WORK_DISPATCH_ENTRY
+												? WorkDispatchConfigSchema
+												: value.entry.trim() === WORK_MAP_ENTRY
+													? WorkMapConfigSchema
+													: value.entry.trim() === APP_RUNTIME_ENTRY
+														? AppRuntimeConfigSchema
+														: null;
 		if (!schema) return;
 		const parsed = schema.safeParse(value.config);
 		if (parsed.success) return;

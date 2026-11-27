@@ -2923,8 +2923,38 @@ export const AgentHistorySchema = z.object({
 		}),
 	),
 });
+/**
+ * One agent's week on one kind of task (the router's size, risk and tags):
+ * rates over the items it attempted, time and spend per landed item, the
+ * human asks its tasks needed, and landed changes fixed or reverted within
+ * 7 days. null means unknown, never zero.
+ */
+export const AgentKindScorecardRowSchema = z.object({
+	executor: z.string(),
+	model: z.string().nullable(),
+	size: z.string().nullable(),
+	risk: z.string().nullable(),
+	tags: z.array(z.string()),
+	items: z.number().int().nonnegative(),
+	attempts: z.number().int().nonnegative(),
+	landedItems: z.number().int().nonnegative(),
+	landedRate: z.number().min(0).max(1).nullable(),
+	verifiedRate: z.number().min(0).max(1).nullable(),
+	firstAttemptLandedRate: z.number().min(0).max(1).nullable(),
+	medianTimeToLandMs: z.number().nonnegative().nullable(),
+	tokensPerLanded: z.number().nonnegative().nullable(),
+	costPerLandedUsd: z.number().nonnegative().nullable(),
+	humanInterventions: z.number().int().nonnegative(),
+	fixedOrRevertedWithin7d: z.number().int().nonnegative().nullable(),
+});
+export const AgentWeeklyScorecardSchema = z.object({
+	observedAt: z.iso.datetime(),
+	since: z.iso.datetime(),
+	rows: z.array(AgentKindScorecardRowSchema),
+});
 export const GetAgentScorecardResultSchema = z.object({
 	history: AgentHistorySchema.optional(),
+	weekly: AgentWeeklyScorecardSchema.optional(),
 	tedis: z.array(AgentScorecardRowSchema),
 	localMetrics: z.array(
 		z.object({

@@ -19,6 +19,7 @@ export const WORK_APP_ENTRIES = {
 	portfolio: "tedix:app/portfolio",
 	projects: "tedix:app/portfolio",
 	agents: "tedix:app/agents",
+	scorecard: "tedix:app/agent-scorecard",
 	office: "tedix:app/office",
 	outbound: "tedix:app/outbound-review",
 	map: "tedix:app/work-map",

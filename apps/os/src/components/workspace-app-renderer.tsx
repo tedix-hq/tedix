@@ -8,8 +8,10 @@ import {
 	WorkDispatchConfigSchema,
 	OFFICE_ENTRY,
 	AGENTS_ENTRY,
+	AGENT_SCORECARD_ENTRY,
 	OfficeConfigSchema,
 	AgentsConfigSchema,
+	AgentScorecardConfigSchema,
 } from "@tedix/api-contract/schemas/os-session-apps";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import {
@@ -63,6 +65,11 @@ const OfficeApp = lazy(() =>
 );
 const AgentsApp = lazy(() =>
 	import("./work-agents-page").then((m) => ({ default: m.AgentsApp })),
+);
+const AgentScorecardApp = lazy(() =>
+	import("./agent-scorecard-app").then((m) => ({
+		default: m.AgentScorecardApp,
+	})),
 );
 const PersonalReadConsentApp = lazy(() =>
 	import("./personal-read-consent-app").then((m) => ({
@@ -268,6 +275,10 @@ function InstalledApp({
 			return (
 				<AgentsApp key={JSON.stringify(config.data)} config={config.data} />
 			);
+	}
+	if (entry === AGENT_SCORECARD_ENTRY) {
+		const config = AgentScorecardConfigSchema.safeParse(manifest.config);
+		if (config.success) return <AgentScorecardApp config={config.data} />;
 	}
 	const review = cardReviewConfigFromManifest(manifest);
 	if (review.kind === "ok") return <CardReviewApp config={review.config} />;
