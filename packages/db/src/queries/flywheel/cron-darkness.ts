@@ -2,6 +2,7 @@ import { resolveEnabledGovernedLearningCronNames } from "@tedix/api-contract/uti
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import { booleanValue, coreStore } from "../../core-store/dialect";
 import {
 	skillEntries,
 	skillRuns,
@@ -145,6 +146,53 @@ export async function getFleetLatestCronExecutions(
 			.from(executions)
 			.groupBy(executions.tediId, executions.cronName),
 	);
+	if (coreStore(db) === "postgres") {
+		// Postgres has no bare columns: status and mechanism come from each
+		// group's latest stamp, which SQLite returns beside MAX(started_at).
+		const latest = db.$with("latest_executions").as(
+			db
+				.select({
+					tediId: executions.tediId,
+					orgId: executions.orgId,
+					cronName: executions.cronName,
+					startedAt: executions.startedAt,
+					status: executions.status,
+					mechanism: executions.mechanism,
+					rank: sql<number>`row_number() OVER (PARTITION BY ${executions.tediId}, ${executions.orgId}, ${executions.cronName} ORDER BY ${executions.startedAt} DESC)`.as(
+						"latestRank",
+					),
+				})
+				.from(executions),
+		);
+		return db
+			.with(executions, firstStamps, latest)
+			.select({
+				tediId: latest.tediId,
+				orgId: latest.orgId,
+				tediSlug: sql<string | null>`${tedis.slug}`.as("tediSlug"),
+				cronName: latest.cronName,
+				startedAt: latest.startedAt,
+				firstStartedAt: firstStamps.firstStartedAt,
+				status: latest.status,
+				mechanism: latest.mechanism,
+			})
+			.from(latest)
+			.innerJoin(tedis, eq(tedis.id, latest.tediId))
+			.innerJoin(
+				firstStamps,
+				and(
+					eq(firstStamps.tediId, latest.tediId),
+					eq(firstStamps.cronName, latest.cronName),
+				),
+			)
+			.where(
+				and(
+					eq(latest.rank, 1),
+					eq(tedis.runtimeState, "active"),
+					options.orgId ? eq(latest.orgId, options.orgId) : undefined,
+				),
+			);
+	}
 	return db
 		.with(executions, firstStamps)
 		.select({
@@ -295,7 +343,7 @@ export async function getEnabledGovernedLearningCronNamesByTedi(
 			skillSchedules,
 			and(
 				eq(skillSchedules.tediId, tedis.id),
-				sql`${skillSchedules.enabled} = 1`,
+				sql`${skillSchedules.enabled} = ${booleanValue(db, true)}`,
 			),
 		)
 		.leftJoin(

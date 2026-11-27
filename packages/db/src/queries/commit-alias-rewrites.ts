@@ -1,4 +1,5 @@
 import { and, eq, inArray, sql, type SQLWrapper } from "drizzle-orm";
+import { anyIds, coreStore, jsonParameter } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { gitCommitAliases } from "../schema/git-commit-aliases";
 import { workAttempts, workItems } from "../schema/work-items";
@@ -22,10 +23,11 @@ export async function readCommitAliasReplacements(
 			.where(
 				and(
 					eq(gitCommitAliases.repository, repository),
-					sql`${gitCommitAliases.oldSha} IN (SELECT value FROM json_each(${JSON.stringify(frontier)}))`,
+					anyIds(db, gitCommitAliases.oldSha, frontier),
 				),
 			);
-		await db.all(sql`EXPLAIN QUERY PLAN ${query.getSQL()}`);
+		if (coreStore(db) === "d1")
+			await db.all(sql`EXPLAIN QUERY PLAN ${query.getSQL()}`);
 		const rows = await query;
 		for (const row of rows) edges.set(row.oldSha, row.newSha);
 		frontier = [...new Set(rows.map((row) => row.newSha))].filter(
@@ -90,10 +92,14 @@ export async function rewriteCommitAliasBatch(
 			: input.location === "work_items.metadata"
 				? workItems.orgId
 				: workAttempts.orgId;
+	const postgres = coreStore(db) === "postgres";
+	// Postgres stores these documents as jsonb; D1 compares and writes the text.
+	const document = (text: string) =>
+		postgres ? sql`${text}::text::jsonb` : sql`${text}`;
 	const statements = input.records.flatMap((row) => {
 		const predicate = and(
 			eq(table.id, row.id),
-			sql`${value} = ${row.before}`,
+			sql`${value} = ${document(row.before)}`,
 			table === workAttempts
 				? inArray(workAttempts.runtimeState, [
 						"queued",
@@ -115,14 +121,17 @@ export async function rewriteCommitAliasBatch(
 					action: sql<string>`'commit_alias.rewritten'`.as("action"),
 					resourceType: sql<string>`${input.location}`.as("resource_type"),
 					resourceId: sql<string>`${table.id}`.as("resource_id"),
-					metadata: sql<
-						Record<string, unknown>
-					>`${JSON.stringify({ runId: input.runId, repository: input.repository, changes: row.changes })}`.as(
-						"metadata",
-					),
+					metadata: sql<Record<string, unknown>>`${jsonParameter(db, {
+						runId: input.runId,
+						repository: input.repository,
+						changes: row.changes,
+					})}`.as("metadata"),
 					ipAddress: sql<string | null>`NULL`.as("ip_address"),
 					userAgent: sql<string | null>`NULL`.as("user_agent"),
-					timestamp: sql<Date>`unixepoch()`.as("timestamp"),
+					timestamp:
+						sql<Date>`${postgres ? sql`CURRENT_TIMESTAMP` : sql`unixepoch()`}`.as(
+							"timestamp",
+						),
 				})
 				.from(table)
 				.where(predicate),
@@ -132,7 +141,7 @@ export async function rewriteCommitAliasBatch(
 				? db
 						.update(kernelRequests)
 						.set({
-							snapshot: sql`${row.after}`,
+							snapshot: document(row.after),
 							version: sql`${kernelRequests.version} + 1`,
 						})
 						.where(predicate)
@@ -141,7 +150,7 @@ export async function rewriteCommitAliasBatch(
 					? db
 							.update(workItems)
 							.set({
-								metadata: sql`${row.after}`,
+								metadata: document(row.after),
 								version: sql`${workItems.version} + 1`,
 							})
 							.where(predicate)
@@ -149,7 +158,7 @@ export async function rewriteCommitAliasBatch(
 					: db
 							.update(workAttempts)
 							.set({
-								metadata: sql`${row.after}`,
+								metadata: document(row.after),
 								version: sql`${workAttempts.version} + 1`,
 							})
 							.where(predicate)
@@ -157,8 +166,9 @@ export async function rewriteCommitAliasBatch(
 		return [audit, update];
 	});
 	// Explain every statement before execution, including the audit's SELECT.
-	for (const statement of statements as SQLWrapper[])
-		await db.all(sql`EXPLAIN QUERY PLAN ${statement.getSQL()}`);
+	if (!postgres)
+		for (const statement of statements as SQLWrapper[])
+			await db.all(sql`EXPLAIN QUERY PLAN ${statement.getSQL()}`);
 	const results = await db.batch(
 		statements as [
 			(typeof statements)[number],

@@ -11,6 +11,8 @@
 
 import { and, eq, isNotNull, type SQLWrapper, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { skillEntries, skillRuns, skillSchedules } from "../schema/cognitive";
 import {
@@ -61,9 +63,15 @@ export interface ListFactoryScoreboardParams {
 const daysBefore = (now: Date, days: number) =>
 	new Date(now.getTime() - days * 86_400_000).toISOString();
 
-/** Timestamps mix SQLite `YYYY-MM-DD HH:MM:SS` and ISO; compare normalized. */
-const onOrAfter = (column: SQLWrapper, at: string) =>
-	sql`datetime(${column}) >= datetime(${at})`;
+/** Timestamps mix `YYYY-MM-DD HH:MM:SS` and ISO; normalize to the former (UTC). */
+const normalizedTime = (db: DbQueryClient, column: SQLWrapper) =>
+	coreStore(db) === "postgres"
+		? sql`to_char((${column})::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')`
+		: sql`datetime(${column})`;
+const onOrAfter = (db: DbQueryClient, column: SQLWrapper, at: string) =>
+	coreStore(db) === "postgres"
+		? sql`(${column})::timestamptz >= (${at})::timestamptz`
+		: sql`datetime(${column}) >= datetime(${at})`;
 
 /** The whole scoreboard in one D1 round trip. */
 export async function listFactoryScoreboard(
@@ -94,7 +102,7 @@ export async function listFactoryScoreboard(
 				eq(osGadgetExecutions.organizationId, orgId),
 				isNotNull(osGadgetExecutions.runId),
 				isNotNull(osWorkspaces.sourceBlueprintId),
-				onOrAfter(osGadgetExecutions.createdAt, lookback),
+				onOrAfter(db, osGadgetExecutions.createdAt, lookback),
 			),
 		)
 		.as("factory_blueprint_runs");
@@ -118,21 +126,24 @@ export async function listFactoryScoreboard(
 		.where(
 			and(
 				eq(skillRuns.organizationId, orgId),
-				onOrAfter(skillRuns.startedAt, lookback),
+				onOrAfter(db, skillRuns.startedAt, lookback),
 			),
 		)
 		.as("factory_runs");
 
-	const currentOutput = alias(workspaceOutputIndex, "current_output");
+	const currentOutput = alias(
+		coreTable(db, workspaceOutputIndex),
+		"current_output",
+	);
 	const outputRanked = db
 		.select({
 			key: sql<string>`${factoryRuns.key}`.as("last_output_key"),
 			id: sql<string>`${currentOutput.outputId}`.as("last_output_id"),
 			title: sql<string>`${currentOutput.title}`.as("last_output_title"),
-			at: sql<string>`datetime(${workspaceOutputIndex.revisionCreatedAt})`.as(
+			at: sql<string>`${normalizedTime(db, workspaceOutputIndex.revisionCreatedAt)}`.as(
 				"last_output_at",
 			),
-			rank: sql<number>`row_number() OVER (PARTITION BY ${factoryRuns.key} ORDER BY datetime(${workspaceOutputIndex.revisionCreatedAt}) DESC, ${workspaceOutputIndex.revisionId} DESC)`.as(
+			rank: sql<number>`row_number() OVER (PARTITION BY ${factoryRuns.key} ORDER BY ${normalizedTime(db, workspaceOutputIndex.revisionCreatedAt)} DESC, ${workspaceOutputIndex.revisionId} DESC)`.as(
 				"last_output_rank",
 			),
 		})
@@ -152,7 +163,7 @@ export async function listFactoryScoreboard(
 		.where(
 			and(
 				eq(workspaceOutputIndex.organizationId, orgId),
-				onOrAfter(workspaceOutputIndex.revisionCreatedAt, lookback),
+				onOrAfter(db, workspaceOutputIndex.revisionCreatedAt, lookback),
 			),
 		)
 		.as("factory_last_output");
@@ -161,8 +172,10 @@ export async function listFactoryScoreboard(
 			key: sql<string>`${factoryRuns.key}`.as("last_work_key"),
 			id: sql<string>`${workItems.id}`.as("last_work_id"),
 			title: sql<string>`${workItems.title}`.as("last_work_title"),
-			at: sql<string>`datetime(${workItems.completedAt})`.as("last_work_at"),
-			rank: sql<number>`row_number() OVER (PARTITION BY ${factoryRuns.key} ORDER BY datetime(${workItems.completedAt}) DESC, ${workItems.id} DESC)`.as(
+			at: sql<string>`${normalizedTime(db, workItems.completedAt)}`.as(
+				"last_work_at",
+			),
+			rank: sql<number>`row_number() OVER (PARTITION BY ${factoryRuns.key} ORDER BY ${normalizedTime(db, workItems.completedAt)} DESC, ${workItems.id} DESC)`.as(
 				"last_work_rank",
 			),
 		})
@@ -172,7 +185,7 @@ export async function listFactoryScoreboard(
 			and(
 				eq(workItems.orgId, orgId),
 				eq(workItems.disposition, "completed"),
-				onOrAfter(workItems.completedAt, lookback),
+				onOrAfter(db, workItems.completedAt, lookback),
 			),
 		)
 		.as("factory_last_work");
@@ -220,18 +233,19 @@ export async function listFactoryScoreboard(
 			.select({
 				key: factoryRuns.key,
 				runs: sql<number>`count(*)`.as("run_count"),
-				succeeded: sql<number>`sum(${factoryRuns.status} = 'completed')`.as(
-					"run_succeeded",
-				),
+				succeeded:
+					sql<number>`sum(CASE WHEN ${factoryRuns.status} = 'completed' THEN 1 ELSE 0 END)`.as(
+						"run_succeeded",
+					),
 				tediId: sql<string | null>`max(${factoryRuns.tediId})`.as(
 					"run_tedi_id",
 				),
 				lastRunAt: sql<
 					string | null
-				>`max(datetime(${factoryRuns.startedAt}))`.as("run_last_at"),
+				>`max(${normalizedTime(db, factoryRuns.startedAt)})`.as("run_last_at"),
 			})
 			.from(factoryRuns)
-			.where(onOrAfter(factoryRuns.startedAt, since))
+			.where(onOrAfter(db, factoryRuns.startedAt, since))
 			.groupBy(factoryRuns.key),
 		db
 			.select({
@@ -248,7 +262,7 @@ export async function listFactoryScoreboard(
 			.where(
 				and(
 					eq(workspaceOutputIndex.organizationId, orgId),
-					onOrAfter(workspaceOutputIndex.revisionCreatedAt, since),
+					onOrAfter(db, workspaceOutputIndex.revisionCreatedAt, since),
 				),
 			)
 			.groupBy(factoryRuns.key),
@@ -263,7 +277,7 @@ export async function listFactoryScoreboard(
 				and(
 					eq(workItems.orgId, orgId),
 					eq(workItems.disposition, "completed"),
-					onOrAfter(workItems.completedAt, since),
+					onOrAfter(db, workItems.completedAt, since),
 				),
 			)
 			.groupBy(factoryRuns.key),
@@ -309,7 +323,7 @@ export async function listFactoryScoreboard(
 		const tediId = base.tediId ?? run?.tediId ?? null;
 		const output = lastOutput.get(key);
 		const closed = lastWork.get(key);
-		// Both timestamps come back from SQLite `datetime()`, so they compare as text.
+		// Both timestamps come back normalized to `YYYY-MM-DD HH:MM:SS`, so they compare as text.
 		const newest =
 			output && closed
 				? output.at >= closed.at

@@ -1,5 +1,6 @@
 import { and, eq, notExists, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import { organizationMembers } from "../../schema/organization-members";
 import {
@@ -54,8 +55,8 @@ export async function createArtifactRedactionCandidate(
 	db: DbQueryClient,
 	input: NewArtifactRedactionCandidateRow,
 ): Promise<{ candidate: ArtifactRedactionCandidateRow; created: boolean }> {
-	const parent = alias(tediArtifacts, "release_parent_artifact");
-	const child = alias(tediArtifacts, "release_child_artifact");
+	const parent = alias(coreTable(db, tediArtifacts), "release_parent_artifact");
+	const child = alias(coreTable(db, tediArtifacts), "release_child_artifact");
 	const inserted = await db
 		.insert(artifactRedactionCandidates)
 		.select(
@@ -186,7 +187,7 @@ export async function getArtifactReleaseReviewHead(
 	input: { organizationId: string; candidateId: string },
 ): Promise<ArtifactReleaseReviewRow | null> {
 	const successor = alias(
-		artifactReleaseReviews,
+		coreTable(db, artifactReleaseReviews),
 		"artifact_release_review_successor",
 	);
 	const rows = await db
@@ -225,8 +226,14 @@ export async function appendArtifactReleaseReview(
 	db: DbQueryClient,
 	input: NewArtifactReleaseReviewRow,
 ): Promise<{ review: ArtifactReleaseReviewRow; created: boolean }> {
-	const prior = alias(artifactReleaseReviews, "artifact_release_prior");
-	const successor = alias(artifactReleaseReviews, "artifact_release_successor");
+	const prior = alias(
+		coreTable(db, artifactReleaseReviews),
+		"artifact_release_prior",
+	);
+	const successor = alias(
+		coreTable(db, artifactReleaseReviews),
+		"artifact_release_successor",
+	);
 	const genesis = input.previousReviewId === input.candidateId;
 	if (
 		genesis

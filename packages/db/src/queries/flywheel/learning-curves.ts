@@ -9,10 +9,12 @@ import {
 	ne,
 	or,
 	type SQL,
+	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
 import { alias, QueryBuilder } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import { coreStore, jsonRead } from "../../core-store/dialect";
 import { tediRuntimeEvents } from "../../schema/cognitive-runtime";
 import { tediRationaleRecords } from "../../schema/rationale-records";
 
@@ -280,8 +282,24 @@ function buildLearningCurveAlerts(
 export function learningCurveRawEpisodes(
 	access: FlywheelAccess,
 	since: string,
+	db?: object,
 ) {
+	const postgres = db !== undefined && coreStore(db) === "postgres";
 	const records = tediRationaleRecords;
+	// Postgres holds these as jsonb: always valid when present.
+	const validJson = (column: SQLWrapper) =>
+		postgres ? sql`(${column} IS NOT NULL)` : sql`json_valid(${column})`;
+	const arrayLength = (column: SQLWrapper) =>
+		postgres
+			? sql`(CASE WHEN jsonb_typeof(${column}) = 'array' THEN jsonb_array_length(${column}) ELSE 0 END)`
+			: sql`json_array_length(${column})`;
+	// Without a client this builds the D1 SQL.
+	const evidenceText = (key: string) =>
+		sql`(${jsonRead(db ?? {}, records.evidence, [key])})`;
+	const elapsedMs = (end: SQLWrapper, start: SQLWrapper) =>
+		postgres
+			? sql`GREATEST(0, round(extract(epoch FROM ((${end})::timestamptz - (${start})::timestamptz)) * 1000)::bigint)`
+			: sql`max(0, CAST(round((julianday(${end}) - julianday(${start})) * 86400000) AS INTEGER))`;
 	const runtime = alias(tediRuntimeEvents, "runtime");
 	const qb = new QueryBuilder();
 	const runtimeOfRecord = (kind: SQL | undefined) =>
@@ -316,41 +334,38 @@ export function learningCurveRawEpisodes(
 	// averageTokenCost dark. Read the correct sibling field.
 	const runTokensUsed = qb
 		.select({
-			tokens:
-				sql<number>`CAST(json_extract(${runtime.payload}, '$.tokensUsed') AS REAL)`.as(
-					"tokens",
-				),
+			tokens: (postgres
+				? sql<number>`CAST(${jsonRead(db!, runtime.payload, ["tokensUsed"], "number")} AS double precision)`
+				: sql<number>`CAST(json_extract(${runtime.payload}, '$.tokensUsed') AS REAL)`
+			).as("tokens"),
 		})
 		.from(runtime)
 		.where(
 			runtimeOfRecord(
-				and(
-					eq(runtime.kind, "run.completed"),
-					sql`json_valid(${runtime.payload})`,
-				),
+				and(eq(runtime.kind, "run.completed"), validJson(runtime.payload)),
 			),
 		)
 		.orderBy(desc(runtime.createdAt))
 		.limit(1);
-	const linkedToolCalls = sql`(${records.toolCallRefs} IS NOT NULL AND json_valid(${records.toolCallRefs})
-		AND json_array_length(${records.toolCallRefs}) > 0)`;
+	const linkedToolCalls = sql`(${records.toolCallRefs} IS NOT NULL AND ${validJson(records.toolCallRefs)}
+		AND ${arrayLength(records.toolCallRefs)} > 0)`;
 	return qb
 		.select({
 			id: records.id,
 			outcomeStatus: records.outcomeStatus,
 			cohort: sql<LearningCurveCohort>`CASE
-				WHEN json_valid(${records.evidence}) AND (
-					json_extract(${records.evidence}, '$.skillSlug') LIKE 'platform-%-dogfood'
-					OR json_extract(${records.evidence}, '$.taskType') LIKE 'skill:platform-%-dogfood'
+				WHEN ${validJson(records.evidence)} AND (
+					${evidenceText("skillSlug")} LIKE 'platform-%-dogfood'
+					OR ${evidenceText("taskType")} LIKE 'skill:platform-%-dogfood'
 				) THEN 'scheduled_dogfood'
 				WHEN ${records.workItemId} IS NOT NULL THEN 'operator'
 				ELSE 'organic'
 			END`.as("cohort"),
 			taskType: sql<string>`COALESCE(
-				CASE WHEN json_valid(${records.evidence})
-					THEN json_extract(${records.evidence}, '$.taskType') END,
-				CASE WHEN json_valid(${records.evidence}) AND json_extract(${records.evidence}, '$.skillSlug') IS NOT NULL
-					THEN 'skill:' || json_extract(${records.evidence}, '$.skillSlug') END,
+				CASE WHEN ${validJson(records.evidence)}
+					THEN ${evidenceText("taskType")} END,
+				CASE WHEN ${validJson(records.evidence)} AND ${evidenceText("skillSlug")} IS NOT NULL
+					THEN 'skill:' || ${evidenceText("skillSlug")} END,
 				${records.category}
 			)`.as("taskType"),
 			createdAt: records.createdAt,
@@ -358,14 +373,14 @@ export function learningCurveRawEpisodes(
 				WHEN ${records.runId} IS NOT NULL
 					AND ${runStartedAt} IS NOT NULL
 					AND ${runEndedAt} IS NOT NULL
-				THEN max(0, CAST(round((julianday(${runEndedAt}) - julianday(${runStartedAt})) * 86400000) AS INTEGER))
+				THEN ${elapsedMs(runEndedAt, runStartedAt)}
 				WHEN ${records.completedAt} IS NOT NULL
-					THEN max(0, CAST(round((julianday(${records.completedAt}) - julianday(${records.createdAt})) * 86400000) AS INTEGER))
+					THEN ${elapsedMs(records.completedAt, records.createdAt)}
 				ELSE NULL
 			END`.as("durationMs"),
 			steps: sql<number>`CASE
-				WHEN ${records.toolCallRefs} IS NOT NULL AND json_valid(${records.toolCallRefs})
-					THEN json_array_length(${records.toolCallRefs})
+				WHEN ${records.toolCallRefs} IS NOT NULL AND ${validJson(records.toolCallRefs)}
+					THEN ${arrayLength(records.toolCallRefs)}
 				WHEN ${records.runId} IS NOT NULL THEN ${runToolEvents}
 				ELSE 0 END`.as("steps"),
 			tokenCost: sql<
@@ -422,7 +437,7 @@ export async function getTaskTypeLearningCurves(
 	).toISOString();
 	const rawEpisodes = db
 		.$with("raw_episodes")
-		.as(learningCurveRawEpisodes(access, since));
+		.as(learningCurveRawEpisodes(access, since, db));
 	const filtered = db.$with("filtered_episodes").as(
 		db
 			.select()
@@ -544,8 +559,15 @@ export async function getTaskTypeLearningCurves(
 		.select({
 			cohort: phaseRanked.cohort,
 			taskType: phaseRanked.taskType,
-			totalEpisodes: phaseRanked.totalEpisodes,
-			totalTaskTypes: phaseRanked.totalTaskTypes,
+			// Constant per task type; Postgres needs them aggregated.
+			totalEpisodes:
+				coreStore(db) === "postgres"
+					? sql<number>`max(${phaseRanked.totalEpisodes})`.as("totalEpisodes")
+					: phaseRanked.totalEpisodes,
+			totalTaskTypes:
+				coreStore(db) === "postgres"
+					? sql<number>`max(${phaseRanked.totalTaskTypes})`.as("totalTaskTypes")
+					: phaseRanked.totalTaskTypes,
 			phase: phaseRanked.phase,
 			fromEpisode: sql<number>`min(${phaseRanked.episodeNumber})`.as(
 				"fromEpisode",

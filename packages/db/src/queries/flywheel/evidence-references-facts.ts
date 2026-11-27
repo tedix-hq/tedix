@@ -1,27 +1,34 @@
 import { sql } from "drizzle-orm";
+import { coreStore } from "../../core-store/dialect";
 
-/** SQL prefilter for rationale evidence that cites durable brain facts. */
-export function evidenceReferencesFactsSql() {
+/**
+ * SQL prefilter for rationale evidence that cites durable brain facts.
+ * Pass the client so Postgres matches jsonb as text, case-insensitively like SQLite LIKE.
+ */
+export function evidenceReferencesFactsSql(db?: object) {
+	const postgres = db !== undefined && coreStore(db) === "postgres";
+	const evidence = postgres ? sql`CAST(evidence AS text)` : sql`evidence`;
+	const like = postgres ? sql`ILIKE` : sql`LIKE`;
 	return sql`(
-		evidence LIKE '%"factId"%'
-		OR evidence LIKE '%"fact_id"%'
-		OR evidence LIKE '%"factIds"%'
-		OR evidence LIKE '%"fact_ids"%'
-		OR evidence LIKE '%"memoryFactId"%'
-		OR evidence LIKE '%"memory_fact_id"%'
-		OR evidence LIKE '%"memoryFactIds"%'
-		OR evidence LIKE '%"memory_fact_ids"%'
-		OR evidence LIKE '%"retrievedFactIds"%'
-		OR evidence LIKE '%"retrieved_fact_ids"%'
-		OR evidence LIKE '%"retrievedFacts"%'
-		OR evidence LIKE '%"retrieved_facts"%'
-		OR evidence LIKE '%"usedFactIds"%'
-		OR evidence LIKE '%"used_fact_ids"%'
-		OR evidence LIKE '%"ignoredFactIds"%'
-		OR evidence LIKE '%"ignored_fact_ids"%'
-		OR evidence LIKE '%"notUsedFactIds"%'
-		OR evidence LIKE '%"not_used_fact_ids"%'
-		OR evidence LIKE '%"failedFactIds"%'
-		OR evidence LIKE '%"failed_fact_ids"%'
+		${evidence} ${like} '%"factId"%'
+		OR ${evidence} ${like} '%"fact_id"%'
+		OR ${evidence} ${like} '%"factIds"%'
+		OR ${evidence} ${like} '%"fact_ids"%'
+		OR ${evidence} ${like} '%"memoryFactId"%'
+		OR ${evidence} ${like} '%"memory_fact_id"%'
+		OR ${evidence} ${like} '%"memoryFactIds"%'
+		OR ${evidence} ${like} '%"memory_fact_ids"%'
+		OR ${evidence} ${like} '%"retrievedFactIds"%'
+		OR ${evidence} ${like} '%"retrieved_fact_ids"%'
+		OR ${evidence} ${like} '%"retrievedFacts"%'
+		OR ${evidence} ${like} '%"retrieved_facts"%'
+		OR ${evidence} ${like} '%"usedFactIds"%'
+		OR ${evidence} ${like} '%"used_fact_ids"%'
+		OR ${evidence} ${like} '%"ignoredFactIds"%'
+		OR ${evidence} ${like} '%"ignored_fact_ids"%'
+		OR ${evidence} ${like} '%"notUsedFactIds"%'
+		OR ${evidence} ${like} '%"not_used_fact_ids"%'
+		OR ${evidence} ${like} '%"failedFactIds"%'
+		OR ${evidence} ${like} '%"failed_fact_ids"%'
 	)`;
 }

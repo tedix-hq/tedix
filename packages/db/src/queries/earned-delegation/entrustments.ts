@@ -1,5 +1,6 @@
 import { and, desc, eq, exists, inArray, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { jsonRead } from "../../core-store/dialect";
 import {
 	competencyObservationAttestations,
 	competencyObservations,
@@ -232,7 +233,7 @@ export async function getDelegationProfile(
 							eq(workItems.orgId, input.organizationId),
 							eq(workItems.disposition, "completed"),
 							sql`${workItems.completedAt} IS NOT NULL`,
-							sql`NULLIF(TRIM(CAST(json_extract(${workItems.metadata}, '$.proofCertifiedAt') AS TEXT)), '') = ${workItems.completedAt}`,
+							sql`NULLIF(TRIM(CAST(${jsonRead(db, workItems.metadata, ["proofCertifiedAt"])} AS TEXT)), '') = ${workItems.completedAt}`,
 							or(
 								exists(
 									db

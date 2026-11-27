@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, exists, gt, gte, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
 import { tediRationaleRecords } from "../../schema/rationale-records";
 import { extractFactIdsFromFlywheelEvidence } from "./evidence-fact-ids";
 import { evidenceReferencesFactsSql } from "./evidence-references-facts";
@@ -77,16 +78,16 @@ export async function getLearningReplayValidation(
 		Date.now() - windowDays * 24 * 60 * 60 * 1000,
 	).toISOString();
 	const records = tediRationaleRecords;
-	const fail = alias(tediRationaleRecords, "fail");
-	const success = alias(tediRationaleRecords, "success");
-	const candidate = alias(tediRationaleRecords, "candidate");
+	const fail = alias(coreTable(db, tediRationaleRecords), "fail");
+	const success = alias(coreTable(db, tediRationaleRecords), "success");
+	const candidate = alias(coreTable(db, tediRationaleRecords), "candidate");
 	const failureScope = and(
 		eq(fail.tediId, access.tediId),
 		eq(fail.orgId, access.orgId),
 		gte(fail.createdAt, since),
 		eq(fail.outcomeStatus, "failure"),
 	);
-	const total = sql<number>`count(*)`.as("total");
+	const total = sql<number>`count(*)`.mapWith(Number).as("total");
 	const [categoryRows, transitionRows, transitionCountRows] = await Promise.all(
 		[
 			db
@@ -94,17 +95,17 @@ export async function getLearningReplayValidation(
 					category: records.category,
 					total,
 					successes:
-						sql<number>`sum(CASE WHEN ${records.outcomeStatus} = 'success' THEN 1 ELSE 0 END)`.as(
-							"successes",
-						),
+						sql<number>`sum(CASE WHEN ${records.outcomeStatus} = 'success' THEN 1 ELSE 0 END)`
+							.mapWith(Number)
+							.as("successes"),
 					failures:
-						sql<number>`sum(CASE WHEN ${records.outcomeStatus} = 'failure' THEN 1 ELSE 0 END)`.as(
-							"failures",
-						),
+						sql<number>`sum(CASE WHEN ${records.outcomeStatus} = 'failure' THEN 1 ELSE 0 END)`
+							.mapWith(Number)
+							.as("failures"),
 					withFacts:
-						sql<number>`sum(CASE WHEN ${evidenceReferencesFactsSql()} THEN 1 ELSE 0 END)`.as(
-							"withFacts",
-						),
+						sql<number>`sum(CASE WHEN ${evidenceReferencesFactsSql(db)} THEN 1 ELSE 0 END)`
+							.mapWith(Number)
+							.as("withFacts"),
 				})
 				.from(records)
 				.where(

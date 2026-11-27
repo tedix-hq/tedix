@@ -1,4 +1,5 @@
-import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, sql, type SQLWrapper } from "drizzle-orm";
+import { booleanValue, coreStore, jsonRead } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { organizations } from "../schema/organizations";
 import { tedis } from "../schema/tedis";
@@ -28,6 +29,12 @@ export async function listAutomationInventory(
 		.orderBy(asc(organizations.id))
 		.limit(input.limit + 1);
 	const page = orgs.slice(0, input.limit);
+	const postgres = coreStore(db) === "postgres";
+	/** SQLite json_each yields nothing for NULL; Postgres skips anything but an array. */
+	const jsonElements = (value: SQLWrapper, name: string) =>
+		postgres
+			? sql`jsonb_array_elements(CASE WHEN jsonb_typeof(${value}) = 'array' THEN ${value} ELSE '[]'::jsonb END) AS ${sql.identifier(name)}(value)`
+			: sql`json_each(${value}) AS ${sql.identifier(name)}`;
 	const rows = await Promise.all(
 		page.map(async ({ organizationId }) => {
 			const [
@@ -43,20 +50,33 @@ export async function listAutomationInventory(
 			] = await db.batch([
 				db
 					.select({
-						enabled: sql<number>`coalesce(sum(json_extract(job.value, '$.enabled') = 1), 0)`,
-						disabled: sql<number>`coalesce(sum(coalesce(json_extract(job.value, '$.enabled'), 0) != 1), 0)`,
+						enabled: postgres
+							? sql<number>`count(*) FILTER (WHERE job.value->'enabled' IN ('true'::jsonb, '1'::jsonb))`
+							: sql<number>`coalesce(sum(json_extract(job.value, '$.enabled') = 1), 0)`,
+						disabled: postgres
+							? sql<number>`count(*) FILTER (WHERE NOT coalesce(job.value->'enabled' IN ('true'::jsonb, '1'::jsonb), false))`
+							: sql<number>`coalesce(sum(coalesce(json_extract(job.value, '$.enabled'), 0) != 1), 0)`,
 					})
 					.from(tedis)
-					.innerJoin(sql`json_each(${tedis.cronJobs}) AS job`, sql`true`)
+					.innerJoin(jsonElements(tedis.cronJobs, "job"), sql`true`)
 					.where(eq(tedis.organizationId, organizationId)),
 				db
 					.select({
-						enabled: sql<number>`coalesce(sum(coalesce(json_extract(template.value, '$.enabled'), 1) = 1), 0)`,
-						disabled: sql<number>`coalesce(sum(json_extract(template.value, '$.enabled') = 0), 0)`,
+						enabled: postgres
+							? sql<number>`count(*) FILTER (WHERE coalesce(template.value->'enabled', 'null'::jsonb) IN ('true'::jsonb, '1'::jsonb, 'null'::jsonb))`
+							: sql<number>`coalesce(sum(coalesce(json_extract(template.value, '$.enabled'), 1) = 1), 0)`,
+						disabled: postgres
+							? sql<number>`count(*) FILTER (WHERE template.value->'enabled' IN ('false'::jsonb, '0'::jsonb))`
+							: sql<number>`coalesce(sum(json_extract(template.value, '$.enabled') = 0), 0)`,
 					})
 					.from(projects)
 					.innerJoin(
-						sql`json_each(${projects.metadata}, '$.recurringWork') AS template`,
+						postgres
+							? jsonElements(
+									jsonRead(db, projects.metadata, ["recurringWork"], "json"),
+									"template",
+								)
+							: sql`json_each(${projects.metadata}, '$.recurringWork') AS template`,
 						sql`true`,
 					)
 					.where(
@@ -94,7 +114,7 @@ export async function listAutomationInventory(
 					.where(
 						and(
 							eq(cmsSites.organizationId, organizationId),
-							sql`exists (select 1 from ${tenantBundles} where ${tenantBundles.slug} = ${cmsSites.slug} and ${tenantBundles.isActive} = 1)`,
+							sql`exists (select 1 from ${tenantBundles} where ${tenantBundles.slug} = ${cmsSites.slug} and ${tenantBundles.isActive} = ${booleanValue(db, true)})`,
 						),
 					),
 				db
@@ -119,13 +139,13 @@ export async function listAutomationInventory(
                                     and ${skillSchedules.skillId} = ${skillEntries.id})
                                 or exists (select 1 from ${projects}
                                     where ${projects.orgId} = ${organizationId}
-                                    and json_extract(${projects.metadata}, '$.factory.skillId') = ${skillEntries.id})
+                                    and ${jsonRead(db, projects.metadata, ["factory", "skillId"])} = ${skillEntries.id})
                             )`,
 						),
 					),
 				db
 					.select({
-						triggers: sql<string>`coalesce(json_extract(${osGadgetRevisions.manifest}, '$.config.triggers'), '[]')`,
+						triggers: sql<string>`coalesce(${jsonRead(db, postgres ? sql`${osGadgetRevisions.manifest}::jsonb` : osGadgetRevisions.manifest, ["config", "triggers"])}, '[]')`,
 						choices: osGadgets.triggerEnabled,
 					})
 					.from(osGadgets)

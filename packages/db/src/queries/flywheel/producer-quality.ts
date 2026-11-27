@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreStore, jsonRead } from "../../core-store/dialect";
 
 interface FlywheelAccess {
 	tediId: string;
@@ -65,80 +66,121 @@ export async function getBrainProducerQuality(
 	const since = new Date(
 		Date.now() - windowDays * 24 * 60 * 60 * 1000,
 	).toISOString();
-	// Stays raw: cited_fact_ids walks rationale evidence with json_tree().
+	const pg = coreStore(db) === "postgres";
+	const producer = jsonRead(db, sql`metadata`, ["producer"]);
+	const sourceKind = jsonRead(db, sql`metadata`, ["sourceKind"]);
+	const int = pg ? sql`::int` : sql``;
+	const double = pg ? sql`::double precision` : sql``;
+	// cited_fact_ids walks rationale evidence with json_tree() on D1 and the
+	// equivalent recursive walk on Postgres (path is the container's path, key
+	// the member name).
+	const citedFactIds = pg
+		? sql`tree(key, path, fullkey, value) AS (
+				SELECT NULL::text, '$', '$', rationale.evidence
+				FROM tedi_rationale_records rationale
+				WHERE rationale.tedi_id = ${access.tediId}
+					AND rationale.org_id = ${access.orgId}
+					AND rationale.created_at >= ${since}
+				UNION ALL
+				SELECT child.key, tree.fullkey, child.fullkey, child.value
+				FROM tree, LATERAL (
+					SELECT member.key, tree.fullkey || '.' || member.key AS fullkey, member.value
+					FROM jsonb_each(CASE WHEN jsonb_typeof(tree.value) = 'object' THEN tree.value END) AS member
+					UNION ALL
+					SELECT NULL::text, tree.fullkey || '[' || (element.ordinal - 1) || ']', element.value
+					FROM jsonb_array_elements(CASE WHEN jsonb_typeof(tree.value) = 'array' THEN tree.value END)
+						WITH ORDINALITY AS element(value, ordinal)
+				) child
+			), cited_fact_ids AS (
+				SELECT DISTINCT tree.value #>> '{}' AS id
+				FROM tree
+				WHERE jsonb_typeof(tree.value) = 'string'
+					AND (
+						tree.key IN ('factId', 'fact_id', 'memoryFactId', 'memory_fact_id')
+						OR tree.path LIKE '%factIds%'
+						OR tree.path LIKE '%fact_ids%'
+						OR tree.path LIKE '%retrievedFacts%'
+						OR tree.path LIKE '%retrieved_facts%'
+						OR tree.path LIKE '%usedFactIds%'
+						OR tree.path LIKE '%used_fact_ids%'
+						OR tree.path LIKE '%factAttributions%'
+					)
+			)`
+		: sql`cited_fact_ids AS (
+				SELECT DISTINCT CAST(tree.value AS TEXT) AS id
+				FROM tedi_rationale_records rationale,
+					json_tree(CASE WHEN json_valid(rationale.evidence)
+						THEN rationale.evidence ELSE '{}' END) tree
+				WHERE rationale.tedi_id = ${access.tediId}
+					AND rationale.org_id = ${access.orgId}
+					AND rationale.created_at >= ${since}
+					AND tree.type = 'text'
+					AND (
+						tree.key IN ('factId', 'fact_id', 'memoryFactId', 'memory_fact_id')
+						OR tree.path LIKE '%factIds%'
+						OR tree.path LIKE '%fact_ids%'
+						OR tree.path LIKE '%retrievedFacts%'
+						OR tree.path LIKE '%retrieved_facts%'
+						OR tree.path LIKE '%usedFactIds%'
+						OR tree.path LIKE '%used_fact_ids%'
+						OR tree.path LIKE '%factAttributions%'
+					)
+			)`;
+	// Stays raw: the producer classification and citation walk.
 	const rows = await db.all<BrainProducerQualityRow>(
-		sql`WITH facts AS (
+		sql`WITH ${pg ? sql`RECURSIVE ` : sql``}facts AS (
+				SELECT
+					id,
+					confidence,
+					archived_at,
+					valid_to,
+					status,
+					source,
+					source_session_id,
+					source_url,
+					source_hash,
+					access_count,
+					usage_count,
+					CASE
+						WHEN source LIKE 'skill://runs/%' THEN 'skill-workflow'
+						WHEN source LIKE 'payment://%' THEN 'economic-payment'
+						WHEN source LIKE 'observation://%' THEN 'afterTurn'
+						WHEN source = 'entity-extraction' THEN 'entity-extraction'
+						WHEN source = 'session' THEN 'session'
+						WHEN source LIKE '%heartbeat%' THEN 'heartbeat'
+						WHEN source LIKE '%brain-reflection%' OR source LIKE '%reflection%' THEN 'brain-reflection'
+						WHEN source LIKE '%cron%' THEN 'cron'
+						WHEN source LIKE '%conversation%' OR source_session_id IS NOT NULL THEN 'afterTurn'
+						WHEN source_url IS NOT NULL OR source LIKE 'doc://%' OR source LIKE 'http%' THEN 'source-backed'
+						WHEN ${producer} IS NOT NULL THEN ${producer}
+						WHEN ${sourceKind} IS NOT NULL THEN ${sourceKind}
+						ELSE COALESCE(source, 'unknown')
+					END AS producer
+				FROM memory_facts
+				WHERE organization_id = ${access.orgId}
+					AND (tedi_id = ${access.tediId} OR tedi_id IS NULL)
+					AND created_at >= ${since}
+			), ${citedFactIds}
 			SELECT
-				id,
-				confidence,
-				archived_at,
-				valid_to,
-				status,
-				source,
-				source_session_id,
-				source_url,
-				source_hash,
-				access_count,
-				usage_count,
-				CASE
-					WHEN source LIKE 'skill://runs/%' THEN 'skill-workflow'
-					WHEN source LIKE 'payment://%' THEN 'economic-payment'
-					WHEN source LIKE 'observation://%' THEN 'afterTurn'
-					WHEN source = 'entity-extraction' THEN 'entity-extraction'
-					WHEN source = 'session' THEN 'session'
-					WHEN source LIKE '%heartbeat%' THEN 'heartbeat'
-					WHEN source LIKE '%brain-reflection%' OR source LIKE '%reflection%' THEN 'brain-reflection'
-					WHEN source LIKE '%cron%' THEN 'cron'
-					WHEN source LIKE '%conversation%' OR source_session_id IS NOT NULL THEN 'afterTurn'
-					WHEN source_url IS NOT NULL OR source LIKE 'doc://%' OR source LIKE 'http%' THEN 'source-backed'
-					WHEN json_extract(metadata, '$.producer') IS NOT NULL THEN json_extract(metadata, '$.producer')
-					WHEN json_extract(metadata, '$.sourceKind') IS NOT NULL THEN json_extract(metadata, '$.sourceKind')
-					ELSE COALESCE(source, 'unknown')
-				END AS producer
-			FROM memory_facts
-			WHERE organization_id = ${access.orgId}
-				AND (tedi_id = ${access.tediId} OR tedi_id IS NULL)
-				AND created_at >= ${since}
-		), cited_fact_ids AS (
-			SELECT DISTINCT CAST(tree.value AS TEXT) AS id
-			FROM tedi_rationale_records rationale,
-				json_tree(CASE WHEN json_valid(rationale.evidence)
-					THEN rationale.evidence ELSE '{}' END) tree
-			WHERE rationale.tedi_id = ${access.tediId}
-				AND rationale.org_id = ${access.orgId}
-				AND rationale.created_at >= ${since}
-				AND tree.type = 'text'
-				AND (
-					tree.key IN ('factId', 'fact_id', 'memoryFactId', 'memory_fact_id')
-					OR tree.path LIKE '%factIds%'
-					OR tree.path LIKE '%fact_ids%'
-					OR tree.path LIKE '%retrievedFacts%'
-					OR tree.path LIKE '%retrieved_facts%'
-					OR tree.path LIKE '%usedFactIds%'
-					OR tree.path LIKE '%used_fact_ids%'
-					OR tree.path LIKE '%factAttributions%'
-				)
-		)
-		SELECT
-			producer,
-			count(*) AS factsLearned,
-			sum(CASE WHEN archived_at IS NULL AND valid_to IS NULL THEN 1 ELSE 0 END) AS activeFacts,
-			sum(CASE WHEN archived_at IS NOT NULL OR valid_to IS NOT NULL THEN 1 ELSE 0 END) AS archivedFacts,
-			sum(CASE WHEN status = 'probation' THEN 1 ELSE 0 END) AS probationFacts,
-			sum(CASE
-				WHEN source IS NOT NULL
-					OR source_session_id IS NOT NULL
-					OR source_url IS NOT NULL
-					OR source_hash IS NOT NULL
-				THEN 1 ELSE 0 END) AS withProvenance,
-			sum(CASE WHEN access_count > 0 THEN 1 ELSE 0 END) AS retrievedFacts,
-			sum(CASE WHEN usage_count > 0 THEN 1 ELSE 0 END) AS feedbackTouchedFacts,
-			sum(CASE WHEN cited_fact_ids.id IS NOT NULL THEN 1 ELSE 0 END) AS citedFacts,
-			avg(confidence) AS avgConfidence
-		FROM facts
-		LEFT JOIN cited_fact_ids ON cited_fact_ids.id = facts.id
-		GROUP BY producer
-		ORDER BY factsLearned DESC`,
+				producer,
+				count(*)${int} AS "factsLearned",
+				sum(CASE WHEN archived_at IS NULL AND valid_to IS NULL THEN 1 ELSE 0 END)${int} AS "activeFacts",
+				sum(CASE WHEN archived_at IS NOT NULL OR valid_to IS NOT NULL THEN 1 ELSE 0 END)${int} AS "archivedFacts",
+				sum(CASE WHEN status = 'probation' THEN 1 ELSE 0 END)${int} AS "probationFacts",
+				sum(CASE
+					WHEN source IS NOT NULL
+						OR source_session_id IS NOT NULL
+						OR source_url IS NOT NULL
+						OR source_hash IS NOT NULL
+					THEN 1 ELSE 0 END)${int} AS "withProvenance",
+				sum(CASE WHEN access_count > 0 THEN 1 ELSE 0 END)${int} AS "retrievedFacts",
+				sum(CASE WHEN usage_count > 0 THEN 1 ELSE 0 END)${int} AS "feedbackTouchedFacts",
+				sum(CASE WHEN cited_fact_ids.id IS NOT NULL THEN 1 ELSE 0 END)${int} AS "citedFacts",
+				avg(confidence)${double} AS "avgConfidence"
+			FROM facts
+			LEFT JOIN cited_fact_ids ON cited_fact_ids.id = facts.id
+			GROUP BY producer
+			ORDER BY "factsLearned" DESC`,
 	);
 
 	const producers = rows.map((row) => {

@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { jsonRead } from "../../core-store/dialect";
 import {
 	skillEntries,
 	skillUsageEvents,
@@ -226,7 +227,7 @@ export async function getLastMuscle(
 /**
  * Get the most recent MCP tool call for a tedi from the canonical D1 runtime
  * ledger (`tedi_runtime_events`), replacing the dead `mcp_telemetry_events`
- * plane. `payload` is stored as json text, so `json_extract` reads `name`;
+ * plane. `payload` holds JSON (text on D1, jsonb on Postgres); `jsonRead` reads `name`;
  * `success` maps completed→1 / failed→0 to preserve the integer contract
  * downstream reads (`success === 1`). Uses idx_tedi_runtime_events_kind_created.
  */
@@ -238,7 +239,7 @@ export async function getLastToolCall(
 		.select({
 			toolName: sql<
 				string | null
-			>`json_extract(${tediRuntimeEvents.payload}, '$.name')`.as("toolName"),
+			>`${jsonRead(db, tediRuntimeEvents.payload, ["name"])}`.as("toolName"),
 			success: sql<
 				number | null
 			>`CASE ${tediRuntimeEvents.kind} WHEN 'tool.completed' THEN 1 WHEN 'tool.failed' THEN 0 END`.as(

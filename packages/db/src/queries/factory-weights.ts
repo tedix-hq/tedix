@@ -3,6 +3,7 @@ import {
 	type FactoryWeightProposal,
 	FactoryWeightProposalSchema,
 } from "@tedix/api-contract/schemas/os-card-review";
+import { jsonRead, jsonWrite } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { organizations } from "../schema/organizations";
 
@@ -16,9 +17,7 @@ export async function listFactoryWeightProposals(
 ): Promise<FactoryWeightProposal[]> {
 	const [row] = await db
 		.select({
-			proposals: sql<
-				string | null
-			>`json_extract(${organizations.metadata}, '$.factoryWeights')`,
+			proposals: sql<unknown>`${jsonRead(db, organizations.metadata, ["factoryWeights"], "json")}`,
 		})
 		.from(organizations)
 		.where(eq(organizations.id, orgId))
@@ -48,7 +47,12 @@ export async function saveFactoryWeightProposals(
 	await db
 		.update(organizations)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.factoryWeights', json(${JSON.stringify(parsed)}))`,
+			metadata: jsonWrite(
+				db,
+				organizations.metadata,
+				["factoryWeights"],
+				parsed,
+			),
 		})
 		.where(eq(organizations.id, orgId));
 }
