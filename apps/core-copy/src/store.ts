@@ -67,6 +67,7 @@ export interface TableProgress {
 
 const RUN_KEY = "core-copy:run";
 const LEASE_KEY = "core-copy:lease";
+const INSERT_ONLY_KEY = "core-copy:insert-only";
 export const tableKey = (table: string) => `core-copy:table:${table}`;
 /** One key per page receipt, so no stored value grows with the table. */
 export const receiptKey = (table: string, index: number) =>
@@ -93,6 +94,23 @@ export class ProgressStore {
 	}
 	async setLease(until: string | undefined): Promise<void> {
 		await this.kv.put(LEASE_KEY, until ?? "");
+	}
+	/**
+	 * Insert-only mode, for copying after the switch to Postgres: "all", a
+	 * list of tables, or off (empty). Rows already in Postgres are kept.
+	 */
+	async insertOnly(table: string): Promise<boolean> {
+		const raw = (await this.kv.get(INSERT_ONLY_KEY)) || "";
+		if (!raw) return false;
+		const value = JSON.parse(raw) as "all" | string[];
+		return value === "all" || value.includes(table);
+	}
+	async setInsertOnly(value: "all" | string[] | null): Promise<void> {
+		await this.kv.put(INSERT_ONLY_KEY, value ? JSON.stringify(value) : "");
+	}
+	async insertOnlySetting(): Promise<"all" | string[] | null> {
+		const raw = (await this.kv.get(INSERT_ONLY_KEY)) || "";
+		return raw ? (JSON.parse(raw) as "all" | string[]) : null;
 	}
 	async tableProgress(table: string): Promise<TableProgress | undefined> {
 		const raw = await this.kv.get(tableKey(table));

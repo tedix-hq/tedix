@@ -33,6 +33,12 @@ export type PgQuery = (
 export interface CopyReceipt {
 	keys: Row[];
 	sha256: string;
+	/**
+	 * Written insert-only, after the switch to Postgres: rows that already
+	 * existed kept their Postgres values, so verification checks only that
+	 * every key is present.
+	 */
+	insertOnly?: true;
 }
 export interface CopyState {
 	format: "tedix-core-copy/v1";
@@ -165,8 +171,17 @@ async function advanceSourceRowid(
 	);
 }
 
-/** One JSON parameter and one atomic upsert per page; replay after a crash is safe. */
-async function writePage(table: CopyTable, query: PgQuery, rows: Row[]) {
+/**
+ * One JSON parameter and one atomic upsert per page; replay after a crash is
+ * safe. Insert-only writes skip rows whose key already exists, so a row
+ * changed in Postgres after the switch is never overwritten from D1.
+ */
+async function writePage(
+	table: CopyTable,
+	query: PgQuery,
+	rows: Row[],
+	insertOnly = false,
+) {
 	const columns = Object.keys(table.columns).map(quote).join(", ");
 	const updates = Object.keys(table.columns).filter(
 		(c) => !table.keys.includes(c) && c !== table.sourceRowid,
@@ -176,12 +191,23 @@ async function writePage(table: CopyTable, query: PgQuery, rows: Row[]) {
 		.map((c) => `${quote(c)} = EXCLUDED.${quote(c)}`)
 		.join(", ");
 	const override = table.sourceRowid ? " OVERRIDING SYSTEM VALUE" : "";
+	const conflict = insertOnly ? "DO NOTHING" : `DO UPDATE SET ${set}`;
 	const result = await query(
-		`INSERT INTO ${quote(table.table)} AS copy_target (${columns})${override} SELECT ${columns} FROM jsonb_populate_recordset(NULL::${quote(table.table)}, $1::text::jsonb) ON CONFLICT (${table.keys.map(quote).join(", ")}) DO UPDATE SET ${set} RETURNING to_jsonb(copy_target) AS copied_row`,
+		`INSERT INTO ${quote(table.table)} AS copy_target (${columns})${override} SELECT ${columns} FROM jsonb_populate_recordset(NULL::${quote(table.table)}, $1::text::jsonb) ON CONFLICT (${table.keys.map(quote).join(", ")}) ${conflict} RETURNING to_jsonb(copy_target) AS copied_row`,
 		[JSON.stringify(rows)],
 	);
-	if (pageHash(returnedRows(table, result.rows)) !== pageHash(rows))
-		throw new Error("Copied page checksum mismatch");
+	const written = returnedRows(table, result.rows);
+	if (!insertOnly) {
+		if (pageHash(written) !== pageHash(rows))
+			throw new Error("Copied page checksum mismatch");
+		return;
+	}
+	// Only inserted rows come back; each must match its source row.
+	const keyOf = (row: Row) => canonical(table.keys.map((key) => row[key]));
+	const source = new Map(rows.map((row) => [keyOf(row), canonical(row)]));
+	for (const row of written)
+		if (source.get(keyOf(row)) !== canonical(row))
+			throw new Error("Copied page checksum mismatch");
 }
 
 /** Check only Postgres against receipts made from copied pages, never D1. */
@@ -194,6 +220,15 @@ export async function verifyCopy(
 	if (state.tableHash !== hash(table))
 		throw new Error("Verification table differs from checkpoint");
 	for (const page of state.pages) {
+		if (page.insertOnly) {
+			const present = await query(
+				`SELECT count(*)::int AS n FROM ${quote(table.table)} AS copy_target JOIN jsonb_populate_recordset(NULL::${quote(table.table)}, $1::text::jsonb) AS expected ON ${table.keys.map((c) => `copy_target.${quote(c)} = expected.${quote(c)}`).join(" AND ")}`,
+				[JSON.stringify(page.keys)],
+			);
+			if (Number(present.rows[0]?.n) !== page.keys.length)
+				throw new Error("Target verification is missing copied keys");
+			continue;
+		}
 		const result = await query(
 			`SELECT to_jsonb(copy_target) AS copied_row FROM ${quote(table.table)} AS copy_target JOIN jsonb_populate_recordset(NULL::${quote(table.table)}, $1::text::jsonb) AS expected ON ${table.keys.map((c) => `copy_target.${quote(c)} = expected.${quote(c)}`).join(" AND ")}`,
 			[JSON.stringify(page.keys)],
@@ -242,6 +277,8 @@ export async function copyPages(options: {
 	 * re-verify, which would otherwise grow with every copied page.
 	 */
 	onReceipt?: (receipt: CopyReceipt) => Promise<void>;
+	/** Skip rows already in Postgres instead of overwriting them. */
+	insertOnly?: boolean;
 	wait?: (ms: number) => Promise<unknown>;
 }) {
 	const { table, source, query, save } = options;
@@ -304,7 +341,7 @@ export async function copyPages(options: {
 			);
 			if (new Set(keys.map(canonical)).size !== rows.length)
 				throw new Error("Duplicate page key");
-			await writePage(table, query, rows);
+			await writePage(table, query, rows, options.insertOnly);
 			if (table.sourceRowid) {
 				const pageMax = Math.max(
 					...rows.map((row) => Number(row[table.sourceRowid!])),
@@ -314,7 +351,11 @@ export async function copyPages(options: {
 					advancedSourceRowid = pageMax;
 				}
 			}
-			const receipt = { keys, sha256: pageHash(rows) };
+			const receipt: CopyReceipt = {
+				keys,
+				sha256: pageHash(rows),
+				...(options.insertOnly ? { insertOnly: true as const } : {}),
+			};
 			if (options.onReceipt) await options.onReceipt(receipt);
 			state = {
 				...state,

@@ -331,6 +331,7 @@ export async function copyTable(
 			state: latest,
 			save,
 			onReceipt,
+			insertOnly: await store.insertOnly(tableName),
 			pageSize,
 			pauseMs: PAUSE_MS,
 			maxPages: options.maxPages,

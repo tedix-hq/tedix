@@ -13,6 +13,7 @@ import {
 	type CopyPorts,
 } from "./copy.ts";
 import type { Env } from "./env.ts";
+import { planTable } from "./plan.ts";
 import { doCheckpointStore, ProgressStore } from "./store.ts";
 
 export { CheckpointDO } from "./checkpoint-do.ts";
@@ -133,6 +134,35 @@ export default {
 				);
 			} catch (error) {
 				return jsonError(error);
+			} finally {
+				await end();
+			}
+		}
+		if (url.pathname === "/insert-only") {
+			const denied = await requireAdmin(request, env);
+			if (denied) return denied;
+			const { ports, end } = portsFor(env);
+			try {
+				if (request.method === "POST") {
+					const body = (await request.json().catch(() => ({}))) as {
+						tables?: unknown;
+					};
+					const tables = body.tables;
+					const valid =
+						tables === null ||
+						tables === "all" ||
+						(Array.isArray(tables) &&
+							tables.every((t) => typeof t === "string" && planTable(t)));
+					if (!valid)
+						return Response.json(
+							{ error: 'tables must be "all", a list of plan tables, or null' },
+							{ status: 400 },
+						);
+					await ports.store.setInsertOnly(tables as "all" | string[] | null);
+				}
+				return Response.json({
+					insertOnly: await ports.store.insertOnlySetting(),
+				});
 			} finally {
 				await end();
 			}

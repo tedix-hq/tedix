@@ -229,4 +229,48 @@ describe("core-copy worker", () => {
 			sqlite.close();
 		}
 	});
+	test("insert-only copy keeps rows changed in Postgres and adds missing ones", async () => {
+		const sqlite = seedSource(600);
+		const engine = new PGlite();
+		try {
+			await targetSchema(engine);
+			// Postgres already holds one source row, changed after the switch.
+			const first = (
+				sqlite
+					.prepare("SELECT id FROM organizations ORDER BY rowid LIMIT 1")
+					.get() as {
+					id: string;
+				}
+			).id;
+			await engine.query(
+				`INSERT INTO organizations (id, name) VALUES ($1, 'changed in postgres')`,
+				[first],
+			);
+			const store = new ProgressStore(memoryStore());
+			await store.setInsertOnly(["organizations"]);
+			const ports: CopyPorts = {
+				readD1: d1Port(sqlite).readD1,
+				query: pgliteQuery(engine),
+				store,
+				wait: noWait,
+			};
+			const result = await copyTable(ports, "organizations");
+			expect(result.done).toBe(true);
+			const kept = await engine.query(
+				`SELECT name FROM organizations WHERE id = $1`,
+				[first],
+			);
+			expect((kept.rows[0] as { name: string }).name).toBe(
+				"changed in postgres",
+			);
+			const all = await engine.query(
+				`SELECT count(*)::int AS n FROM organizations`,
+			);
+			expect((all.rows[0] as { n: number }).n).toBe(600);
+			expect((await verifyTable(ports, "organizations")).verified).toBe(true);
+		} finally {
+			await engine.close();
+			sqlite.close();
+		}
+	});
 });
