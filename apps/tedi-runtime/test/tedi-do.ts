@@ -228,6 +228,7 @@ export function tediDo(fields: Record<string, unknown> = {}): TediDoProbe {
 	// These prototype-only probes deliberately skip the SDK constructor.
 	for (const [key, value] of Object.entries({
 		lifecycle: { isStarted: () => true },
+		env: {},
 		// A unit label only; no canonical tenant or physical custody is asserted.
 		state: fixtureState,
 		runtimeAdmission: () => admission,

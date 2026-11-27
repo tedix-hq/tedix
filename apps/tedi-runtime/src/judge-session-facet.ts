@@ -1,3 +1,4 @@
+import { withCoreStore } from "@tedix/db/core-store/scope";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
 	ModelCatalogConfigSchema,
@@ -135,123 +136,138 @@ export class JudgeSessionFacet extends PiAgent<
 		system: string;
 		aigMetadata: AigMetadata;
 	}): Promise<{ priorTurnCount: number }> {
-		const modelCatalog =
-			this.state.runId === input.runId && this.state.modelCatalog
-				? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
-				: await import("@tedix/db/core-store/scope").then(
-						({ withCoreStore, coreDb }) =>
-							withCoreStore(this.env, () =>
-								getModelCatalogConfig(coreDb(this.env)),
-							),
-					);
-		const selected = await this.prepareFacetRuntimeAdmission({
-			runId: input.runId,
-			sessionKey: input.sessionKey ?? "",
-			configuration: input,
-		});
-		if (selected) {
-			this.setState({ ...this.state, ...input, modelCatalog });
-			return { priorTurnCount: this.state.turnCount };
-		}
-		const pending = await (
-			await this.piHarness.pi()
-		).inspect(BACKGROUND_CONTEXT);
-		if (
-			pending.tasks.length ||
-			pending.submissions.length ||
-			(await (await this.nativePiSession()).busy())
-		)
-			throw new Error("Judge turn configuration denied while busy");
-		const priorTurnCount = this.state.turnCount;
-		this.setState({ ...this.state, ...input, modelCatalog });
-		await this.configurePiTurn();
-		return { priorTurnCount };
+		return withCoreStore(
+			this.env,
+			async () => {
+				const modelCatalog =
+					this.state.runId === input.runId && this.state.modelCatalog
+						? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
+						: await import("@tedix/db/core-store/scope").then(
+								({ withCoreStore, coreDb }) =>
+									withCoreStore(this.env, () =>
+										getModelCatalogConfig(coreDb(this.env)),
+									),
+							);
+				const selected = await this.prepareFacetRuntimeAdmission({
+					runId: input.runId,
+					sessionKey: input.sessionKey ?? "",
+					configuration: input,
+				});
+				if (selected) {
+					this.setState({ ...this.state, ...input, modelCatalog });
+					return { priorTurnCount: this.state.turnCount };
+				}
+				const pending = await (
+					await this.piHarness.pi()
+				).inspect(BACKGROUND_CONTEXT);
+				if (
+					pending.tasks.length ||
+					pending.submissions.length ||
+					(await (await this.nativePiSession()).busy())
+				)
+					throw new Error("Judge turn configuration denied while busy");
+				const priorTurnCount = this.state.turnCount;
+				this.setState({ ...this.state, ...input, modelCatalog });
+				await this.configurePiTurn();
+				return { priorTurnCount };
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async runJudgeTurn(input: { text: string }): Promise<JudgeFacetTurnResult> {
-		const operationId = `tedix:judge:${this.state.runId}`;
-		const admitted = await this.acceptFacetRuntimeTurn({
-			runId: this.state.runId ?? "",
-			sessionKey: this.state.sessionKey ?? "",
-			configuration: {
-				runId: this.state.runId,
-				sessionKey: this.state.sessionKey,
-				system: this.state.system,
-				aigMetadata: this.state.aigMetadata,
-			},
-			input: { text: input.text, operationId },
-			operationId,
-		});
+		return withCoreStore(
+			this.env,
+			async () => {
+				const operationId = `tedix:judge:${this.state.runId}`;
+				const admitted = await this.acceptFacetRuntimeTurn({
+					runId: this.state.runId ?? "",
+					sessionKey: this.state.sessionKey ?? "",
+					configuration: {
+						runId: this.state.runId,
+						sessionKey: this.state.sessionKey,
+						system: this.state.system,
+						aigMetadata: this.state.aigMetadata,
+					},
+					input: { text: input.text, operationId },
+					operationId,
+				});
 
-		const cached = await this.ctx.storage.get<{
-			input: string;
-			result: JudgeFacetTurnResult;
-		}>(`pi:tool-free-result:${operationId}`);
-		if (cached) {
-			if (cached.input !== input.text)
-				throw new Error("Admitted tool-free run input changed");
-			if (this.state.turnCount < cached.result.turnCount)
-				this.setState({ ...this.state, turnCount: cached.result.turnCount });
-			return cached.result;
-		}
-		if (admitted) await this.configurePiTurn();
-		const startedAt = Date.now();
-		await this.accounting.begin(this.state.runId);
-		const runId = this.state.runId;
-		if (!runId) throw new Error("judge turn has no admitted run");
-		const terminal = await (
-			await this.nativePiSession()
-		).prompt(input.text, { operationId });
-		if (terminal.status !== "done")
-			throw new Error(terminal.reason ?? "judge Pi turn failed");
-		await this.accounting.assertComplete();
-		const context = BACKGROUND_CONTEXT;
-		const conversation = await this.nativeConversation();
-		const record = await (
-			await this.piHarness.storage()
-		).submissionByRequest(conversation.id, operationId, context);
-		if (
-			!record ||
-			record.status !== "done" ||
-			record.type !== "input" ||
-			record.answer === undefined
-		)
-			throw new Error("Native judge receipt has no exact answer");
-		const entry = await this.entryById(record.answer);
-		const answer = entry?.model?.find(
-			(message) => message.role === "assistant",
+				const cached = await this.ctx.storage.get<{
+					input: string;
+					result: JudgeFacetTurnResult;
+				}>(`pi:tool-free-result:${operationId}`);
+				if (cached) {
+					if (cached.input !== input.text)
+						throw new Error("Admitted tool-free run input changed");
+					if (this.state.turnCount < cached.result.turnCount)
+						this.setState({
+							...this.state,
+							turnCount: cached.result.turnCount,
+						});
+					return cached.result;
+				}
+				if (admitted) await this.configurePiTurn();
+				const startedAt = Date.now();
+				await this.accounting.begin(this.state.runId);
+				const runId = this.state.runId;
+				if (!runId) throw new Error("judge turn has no admitted run");
+				const terminal = await (
+					await this.nativePiSession()
+				).prompt(input.text, { operationId });
+				if (terminal.status !== "done")
+					throw new Error(terminal.reason ?? "judge Pi turn failed");
+				await this.accounting.assertComplete();
+				const context = BACKGROUND_CONTEXT;
+				const conversation = await this.nativeConversation();
+				const record = await (
+					await this.piHarness.storage()
+				).submissionByRequest(conversation.id, operationId, context);
+				if (
+					!record ||
+					record.status !== "done" ||
+					record.type !== "input" ||
+					record.answer === undefined
+				)
+					throw new Error("Native judge receipt has no exact answer");
+				const entry = await this.entryById(record.answer);
+				const answer = entry?.model?.find(
+					(message) => message.role === "assistant",
+				);
+				if (!answer || answer.role !== "assistant")
+					throw new Error("Native judge answer is not an assistant");
+				const selected = this.selected();
+				if (
+					answer.provider !== "tedix" ||
+					answer.model !==
+						`${selected.identity.provider}/${selected.identity.model}`
+				)
+					throw new Error("judge answer model violates admitted model pin");
+				const modelIdentity = selected.identity;
+				const assistantText = answer.content
+					.map((part) => (part.type === "text" ? part.text : ""))
+					.join("")
+					.trim();
+				const turnCount = this.state.turnCount + 1;
+				const result = {
+					assistantText,
+					modelIdentity,
+					requestId: answer.responseId ?? null,
+					turnCount,
+					turnMs: Date.now() - startedAt,
+				};
+				await this.ctx.storage.put(`pi:tool-free-result:${operationId}`, {
+					input: input.text,
+					result,
+				});
+				this.setState({ ...this.state, turnCount });
+				await this.completeFacetRuntimeTurn(runId, operationId, {
+					result,
+					parentRunId: runId,
+					accounting: await this.accounting.inspect(runId),
+				});
+				return result;
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (!answer || answer.role !== "assistant")
-			throw new Error("Native judge answer is not an assistant");
-		const selected = this.selected();
-		if (
-			answer.provider !== "tedix" ||
-			answer.model !==
-				`${selected.identity.provider}/${selected.identity.model}`
-		)
-			throw new Error("judge answer model violates admitted model pin");
-		const modelIdentity = selected.identity;
-		const assistantText = answer.content
-			.map((part) => (part.type === "text" ? part.text : ""))
-			.join("")
-			.trim();
-		const turnCount = this.state.turnCount + 1;
-		const result = {
-			assistantText,
-			modelIdentity,
-			requestId: answer.responseId ?? null,
-			turnCount,
-			turnMs: Date.now() - startedAt,
-		};
-		await this.ctx.storage.put(`pi:tool-free-result:${operationId}`, {
-			input: input.text,
-			result,
-		});
-		this.setState({ ...this.state, turnCount });
-		await this.completeFacetRuntimeTurn(runId, operationId, {
-			result,
-			parentRunId: runId,
-			accounting: await this.accounting.inspect(runId),
-		});
-		return result;
 	}
 }

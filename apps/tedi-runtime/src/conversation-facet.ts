@@ -1,3 +1,4 @@
+import { withCoreStore } from "@tedix/db/core-store/scope";
 import { estimateInferenceTokens } from "./inference-guardrails";
 import {
 	recordRestrictedProviderCall,
@@ -1430,14 +1431,20 @@ export class ConversationFacet extends PiAgent<
 		for (const sink of this.approvalSinks) sink(frame);
 	}
 	async pendingToolApprovals(): Promise<ToolApproval[]> {
-		const values = await this.ctx.storage.list<ToolApproval>({
-			prefix: "pi-tool-approval:",
-		});
-		return [...values.values()].filter(
-			(approval) =>
-				approval.runId === this.state.runId &&
-				approval.status === "pending" &&
-				approval.expiresAt > Date.now(),
+		return withCoreStore(
+			this.env,
+			async () => {
+				const values = await this.ctx.storage.list<ToolApproval>({
+					prefix: "pi-tool-approval:",
+				});
+				return [...values.values()].filter(
+					(approval) =>
+						approval.runId === this.state.runId &&
+						approval.status === "pending" &&
+						approval.expiresAt > Date.now(),
+				);
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	/** Parent invokes only after authenticating the same conversation's approval response. */
@@ -1445,19 +1452,25 @@ export class ConversationFacet extends PiAgent<
 		approvalId: string;
 		approved: boolean;
 	}): Promise<void> {
-		const key = `pi-tool-approval:${input.approvalId}`;
-		const approval = await this.ctx.storage.get<ToolApproval>(key);
-		if (
-			!approval ||
-			approval.runId !== this.state.runId ||
-			approval.status !== "pending" ||
-			approval.expiresAt <= Date.now()
-		)
-			throw new Error("Tool approval is no longer pending for this run");
-		await this.ctx.storage.put(key, {
-			...approval,
-			status: input.approved ? "approved" : "rejected",
-		});
+		return withCoreStore(
+			this.env,
+			async () => {
+				const key = `pi-tool-approval:${input.approvalId}`;
+				const approval = await this.ctx.storage.get<ToolApproval>(key);
+				if (
+					!approval ||
+					approval.runId !== this.state.runId ||
+					approval.status !== "pending" ||
+					approval.expiresAt <= Date.now()
+				)
+					throw new Error("Tool approval is no longer pending for this run");
+				await this.ctx.storage.put(key, {
+					...approval,
+					status: input.approved ? "approved" : "rejected",
+				});
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	private requireRunId(): string {
 		if (!this.state.runId) throw new Error("Pi turn has no parent run");
@@ -1494,36 +1507,57 @@ export class ConversationFacet extends PiAgent<
 			assertFacetToolRegistryAvailable({ code: "facet_tool_unavailable" });
 	}
 	async onPiMessagesCleared(): Promise<void> {
-		await this.ctx.storage.delete([
-			"pi-protected-head:v1",
-			"pi-protected-head-ids:v1",
-		]);
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.ctx.storage.delete([
+					"pi-protected-head:v1",
+					"pi-protected-head-ids:v1",
+				]);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	completedTurnCount(): number {
 		return this.state.turnCount;
 	}
 	async controlRunSteering(raw: RuntimeRunSteeringInput) {
-		const input = RuntimeRunSteeringInputSchema.parse(raw);
-		if (this.state.sessionKey !== input.sessionKey)
-			throw new Error("Steering conversation mismatch");
-		if (input.action === "enqueue")
-			return this.runSteering.enqueue(
-				input.runId,
-				input.id,
-				input.content,
-				input.sentByPerson === true,
-			);
-		if (input.action === "withdraw")
-			return this.runSteering.withdraw(input.runId);
-		return this.runSteering.inspect(input.runId);
+		return withCoreStore(
+			this.env,
+			async () => {
+				const input = RuntimeRunSteeringInputSchema.parse(raw);
+				if (this.state.sessionKey !== input.sessionKey)
+					throw new Error("Steering conversation mismatch");
+				if (input.action === "enqueue")
+					return this.runSteering.enqueue(
+						input.runId,
+						input.id,
+						input.content,
+						input.sentByPerson === true,
+					);
+				if (input.action === "withdraw")
+					return this.runSteering.withdraw(input.runId);
+				return this.runSteering.inspect(input.runId);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async stopConversationTurn(runId: string): Promise<void> {
-		const pending = await this.ctx.storage.get<PendingFacetSubmission>(
-			"pi-facet-pending-submission",
+		return withCoreStore(
+			this.env,
+			async () => {
+				const pending = await this.ctx.storage.get<PendingFacetSubmission>(
+					"pi-facet-pending-submission",
+				);
+				if (pending?.configuration.runId !== runId) return;
+				const operationId = await this.runningTurnOperation(
+					pending.submissionId,
+				);
+				if (operationId)
+					await (await this.nativePiSession()).abort(operationId);
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (pending?.configuration.runId !== runId) return;
-		const operationId = await this.runningTurnOperation(pending.submissionId);
-		if (operationId) await (await this.nativePiSession()).abort(operationId);
 	}
 	private async runningTurnOperation(submissionId: string) {
 		const session = await this.nativePiSession();
@@ -1646,7 +1680,12 @@ export class ConversationFacet extends PiAgent<
 	async runConfiguredConversationTurn(
 		input: ConfiguredConversationTurn,
 	): Promise<{ priorTurnCount: number; result: ConversationFacetTurnResult }> {
-		return this.configuredTurnGate.run(() => this.executeConfiguredTurn(input));
+		return withCoreStore(
+			this.env,
+			() =>
+				this.configuredTurnGate.run(() => this.executeConfiguredTurn(input)),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	private async executeConfiguredTurn(
 		input: ConfiguredConversationTurn,
@@ -1992,169 +2031,196 @@ export class ConversationFacet extends PiAgent<
 	async streamConfiguredConversationTurn(
 		input: ConfiguredConversationTurn,
 	): Promise<ReadableStream<Uint8Array>> {
-		const encoder = new TextEncoder();
-		let cancelled = false;
-		let executing = false;
-		return new ReadableStream({
-			start: (controller) => {
-				const task = (async () => {
-					await this.configuredTurnGate.run(async () => {
-						let stopEvents: (() => Promise<unknown>) | undefined;
-						const approvalSink = (frame: Record<string, unknown>) =>
-							send({ kind: "chunk", body: JSON.stringify(frame) });
-						let drained: (() => Promise<void>) | undefined;
-						let reportDrained: (() => Promise<void>) | undefined;
-						const send = (frame: unknown) => {
-							if (!cancelled)
-								controller.enqueue(
-									encoder.encode(JSON.stringify(frame) + "\n"),
-								);
-						};
-						try {
-							if (cancelled) return;
-							const { result } = await this.executeConfiguredTurn(
-								input,
-								async (submissionId) => {
-									if (cancelled)
-										throw new Error("Pi stream cancelled before submission");
-									executing = true;
-									this.approvalSinks.add(approvalSink);
-									// Observe every frame through the exact durable terminal submission.
-									// A watch stop discards pending values, so stopping alone is not a drain.
-									const frames = await this.streamNativeFrames(send);
-									stopEvents = frames.stop;
-									drained = () => frames.drain(submissionId);
-									reportDrained = () =>
-										frames.drain(`${submissionId}:final-report`);
-									for (const approval of await this.pendingToolApprovals())
-										approvalSink({
-											type: "tool-approval-request",
-											approvalId: approval.approvalId,
-											toolCallId: approval.toolCallId,
-										});
-								},
-							);
-							await drained?.();
-							if (result.stopReason) await reportDrained?.();
-							await stopEvents?.();
-							stopEvents = undefined;
-							send({
-								kind: "done",
-								requestId: result.requestId,
-								text: result.assistantText,
-								turnCount: result.turnCount,
-								turnMs: result.turnMs,
-								...(result.usage ? { usage: result.usage } : {}),
-								...(result.stopReason ? { stopReason: result.stopReason } : {}),
+		return withCoreStore(
+			this.env,
+			async () => {
+				const encoder = new TextEncoder();
+				let cancelled = false;
+				let executing = false;
+				return new ReadableStream({
+					start: (controller) => {
+						const task = (async () => {
+							await this.configuredTurnGate.run(async () => {
+								let stopEvents: (() => Promise<unknown>) | undefined;
+								const approvalSink = (frame: Record<string, unknown>) =>
+									send({ kind: "chunk", body: JSON.stringify(frame) });
+								let drained: (() => Promise<void>) | undefined;
+								let reportDrained: (() => Promise<void>) | undefined;
+								const send = (frame: unknown) => {
+									if (!cancelled)
+										controller.enqueue(
+											encoder.encode(JSON.stringify(frame) + "\n"),
+										);
+								};
+								try {
+									if (cancelled) return;
+									const { result } = await this.executeConfiguredTurn(
+										input,
+										async (submissionId) => {
+											if (cancelled)
+												throw new Error(
+													"Pi stream cancelled before submission",
+												);
+											executing = true;
+											this.approvalSinks.add(approvalSink);
+											// Observe every frame through the exact durable terminal submission.
+											// A watch stop discards pending values, so stopping alone is not a drain.
+											const frames = await this.streamNativeFrames(send);
+											stopEvents = frames.stop;
+											drained = () => frames.drain(submissionId);
+											reportDrained = () =>
+												frames.drain(`${submissionId}:final-report`);
+											for (const approval of await this.pendingToolApprovals())
+												approvalSink({
+													type: "tool-approval-request",
+													approvalId: approval.approvalId,
+													toolCallId: approval.toolCallId,
+												});
+										},
+									);
+									await drained?.();
+									if (result.stopReason) await reportDrained?.();
+									await stopEvents?.();
+									stopEvents = undefined;
+									send({
+										kind: "done",
+										requestId: result.requestId,
+										text: result.assistantText,
+										turnCount: result.turnCount,
+										turnMs: result.turnMs,
+										...(result.usage ? { usage: result.usage } : {}),
+										...(result.stopReason
+											? { stopReason: result.stopReason }
+											: {}),
+									});
+								} catch (error) {
+									send({
+										kind: "error",
+										message:
+											error instanceof Error ? error.message : String(error),
+									});
+								} finally {
+									await stopEvents?.();
+									this.approvalSinks.delete(approvalSink);
+									executing = false;
+									if (!cancelled) controller.close();
+								}
 							});
-						} catch (error) {
-							send({
-								kind: "error",
-								message: error instanceof Error ? error.message : String(error),
-							});
-						} finally {
-							await stopEvents?.();
-							this.approvalSinks.delete(approvalSink);
-							executing = false;
-							if (!cancelled) controller.close();
-						}
-					});
-				})();
-				this.ctx.waitUntil(task);
+						})();
+						this.ctx.waitUntil(task);
+					},
+					cancel: async () => {
+						cancelled = true;
+						if (executing) await this.cancelPiTurn();
+					},
+				});
 			},
-			cancel: async () => {
-				cancelled = true;
-				if (executing) await this.cancelPiTurn();
-			},
-		});
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	/** Reattach to an existing owned operation; never submits/reconfigures a new turn. */
 	async resumeConfiguredConversationTurn(
 		submissionId?: string,
 	): Promise<ReadableStream<Uint8Array> | null> {
-		const pending = await this.ctx.storage.get<PendingFacetSubmission>(
-			"pi-facet-pending-submission",
-		);
-		if (!pending || (submissionId && pending.submissionId !== submissionId))
-			return null;
-		if (pending.configuration.runId !== this.state.runId)
-			throw new Error("Pi resume lost its authenticated run configuration");
-		const encoder = new TextEncoder();
-		let cancelled = false;
-		const context: PiContext = BACKGROUND_CONTEXT;
-		return new ReadableStream({
-			start: (controller) => {
-				const task = (async () => {
-					const send = (frame: unknown) => {
-						if (!cancelled)
-							controller.enqueue(encoder.encode(JSON.stringify(frame) + "\n"));
-					};
-					const approvalSink = (frame: Record<string, unknown>) =>
-						send({ kind: "chunk", body: JSON.stringify(frame) });
-					this.approvalSinks.add(approvalSink);
-					const frames = await this.streamNativeFrames(send);
-					try {
-						for (const approval of await this.pendingToolApprovals())
-							send({
-								kind: "chunk",
-								body: JSON.stringify({
-									type: "tool-approval-request",
-									approvalId: approval.approvalId,
-									toolCallId: approval.toolCallId,
-								}),
-							});
-						const completed = await this.configuredTurnGate.run(async () => {
-							const cached = await this.ctx.storage.get<{
-								priorTurnCount: number;
-								result: ConversationFacetTurnResult;
-							}>(`facet-submission-result:${pending.submissionId}`);
-							if (cached) return cached;
-							const active = await this.ctx.storage.get<PendingFacetSubmission>(
-								"pi-facet-pending-submission",
-							);
-							if (active?.submissionId !== pending.submissionId)
-								throw new Error("Resumed Pi submission receipt is missing");
-							return {
-								priorTurnCount: pending.priorTurnCount,
-								result: await this.runSubmittedConversationTurn(active),
-							};
-						});
-						await frames.drain(pending.submissionId);
-						if (completed.result.stopReason)
-							await frames.drain(`${pending.submissionId}:final-report`);
-						await frames.stop();
-						const result = completed.result;
-						send({
-							kind: "done",
-							requestId: result.requestId,
-							text: result.assistantText,
-							turnCount: result.turnCount,
-							turnMs: result.turnMs,
-							...(result.usage ? { usage: result.usage } : {}),
-							...(result.stopReason ? { stopReason: result.stopReason } : {}),
-						});
-					} catch (error) {
-						send({
-							kind: "error",
-							message: error instanceof Error ? error.message : String(error),
-						});
-					} finally {
-						await frames.stop();
-						this.approvalSinks.delete(approvalSink);
-						if (!cancelled) controller.close();
-					}
-				})();
-				this.ctx.waitUntil(task);
-			},
-			cancel: async () => {
-				cancelled = true;
-				const active = await this.ctx.storage.get<PendingFacetSubmission>(
+		return withCoreStore(
+			this.env,
+			async () => {
+				const pending = await this.ctx.storage.get<PendingFacetSubmission>(
 					"pi-facet-pending-submission",
 				);
-				if (active?.submissionId === pending.submissionId)
-					await this.cancelPiTurn();
+				if (!pending || (submissionId && pending.submissionId !== submissionId))
+					return null;
+				if (pending.configuration.runId !== this.state.runId)
+					throw new Error("Pi resume lost its authenticated run configuration");
+				const encoder = new TextEncoder();
+				let cancelled = false;
+				const context: PiContext = BACKGROUND_CONTEXT;
+				return new ReadableStream({
+					start: (controller) => {
+						const task = (async () => {
+							const send = (frame: unknown) => {
+								if (!cancelled)
+									controller.enqueue(
+										encoder.encode(JSON.stringify(frame) + "\n"),
+									);
+							};
+							const approvalSink = (frame: Record<string, unknown>) =>
+								send({ kind: "chunk", body: JSON.stringify(frame) });
+							this.approvalSinks.add(approvalSink);
+							const frames = await this.streamNativeFrames(send);
+							try {
+								for (const approval of await this.pendingToolApprovals())
+									send({
+										kind: "chunk",
+										body: JSON.stringify({
+											type: "tool-approval-request",
+											approvalId: approval.approvalId,
+											toolCallId: approval.toolCallId,
+										}),
+									});
+								const completed = await this.configuredTurnGate.run(
+									async () => {
+										const cached = await this.ctx.storage.get<{
+											priorTurnCount: number;
+											result: ConversationFacetTurnResult;
+										}>(`facet-submission-result:${pending.submissionId}`);
+										if (cached) return cached;
+										const active =
+											await this.ctx.storage.get<PendingFacetSubmission>(
+												"pi-facet-pending-submission",
+											);
+										if (active?.submissionId !== pending.submissionId)
+											throw new Error(
+												"Resumed Pi submission receipt is missing",
+											);
+										return {
+											priorTurnCount: pending.priorTurnCount,
+											result: await this.runSubmittedConversationTurn(active),
+										};
+									},
+								);
+								await frames.drain(pending.submissionId);
+								if (completed.result.stopReason)
+									await frames.drain(`${pending.submissionId}:final-report`);
+								await frames.stop();
+								const result = completed.result;
+								send({
+									kind: "done",
+									requestId: result.requestId,
+									text: result.assistantText,
+									turnCount: result.turnCount,
+									turnMs: result.turnMs,
+									...(result.usage ? { usage: result.usage } : {}),
+									...(result.stopReason
+										? { stopReason: result.stopReason }
+										: {}),
+								});
+							} catch (error) {
+								send({
+									kind: "error",
+									message:
+										error instanceof Error ? error.message : String(error),
+								});
+							} finally {
+								await frames.stop();
+								this.approvalSinks.delete(approvalSink);
+								if (!cancelled) controller.close();
+							}
+						})();
+						this.ctx.waitUntil(task);
+					},
+					cancel: async () => {
+						cancelled = true;
+						const active = await this.ctx.storage.get<PendingFacetSubmission>(
+							"pi-facet-pending-submission",
+						);
+						if (active?.submissionId === pending.submissionId)
+							await this.cancelPiTurn();
+					},
+				});
 			},
-		});
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	private async compactedModelMessages(
 		messages: readonly Message[],

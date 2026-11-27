@@ -142,6 +142,7 @@ await assert.rejects(
 );
 assert.equal(gets, 0);
 const probe = Object.create(PiAgent.prototype);
+probe.env = {};
 assert.equal(
 	probe._isCallable("inspectRecovery"),
 	false,

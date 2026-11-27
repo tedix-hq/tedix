@@ -1,3 +1,4 @@
+import { withCoreStore } from "@tedix/db/core-store/scope";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
 	ModelCatalogConfigSchema,
@@ -193,134 +194,151 @@ export class SynthesisSessionFacet extends PiAgent<
 		modelRef: string | null;
 		aigMetadata: AigMetadata;
 	}): Promise<void> {
-		const modelCatalog =
-			this.state.runId === input.runId && this.state.modelCatalog
-				? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
-				: await import("@tedix/db/core-store/scope").then(
-						({ withCoreStore, coreDb }) =>
-							withCoreStore(this.env, () =>
-								getModelCatalogConfig(coreDb(this.env)),
-							),
-					);
-		const selected = await this.prepareFacetRuntimeAdmission({
-			runId: input.runId,
-			sessionKey: input.sessionKey ?? "",
-			configuration: input,
-		});
-		if (selected) {
-			this.setState({ ...this.state, ...input, modelCatalog });
-			return;
-		}
-		const pending = await (
-			await this.piHarness.pi()
-		).inspect(BACKGROUND_CONTEXT);
-		if (
-			pending.tasks.length ||
-			pending.submissions.length ||
-			(await (await this.nativePiSession()).busy())
-		)
-			throw new Error("Synthesis turn configuration denied while busy");
-		this.setState({ ...this.state, ...input, modelCatalog });
-		await this.configurePiTurn();
+		return withCoreStore(
+			this.env,
+			async () => {
+				const modelCatalog =
+					this.state.runId === input.runId && this.state.modelCatalog
+						? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
+						: await import("@tedix/db/core-store/scope").then(
+								({ withCoreStore, coreDb }) =>
+									withCoreStore(this.env, () =>
+										getModelCatalogConfig(coreDb(this.env)),
+									),
+							);
+				const selected = await this.prepareFacetRuntimeAdmission({
+					runId: input.runId,
+					sessionKey: input.sessionKey ?? "",
+					configuration: input,
+				});
+				if (selected) {
+					this.setState({ ...this.state, ...input, modelCatalog });
+					return;
+				}
+				const pending = await (
+					await this.piHarness.pi()
+				).inspect(BACKGROUND_CONTEXT);
+				if (
+					pending.tasks.length ||
+					pending.submissions.length ||
+					(await (await this.nativePiSession()).busy())
+				)
+					throw new Error("Synthesis turn configuration denied while busy");
+				this.setState({ ...this.state, ...input, modelCatalog });
+				await this.configurePiTurn();
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async runSynthesisTurn(input: {
 		text: string;
 	}): Promise<SynthesisFacetTurnResult> {
-		const operationId = `tedix:synthesis:${this.state.runId}`;
-		const admitted = await this.acceptFacetRuntimeTurn({
-			runId: this.state.runId ?? "",
-			sessionKey: this.state.sessionKey ?? "",
-			configuration: {
-				modelRef: this.state.modelRef,
-				runId: this.state.runId,
-				sessionKey: this.state.sessionKey,
-				system: this.state.system,
-				aigMetadata: this.state.aigMetadata,
-			},
-			input: { text: input.text, operationId },
-			operationId,
-		});
+		return withCoreStore(
+			this.env,
+			async () => {
+				const operationId = `tedix:synthesis:${this.state.runId}`;
+				const admitted = await this.acceptFacetRuntimeTurn({
+					runId: this.state.runId ?? "",
+					sessionKey: this.state.sessionKey ?? "",
+					configuration: {
+						modelRef: this.state.modelRef,
+						runId: this.state.runId,
+						sessionKey: this.state.sessionKey,
+						system: this.state.system,
+						aigMetadata: this.state.aigMetadata,
+					},
+					input: { text: input.text, operationId },
+					operationId,
+				});
 
-		const cached = await this.ctx.storage.get<{
-			input: string;
-			result: SynthesisFacetTurnResult;
-		}>(`pi:tool-free-result:${operationId}`);
-		if (cached) {
-			if (cached.input !== input.text)
-				throw new Error("Admitted tool-free run input changed");
-			if (this.state.turnCount < cached.result.turnCount)
-				this.setState({ ...this.state, turnCount: cached.result.turnCount });
-			return cached.result;
-		}
-		if (admitted) await this.configurePiTurn();
-		const startedAt = Date.now();
-		await this.accounting.begin(this.state.runId);
-		const runId = this.state.runId;
-		if (!runId) throw new Error("synthesis turn has no admitted run");
-		const terminal = await (
-			await this.nativePiSession()
-		).prompt(input.text, { operationId });
-		const conversation = await this.nativeConversation();
-		if (terminal.status !== "done") {
-			const live = await (
-				await this.piHarness.pi()
-			).snapshot(LiveDoc, conversation.id, BACKGROUND_CONTEXT);
-			throw new Error(
-				live?.runFailure?.detail ??
-					terminal.reason ??
-					"synthesis Pi turn failed",
-			);
-		}
-		await this.accounting.assertComplete();
-		const context = BACKGROUND_CONTEXT;
-		const record = await (
-			await this.piHarness.storage()
-		).submissionByRequest(conversation.id, operationId, context);
-		if (
-			!record ||
-			record.status !== "done" ||
-			record.type !== "input" ||
-			record.answer === undefined
-		)
-			throw new Error("Native synthesis receipt has no exact answer");
-		const entry = await this.entryById(record.answer);
-		const answer = entry?.model?.find(
-			(message) => message.role === "assistant",
+				const cached = await this.ctx.storage.get<{
+					input: string;
+					result: SynthesisFacetTurnResult;
+				}>(`pi:tool-free-result:${operationId}`);
+				if (cached) {
+					if (cached.input !== input.text)
+						throw new Error("Admitted tool-free run input changed");
+					if (this.state.turnCount < cached.result.turnCount)
+						this.setState({
+							...this.state,
+							turnCount: cached.result.turnCount,
+						});
+					return cached.result;
+				}
+				if (admitted) await this.configurePiTurn();
+				const startedAt = Date.now();
+				await this.accounting.begin(this.state.runId);
+				const runId = this.state.runId;
+				if (!runId) throw new Error("synthesis turn has no admitted run");
+				const terminal = await (
+					await this.nativePiSession()
+				).prompt(input.text, { operationId });
+				const conversation = await this.nativeConversation();
+				if (terminal.status !== "done") {
+					const live = await (
+						await this.piHarness.pi()
+					).snapshot(LiveDoc, conversation.id, BACKGROUND_CONTEXT);
+					throw new Error(
+						live?.runFailure?.detail ??
+							terminal.reason ??
+							"synthesis Pi turn failed",
+					);
+				}
+				await this.accounting.assertComplete();
+				const context = BACKGROUND_CONTEXT;
+				const record = await (
+					await this.piHarness.storage()
+				).submissionByRequest(conversation.id, operationId, context);
+				if (
+					!record ||
+					record.status !== "done" ||
+					record.type !== "input" ||
+					record.answer === undefined
+				)
+					throw new Error("Native synthesis receipt has no exact answer");
+				const entry = await this.entryById(record.answer);
+				const answer = entry?.model?.find(
+					(message) => message.role === "assistant",
+				);
+				if (!answer || answer.role !== "assistant")
+					throw new Error("Native synthesis answer is not an assistant");
+				const selected = this.selected();
+				if (
+					answer.provider !== "tedix" ||
+					answer.model !==
+						`${selected.identity.provider}/${selected.identity.model}`
+				)
+					throw new Error("synthesis answer model violates admitted model pin");
+				const modelIdentity = selected.identity;
+				const assistantText = answer.content
+					.map((part) => (part.type === "text" ? part.text : ""))
+					.join("")
+					.trim();
+				const turnCount = this.state.turnCount + 1;
+				const measuredUsage = await this.accounting.usage();
+				const result = {
+					...(measuredUsage.totalTokens !== null
+						? { usage: measuredUsage }
+						: {}),
+					assistantText,
+					modelIdentity,
+					requestId: answer.responseId ?? null,
+					turnCount,
+					turnMs: Date.now() - startedAt,
+				};
+				await this.ctx.storage.put(`pi:tool-free-result:${operationId}`, {
+					input: input.text,
+					result,
+				});
+				this.setState({ ...this.state, turnCount });
+				await this.completeFacetRuntimeTurn(runId, operationId, {
+					result,
+					parentRunId: runId,
+					accounting: await this.accounting.inspect(runId),
+				});
+				return result;
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (!answer || answer.role !== "assistant")
-			throw new Error("Native synthesis answer is not an assistant");
-		const selected = this.selected();
-		if (
-			answer.provider !== "tedix" ||
-			answer.model !==
-				`${selected.identity.provider}/${selected.identity.model}`
-		)
-			throw new Error("synthesis answer model violates admitted model pin");
-		const modelIdentity = selected.identity;
-		const assistantText = answer.content
-			.map((part) => (part.type === "text" ? part.text : ""))
-			.join("")
-			.trim();
-		const turnCount = this.state.turnCount + 1;
-		const measuredUsage = await this.accounting.usage();
-		const result = {
-			...(measuredUsage.totalTokens !== null ? { usage: measuredUsage } : {}),
-			assistantText,
-			modelIdentity,
-			requestId: answer.responseId ?? null,
-			turnCount,
-			turnMs: Date.now() - startedAt,
-		};
-		await this.ctx.storage.put(`pi:tool-free-result:${operationId}`, {
-			input: input.text,
-			result,
-		});
-		this.setState({ ...this.state, turnCount });
-		await this.completeFacetRuntimeTurn(runId, operationId, {
-			result,
-			parentRunId: runId,
-			accounting: await this.accounting.inspect(runId),
-		});
-		return result;
 	}
 }

@@ -444,6 +444,7 @@ console.log("conversation-facet native projection OK");
 		turnInput: { text: "original" },
 	};
 	const host = Object.create(PiAgent.prototype) as any;
+	host.env = {};
 	host.admissionAdapter = {
 		lookupAcceptedTurn: async () => ({ sessionKey: "session" }),
 	};

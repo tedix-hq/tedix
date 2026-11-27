@@ -1,3 +1,4 @@
+import { withCoreStore } from "@tedix/db/core-store/scope";
 import { BACKGROUND_CONTEXT as BACKGROUND } from "@earendil-works/chord/context";
 import { findRuntimeAdmissionIdentity } from "@tedix/db/queries/durable-sqlite/runtime-admission";
 import { openRuntimeAdmissionStore } from "@tedix/db/runtime-admission-store/store";
@@ -32,12 +33,23 @@ class AdmittedPiHarness extends PiHarness {
 	constructor(
 		options: ConstructorParameters<typeof PiHarness>[0],
 		private readonly defer: () => boolean,
+		private readonly env: Cloudflare.Env,
+		private readonly schedule: (promise: Promise<unknown>) => void,
 	) {
 		super(options);
 	}
 	override async onStart(context: Parameters<PiHarness["onStart"]>[0]) {
-		if (this.defer()) return;
-		await super.onStart(context);
+		return withCoreStore(
+			this.env,
+			async () => {
+				if (this.defer()) return;
+				await super.onStart(context);
+			},
+			this.schedule,
+		);
+	}
+	override async onJob(context: Parameters<PiHarness["onJob"]>[0]) {
+		return withCoreStore(this.env, () => super.onJob(context), this.schedule);
 	}
 }
 import { projectPiRecovery } from "./pi-recovery-diagnostic";
@@ -150,6 +162,8 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 			},
 		},
 		() => this.deferFacetPiStartup(),
+		this.env,
+		(promise) => this.ctx.waitUntil(promise),
 	);
 	readonly session = new PiApplicationSession(this);
 
@@ -168,12 +182,24 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		identityName: string;
 		time?: number;
 	}): Promise<void> {
-		const admission = readStoredRuntimeAdmission(
-			this.ctx.storage,
-			this.ctx.id.toString(),
+		return withCoreStore(
+			this.env,
+			async () => {
+				const admission = readStoredRuntimeAdmission(
+					this.ctx.storage,
+					this.ctx.id.toString(),
+				);
+				if (
+					admission &&
+					context.action !== "get" &&
+					admission.state !== "active"
+				)
+					throw new Error(
+						"Facet lifecycle dispatch denied by original admission",
+					);
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (admission && context.action !== "get" && admission.state !== "active")
-			throw new Error("Facet lifecycle dispatch denied by original admission");
 	}
 	protected facetAdmissionClassName(): string | null {
 		return null;
@@ -840,76 +866,102 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 
 	/** All new/recovered cognition remains owned by PiHarness's native task graph. */
 	async nativePiSession() {
-		return this.piHarness.session(
-			String(
-				(await this.ctx.storage.get<number>("pi-active-conversation-id:v1")) ??
-					1,
-			),
+		return withCoreStore(
+			this.env,
+			async () =>
+				this.piHarness.session(
+					String(
+						(await this.ctx.storage.get<number>(
+							"pi-active-conversation-id:v1",
+						)) ?? 1,
+					),
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
 	/** Native inspection is read-only; waking this existing Agent still runs its normal lifecycle. */
 	async inspectRecovery(sessionKey: string, operationId?: string) {
-		TediRuntimeRecoveryQuerySchema.parse({ sessionKey, operationId });
-		if ((this.state as { sessionKey?: unknown }).sessionKey !== sessionKey)
-			throw new Error("pi_recovery_session_mismatch");
-		let conversationId =
-			(await this.ctx.storage.get<number>("pi-active-conversation-id:v1")) ?? 1;
-		if (operationId !== undefined) {
-			const owner = await this.ctx.storage.get<number>(
-				`pi-operation-conversation:${operationId}`,
-			);
-			if (owner === undefined)
-				throw new Error("pi_recovery_operation_unavailable");
-			conversationId = owner;
-		}
-		const pi = await this.piHarness.pi();
-		if (
-			!(await pi.conversation(
-				conversationId as Parameters<typeof pi.conversation>[0],
-				BACKGROUND,
-			))
-		)
-			throw new Error("pi_recovery_conversation_unavailable");
-		const operation =
-			operationId === undefined
-				? undefined
-				: await (
-						await this.piHarness.storage()
-					).submissionByRequest(
-						conversationId as Parameters<typeof pi.conversation>[0],
-						operationId,
-						BACKGROUND,
+		return withCoreStore(
+			this.env,
+			async () => {
+				TediRuntimeRecoveryQuerySchema.parse({ sessionKey, operationId });
+				if ((this.state as { sessionKey?: unknown }).sessionKey !== sessionKey)
+					throw new Error("pi_recovery_session_mismatch");
+				let conversationId =
+					(await this.ctx.storage.get<number>(
+						"pi-active-conversation-id:v1",
+					)) ?? 1;
+				if (operationId !== undefined) {
+					const owner = await this.ctx.storage.get<number>(
+						`pi-operation-conversation:${operationId}`,
 					);
-		if (
-			operationId !== undefined &&
-			(!operation ||
-				operation.requestId !== operationId ||
-				operation.conversationId !== conversationId)
-		)
-			throw new Error("pi_recovery_operation_mismatch");
-		return projectPiRecovery({
-			sessionKey,
-			conversationId,
-			inspection: await pi.inspect(BACKGROUND),
-			operation,
-		});
+					if (owner === undefined)
+						throw new Error("pi_recovery_operation_unavailable");
+					conversationId = owner;
+				}
+				const pi = await this.piHarness.pi();
+				if (
+					!(await pi.conversation(
+						conversationId as Parameters<typeof pi.conversation>[0],
+						BACKGROUND,
+					))
+				)
+					throw new Error("pi_recovery_conversation_unavailable");
+				const operation =
+					operationId === undefined
+						? undefined
+						: await (
+								await this.piHarness.storage()
+							).submissionByRequest(
+								conversationId as Parameters<typeof pi.conversation>[0],
+								operationId,
+								BACKGROUND,
+							);
+				if (
+					operationId !== undefined &&
+					(!operation ||
+						operation.requestId !== operationId ||
+						operation.conversationId !== conversationId)
+				)
+					throw new Error("pi_recovery_operation_mismatch");
+				return projectPiRecovery({
+					sessionKey,
+					conversationId,
+					inspection: await pi.inspect(BACKGROUND),
+					operation,
+				});
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	async nativeWatch(): Promise<ConversationWatch> {
-		return (await this.nativeConversation()).watch(BACKGROUND);
+		return withCoreStore(
+			this.env,
+			async () => (await this.nativeConversation()).watch(BACKGROUND),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	async nativeConversation(): Promise<Conversation> {
-		const pi = await this.piHarness.pi();
-		const id =
-			(await this.ctx.storage.get<number>("pi-active-conversation-id:v1")) ?? 1;
-		const conversation = await pi.conversation(
-			id as Parameters<typeof pi.conversation>[0],
-			BACKGROUND,
+		return withCoreStore(
+			this.env,
+			async () => {
+				const pi = await this.piHarness.pi();
+				const id =
+					(await this.ctx.storage.get<number>(
+						"pi-active-conversation-id:v1",
+					)) ?? 1;
+				const conversation = await pi.conversation(
+					id as Parameters<typeof pi.conversation>[0],
+					BACKGROUND,
+				);
+				if (!conversation) throw new Error("Pi root conversation missing");
+				return conversation;
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (!conversation) throw new Error("Pi root conversation missing");
-		return conversation;
 	}
 
 	/**
@@ -918,14 +970,22 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 	 * and marker. Original tables remain readable until retention is decided.
 	 */
 	async importLegacyHistory(): Promise<void> {
-		if (readStoredRuntimeAdmission(this.ctx.storage, this.ctx.id.toString())) {
-			await this.refreshMessages();
-			return;
-		}
-		return (this.imported ??= this.performLegacyImport().catch((error) => {
-			this.imported = undefined;
-			throw error;
-		}));
+		return withCoreStore(
+			this.env,
+			async () => {
+				if (
+					readStoredRuntimeAdmission(this.ctx.storage, this.ctx.id.toString())
+				) {
+					await this.refreshMessages();
+					return;
+				}
+				return (this.imported ??= this.performLegacyImport().catch((error) => {
+					this.imported = undefined;
+					throw error;
+				}));
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	private async performLegacyImport(): Promise<void> {
 		if (await this.ctx.storage.get<boolean>("pi:legacy-imported:v1")) {
@@ -1005,138 +1065,189 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 	}
 
 	async forkForRegeneration(operationId: string): Promise<void> {
-		const pi = await this.piHarness.pi();
-		const sourceId = await this.ctx.storage.get<number>(
-			`pi-operation-conversation:${operationId}`,
-		);
-		if (sourceId === undefined)
-			throw new Error(
-				"Regeneration original operation has no native conversation owner",
-			);
-		const source = await pi.conversation(
-			sourceId as Parameters<typeof pi.conversation>[0],
-			BACKGROUND,
-		);
-		if (!source) throw new Error("Regeneration original conversation missing");
-		const original = await (
-			await this.piHarness.storage()
-		).submissionByRequest(source.id, operationId, BACKGROUND);
-		if (!original || original.type !== "input" || original.status !== "done")
-			throw new Error(
-				"Regeneration requires an exact completed input submission",
-			);
-		const entries = await source.entries(
-			{ maxEntryId: original.entry },
-			2,
-			undefined,
-			BACKGROUND,
-		);
-		const previous = entries.items.find((entry) => entry.id < original.entry);
-		const branch = previous
-			? await source.fork(
-					previous.id,
-					{ ownership: { kind: "ownerless" } },
-					BACKGROUND,
-				)
-			: await pi.createConversation(
-					{ ownership: { kind: "ownerless" } },
+		return withCoreStore(
+			this.env,
+			async () => {
+				const pi = await this.piHarness.pi();
+				const sourceId = await this.ctx.storage.get<number>(
+					`pi-operation-conversation:${operationId}`,
+				);
+				if (sourceId === undefined)
+					throw new Error(
+						"Regeneration original operation has no native conversation owner",
+					);
+				const source = await pi.conversation(
+					sourceId as Parameters<typeof pi.conversation>[0],
 					BACKGROUND,
 				);
-		await this.ctx.storage.put("pi-active-conversation-id:v1", branch.id);
-		await this.onPiMessagesCleared();
-		await this.refreshMessages();
+				if (!source)
+					throw new Error("Regeneration original conversation missing");
+				const original = await (
+					await this.piHarness.storage()
+				).submissionByRequest(source.id, operationId, BACKGROUND);
+				if (
+					!original ||
+					original.type !== "input" ||
+					original.status !== "done"
+				)
+					throw new Error(
+						"Regeneration requires an exact completed input submission",
+					);
+				const entries = await source.entries(
+					{ maxEntryId: original.entry },
+					2,
+					undefined,
+					BACKGROUND,
+				);
+				const previous = entries.items.find(
+					(entry) => entry.id < original.entry,
+				);
+				const branch = previous
+					? await source.fork(
+							previous.id,
+							{ ownership: { kind: "ownerless" } },
+							BACKGROUND,
+						)
+					: await pi.createConversation(
+							{ ownership: { kind: "ownerless" } },
+							BACKGROUND,
+						);
+				await this.ctx.storage.put("pi-active-conversation-id:v1", branch.id);
+				await this.onPiMessagesCleared();
+				await this.refreshMessages();
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async registerOriginalUiMessage(
 		operationId: string,
 		message: SessionMessage,
 	): Promise<void> {
-		if (message.role !== "user")
-			throw new Error("Original UI display must be a user message");
-		const key = `pi-ui-operation:${operationId}`;
-		const prior = await this.ctx.storage.get<SessionMessage>(key);
-		if (prior && JSON.stringify(prior) !== JSON.stringify(message))
-			throw new Error("Original UI message changed for admitted operation");
-		if (!prior) await this.ctx.storage.put(key, message);
+		return withCoreStore(
+			this.env,
+			async () => {
+				if (message.role !== "user")
+					throw new Error("Original UI display must be a user message");
+				const key = `pi-ui-operation:${operationId}`;
+				const prior = await this.ctx.storage.get<SessionMessage>(key);
+				if (prior && JSON.stringify(prior) !== JSON.stringify(message))
+					throw new Error("Original UI message changed for admitted operation");
+				if (!prior) await this.ctx.storage.put(key, message);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async retainSubmissionDisplay(operationId: string): Promise<void> {
-		const original = await this.ctx.storage.get<SessionMessage>(
-			`pi-ui-operation:${operationId}`,
+		return withCoreStore(
+			this.env,
+			async () => {
+				const original = await this.ctx.storage.get<SessionMessage>(
+					`pi-ui-operation:${operationId}`,
+				);
+				if (!original) return;
+				const stored = await (
+					await this.piHarness.storage()
+				).submissionByRequest(
+					(await this.nativeConversation()).id,
+					operationId,
+					BACKGROUND,
+				);
+				if (!stored || stored.type !== "input" || stored.entry === undefined)
+					return;
+				await this.ctx.storage.put(`pi-ui-entry:${stored.entry}`, original);
+				this.uiDisplays.set(stored.entry, original);
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (!original) return;
-		const stored = await (
-			await this.piHarness.storage()
-		).submissionByRequest(
-			(await this.nativeConversation()).id,
-			operationId,
-			BACKGROUND,
-		);
-		if (!stored || stored.type !== "input" || stored.entry === undefined)
-			return;
-		await this.ctx.storage.put(`pi-ui-entry:${stored.entry}`, original);
-		this.uiDisplays.set(stored.entry, original);
 	}
 	projectDisplayMessage(entry: EntryRecord): SessionMessage | null {
 		return this.uiDisplays.get(entry.id) ?? entrySessionMessage(entry);
 	}
 	async clearHistory(): Promise<void> {
-		await this.session.clearMessages();
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.session.clearMessages();
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	async historyMessages(): Promise<SessionMessage[]> {
-		await this.importLegacyHistory();
-		await this.refreshMessages();
-		return [...this.messageCache];
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.importLegacyHistory();
+				await this.refreshMessages();
+				return [...this.messageCache];
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	async refreshMessages(): Promise<void> {
-		const entries = await (await this.nativePiSession()).messages();
-		for (const entry of entries) {
-			const display = await this.ctx.storage.get<SessionMessage>(
-				`pi-ui-entry:${entry.id}`,
-			);
-			if (display) this.uiDisplays.set(entry.id, display);
-		}
-		const results = new Map<string, ToolResultMessage>();
-		for (const entry of entries)
-			for (const message of entry.model ?? [])
-				if (message.role === "toolResult")
-					results.set(message.toolCallId, message);
-		this.messageCache = entries.flatMap((entry) => {
-			const message = this.appProjection.message(entry);
-			if (!message) return [];
-			if (this.uiDisplays.has(entry.id)) return [message];
-			return [
-				{
-					...message,
-					parts: message.parts.map((part) => {
-						const result = part.toolCallId
-							? results.get(part.toolCallId)
-							: undefined;
-						return result
-							? {
-									...part,
-									state: result.isError ? "output-error" : "output-available",
-									output: result.content,
-								}
-							: part;
-					}),
-				},
-			];
-		});
+		return withCoreStore(
+			this.env,
+			async () => {
+				const entries = await (await this.nativePiSession()).messages();
+				for (const entry of entries) {
+					const display = await this.ctx.storage.get<SessionMessage>(
+						`pi-ui-entry:${entry.id}`,
+					);
+					if (display) this.uiDisplays.set(entry.id, display);
+				}
+				const results = new Map<string, ToolResultMessage>();
+				for (const entry of entries)
+					for (const message of entry.model ?? [])
+						if (message.role === "toolResult")
+							results.set(message.toolCallId, message);
+				this.messageCache = entries.flatMap((entry) => {
+					const message = this.appProjection.message(entry);
+					if (!message) return [];
+					if (this.uiDisplays.has(entry.id)) return [message];
+					return [
+						{
+							...message,
+							parts: message.parts.map((part) => {
+								const result = part.toolCallId
+									? results.get(part.toolCallId)
+									: undefined;
+								return result
+									? {
+											...part,
+											state: result.isError
+												? "output-error"
+												: "output-available",
+											output: result.content,
+										}
+									: part;
+							}),
+						},
+					];
+				});
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	/** Call under the existing facet's configuration gate, before submit. */
 	async configurePiTurn(): Promise<void> {
-		await this.importLegacyHistory();
-		if (!(await this.waitUntilStable({ timeout: 30_000 }))) {
-			throw new Error(
-				"Pi conversation has unfinished work; configuration denied",
-			);
-		}
-		this.piRegistry.install(await this.piExtension());
-		await (
-			await this.nativeConversation()
-		).configure(await this.piConfiguration(), BACKGROUND);
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.importLegacyHistory();
+				if (!(await this.waitUntilStable({ timeout: 30_000 }))) {
+					throw new Error(
+						"Pi conversation has unfinished work; configuration denied",
+					);
+				}
+				this.piRegistry.install(await this.piExtension());
+				await (
+					await this.nativeConversation()
+				).configure(await this.piConfiguration(), BACKGROUND);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	private async assertConfiguredSubmission(
@@ -1221,92 +1332,130 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		messages: readonly SessionMessage[],
 		options: ChatOptions & { submissionId?: string } = {},
 	): Promise<{ submissionId: string }> {
-		await this.assertFacetRuntimeDispatch();
-		// Existing durable facet callers submit exactly one user row per operation.
-		if (messages.length !== 1 || messages[0]?.role !== "user") {
-			throw new Error("Pi submission requires exactly one user message");
-		}
-		const operationId =
-			options.submissionId ?? options.requestId ?? messages[0].id;
-		await this.assertConfiguredSubmission(operationId, messages[0]);
-		await this.importLegacyHistory();
-		await this.ctx.storage.put(
-			`pi-operation-conversation:${operationId}`,
-			(await this.nativeConversation()).id,
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.assertFacetRuntimeDispatch();
+				// Existing durable facet callers submit exactly one user row per operation.
+				if (messages.length !== 1 || messages[0]?.role !== "user") {
+					throw new Error("Pi submission requires exactly one user message");
+				}
+				const operationId =
+					options.submissionId ?? options.requestId ?? messages[0].id;
+				await this.assertConfiguredSubmission(operationId, messages[0]);
+				await this.importLegacyHistory();
+				await this.ctx.storage.put(
+					`pi-operation-conversation:${operationId}`,
+					(await this.nativeConversation()).id,
+				);
+				const receipt = await (
+					await this.nativePiSession()
+				).submit(await this.appProjection.input(messages[0]), { operationId });
+				return { submissionId: receipt.operationId };
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		const receipt = await (
-			await this.nativePiSession()
-		).submit(await this.appProjection.input(messages[0]), { operationId });
-		return { submissionId: receipt.operationId };
 	}
 
 	async waitForSubmission(
 		submissionId: string,
 	): Promise<PiSubmissionInspection> {
-		// PiHarness wait validates session ownership; it never selects latest answer.
-		const terminal = await (await this.nativePiSession()).wait(submissionId);
-		await this.retainSubmissionDisplay(submissionId);
-		await this.refreshMessages();
-		const storage = await this.piHarness.storage();
-		const conversation = await this.nativeConversation();
-		const stored = await storage.submissionByRequest(
-			conversation.id,
-			submissionId,
-			BACKGROUND,
+		return withCoreStore(
+			this.env,
+			async () => {
+				// PiHarness wait validates session ownership; it never selects latest answer.
+				const terminal = await (
+					await this.nativePiSession()
+				).wait(submissionId);
+				await this.retainSubmissionDisplay(submissionId);
+				await this.refreshMessages();
+				const storage = await this.piHarness.storage();
+				const conversation = await this.nativeConversation();
+				const stored = await storage.submissionByRequest(
+					conversation.id,
+					submissionId,
+					BACKGROUND,
+				);
+				if (terminal.status !== "done") {
+					return {
+						submissionId,
+						status: "failed",
+						error:
+							stored && "detail" in stored && typeof stored.detail === "string"
+								? stored.detail
+								: terminal.reason,
+					};
+				}
+				if (
+					!stored ||
+					stored.status !== "done" ||
+					stored.type !== "input" ||
+					stored.answer === undefined
+				) {
+					throw new Error("Settled Pi input has no owned assistant entry");
+				}
+				const answer = await this.entryById(stored.answer);
+				const message = answer && this.appProjection.message(answer);
+				if (!message || message.role !== "assistant")
+					throw new Error("Pi answer is not an assistant entry");
+				return { submissionId, status: "completed", messageId: message.id };
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (terminal.status !== "done") {
-			return {
-				submissionId,
-				status: "failed",
-				error:
-					stored && "detail" in stored && typeof stored.detail === "string"
-						? stored.detail
-						: terminal.reason,
-			};
-		}
-		if (
-			!stored ||
-			stored.status !== "done" ||
-			stored.type !== "input" ||
-			stored.answer === undefined
-		) {
-			throw new Error("Settled Pi input has no owned assistant entry");
-		}
-		const answer = await this.entryById(stored.answer);
-		const message = answer && this.appProjection.message(answer);
-		if (!message || message.role !== "assistant")
-			throw new Error("Pi answer is not an assistant entry");
-		return { submissionId, status: "completed", messageId: message.id };
 	}
 
 	async cancelPiTurn(): Promise<void> {
-		await (await this.nativePiSession()).abort();
+		return withCoreStore(
+			this.env,
+			async () => {
+				await (await this.nativePiSession()).abort();
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async waitUntilStable(options: { timeout: number }): Promise<boolean> {
-		const controller = new AbortController();
-		const timer = setTimeout(() => controller.abort(), options.timeout);
-		try {
-			await (
-				await this.nativeConversation()
-			).waitForIdle({
-				...BACKGROUND,
-				abortSignal: controller.signal,
-			});
-			return true;
-		} catch (error) {
-			if (controller.signal.aborted) return false;
-			throw error;
-		} finally {
-			clearTimeout(timer);
-		}
+		return withCoreStore(
+			this.env,
+			async () => {
+				const controller = new AbortController();
+				const timer = setTimeout(() => controller.abort(), options.timeout);
+				try {
+					await (
+						await this.nativeConversation()
+					).waitForIdle({
+						...BACKGROUND,
+						abortSignal: controller.signal,
+					});
+					return true;
+				} catch (error) {
+					if (controller.signal.aborted) return false;
+					throw error;
+				} finally {
+					clearTimeout(timer);
+				}
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async entryById(id: EntryId): Promise<EntryRecord | undefined> {
-		const page = await (
-			await this.nativeConversation()
-		).entries({ minEntryId: id, maxEntryId: id }, 1, undefined, BACKGROUND);
-		return page.items[0];
+		return withCoreStore(
+			this.env,
+			async () => {
+				const page = await (
+					await this.nativeConversation()
+				).entries({ minEntryId: id, maxEntryId: id }, 1, undefined, BACKGROUND);
+				return page.items[0];
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
-	async onPiMessagesCleared(): Promise<void> {}
+	async onPiMessagesCleared(): Promise<void> {
+		return withCoreStore(
+			this.env,
+			async () => {},
+			(promise) => this.ctx.waitUntil(promise),
+		);
+	}
 }
 
 /** Passive transcript facade, backed by Pi entries rather than a second writer. */

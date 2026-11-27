@@ -1,3 +1,4 @@
+import { withCoreStore } from "@tedix/db/core-store/scope";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { dailyLogHasWork } from "./runtime-memory-effects";
 import { readOwnedRuntimeWorkflow } from "./runtime-workflow-diagnostic";
@@ -1351,7 +1352,13 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		},
 	});
 	async onPoppyDrain(payload: { conversationId: string }): Promise<void> {
-		await this.poppy.drain(payload.conversationId);
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.poppy.drain(payload.conversationId);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	private requestHost(): RuntimeRequestHost {
 		const parent = this;
@@ -1523,14 +1530,24 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		identityName: string;
 		time?: number;
 	}): Promise<void> {
-		const admission = readStoredRuntimeAdmission(
-			this.ctx.storage,
-			this.ctx.id.toString(),
+		return withCoreStore(
+			this.env,
+			async () => {
+				const admission = readStoredRuntimeAdmission(
+					this.ctx.storage,
+					this.ctx.id.toString(),
+				);
+				if (
+					admission &&
+					context.action !== "get" &&
+					admission.state !== "active"
+				)
+					throw new Error(
+						"Facet lifecycle dispatch denied by original parent admission",
+					);
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		if (admission && context.action !== "get" && admission.state !== "active")
-			throw new Error(
-				"Facet lifecycle dispatch denied by original parent admission",
-			);
 	}
 	private nativeTelegramInstance: PiTelegram | null = null;
 	private nativeTelegramConfigKey: string | null = null;
@@ -1563,18 +1580,30 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		this.lifecycle.use(this.tediBrowser);
 	}
 	override async onStart(): Promise<void> {
-		await this.ensureIdentity();
-		if (await this.maintenance.ensure())
-			this.ctx.waitUntil(this.eventOutbox.ensureRedrive());
-		const telegram = await this.nativeTelegram();
-		if (telegram) this.ctx.waitUntil(telegram.recoverPending());
-		await this.poppy.recover();
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.ensureIdentity();
+				if (await this.maintenance.ensure())
+					this.ctx.waitUntil(this.eventOutbox.ensureRedrive());
+				const telegram = await this.nativeTelegram();
+				if (telegram) this.ctx.waitUntil(telegram.recoverPending());
+				await this.poppy.recover();
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async onParentMaintenance(
 		payload: MaintenancePayload,
 		schedule: Schedule<MaintenancePayload>,
 	): Promise<void> {
-		await this.maintenance.run(payload, schedule);
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.maintenance.run(payload, schedule);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	private async nativeTelegram(): Promise<PiTelegram | null> {
 		return runtimeParentTurns.nativeTelegram.call(this.parentTurnsHost());
@@ -1607,8 +1636,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		connection: Connection,
 		raw: string | ArrayBuffer,
 	): Promise<void> {
-		if (!(await this.acpChannel.onMessage(connection, raw)))
-			await super.onMessage(connection, raw);
+		return withCoreStore(
+			this.env,
+			async () => {
+				if (!(await this.acpChannel.onMessage(connection, raw)))
+					await super.onMessage(connection, raw);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	initialState: State = INITIAL_STATE;
@@ -1630,32 +1665,39 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	override async onFiberRecovered(
 		ctx: FiberRecoveryContext,
 	): Promise<FiberRecoveryResult | undefined> {
-		if (
-			ctx.name !== WORKSTATION_PROVISION_FIBER_NAME &&
-			!ctx.name.startsWith(`${WORKSTATION_PROVISION_FIBER_NAME}:`)
-		) {
-			const telegram = await this.nativeTelegram();
-			return (
-				(await telegram?.onFiberRecovered(ctx)) ??
-				(await super.onFiberRecovered(ctx)) ??
-				undefined
-			);
-		}
-		const input = workstationProvisioningRecoveryInput(ctx);
-		if (!input) {
-			return {
-				error: "Workstation provisioning fiber has no persisted lease receipt",
-				status: "error",
-			};
-		}
-		try {
-			const snapshot = await this.reconcileWorkstationUntilSettled(input, {
-				checkpoint: () => undefined,
-			});
-			return { snapshot, status: "completed" };
-		} catch (error) {
-			return { error, snapshot: input, status: "error" };
-		}
+		return withCoreStore(
+			this.env,
+			async () => {
+				if (
+					ctx.name !== WORKSTATION_PROVISION_FIBER_NAME &&
+					!ctx.name.startsWith(`${WORKSTATION_PROVISION_FIBER_NAME}:`)
+				) {
+					const telegram = await this.nativeTelegram();
+					return (
+						(await telegram?.onFiberRecovered(ctx)) ??
+						(await super.onFiberRecovered(ctx)) ??
+						undefined
+					);
+				}
+				const input = workstationProvisioningRecoveryInput(ctx);
+				if (!input) {
+					return {
+						error:
+							"Workstation provisioning fiber has no persisted lease receipt",
+						status: "error",
+					};
+				}
+				try {
+					const snapshot = await this.reconcileWorkstationUntilSettled(input, {
+						checkpoint: () => undefined,
+					});
+					return { snapshot, status: "completed" };
+				} catch (error) {
+					return { error, snapshot: input, status: "error" };
+				}
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	/** Default retry and alarm-boundary recovery options. */
@@ -1676,11 +1718,21 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	): void {
 		super._emit(type as never, payload);
 		if (type === "alarm:memory_limit_reset") {
-			this.ctx.waitUntil(this.recordAlarmMemoryLimitResetTelemetry(payload));
+			this.ctx.waitUntil(
+				withCoreStore(
+					this.env,
+					() => this.recordAlarmMemoryLimitResetTelemetry(payload),
+					(promise) => this.ctx.waitUntil(promise),
+				),
+			);
 		}
 		if (type === "schedule:error")
 			this.ctx.waitUntil(
-				recordMaintenanceScheduleError(this.memoryHost(), payload),
+				withCoreStore(
+					this.env,
+					() => recordMaintenanceScheduleError(this.memoryHost(), payload),
+					(promise) => this.ctx.waitUntil(promise),
+				),
 			);
 	}
 
@@ -1940,11 +1992,20 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 
 	async reservePiStep(input: PiStepReservation) {
-		return runtimeParentTurns.reservePiStep.call(this.parentTurnsHost(), input);
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeParentTurns.reservePiStep.call(this.parentTurnsHost(), input),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	async recordPiStep(input: PiStepReceipt) {
-		return runtimeParentTurns.recordPiStep.call(this.parentTurnsHost(), input);
+		return withCoreStore(
+			this.env,
+			() => runtimeParentTurns.recordPiStep.call(this.parentTurnsHost(), input),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	/** A model switch requires a confirmed ledger write, including when the outbox is full. */
@@ -1952,30 +2013,38 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		runId: string;
 		step: ModelFallbackStep;
 	}): Promise<void> {
-		await this.assertChatTurnActive(input.runId);
-		// Same rebuild as a tool call: after a parent reset, or when a later turn
-		// of the session re-drives this run's pending submission, the run is
-		// admitted but its conversation is no longer pinned in memory.
-		await runtimeFacetTurns.restoreFacetTurnTools.call(
-			this.facetTurnsHost(),
-			input.runId,
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.assertChatTurnActive(input.runId);
+				// Same rebuild as a tool call: after a parent reset, or when a later turn
+				// of the session re-drives this run's pending submission, the run is
+				// admitted but its conversation is no longer pinned in memory.
+				await runtimeFacetTurns.restoreFacetTurnTools.call(
+					this.facetTurnsHost(),
+					input.runId,
+				);
+				const step = ModelFallbackStepSchema.parse(input.step);
+				const conversationId = this.activeFacetTurnConversations.get(
+					input.runId,
+				);
+				if (!conversationId || !this.state.tediId)
+					throw new Error("Model fallback has no admitted conversation");
+				const platform = await this.getPlatformClient();
+				if (!platform) throw new Error("Model fallback ledger is unavailable");
+				await platform.recordRuntimeEvent({
+					id: crypto.randomUUID(),
+					tediId: this.state.tediId,
+					conversationId,
+					runId: input.runId,
+					kind: "step.retry",
+					payload: { operation: "model_fallback", ...step },
+					runtime: { backend: "cloudflare-agents" },
+					createdAt: new Date().toISOString(),
+				});
+			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		const step = ModelFallbackStepSchema.parse(input.step);
-		const conversationId = this.activeFacetTurnConversations.get(input.runId);
-		if (!conversationId || !this.state.tediId)
-			throw new Error("Model fallback has no admitted conversation");
-		const platform = await this.getPlatformClient();
-		if (!platform) throw new Error("Model fallback ledger is unavailable");
-		await platform.recordRuntimeEvent({
-			id: crypto.randomUUID(),
-			tediId: this.state.tediId,
-			conversationId,
-			runId: input.runId,
-			kind: "step.retry",
-			payload: { operation: "model_fallback", ...step },
-			runtime: { backend: "cloudflare-agents" },
-			createdAt: new Date().toISOString(),
-		});
 	}
 
 	private getRationaleStore(): DoRationaleStateStore {
@@ -2116,9 +2185,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		);
 	}
 	async onRefreshSkillGuidance(admittedRunId?: string): Promise<void> {
-		return runtimeMemory.onRefreshSkillGuidance.call(
-			this.memoryHost(),
-			admittedRunId,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeMemory.onRefreshSkillGuidance.call(
+					this.memoryHost(),
+					admittedRunId,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	private observerBeforeDispatch(
@@ -2480,24 +2554,30 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		userText: string;
 		trust: SurfaceTrust;
 	}): Promise<{ systemPrompt: string; addenda: string }> {
-		await this.ensureIdentity({
-			tediId: input.tediId,
-			orgId: input.organizationId,
-		});
-		const [systemPrompt, addenda, coreMemory] = await Promise.all([
-			this.getSystemPrompt(),
-			this.cognitiveAddenda(input.sessionKey, input.userText),
-			coreMemoryPromptBlock({
-				trust: input.trust,
-				sessionKey: input.sessionKey,
-				tediId: input.tediId,
-				getPlatform: () => this.getPlatformClient(),
-			}),
-		]);
-		return {
-			systemPrompt,
-			addenda: [addenda, coreMemory].filter(Boolean).join("\n\n"),
-		};
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.ensureIdentity({
+					tediId: input.tediId,
+					orgId: input.organizationId,
+				});
+				const [systemPrompt, addenda, coreMemory] = await Promise.all([
+					this.getSystemPrompt(),
+					this.cognitiveAddenda(input.sessionKey, input.userText),
+					coreMemoryPromptBlock({
+						trust: input.trust,
+						sessionKey: input.sessionKey,
+						tediId: input.tediId,
+						getPlatform: () => this.getPlatformClient(),
+					}),
+				]);
+				return {
+					systemPrompt,
+					addenda: [addenda, coreMemory].filter(Boolean).join("\n\n"),
+				};
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	/**
@@ -2515,13 +2595,25 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		};
 	}
 	async guestToolCatalog(input: GuestToolCatalogInput) {
-		return guestToolCatalog.call(this.guestTurnHost(), input);
+		return withCoreStore(
+			this.env,
+			() => guestToolCatalog.call(this.guestTurnHost(), input),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async guestToolRun(input: GuestToolRunInput) {
-		return guestToolRun.call(this.guestTurnHost(), input);
+		return withCoreStore(
+			this.env,
+			() => guestToolRun.call(this.guestTurnHost(), input),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async guestTurnLearn(input: GuestTurnLearnInput) {
-		return guestTurnLearn.call(this.guestTurnHost(), input);
+		return withCoreStore(
+			this.env,
+			() => guestTurnLearn.call(this.guestTurnHost(), input),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	// ===========================================================================
@@ -2812,9 +2904,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	 * re-arms until the record is collected, abandoned, or the deadline passes.
 	 */
 	async onComputerExecutionWake(input: { executionId: string }): Promise<void> {
-		return runtimeWorkstation.onComputerExecutionWake.call(
-			this.workstationHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeWorkstation.onComputerExecutionWake.call(
+					this.workstationHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
@@ -3166,9 +3263,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		method?: string;
 		repairAttempt?: number;
 	}): Promise<void> {
-		return runtimeToolAuthority.repairCodemodeExecuteApproval.call(
-			this.toolAuthorityHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeToolAuthority.repairCodemodeExecuteApproval.call(
+					this.toolAuthorityHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
@@ -3336,9 +3438,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 
 	async assertChatTurnActive(runId: string | null | undefined): Promise<void> {
-		return runtimeParentTurns.assertChatTurnActive.call(
-			this.parentTurnsHost(),
-			runId,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeParentTurns.assertChatTurnActive.call(
+					this.parentTurnsHost(),
+					runId,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
@@ -3423,16 +3530,26 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		runId: string;
 		sessionKey: string;
 	}) {
-		return runtimeParentTurns.getFacetAdmissionCustody.call(
-			this.parentTurnsHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeParentTurns.getFacetAdmissionCustody.call(
+					this.parentTurnsHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
 	async canRecoverChatTurn(runId: string): Promise<boolean> {
-		return runtimeParentTurns.canRecoverChatTurn.call(
-			this.parentTurnsHost(),
-			runId,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeParentTurns.canRecoverChatTurn.call(
+					this.parentTurnsHost(),
+					runId,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
@@ -3498,52 +3615,66 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	async recordEvaluationContext(
 		input: EvaluationDispatchEvidence,
 	): Promise<void> {
-		await this.assertChatTurnActive(input.runId);
-		const dispatch = await this.ctx.storage.get<{ params: ChatTurnParams }>(
-			`runtime-admission-workflow:${input.runId}`,
-		);
-		const platform = await this.getPlatformClient();
-		if (!platform) throw new Error("Evaluation evidence store is unavailable");
-		if (!dispatch?.params.evaluation)
-			throw new Error("Evaluation admission is missing");
-		const instructionsObservation = await assertEvaluationWorkflow(
+		return withCoreStore(
 			this.env,
-			this.state.orgId,
-			this.state.tediId,
-			dispatch.params.evaluation,
-		);
-		const attestation = await recordEvaluationEvidence(input, {
-			tediId: this.state.tediId,
-			slug: this.state.slug,
-			admitted: dispatch?.params.evaluation,
-			userText: dispatch?.params.userText,
-			runtimeSource: this.env.GIT_SHA,
-			instructionsObservation,
-			platform,
-		});
-		await this.ctx.storage.put(
-			`evaluation-context:${input.runId}:${input.providerAttempt.attemptId}`,
-			{
-				...attestation,
-				conversationId: dispatch.params.conversationId,
+			async () => {
+				await this.assertChatTurnActive(input.runId);
+				const dispatch = await this.ctx.storage.get<{ params: ChatTurnParams }>(
+					`runtime-admission-workflow:${input.runId}`,
+				);
+				const platform = await this.getPlatformClient();
+				if (!platform)
+					throw new Error("Evaluation evidence store is unavailable");
+				if (!dispatch?.params.evaluation)
+					throw new Error("Evaluation admission is missing");
+				const instructionsObservation = await assertEvaluationWorkflow(
+					this.env,
+					this.state.orgId,
+					this.state.tediId,
+					dispatch.params.evaluation,
+				);
+				const attestation = await recordEvaluationEvidence(input, {
+					tediId: this.state.tediId,
+					slug: this.state.slug,
+					admitted: dispatch?.params.evaluation,
+					userText: dispatch?.params.userText,
+					runtimeSource: this.env.GIT_SHA,
+					instructionsObservation,
+					platform,
+				});
+				await this.ctx.storage.put(
+					`evaluation-context:${input.runId}:${input.providerAttempt.attemptId}`,
+					{
+						...attestation,
+						conversationId: dispatch.params.conversationId,
+					},
+				);
+				await assertEvaluationAuthority(
+					this.env,
+					this.state.orgId,
+					this.state.tediId,
+					dispatch.params.evaluation,
+				);
 			},
-		);
-		await assertEvaluationAuthority(
-			this.env,
-			this.state.orgId,
-			this.state.tediId,
-			dispatch.params.evaluation,
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
 	async recordEvaluationModelReceipt(input: EvaluationOutcome): Promise<void> {
-		const platform = await this.getPlatformClient();
-		if (!platform) throw new Error("Evaluation receipt store is unavailable");
-		await recordEvaluationOutcome(input, {
-			storage: this.ctx.storage,
-			platform,
-			tediId: this.state.tediId,
-		});
+		return withCoreStore(
+			this.env,
+			async () => {
+				const platform = await this.getPlatformClient();
+				if (!platform)
+					throw new Error("Evaluation receipt store is unavailable");
+				await recordEvaluationOutcome(input, {
+					storage: this.ctx.storage,
+					platform,
+					tediId: this.state.tediId,
+				});
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	async recordFacetModelStep(input: {
@@ -3551,9 +3682,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		runId: string;
 		sessionKey: string;
 	}): Promise<void> {
-		return runtimeParentTurns.recordFacetModelStep.call(
-			this.parentTurnsHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeParentTurns.recordFacetModelStep.call(
+					this.parentTurnsHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
@@ -3561,12 +3697,18 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		connection: Connection,
 		ctx: ConnectionContext,
 	): Promise<void> {
-		// Auth happened at the Worker edge before this upgrade was accepted.
-		// We hydrate identity from the headers the parent Worker stamped on
-		// the forwarded request. The auth subject is available on
-		// `X-Tedi-Auth-Subject` if any downstream handler needs it.
-		await this.ensureIdentity(this.hintsFromHeaders(ctx.request.headers));
-		await this.acpChannel.onConnect(connection, ctx.request);
+		return withCoreStore(
+			this.env,
+			async () => {
+				// Auth happened at the Worker edge before this upgrade was accepted.
+				// We hydrate identity from the headers the parent Worker stamped on
+				// the forwarded request. The auth subject is available on
+				// `X-Tedi-Auth-Subject` if any downstream handler needs it.
+				await this.ensureIdentity(this.hintsFromHeaders(ctx.request.headers));
+				await this.acpChannel.onConnect(connection, ctx.request);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	/**
@@ -3598,18 +3740,32 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		// connection churn; the SDK resume/reconnect path owns recovery.
 	}
 	async onCompileDirectives(admittedRunId: string): Promise<void> {
-		return runtimeMemory.onCompileDirectives.call(
-			this.memoryHost(),
-			admittedRunId,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeMemory.onCompileDirectives.call(
+					this.memoryHost(),
+					admittedRunId,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	async onAuditCorpus(admittedRunId?: string): Promise<void> {
-		return runtimeMemory.onAuditCorpus.call(this.memoryHost(), admittedRunId);
+		return withCoreStore(
+			this.env,
+			() => runtimeMemory.onAuditCorpus.call(this.memoryHost(), admittedRunId),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async onCompileBrainDigest(admittedRunId: string): Promise<void> {
-		return runtimeMemory.onCompileBrainDigest.call(
-			this.memoryHost(),
-			admittedRunId,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeMemory.onCompileBrainDigest.call(
+					this.memoryHost(),
+					admittedRunId,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	private async dispatchTurnMemoryEffects(input: {
@@ -3648,7 +3804,12 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	async onDailyLogFlush(
 		admittedRunId?: string,
 	): Promise<ArtifactsPushReceipt | null> {
-		return runtimeMemory.onDailyLogFlush.call(this.memoryHost(), admittedRunId);
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeMemory.onDailyLogFlush.call(this.memoryHost(), admittedRunId),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	private async resolveAttachmentTurn(
 		userText: string,
@@ -3724,17 +3885,27 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	);
 
 	async enrollFacetDispatchRun(runId: string): Promise<void> {
-		return runtimeFacetTurns.enrollFacetDispatchRun.call(
-			this.facetTurnsHost(),
-			runId,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeFacetTurns.enrollFacetDispatchRun.call(
+					this.facetTurnsHost(),
+					runId,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
 	async reconcileFacetToolEffect(runId: string, toolCallId: string) {
-		return runtimeFacetTurns.reconcileFacetToolEffect.call(
-			this.facetTurnsHost(),
-			runId,
-			toolCallId,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeFacetTurns.reconcileFacetToolEffect.call(
+					this.facetTurnsHost(),
+					runId,
+					toolCallId,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	async executeFacetTool(input: {
@@ -3744,9 +3915,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		args: unknown;
 		deadlineAt?: number;
 	}): Promise<unknown> {
-		return runtimeFacetTurns.executeFacetTool.call(
-			this.facetTurnsHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeFacetTurns.executeFacetTool.call(this.facetTurnsHost(), input),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	async facetToolApprovalDecision(input: {
@@ -3755,57 +3928,65 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		tool: string;
 		args: unknown;
 	}): Promise<{ autoApprove: boolean; critical: boolean }> {
-		await this.assertChatTurnActive(input.runId);
-		await runtimeFacetTurns.restoreFacetTurnTools.call(
-			this.facetTurnsHost(),
-			input.runId,
-		);
-		const tools = await awaitRebuiltFacetRegistry(
-			() => this.activeFacetTurnTools.get(input.runId),
-			{
-				waitMs:
-					this.facetRegistryRebuildWaitMs ?? FACET_REGISTRY_REBUILD_WAIT_MS,
+		return withCoreStore(
+			this.env,
+			async () => {
+				await this.assertChatTurnActive(input.runId);
+				await runtimeFacetTurns.restoreFacetTurnTools.call(
+					this.facetTurnsHost(),
+					input.runId,
+				);
+				const tools = await awaitRebuiltFacetRegistry(
+					() => this.activeFacetTurnTools.get(input.runId),
+					{
+						waitMs:
+							this.facetRegistryRebuildWaitMs ?? FACET_REGISTRY_REBUILD_WAIT_MS,
+					},
+				);
+				const conversationId = this.activeFacetTurnConversations.get(
+					input.runId,
+				);
+				if (!conversationId || !tools?.[input.tool]?.execute)
+					return { autoApprove: false, critical: true };
+				try {
+					const replyRecipient =
+						input.tool === "reply_to_email"
+							? this.activeEmailReplyRecipients.get(input.runId)
+							: undefined;
+					const decision = await nativeToolAutonomy({
+						api: this.env.API_SERVICE,
+						organizationId: this.state.orgId,
+						tediId: this.state.tediId,
+						tool: input.tool,
+						args: input.args,
+						...(replyRecipient
+							? { emailRecipients: { to: [replyRecipient] } }
+							: {}),
+					});
+					if (!decision.autoApprove) return decision;
+					await this.eventOutbox.publish({
+						id: `${input.runId}:autonomy:${input.toolCallId}`,
+						tediId: this.state.tediId,
+						kind: "approval.resolved",
+						conversationId,
+						runId: input.runId,
+						payload: {
+							resolvedBy: "policy",
+							policyVersion: 1,
+							toolCallId: input.toolCallId,
+							tool: input.tool,
+							reason: decision.reason,
+						},
+						runtime: { backend: "cloudflare-agents" },
+						createdAt: new Date().toISOString(),
+					});
+					return decision;
+				} catch {
+					return { autoApprove: false, critical: true };
+				}
 			},
+			(promise) => this.ctx.waitUntil(promise),
 		);
-		const conversationId = this.activeFacetTurnConversations.get(input.runId);
-		if (!conversationId || !tools?.[input.tool]?.execute)
-			return { autoApprove: false, critical: true };
-		try {
-			const replyRecipient =
-				input.tool === "reply_to_email"
-					? this.activeEmailReplyRecipients.get(input.runId)
-					: undefined;
-			const decision = await nativeToolAutonomy({
-				api: this.env.API_SERVICE,
-				organizationId: this.state.orgId,
-				tediId: this.state.tediId,
-				tool: input.tool,
-				args: input.args,
-				...(replyRecipient
-					? { emailRecipients: { to: [replyRecipient] } }
-					: {}),
-			});
-			if (!decision.autoApprove) return decision;
-			await this.eventOutbox.publish({
-				id: `${input.runId}:autonomy:${input.toolCallId}`,
-				tediId: this.state.tediId,
-				kind: "approval.resolved",
-				conversationId,
-				runId: input.runId,
-				payload: {
-					resolvedBy: "policy",
-					policyVersion: 1,
-					toolCallId: input.toolCallId,
-					tool: input.tool,
-					reason: decision.reason,
-				},
-				runtime: { backend: "cloudflare-agents" },
-				createdAt: new Date().toISOString(),
-			});
-			return decision;
-		} catch {
-			return { autoApprove: false, critical: true };
-		}
 	}
 	private async prepareMcpFacetTurn(input: {
 		executionRestriction?: ChatTurnParams["executionRestriction"];
@@ -4047,9 +4228,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	async runFacetWorkflowTurn(
 		input: FacetWorkflowTurnInput,
 	): Promise<FacetWorkflowTurnResult> {
-		return runtimeFacetTurns.runFacetWorkflowTurn.call(
-			this.facetTurnsHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeFacetTurns.runFacetWorkflowTurn.call(
+					this.facetTurnsHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	private async armDelegatedWorkLeaseRenewal(runId: string): Promise<void> {
@@ -4062,10 +4248,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		input: { runId: string },
 		schedule?: { id: string },
 	): Promise<void> {
-		return runtimeFacetTurns.onDelegatedWorkLeaseRenewal.call(
-			this.facetTurnsHost(),
-			input,
-			schedule,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeFacetTurns.onDelegatedWorkLeaseRenewal.call(
+					this.facetTurnsHost(),
+					input,
+					schedule,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
@@ -4080,9 +4271,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	async readFacetComputerExecutions(
 		input: FacetWorkflowTurnInput & { executionIds: string[] },
 	): Promise<{ ready: boolean; retryAfterSeconds: number }> {
-		return runtimeFacetTurns.readFacetComputerExecutions.call(
-			this.facetTurnsHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeFacetTurns.readFacetComputerExecutions.call(
+					this.facetTurnsHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	private async commitFacetWorkflowSegment(
@@ -4141,9 +4337,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		/** Actual verifier provider/model; persisted on blind judge assistant rows. */
 		modelIdentity?: TediSessionModelIdentity;
 	}): Promise<void> {
-		return runtimeFacetTurns.commitAssistantTurn.call(
-			this.facetTurnsHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeFacetTurns.commitAssistantTurn.call(
+					this.facetTurnsHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
@@ -4177,11 +4378,16 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		workflowId: string,
 		result?: unknown,
 	): Promise<void> {
-		return runtimeWorkflow.onWorkflowComplete.call(
-			this.workflowHost(),
-			workflowName,
-			workflowId,
-			result,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeWorkflow.onWorkflowComplete.call(
+					this.workflowHost(),
+					workflowName,
+					workflowId,
+					result,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	override async onWorkflowError(
@@ -4189,11 +4395,16 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		workflowId: string,
 		error: string,
 	): Promise<void> {
-		return runtimeWorkflow.onWorkflowError.call(
-			this.workflowHost(),
-			workflowName,
-			workflowId,
-			error,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeWorkflow.onWorkflowError.call(
+					this.workflowHost(),
+					workflowName,
+					workflowId,
+					error,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	private broadcastWorkflowFailure(workflowId: string, error: string): void {
@@ -4238,9 +4449,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		/** The recurring Work lease owns the next observation. */
 		renewal?: boolean;
 	}): Promise<boolean> {
-		return runtimeWorkflow.reconcileChatWorkflowTerminal.call(
-			this.workflowHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeWorkflow.reconcileChatWorkflowTerminal.call(
+					this.workflowHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	private async reconcileChatWorkflowTerminalInner(input: {
@@ -4337,19 +4553,29 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		workflowInstanceId: string,
 		runId: string,
 	): Promise<boolean> {
-		return runtimeWorkflow.markChatWorkflowStarted.call(
-			this.workflowHost(),
-			workflowInstanceId,
-			runId,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeWorkflow.markChatWorkflowStarted.call(
+					this.workflowHost(),
+					workflowInstanceId,
+					runId,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	async reconcileChatWorkflowStart(input: {
 		workflowInstanceId: string;
 		attempt: number;
 	}): Promise<void> {
-		return runtimeWorkflow.reconcileChatWorkflowStart.call(
-			this.workflowHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeWorkflow.reconcileChatWorkflowStart.call(
+					this.workflowHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	private async clearWorkflowDispatch(
@@ -4398,9 +4624,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		intent: "terminal" | "cancelled";
 		attempt?: number;
 	}): Promise<void> {
-		return runtimeWorkflow.cleanupChatWorkflowImages.call(
-			this.workflowHost(),
-			input,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeWorkflow.cleanupChatWorkflowImages.call(
+					this.workflowHost(),
+					input,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	async dispatchIndependentWorkItem(item: {
@@ -4418,9 +4649,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		childRunId?: string;
 		sessionKey?: string;
 	}> {
-		return runtimeWorkflow.dispatchIndependentWorkItem.call(
-			this.workflowHost(),
-			item,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeWorkflow.dispatchIndependentWorkItem.call(
+					this.workflowHost(),
+					item,
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	private async clearFanoutSlot(workflowInstanceId: string): Promise<void> {
@@ -4572,14 +4808,22 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		failedScheduleIds: string[];
 		remainingScheduleIds: string[];
 	}> {
-		return cleanupOrphanSchedules(this.cronHost(), input);
+		return withCoreStore(
+			this.env,
+			() => cleanupOrphanSchedules(this.cronHost(), input),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	async onCronFire(
 		payload: CronFirePayload,
 		row?: { id?: string; time?: number },
 	): Promise<CronFireOutcome> {
-		return onCronFire(this.cronHost(), payload, row);
+		return withCoreStore(
+			this.env,
+			() => onCronFire(this.cronHost(), payload, row),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	private async stampCronExecution(stamp: {
@@ -4596,7 +4840,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		return stampCronExecution(this.cronHost(), stamp);
 	}
 	async onBridgeTurn(payload: BridgeTurnInput): Promise<void> {
-		return runtimeMemory.onBridgeTurn.call(this.memoryHost(), payload);
+		return withCoreStore(
+			this.env,
+			() => runtimeMemory.onBridgeTurn.call(this.memoryHost(), payload),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	async onLedgerMirror(payload: {
@@ -4627,9 +4875,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		 */
 		facetUsage?: FacetTurnUsage;
 	}): Promise<void> {
-		return runtimeParentTurns.onLedgerMirror.call(
-			this.parentTurnsHost(),
-			payload,
+		return withCoreStore(
+			this.env,
+			() =>
+				runtimeParentTurns.onLedgerMirror.call(this.parentTurnsHost(), payload),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 	private async ensureActiveHarnessVersion(
@@ -4700,7 +4950,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		sessionKey: string;
 		operationId: string;
 	}): Promise<void> {
-		return runtimeMemory.onCompactSession.call(this.memoryHost(), payload);
+		return withCoreStore(
+			this.env,
+			() => runtimeMemory.onCompactSession.call(this.memoryHost(), payload),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	private async prepareCompaction(
 		sessionKey: string,
@@ -4768,10 +5022,18 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 
 	async redriveLedgerOutbox(): Promise<void> {
-		return runtimeParentTurns.redriveLedgerOutbox.call(this.parentTurnsHost());
+		return withCoreStore(
+			this.env,
+			() => runtimeParentTurns.redriveLedgerOutbox.call(this.parentTurnsHost()),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	async onEmail(email: AgentEmail): Promise<void> {
-		return runtimeChannels.onEmail.call(this.channelsHost(), email);
+		return withCoreStore(
+			this.env,
+			() => runtimeChannels.onEmail.call(this.channelsHost(), email),
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 	private async completeEmailTurn(input: {
 		system: string;
@@ -4813,8 +5075,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 
 	override async onRequest(request: Request): Promise<Response> {
-		const { handleRuntimeRequest } = await import("./runtime-request-handler");
-		return handleRuntimeRequest(this.requestHost(), request);
+		return withCoreStore(
+			this.env,
+			async () => {
+				const { handleRuntimeRequest } =
+					await import("./runtime-request-handler");
+				return handleRuntimeRequest(this.requestHost(), request);
+			},
+			(promise) => this.ctx.waitUntil(promise),
+		);
 	}
 
 	// Fallback: session-filtered projection of the append-only session store (`sessionRepo.listTurns`)
