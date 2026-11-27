@@ -1,7 +1,9 @@
 import { and, asc, count, eq, gt, inArray, lte, ne, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { coreTable } from "../core-store/client";
+import { jsonParameter } from "../core-store/dialect";
 import {
-	mcpEventSubscriptions,
+	mcpEventSubscriptions as d1McpEventSubscriptions,
 	type McpEventSubscriptionRow,
 } from "../schema/mcp-event-subscriptions";
 
@@ -29,10 +31,11 @@ export async function getMcpEventSubscription(
 	db: DbQueryClient,
 	key: McpEventSubscriptionKey,
 ): Promise<McpEventSubscriptionRow | null> {
+	const mcpEventSubscriptions = coreTable(db, d1McpEventSubscriptions);
 	const [row] = await db
 		.select()
 		.from(mcpEventSubscriptions)
-		.where(keyCondition(key))
+		.where(keyCondition(mcpEventSubscriptions, key))
 		.limit(1);
 	return row ?? null;
 }
@@ -46,6 +49,7 @@ export async function upsertMcpEventSubscription(
 	db: DbQueryClient,
 	params: UpsertMcpEventSubscriptionParams,
 ): Promise<McpEventSubscriptionRow | null> {
+	const mcpEventSubscriptions = coreTable(db, d1McpEventSubscriptions);
 	const held = db
 		.select({ total: count() })
 		.from(mcpEventSubscriptions)
@@ -85,9 +89,7 @@ export async function upsertMcpEventSubscription(
 					ownerSubject: sql<string>`${params.ownerSubject}`.as("owner_subject"),
 					mcpUrl: sql<string>`${renewed.mcpUrl}`.as("mcp_url"),
 					eventName: sql<string>`${renewed.eventName}`.as("event_name"),
-					arguments: sql<
-						Record<string, string>
-					>`${JSON.stringify(renewed.arguments)}`.as("arguments"),
+					arguments: jsonParameter(db, renewed.arguments).as("arguments"),
 					callbackUrl: sql<string>`${renewed.callbackUrl}`.as("callback_url"),
 					sealedCredential: sql<string>`${renewed.sealedCredential}`.as(
 						"sealed_credential",
@@ -132,9 +134,10 @@ export async function deleteMcpEventSubscription(
 	db: DbQueryClient,
 	key: McpEventSubscriptionKey,
 ): Promise<boolean> {
+	const mcpEventSubscriptions = coreTable(db, d1McpEventSubscriptions);
 	const deleted = await db
 		.delete(mcpEventSubscriptions)
-		.where(keyCondition(key))
+		.where(keyCondition(mcpEventSubscriptions, key))
 		.returning({ id: mcpEventSubscriptions.id });
 	return deleted.length > 0;
 }
@@ -155,6 +158,7 @@ export async function claimDueMcpEventSubscriptions(
 	db: DbQueryClient,
 	params: ClaimDueMcpEventSubscriptionsParams,
 ): Promise<McpEventSubscriptionRow[]> {
+	const mcpEventSubscriptions = coreTable(db, d1McpEventSubscriptions);
 	await db.delete(mcpEventSubscriptions).where(
 		// bound-params: capped SQL subquery, not a bound id list
 		inArray(
@@ -212,6 +216,7 @@ export async function recordMcpEventDelivery(
 	db: DbQueryClient,
 	params: RecordMcpEventDeliveryParams,
 ): Promise<boolean> {
+	const mcpEventSubscriptions = coreTable(db, d1McpEventSubscriptions);
 	const updated = await db
 		.update(mcpEventSubscriptions)
 		.set({
@@ -237,10 +242,13 @@ export async function recordMcpEventDelivery(
 	return updated.length > 0;
 }
 
-function keyCondition(key: McpEventSubscriptionKey) {
+function keyCondition(
+	table: typeof d1McpEventSubscriptions,
+	key: McpEventSubscriptionKey,
+) {
 	return and(
-		eq(mcpEventSubscriptions.id, key.id),
-		eq(mcpEventSubscriptions.organizationId, key.organizationId),
-		eq(mcpEventSubscriptions.ownerSubject, key.ownerSubject),
+		eq(table.id, key.id),
+		eq(table.organizationId, key.organizationId),
+		eq(table.ownerSubject, key.ownerSubject),
 	);
 }

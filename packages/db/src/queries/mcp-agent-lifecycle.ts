@@ -1,12 +1,16 @@
 import { and, eq, exists, gt, inArray } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { coreTable } from "../core-store/client";
 import {
-	externalAgentPrincipals,
-	externalAgentSessions,
+	externalAgentPrincipals as d1ExternalAgentPrincipals,
+	externalAgentSessions as d1ExternalAgentSessions,
 } from "../schema/external-agent-identity";
-import { workAttempts, workItems } from "../schema/work-items";
-import { osWorkspaceProjects } from "../schema/os-workspaces";
-import { workspaceOutputIndex } from "../schema/workspace-feed";
+import {
+	workAttempts as d1WorkAttempts,
+	workItems as d1WorkItems,
+} from "../schema/work-items";
+import { osWorkspaceProjects as d1OsWorkspaceProjects } from "../schema/os-workspaces";
+import { workspaceOutputIndex as d1WorkspaceOutputIndex } from "../schema/workspace-feed";
 
 /** Admission covers only the holder's bounded lifecycle and project artifacts. */
 export async function resolveAgentLifecycleAuthorization(
@@ -44,6 +48,7 @@ export async function resolveAgentLifecycleAuthorization(
 		return false;
 	if (attempt && typeof args.attemptId !== "string") return false;
 	let workspaceId = args.workspaceId;
+	const workspaceOutputIndex = coreTable(db, d1WorkspaceOutputIndex);
 	if (reviseOutput) {
 		if (typeof args.outputId !== "string") return false;
 		const [output] = await db
@@ -62,6 +67,11 @@ export async function resolveAgentLifecycleAuthorization(
 	}
 	if ((createOutput || reviseOutput) && typeof workspaceId !== "string")
 		return false;
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const osWorkspaceProjects = coreTable(db, d1OsWorkspaceProjects);
 	const rows = await db
 		.select({ id: workAttempts.id })
 		.from(workAttempts)

@@ -45,6 +45,15 @@ import {
 	listHomeRunAuditReferences,
 	listHomeRunWakeReceipts,
 } from "./kernel-home-run-trace";
+import { listMcpSubscriptionTargetsForCatalogApp } from "./mcp-subscription-targets";
+import { resolveAgentLifecycleAuthorization } from "./mcp-agent-lifecycle";
+import {
+	claimDueMcpEventSubscriptions,
+	deleteMcpEventSubscription,
+	getMcpEventSubscription,
+	recordMcpEventDelivery,
+	upsertMcpEventSubscription,
+} from "./mcp-event-subscriptions";
 
 const stores = ["d1", "postgres"] as const;
 for (const store of stores) {
@@ -388,6 +397,109 @@ for (const store of stores) {
 				limit: 10,
 			});
 			expect(references).toEqual([{ id: "aud-1", traceId: "child-1" }]);
+		});
+
+		it("lists mcp subscription targets and resolves lifecycle authorization", async () => {
+			expect(
+				await listMcpSubscriptionTargetsForCatalogApp(db, "catalog-none"),
+			).toEqual([]);
+			// Runs the full attempt/session/principal join; no fixtures means deny.
+			await expect(
+				resolveAgentLifecycleAuthorization(db, {
+					organizationId: "org",
+					principalId: "principal-1",
+					sessionId: "session-1",
+					endpoint: "workItems/addComment",
+					args: { id: "wi-1" },
+				}),
+			).resolves.toBe(false);
+			await expect(
+				resolveAgentLifecycleAuthorization(db, {
+					organizationId: "org",
+					principalId: "principal-1",
+					sessionId: "session-1",
+					endpoint: "workItems/removeMember",
+					args: {},
+				}),
+			).resolves.toBe(false);
+		});
+
+		it("upserts, claims, records and deletes mcp event subscriptions", async () => {
+			const now = "2026-11-27T00:00:00.000Z";
+			const params = {
+				id: "sub-1",
+				organizationId: "org",
+				ownerSubject: "owner-1",
+				mcpUrl: "https://mcp.example.com",
+				eventName: "work.updated",
+				arguments: { filter: "open" },
+				callbackUrl: "https://callback.example.com/hook",
+				sealedCredential: "sealed",
+				cursor: "cursor-1",
+				expiresAt: "2027-01-01T00:00:00.000Z",
+				now,
+			};
+			const created = await upsertMcpEventSubscription(db, params);
+			expect(created).toMatchObject({
+				id: "sub-1",
+				status: "active",
+				cursor: "cursor-1",
+			});
+			expect(await getMcpEventSubscription(db, params)).toMatchObject({
+				id: "sub-1",
+			});
+			// Renewal of the same id stays within the per-owner cap.
+			for (let index = 2; index <= 20; index++) {
+				const row = await upsertMcpEventSubscription(db, {
+					...params,
+					id: `sub-${index}`,
+				});
+				expect(row).not.toBeNull();
+			}
+			expect(
+				await upsertMcpEventSubscription(db, {
+					...params,
+					id: "sub-over-cap",
+				}),
+			).toBeNull();
+			expect(
+				await upsertMcpEventSubscription(db, {
+					...params,
+					id: "sub-other-owner",
+					ownerSubject: "owner-2",
+				}),
+			).not.toBeNull();
+
+			const claimed = await claimDueMcpEventSubscriptions(db, {
+				now: "2026-11-27T00:00:01.000Z",
+				leaseUntil: "2026-11-27T00:05:00.000Z",
+				limit: 50,
+			});
+			const mine = claimed.find((row) => row.id === "sub-1");
+			expect(mine?.claimToken).toBeTruthy();
+			expect(
+				await recordMcpEventDelivery(db, {
+					id: "sub-1",
+					claimToken: mine!.claimToken!,
+					organizationId: "org",
+					cursor: "cursor-2",
+					status: "active",
+					consecutiveFailures: 0,
+					nextAttemptAt: "2026-11-27T00:06:00.000Z",
+					rateWindowStartedAt: null,
+					rateWindowCount: 0,
+					lastDeliveredAt: "2026-11-27T00:00:02.000Z",
+					lastStatus: 200,
+					now: "2026-11-27T00:00:02.000Z",
+				}),
+			).toBe(true);
+			expect(await getMcpEventSubscription(db, params)).toMatchObject({
+				id: "sub-1",
+				cursor: "cursor-2",
+				claimToken: null,
+			});
+			expect(await deleteMcpEventSubscription(db, params)).toBe(true);
+			expect(await getMcpEventSubscription(db, params)).toBeNull();
 		});
 	});
 }
