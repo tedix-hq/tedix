@@ -116,6 +116,9 @@ function safeErrorClass(message: unknown): string[] | undefined {
 	return matched.length > 0 ? matched : undefined;
 }
 
+const sqlState = (code: unknown) =>
+	typeof code === "string" && /^[0-9A-Z]{5}$/.test(code) ? code : undefined;
+
 // D1/Drizzle can wrap the transport failure more than once. Keep diagnostics
 // bounded and allowlisted at every level; never emit SQL or bound parameters.
 function safeCauseChain(
@@ -132,6 +135,8 @@ function safeCauseChain(
 			messageClass: safeErrorClass(cause.message),
 			httpStatus: /\bHTTP ([1-5]\d{2})\b/.exec(cause.message)?.[1],
 			numericCode,
+			// Postgres SQLSTATE: a fixed five-character class code, no thrown text.
+			sqlState: sqlState((cause as { code?: unknown }).code),
 			valueRedacted: true,
 		});
 		cause = cause.cause;
@@ -146,10 +151,11 @@ export function safeErrorClassification(error: unknown) {
 		messageClass: safeErrorClass(error.message),
 		httpStatus: /\bHTTP ([1-5]\d{2})\b/.exec(error.message)?.[1],
 		causeChain: safeCauseChain(error)?.map(
-			({ messageClass, numericCode, httpStatus }) => ({
+			({ messageClass, numericCode, httpStatus, sqlState }) => ({
 				messageClass,
 				numericCode,
 				httpStatus,
+				sqlState,
 			}),
 		),
 	};
