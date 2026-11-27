@@ -179,9 +179,10 @@ describe("core-copy worker", () => {
 		const engine = new PGlite();
 		try {
 			await targetSchema(engine);
-			// Prepare #1 is the high-water probe, #2 the first page read; fail
-			// the second page read so exactly one page is checkpointed.
-			const source = d1Port(sqlite, 3);
+			// Prepare #1 is the high-water probe, #2 the page-size probe, #3 the
+			// first page read; fail the second page read so exactly one page is
+			// checkpointed.
+			const source = d1Port(sqlite, 4);
 			const store = new ProgressStore(memoryStore());
 			const ports: CopyPorts = {
 				readD1: source.readD1,

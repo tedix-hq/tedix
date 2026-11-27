@@ -184,6 +184,24 @@ async function hotStartRowid(
 	return Math.max(0, low - HOT_START_MARGIN);
 }
 
+/** Bytes of row JSON one page may hold; four lanes keep several pages in flight. */
+const PAGE_BYTES = 2_000_000;
+
+/**
+ * Sizes a table's pages from its newest rows, so a table of large rows
+ * cannot run the Worker out of memory.
+ */
+async function probePageSize(ports: CopyPorts, table: string): Promise<number> {
+	await (ports.wait ?? wait)(PAUSE_MS);
+	const rows = await ports.readD1(
+		`SELECT * FROM ${quoteIdent(table)} ORDER BY rowid DESC LIMIT 5`,
+		[],
+	);
+	if (rows.length === 0) return PAGE_SIZE;
+	const perRow = JSON.stringify(rows).length / rows.length;
+	return Math.max(1, Math.min(PAGE_SIZE, Math.floor(PAGE_BYTES / perRow)));
+}
+
 async function highWater(ports: CopyPorts, table: string): Promise<number> {
 	// Pace the window probe like every other D1 read.
 	await (ports.wait ?? wait)(PAUSE_MS);
@@ -237,16 +255,21 @@ export async function copyTable(
 	// Receipts kept inline by an earlier version stay in the state; new ones
 	// go to their own keys after them.
 	let count = existing?.pages ?? 0;
-	// Fixed once pages exist; a table that failed before its first page can
-	// still pick up a new size.
-	// Pages resume by rowid, so a smaller size can apply mid-table: a size
-	// lowered for memory takes effect on the next tick.
-	const pageSize = existing?.state
-		? Math.min(
-				existing.pageSize ?? PAGE_SIZE,
-				LARGE_ROW_PAGE_SIZES[tableName] ?? PAGE_SIZE,
-			)
-		: (options.pageSize ?? LARGE_ROW_PAGE_SIZES[tableName] ?? PAGE_SIZE);
+	// The size is part of a table's checkpoint, so it is chosen before the
+	// first page. A table whose listed size dropped below the one it started
+	// with starts over: every write is an upsert, so copying rows again is
+	// safe, and later receipts overwrite the earlier ones by index.
+	const stored =
+		latest !== undefined ? (existing?.pageSize ?? PAGE_SIZE) : undefined;
+	const listed = options.pageSize ?? LARGE_ROW_PAGE_SIZES[tableName];
+	if (stored !== undefined && listed !== undefined && listed < stored) {
+		latest = undefined;
+		count = 0;
+	}
+	const pageSize =
+		latest !== undefined
+			? stored!
+			: (listed ?? (await probePageSize(ports, tableName)));
 	const water =
 		latest !== undefined && existing?.highWater !== undefined
 			? existing.highWater
