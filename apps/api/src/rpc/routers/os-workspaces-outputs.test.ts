@@ -28,6 +28,10 @@ import {
 	workspaceOutputIndex,
 } from "@tedix/db/schema/workspace-feed";
 import { createDbClient } from "@tedix/db/client";
+import { tedis } from "@tedix/db/schema/tedis";
+import { skillRuns } from "@tedix/db/schema/cognitive";
+import { osWorkspaceAccessEdges } from "@tedix/db/schema/os-collaborators";
+import { findWorkspaceOutputResource } from "../../services/workspace-resource-storage";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createOsGadgetExecution } from "@tedix/db/queries/os-workspaces/executions";
 import { and, eq } from "drizzle-orm";
@@ -224,6 +228,157 @@ describe("outputs", () => {
 	beforeEach(() => {
 		mocks.authorizeDerivedOutputSources.mockReset().mockResolvedValue(true);
 		c = clients();
+	});
+
+	it("lets a use-role workflow read and write only its granted sheet", async () => {
+		await c.env.DB.exec(schemaDdl(tedis));
+		const db = createDbClient(c.env.DB);
+		const tediId = crypto.randomUUID();
+		const runId = crypto.randomUUID();
+		await db.insert(tedis).values({
+			id: tediId,
+			organizationId: "org-1",
+			name: "Shopper",
+			slug: "shopper",
+			scope: "organization",
+			status: "active",
+		});
+		const workspaceId = await homeWorkspaceId(c.env);
+		const { output } = await c.org1.outputs.create({
+			workspaceId,
+			kind: "sheet",
+			title: "Offers",
+			content: { kind: "sheet", columns: ["Result"], rows: [] },
+		});
+		const resource = await findWorkspaceOutputResource(db, {
+			organizationId: "org-1",
+			workspaceId,
+			outputId: output.id,
+		});
+		if (!resource) throw new Error("Expected sheet resource");
+		await db.insert(osWorkspaceAccessEdges).values({
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId,
+			targetUserId: tediId,
+			kind: "tedi",
+			edgeKey: `tedi:${tediId}`,
+			sharerUserId: "user-1",
+			role: "use",
+			createdAt: new Date().toISOString(),
+		});
+		const source = {
+			workspaceId,
+			workspaceResourceId: resource.id,
+			providerId: "tedix",
+			resourceType: "output",
+			providerResourceId: output.id,
+			connectionScope: "tenant" as const,
+			requiredScopes: [],
+			operations: ["outputs.read", "outputs.write"],
+			toolIds: ["os.get_os_output", "os.set_os_sheet_range"],
+		};
+		const envelope = { version: 1 as const, sources: [source] };
+		await createSkillRun(db, {
+			id: runId,
+			organizationId: "org-1",
+			skillId: "shop-readiness",
+			tediId,
+			workflowInstanceId: `wf-${runId}`,
+			runtimeEnvironment: c.env.ENVIRONMENT,
+			status: "running",
+			executionEpoch: 0,
+			resourceAccessEnvelope: envelope,
+		});
+		const workflow = (toolId: string, epoch = "0") =>
+			createRouterClient(osWorkspacesContractRouter, {
+				context: {
+					...apiKeyContext({ env: c.env, organizationId: "org-1" }),
+					headers: new Headers({
+						"X-Service-Binding": "true",
+						"X-Tedix-Tedi-Id": tediId,
+						"X-Tedix-Tedi-Scopes": "apps:read apps:write",
+						"X-Tedix-Skill-Run-Id": runId,
+						"X-Tedix-Mcp-Tool-Id": toolId,
+						"X-Tedix-Workflow-Execution-Epoch": epoch,
+					}),
+				},
+			});
+		const read = () =>
+			workflow("get_os_output").outputs.get({ outputId: output.id });
+		expect((await read()).currentRevision.content).toMatchObject({ rows: [] });
+		const write = () =>
+			workflow("set_os_sheet_range").outputs.setSheetRange({
+				outputId: output.id,
+				startRow: 0,
+				startColumn: 0,
+				cells: [["Ready"]],
+				expectedRevision: 1,
+			});
+		await db
+			.update(skillRuns)
+			.set({
+				resourceAccessEnvelope: {
+					version: 1,
+					sources: [{ ...source, operations: ["outputs.read"] }],
+				},
+			})
+			.where(eq(skillRuns.id, runId));
+		await expect(write()).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringContaining("Missing outputs.write"),
+		});
+		await db
+			.update(skillRuns)
+			.set({
+				resourceAccessEnvelope: {
+					version: 1,
+					sources: [{ ...source, operations: ["outputs.write"] }],
+				},
+			})
+			.where(eq(skillRuns.id, runId));
+		await expect(write()).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringContaining("Missing outputs.read"),
+		});
+		await db
+			.update(skillRuns)
+			.set({ resourceAccessEnvelope: envelope })
+			.where(eq(skillRuns.id, runId));
+		expect((await write()).revision.revision).toBe(2);
+		expect((await read()).currentRevision.content).toMatchObject({
+			rows: [["Ready"]],
+		});
+		await expect(
+			workflow("get_os_output", "1").outputs.get({ outputId: output.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await db
+			.update(skillRuns)
+			.set({ tediId: "another-tedi" })
+			.where(eq(skillRuns.id, runId));
+		await expect(read()).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await db
+			.update(skillRuns)
+			.set({
+				tediId,
+				resourceAccessEnvelope: {
+					version: 1,
+					sources: [{ ...source, providerResourceId: crypto.randomUUID() }],
+				},
+			})
+			.where(eq(skillRuns.id, runId));
+		await expect(read()).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringContaining("Missing outputs.read"),
+		});
+		await db
+			.update(skillRuns)
+			.set({ resourceAccessEnvelope: envelope })
+			.where(eq(skillRuns.id, runId));
+		await db
+			.delete(osWorkspaceAccessEdges)
+			.where(eq(osWorkspaceAccessEdges.targetUserId, tediId));
+		await expect(read()).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 
 	it("inherits a governed run's server-recorded resource access envelope", async () => {

@@ -584,7 +584,7 @@ export async function readVisibleOutputRevision(
 }
 
 const outputsGet = readOs.outputs.get.handler(async ({ input, context }) => {
-	const output = await requireOutput(context, input.outputId);
+	const output = await requireOutput(context, input.outputId, "outputs.read");
 	const mapped = mapOsOutputRow(output);
 	const currentRevision = await readVisibleOutputRevision(context, mapped);
 	const candidate = hasTedisReadAuthorization(context)
@@ -1187,7 +1187,11 @@ const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 			mark = now;
 		};
 		requireSavableText(input);
-		const output = await requireOutput(context, input.outputId);
+		const output = await requireOutput(
+			context,
+			input.outputId,
+			"outputs.write",
+		);
 		lap("outputLookupMs");
 		if (output.kind !== "sheet") {
 			throw createError(
@@ -1199,7 +1203,8 @@ const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 			queryDb(context),
 			{
 				output,
-				reloadOutput: () => requireOutput(context, input.outputId),
+				reloadOutput: () =>
+					requireOutput(context, input.outputId, "outputs.write"),
 				currentRevision: (row) => requireCurrentOutputRevision(context, row),
 				canReadRevision: (revision) =>
 					canReadDerivedRevision(context, revision),

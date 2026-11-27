@@ -1,5 +1,9 @@
 import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
 import { ensureWorkspaceTediRole } from "../../services/os-workspace-tedi-role";
+import {
+	authorizeWorkflowOutput,
+	type WorkflowOutputOperation,
+} from "../../services/os-workflow-output-access";
 import type { ORPCError } from "@orpc/server";
 import type { OsBlueprintWithVisibility } from "@tedix/api-contract/contracts/os-workspaces";
 import {
@@ -533,6 +537,7 @@ export async function requireBlueprint(
 export async function requireOutput(
 	context: BaseContext,
 	outputId: string,
+	operation?: WorkflowOutputOperation,
 ): Promise<OsOutputRow> {
 	const organizationId = requireOrgId(context);
 	const output = await getOsOutput(queryDb(context), {
@@ -542,6 +547,8 @@ export async function requireOutput(
 	if (!output) {
 		throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
 	}
+	if (operation && (await authorizeWorkflowOutput(context, output, operation)))
+		return output;
 	await assertOsWorkspaceChildVisible(
 		context,
 		organizationId,
