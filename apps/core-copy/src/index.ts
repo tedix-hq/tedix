@@ -16,6 +16,10 @@ import {
 import type { Env } from "./env.ts";
 import { coreCopyPlan, planTable } from "./plan.ts";
 import { replayChanges } from "./replay.ts";
+import {
+	CUTOVER_ATTACH_SQL,
+	CUTOVER_DETACH_SQL,
+} from "./migrations.generated.ts";
 import { doCheckpointStore, ProgressStore } from "./store.ts";
 
 export { CheckpointDO } from "./checkpoint-do.ts";
@@ -197,6 +201,45 @@ export default {
 					},
 					{ status: 500 },
 				);
+			} finally {
+				await end();
+			}
+		}
+		if (url.pathname === "/capture") {
+			// Rollback change capture at the switch: POST {"action":"attach"|"detach"}
+			// runs the checked-in script; GET counts triggers and captured rows.
+			const denied = await requireAdmin(request, env);
+			if (denied) return denied;
+			const { ports, end } = portsFor(env);
+			try {
+				if (request.method === "POST") {
+					const body = (await request.json().catch(() => ({}))) as {
+						action?: string;
+					};
+					if (body.action !== "attach" && body.action !== "detach")
+						return Response.json(
+							{ error: 'action must be "attach" or "detach"' },
+							{ status: 400 },
+						);
+					await ports.query(
+						body.action === "attach" ? CUTOVER_ATTACH_SQL : CUTOVER_DETACH_SQL,
+						[],
+					);
+				}
+				const triggers = await ports.query(
+					`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname = 'cutover_capture' AND NOT tgisinternal`,
+					[],
+				);
+				const changes = await ports.query(
+					`SELECT count(*)::int AS n FROM cutover_changes`,
+					[],
+				);
+				return Response.json({
+					triggers: Number(triggers.rows[0]?.n ?? 0),
+					changes: Number(changes.rows[0]?.n ?? 0),
+				});
+			} catch (error) {
+				return jsonError(error);
 			} finally {
 				await end();
 			}

@@ -9,6 +9,9 @@ import { fileURLToPath, URL } from "node:url";
 const MIGRATIONS_DIR = fileURLToPath(
 	new URL("../../../packages/db/drizzle-pg/", import.meta.url),
 );
+const CUTOVER_DIR = fileURLToPath(
+	new URL("../../../packages/db/scripts/cutover/", import.meta.url),
+);
 
 export interface CoreCopyMigration {
 	name: string;
@@ -35,6 +38,9 @@ export interface CoreCopyMigration {
 	sql: string;
 }
 export const CORE_COPY_MIGRATIONS: CoreCopyMigration[] = ${JSON.stringify(migrations)};
+/** Rollback change capture, run at the switch (packages/db/scripts/cutover). */
+export const CUTOVER_ATTACH_SQL = ${JSON.stringify(readFileSync(`${CUTOVER_DIR}attach-change-capture.sql`, "utf8"))};
+export const CUTOVER_DETACH_SQL = ${JSON.stringify(readFileSync(`${CUTOVER_DIR}detach-change-capture.sql`, "utf8"))};
 `;
 }
 
