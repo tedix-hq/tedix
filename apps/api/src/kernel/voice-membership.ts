@@ -1,33 +1,39 @@
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+
 /** Shared by voice token issuance, upgrades and already-open voice sockets. */
 export async function hasActiveVoiceMembership(
-	env: Pick<CloudflareEnv, "DB">,
+	env: CoreStoreEnv,
 	organizationId: string,
 	descopeUserId: string,
 ): Promise<boolean> {
 	try {
 		// Voice DOs are eagerly exported; keep the database graph off startup.
-		const [{ coreDb }, { getMemberByUserId, getMemberByCanonicalUserId }] =
-			await Promise.all([
-				import("@tedix/db/core-store/scope"),
-				import("@tedix/db/queries/organization-members"),
-			]);
-		const db = coreDb(env);
-		const member = await getMemberByUserId(db, organizationId, descopeUserId);
-		if (!member || member.status !== "active") return false;
-		if (member.kind !== "browser_agent") return true;
-		if (
-			!member.userId ||
-			!member.representedUserId ||
-			member.userId === member.representedUserId ||
-			(member.role !== "member" && member.role !== "viewer")
-		)
-			return false;
-		const owner = await getMemberByCanonicalUserId(
-			db,
-			organizationId,
-			member.representedUserId,
-		);
-		return owner?.status === "active" && owner.kind === "human";
+		const [
+			{ coreDb, withCoreStore },
+			{ getMemberByUserId, getMemberByCanonicalUserId },
+		] = await Promise.all([
+			import("@tedix/db/core-store/scope"),
+			import("@tedix/db/queries/organization-members"),
+		]);
+		return await withCoreStore(env, async () => {
+			const db = coreDb(env);
+			const member = await getMemberByUserId(db, organizationId, descopeUserId);
+			if (!member || member.status !== "active") return false;
+			if (member.kind !== "browser_agent") return true;
+			if (
+				!member.userId ||
+				!member.representedUserId ||
+				member.userId === member.representedUserId ||
+				(member.role !== "member" && member.role !== "viewer")
+			)
+				return false;
+			const owner = await getMemberByCanonicalUserId(
+				db,
+				organizationId,
+				member.representedUserId,
+			);
+			return owner?.status === "active" && owner.kind === "human";
+		});
 	} catch {
 		return false;
 	}
@@ -39,7 +45,7 @@ export const VOICE_MEMBERSHIP_CHECK_MS = 5_000;
 export async function watchVoiceMembership(
 	connection: { close(code: number, reason: string): void },
 	request: Request,
-	env: Pick<CloudflareEnv, "DB">,
+	env: CoreStoreEnv,
 ): Promise<(() => void) | null> {
 	const organizationId = request.headers.get("X-Kernel-Organization-Id");
 	const userId = request.headers.get("X-Kernel-Descope-User-Id");

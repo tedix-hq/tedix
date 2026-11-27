@@ -38,15 +38,19 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 	transcriber = new WorkersAIFluxSTT(
 		createVoiceGatewayAi({
 			beforeRun: async (organizationId) => {
-				const [{ coreQueryDb }, { requireUnrestrictedModelEgress }] =
-					await Promise.all([
-						import("@tedix/db/core-store/scope"),
-						import("../services/unrouted-model-egress"),
-					]);
-				await requireUnrestrictedModelEgress(
-					coreQueryDb(this.env),
-					organizationId,
-					"Live voice",
+				const [
+					{ coreQueryDb, withCoreStore },
+					{ requireUnrestrictedModelEgress },
+				] = await Promise.all([
+					import("@tedix/db/core-store/scope"),
+					import("../services/unrouted-model-egress"),
+				]);
+				await withCoreStore(this.env, () =>
+					requireUnrestrictedModelEgress(
+						coreQueryDb(this.env),
+						organizationId,
+						"Live voice",
+					),
 				);
 			},
 			ai: () => this.#rawAi(),
@@ -198,11 +202,14 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 			metadata: { callId: context.callId, channel: "voice-input" },
 		};
 		try {
-			const [{ coreDb }, { recordVoiceProviderUsage }] = await Promise.all([
-				import("@tedix/db/core-store/scope"),
-				import("../lib/voice-provider-usage"),
-			]);
-			await recordVoiceProviderUsage(coreDb(this.env), input);
+			const [{ coreDb, withCoreStore }, { recordVoiceProviderUsage }] =
+				await Promise.all([
+					import("@tedix/db/core-store/scope"),
+					import("../lib/voice-provider-usage"),
+				]);
+			await withCoreStore(this.env, () =>
+				recordVoiceProviderUsage(coreDb(this.env), input),
+			);
 		} catch (error) {
 			logKernelVoiceFailure("voice.input_usage_write_failed", error);
 		}

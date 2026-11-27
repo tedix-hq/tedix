@@ -143,15 +143,19 @@ export class KernelVoiceDO extends VoiceAgentBase {
 	private voiceAi(channel: VoiceChannel): AiRunner {
 		return createVoiceGatewayAi({
 			beforeRun: async (organizationId) => {
-				const [{ coreQueryDb }, { requireUnrestrictedModelEgress }] =
-					await Promise.all([
-						import("@tedix/db/core-store/scope"),
-						import("../services/unrouted-model-egress"),
-					]);
-				await requireUnrestrictedModelEgress(
-					coreQueryDb(this.env),
-					organizationId,
-					"Live voice",
+				const [
+					{ coreQueryDb, withCoreStore },
+					{ requireUnrestrictedModelEgress },
+				] = await Promise.all([
+					import("@tedix/db/core-store/scope"),
+					import("../services/unrouted-model-egress"),
+				]);
+				await withCoreStore(this.env, () =>
+					requireUnrestrictedModelEgress(
+						coreQueryDb(this.env),
+						organizationId,
+						"Live voice",
+					),
 				);
 			},
 			ai: () => this.rawAi(),
@@ -200,11 +204,14 @@ export class KernelVoiceDO extends VoiceAgentBase {
 		try {
 			// Keep the billing/query graph off the cold voice isolate until a
 			// successful provider call actually needs to be recorded.
-			const [{ coreDb }, { recordVoiceProviderUsage }] = await Promise.all([
-				import("@tedix/db/core-store/scope"),
-				import("../lib/voice-provider-usage"),
-			]);
-			await recordVoiceProviderUsage(coreDb(this.env), input);
+			const [{ coreDb, withCoreStore }, { recordVoiceProviderUsage }] =
+				await Promise.all([
+					import("@tedix/db/core-store/scope"),
+					import("../lib/voice-provider-usage"),
+				]);
+			await withCoreStore(this.env, () =>
+				recordVoiceProviderUsage(coreDb(this.env), input),
+			);
 		} catch (error) {
 			logKernelVoiceFailure("voice.usage_write_failed", error, {
 				usageKind: input.usageKind,
@@ -370,6 +377,18 @@ export class KernelVoiceDO extends VoiceAgentBase {
 	 * and TTS-synthesizes it).
 	 */
 	override async onTurn(
+		transcript: string,
+		context: VoiceTurnContext,
+	): Promise<string> {
+		const { withCoreStore } = await import("@tedix/db/core-store/scope");
+		return withCoreStore(
+			this.env,
+			() => this.#runTurn(transcript, context),
+			(promise) => this.ctx.waitUntil(promise),
+		);
+	}
+
+	async #runTurn(
 		transcript: string,
 		context: VoiceTurnContext,
 	): Promise<string> {
