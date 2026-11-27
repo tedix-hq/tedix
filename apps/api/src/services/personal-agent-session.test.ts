@@ -247,6 +247,7 @@ describe("signed-out protocol resource boundary", () => {
 		mocks.rate.mockResolvedValue(false);
 		expect(await verifySignedOutPersonalAgentSession(db, input, env)).toEqual({
 			status: "rate_limited",
+			verifiedClientId: session.clientId,
 		});
 		expect(mocks.session).not.toHaveBeenCalled();
 	});
@@ -254,6 +255,7 @@ describe("signed-out protocol resource boundary", () => {
 		mocks.session.mockResolvedValue("session_ended");
 		expect(await verifySignedOutPersonalAgentSession(db, input, env)).toEqual({
 			status: "session_ended",
+			verifiedClientId: session.clientId,
 		});
 		mocks.session.mockRejectedValue(new Error("D1 unavailable"));
 		await expect(

@@ -19,6 +19,112 @@ import {
 } from "./auth-helpers";
 
 const { resolveGateway } = vi.hoisted(() => ({ resolveGateway: vi.fn() }));
+
+it("records identified, unidentified and refused Poppy door requests", async () => {
+	const config = { mcpConfig: { authMode: "public" as const } };
+	resolveGateway.mockResolvedValue({
+		app: {
+			id: "fixture-door",
+			slug: "fixture",
+			name: "Fixture",
+			organizationId: "fixture-org",
+			metadata: config,
+		},
+		metadata: config,
+		tools: [],
+	});
+	const dispatch = vi
+		.spyOn(await import("./mcp-request"), "handleMcpRequest")
+		.mockImplementation(async () =>
+			Response.json({ jsonrpc: "2.0", id: 1, result: { tools: [] } }),
+		);
+	try {
+		for (const status of [
+			"accepted",
+			"unidentified",
+			"invalid_session",
+			"version_unsupported",
+			"rate_limited",
+			"edge_rate_limited",
+		]) {
+			const allowed = status === "accepted" || status === "unidentified";
+			const recorded: unknown[] = [];
+			const pending: Promise<unknown>[] = [];
+			const fetch = vi.fn(async (request: Request) => {
+				const { json } = (await request.json()) as { json: unknown };
+				if (request.url.includes("osTenant/personalAgentSession"))
+					return Response.json({
+						json: {
+							status,
+							...(status === "rate_limited"
+								? { verifiedClientId: "https://agent.example/agent.json" }
+								: {}),
+							...(status === "accepted"
+								? {
+										identity: {
+											clientId: "https://agent.example/agent.json",
+											userId: "private-user",
+											sessionId: "private-session",
+											version: "1.0",
+										},
+									}
+								: {}),
+						},
+					});
+				if (request.url.includes("audit/recordPoppyDoorRequest")) {
+					expect(request.headers.get("X-Tedix-Org-Id")).toBe("fixture-org");
+					recorded.push(json);
+				}
+				return Response.json({ json: { success: true } });
+			});
+			const response = await worker.fetch(
+				new Request("https://fixture.mcp.tedix.dev/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"Poppy-Session": "private-token",
+						"Poppy-Version": "1.0",
+					},
+					body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+				}),
+				createEnv({
+					ENVIRONMENT: "production",
+					MCP_URL: "https://mcp.tedix.dev",
+					API_SERVICE: { fetch },
+					MCP_RATE_LIMITER: {
+						limit: async () => ({ success: status !== "edge_rate_limited" }),
+					},
+				}),
+				{
+					waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+				} as unknown as ExecutionContext,
+			);
+			await Promise.all(pending);
+			expect(response.status).toBe(
+				allowed ? 200 : status.includes("rate_limited") ? 429 : 400,
+			);
+			expect(recorded).toEqual([
+				expect.objectContaining({
+					appId: "fixture-door",
+					client_id:
+						status === "accepted" || status === "rate_limited"
+							? "https://agent.example/agent.json"
+							: "unidentified",
+					method: "tools/list",
+					refused: allowed
+						? null
+						: status === "edge_rate_limited"
+							? "rate_limited"
+							: status,
+					outcome: allowed ? "success" : "refused",
+				}),
+			]);
+			expect(JSON.stringify(recorded)).not.toContain("private-");
+		}
+	} finally {
+		dispatch.mockRestore();
+	}
+});
 vi.mock("./resolution", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./resolution")>()),
 	resolveAppFromHostname: resolveGateway,

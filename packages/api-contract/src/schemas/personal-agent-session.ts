@@ -53,7 +53,11 @@ export const PersonalAgentSessionResultSchema = z.discriminatedUnion("status", [
 			version: z.string().regex(/^1\.(0|[1-9][0-9]*)$/),
 		}),
 	}),
-	z.object({ status: sessionFailureStatus }),
+	z.object({
+		status: sessionFailureStatus,
+		// Attribution only: a verified signature can still fail rate or continuity checks.
+		verifiedClientId: PersonalAgentAttributionSchema.shape.clientId.optional(),
+	}),
 ]);
 
 export const PersonalAgentFeedbackSchema = z.object({

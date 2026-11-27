@@ -158,6 +158,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"audit/listChangeRecords": "platform:admin",
 	"audit/listGatewayChangeRecordCheckpoints": "mcp:observe.read",
 	"audit/listGatewayChangeRecords": "mcp:observe.read",
+	"audit/listPoppyDoorRequests": "mcp:observe.read",
+	"audit/recordPoppyDoorRequest": "platform:admin",
 	"audit/search": "mcp:observe.read",
 	"billing/correctBillingPeriod": "platform:admin",
 	"billing/assignInternalPlan": "platform:admin",

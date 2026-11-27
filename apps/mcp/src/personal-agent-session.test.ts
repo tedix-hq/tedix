@@ -119,4 +119,22 @@ describe("signed-out MCP Session gate", () => {
 			"API unavailable",
 		);
 	});
+	it("attributes a verified rate refusal without admitting the Session or exposing the identity in the error", async () => {
+		verify.mockResolvedValue({
+			status: "rate_limited",
+			verifiedClientId: "https://agent.example/agent.json",
+		});
+		const onVerified = vi.fn();
+		const onVerifiedClientId = vi.fn();
+		const response = await checkSignedOutPersonalAgentSession({
+			...input(),
+			onVerified,
+			onVerifiedClientId,
+		});
+		expect(onVerified).not.toHaveBeenCalled();
+		expect(onVerifiedClientId).toHaveBeenCalledWith(
+			"https://agent.example/agent.json",
+		);
+		expect(await response?.json()).toEqual({ error: "rate_limited" });
+	});
 });

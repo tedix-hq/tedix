@@ -2,6 +2,54 @@ import * as z from "zod";
 import { PersonalAgentAttributionSchema } from "./personal-agent-session";
 import { JsonValueSchema } from "./common";
 
+/** Public door traffic deliberately excludes Session, user and agent identifiers. */
+export const PoppyDoorRequestSchema = z.object({
+	time: z.string().datetime(),
+	client_id: z.union([
+		z.literal("unidentified"),
+		z.url({ protocol: /^https$/ }).max(2048),
+	]),
+	method: z.enum([
+		"server/discover",
+		"initialize",
+		"notifications/initialized",
+		"ping",
+		"tools/list",
+		"tools/call",
+		"resources/list",
+		"resources/templates/list",
+		"resources/read",
+		"prompts/list",
+		"prompts/get",
+		"completion/complete",
+		"GET",
+		"DELETE",
+		"unknown",
+	]),
+	tool: z.string().max(200).nullable(),
+	refused: z
+		.enum([
+			"invalid_session",
+			"session_ended",
+			"version_unsupported",
+			"rate_limited",
+			"access_denied",
+		])
+		.nullable(),
+	outcome: z.enum(["success", "error", "refused", "accepted", "unknown"]),
+	httpStatus: z.number().int().min(100).max(599),
+});
+export type PoppyDoorRequest = z.infer<typeof PoppyDoorRequestSchema>;
+export const RecordPoppyDoorRequestInputSchema = PoppyDoorRequestSchema.extend({
+	appId: z.string().min(1),
+}).strict();
+export const ListPoppyDoorRequestsInputSchema = z
+	.object({
+		appId: z.string().min(1),
+		limit: z.number().int().min(1).max(200).default(50),
+	})
+	.strict();
+
 // "kernel" = tenant control-plane actor (kernel direct tool calls) —
 // distinguishes "Home used a tool for this turn" from generic internal service
 // callers (audit contract).

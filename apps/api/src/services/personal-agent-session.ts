@@ -191,7 +191,10 @@ export async function verifySignedOutPersonalAgentSession(
 				limit: config.data.requestsPerMinute ?? 60,
 			}))
 		)
-			return { status: "rate_limited" as const };
+			return {
+				status: "rate_limited" as const,
+				verifiedClientId: session.clientId,
+			};
 		const status = await continuePersonalAgentSession(db, {
 			organizationId: input.organizationId,
 			...session,
@@ -199,7 +202,7 @@ export async function verifySignedOutPersonalAgentSession(
 		});
 		if (status !== "started" && status !== "accepted") {
 			logRefusal(status, input, config.data.domain, "continuity");
-			return { status };
+			return { status, verifiedClientId: session.clientId };
 		}
 		return {
 			status: "accepted" as const,

@@ -110,6 +110,10 @@ import {
 // path. Same reasoning as the `registerCodeModeTools` dynamic import.
 import { handleExternalAgentSessionExchange } from "./external-agent-session";
 import {
+	startPoppyDoorRequest,
+	type PoppyDoorTraffic,
+} from "./poppy-door-traffic";
+import {
 	externalAgentValidationFailureResponse,
 	recordExternalAgentValidation,
 } from "./external-agent-validation";
@@ -294,6 +298,7 @@ const worker = {
 		request: Request,
 		env: CloudflareEnv,
 		ctx: ExecutionContext,
+		traffic: { door?: PoppyDoorTraffic },
 	): Promise<Response> {
 		const phaseTimings = requestPhaseTimings(ctx);
 		const authPhaseStartedAt = performance.now();
@@ -1501,6 +1506,14 @@ const worker = {
 
 			const { app } = resolvedApp;
 			if (app.organizationId) setD1LedgerOrganization(app.organizationId);
+			if (
+				url.pathname === "/mcp" &&
+				!hasAnyAuth &&
+				app.organizationId &&
+				app.metadata?.mcpConfig?.authMode === "public"
+			) {
+				traffic.door = startPoppyDoorRequest({ request, resolvedApp, env });
+			}
 
 			if (app.visibility === "disabled") {
 				await recordMcpAccessDenial({
@@ -1572,6 +1585,7 @@ const worker = {
 					onVerified: (identity) => {
 						personalAgentSession = identity;
 					},
+					onVerifiedClientId: (clientId) => traffic.door?.identify(clientId),
 					request,
 					appId: app.id,
 					organizationId: app.organizationId,
@@ -2189,6 +2203,7 @@ async function fetchWithCorrelation(
 	ctx: ExecutionContext,
 ): Promise<Response> {
 	const traceId = requestTraceId(request.headers);
+	const traffic: { door?: PoppyDoorTraffic } = {};
 	const { withCoreStore } = await import("@tedix/db/core-store/scope");
 	// The MCP handler owns SEP-414 body metadata; don't override it with a generated header.
 	const response = await correlatedErrorResponse(
@@ -2197,7 +2212,7 @@ async function fetchWithCorrelation(
 			() =>
 				withCoreStore(
 					env,
-					() => worker.fetch(request, env, ctx),
+					() => worker.fetch(request, env, ctx, traffic),
 					(promise) => ctx.waitUntil(promise),
 				),
 			{ analytics: { sink: env.D1_REQUESTS, worker: "tedix-mcp" } },
@@ -2220,6 +2235,7 @@ async function fetchWithCorrelation(
 			traceId: response.headers.get("X-Tedix-Trace-Id"),
 			httpStatus: response.status,
 		});
+	if (traffic.door) ctx.waitUntil(traffic.door.record(response));
 	return response;
 }
 

@@ -14,6 +14,7 @@ import { auditContract } from "@tedix/api-contract/contracts/audit";
 import {
 	AUDIT_EXPORT_ATTRIBUTION_KEYS,
 	AUDIT_EXPORT_TRUNCATED_MARKER,
+	PoppyDoorRequestSchema,
 	type AuditExportFormat,
 } from "@tedix/api-contract/schemas/audit";
 import {
@@ -363,6 +364,44 @@ const getChangeRecord = auditOs.getChangeRecord
 		return organizationLog.getChangeRecord(organizationId, input.id);
 	});
 
+const recordPoppyDoorRequest = auditOs.recordPoppyDoorRequest
+	.use(withServiceAuth)
+	.handler(async ({ input, context }) => {
+		const organizationId = gatewayLedgerOrganizationId(context);
+		const { appId, time, ...metadata } = input;
+		const occurredAt = new Date(time);
+		await insertAuditEvent(context.db, {
+			// Audit timestamps store seconds; the ID keeps subsecond request order.
+			id: `${occurredAt.toISOString()}:${crypto.randomUUID()}`,
+			organizationId,
+			actorId: "poppy-door",
+			actorType: "anonymous",
+			action: "mcp.door.request",
+			resourceType: "poppy_door",
+			resourceId: appId,
+			occurredAt,
+			metadata: { ...metadata, time: occurredAt.toISOString() },
+		});
+		return { success: true as const };
+	});
+
+const listPoppyDoorRequests = authedOs.listPoppyDoorRequests
+	.use(withAuthorization(AUDIT_READ_PERMISSION, AUDIT_READ_SCOPE))
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const rows = await getAuditEventsByResourceQuery(
+			context.db,
+			context.organizationId,
+			"poppy_door",
+			input.appId,
+			input.limit,
+		);
+		return {
+			appId: input.appId,
+			requests: rows.map((row) => PoppyDoorRequestSchema.parse(row.metadata)),
+		};
+	});
+
 /** Gateway change records and their checkpoints are for owners and admins. */
 async function assertGatewayChangeRecordReader(
 	context: BaseContext,
@@ -475,6 +514,8 @@ const listOrganizationGatewayChangeRecordCheckpoints =
 		});
 
 export const auditContractRouter = auditOs.router({
+	recordPoppyDoorRequest,
+	listPoppyDoorRequests,
 	listGatewayChangeRecords: listOrganizationGatewayChangeRecords,
 	listGatewayChangeRecordCheckpoints:
 		listOrganizationGatewayChangeRecordCheckpoints,

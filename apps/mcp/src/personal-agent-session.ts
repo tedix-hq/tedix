@@ -12,6 +12,7 @@ export async function checkSignedOutPersonalAgentSession(input: {
 	organizationId: string;
 	env: CloudflareEnv;
 	onVerified?: (visitor: PersonalAgentVisitor) => void;
+	onVerifiedClientId?: (clientId: string) => void;
 }): Promise<Response | null> {
 	const { request, env, appId, organizationId } = input;
 	const client = getApiClient({
@@ -32,6 +33,7 @@ export async function checkSignedOutPersonalAgentSession(input: {
 	});
 	if (result.status === "accepted") {
 		input.onVerified?.(PersonalAgentAttributionSchema.parse(result.identity));
+		input.onVerifiedClientId?.(result.identity.clientId);
 		return null;
 	}
 	if (result.status === "unidentified") {
@@ -39,6 +41,8 @@ export async function checkSignedOutPersonalAgentSession(input: {
 		return null;
 	}
 	if (result.status === "not_configured") return null;
+	if (result.verifiedClientId)
+		input.onVerifiedClientId?.(result.verifiedClientId);
 	return Response.json(
 		{ error: result.status },
 		{

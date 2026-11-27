@@ -680,6 +680,18 @@ it("projects the gateway change record read as one read-only gateway tool", asyn
 	]);
 });
 
+it("projects the Poppy traffic read for workspace apps", async () => {
+	const endpoint = resolveContractEndpoint("audit/listPoppyDoorRequests");
+	if (!endpoint) throw new Error("Missing Poppy traffic contract endpoint");
+	const { tool } = await buildProjectedTool("fixture-app", endpoint);
+	expect(tool.toolId).toBe("list_poppy_door_requests");
+	expect(tool.writeCapability).toBe("read");
+	expect(tool.config).toMatchObject({
+		transport: "rpc",
+		endpoint: "audit/listPoppyDoorRequests",
+	});
+});
+
 it("projects the checkpoint read as one read-only gateway tool", async () => {
 	const endpoint = resolveContractEndpoint(
 		"audit/listGatewayChangeRecordCheckpoints",

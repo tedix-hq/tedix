@@ -72,6 +72,28 @@ further provider calls. Publishing the app does not prove the provider works:
 test a valid Session and confirm that a missing or invalid Session cannot
 reach the provider.
 
+### Read Poppy door traffic
+
+Workspace apps can declare the read tool `audit.list_poppy_door_requests`
+and call it with `{ "appId": "<public-app-id>", "limit": 50 }`. The limit
+defaults to 50 and may be 1–200. The reader needs analytics read access;
+the organization comes from their authenticated context, never the input.
+
+The result's `requests` are newest first. Each row has `time`, verified
+`client_id` or `"unidentified"`, `method`, `tool`, `refused`, `outcome` and
+`httpStatus`. It includes signed-out requests to the public app's `/mcp`
+door, including `tools/list` and refusals such as `invalid_session`,
+`version_unsupported` and `rate_limited`. An unverified caller is always
+unidentified, even when it claims a client ID. Unknown methods and tool names
+are not copied from arbitrary request text.
+
+The feed contains no tokens, keys, Session IDs, user or agent IDs, arguments
+or response content. Traffic starts when the feature is deployed; it does
+not reconstruct earlier requests. Audit delivery can briefly delay a row.
+`outcome: "accepted"` means the server accepted the request for later work;
+`"unknown"` means the response could not be classified. Neither proves that
+the requested work finished.
+
 ## MCP and durable work
 
 MCP calls can participate in durable Tedix work:

@@ -15,6 +15,9 @@ import {
 } from "../schemas/common";
 import {
 	AuditActorTypeSchema,
+	PoppyDoorRequestSchema,
+	RecordPoppyDoorRequestInputSchema,
+	ListPoppyDoorRequestsInputSchema,
 	McpAuditBatchInputSchema,
 	GatewayChangeRecordAppendedSchema,
 	GatewayChangeRecordInputSchema,
@@ -60,6 +63,30 @@ export const auditContract = oc
 	.route({ tags: ["audit"], prefix: "/audit" })
 	.errors(baseErrors)
 	.router({
+		recordPoppyDoorRequest: oc
+			.route({
+				tags: ["internal"],
+				method: "POST",
+				path: "/poppy-door-requests",
+				summary: "Record Poppy door request",
+			})
+			.input(RecordPoppyDoorRequestInputSchema)
+			.output(SuccessResponseSchema),
+		listPoppyDoorRequests: oc
+			.route({
+				method: "GET",
+				path: "/poppy-door-requests",
+				summary: "List Poppy door requests",
+				description:
+					"Read the last N signed-out MCP door requests for one public app in your organization, newest first. Includes discovery, verified client_id or unidentified, refusal status and outcome. No tokens, keys, Session IDs, personal identifiers, arguments or response content. Requires analytics read access. Traffic is recorded from deployment onward; older requests are not backfilled. Read-store delivery can briefly lag the request.",
+			})
+			.input(ListPoppyDoorRequestsInputSchema)
+			.output(
+				z.object({
+					appId: z.string(),
+					requests: z.array(PoppyDoorRequestSchema),
+				}),
+			),
 		appendChangeRecord: oc
 			.route({
 				tags: ["internal"],
