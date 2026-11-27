@@ -1,3 +1,8 @@
+import {
+	loadPoppyDiscovery,
+	POPPY_DISCOVERY_PATH,
+	poppyDiscoveryResponse,
+} from "./poppy-discovery";
 import { THEME_PREVIEW_PATH } from "@tedix/provisioning/cms-theme-candidate";
 import {
 	PUBLISHED_FALLBACK_ADMIN_PATH,
@@ -2432,6 +2437,24 @@ export default {
 						headers: { "Cache-Control": "no-store" },
 					});
 				return cmsRestoreFenceResponse();
+			}
+			// authz: public — only the owning organization's published Poppy fields,
+			// and only when its Poppy domain is this host; otherwise the site serves.
+			if (
+				url.pathname === POPPY_DISCOVERY_PATH &&
+				(request.method === "GET" || request.method === "HEAD") &&
+				site.organizationId
+			) {
+				// A failed lookup falls back to the site's own files, never to a 5xx.
+				const document = await loadPoppyDiscovery(
+					env,
+					site.organizationId,
+					url.hostname,
+				).catch(() => null);
+				if (document) {
+					dispatched = true;
+					return poppyDiscoveryResponse(request, document);
+				}
 			}
 			const identity = {
 				siteId: site.id,
