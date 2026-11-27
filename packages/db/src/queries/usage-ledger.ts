@@ -60,7 +60,10 @@ export async function listOrgCallCostLedger(
 					...(await readOrgCallCostLedger(
 						stores.main,
 						filters,
-						effectiveCallCostsRelation(rows.slice(start, start + 100)),
+						effectiveCallCostsRelation(
+							rows.slice(start, start + 100),
+							stores.main,
+						),
 					)),
 				);
 			}
@@ -110,7 +113,7 @@ function callCostLedgerConditions(filters: UsageLedgerFilters): SQL[] {
 async function readOrgCallCostLedger(
 	db: DbClient,
 	filters: UsageLedgerFilters,
-	relation = effectiveCallCostsRelation(),
+	relation = effectiveCallCostsRelation(undefined, db),
 ) {
 	const conditions = callCostLedgerConditions(filters);
 	const rows = await db

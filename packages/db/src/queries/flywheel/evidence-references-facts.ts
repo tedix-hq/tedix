@@ -5,8 +5,8 @@ import { coreStore } from "../../core-store/dialect";
  * SQL prefilter for rationale evidence that cites durable brain facts.
  * Pass the client so Postgres matches jsonb as text, case-insensitively like SQLite LIKE.
  */
-export function evidenceReferencesFactsSql(db?: object) {
-	const postgres = db !== undefined && coreStore(db) === "postgres";
+export function evidenceReferencesFactsSql(db: object) {
+	const postgres = coreStore(db) === "postgres";
 	const evidence = postgres ? sql`CAST(evidence AS text)` : sql`evidence`;
 	const like = postgres ? sql`ILIKE` : sql`LIKE`;
 	return sql`(

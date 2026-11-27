@@ -1,0 +1,46 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "818aa66c-daf8-45ee-aedf-5c037d2a6526",
+	"prevIds": ["8af24143-b727-492d-b25f-504dbc23ab6f"],
+	"footprints": [
+		{
+			"statementType": "add_column",
+			"statementTarget": ["column", "public", "tedi_call_costs", "sequence"],
+			"writes": [
+				"s|col|public.tedi_call_costs.sequence",
+				"n|col|public.tedi_call_costs.sequence",
+				"e|col|public.tedi_call_costs.sequence"
+			],
+			"reads": ["n|tbl|public.tedi_call_costs", "n|sch|public"]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "tedi_call_costs",
+				"name": "sequence",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": {
+					"type": "byDefault",
+					"name": "tedi_call_costs_sequence_seq",
+					"increment": "1",
+					"startWith": "1",
+					"minValue": "1",
+					"maxValue": "9223372036854775807",
+					"cache": 1,
+					"cycle": false
+				},
+				"entityType": "columns"
+			}
+		}
+	]
+}

@@ -9,11 +9,15 @@
  * The same tick measures both databases and raises the size alert
  * (`lib/d1-size-health.ts`), so the alert runs exactly as often as the job
  * that can relieve it.
+ *
+ * With `CORE_STORE=postgres` the shared tables are not in D1, so the table
+ * archives and the main size probe are skipped; body retention, snapshot
+ * pruning, the logs database size check and daily maintenance still run.
  */
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 
-import { coreDb, coreQueryDb } from "@tedix/db/core-store/scope";
+import { coreDb, coreQueryDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 import { readD1SizeBytes } from "@tedix/db/queries/d1-size";
 import { pruneExpiredOfficeSnapshots } from "@tedix/db/queries/office-activity";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -82,13 +86,23 @@ async function runD1RetentionArchives(
 		env.R2_BUCKET,
 		now,
 	);
-	const result = await runD1Retention({
-		db: coreQueryDb(env),
-		logsDb: logs ? createDbQueryClient(logs) : undefined,
-		bucket: env.TEDI_R2_BUCKET,
-		now,
-	});
-	if (result.tables.length > 0) {
+	const d1 = isD1CoreStore(env);
+	if (!d1)
+		console.log(
+			JSON.stringify({
+				event: "d1.retention.skipped",
+				reason: "core_store_postgres",
+			}),
+		);
+	const result = d1
+		? await runD1Retention({
+				db: coreQueryDb(env),
+				logsDb: logs ? createDbQueryClient(logs) : undefined,
+				bucket: env.TEDI_R2_BUCKET,
+				now,
+			})
+		: null;
+	if (result && result.tables.length > 0) {
 		console.log(
 			JSON.stringify({
 				event: "d1.retention.run",
@@ -141,6 +155,15 @@ async function runD1RetentionArchives(
 		officeExpiredSnapshotsDeleted: officeDeleted,
 		...gadgetBodies,
 		...sessionBodyRetention,
+		...(result ? d1RetentionCounts(result) : { d1RetentionSkipped: 1 }),
+		...sizes,
+	};
+}
+
+function d1RetentionCounts(
+	result: Awaited<ReturnType<typeof runD1Retention>>,
+): Record<string, number> {
+	return {
 		d1RetentionArchivedRows: result.archivedRows,
 		d1RetentionMovedRows: result.movedRows,
 		d1RetentionConflictedRows: result.conflictedRows,
@@ -156,21 +179,24 @@ async function runD1RetentionArchives(
 		d1RetentionBacklogUnknownTables: result.tables.filter(
 			(table) => table.eligibleRows === null,
 		).length,
-		...sizes,
 	};
 }
 
 /** Measure main and logs D1, reconcile the size alerts, report megabytes. */
 export async function runD1SizeCheck(
-	env: Pick<CloudflareEnv, "DB"> & D1SizeAlertEnv,
+	env: Pick<CloudflareEnv, "DB" | "CORE_STORE"> & D1SizeAlertEnv,
 	nowIso: string,
 ): Promise<Record<string, number>> {
 	const logs = logsDatabase(env);
 	const probes: D1SizeProbe[] = [
-		{
-			store: "main",
-			bytes: await readD1SizeBytes(coreQueryDb(env)),
-		},
+		...(isD1CoreStore(env)
+			? [
+					{
+						store: "main" as const,
+						bytes: await readD1SizeBytes(coreQueryDb(env)),
+					},
+				]
+			: []),
 		...(logs
 			? [
 					{

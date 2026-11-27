@@ -49,6 +49,10 @@ function nowPlusSeconds(db: object, seconds: number): SQL {
 		? sql`now() + ${seconds}::float8 * interval '1 second'`
 		: sql`julianday('now')+${seconds}/86400.0`;
 }
+/** False in a boolean CASE branch: Postgres cannot mix boolean and integer branches. */
+function never(db: object): SQL {
+	return postgres(db) ? sql`false` : sql`0`;
+}
 /** SQLite `IS` null-safe equality; Postgres spells it IS NOT DISTINCT FROM. */
 function isSame(db: object, left: SQLWrapper, right: SQLWrapper): SQL {
 	return postgres(db)
@@ -476,7 +480,7 @@ function finiteLedgerConsistencyFence(
 	) => jget(db, h, path, kind);
 	return sql`NOT EXISTS (SELECT 1 FROM billing_historical_decisions h
  WHERE ((h.organization_id=${org} AND h.tedi_id=${tedi})
- OR CASE WHEN ${jvalid(db, h)} THEN (${field(["organizationId"])}=${org} AND ${field(["tediId"])}=${tedi}) ELSE 0 END)
+ OR CASE WHEN ${jvalid(db, h)} THEN (${field(["organizationId"])}=${org} AND ${field(["tediId"])}=${tedi}) ELSE ${never(db)} END)
  AND CASE WHEN NOT ${jvalid(db, h)} THEN 1
  WHEN (${field(["authority"])}='finite_execution_permit' OR ${field(["input", "kind"])} IN ('authorize_fresh_execution','revoke_fresh_execution')) THEN
  CASE WHEN ${field(["authority"])}='finite_execution_permit' AND ${isSame(db, sql`h.id`, field(["id"]))}
@@ -787,7 +791,7 @@ export async function nativeExecutionEligibilityPredicate(
 	const integrity = sql`${finiteLedgerConsistencyFence(db, org, tedi)} AND NOT EXISTS (
  SELECT 1 FROM billing_historical_exposures e WHERE CASE WHEN ${jvalid(db, sql`e.payload`)} THEN
  ${jget(db, sql`e.payload`, ["organizationId"])}=${org} AND ${jget(db, sql`e.payload`, ["tediId"])}=${tedi}
- AND (${isDifferent(db, sql`e.organization_id`, sql`${org}`)} OR ${isDifferent(db, sql`e.tedi_id`, sql`${tedi}`)}) ELSE 0 END)`;
+ AND (${isDifferent(db, sql`e.organization_id`, sql`${org}`)} OR ${isDifferent(db, sql`e.tedi_id`, sql`${tedi}`)}) ELSE ${never(db)} END)`;
 	// Verify original input digests and freeze every scalar/payload before allowing a root exemption.
 	const rows = await listHistoricalExposures(db, org, tedi);
 	const verified: HistoricalExposure[] = [];

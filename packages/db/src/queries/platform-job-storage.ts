@@ -11,6 +11,7 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { insertionSequence } from "../core-store/dialect";
 import {
 	billingProviderUsage,
 	billingSettlementCursors,
@@ -27,7 +28,10 @@ import {
 } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
 
-const callRowid = sql<number>`${tediCallCosts}.rowid`;
+/** Insertion order: D1 rowid, or the Postgres identity sequence. */
+function callRowid(db: DbClient) {
+	return insertionSequence(db, tediCallCosts).mapWith(Number);
+}
 
 export interface UnsettledGatewayCall {
 	rowid: number;
@@ -40,8 +44,9 @@ async function selectUnsettledBillableGatewayCalls(
 	range: { afterRowid: number; throughRowid: number } | null,
 	unreserved = false,
 ): Promise<UnsettledGatewayCall[]> {
+	const rowid = callRowid(db);
 	return db
-		.select({ rowid: callRowid.as("call_rowid"), call: tediCallCosts })
+		.select({ rowid: rowid.as("call_rowid"), call: tediCallCosts })
 		.from(tediCallCosts)
 		.leftJoin(
 			billingUsageCharges,
@@ -54,10 +59,7 @@ async function selectUnsettledBillableGatewayCalls(
 		.where(
 			and(
 				...(range
-					? [
-							gt(callRowid, range.afterRowid),
-							lte(callRowid, range.throughRowid),
-						]
+					? [gt(rowid, range.afterRowid), lte(rowid, range.throughRowid)]
 					: []),
 				isNotNull(tediCallCosts.orgId),
 				unreserved
@@ -71,7 +73,7 @@ async function selectUnsettledBillableGatewayCalls(
 		)
 		.orderBy(
 			...(range
-				? [asc(callRowid)]
+				? [asc(rowid)]
 				: [asc(tediCallCosts.snapshotAt), asc(tediCallCosts.gatewayLogId)]),
 		)
 		.limit(limit);
@@ -170,7 +172,9 @@ async function scanGatewayCalls(
 	// Read the head before the batch: a row inserted after this point gets a
 	// higher rowid, so it is never behind the cursor this scan commits.
 	const [head] = await db
-		.select({ rowid: sql<number | null>`max(${callRowid})` })
+		.select({
+			rowid: sql<number | null>`max(${callRowid(db)})`.mapWith(Number),
+		})
 		.from(tediCallCosts);
 	const headRowid = head?.rowid ?? 0;
 	const expected = cursor ?? null;

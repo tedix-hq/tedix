@@ -248,7 +248,7 @@ export async function getReferenceClassEstimate(
 	).toISOString();
 	const rawEpisodes = db
 		.$with("raw_episodes")
-		.as(learningCurveRawEpisodes(access, since));
+		.as(learningCurveRawEpisodes(access, since, db));
 	const rows: ReferenceClassEpisodeRow[] = await db
 		.with(rawEpisodes)
 		.select({

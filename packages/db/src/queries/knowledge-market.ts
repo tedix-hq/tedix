@@ -678,7 +678,7 @@ export async function getKnowledgeMarketReport(
 						gte(tediRationaleRecords.createdAt, since),
 						coreStore(db) === "postgres"
 							? sql`CAST(${tediRationaleRecords.evidence} AS text) ~* '"(factIds?|fact_ids?|memoryFactIds?|memory_fact_ids?|retrievedFactIds?|retrieved_fact_ids?|retrievedFacts|retrieved_facts|usedFactIds|used_fact_ids|ignoredFactIds|ignored_fact_ids|notUsedFactIds|not_used_fact_ids|failedFactIds|failed_fact_ids)"'`
-							: evidenceReferencesFactsSql(),
+							: evidenceReferencesFactsSql(db),
 					),
 				)
 				.orderBy(desc(tediRationaleRecords.createdAt))

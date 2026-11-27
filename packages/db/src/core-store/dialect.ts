@@ -99,6 +99,14 @@ export function dateTime(db: object, epoch: SQLWrapper): SQL {
 		? sql`to_timestamp(${epoch})`
 		: sql`datetime(${epoch}, 'unixepoch')`;
 }
+/** An audit-style timestamp column: whole epoch seconds on D1, timestamptz on Postgres.
+ * INSERT…SELECT cannot cast a bound number or text to timestamptz implicitly. */
+export function epochTimestamp(db: object, iso: string): SQL {
+	const seconds = Math.floor(Date.parse(iso) / 1000);
+	return coreStore(db) === "postgres"
+		? sql`to_timestamp(${seconds})`
+		: sql`${seconds}`;
+}
 export function containsText(
 	db: object,
 	column: SQLWrapper,

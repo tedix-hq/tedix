@@ -100,13 +100,13 @@ function pgColumnType(
 
 /** `value` extracted from a JSON document, typed for Postgres when `table` is given. */
 function snapshotValue(
-	db: object | undefined,
+	db: object,
 	document: ReturnType<typeof sql>,
 	table: CoreTable | undefined,
 	key: string,
 	asJson = false,
 ) {
-	if (db !== undefined && coreStore(db) === "postgres") {
+	if (coreStore(db) === "postgres") {
 		const read = asJson
 			? sql`${document} -> ${key}`
 			: sql`${document} ->> ${key}`;
@@ -146,10 +146,10 @@ export function normalizeEffectiveCallCost<
 
 /** One row per original call, including retained snapshots whose source was deleted. */
 export function effectiveCallCostsRelation(
-	archivedRows?: readonly (typeof tediCallCosts.$inferSelect)[],
-	db?: object,
+	archivedRows: readonly (typeof tediCallCosts.$inferSelect)[] | undefined,
+	db: object,
 ) {
-	const postgres = db !== undefined && coreStore(db) === "postgres";
+	const postgres = coreStore(db) === "postgres";
 	const columns = Object.entries(getColumns(tediCallCosts));
 	const original = sql.join(
 		columns.map(

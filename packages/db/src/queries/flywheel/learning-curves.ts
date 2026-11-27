@@ -274,7 +274,7 @@ function buildLearningCurveAlerts(
  * `evidence.taskType`, then `skill:{slug}` from `evidence.skillSlug`, then
  * rationale category) plus mechanical cost columns (`durationMs`, `steps`,
  * `tokenCost`, `workItemLinked`). Consumers wrap it as a CTE:
- * `db.$with("raw_episodes").as(learningCurveRawEpisodes(access, since))`.
+ * `db.$with("raw_episodes").as(learningCurveRawEpisodes(access, since, db))`.
  * Reference-class forecasting (queries/reference-class.ts) reuses this
  * fragment so the outside view is computed over the exact same episode
  * population as the learning curves — never a parallel SQL definition.
@@ -282,9 +282,9 @@ function buildLearningCurveAlerts(
 export function learningCurveRawEpisodes(
 	access: FlywheelAccess,
 	since: string,
-	db?: object,
+	db: object,
 ) {
-	const postgres = db !== undefined && coreStore(db) === "postgres";
+	const postgres = coreStore(db) === "postgres";
 	const records = tediRationaleRecords;
 	// Postgres holds these as jsonb: always valid when present.
 	const validJson = (column: SQLWrapper) =>
@@ -293,9 +293,8 @@ export function learningCurveRawEpisodes(
 		postgres
 			? sql`(CASE WHEN jsonb_typeof(${column}) = 'array' THEN jsonb_array_length(${column}) ELSE 0 END)`
 			: sql`json_array_length(${column})`;
-	// Without a client this builds the D1 SQL.
 	const evidenceText = (key: string) =>
-		sql`(${jsonRead(db ?? {}, records.evidence, [key])})`;
+		sql`(${jsonRead(db, records.evidence, [key])})`;
 	const elapsedMs = (end: SQLWrapper, start: SQLWrapper) =>
 		postgres
 			? sql`GREATEST(0, round(extract(epoch FROM ((${end})::timestamptz - (${start})::timestamptz)) * 1000)::bigint)`

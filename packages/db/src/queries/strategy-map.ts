@@ -515,7 +515,7 @@ export async function getStrategyMapValidation(
 			: sql<string>`date(${value})`;
 	const citesFacts = postgres
 		? sql`CAST(${tediRationaleRecords.evidence} AS text) ~* '"(factIds?|fact_ids?|memoryFactIds?|memory_fact_ids?|retrievedFactIds?|retrieved_fact_ids?|retrievedFacts|retrieved_facts|usedFactIds|used_fact_ids|ignoredFactIds|ignored_fact_ids|notUsedFactIds|not_used_fact_ids|failedFactIds|failed_fact_ids)"'`
-		: evidenceReferencesFactsSql();
+		: evidenceReferencesFactsSql(db);
 	const linkedToolCalls = postgres
 		? sql`CASE WHEN jsonb_typeof(${tediRationaleRecords.toolCallRefs}) = 'array' THEN jsonb_array_length(${tediRationaleRecords.toolCallRefs}) ELSE 0 END > 0`
 		: sql`${tediRationaleRecords.toolCallRefs} IS NOT NULL AND json_valid(${tediRationaleRecords.toolCallRefs})

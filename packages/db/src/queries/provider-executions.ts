@@ -13,12 +13,7 @@ import { nativeExecutionEligibilityPredicate } from "./billing/historical-exposu
 import { and, eq, sql, SQL, Param } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { coreTable } from "../core-store/client";
-import {
-	anyIds,
-	coreStore,
-	jsonParameter,
-	type CoreStore,
-} from "../core-store/dialect";
+import { anyIds, coreStore, jsonParameter } from "../core-store/dialect";
 import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import {
 	providerExecutionAttempts as schemaProviderExecutionAttempts,
@@ -162,8 +157,6 @@ const guards = new WeakMap<
 		execution: NewProviderExecutionAttemptRow;
 		pin: string;
 		predicate: SQL;
-		/** Unknown for kernel guards, which carry no store-specific predicate. */
-		store: CoreStore | null;
 	}
 >();
 export async function prepareProviderExecutionAdmission(
@@ -233,7 +226,6 @@ export async function prepareProviderExecutionAdmission(
 			coreStore(db) === "postgres"
 				? sql`(SELECT ${predicate})`
 				: compactAdmissionPredicate(predicate),
-		store: coreStore(db),
 	});
 	return { execution, guard };
 }
@@ -274,7 +266,6 @@ export async function prepareKernelAutoRoutingAdmission(
 		execution: snapshot,
 		pin: JSON.stringify(snapshot),
 		predicate: compactAdmissionPredicate(sql`1=1`),
-		store: null,
 	});
 	return { execution, guard };
 }
@@ -302,13 +293,12 @@ export function providerExecutionGuardPredicate(
 		throw new Error("Execution guard identity changed");
 	return facts.predicate;
 }
-/** Pass `db` where the caller has it; a kernel guard does not know its store. */
 export function providerExecutionRetryPredicate(
 	guard: ProviderExecutionAdmissionGuard,
-	db?: object,
+	db: object,
 ): SQL {
-	const { execution: e, predicate, store } = guardFacts(guard);
-	const postgres = (db ? coreStore(db) : store) === "postgres";
+	const { execution: e, predicate } = guardFacts(guard);
+	const postgres = coreStore(db) === "postgres";
 	// SQLite's `IS` takes any operand; Postgres needs IS NOT DISTINCT FROM.
 	const same = (column: string, value: string | null | undefined) =>
 		postgres

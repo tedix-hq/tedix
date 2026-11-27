@@ -206,7 +206,7 @@ export function buildBillingReservationPreflightStatements(
 				eq(billingUsageReservations.organizationId, input.organizationId),
 				input.executionGuard
 					? sql`EXISTS (WITH __provider_replay(billing_reservation_id) AS MATERIALIZED
- (SELECT billing_reservation_id FROM provider_execution_attempts WHERE ${providerExecutionRetryPredicate(input.executionGuard)})
+ (SELECT billing_reservation_id FROM provider_execution_attempts WHERE ${providerExecutionRetryPredicate(input.executionGuard, db)})
  SELECT 1 FROM __provider_replay WHERE billing_reservation_id=billing_usage_reservations.id)`
 					: undefined,
 			),

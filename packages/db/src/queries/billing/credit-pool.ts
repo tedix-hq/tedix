@@ -38,6 +38,7 @@ import { coreTable } from "../../core-store/client";
 import {
 	booleanValue,
 	coreStore,
+	epochTimestamp,
 	jsonParameter,
 	jsonRead,
 } from "../../core-store/dialect";
@@ -1297,10 +1298,9 @@ export async function setAccountCredits(
 						),
 						ipAddress: sql<null>`NULL`.as("ip_address"),
 						userAgent: sql<null>`NULL`.as("user_agent"),
-						timestamp:
-							sql<number>`${Math.floor(Date.parse(input.now) / 1000)}`.as(
-								"timestamp",
-							),
+						timestamp: sql<number>`${epochTimestamp(db, input.now)}`.as(
+							"timestamp",
+						),
 					})
 					.from(billingAccounts)
 					.where(

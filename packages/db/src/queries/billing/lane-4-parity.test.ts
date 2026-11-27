@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { ProviderExecutionOriginSchema } from "@tedix/api-contract/schemas/provider-execution";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { coreTable } from "../../core-store/client";
 import { createDbClient, type DbClient } from "../../client";
@@ -22,6 +23,11 @@ import {
 	sumDynamicWorkerAllocatedCost,
 } from "./provider-usage";
 import { listCostRollups, rebuildCostRollupDay } from "./cost-rollups";
+import { nativeExecutionEligibilityPredicate } from "./historical-exposure";
+import {
+	commitUnsettledBillableGatewayScan,
+	scanUnsettledBillableGatewayCalls,
+} from "../platform-job-storage";
 
 const at = "2026-11-20T12:00:00.000Z";
 const periodStart = "2026-09-01T00:00:00.000Z";
@@ -350,5 +356,85 @@ for (const store of ["d1", "postgres"] as const)
 			expect(
 				await listCostRollups(query, "orchard", "2026-10-07", "2026-10-07"),
 			).toEqual([]);
+		});
+
+		it("pages reserved gateway calls in insertion order", async () => {
+			const calls = coreTable(db, tediCallCosts);
+			for (const n of [1, 2, 3])
+				await db.insert(calls).values({
+					id: `call-scan-${n}`,
+					orgId: "orchard",
+					gatewayId: "gateway",
+					gatewayLogId: `log-scan-${n}`,
+					// Insertion order, not snapshot order, drives the watermark.
+					snapshotAt: `2026-11-20T0${4 - n}:00:00.000Z`,
+					model: "native",
+					billingReservationId: `reservation-scan-${n}`,
+				});
+			const first = await scanUnsettledBillableGatewayCalls(db, {
+				limit: 2,
+				now: at,
+			});
+			expect(first.mode).toBe("full");
+			expect(first.calls.map(({ call }) => call.id)).toEqual([
+				"call-scan-1",
+				"call-scan-2",
+			]);
+			expect(typeof first.throughRowid).toBe("number");
+			expect(
+				await commitUnsettledBillableGatewayScan(db, first, {
+					failedRowids: [],
+					now: at,
+				}),
+			).toBe(true);
+			const next = await scanUnsettledBillableGatewayCalls(db, {
+				limit: 2,
+				now: at,
+			});
+			expect(next.mode).toBe("incremental");
+			expect(next.calls.map(({ call }) => call.id)).toEqual(["call-scan-3"]);
+		});
+
+		it("evaluates the native execution eligibility predicate", async () => {
+			const owner = {
+				orgId: "orchard",
+				tediId: "tedi",
+				objectId: "a".repeat(64),
+			};
+			const root = {
+				owner,
+				objectName: "canonical",
+				className: "AgentTediDO",
+				path: [],
+				generation: 0,
+			};
+			const origin = ProviderExecutionOriginSchema.parse({
+				kind: "unselected_native",
+				root,
+				selected: {
+					owner,
+					className: "AgentTediDO",
+					identityName: root.objectName,
+					facetName: null,
+					path: [],
+					generation: 0,
+				},
+				configurationHash: "c".repeat(64),
+			});
+			const predicate = await nativeExecutionEligibilityPredicate(
+				query,
+				origin,
+				null,
+				{
+					authorizedAt: at,
+					sendBefore: "2026-11-20T12:00:30.000Z",
+					settlementMode: "managed",
+				},
+			);
+			// No custody row exists, so the predicate must run and deny.
+			const [row] = (await db.all(
+				sql`SELECT CASE WHEN ${predicate} THEN 1 ELSE 0 END AS allowed`,
+			)) as { allowed: number }[];
+			expect(Number(row?.allowed)).toBe(0);
 		});
 	});

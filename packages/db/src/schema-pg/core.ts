@@ -9709,6 +9709,9 @@ export const tediArtifacts = pgTable(
 export const tediCallCosts = pgTable(
 	"tedi_call_costs",
 	{
+		sequence: bigint("sequence", {
+			mode: "number",
+		}).generatedByDefaultAsIdentity(),
 		id: text("id").primaryKey(),
 		tediId: text("tedi_id"),
 		orgId: text("org_id"),
