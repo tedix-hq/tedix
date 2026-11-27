@@ -41,6 +41,7 @@ import {
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
+import { serializeException } from "@tedix/worker-kit/logger";
 import {
 	recordDynamicWorkerLoaderFactory,
 	withDynamicWorkerLoaderDiagnostics,
@@ -819,11 +820,33 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import tenantHandler from ${JSON.stringify(mainModule)};
 
 export default class TenantRuntimeEntrypoint extends WorkerEntrypoint {
-	fetch(request) {
+	async fetch(request) {
 		if (typeof tenantHandler.fetch !== "function") {
 			return new Response("Tenant bundle has no fetch handler", { status: 500 });
 		}
-		return tenantHandler.fetch(request, this.env, this.ctx);
+		try {
+			const response = await tenantHandler.fetch(request, this.env, this.ctx);
+			const contentType = response.headers.get("content-type") ?? "";
+			if (!response.body || !(
+				contentType.startsWith("text/html") ||
+				contentType.startsWith("application/xml") ||
+				contentType.startsWith("text/xml") ||
+				contentType.startsWith("application/json") ||
+				response.status >= 400
+			)) return response;
+			// Drain render errors before the Loader stream boundary strips their details.
+			return new Response(await response.arrayBuffer(), response);
+		} catch (error) {
+			const details = [];
+			let current = error;
+			for (let depth = 0; current && depth < 4; depth++) {
+				details.push(current instanceof Error
+					? current.name + ": " + (current.message || "(empty message)")
+					: String(current));
+				current = current instanceof Error ? current.cause : undefined;
+			}
+			throw new Error("Tenant response failed: " + (details.join("; caused by ") || String(error)).slice(0, 4096));
+		}
 	}
 
 	// Starting this isolate evaluates only module scope, where Workers forbid
@@ -2078,7 +2101,7 @@ async function finishTenantResponse(
 		} catch (bufErr) {
 			console.error(
 				`[cms-runtime] html buffer failed for ${org.slug}:`,
-				bufErr,
+				serializeException(bufErr),
 			);
 			response = new Response(
 				`Buffer error: ${bufErr instanceof Error ? bufErr.message : String(bufErr)}`,
