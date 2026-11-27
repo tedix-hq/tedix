@@ -1,3 +1,4 @@
+import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	createTediBodyGenerationCredential,
 	type TediBodyGenerationCredential,
@@ -48,7 +49,7 @@ export interface RuntimeBodyStatus {
 	trackingEnabled: boolean;
 }
 
-export type TediGenerationDb = Pick<D1Database, "prepare">;
+export type TediGenerationDb = DbQueryClient;
 
 function nowIso(now = new Date()): string {
 	return now.toISOString();

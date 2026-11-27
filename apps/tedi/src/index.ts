@@ -340,7 +340,7 @@ app.use("*", async (c, next) => {
 			);
 		}
 		const generation = await armAgentGeneration({
-			db: c.env.DB,
+			db: coreDb(c.env),
 			externalId: tediConfig.isolateAgentId ?? tediConfig.slug,
 			record: { kind: "tedi", id: tediConfig.id, tediId: tediConfig.id },
 		});
@@ -422,7 +422,7 @@ app.use("*", async (c, next) => {
 	);
 	const runtimeBodyLauncher = new WorkstationGeneration({
 		bodyKind: "workstation",
-		db: c.env.DB,
+		db: coreDb(c.env),
 		externalId: selectedWorkstation.workstationId,
 		namespace: sandboxNamespace,
 		env: c.env,

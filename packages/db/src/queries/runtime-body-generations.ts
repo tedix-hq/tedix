@@ -1,9 +1,8 @@
-import type { D1Executor } from "../client";
-
-// Raw D1 by design: apps/tedi passes `Pick<D1Database, "prepare">` and needs
-// `meta.changes` for these CAS writes across two tables; a builder would change that wiring.
-
-type D1PrepareExecutor = Pick<D1Executor, "prepare">;
+import { and, eq, inArray, sql } from "drizzle-orm";
+import type { DbQueryClient } from "../query-client";
+import { coreTable } from "../core-store/client";
+import { tedis } from "../schema/tedis";
+import { workstationLeases } from "../schema/workstations";
 
 export type RuntimeBodyGenerationStatus =
 	| "armed"
@@ -36,87 +35,60 @@ export interface RuntimeBodyGenerationWrite {
 	externalId: string;
 }
 
-function rowsChanged(result: unknown): boolean {
-	const changes = (result as { meta?: { changes?: unknown } })?.meta?.changes;
-	return typeof changes === "number" && changes > 0;
-}
-
 export async function readRuntimeBodyGeneration(
-	db: D1PrepareExecutor,
+	db: DbQueryClient,
 	record: RuntimeBodyGenerationRecord,
 ): Promise<RuntimeBodyGenerationRow | null> {
-	const table =
-		record.kind === "workstationLease" ? "workstation_leases" : "tedis";
-	return db
-		.prepare(
-			`SELECT
-				body_generation_id AS bodyGenerationId,
-				body_generation_kind AS bodyGenerationKind,
-				body_generation_status AS bodyGenerationStatus,
-				body_generation_token_hash AS bodyGenerationTokenHash,
-				body_generation_token_expires_at AS bodyGenerationTokenExpiresAt,
-				body_generation_external_id AS bodyGenerationExternalId,
-				body_generation_heartbeat_at AS bodyGenerationHeartbeatAt
-			 FROM ${table}
-			 WHERE id = ?
-			 LIMIT 1`,
-		)
-		.bind(record.id)
-		.first<RuntimeBodyGenerationRow>();
+	const table = coreTable(
+		db,
+		record.kind === "workstationLease" ? workstationLeases : tedis,
+	);
+	const [row] = await db
+		.select({
+			bodyGenerationId: table.bodyGenerationId,
+			bodyGenerationKind: table.bodyGenerationKind,
+			bodyGenerationStatus: table.bodyGenerationStatus,
+			bodyGenerationTokenHash: table.bodyGenerationTokenHash,
+			bodyGenerationTokenExpiresAt: table.bodyGenerationTokenExpiresAt,
+			bodyGenerationExternalId: table.bodyGenerationExternalId,
+			bodyGenerationHeartbeatAt: table.bodyGenerationHeartbeatAt,
+		})
+		.from(table)
+		.where(eq(table.id, record.id))
+		.limit(1);
+	return row ?? null;
 }
 
 export async function armRuntimeBodyGeneration(
-	db: D1PrepareExecutor,
+	db: DbQueryClient,
 	record: RuntimeBodyGenerationRecord,
 	generation: RuntimeBodyGenerationWrite,
 	now: string,
 ): Promise<boolean> {
-	const table =
-		record.kind === "workstationLease" ? "workstation_leases" : "tedis";
-	const updatedAt =
-		record.kind === "workstationLease" ? "?" : "CURRENT_TIMESTAMP";
-	const statement = db.prepare(
-		`UPDATE ${table}
-		 SET body_generation_id = ?,
-			body_generation_kind = ?,
-			body_generation_status = ?,
-			body_generation_token_hash = ?,
-			body_generation_token_expires_at = ?,
-			body_generation_external_id = ?,
-			body_generation_heartbeat_at = NULL,
-			updated_at = ${updatedAt}
-		 WHERE id = ?`,
+	const table = coreTable(
+		db,
+		record.kind === "workstationLease" ? workstationLeases : tedis,
 	);
-	const result =
-		record.kind === "workstationLease"
-			? await statement
-					.bind(
-						generation.generationId,
-						generation.bodyKind,
-						generation.status,
-						generation.tokenHash,
-						generation.tokenExpiresAt,
-						generation.externalId,
-						now,
-						record.id,
-					)
-					.run()
-			: await statement
-					.bind(
-						generation.generationId,
-						generation.bodyKind,
-						generation.status,
-						generation.tokenHash,
-						generation.tokenExpiresAt,
-						generation.externalId,
-						record.id,
-					)
-					.run();
-	return rowsChanged(result);
+	const rows = await db
+		.update(table)
+		.set({
+			bodyGenerationId: generation.generationId,
+			bodyGenerationKind: generation.bodyKind,
+			bodyGenerationStatus: generation.status,
+			bodyGenerationTokenHash: generation.tokenHash,
+			bodyGenerationTokenExpiresAt: generation.tokenExpiresAt,
+			bodyGenerationExternalId: generation.externalId,
+			bodyGenerationHeartbeatAt: null,
+			updatedAt:
+				record.kind === "workstationLease" ? now : sql`CURRENT_TIMESTAMP`,
+		})
+		.where(eq(table.id, record.id))
+		.returning({ id: table.id });
+	return rows.length > 0;
 }
 
 export async function updateRuntimeBodyGenerationStatus(
-	db: D1PrepareExecutor,
+	db: DbQueryClient,
 	record: RuntimeBodyGenerationRecord,
 	input: {
 		generationId: string;
@@ -125,111 +97,84 @@ export async function updateRuntimeBodyGenerationStatus(
 		at: string;
 	},
 ): Promise<boolean> {
-	const isOnline = input.status === "ready";
-	const result =
-		record.kind === "workstationLease"
-			? await db
-					.prepare(
-						`UPDATE workstation_leases
-						 SET body_generation_status = ?, body_generation_external_id = ?,
-							body_generation_heartbeat_at = ?, updated_at = ?
-						 WHERE id = ? AND body_generation_id = ?`,
-					)
-					.bind(
-						input.status,
-						input.externalId,
-						input.at,
-						input.at,
-						record.id,
-						input.generationId,
-					)
-					.run()
-			: await db
-					.prepare(
-						`UPDATE tedis
-						 SET body_generation_status = ?, body_generation_external_id = ?,
-							body_generation_heartbeat_at = ?,
-							last_seen_at = CASE WHEN ? THEN ? ELSE last_seen_at END,
-							updated_at = CURRENT_TIMESTAMP
-						 WHERE id = ? AND body_generation_id = ?`,
-					)
-					.bind(
-						input.status,
-						input.externalId,
-						input.at,
-						isOnline ? 1 : 0,
-						input.at,
-						record.id,
-						input.generationId,
-					)
-					.run();
-	return rowsChanged(result);
+	const table = coreTable(
+		db,
+		record.kind === "workstationLease" ? workstationLeases : tedis,
+	);
+	const rows = await db
+		.update(table)
+		.set({
+			bodyGenerationStatus: input.status,
+			bodyGenerationExternalId: input.externalId,
+			bodyGenerationHeartbeatAt: input.at,
+			...(record.kind === "tedi" && input.status === "ready"
+				? { lastSeenAt: input.at }
+				: {}),
+			updatedAt:
+				record.kind === "workstationLease" ? input.at : sql`CURRENT_TIMESTAMP`,
+		})
+		.where(
+			and(
+				eq(table.id, record.id),
+				eq(table.bodyGenerationId, input.generationId),
+			),
+		)
+		.returning({ id: table.id });
+	return rows.length > 0;
 }
 
 export async function touchRuntimeBodyGenerationHeartbeat(
-	db: D1PrepareExecutor,
+	db: DbQueryClient,
 	record: RuntimeBodyGenerationRecord,
 	input: { generationId: string; externalId: string; at: string },
 ): Promise<boolean> {
-	const result =
-		record.kind === "workstationLease"
-			? await db
-					.prepare(
-						`UPDATE workstation_leases
-						 SET body_generation_external_id = ?, body_generation_heartbeat_at = ?, updated_at = ?
-						 WHERE id = ? AND body_generation_id = ?
-						   AND body_generation_status IN ('armed', 'starting', 'ready')`,
-					)
-					.bind(
-						input.externalId,
-						input.at,
-						input.at,
-						record.id,
-						input.generationId,
-					)
-					.run()
-			: await db
-					.prepare(
-						`UPDATE tedis
-						 SET body_generation_external_id = ?, body_generation_heartbeat_at = ?,
-							last_seen_at = ?, updated_at = CURRENT_TIMESTAMP
-						 WHERE id = ? AND body_generation_id = ?
-						   AND body_generation_status IN ('armed', 'starting', 'ready')`,
-					)
-					.bind(
-						input.externalId,
-						input.at,
-						input.at,
-						record.id,
-						input.generationId,
-					)
-					.run();
-	return rowsChanged(result);
+	const table = coreTable(
+		db,
+		record.kind === "workstationLease" ? workstationLeases : tedis,
+	);
+	const rows = await db
+		.update(table)
+		.set({
+			bodyGenerationExternalId: input.externalId,
+			bodyGenerationHeartbeatAt: input.at,
+			...(record.kind === "tedi" ? { lastSeenAt: input.at } : {}),
+			updatedAt:
+				record.kind === "workstationLease" ? input.at : sql`CURRENT_TIMESTAMP`,
+		})
+		.where(
+			and(
+				eq(table.id, record.id),
+				eq(table.bodyGenerationId, input.generationId),
+				inArray(table.bodyGenerationStatus, ["armed", "starting", "ready"]),
+			),
+		)
+		.returning({ id: table.id });
+	return rows.length > 0;
 }
 
 export async function terminateRuntimeBodyGeneration(
-	db: D1PrepareExecutor,
+	db: DbQueryClient,
 	record: RuntimeBodyGenerationRecord,
 	input: { generationId: string; at: string },
 ): Promise<void> {
-	const table =
-		record.kind === "workstationLease" ? "workstation_leases" : "tedis";
-	const updatedAt =
-		record.kind === "workstationLease" ? "?" : "CURRENT_TIMESTAMP";
-	const statement = db.prepare(
-		`UPDATE ${table}
-		 SET body_generation_status = 'terminated',
-			body_generation_token_hash = NULL,
-			body_generation_token_expires_at = NULL,
-			body_generation_heartbeat_at = ?,
-			updated_at = ${updatedAt}
-		 WHERE id = ? AND body_generation_id = ?`,
+	const table = coreTable(
+		db,
+		record.kind === "workstationLease" ? workstationLeases : tedis,
 	);
-	if (record.kind === "workstationLease") {
-		await statement
-			.bind(input.at, input.at, record.id, input.generationId)
-			.run();
-	} else {
-		await statement.bind(input.at, record.id, input.generationId).run();
-	}
+	await db
+		.update(table)
+		.set({
+			bodyGenerationStatus: "terminated",
+			bodyGenerationTokenHash: null,
+			bodyGenerationTokenExpiresAt: null,
+			bodyGenerationHeartbeatAt: input.at,
+			updatedAt:
+				record.kind === "workstationLease" ? input.at : sql`CURRENT_TIMESTAMP`,
+		})
+		.where(
+			and(
+				eq(table.id, record.id),
+				eq(table.bodyGenerationId, input.generationId),
+			),
+		);
 }

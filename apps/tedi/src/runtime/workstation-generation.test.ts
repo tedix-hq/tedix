@@ -1,3 +1,4 @@
+import { createDbQueryClient } from "@tedix/db/query-client";
 import { hashTediBodyGenerationToken } from "@tedix/auth/tedi-identity";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -39,29 +40,44 @@ function createMockD1(
 ) {
 	const runs: Array<{ sql: string; values: unknown[] }> = [];
 	let firstRow: MockGenerationRow | null = null;
-	const db = {
+	const raw = {
 		prepare: vi.fn((sql: string) => ({
 			bind: (...values: unknown[]) => ({
-				first: vi.fn(async () => {
-					if (options.throwMissingSchema) {
+				raw: vi.fn(async () => {
+					if (options.throwMissingSchema)
 						throw new Error("D1_ERROR: no such column: body_generation_id");
-					}
-					return firstRow;
+					if (/^select/i.test(sql))
+						return firstRow
+							? [
+									[
+										firstRow.bodyGenerationId,
+										firstRow.bodyGenerationKind,
+										firstRow.bodyGenerationStatus,
+										firstRow.bodyGenerationTokenHash,
+										firstRow.bodyGenerationTokenExpiresAt,
+										firstRow.bodyGenerationExternalId,
+										firstRow.bodyGenerationHeartbeatAt,
+									],
+								]
+							: [];
+					runs.push({ sql, values });
+					return (options.changes ?? 1) > 0 ? [["owner"]] : [];
 				}),
 				run: vi.fn(async () => {
-					if (options.throwMissingSchema) {
+					if (options.throwMissingSchema)
 						throw new Error("D1_ERROR: no such column: body_generation_id");
-					}
 					runs.push({ sql, values });
 					return { meta: { changes: options.changes ?? 1 }, success: true };
 				}),
 			}),
 		})),
+	};
+	const db = Object.assign(createDbQueryClient(raw as unknown as D1Database), {
 		runs,
 		setFirstRow(row: MockGenerationRow | null) {
 			firstRow = row;
 		},
-	};
+	});
 	return db;
 }
 
@@ -81,7 +97,7 @@ describe("WorkstationGeneration", () => {
 
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/workstation/.tedix-body-generation.env",
 			record: { kind: "tedi", id: "tedi-1", tediId: "tedi-1" },
@@ -96,6 +112,7 @@ describe("WorkstationGeneration", () => {
 			generation.tokenHash,
 			generation.tokenExpiresAt,
 			"tedi-1",
+			null,
 			"tedi-1",
 		]);
 
@@ -114,7 +131,7 @@ describe("WorkstationGeneration", () => {
 
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/workstation/.tedix-body-generation.env",
 			record: { kind: "tedi", id: "tedi-reset", tediId: "tedi-reset" },
@@ -133,7 +150,7 @@ describe("WorkstationGeneration", () => {
 
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			externalId: "tedi-1",
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/workstation/.tedix-body-generation.env",
@@ -145,7 +162,7 @@ describe("WorkstationGeneration", () => {
 		await launcher.ensureBody();
 
 		expect(generation.externalId).toBe("tedi-1");
-		expect(db.runs[0]?.values.at(-2)).toBe("tedi-1");
+		expect(db.runs[0]?.values.at(5)).toBe("tedi-1");
 		expect(db.runs[0]?.values.at(-1)).toBe("tedi-1");
 		expect(namespaceMocks.getByName).toHaveBeenCalledWith(
 			"physical-sandbox-v1",
@@ -165,7 +182,7 @@ describe("WorkstationGeneration", () => {
 		});
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/workstation/.tedix-body-generation.env",
 			record: { kind: "tedi", id: "tedi-2", tediId: "tedi-2" },
@@ -184,7 +201,7 @@ describe("WorkstationGeneration", () => {
 		const db = createMockD1();
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/workstation/.tedix-body-generation.env",
 			record: {
@@ -213,7 +230,7 @@ describe("WorkstationGeneration", () => {
 		const db = createMockD1();
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/workstation/.tedix-body-generation.env",
 			record: {
@@ -244,7 +261,7 @@ describe("WorkstationGeneration", () => {
 		const db = createMockD1({ changes: 0 });
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/.tedix-body-generation.env",
 			record: {
@@ -268,7 +285,7 @@ describe("WorkstationGeneration", () => {
 
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/.tedix-body-generation.env",
 			record: {
@@ -296,7 +313,7 @@ describe("WorkstationGeneration", () => {
 			status: "ready",
 			trackingEnabled: true,
 		});
-		expect(db.runs.at(-1)?.sql).toContain("UPDATE workstation_leases");
+		expect(db.runs.at(-1)?.sql).toContain('update "workstation_leases"');
 	});
 
 	it.each([{ timedOut: true }, { truncated: true }, { signal: 15 }])(
@@ -310,7 +327,7 @@ describe("WorkstationGeneration", () => {
 
 			const launcher = new WorkstationGeneration({
 				bodyKind: "workstation",
-				db: db as unknown as D1Database,
+				db,
 				namespace: { getByName: namespaceMocks.getByName } as never,
 				proofEnvPath: "/home/tedi/.tedix-body-generation.env",
 				record: {
@@ -350,7 +367,7 @@ describe("WorkstationGeneration", () => {
 
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/workstation/.tedix-body-generation.env",
 			record: { kind: "tedi", id: "tedi-warm", tediId: "tedi-warm" },
@@ -383,7 +400,7 @@ describe("WorkstationGeneration", () => {
 
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/workstation/.tedix-body-generation.env",
 			record: { kind: "tedi", id: "tedi-4", tediId: "tedi-4" },
@@ -411,7 +428,7 @@ describe("WorkstationGeneration", () => {
 		const db = createMockD1({ throwMissingSchema: true });
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/workstation/.tedix-body-generation.env",
 			record: { kind: "tedi", id: "tedi-5", tediId: "tedi-5" },
@@ -430,7 +447,7 @@ describe("WorkstationGeneration", () => {
 		const db = createMockD1();
 		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
-			db: db as unknown as D1Database,
+			db,
 			namespace: { getByName: namespaceMocks.getByName } as never,
 			proofEnvPath: "/home/tedi/.tedix-body-generation.env",
 			record: {
@@ -448,7 +465,7 @@ describe("WorkstationGeneration", () => {
 		});
 
 		await expect(
-			verifyArmedBodyGeneration(db as unknown as D1Database, {
+			verifyArmedBodyGeneration(db, {
 				generationId: generation.generationId,
 				record: {
 					kind: "workstationLease",
@@ -459,7 +476,7 @@ describe("WorkstationGeneration", () => {
 			}),
 		).resolves.toBe(true);
 		await expect(
-			verifyArmedBodyGeneration(db as unknown as D1Database, {
+			verifyArmedBodyGeneration(db, {
 				generationId: generation.generationId,
 				record: {
 					kind: "workstationLease",
@@ -476,7 +493,7 @@ describe("agent generation without a body launcher", () => {
 	it("reuses only a D1-current credential and forwards the armed proof", async () => {
 		const db = createMockD1();
 		const params = {
-			db: db as unknown as D1Database,
+			db,
 			externalId: "agent-generation-fixture",
 			record: {
 				kind: "tedi" as const,
