@@ -1,0 +1,831 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "0303f9e0-8081-49ec-a504-742aaf8a8917",
+	"prevIds": ["dcbc7737-e8bb-4f4d-b810-acb10c5aa16a"],
+	"footprints": [
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "audit_delivery_outbox"],
+			"writes": [
+				"s|tbl|public.audit_delivery_outbox",
+				"n|tbl|public.audit_delivery_outbox",
+				"e|tbl|public.audit_delivery_outbox",
+				"n|rel|public.audit_delivery_outbox",
+				"n|type|public.audit_delivery_outbox",
+				"n|rel|public.audit_delivery_outbox_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "read_marks"],
+			"writes": [
+				"s|tbl|public.read_marks",
+				"n|tbl|public.read_marks",
+				"e|tbl|public.read_marks",
+				"n|rel|public.read_marks",
+				"n|type|public.read_marks",
+				"n|rel|public.read_marks_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "drop_table",
+			"statementTarget": ["table", "public", "tedi_tasks"],
+			"writes": [
+				"s|tbl|public.tedi_tasks",
+				"n|tbl|public.tedi_tasks",
+				"e|tbl|public.tedi_tasks",
+				"n|rel|public.tedi_tasks",
+				"n|type|public.tedi_tasks"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "drop_table",
+			"statementTarget": ["table", "public", "work_approval_executions"],
+			"writes": [
+				"s|tbl|public.work_approval_executions",
+				"n|tbl|public.work_approval_executions",
+				"e|tbl|public.work_approval_executions",
+				"n|rel|public.work_approval_executions",
+				"n|type|public.work_approval_executions"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "drop_table",
+			"statementTarget": ["table", "public", "work_case_dependencies"],
+			"writes": [
+				"s|tbl|public.work_case_dependencies",
+				"n|tbl|public.work_case_dependencies",
+				"e|tbl|public.work_case_dependencies",
+				"n|rel|public.work_case_dependencies",
+				"n|type|public.work_case_dependencies"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "drop_table",
+			"statementTarget": ["table", "public", "work_item_projections"],
+			"writes": [
+				"s|tbl|public.work_item_projections",
+				"n|tbl|public.work_item_projections",
+				"e|tbl|public.work_item_projections",
+				"n|rel|public.work_item_projections",
+				"n|type|public.work_item_projections"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "drop_table",
+			"statementTarget": ["table", "public", "workspace_work_links"],
+			"writes": [
+				"s|tbl|public.workspace_work_links",
+				"n|tbl|public.workspace_work_links",
+				"e|tbl|public.workspace_work_links",
+				"n|rel|public.workspace_work_links",
+				"n|type|public.workspace_work_links"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "drop_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"work_evidence_verifications",
+				"uniq_work_evidence_verification_source"
+			],
+			"writes": [
+				"s|idx|public.uniq_work_evidence_verification_source",
+				"n|idx|public.uniq_work_evidence_verification_source",
+				"e|idx|public.uniq_work_evidence_verification_source",
+				"n|rel|public.uniq_work_evidence_verification_source"
+			],
+			"reads": [
+				"n|tbl|public.work_evidence_verifications",
+				"n|sch|public",
+				"e|col|public.work_evidence_verifications.org_id",
+				"e|col|public.work_evidence_verifications.evidence_id",
+				"e|col|public.work_evidence_verifications.source"
+			],
+			"sharedWrites": [
+				"e|uniqueness|public.work_evidence_verifications.evidence_id.org_id.source"
+			]
+		},
+		{
+			"statementType": "drop_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"work_item_corroborations",
+				"uniq_work_item_corroboration_principal"
+			],
+			"writes": [
+				"s|idx|public.uniq_work_item_corroboration_principal",
+				"n|idx|public.uniq_work_item_corroboration_principal",
+				"e|idx|public.uniq_work_item_corroboration_principal",
+				"n|rel|public.uniq_work_item_corroboration_principal"
+			],
+			"reads": [
+				"n|tbl|public.work_item_corroborations",
+				"n|sch|public",
+				"e|col|public.work_item_corroborations.org_id",
+				"e|col|public.work_item_corroborations.work_item_id",
+				"e|col|public.work_item_corroborations.principal_type",
+				"e|col|public.work_item_corroborations.principal_id"
+			],
+			"sharedWrites": [
+				"e|uniqueness|public.work_item_corroborations.org_id.principal_id.principal_type.work_item_id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "read_marks"],
+			"writes": [
+				"s|fk|public.read_marks.read_marks_organization_id_organizations_id_fk",
+				"n|fk|public.read_marks.read_marks_organization_id_organizations_id_fk",
+				"e|fk|public.read_marks.read_marks_organization_id_organizations_id_fk",
+				"n|con|public.read_marks.read_marks_organization_id_organizations_id_fk"
+			],
+			"reads": [
+				"n|tbl|public.read_marks",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.read_marks.organization_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "audit_delivery_outbox",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "read_marks",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "ignore_duplicates",
+				"type": "boolean",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "false",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "actor_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "actor_type",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "action",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "resource_type",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "resource_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "ip_address",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "user_agent",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "timestamp",
+				"type": "timestamp with time zone",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "trace_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "read_marks",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "read_marks",
+				"name": "kind",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "read_marks",
+				"name": "row_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "read_marks",
+				"name": "last_read_on",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "read_marks",
+				"name": "updated_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "read_marks",
+				"name": "read_marks_organization_id_organizations_id_fk",
+				"nameExplicit": true,
+				"columns": ["organization_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "read_marks",
+				"name": "read_marks_pkey",
+				"columns": ["organization_id", "kind", "row_id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "audit_delivery_outbox",
+				"name": "audit_delivery_outbox_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "drop",
+			"key": "tables\u0000[\"public\",\"tedi_tasks\"]"
+		},
+		{
+			"op": "drop",
+			"key": "tables\u0000[\"public\",\"work_approval_executions\"]"
+		},
+		{
+			"op": "drop",
+			"key": "tables\u0000[\"public\",\"work_case_dependencies\"]"
+		},
+		{
+			"op": "drop",
+			"key": "tables\u0000[\"public\",\"work_item_projections\"]"
+		},
+		{
+			"op": "drop",
+			"key": "tables\u0000[\"public\",\"workspace_work_links\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"objective_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"tedi_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"org_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"title\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"kind\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"status\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"blocker\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"evidence\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"tooling_used\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"estimated_cost\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"result\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"actual_cost\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"fail_count\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"created_at\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"updated_at\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"tedi_tasks\",\"completed_at\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_approval_executions\",\"proposal_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_approval_executions\",\"org_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_approval_executions\",\"execution\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_case_dependencies\",\"id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_case_dependencies\",\"org_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_case_dependencies\",\"prerequisite_case_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_case_dependencies\",\"dependent_case_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_case_dependencies\",\"created_at\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"work_item_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"org_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"provider\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"direction\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"status\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"external_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"external_url\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"external_project_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"external_section_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"last_synced_at\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"last_error\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"sync_cursor\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"provider_state\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"created_at\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"work_item_projections\",\"updated_at\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"workspace_work_links\",\"id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"workspace_work_links\",\"organization_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"workspace_work_links\",\"workspace_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"workspace_work_links\",\"output_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"workspace_work_links\",\"work_item_id\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"workspace_work_links\",\"revision\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"workspace_work_links\",\"linked_at\"]"
+		},
+		{
+			"op": "drop",
+			"key": "columns\u0000[\"public\",\"workspace_work_links\",\"unlinked_at\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"idx_tasks_objective\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"idx_tasks_tedi_status\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"uniq_work_case_dependency\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"idx_work_case_dependency_to\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"uniq_work_evidence_verification_source\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"uniq_work_item_corroboration_principal\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"idx_work_item_projections_org_provider\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"uniq_work_item_projection_provider\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"workspace_work_links_work_item_idx\"]"
+		},
+		{
+			"op": "drop",
+			"key": "indexes\u0000[\"public\",\"workspace_work_links_output_idx\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"tedi_tasks\",\"tedi_tasks_objective_id_tedi_objectives_id_fk\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"tedi_tasks\",\"tedi_tasks_tedi_id_tedis_id_fk\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"tedi_tasks\",\"tedi_tasks_org_id_organizations_id_fk\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"work_approval_executions\",\"work_approval_executions_proposal_id_work_approval_proposals_id_fk\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"work_approval_executions\",\"work_approval_executions_org_id_organizations_id_fk\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"work_case_dependencies\",\"work_case_dependencies_org_id_organizations_id_fk\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"work_case_dependencies\",\"fk_work_case_dependency_from\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"work_case_dependencies\",\"fk_work_case_dependency_to\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"work_item_projections\",\"work_item_projections_work_item_id_work_items_id_fk\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"work_item_projections\",\"work_item_projections_org_id_organizations_id_fk\"]"
+		},
+		{
+			"op": "drop",
+			"key": "fks\u0000[\"public\",\"workspace_work_links\",\"workspace_work_links_organization_id_organizations_id_fk\"]"
+		},
+		{
+			"op": "drop",
+			"key": "pks\u0000[\"public\",\"tedi_tasks\",\"tedi_tasks_pkey\"]"
+		},
+		{
+			"op": "drop",
+			"key": "pks\u0000[\"public\",\"work_approval_executions\",\"work_approval_executions_pkey\"]"
+		},
+		{
+			"op": "drop",
+			"key": "pks\u0000[\"public\",\"work_case_dependencies\",\"work_case_dependencies_pkey\"]"
+		},
+		{
+			"op": "drop",
+			"key": "pks\u0000[\"public\",\"work_item_projections\",\"work_item_projections_pkey\"]"
+		},
+		{
+			"op": "drop",
+			"key": "pks\u0000[\"public\",\"workspace_work_links\",\"workspace_work_links_pkey\"]"
+		}
+	]
+}
