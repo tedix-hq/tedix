@@ -4,7 +4,7 @@ import { invalidateOrgSkillDiscovery } from "./mcp/skill-discovery-cache";
 import { gatewayReadBinding } from "./lib/gateway-read-cache";
 import { requestPhaseTimings } from "./mcp/phase-timings";
 import { toolCallCountStub } from "./tool-call-counts";
-import type { PersonalAgentAttribution } from "@tedix/api-contract/schemas/personal-agent-session";
+import type { PersonalAgentVisitor } from "@tedix/api-contract/schemas/personal-agent-session";
 import { checkSignedOutPersonalAgentSession } from "./personal-agent-session";
 import { handlePersonalAgentInterfaces } from "./personal-agent-interfaces";
 import { handlePersonalAgentConversations } from "./personal-agent-conversations";
@@ -1561,7 +1561,7 @@ const worker = {
 				});
 			}
 
-			let personalAgentSession: PersonalAgentAttribution | undefined;
+			let personalAgentSession: PersonalAgentVisitor | undefined;
 			if (
 				isMcpPath &&
 				!hasAnyAuth &&

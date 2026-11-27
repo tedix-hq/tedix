@@ -187,6 +187,17 @@ it("binds Poppy credential access only to verified request attribution", async (
 		{},
 		expect.objectContaining({ verifiedPoppyAppId: undefined }),
 	);
+	// An unidentified visitor is a label, never a key to shared provider tools.
+	await executeTool(
+		{ ...agent, personalAgentSession: { kind: "unidentified" as const } },
+		makeTool(),
+		{},
+		options,
+	);
+	expect(agent.toolHandler.execute).toHaveBeenLastCalledWith(
+		{},
+		expect.objectContaining({ verifiedPoppyAppId: undefined }),
+	);
 });
 
 it("emits reconnect control only for the canonical unexecuted credential outcome", async () => {

@@ -22,6 +22,9 @@ type IdentityHostEnv = Pick<
 	"API_URL" | "SECRETS_MASTER_KEY" | "DB"
 >;
 
+/** Rate bucket shared by every unidentified visitor of one organization. */
+const UNIDENTIFIED_RATE_BUCKET = "poppy:unidentified";
+
 const TEDIX_IDENTITY_PATH =
 	/^\/poppy-agent\/([a-z0-9][a-z0-9-]{0,127})\/(client|jwks)\.json$/;
 
@@ -152,6 +155,23 @@ export async function verifySignedOutPersonalAgentSession(
 		)
 	)
 		return { status: "not_configured" as const };
+	// Poppy 1.0 lets an MCP server serve signed-out calls that use no Session
+	// claims; they get their own bucket and are never attributed to an agent.
+	if (
+		input.sessionToken === null &&
+		input.version === null &&
+		config.data.unidentifiedVisitors === "allow"
+	) {
+		const allowed = await consumePersonalAgentClientRate(db, {
+			organizationId: input.organizationId,
+			clientId: UNIDENTIFIED_RATE_BUCKET,
+			now: Date.now(),
+			limit: config.data.requestsPerMinute ?? 60,
+		});
+		return allowed
+			? { status: "unidentified" as const }
+			: { status: "rate_limited" as const };
+	}
 	try {
 		const headers = new Headers();
 		if (input.sessionToken !== null)

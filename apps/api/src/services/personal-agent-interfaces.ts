@@ -33,6 +33,9 @@ export async function personalAgentInterfaces(
 	if (!tasks && !(feedback && interfaces.feedback))
 		return { status: "not_configured" as const };
 	const session = await verifySignedOutPersonalAgentSession(db, input, env);
+	// Tasks and feedback are offered only to identified agents.
+	if (session.status === "unidentified")
+		return { status: "version_unsupported" as const };
 	if (session.status !== "accepted") return session;
 	const receipt = {
 		status: session.status,

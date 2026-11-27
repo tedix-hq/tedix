@@ -33,7 +33,17 @@ export type PersonalAgentAttribution = z.infer<
 	typeof PersonalAgentAttributionSchema
 >;
 
+/**
+ * A signed-out caller with no Poppy headers, let in by an organization that
+ * allows unidentified visitors. It is a label, never an agent identity.
+ */
+export const UNIDENTIFIED_VISITOR = { kind: "unidentified" } as const;
+export type PersonalAgentVisitor =
+	| PersonalAgentAttribution
+	| typeof UNIDENTIFIED_VISITOR;
+
 export const PersonalAgentSessionResultSchema = z.discriminatedUnion("status", [
+	z.object({ status: z.literal("unidentified") }),
 	z.object({
 		status: z.literal("accepted"),
 		sessionCreated: z.boolean().optional(),

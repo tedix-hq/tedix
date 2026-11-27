@@ -8,7 +8,7 @@
  */
 
 import { personalAgentAuditMetadata } from "@tedix/api-contract/utils/personal-agent-attribution";
-import type { PersonalAgentAttribution } from "@tedix/api-contract/schemas/personal-agent-session";
+import type { PersonalAgentVisitor } from "@tedix/api-contract/schemas/personal-agent-session";
 import { buildMcpAnalyticsDataPoint } from "@tedix/api-contract/schemas/mcp-analytics";
 import {
 	classifyMcpClientRegistrationMethod,
@@ -111,7 +111,7 @@ export function mergeMcpMetadata(
 
 export function buildCallerTelemetryFields(
 	callerIdentity: CallerIdentity | undefined,
-	personalAgentSession?: PersonalAgentAttribution,
+	personalAgentSession?: PersonalAgentVisitor,
 ): Pick<
 	McpEvent,
 	| "userId"

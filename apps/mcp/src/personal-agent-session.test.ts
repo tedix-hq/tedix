@@ -41,6 +41,17 @@ describe("signed-out MCP Session gate", () => {
 			expect(await response?.json()).toEqual({ error: status });
 		},
 	);
+	it("lets an allowed unidentified visitor through with only the label", async () => {
+		verify.mockResolvedValue({ status: "unidentified" });
+		const onVerified = vi.fn();
+		const response = await checkSignedOutPersonalAgentSession({
+			...input(),
+			request: new Request("https://mcp.example/mcp"),
+			onVerified,
+		});
+		expect(response).toBeNull();
+		expect(onVerified).toHaveBeenCalledWith({ kind: "unidentified" });
+	});
 	it.each(["accepted", "not_configured"])(
 		"continues normal MCP routing for %s without granting account headers",
 		async (status) => {

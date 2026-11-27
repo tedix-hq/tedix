@@ -81,7 +81,12 @@ export async function personalAgentConversation(
 	const cursor = url.searchParams.get("cursor");
 	if (cursor !== null && !/^[A-Za-z0-9_-]{1,256}$/.test(cursor))
 		return error(400, "invalid_cursor");
-	const session = await verifySignedOutPersonalAgentSession(db, input, env);
+	const verified = await verifySignedOutPersonalAgentSession(db, input, env);
+	// The Company Agent talks only to identified agents.
+	const session =
+		verified.status === "unidentified"
+			? { status: "version_unsupported" as const }
+			: verified;
 	if (session.status !== "accepted")
 		return error(
 			session.status === "not_configured"

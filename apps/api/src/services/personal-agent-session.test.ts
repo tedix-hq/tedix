@@ -113,6 +113,44 @@ describe("signed-out protocol resource boundary", () => {
 			}),
 		);
 	});
+	it("serves header-less visitors as unidentified only when the organization allows it", async () => {
+		const bare = { ...input, sessionToken: null, version: null };
+		mocks.verify.mockRejectedValue(
+			new PersonalAgentSessionFailure("version_unsupported"),
+		);
+		expect(await verifySignedOutPersonalAgentSession(db, bare, env)).toEqual({
+			status: "version_unsupported",
+		});
+		mocks.organization.mockResolvedValue({
+			features: { os: true },
+			metadata: {
+				personalAgentProtocol: { ...config, unidentifiedVisitors: "allow" },
+			},
+		});
+		mocks.verify.mockClear();
+		expect(await verifySignedOutPersonalAgentSession(db, bare, env)).toEqual({
+			status: "unidentified",
+		});
+		expect(mocks.verify).not.toHaveBeenCalled();
+		expect(mocks.session).not.toHaveBeenCalled();
+		expect(mocks.rate).toHaveBeenLastCalledWith(
+			db,
+			expect.objectContaining({ clientId: "poppy:unidentified", limit: 17 }),
+		);
+		mocks.rate.mockResolvedValueOnce(false);
+		expect(await verifySignedOutPersonalAgentSession(db, bare, env)).toEqual({
+			status: "rate_limited",
+		});
+		// A Poppy header that fails verification is never downgraded.
+		mocks.verify.mockRejectedValue(new PersonalAgentSessionFailure());
+		expect(
+			await verifySignedOutPersonalAgentSession(
+				db,
+				{ ...bare, version: "1.0" },
+				env,
+			),
+		).toEqual({ status: "invalid_session" });
+	});
 	it("returns only verified claims and permits a later Session for the same client and User", async () => {
 		const later = {
 			...session,

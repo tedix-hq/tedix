@@ -454,6 +454,13 @@ export const PersonalAgentDiscoveryConfigSchema = z
 		allowedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
 		blockedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
 		requestsPerMinute: z.number().int().min(1).max(10000).optional(),
+		/**
+		 * `allow` serves public-app calls that carry no Poppy headers as
+		 * unidentified visitors, labelled in audit and tool-call records.
+		 * Absent means refuse. A Poppy header that fails verification is
+		 * always refused.
+		 */
+		unidentifiedVisitors: z.enum(["allow", "refuse"]).optional(),
 		companyAgent: z
 			.strictObject({
 				tediId: z.uuid(),

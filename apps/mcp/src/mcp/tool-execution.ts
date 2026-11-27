@@ -1,4 +1,5 @@
 import { readTurnContext, readWorkBoundary } from "./hook-context-projection";
+import { verifiedPersonalAgent } from "@tedix/api-contract/utils/personal-agent-attribution";
 import {
 	HookTurnContextInputSchema,
 	HookWorkBoundaryInputSchema,
@@ -834,7 +835,9 @@ async function executeWithHandler(
 		| undefined;
 
 	const ctx: ToolExecutionContext<ToolConfig> = {
-		verifiedPoppyAppId: agent.personalAgentSession ? agent.appId : undefined,
+		verifiedPoppyAppId: verifiedPersonalAgent(agent.personalAgentSession)
+			? agent.appId
+			: undefined,
 		apiClient: agent.apiClient,
 		publicEgress: tool.publicEgress === true,
 		expectedPolicyCredential,

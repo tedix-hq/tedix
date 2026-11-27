@@ -30,6 +30,7 @@
  * write is logged as `gateway_change_record_write_failed`; an awaited one
  * then also returns `sequence` 0. Refusal telemetry is a separate stream.
  */
+import { verifiedPersonalAgent } from "@tedix/api-contract/utils/personal-agent-attribution";
 import { requestPhaseTimings } from "./phase-timings";
 import type {
 	CallToolResult,
@@ -119,7 +120,7 @@ export function describeGatewayCall(
 ): CallDescription {
 	const policy = resolveToolRiskPolicy({ meta: gates.tool.meta ?? null });
 	const identity = gates.agent.callerIdentity;
-	const personalAgent = gates.agent.personalAgentSession;
+	const personalAgent = verifiedPersonalAgent(gates.agent.personalAgentSession);
 	const actor: Actor = {
 		id:
 			personalAgent?.agentId ??

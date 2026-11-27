@@ -29,7 +29,7 @@ import type {
 	ToolSchemaSource,
 	ToolWriteCapability,
 } from "@tedix/api-contract/schemas/tools";
-import type { PersonalAgentAttribution } from "@tedix/api-contract/schemas/personal-agent-session";
+import type { PersonalAgentVisitor } from "@tedix/api-contract/schemas/personal-agent-session";
 import type { ApiClient } from "../lib/api-client";
 import type { AggregateTediEntry } from "./aggregate-tedis-shared";
 import type { ToolExecutionContext, ToolHandler } from "./handler";
@@ -221,7 +221,7 @@ export interface ServerContext {
 	// Caller identity (per-request, from JWT headers)
 	readonly callerIdentity: CallerIdentity | undefined;
 	/** Verified signed-out claims for attribution only; never account authority. */
-	readonly personalAgentSession?: PersonalAgentAttribution;
+	readonly personalAgentSession?: PersonalAgentVisitor;
 
 	/**
 	 * Tedis this request mounted by default for this caller, already past the
