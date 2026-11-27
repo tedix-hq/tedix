@@ -21,10 +21,20 @@ import {
 	notExists,
 	or,
 	sql,
+	type SQLWrapper,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias as sqliteAlias } from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
 import { coreTable } from "../core-store/client";
-import { booleanValue, insertionSequence } from "../core-store/dialect";
+import {
+	anyIds,
+	booleanValue,
+	coreStore,
+	insertionSequence,
+	jsonRead,
+	jsonWrite,
+	jsonParameter,
+} from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { chunkForBoundParams } from "../utils/batch";
 import {
@@ -32,11 +42,11 @@ import {
 	type AgentSessionEventKind,
 	type AgentSessionEventRow,
 	type AgentSessionEventStatus,
-	agentSessionEvents,
+	agentSessionEvents as d1AgentSessionEvents,
 	type AgentSessionRequestKind,
 	type AgentSessionRequestRow,
 	type AgentSessionRequestStatus,
-	agentSessionRequests,
+	agentSessionRequests as d1AgentSessionRequests,
 } from "../schema/agent-session-requests";
 import type { WorkAgentSessionHarness } from "../schema/work-agent-sessions";
 
@@ -51,6 +61,26 @@ export const AGENT_SESSION_REQUEST_ACTIVE_STATUSES = [
 ] as const satisfies readonly AgentSessionRequestStatus[];
 /** Rows per multi-row INSERT, under D1's 100 bound parameters. */
 const ROWS_PER_INSERT = 5;
+function sessionAlias<T extends Parameters<typeof sqliteAlias>[0]>(
+	db: object,
+	table: T,
+	name: string,
+): T {
+	return (
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)(table, name)
+			: sqliteAlias(table, name)
+	) as T;
+}
+function unchanged(db: object, column: SQLWrapper, value: unknown) {
+	const bound =
+		value !== null && typeof value === "object"
+			? jsonParameter(db, value)
+			: value;
+	return coreStore(db) === "postgres"
+		? sql`${column} IS NOT DISTINCT FROM ${bound}`
+		: sql`${column} IS ${value !== null && typeof value === "object" ? JSON.stringify(value) : value}`;
+}
 
 export type AgentSessionEventBody = Pick<
 	AgentSessionEventRow,
@@ -120,6 +150,7 @@ export async function recordAgentSessionRequests(
 	db: DbQueryClient,
 	params: RecordAgentSessionRequestsParams,
 ): Promise<AgentSessionRequestRow[]> {
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
 	const rows = params.requests.map((request, index) => ({
 		id: crypto.randomUUID(),
 		organizationId: params.organizationId,
@@ -142,7 +173,10 @@ export async function recordAgentSessionRequests(
 	}));
 	const inserted: AgentSessionRequestRow[] = [];
 	// 17 bound parameters per row: five rows stay under D1's 100.
-	for (const chunk of chunkForBoundParams(rows, ROWS_PER_INSERT))
+	for (const chunk of chunkForBoundParams(
+		rows,
+		coreStore(db) === "postgres" ? Math.max(1, rows.length) : ROWS_PER_INSERT,
+	))
 		inserted.push(
 			...(await db
 				.insert(agentSessionRequests)
@@ -175,6 +209,7 @@ export async function listAgentSessionRequests(
 	db: DbQueryClient,
 	params: ListAgentSessionRequestsParams,
 ): Promise<AgentSessionRequestRow[]> {
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
 	return db
 		.select()
 		.from(agentSessionRequests)
@@ -214,8 +249,12 @@ export async function listAgentSessionRequestProjects(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { ids: readonly string[] },
 ): Promise<{ id: string; projectId: string | null }[]> {
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
 	const rows: { id: string; projectId: string | null }[] = [];
-	for (const ids of chunkForBoundParams([...new Set(params.ids)], 90)) {
+	for (const ids of chunkForBoundParams(
+		[...new Set(params.ids)],
+		coreStore(db) === "postgres" ? Math.max(1, params.ids.length) : 90,
+	)) {
 		rows.push(
 			...(await db
 				.select({
@@ -225,7 +264,9 @@ export async function listAgentSessionRequestProjects(
 				.from(agentSessionRequests)
 				.where(
 					and(
-						inArray(agentSessionRequests.id, ids),
+						coreStore(db) === "postgres"
+							? anyIds(db, agentSessionRequests.id, ids)
+							: inArray(agentSessionRequests.id, ids),
 						eq(agentSessionRequests.organizationId, params.organizationId),
 						eq(agentSessionRequests.userId, params.userId),
 					),
@@ -265,7 +306,7 @@ export async function recordAgentSessionEvents(
 	db: DbQueryClient,
 	params: RecordAgentSessionEventsParams,
 ): Promise<number> {
-	const events = coreTable(db, agentSessionEvents);
+	const events = coreTable(db, d1AgentSessionEvents);
 	const rows = await Promise.all(
 		params.events.map(async (event) => ({
 			id: crypto.randomUUID(),
@@ -292,7 +333,10 @@ export async function recordAgentSessionEvents(
 	);
 	let inserted = 0;
 	// At most 19 bound parameters per row: five rows stay under D1's 100.
-	for (const chunk of chunkForBoundParams(rows, ROWS_PER_INSERT)) {
+	for (const chunk of chunkForBoundParams(
+		rows,
+		coreStore(db) === "postgres" ? Math.max(1, rows.length) : ROWS_PER_INSERT,
+	)) {
 		const result = await db
 			.insert(events)
 			.values(chunk)
@@ -320,6 +364,7 @@ async function storeAgentSessionReflection(
 	params: AgentSessionLessonReflectionParams,
 	patch: Partial<NonNullable<AgentSessionEventRow["lessonReflection"]>>,
 ): Promise<void> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const scope = and(
 		eq(agentSessionEvents.id, params.id),
 		eq(agentSessionEvents.organizationId, params.organizationId),
@@ -358,8 +403,12 @@ async function storeAgentSessionReflection(
 		.where(
 			and(
 				scope,
-				sql`${agentSessionEvents.bodyR2Key} IS ${row.bodyR2Key}`,
-				sql`${agentSessionEvents.lessonReflection} IS ${row.lessonReflection === null ? null : JSON.stringify(row.lessonReflection)}`,
+				unchanged(db, agentSessionEvents.bodyR2Key, row.bodyR2Key),
+				unchanged(
+					db,
+					agentSessionEvents.lessonReflection,
+					row.lessonReflection,
+				),
 			),
 		)
 		.returning({ id: agentSessionEvents.id });
@@ -371,6 +420,7 @@ export async function hasAgentSessionLessonCoverage(
 	db: DbQueryClient,
 	params: Omit<AgentSessionLessonReflectionParams, "id"> & { ids: string[] },
 ): Promise<boolean> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	if (!params.ids.length) return false;
 	const rows = await db
 		.select()
@@ -398,6 +448,7 @@ export async function recordAgentSessionLessonCoverage(
 	db: DbQueryClient,
 	params: AgentSessionLessonReflectionParams,
 ): Promise<void> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	if (params.eventBodies)
 		return storeAgentSessionReflection(db, params, {
 			coverageInputKey: params.inputKey,
@@ -405,7 +456,12 @@ export async function recordAgentSessionLessonCoverage(
 	await db
 		.update(agentSessionEvents)
 		.set({
-			lessonReflection: sql`json_set(COALESCE(${agentSessionEvents.lessonReflection}, '{}'), '$.coverageInputKey', ${params.inputKey})`,
+			lessonReflection: jsonWrite(
+				db,
+				agentSessionEvents.lessonReflection,
+				["coverageInputKey"],
+				params.inputKey,
+			),
 		})
 		.where(
 			and(
@@ -423,6 +479,7 @@ export async function getAgentSessionLessonReflection(
 	db: DbQueryClient,
 	params: AgentSessionLessonReflectionParams,
 ): Promise<string | null> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const [stored] = await db
 		.select()
 		.from(agentSessionEvents)
@@ -449,6 +506,7 @@ export async function recordAgentSessionLessonReflection(
 	db: DbQueryClient,
 	params: AgentSessionLessonReflectionParams & { response: string },
 ): Promise<void> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	if (params.eventBodies)
 		return storeAgentSessionReflection(db, params, {
 			inputKey: params.inputKey,
@@ -457,7 +515,17 @@ export async function recordAgentSessionLessonReflection(
 	await db
 		.update(agentSessionEvents)
 		.set({
-			lessonReflection: sql`json_set(COALESCE(${agentSessionEvents.lessonReflection}, '{}'), '$.inputKey', ${params.inputKey}, '$.response', ${params.response})`,
+			lessonReflection: jsonWrite(
+				db,
+				jsonWrite(
+					db,
+					agentSessionEvents.lessonReflection,
+					["inputKey"],
+					params.inputKey,
+				),
+				["response"],
+				params.response,
+			),
 		})
 		.where(
 			and(
@@ -477,6 +545,7 @@ export async function getAgentSessionInferenceReflection(
 		phase: AgentSessionInferencePhase;
 	},
 ): Promise<string | null> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const [stored] = await db
 		.select()
 		.from(agentSessionEvents)
@@ -505,19 +574,24 @@ export async function recordAgentSessionInferenceReflection(
 		response: string;
 	},
 ): Promise<void> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	if (params.eventBodies)
 		return storeAgentSessionReflection(db, params, {
 			[params.phase]: { inputKey: params.inputKey, response: params.response },
 		});
-	const path = `$.${params.phase}`;
-	const receipt = JSON.stringify({
+	const receipt = {
 		inputKey: params.inputKey,
 		response: params.response,
-	});
+	};
 	await db
 		.update(agentSessionEvents)
 		.set({
-			lessonReflection: sql`json_set(COALESCE(${agentSessionEvents.lessonReflection}, '{}'), ${path}, json(${receipt}))`,
+			lessonReflection: jsonWrite(
+				db,
+				agentSessionEvents.lessonReflection,
+				[params.phase],
+				receipt,
+			),
 		})
 		.where(
 			and(
@@ -541,7 +615,8 @@ export async function recordAgentSessionInferenceReflection(
  * in production on 21 Nov 2026).
  */
 function noLaterSettledEvent(db: DbQueryClient) {
-	const later = alias(agentSessionEvents, "later_session_event");
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
+	const later = sessionAlias(db, agentSessionEvents, "later_session_event");
 	return notExists(
 		db
 			.select({ id: later.id })
@@ -569,6 +644,7 @@ function noLaterSettledEvent(db: DbQueryClient) {
  * processed_at) has rested, and it is recent enough to bound the retries.
  */
 function failedEventDueForRetry(db: DbQueryClient, now: string) {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const at = Date.parse(now);
 	return and(
 		eq(agentSessionEvents.status, "failed"),
@@ -600,6 +676,7 @@ export async function requeueFailedAgentSessionEvents(
 		session?: { harness: WorkAgentSessionHarness; sessionKey: string };
 	},
 ): Promise<number> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const rows = await db
 		.update(agentSessionEvents)
 		.set({ status: "pending", claimedAt: null })
@@ -626,8 +703,9 @@ export async function countUnprocessedAgentSessionEvents(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner,
 ): Promise<number> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const [row] = await db
-		.select({ count: sql<number>`count(*)` })
+		.select({ count: sql<number>`count(*)`.mapWith(Number) })
 		.from(agentSessionEvents)
 		.where(
 			and(
@@ -643,10 +721,13 @@ export async function retryFailedAgentSessionEvents(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { sourceKeys: readonly string[] },
 ): Promise<number> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	let retried = 0;
 	for (const keys of chunkForBoundParams(
 		[...params.sourceKeys],
-		AGENT_SESSION_EVENT_BATCH_LIMIT,
+		coreStore(db) === "postgres"
+			? Math.max(1, params.sourceKeys.length)
+			: AGENT_SESSION_EVENT_BATCH_LIMIT,
 	)) {
 		const rows = await db
 			.update(agentSessionEvents)
@@ -661,7 +742,7 @@ export async function retryFailedAgentSessionEvents(
 				and(
 					eq(agentSessionEvents.organizationId, params.organizationId),
 					eq(agentSessionEvents.userId, params.userId),
-					inArray(agentSessionEvents.sourceKey, keys),
+					anyIds(db, agentSessionEvents.sourceKey, keys),
 					eq(agentSessionEvents.status, "failed"),
 					noLaterSettledEvent(db),
 				),
@@ -684,8 +765,10 @@ export async function rebuildFailedAgentSession(
 	db: DbQueryClient,
 	params: RebuildFailedAgentSessionParams,
 ): Promise<number> {
-	const events = alias(agentSessionEvents, "rebuild_event");
-	const requests = alias(agentSessionRequests, "rebuild_request");
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
+	const events = sessionAlias(db, agentSessionEvents, "rebuild_event");
+	const requests = sessionAlias(db, agentSessionRequests, "rebuild_request");
 	const eventScope = and(
 		eq(events.organizationId, params.organizationId),
 		eq(events.userId, params.userId),
@@ -716,6 +799,40 @@ export async function rebuildFailedAgentSession(
 				.where(and(eventScope, isNotNull(events.claimedAt))),
 		),
 	);
+	if (coreStore(db) === "postgres") {
+		const requestOwner = and(
+			eq(agentSessionRequests.organizationId, params.organizationId),
+			eq(agentSessionRequests.userId, params.userId),
+			eq(agentSessionRequests.harness, params.harness),
+			eq(agentSessionRequests.sessionKey, params.sessionKey),
+		);
+		const eventOwner = and(
+			eq(agentSessionEvents.organizationId, params.organizationId),
+			eq(agentSessionEvents.userId, params.userId),
+			eq(agentSessionEvents.harness, params.harness),
+			eq(agentSessionEvents.sessionKey, params.sessionKey),
+		);
+		// The DELETE receipt fences the reset in one statement; Postgres has no changes().
+		const [result] = await db.all<{ count: number }>(sql`
+			WITH removed AS (
+				DELETE FROM ${agentSessionRequests}
+				WHERE ${requestOwner} AND ${ready}
+					AND (SELECT count(*) FROM ${agentSessionRequests} AS rebuild_request WHERE ${requestScope}) = ${params.expectedRequests}
+				RETURNING id
+			), reset AS (
+				UPDATE ${agentSessionEvents}
+				SET status = 'pending', body_archived_at = NULL, attempts = 0, claimed_at = NULL, processed_at = NULL
+				WHERE ${eventOwner} AND ${ready}
+					AND (SELECT count(*) FROM ${agentSessionRequests} AS rebuild_request WHERE ${requestScope}) = ${params.expectedRequests}
+					AND (SELECT count(*) FROM removed) = ${params.expectedRequests}
+				RETURNING id
+			)
+			SELECT CASE WHEN (SELECT count(*) FROM removed) = ${params.expectedRequests}
+				AND count(*) = ${params.expectedEvents} THEN count(*) ELSE 0 END AS count
+			FROM reset
+		`);
+		return Number(result?.count ?? 0);
+	}
 	const [removed, reset] = await db.batch([
 		db
 			.delete(agentSessionRequests)
@@ -766,7 +883,8 @@ export async function rebuildFailedAgentSession(
 
 /** Pending retries and leases preserve order; terminal failures do not block the session. */
 function noEarlierPendingEvent(db: DbQueryClient) {
-	const earlier = alias(agentSessionEvents, "earlier_session_event");
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
+	const earlier = sessionAlias(db, agentSessionEvents, "earlier_session_event");
 	return notExists(
 		db
 			.select({ id: earlier.id })
@@ -796,7 +914,30 @@ export async function listPendingAgentSessionEventOwners(
 	db: DbQueryClient,
 	now: string,
 ) {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const stale = new Date(Date.parse(now) - EVENT_LEASE_MS).toISOString();
+	if (coreStore(db) === "postgres")
+		return db
+			.selectDistinct({
+				organizationId: agentSessionEvents.organizationId,
+				userId: agentSessionEvents.userId,
+			})
+			.from(agentSessionEvents)
+			.where(
+				or(
+					and(
+						eq(agentSessionEvents.status, "pending"),
+						or(
+							isNull(agentSessionEvents.claimedAt),
+							lt(agentSessionEvents.claimedAt, stale),
+						),
+					),
+					failedEventDueForRetry(db, now),
+				),
+			)
+			.orderBy(agentSessionEvents.organizationId, agentSessionEvents.userId)
+			.limit(100);
+
 	const first = db
 		.select({
 			organizationId: agentSessionEvents.organizationId,
@@ -806,7 +947,7 @@ export async function listPendingAgentSessionEventOwners(
 		.orderBy(agentSessionEvents.organizationId, agentSessionEvents.userId)
 		.limit(1)
 		.as("first_owner");
-	const next = alias(agentSessionEvents, "next_owner");
+	const next = sessionAlias(db, agentSessionEvents, "next_owner");
 	const successor = db
 		.select({ id: agentSessionEvents.id })
 		.from(agentSessionEvents)
@@ -885,12 +1026,30 @@ export async function listPendingAgentSessionEvents(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { limit: number; now: string },
 ): Promise<AgentSessionEventRow[]> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const stale = new Date(Date.parse(params.now) - EVENT_LEASE_MS).toISOString();
 	const owner = and(
 		eq(agentSessionEvents.organizationId, params.organizationId),
 		eq(agentSessionEvents.userId, params.userId),
 	);
 	const pendingOwner = and(owner, eq(agentSessionEvents.status, "pending"));
+	if (coreStore(db) === "postgres")
+		return db
+			.select()
+			.from(agentSessionEvents)
+			.where(
+				and(
+					pendingOwner,
+					noEarlierPendingEvent(db),
+					or(
+						isNull(agentSessionEvents.claimedAt),
+						lt(agentSessionEvents.claimedAt, stale),
+					),
+				),
+			)
+			.orderBy(asc(agentSessionEvents.sourceAt), asc(agentSessionEvents.id))
+			.limit(params.limit);
+
 	const first = db
 		.select({
 			harness: agentSessionEvents.harness,
@@ -901,7 +1060,7 @@ export async function listPendingAgentSessionEvents(
 		.orderBy(agentSessionEvents.harness, agentSessionEvents.sessionKey)
 		.limit(1)
 		.as("first_session");
-	const next = alias(agentSessionEvents, "next_session");
+	const next = sessionAlias(db, agentSessionEvents, "next_session");
 	const successor = db
 		.select({ id: agentSessionEvents.id })
 		.from(agentSessionEvents)
@@ -940,7 +1099,7 @@ export async function listPendingAgentSessionEvents(
 			),
 	);
 	const head = db
-		.select({ rowid: sql<number>`${agentSessionEvents}.rowid` })
+		.select({ rowid: insertionSequence(db, agentSessionEvents) })
 		.from(agentSessionEvents)
 		.where(
 			and(
@@ -962,7 +1121,7 @@ export async function listPendingAgentSessionEvents(
 		.where(
 			and(
 				// bound-params: heads is a SQL subquery with fixed owner bindings, not a parameter list.
-				inArray(sql`${agentSessionEvents}.rowid`, heads),
+				inArray(insertionSequence(db, agentSessionEvents), heads),
 				noEarlierPendingEvent(db),
 				or(
 					isNull(agentSessionEvents.claimedAt),
@@ -979,9 +1138,10 @@ export async function claimAgentSessionEvent(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { id: string; now: string },
 ): Promise<boolean> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const stale = new Date(Date.parse(params.now) - EVENT_LEASE_MS).toISOString();
 	const target = db
-		.select({ rowid: sql<number>`${agentSessionEvents}.rowid` })
+		.select({ rowid: insertionSequence(db, agentSessionEvents) })
 		.from(agentSessionEvents)
 		.where(eq(agentSessionEvents.id, params.id))
 		.limit(1);
@@ -995,7 +1155,7 @@ export async function claimAgentSessionEvent(
 			and(
 				eq(agentSessionEvents.organizationId, params.organizationId),
 				eq(agentSessionEvents.userId, params.userId),
-				sql`${agentSessionEvents}.rowid = (${target})`,
+				sql`${insertionSequence(db, agentSessionEvents)} = (${target})`,
 				eq(agentSessionEvents.status, "pending"),
 				noEarlierPendingEvent(db),
 				or(
@@ -1020,6 +1180,7 @@ export async function settleAgentSessionEvent(
 		now: string;
 	},
 ): Promise<void> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	await db
 		.update(agentSessionEvents)
 		.set(
@@ -1046,6 +1207,7 @@ export async function getAgentSessionRequest(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { id: string },
 ): Promise<AgentSessionRequestRow | undefined> {
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
 	const [row] = await db
 		.select()
 		.from(agentSessionRequests)
@@ -1079,6 +1241,7 @@ export async function getPreviousAgentSessionTurn(
 		kind?: AgentSessionEventKind;
 	},
 ): Promise<string | null> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const [row] = await db
 		.select({
 			body: agentSessionEvents.body,
@@ -1120,6 +1283,7 @@ export async function listRecentAgentSessionTurns(
 		lessonReflection?: AgentSessionEventRow["lessonReflection"];
 	}>
 > {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const rows = await db
 		.select({
 			id: agentSessionEvents.id,
@@ -1179,13 +1343,21 @@ export async function getAgentSessionRequestPrompts(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { ids: readonly string[] },
 ): Promise<Array<{ id: string; message: string | null }>> {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
 	const result: Array<{ id: string; message: string | null }> = [];
-	const earlier = alias(agentSessionEvents, "request_prompt_time_event");
+	const earlier = sessionAlias(
+		db,
+		agentSessionEvents,
+		"request_prompt_time_event",
+	);
 	const newestPromptAt = (status: AgentSessionEventStatus) =>
 		sql`coalesce((${db
 			.select({ sourceAt: sql<string>`${earlier.sourceAt}` })
 			.from(
-				sql`${agentSessionEvents} "request_prompt_time_event" INDEXED BY idx_agent_session_events_session_order`,
+				coreStore(db) === "postgres"
+					? earlier
+					: sql`${agentSessionEvents} "request_prompt_time_event" INDEXED BY idx_agent_session_events_session_order`,
 			)
 			.where(
 				and(
@@ -1200,17 +1372,25 @@ export async function getAgentSessionRequestPrompts(
 			)
 			.orderBy(desc(earlier.sourceAt))
 			.limit(1)}), '')`;
-	for (const ids of chunkForBoundParams([...new Set(params.ids)], 50)) {
+	for (const ids of chunkForBoundParams(
+		[...new Set(params.ids)],
+		coreStore(db) === "postgres" ? Math.max(1, params.ids.length) : 50,
+	)) {
 		result.push(
 			...(await db
 				.select({
 					id: sql<string>`${agentSessionRequests.id}`.as("request_id"),
 					message: sql<string | null>`(${db
 						.select({
-							body: sql<string>`json_object('body', ${agentSessionEvents.body}, 'bodyR2Key', ${agentSessionEvents.bodyR2Key})`,
+							body:
+								coreStore(db) === "postgres"
+									? sql<string>`json_build_object('body', ${agentSessionEvents.body}, 'bodyR2Key', ${agentSessionEvents.bodyR2Key})::text`
+									: sql<string>`json_object('body', ${agentSessionEvents.body}, 'bodyR2Key', ${agentSessionEvents.bodyR2Key})`,
 						})
 						.from(
-							sql`${agentSessionEvents} INDEXED BY idx_agent_session_events_session_order`,
+							coreStore(db) === "postgres"
+								? agentSessionEvents
+								: sql`${agentSessionEvents} INDEXED BY idx_agent_session_events_session_order`,
 						)
 						.where(
 							and(
@@ -1229,7 +1409,7 @@ export async function getAgentSessionRequestPrompts(
 								]),
 								eq(agentSessionEvents.kind, "prompt"),
 								// An empty string matches no event: `source_at` is never empty.
-								sql`${agentSessionEvents.sourceAt} = max(${sql.join(
+								sql`${agentSessionEvents.sourceAt} = ${coreStore(db) === "postgres" ? sql.raw("greatest") : sql.raw("max")}(${sql.join(
 									AGENT_SESSION_EVENT_STATUS_VALUES.map(newestPromptAt),
 									sql`, `,
 								)})`,
@@ -1241,13 +1421,17 @@ export async function getAgentSessionRequestPrompts(
 				// By id: with enough ids SQLite otherwise reads every request of
 				// the owner through an owner index.
 				.from(
-					sql`${agentSessionRequests} INDEXED BY sqlite_autoindex_agent_session_requests_1`,
+					coreStore(db) === "postgres"
+						? agentSessionRequests
+						: sql`${agentSessionRequests} INDEXED BY sqlite_autoindex_agent_session_requests_1`,
 				)
 				.where(
 					and(
 						eq(agentSessionRequests.organizationId, params.organizationId),
 						eq(agentSessionRequests.userId, params.userId),
-						inArray(agentSessionRequests.id, ids),
+						coreStore(db) === "postgres"
+							? anyIds(db, agentSessionRequests.id, ids)
+							: inArray(agentSessionRequests.id, ids),
 					),
 				)),
 		);
@@ -1279,6 +1463,7 @@ export async function updateAgentSessionRequests(
 		now: string;
 	},
 ): Promise<void> {
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
 	if (!params.updates.length) return;
 	const statements = params.updates.map((update) =>
 		db
@@ -1306,7 +1491,7 @@ export async function updateAgentSessionRequests(
 					eq(agentSessionRequests.organizationId, params.organizationId),
 					eq(agentSessionRequests.userId, params.userId),
 					eq(agentSessionRequests.id, update.id),
-					sql`NOT EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id=${agentSessionRequests.organizationId} AND i.target_type='user' AND i.target_id=${agentSessionRequests.userId} AND i.status='open' AND (json_extract(i.metadata,'$.laneHandoff.requestId')=${agentSessionRequests.id} OR ${agentSessionRequests.evidence}='/work/interactions/' || i.id))`,
+					sql`NOT EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id=${agentSessionRequests.organizationId} AND i.target_type='user' AND i.target_id=${agentSessionRequests.userId} AND i.status='open' AND (${jsonRead(db, sql`i.metadata`, ["laneHandoff", "requestId"])}=${agentSessionRequests.id} OR ${agentSessionRequests.evidence}='/work/interactions/' || i.id))`,
 				),
 			),
 	);
@@ -1325,7 +1510,7 @@ export async function listAgentSessionActivity(
 		limit?: number;
 	},
 ) {
-	const events = coreTable(db, agentSessionEvents);
+	const events = coreTable(db, d1AgentSessionEvents);
 	const limit = Math.min(100, Math.max(1, input.limit ?? 50));
 	const data = await db
 		.select({
@@ -1387,7 +1572,7 @@ export async function listAgentSessionActivityCoverage(
 		snapshotId: number;
 	},
 ) {
-	const events = coreTable(db, agentSessionEvents);
+	const events = coreTable(db, d1AgentSessionEvents);
 	const sourceDay = sql<string>`substr(${events.sourceAt}, 1, 10)`;
 	return db
 		.select({
@@ -1417,7 +1602,7 @@ export async function getAgentSessionActivitySnapshot(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner,
 ) {
-	const events = coreTable(db, agentSessionEvents);
+	const events = coreTable(db, d1AgentSessionEvents);
 	const [row] = await db
 		.select({
 			snapshotId:
@@ -1445,6 +1630,7 @@ export async function fileAgentSessionRequest(
 		onlyIfUnfiled?: boolean;
 	},
 ): Promise<AgentSessionRequestRow | null> {
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
 	const [row] = await db
 		.update(agentSessionRequests)
 		.set({ projectId: params.projectId, updatedAt: params.now })
@@ -1468,6 +1654,7 @@ export async function listAgentSessionBodiesForRetention(
 	before: string,
 	limit = 100,
 ) {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const pageSize = Math.min(100, Math.max(1, limit));
 	const old = await db
 		.select()
@@ -1506,6 +1693,7 @@ export async function archiveAgentSessionEventBody(
 	now: string,
 	archiveReflections = true,
 ) {
+	const agentSessionEvents = coreTable(db, d1AgentSessionEvents);
 	const rows = await db
 		.update(agentSessionEvents)
 		.set({
@@ -1523,9 +1711,13 @@ export async function archiveAgentSessionEventBody(
 				eq(agentSessionEvents.userId, row.userId),
 				eq(agentSessionEvents.status, "processed"),
 				isNull(agentSessionEvents.bodyArchivedAt),
-				sql`${agentSessionEvents.processedAt} IS ${row.processedAt}`,
-				sql`${agentSessionEvents.bodyR2Key} IS ${row.bodyR2Key}`,
-				sql`${agentSessionEvents.lessonReflection} IS ${row.lessonReflection === null ? null : JSON.stringify(row.lessonReflection)}`,
+				unchanged(db, agentSessionEvents.processedAt, row.processedAt),
+				unchanged(db, agentSessionEvents.bodyR2Key, row.bodyR2Key),
+				unchanged(
+					db,
+					agentSessionEvents.lessonReflection,
+					row.lessonReflection,
+				),
 			),
 		)
 		.returning({ id: agentSessionEvents.id });
