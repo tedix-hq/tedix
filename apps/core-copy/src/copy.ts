@@ -35,7 +35,7 @@ export const LARGE_ROW_PAGE_SIZES: Record<string, number> = {
 	skill_runs: 50,
 	skill_run_artifacts: 100,
 };
-export const PAUSE_MS = 1000;
+export const PAUSE_MS = 250;
 /** Pages one cron tick may copy before yielding to the next schedule. */
 /**
  * Pages per 5-minute tick. A page takes about 4 s end to end (1 s pause, the
@@ -418,7 +418,23 @@ export async function copyStatus(ports: CopyPorts): Promise<StatusReport> {
  * next one from writing the same table; a crashed tick's lease expires.
  * A table D1 refused stays paused and is resumed by a later tick.
  */
-export async function cronTick(ports: CopyPorts): Promise<CopyResult | null> {
+/** Tables copied side by side per tick, each lane on its own connection. */
+export const CRON_LANES = 8;
+/**
+ * Pages per lane per tick. Eight lanes stay under D1's 1,000 queries per
+ * invocation, with room for the window and hot-start probes.
+ */
+export const LANE_PAGE_BUDGET = 90;
+
+export interface LanePorts {
+	ports: CopyPorts;
+	end(): Promise<void>;
+}
+
+export async function cronTick(
+	ports: CopyPorts,
+	openLane?: () => LanePorts,
+): Promise<CopyResult | null> {
 	const { store } = ports;
 	const run = await store.runState();
 	if (run.mode !== "running") return null;
@@ -426,10 +442,8 @@ export async function cronTick(ports: CopyPorts): Promise<CopyResult | null> {
 	if (lease && Date.parse(lease) > Date.now()) return null;
 	await store.setLease(new Date(Date.now() + CRON_LEASE_MS).toISOString());
 	try {
-		let budget = CRON_PAGE_BUDGET;
-		let last: CopyResult | null = null;
+		const queue: string[] = [];
 		for (const entry of coreCopyPlan()) {
-			if (budget <= 0) return last;
 			const progress = await store.tableProgress(entry.table);
 			if (
 				progress?.status === "done" ||
@@ -437,17 +451,48 @@ export async function cronTick(ports: CopyPorts): Promise<CopyResult | null> {
 				progress?.status === "error"
 			)
 				continue;
-			const before = progress?.pages ?? 0;
-			last = await copyTable(ports, entry.table, { maxPages: budget });
-			if (last.status !== "done") return last;
-			budget -= Math.max(1, last.pages - before);
+			queue.push(entry.table);
 		}
-		await store.setRunState({
-			mode: "idle",
-			note: "all planned tables copied",
-			updatedAt: new Date().toISOString(),
-		});
-		return last;
+		if (queue.length === 0) {
+			await store.setRunState({
+				mode: "idle",
+				note: "all planned tables copied",
+				updatedAt: new Date().toISOString(),
+			});
+			return null;
+		}
+		const results: CopyResult[] = [];
+		// D1 refusing a read stops every lane for this tick.
+		let refused = false;
+		const lane = async (lanePorts: CopyPorts) => {
+			let budget = openLane ? LANE_PAGE_BUDGET : CRON_PAGE_BUDGET;
+			while (budget > 0 && !refused) {
+				const table = queue.shift();
+				if (!table) return;
+				const before = (await lanePorts.store.tableProgress(table))?.pages ?? 0;
+				let result: CopyResult;
+				try {
+					result = await copyTable(lanePorts, table, { maxPages: budget });
+				} catch (error) {
+					if (isD1Overloaded(error)) refused = true;
+					throw error;
+				}
+				results.push(result);
+				budget -= Math.max(1, result.pages - before);
+				if (result.status === "paused") refused = true;
+				// A table left unfinished resumes on the next tick.
+				if (result.status !== "done" && result.status !== "error") return;
+			}
+		};
+		const lanes: LanePorts[] = openLane
+			? Array.from({ length: CRON_LANES }, () => openLane())
+			: [{ ports, end: async () => undefined }];
+		try {
+			await Promise.allSettled(lanes.map((l) => lane(l.ports)));
+		} finally {
+			await Promise.allSettled(lanes.map((l) => l.end()));
+		}
+		return results.at(-1) ?? null;
 	} finally {
 		await store.setLease(undefined);
 	}

@@ -42,10 +42,14 @@ function portsFor(env: Env): { ports: CopyPorts; end(): Promise<void> } {
 	const { query, copyQuery, end } = hyperdriveQuery(
 		env.HYPERDRIVE.connectionString,
 	);
+	// Reads go to any D1 replica, keeping the copy off the primary. Lag is
+	// fine here: the final delta copy picks up later writes.
+	const d1 = env.DB.withSession("first-unconstrained");
 	return {
 		ports: {
 			readD1: async (sql, params) => {
-				const result = await env.DB.prepare(sql)
+				const result = await d1
+					.prepare(sql)
 					.bind(...params)
 					.all();
 				return result.results as Record<string, unknown>[];
@@ -214,7 +218,7 @@ export default {
 			(async () => {
 				const { ports, end } = portsFor(env);
 				try {
-					await cronTick(ports);
+					await cronTick(ports, () => portsFor(env));
 				} finally {
 					await end();
 				}
