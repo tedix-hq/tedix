@@ -6816,6 +6816,9 @@ export const organizationMembers = pgTable(
 	},
 	(t) => [
 		uniqueIndex("uniq_org_member").on(t["organizationId"], t["descopeUserId"]),
+		uniqueIndex("uniq_org_member_user")
+			.on(t["organizationId"], t["userId"])
+			.where(sql`${t["userId"]} IS NOT NULL`),
 		index("idx_org_members_canonical_user").on(t["userId"]),
 		index("idx_org_members_user").on(t["descopeUserId"]),
 		index("idx_org_members_email").on(t["email"]),
@@ -6853,6 +6856,9 @@ export const organizationPurposeCharters = pgTable(
 	},
 	(t) => [
 		uniqueIndex("uniq_org_purpose_version").on(t["orgId"], t["version"]),
+		uniqueIndex("uniq_org_purpose_active")
+			.on(t["orgId"])
+			.where(sql`${t["status"]} = 'active'`),
 		index("idx_org_purpose_history").on(t["orgId"], t["createdAt"]),
 		foreignKey({
 			name: "organization_purpose_charters_org_id_organizations_id_fk",

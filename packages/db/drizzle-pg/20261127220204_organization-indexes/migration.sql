@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "uniq_org_member_user" ON "organization_members" ("organization_id","user_id") WHERE "user_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uniq_org_purpose_active" ON "organization_purpose_charters" ("org_id") WHERE "status" = 'active';

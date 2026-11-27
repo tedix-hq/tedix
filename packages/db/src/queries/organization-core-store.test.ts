@@ -5,6 +5,8 @@ import { createDbClient, type DbClient } from "../client";
 import { coreTable } from "../core-store/client";
 import { billingPlanVersions } from "../schema/billing";
 import { organizations } from "../schema/organizations";
+import { organizationMembers } from "../schema/organization-members";
+import { organizationPurposeCharters } from "../schema/organization-purpose";
 import { apps } from "../schema/apps";
 import { tedis } from "../schema/tedis";
 import { workItems } from "../schema/work-items";
@@ -17,6 +19,23 @@ import * as purpose from "./organization-purpose";
 import * as secrets from "./organization-secrets";
 import { ensureOrgAndMember, ensurePersonalOrg } from "./organization-sync";
 import * as organizationQueries from "./organizations";
+
+async function expectUniqueViolation(write: PromiseLike<unknown>) {
+	let error: unknown;
+	try {
+		await write;
+	} catch (caught) {
+		error = caught;
+	}
+	expect(error).toBeInstanceOf(Error);
+	const messages: string[] = [];
+	for (let current = error; current instanceof Error; current = current.cause) {
+		messages.push(current.message);
+	}
+	expect(messages.join("\n")).toMatch(
+		/UNIQUE constraint failed|duplicate key value violates unique constraint/,
+	);
+}
 
 for (const store of ["d1", "postgres"] as const) {
 	describe(`Organization queries: ${store}`, () => {
@@ -354,6 +373,95 @@ for (const store of ["d1", "postgres"] as const) {
 				purposeCharter: { id: "charter-2" },
 				drift: { openWorkCount: 1, unlinkedOpenWorkCount: 1 },
 			});
+		});
+
+		it("enforces canonical member and active charter uniqueness", async () => {
+			const now = "2026-11-27T00:00:00.000Z";
+			await db.insert(coreTable(db, organizations)).values([
+				{ id: "org-index-a", name: "Index Alpha", slug: "index-alpha" },
+				{ id: "org-index-b", name: "Index Beta", slug: "index-beta" },
+			]);
+			const memberTable = coreTable(db, organizationMembers);
+			await db.insert(memberTable).values([
+				{
+					id: "member-canonical-a",
+					organizationId: "org-index-a",
+					userId: "canonical-user",
+					descopeUserId: "subject-a",
+					email: "canonical-a@example.test",
+				},
+				{
+					id: "member-null-a1",
+					organizationId: "org-index-a",
+					descopeUserId: "subject-null-a1",
+					email: "null-a1@example.test",
+				},
+				{
+					id: "member-null-a2",
+					organizationId: "org-index-a",
+					descopeUserId: "subject-null-a2",
+					email: "null-a2@example.test",
+				},
+				{
+					id: "member-canonical-b",
+					organizationId: "org-index-b",
+					userId: "canonical-user",
+					descopeUserId: "subject-b",
+					email: "canonical-b@example.test",
+				},
+			]);
+			await expectUniqueViolation(
+				db.insert(memberTable).values({
+					id: "member-canonical-duplicate",
+					organizationId: "org-index-a",
+					userId: "canonical-user",
+					descopeUserId: "subject-duplicate",
+					email: "duplicate@example.test",
+				}),
+			);
+
+			const charterTable = coreTable(db, organizationPurposeCharters);
+			const charter = (
+				id: string,
+				orgId: string,
+				version: number,
+				status: "active" | "superseded",
+			) => ({
+				id,
+				orgId,
+				version,
+				status,
+				purpose: "Purpose",
+				principles: [],
+				strategicTheses: [],
+				nonGoals: [],
+				evidenceRefs: [],
+				revisionReason: "Test",
+				createdAt: now,
+				activatedAt: now,
+				supersededAt: status === "superseded" ? now : null,
+			});
+			await db
+				.insert(charterTable)
+				.values([
+					charter("charter-index-a-1", "org-index-a", 1, "active"),
+					charter("charter-index-b-1", "org-index-b", 1, "active"),
+				]);
+			await expectUniqueViolation(
+				db
+					.insert(charterTable)
+					.values(charter("charter-index-a-2", "org-index-a", 2, "active")),
+			);
+			await db
+				.insert(charterTable)
+				.values([
+					charter("charter-index-a-3", "org-index-a", 3, "superseded"),
+					charter("charter-index-a-4", "org-index-a", 4, "superseded"),
+				]);
+			const charters = await db.select().from(charterTable);
+			expect(
+				charters.filter((row) => row.orgId === "org-index-a"),
+			).toHaveLength(3);
 		});
 
 		it("isolates secret names and excludes encrypted values from metadata lists", async () => {

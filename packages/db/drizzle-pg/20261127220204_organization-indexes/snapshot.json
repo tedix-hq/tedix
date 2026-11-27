@@ -1,0 +1,107 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "df3d161d-b8c4-4d20-8e2d-5dd6bdfaa744",
+	"prevIds": ["818aa66c-daf8-45ee-aedf-5c037d2a6526"],
+	"footprints": [
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"organization_members",
+				"uniq_org_member_user"
+			],
+			"writes": [
+				"s|idx|public.uniq_org_member_user",
+				"n|idx|public.uniq_org_member_user",
+				"e|idx|public.uniq_org_member_user",
+				"n|rel|public.uniq_org_member_user"
+			],
+			"reads": [
+				"n|tbl|public.organization_members",
+				"n|sch|public",
+				"n|col|public.organization_members.organization_id",
+				"n|col|public.organization_members.user_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"organization_purpose_charters",
+				"uniq_org_purpose_active"
+			],
+			"writes": [
+				"s|idx|public.uniq_org_purpose_active",
+				"n|idx|public.uniq_org_purpose_active",
+				"e|idx|public.uniq_org_purpose_active",
+				"n|rel|public.uniq_org_purpose_active"
+			],
+			"reads": [
+				"n|tbl|public.organization_purpose_charters",
+				"n|sch|public",
+				"n|col|public.organization_purpose_charters.org_id"
+			]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "organization_members",
+				"name": "uniq_org_member_user",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "user_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": "\"user_id\" IS NOT NULL",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "organization_purpose_charters",
+				"name": "uniq_org_purpose_active",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "org_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": "\"status\" = 'active'",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		}
+	]
+}

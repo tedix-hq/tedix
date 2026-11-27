@@ -99,8 +99,6 @@
 	"memory_facts.idx_memory_facts_expertise_live: expression or partial index must be ported by its lane",
 	"memory_facts.idx_memory_facts_org_current_sample: expression or partial index must be ported by its lane",
 	"memory_facts.idx_memory_facts_org_lifecycle: expression or partial index must be ported by its lane",
-	"organization_members.uniq_org_member_user: expression or partial index must be ported by its lane",
-	"organization_purpose_charters.uniq_org_purpose_active: expression or partial index must be ported by its lane",
 	"organizations.organizations_descope_tenant_id_unique: expression or partial index must be ported by its lane",
 	"os_gadget_executions.idx_os_gadget_executions_inline_bodies: expression or partial index must be ported by its lane",
 	"os_gadget_executions.idx_os_gadget_executions_org_workspace_environment_latest: expression or partial index must be ported by its lane",
