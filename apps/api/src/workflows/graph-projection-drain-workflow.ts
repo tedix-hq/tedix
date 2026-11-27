@@ -17,7 +17,7 @@ import {
 	type WorkflowStepConfig,
 } from "cloudflare:workers";
 import { coreDb } from "@tedix/db/core-store/scope";
-import { createDbClient } from "@tedix/db/client";
+import type { DbClient } from "@tedix/db/client";
 import {
 	acquireGraphProjectionLease,
 	confirmGraphProjectionReadyWithoutBacklog,
@@ -342,7 +342,7 @@ function entityDeleteEvent(event: GraphProjectionOutboxEvent): SyncEvent {
 }
 
 async function hydrateEntityProjectionEvent(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	event: GraphProjectionOutboxEvent,
 	projectionEpoch: string,
 ): Promise<SyncEvent> {
@@ -370,7 +370,7 @@ async function hydrateEntityProjectionEvent(
 }
 
 async function hydrateBatch(
-	d1: D1Database,
+	db: DbClient,
 	events: GraphProjectionOutboxEvent[],
 	projectionEpoch: string,
 ): Promise<SyncEvent[]> {
@@ -381,11 +381,7 @@ async function hydrateBatch(
 	const results =
 		coreEvents.length === 0
 			? []
-			: await hydrateCanonicalGraphProjectionRows(
-					createDbClient(d1),
-					coreEvents,
-				);
-	const db = createDbClient(d1);
+			: await hydrateCanonicalGraphProjectionRows(db, coreEvents);
 	let coreIndex = 0;
 	const hydratedEvents = await Promise.all(
 		events.map(async (event) => {
@@ -567,7 +563,7 @@ export class GraphProjectionDrainWorkflow extends WorkflowEntrypoint<
 				// deeply recursive and instantiating it on every step body is what
 				// the compiler cannot afford.
 				step.do(name, options, body as () => Promise<never>) as Promise<T>,
-			hydrate: (events) => hydrateBatch(this.env.DB, events, projectionEpoch),
+			hydrate: (events) => hydrateBatch(db, events, projectionEpoch),
 			project: (events) => processProjectionBatch(events, writer),
 			onAbort: async (stop, context) => {
 				const reason = degradedReadinessReason(stop);
