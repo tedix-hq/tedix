@@ -20,6 +20,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
 import { chunkForBoundParams } from "../utils/batch";
 import {
 	type WorkstationLeaseRow,
@@ -27,6 +28,7 @@ import {
 	type WorkstationRow,
 	type WorkstationSessionRow,
 	workstationLeases,
+	workstationLeases as schemaWorkstationLeases,
 	workstationParticipants,
 	workstationSessions,
 	workstations,
@@ -1537,6 +1539,7 @@ export async function listReapableWorkstationBodies(
 	db: DbClient,
 	options: { limit: number },
 ): Promise<ReapableWorkstationBody[]> {
+	const workstationLeases = coreTable(db, schemaWorkstationLeases);
 	const live = alias(workstationLeases, "live_lease");
 	const rows = await db
 		.select({

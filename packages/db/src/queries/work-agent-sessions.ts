@@ -19,6 +19,8 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonRead } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { prefixedColumns } from "../utils/select";
 import {
@@ -27,6 +29,7 @@ import {
 	type WorkAgentSessionRow,
 	type WorkAgentSessionState,
 	workAgentSessions,
+	workAgentSessions as schemaWorkAgentSessions,
 } from "../schema/work-agent-sessions";
 import { projects } from "../schema/projects";
 import { workAttempts, workItems } from "../schema/work-items";
@@ -71,6 +74,19 @@ export async function reportWorkAgentSessionStatus(
 	db: DbQueryClient,
 	params: ReportWorkAgentSessionStatusParams,
 ): Promise<ReportWorkAgentSessionStatusResult> {
+	const workAgentSessions = coreTable(db, schemaWorkAgentSessions);
+	const pg = coreStore(db) === "postgres";
+	const stored = workAgentSessions.telemetry;
+	const incoming = sql`excluded.telemetry`;
+	const heartbeatAt = (telemetry: typeof incoming | typeof stored) =>
+		jsonRead(db, telemetry, ["heartbeatAt"]);
+	const source = (telemetry: typeof incoming | typeof stored) =>
+		jsonRead(db, telemetry, ["source"]);
+	const storedBrief = jsonRead(db, stored, ["brief"], "json");
+	// A hook report keeps the wrapper's brief and wrapper source.
+	const wrapperTelemetry = pg
+		? sql`jsonb_set(jsonb_set(${incoming}, '{brief}', coalesce(${storedBrief}, 'null'::jsonb), true), '{source}', '"wrapper"'::jsonb, true)`
+		: sql`json_set(${incoming}, '$.brief', ${storedBrief}, '$.source', 'wrapper')`;
 	const identity = and(
 		eq(workAgentSessions.organizationId, params.organizationId),
 		eq(workAgentSessions.userId, params.userId),
@@ -139,10 +155,10 @@ export async function reportWorkAgentSessionStatus(
 			],
 			set: {
 				telemetry: sql`CASE
- WHEN excluded.telemetry IS NULL THEN ${workAgentSessions.telemetry}
- WHEN json_extract(${workAgentSessions.telemetry}, '$.heartbeatAt') > json_extract(excluded.telemetry, '$.heartbeatAt') THEN ${workAgentSessions.telemetry}
- WHEN json_extract(${workAgentSessions.telemetry}, '$.source') = 'wrapper' AND json_extract(excluded.telemetry, '$.source') = 'hook' THEN json_set(excluded.telemetry, '$.brief', json_extract(${workAgentSessions.telemetry}, '$.brief'), '$.source', 'wrapper')
- ELSE excluded.telemetry END`,
+ WHEN ${incoming} IS NULL THEN ${stored}
+ WHEN ${heartbeatAt(stored)} > ${heartbeatAt(incoming)} THEN ${stored}
+ WHEN ${source(stored)} = 'wrapper' AND ${source(incoming)} = 'hook' THEN ${wrapperTelemetry}
+ ELSE ${incoming} END`,
 				label: sql`CASE WHEN excluded.label = '' THEN ${workAgentSessions.label} ELSE excluded.label END`,
 				projectId: sql`COALESCE(excluded.project_id, ${workAgentSessions.projectId})`,
 				workItemId: sql`COALESCE(excluded.work_item_id, ${workAgentSessions.workItemId})`,
@@ -152,7 +168,7 @@ export async function reportWorkAgentSessionStatus(
 				lastEventAt: sql`excluded.last_event_at`,
 				updatedAt: sql`excluded.updated_at`,
 			},
-			setWhere: sql`excluded.telemetry IS NULL OR ${workAgentSessions.telemetry} IS NULL OR json_extract(${workAgentSessions.telemetry}, '$.heartbeatAt') <= json_extract(excluded.telemetry, '$.heartbeatAt')`,
+			setWhere: sql`${incoming} IS NULL OR ${stored} IS NULL OR ${heartbeatAt(stored)} <= ${heartbeatAt(incoming)}`,
 		})
 		.returning();
 	const current = row ?? (await getWorkAgentSession(db, params));
@@ -424,6 +440,7 @@ export async function listTediLaneSources(
 		.orderBy(desc(workAttempts.startedAt))
 		.limit(200);
 	const runIds = attempts.flatMap((row) => (row.runId ? [row.runId] : []));
+	const callCosts = coreTable(db, tediCallCosts);
 	const costs: Array<typeof tediCallCosts.$inferSelect> = [];
 	const events: Array<typeof tediRuntimeEvents.$inferSelect> = [];
 	for (let i = 0; i < runIds.length; i += 50) {
@@ -432,12 +449,16 @@ export async function listTediLaneSources(
 			// Without the hint SQLite seeks by org and reads the tenant's whole
 			// cost history (~300k rows per call in production) for a few runs.
 			db
-				.select(prefixedColumns(tediCallCosts, "call_cost"))
-				.from(sql`${tediCallCosts} INDEXED BY idx_call_costs_run`)
+				.select(prefixedColumns(callCosts, "call_cost"))
+				.from(
+					coreStore(db) === "postgres"
+						? callCosts
+						: sql`${callCosts} INDEXED BY idx_call_costs_run`,
+				)
 				.where(
 					and(
-						eq(tediCallCosts.orgId, organizationId),
-						inArray(tediCallCosts.runId, ids),
+						eq(callCosts.orgId, organizationId),
+						inArray(callCosts.runId, ids),
 					),
 				)
 				.limit(2000),

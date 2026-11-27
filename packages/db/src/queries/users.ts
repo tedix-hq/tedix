@@ -5,8 +5,15 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import {
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	jsonType,
+} from "../core-store/dialect";
 import type { NewUser, User } from "../schema/users";
-import { users } from "../schema/users";
+import { users as schemaUsers } from "../schema/users";
 import type { ExternalIdentity } from "./principal-identities";
 import {
 	bindPrincipalIdentity,
@@ -33,6 +40,7 @@ export async function updateUserProfile(
 		avatarUrl?: string | null;
 	},
 ): Promise<User | undefined> {
+	const users = coreTable(db, schemaUsers);
 	const now = new Date().toISOString();
 	const [updated] = await db
 		.update(users)
@@ -60,6 +68,7 @@ export async function upsertUser(
 	db: DbClient,
 	data: Omit<NewUser, "createdAt" | "updatedAt">,
 ): Promise<User> {
+	const users = coreTable(db, schemaUsers);
 	const now = new Date().toISOString();
 	const email = data.email.toLowerCase();
 	// Provider profile metadata cannot replace owner-controlled connection policies.
@@ -97,6 +106,13 @@ export async function upsertUser(
 		insertValues.lastLoginAt = data.lastLoginAt;
 	}
 
+	const grantsPath = ["connectionConsumerGrants"];
+	const providerMetadata = jsonParameter(db, profileMetadata);
+	const keptGrants = jsonRead(db, users.metadata, grantsPath, "json");
+	const mergedMetadata =
+		coreStore(db) === "postgres"
+			? sql`jsonb_set(${providerMetadata}, ${`{${grantsPath[0]}}`}::text[], ${keptGrants}, true)`
+			: sql`json_set(json(${providerMetadata}), '$.connectionConsumerGrants', ${keptGrants})`;
 	await db
 		.insert(users)
 		.values(insertValues)
@@ -106,7 +122,7 @@ export async function upsertUser(
 				...update,
 				...(data.metadata != null
 					? {
-							metadata: sql`CASE WHEN json_type(${users.metadata}, '$.connectionConsumerGrants') IS NOT NULL THEN json_set(json(${JSON.stringify(profileMetadata)}), '$.connectionConsumerGrants', json_extract(${users.metadata}, '$.connectionConsumerGrants')) ELSE json(${JSON.stringify(profileMetadata)}) END`,
+							metadata: sql`CASE WHEN ${jsonType(db, users.metadata, grantsPath)} IS NOT NULL THEN ${mergedMetadata} ELSE ${coreStore(db) === "postgres" ? providerMetadata : sql`json(${providerMetadata})`} END`,
 						}
 					: {}),
 			},

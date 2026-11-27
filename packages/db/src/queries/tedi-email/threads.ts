@@ -5,6 +5,7 @@
 import type { SQL } from "drizzle-orm";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreStore } from "../../core-store/dialect";
 import { tediEmailMessages, tediEmailThreads } from "../../schema/tedi-email";
 import { toJsonRecord } from "../../utils/json";
 import { prefixedColumns } from "../../utils/select";
@@ -99,7 +100,9 @@ export async function listTediEmailThreads(
 		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
 		// character subject search failed as a D1_ERROR.
 		conditions.push(
-			sql`instr(lower(${tediEmailThreads.subjectNorm}), lower(${normalizeEmailSubject(input.query)})) > 0`,
+			coreStore(db) === "postgres"
+				? sql`strpos(lower(${tediEmailThreads.subjectNorm}), lower(${normalizeEmailSubject(input.query)})) > 0`
+				: sql`instr(lower(${tediEmailThreads.subjectNorm}), lower(${normalizeEmailSubject(input.query)})) > 0`,
 		);
 	}
 
@@ -193,7 +196,11 @@ export async function searchTediEmail(
 	// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
 	// character search (a pasted subject line) failed as a D1_ERROR.
 	const q = input.query.trim().toLowerCase();
-	const contains = (column: SQL) => sql`instr(lower(${column}), ${q}) > 0`;
+	// Address lists are jsonb on Postgres; search their serialized text.
+	const contains = (column: SQL) =>
+		coreStore(db) === "postgres"
+			? sql`strpos(lower((${column})::text), ${q}) > 0`
+			: sql`instr(lower(${column}), ${q}) > 0`;
 	// `prefixedColumns`, not the bare tables: selecting both under distinct TS
 	// keys still emits their raw column names, so `id`, `organization_id`,
 	// `tedi_id`, `status`, `created_at` and `updated_at` appeared twice and D1

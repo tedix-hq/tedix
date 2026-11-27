@@ -7,7 +7,8 @@ import type {
 	MemoryRevision,
 	MemoryWriteInput,
 } from "@tedix/agent-governance/types";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { coreStore, jsonParameter } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import {
 	tediMemoryDocuments,
@@ -215,7 +216,11 @@ export class TediMemoryAdapter implements MemoryAdapter {
 				and(
 					this.predicate(),
 					eq(tediMemoryDocuments.id, revisionId),
-					sql`${tediMemoryDocuments.revision} IS ${row.revision === null ? null : JSON.stringify(row.revision)}`,
+					row.revision === null
+						? isNull(tediMemoryDocuments.revision)
+						: coreStore(this.db) === "postgres"
+							? sql`${tediMemoryDocuments.revision} = ${jsonParameter(this.db, row.revision)}`
+							: sql`${tediMemoryDocuments.revision} = ${JSON.stringify(row.revision)}`,
 				),
 			)
 			.returning({ id: tediMemoryDocuments.id });

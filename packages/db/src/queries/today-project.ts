@@ -1,5 +1,16 @@
-import { and, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
+import {
+	and,
+	eq,
+	gte,
+	inArray,
+	lt,
+	ne,
+	sql,
+	type SQLWrapper,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { osWorkspaceProjects, osWorkspaces } from "../schema/os-workspaces";
 import {
@@ -25,8 +36,16 @@ export async function getTodayProjectTotals(
 	lastTouched: string | null;
 	receiptsJson: string;
 }> {
-	const i = alias(workInteractions, "i");
-	const w = alias(workItems, "w");
+	const pg = coreStore(db) === "postgres";
+	// Stored timestamps mix ISO and SQLite text; compare and emit them as UTC ISO.
+	const instant = (value: SQLWrapper | string) =>
+		pg ? sql`(${value})::timestamptz` : sql`julianday(${value})`;
+	const isoText = (value: SQLWrapper) =>
+		pg
+			? sql`to_char((${value}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
+			: sql`strftime('%Y-%m-%dT%H:%M:%fZ',${value})`;
+	const i = alias(coreTable(db, workInteractions), "i");
+	const w = alias(coreTable(db, workItems), "w");
 	const requests = db.$with("requests").as(
 		db
 			.select({
@@ -46,9 +65,9 @@ export async function getTodayProjectTotals(
 				),
 			),
 	);
-	const o = alias(workspaceOutputIndex, "o");
-	const l = alias(osWorkspaceProjects, "l");
-	const s = alias(osWorkspaces, "s");
+	const o = alias(coreTable(db, workspaceOutputIndex), "o");
+	const l = alias(coreTable(db, osWorkspaceProjects), "l");
+	const s = alias(coreTable(db, osWorkspaces), "s");
 	// CROSS JOIN fixes the loop order: the project's workspace links drive the
 	// workspace and output seeks. Starting from workspace_output_index made the
 	// planner scan every index row of the organization (15k rows a call on
@@ -58,10 +77,9 @@ export async function getTodayProjectTotals(
 			.selectDistinct({
 				id: sql<string>`${o.outputId}`.as("id"),
 				title: sql<string>`${o.title}`.as("title"),
-				updatedAt:
-					sql<string>`strftime('%Y-%m-%dT%H:%M:%fZ',${o.updatedAt})`.as(
-						"updated_at",
-					),
+				updatedAt: sql<string>`${isoText(
+					pg ? instant(o.updatedAt) : o.updatedAt,
+				)}`.as("updated_at"),
 			})
 			.from(l)
 			.crossJoin(s)
@@ -84,7 +102,7 @@ export async function getTodayProjectTotals(
 				),
 			),
 	);
-	const a = alias(workApprovalProposals, "a");
+	const a = alias(coreTable(db, workApprovalProposals), "a");
 	const approvals = db.$with("approvals").as(
 		db
 			.select({
@@ -104,7 +122,7 @@ export async function getTodayProjectTotals(
 			),
 	);
 	const resolvedInWindow = (resolvedAt: typeof requests.resolvedAt) =>
-		sql`julianday(${resolvedAt})>=julianday(${p.since}) AND julianday(${resolvedAt})<julianday(${p.until})`;
+		sql`${instant(resolvedAt)}>=${instant(p.since)} AND ${instant(resolvedAt)}<${instant(p.until)}`;
 	const decidedRequests = db
 		.select({ n: sql<number>`count(*)` })
 		.from(requests)
@@ -138,17 +156,17 @@ export async function getTodayProjectTotals(
 	const rows = await db
 		.with(requests, documents, approvals)
 		.select({
-			decisions: sql<number>`${decidedRequests} + ${decidedApprovals}`.as(
-				"decisions",
-			),
-			documents: sql<number>`count(*)`.as("documents"),
-			receiptsJson:
-				sql<string>`json_group_array(json_object('id',${documents.id},'title',${documents.title},'at',${documents.updatedAt},'source','/outputs/'||${documents.id}))`.as(
-					"receiptsJson",
-				),
+			decisions: sql<number>`${decidedRequests} + ${decidedApprovals}`
+				.mapWith(Number)
+				.as("decisions"),
+			documents: sql<number>`count(*)`.mapWith(Number).as("documents"),
+			receiptsJson: (pg
+				? sql<string>`coalesce(json_agg(json_build_object('id',${documents.id},'title',${documents.title},'at',${documents.updatedAt},'source','/outputs/'||${documents.id}))::text,'[]')`
+				: sql<string>`json_group_array(json_object('id',${documents.id},'title',${documents.title},'at',${documents.updatedAt},'source','/outputs/'||${documents.id}))`
+			).as("receiptsJson"),
 			lastTouched: sql<string | null>`${db
 				.select({
-					at: sql`strftime('%Y-%m-%dT%H:%M:%fZ',max(julianday(${touches.at})))`,
+					at: isoText(sql`max(${instant(touches.at)})`),
 				})
 				.from(touches)}`.as("lastTouched"),
 		})

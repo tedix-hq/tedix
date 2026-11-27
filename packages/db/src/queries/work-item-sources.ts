@@ -275,7 +275,7 @@ export async function listWorkItemSources(
 		.offset(offset);
 
 	const [counted] = await db
-		.select({ total: sql<number>`count(*)` })
+		.select({ total: sql<number>`count(*)`.mapWith(Number) })
 		.from(workItemSources)
 		.where(where);
 

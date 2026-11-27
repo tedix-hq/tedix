@@ -18,12 +18,20 @@ import {
 	or,
 	sql,
 	type SQL,
+	type SQLWrapper,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import {
+	booleanValue,
+	coreStore,
+	jsonRead,
+	unixTime,
+} from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
-import { runtimeProfiles } from "../schema/control-plane";
+import { runtimeProfiles as schemaRuntimeProfiles } from "../schema/control-plane";
 import { organizationMembers } from "../schema/organization-members";
-import { tediRoleAssignments } from "../schema/earned-delegation";
+import { tediRoleAssignments as schemaTediRoleAssignments } from "../schema/earned-delegation";
 import {
 	type NewTedi,
 	type NewTediCustomDomain,
@@ -41,6 +49,7 @@ import {
 	tediRuntimeLeases,
 	tediRuntimeSnapshots,
 	tedis,
+	tedis as schemaTedis,
 	tediUsageEvents,
 } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
@@ -59,7 +68,7 @@ import { getAffectedRows } from "../utils/d1-result";
  * the cron probes health and calls TEDI_SERVICE.fetch to wake.
  *
  * Filters on the JSON path `runtime_profiles.config.runtimePolicy.alwaysOn`
- * via D1's `json_extract`. Tedis without an assigned profile (FK NULL) are
+ * through jsonRead. Tedis without an assigned profile (FK NULL) are
  * excluded, and so are retired tedis — retirement keeps the row (and its
  * memory) alive, so without this predicate the keepalive cron would keep
  * resurrecting workers their organization has already retired.
@@ -67,13 +76,15 @@ import { getAffectedRows } from "../utils/d1-result";
 export async function getAlwaysOnTedis(
 	db: DbClient,
 ): Promise<Array<{ id: string; slug: string }>> {
+	const tedis = coreTable(db, schemaTedis);
+	const runtimeProfiles = coreTable(db, schemaRuntimeProfiles);
 	const rows = await db
 		.select({ id: tedis.id, slug: tedis.slug })
 		.from(tedis)
 		.innerJoin(runtimeProfiles, eq(tedis.runtimeProfileId, runtimeProfiles.id))
 		.where(
 			and(
-				sql`json_extract(${runtimeProfiles.config}, '$.runtimePolicy.alwaysOn') = 1`,
+				sql`${jsonRead(db, runtimeProfiles.config, ["runtimePolicy", "alwaysOn"], "boolean")} = ${booleanValue(db, true)}`,
 				isNull(tedis.retiredAt),
 			),
 		);
@@ -203,6 +214,12 @@ export async function listTediRoster(
 		includeRetired?: boolean;
 	},
 ): Promise<{ data: Tedi[]; total: number }> {
+	const tedis = coreTable(db, schemaTedis);
+	const tediRoleAssignments = coreTable(db, schemaTediRoleAssignments);
+	const contains = (column: SQLWrapper, term: string) =>
+		coreStore(db) === "postgres"
+			? sql`strpos(lower(${column}), lower(${term})) > 0`
+			: sql`instr(lower(${column}), lower(${term})) > 0`;
 	const conditions: SQL[] = [
 		eq(tedis.organizationId, options.organizationId),
 		options.includeRetired
@@ -227,17 +244,17 @@ export async function listTediRoster(
 					eq(tediRoleAssignments.tediId, tedis.id),
 					eq(tediRoleAssignments.status, "active"),
 					or(
-						sql`instr(lower(${tediRoleAssignments.roleName}), lower(${term})) > 0`,
-						sql`instr(lower(${tediRoleAssignments.careerStage}), lower(${term})) > 0`,
+						contains(tediRoleAssignments.roleName, term),
+						contains(tediRoleAssignments.careerStage, term),
 					),
 				),
 			);
 		conditions.push(
 			or(
-				sql`instr(lower(${tedis.displayName}), lower(${term})) > 0`,
-				sql`instr(lower(${tedis.name}), lower(${term})) > 0`,
-				sql`instr(lower(${tedis.slug}), lower(${term})) > 0`,
-				sql`instr(lower(${tedis.personality}), lower(${term})) > 0`,
+				contains(tedis.displayName, term),
+				contains(tedis.name, term),
+				contains(tedis.slug, term),
+				contains(tedis.personality, term),
 				exists(matchingRole),
 			)!,
 		);
@@ -523,6 +540,7 @@ export async function updateTediHeartbeat(
 		runtimeStatus === "sleeping" ||
 		runtimeStatus === "unknown" ||
 		runtimeStatus === "error";
+	const tedis = coreTable(db, schemaTedis);
 
 	await db
 		.update(tedis)
@@ -540,7 +558,7 @@ export async function updateTediHeartbeat(
 					? sql`NOT (
 							${tedis.runtimeStatus} IN ('running', 'starting')
 							AND ${tedis.lastSeenAt} IS NOT NULL
-							AND unixepoch(replace(${tedis.lastSeenAt}, 'T', ' ')) > unixepoch(replace(${observedAt}, 'T', ' '))
+							AND ${unixTime(db, sql`replace(${tedis.lastSeenAt}, 'T', ' ')`)} > ${unixTime(db, sql`replace(${observedAt}, 'T', ' ')`)}
 						)`
 					: sql`1 = 1`,
 			),
