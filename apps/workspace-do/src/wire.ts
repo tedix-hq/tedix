@@ -709,6 +709,8 @@ export function stepLabel(
 			publishDraft: "Publishing an app draft",
 			writeFile: "Writing an app draft file",
 			restoreVersion: "Staging an earlier app version",
+			operations: "Looking up an app's steps",
+			run: "Running an app step",
 		},
 		resources: {
 			list: "Checking connections",
@@ -768,6 +770,7 @@ export function stepLabel(
 				"publishDraft",
 				"registerSchedule",
 				"allowRead",
+				"run",
 			].includes(method)) ||
 		(binding === "work" &&
 			["startRun", "sendRunMessage", "stopRun", "comment", "accept"].includes(

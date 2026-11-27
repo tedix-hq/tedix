@@ -7568,6 +7568,18 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	publishDraft(...args: unknown[]) {
 		return this.#call("publishDraft", args);
 	}
+	operations(...args: unknown[]) {
+		return this.#call("operations", args);
+	}
+	available(...args: unknown[]) {
+		return this.#call("available", args);
+	}
+	requestLink(...args: unknown[]) {
+		return this.#call("requestLink", args);
+	}
+	run(...args: unknown[]) {
+		return this.#call("run", args);
+	}
 	writeFile(...args: unknown[]) {
 		return this.#call("writeFile", args);
 	}

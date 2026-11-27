@@ -573,3 +573,29 @@ test("connection proposals validate all choices without linking any source", asy
 		),
 	).toBe(true);
 });
+
+test("every chat binding method is reachable from the agent's sandbox", async () => {
+	const source = await Bun.file(new URL("./do.ts", import.meta.url)).text();
+	const loopback = source.slice(
+		source.indexOf("export class WorkspaceBindingLoopback"),
+	);
+	const reachable = new Set(
+		[...loopback.matchAll(/^\t(\w+)\(\.\.\.args: unknown\[\]\)/gm)].map(
+			(match) => match[1],
+		),
+	);
+	const env = buildWorkspaceBindings({
+		data: fakeData(),
+		...createInMemoryAdapters(),
+		actor: { id: "u1", kind: "user", organizationId: "o" },
+		source: { surface: "workspace_object", traceId: "t" },
+	}) as unknown as Record<string, Record<string, unknown>>;
+	const missing = Object.entries(env).flatMap(([binding, methods]) =>
+		Object.keys(methods ?? {})
+			.filter((method) => typeof methods[method] === "function")
+			.map((method) => (method === "fetch" ? "fetchPage" : method))
+			.filter((method) => !reachable.has(method))
+			.map((method) => `${binding}.${method}`),
+	);
+	expect(missing).toEqual([]);
+});
