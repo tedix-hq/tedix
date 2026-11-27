@@ -76,7 +76,7 @@ export interface TediEnv {
 
 	// Core store bindings (Postgres lane): CORE_STORE=postgres swaps DB for
 	// CORE_HYPERDRIVE; all core access goes through coreDb(env).
-	CORE_STORE?: "d1" | "postgres";
+	CORE_STORE?: string;
 	CORE_HYPERDRIVE?: Pick<Hyperdrive, "connectionString">;
 }
 

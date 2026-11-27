@@ -10,7 +10,8 @@ import { postgresBatch, type BatchResult, type RunAtomicBatch } from "./batch";
 import { registerCoreStore } from "./dialect";
 
 export interface CoreStoreEnv {
-	CORE_STORE?: "d1" | "postgres";
+	/** "d1" (default) or "postgres"; a Worker var, so typed as string and checked here. */
+	CORE_STORE?: string;
 	DB?: D1Database;
 	CORE_HYPERDRIVE?: Pick<Hyperdrive, "connectionString">;
 }

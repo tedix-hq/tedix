@@ -27,6 +27,7 @@
 		"port": 8787,
 	},
 	"vars": {
+		"CORE_STORE": "d1",
 		"ENVIRONMENT": "development",
 		"TEDI_R2_BUCKET_NAME": "configured-via-private-overlay",
 		"SKILL_ARTIFACTS_BUCKET_NAME": "configured-via-private-overlay",
@@ -482,6 +483,7 @@
 				],
 			},
 			"vars": {
+				"CORE_STORE": "d1",
 				"ENVIRONMENT": "production",
 				"TEDI_R2_BUCKET_NAME": "configured-via-private-overlay",
 				"SKILL_ARTIFACTS_BUCKET_NAME": "configured-via-private-overlay",
@@ -542,6 +544,12 @@
 				"GRAPH_DB_URI": "configured-via-private-overlay",
 				"GRAPH_DB_USER": "configured-via-private-overlay",
 			},
+			"hyperdrive": [
+				{
+					"binding": "CORE_HYPERDRIVE",
+					"id": "00000000000000000000000000000000",
+				},
+			],
 			"d1_databases": [
 				{
 					"binding": "DB",

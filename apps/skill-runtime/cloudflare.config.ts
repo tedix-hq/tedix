@@ -69,6 +69,20 @@ export default defineConfig(({ mode }) => {
 					}),
 					dev: { remote: remoteDev },
 				}),
+				// Core tables stay on D1 while CORE_STORE is "d1"; "postgres" switches
+				// them to this Hyperdrive config. Only production binds it, so local
+				// and development lanes need no Postgres.
+				...(production
+					? {
+							CORE_HYPERDRIVE: bindings.hyperdrive({
+								id: live.hyperdrive(
+									"hyperdrive",
+									"00000000000000000000000000000000",
+								),
+							}),
+						}
+					: {}),
+				CORE_STORE: bindings.text("d1"),
 				// Step outputs over 16 KiB, keyed by {runId}/{path}; smaller payloads
 				// stay inline in skill_run_artifacts.content_inline.
 				SKILL_ARTIFACTS: bindings.r2({

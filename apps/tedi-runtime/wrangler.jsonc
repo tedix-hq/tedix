@@ -28,6 +28,7 @@
 		"inspector_port": 19242,
 	},
 	"vars": {
+		"CORE_STORE": "d1",
 		"ENVIRONMENT": "development",
 		"TEDI_STORAGE_BUCKET_NAME": "configured-via-private-overlay",
 		"GIT_SHA": "configured-via-private-overlay",
@@ -190,6 +191,7 @@
 		"development": {
 			"workers_dev": false,
 			"vars": {
+				"CORE_STORE": "d1",
 				"ENVIRONMENT": "development",
 				"TEDI_STORAGE_BUCKET_NAME": "configured-via-private-overlay",
 				"GIT_SHA": "configured-via-private-overlay",
@@ -358,6 +360,7 @@
 				},
 			],
 			"vars": {
+				"CORE_STORE": "d1",
 				"ENVIRONMENT": "production",
 				"TEDI_STORAGE_BUCKET_NAME": "configured-via-private-overlay",
 				"GIT_SHA": "configured-via-private-overlay",
@@ -494,6 +497,12 @@
 					"binding": "ARTIFACTS",
 					"namespace": "public-installation-namespace",
 					"remote": false,
+				},
+			],
+			"hyperdrive": [
+				{
+					"binding": "CORE_HYPERDRIVE",
+					"id": "00000000000000000000000000000000",
 				},
 			],
 			"d1_databases": [

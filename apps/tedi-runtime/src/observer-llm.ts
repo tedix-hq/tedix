@@ -18,7 +18,7 @@ import { workersAiClient, type WorkersAiRuntimeEnv } from "./workers-ai-client";
 export type ObserverEnv = ObserverCallOptions["env"] &
 	WorkersAiRuntimeEnv & {
 		DB?: D1Database;
-		CORE_STORE?: "d1" | "postgres";
+		CORE_STORE?: string;
 		CORE_HYPERDRIVE?: Pick<Hyperdrive, "connectionString">;
 	};
 
