@@ -702,10 +702,46 @@ export function plainSentence(line: string): boolean {
  */
 class StepFailure extends Error {
 	constructor(readonly detail: string) {
-		super(
-			"This did not finish. Try again; if it fails again, choose Get help in Settings.",
-		);
+		super(plainFailure(detail));
 	}
+}
+
+/** Why a command failed, in words a person can act on. */
+export function plainFailure(detail: string): string {
+	const why: [RegExp, string][] = [
+		[
+			/ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|getaddrinfo|fetch failed|network|offline/i,
+			"Tedix could not reach the internet. Check your connection, then try again.",
+		],
+		[
+			/EACCES|EPERM|permission denied|operation not permitted|not allowed/i,
+			"Your Mac did not allow the change. Check that your Mac account can change this app's settings, then try again.",
+		],
+		[
+			/\b401\b|\b403\b|unauthori[sz]ed|forbidden|not signed in|sign in again|login required/i,
+			"The sign-in was not accepted. Sign in again, then try again.",
+		],
+		[
+			/timed? ?out|took too long/i,
+			"This took too long and was stopped. Try again.",
+		],
+		[
+			/ENOSPC|no space left/i,
+			"Your Mac is out of disk space. Free some space, then try again.",
+		],
+		[
+			/ENOENT|command not found|no such file|not installed/i,
+			"A program Tedix needs was not found. Update the app, then try again.",
+		],
+		[
+			/EBUSY|locked|in use|another process/i,
+			"Another program was changing the same settings. Wait a moment, then try again.",
+		],
+	];
+	return (
+		why.find(([pattern]) => pattern.test(detail))?.[1] ??
+		"This did not finish. Try again; if it fails again, choose Get help in Settings."
+	);
 }
 
 async function readSignIn(): Promise<void> {

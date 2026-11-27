@@ -1687,6 +1687,7 @@ function setMenu(): void {
 					{ type: "separator" },
 					settingsItem,
 					{ label: "Set up this Mac…", click: () => openSetup() },
+					{ label: "Check this Mac…", click: checkThisMac },
 					{ type: "separator" },
 					...(mac
 						? [
@@ -1912,6 +1913,16 @@ let quitAsking = false;
 
 let tray: Tray | undefined;
 
+/**
+ * Check this Mac: opens Settings where the result shows and runs every setup
+ * check again; the row names the first thing to fix.
+ */
+function checkThisMac(): void {
+	log("check: Check this Mac chosen");
+	openSettings("general");
+	void refreshSetup(true);
+}
+
 /** Right click on the menu bar icon. */
 function trayMenu(): Menu {
 	return Menu.buildFromTemplate([
@@ -1925,6 +1936,7 @@ function trayMenu(): Menu {
 		runnersItem(),
 		{ type: "separator" },
 		...updateItems(false),
+		{ label: "Check this Mac…", click: checkThisMac },
 		{ label: "Settings…", click: () => openSettings() },
 		{ type: "separator" },
 		{ label: "Quit Tedix", click: () => quitFrom("the menu bar icon") },

@@ -61,6 +61,12 @@ alert that says the app is damaged or will damage your computer. See
 [Apple's guide to safely opening apps](https://support.apple.com/en-us/102445)
 for more about these warnings.
 
+If something stops working, choose **Check this Mac** in the menu bar menu,
+the Tedix menu or Settings → General. Tedix checks its command-line tool,
+your sign-in, each agent's connection and hooks, session reporting, tasks
+and your project folder, then names the first thing to fix with a button
+that fixes it.
+
 You can connect an app later in **Settings → Agents**. To start over with an
 app, choose **Remove Tedix** on its row, then **Connect**. Tedix asks first
 and switches that app off for tasks. Removing Tedix ends only that install's

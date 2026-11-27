@@ -4,11 +4,13 @@ import {
 	CHAT_CONNECTED,
 	CHATGPT_CHAT_SUB,
 	CLAUDE_PLUGIN_SUB,
+	checkAgain,
 	chatgptChatSteps,
 	claudePluginSteps,
 	foundTools,
 	keepFocus,
 	namedAgentTool,
+	nextFix,
 	onButtonsChange,
 	openAgentApp,
 	TOOL_APPS,
@@ -311,6 +313,25 @@ function screenFor(id: StepId, now: PanelState): Screen {
 		? ""
 		: app.name.trim().split(/\s+/)[0];
 	const looking = now.setup.looking;
+	// Check this Mac: the first thing to fix, once the apps were looked at.
+	if (rows.length && !looking) {
+		const next = nextFix(now);
+		rows.push(
+			row({
+				key: "check",
+				icon: "laptop",
+				title: next?.text ?? "Everything on this Mac works",
+				sub: "",
+				control: el(
+					"span",
+					"",
+					next?.fix,
+					!next?.fix?.classList.contains("recheck") &&
+						checkAgain("Check this Mac"),
+				),
+			}),
+		);
+	}
 	return {
 		headline: "Add Tedix to your apps",
 		sentence: el(

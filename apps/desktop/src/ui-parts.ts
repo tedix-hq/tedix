@@ -563,6 +563,99 @@ export function toolView(
 	return { ...base, ready: true, sub: "Running tasks" };
 }
 
+/**
+ * Check this Mac: the first thing on this Mac to fix, in one plain sentence,
+ * and the button that fixes it. The checks run in the order things depend on
+ * each other: the command-line tool, sign-in, Tedix reachable, each connected
+ * agent (plugin, connection, hooks), session reporting, tasks, the folder.
+ * Undefined: everything checked works.
+ */
+export function nextFix(
+	state: PanelState,
+): { text: string; fix?: HTMLElement } | undefined {
+	const { setup } = state;
+	const step = (key: string) => setup.steps[key]?.error;
+	if (setup.cli.kind === "missing")
+		return {
+			text: "Tedix could not set up its command-line tool. Quit and open Tedix again; if this stays, install the app again.",
+		};
+	if (setup.app.state === "out")
+		return {
+			text: "Sign in to Tedix.",
+			fix: button("Sign in", "plain", () => act("app-sign-in"), false, {
+				pending: "Signing in…",
+				key: "app-sign-in",
+			}),
+		};
+	if (!setup.signedIn && state.status.runners.some((runner) => runner.enabled))
+		return {
+			text: "This Mac's Tedix sign-in ended, so tasks wait. Sign in again.",
+			fix: button("Sign in again", "plain", () => act("sign-in"), false, {
+				pending: "Signing in…",
+				key: "sign-in",
+			}),
+		};
+	if (setup.reach === "unavailable")
+		return {
+			text: "Tedix could not be reached. Check your connection, then check again.",
+			fix: checkAgain(),
+		};
+	// The same agents and rule as the dot on Agents in Settings.
+	for (const tool of foundTools(state)) {
+		const named = namedAgentTool(tool);
+		const view = toolView(state, named);
+		if (view.working) continue;
+		if (view.error)
+			return {
+				text: `${named.name}: ${view.error}`,
+				fix: view.retry
+					? button("Try again", "plain", view.retry)
+					: view.action,
+			};
+		if (view.tone === "warn" || view.tone === "bad")
+			return {
+				text: view.sub.includes(named.name)
+					? view.sub
+					: `${named.name}: ${view.sub}`,
+				fix: view.action,
+			};
+	}
+	const sessions = Object.keys(setup.steps).find(
+		(key) => key.startsWith("sessions") && step(key),
+	);
+	if (sessions)
+		return {
+			text: `Session reporting: ${step(sessions)}`,
+			fix: checkAgain("Try again"),
+		};
+	if (
+		!state.app.paused &&
+		(Boolean(state.app.problem) ||
+			state.status.runners.some(
+				(runner) => runner.enabled && !runner.running && runner.problem,
+			))
+	)
+		return {
+			text: "Tasks are not running on this Mac.",
+			fix: button(
+				"Restart",
+				"plain",
+				() => tedixShell.action("restart"),
+				false,
+				{
+					pending: "Restarting…",
+					key: "runners",
+				},
+			),
+		};
+	if (step("folder"))
+		return {
+			text: step("folder")!,
+			fix: button("Choose folder", "plain", () => act("choose-folder")),
+		};
+	return undefined;
+}
+
 /** Switches a tool's tasks on or off; only that tool's runner changes. */
 export function useForTasks(
 	state: PanelState,

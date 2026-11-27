@@ -15,6 +15,7 @@ import {
 	chatgptChatSteps,
 	type Child,
 	checkAgain,
+	nextFix,
 	CLAUDE_PLUGIN_SUB,
 	claudePluginSteps,
 	EXECUTOR_NAMES,
@@ -238,40 +239,39 @@ function versionItem(now: PanelState): Item {
 	};
 }
 
-/** Only a problem earns a row; when all is well there is nothing to say. */
-function problemItem(now: PanelState): Item | undefined {
+/**
+ * Check this Mac: runs every setup check again and says the first thing to
+ * fix in one sentence, with the button that fixes it.
+ */
+function checkItem(now: PanelState): Item {
 	const { cli } = now.setup;
-	const problems = [
-		cli.kind === "missing" &&
-			"Tedix could not finish setting up this Mac. Quit and open Tedix again; if this stays, install the app again.",
-		!(now.setup.signedIn && now.setup.app.state === "in") && "Not signed in.",
-		// Only a check that ran and got no answer; a Mac that is not signed
-		// in is never checked, and "Not signed in." already says so.
-		now.setup.reach === "unavailable" && "Tedix could not be reached.",
-		tasksStopped(now) && "Tasks are not running.",
-	].filter((line): line is string => Boolean(line));
-	if (!problems.length) return undefined;
+	const next = nextFix(now);
 	const details = [
 		`Tedix ${now.app.version}`,
 		now.app.updateFailure,
 		`Command-line tool ${cli.version || "not found"} (${cli.kind})`,
 		now.summary,
 		cli.update?.text,
-		...problems,
+		next?.text,
 		now.setup.reachDetail,
 	]
 		.filter(Boolean)
 		.join("\n");
 	return {
-		title: problems[0]!,
-		tone: "warn",
-		sub: problems.length > 1 ? problems.slice(1).join(" ") : undefined,
+		title: now.setup.looking
+			? "Checking this Mac…"
+			: (next?.text ?? "Everything on this Mac works"),
+		tone: next && !now.setup.looking ? "warn" : undefined,
 		control: [
-			button("Copy details", "quiet", () => tedixShell.copy(details), false, {
-				done: "Copied",
-			}),
+			!now.setup.looking && next?.fix,
+			// A fix that is itself a check makes a second check button needless.
+			!next?.fix?.classList.contains("recheck") && checkAgain("Check this Mac"),
+			next &&
+				button("Copy details", "quiet", () => tedixShell.copy(details), false, {
+					done: "Copied",
+				}),
 		],
-		words: "diagnostics health problem",
+		words: "check this mac diagnostics health problem doctor fix",
 	};
 }
 
@@ -307,7 +307,7 @@ function general(now: PanelState): Group[] {
 	);
 	return [
 		{
-			items: [versionItem(now), problemItem(now)].filter(Boolean) as Item[],
+			items: [versionItem(now), checkItem(now)],
 		},
 		{
 			items: [
