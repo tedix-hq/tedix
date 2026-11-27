@@ -8,8 +8,12 @@
 
 import { and, asc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { type TediSecret, tediSecrets } from "../schema/tedi-secrets";
-import { tedis } from "../schema/tedis";
+import { coreTable } from "../core-store/client";
+import {
+	type TediSecret,
+	tediSecrets as schemaTediSecrets,
+} from "../schema/tedi-secrets";
+import { tedis as schemaTedis } from "../schema/tedis";
 
 // =============================================================================
 // LIST / GET QUERIES
@@ -33,6 +37,7 @@ export async function listTediSecrets(
 		updatedAt: string;
 	}>
 > {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
 	return db
 		.select({
 			id: tediSecrets.id,
@@ -56,6 +61,7 @@ export async function getTediSecret(
 	tediId: string,
 	name: string,
 ): Promise<TediSecret | undefined> {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
 	const rows = await db
 		.select()
 		.from(tediSecrets)
@@ -72,6 +78,7 @@ export async function getTediSecretById(
 	db: DbClient,
 	secretId: string,
 ): Promise<TediSecret | undefined> {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
 	const rows = await db
 		.select()
 		.from(tediSecrets)
@@ -89,6 +96,7 @@ export async function getAllTediSecrets(
 	db: DbClient,
 	tediId: string,
 ): Promise<TediSecret[]> {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
 	return db.select().from(tediSecrets).where(eq(tediSecrets.tediId, tediId));
 }
 
@@ -101,6 +109,8 @@ export async function listTediAccessKeysDueForRotation(
 	db: DbClient,
 	params: { updatedBefore: string; limit: number },
 ) {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
+	const tedis = coreTable(db, schemaTedis);
 	return db
 		.select({
 			tediId: sql<string>`${tedis.id}`.as("rotation_tedi_id"),
@@ -143,6 +153,7 @@ export async function replaceTediAccessKeySecrets(
 		updatedAt: string;
 	},
 ): Promise<void> {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
 	await db.batch([
 		db
 			.update(tediSecrets)
@@ -181,6 +192,7 @@ async function createTediSecret(
 		createdBy: string | null;
 	},
 ): Promise<TediSecret> {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -212,6 +224,7 @@ export async function upsertTediSecret(
 	hint: string | null,
 	createdBy: string | null,
 ): Promise<TediSecret> {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
 	const existing = await getTediSecret(db, tediId, name);
 
 	if (existing) {
@@ -240,6 +253,7 @@ export async function deleteTediSecret(
 	db: DbClient,
 	secretId: string,
 ): Promise<boolean> {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
 	const existing = await getTediSecretById(db, secretId);
 	if (!existing) return false;
 
@@ -256,6 +270,7 @@ export async function upsertTediAccessKeySecrets(
 		encryptedAccessKeyId: string;
 	},
 ): Promise<void> {
+	const tediSecrets = coreTable(db, schemaTediSecrets);
 	const now = new Date().toISOString();
 	const statement = (name: string, encryptedValue: string) =>
 		db

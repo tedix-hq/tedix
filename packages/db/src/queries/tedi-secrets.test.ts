@@ -1,174 +1,247 @@
-import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
-import { createDbClient } from "../client";
+import { fileURLToPath } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { asc, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { createDbClient, type DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { organizations } from "../schema/organizations";
+import { tediSecrets } from "../schema/tedi-secrets";
+import { tedis } from "../schema/tedis";
 import { createD1Facade } from "../test/d1-facade";
+import { createMigratedSqlite } from "../test/migrated-sqlite";
+import { createPGliteFacade } from "../test/pglite-facade";
 import {
+	deleteTediSecret,
+	getAllTediSecrets,
+	getTediSecret,
+	getTediSecretById,
+	listTediSecrets,
 	listTediAccessKeysDueForRotation,
 	replaceTediAccessKeySecrets,
 	upsertTediAccessKeySecrets,
+	upsertTediSecret,
 } from "./tedi-secrets";
 
-function fixture() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(`
-		CREATE TABLE tedis (
-			id TEXT PRIMARY KEY NOT NULL,
-			organization_id TEXT NOT NULL,
-			slug TEXT,
-			descope_user_id TEXT,
-			retired_at TEXT
-		);
-		CREATE TABLE tedi_secrets (
-			id TEXT PRIMARY KEY NOT NULL,
-			tedi_id TEXT NOT NULL,
-			name TEXT NOT NULL,
-			encrypted_value TEXT NOT NULL,
-			hint TEXT,
-			key_version INTEGER NOT NULL DEFAULT 1,
-			created_by TEXT,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
- UNIQUE(tedi_id, name)
-		);
-	`);
-	return { db: createDbClient(createD1Facade(sqlite)), sqlite };
-}
-
-describe("tedi access-key rotation queries", () => {
-	it("discovers only old keys for live identity-backed tedis", async () => {
-		const { db, sqlite } = fixture();
-		for (const row of [
-			["due", "org-1", "cto", "user-1", null],
-			["fresh", "org-1", "cmo", "user-2", null],
-			["retired", "org-1", "old", "user-3", "2026-08-01"],
-			["no-identity", "org-1", "new", null, null],
-		] as const) {
-			sqlite
-				.prepare(
-					"INSERT INTO tedis (id, organization_id, slug, descope_user_id, retired_at) VALUES (?, ?, ?, ?, ?)",
-				)
-				.run(...row);
-		}
-		for (const [id, tediId, updatedAt] of [
-			["secret-due", "due", "2026-05-01T00:00:00.000Z"],
-			["secret-fresh", "fresh", "2026-08-19T00:00:00.000Z"],
-			["secret-retired", "retired", "2026-05-01T00:00:00.000Z"],
-			["secret-no-identity", "no-identity", "2026-05-01T00:00:00.000Z"],
-		] as const) {
-			sqlite
-				.prepare(
-					"INSERT INTO tedi_secrets (id, tedi_id, name, encrypted_value, created_at, updated_at) VALUES (?, ?, 'DESCOPE_ACCESS_KEY', 'encrypted', ?, ?)",
-				)
-				.run(id, tediId, updatedAt, updatedAt);
-		}
-
-		const rows = await listTediAccessKeysDueForRotation(db, {
-			updatedBefore: "2026-06-20T00:00:00.000Z",
-			limit: 25,
+for (const store of ["d1", "postgres"] as const)
+	describe(`tedi secrets (${store})`, () => {
+		let db: DbClient;
+		let close: () => void | Promise<void>;
+		let exec: (ddl: string) => unknown | Promise<unknown>;
+		beforeAll(async () => {
+			if (store === "d1") {
+				const sqlite = createMigratedSqlite();
+				db = createDbClient(createD1Facade(sqlite));
+				close = () => sqlite.close();
+				exec = (ddl) => sqlite.exec(ddl);
+			} else {
+				const fixture = await createPGliteFacade();
+				db = fixture.db;
+				close = fixture.close;
+				exec = (ddl) => fixture.engine.exec(ddl);
+				for (const migration of readMigrationFiles({
+					migrationsFolder: fileURLToPath(
+						new URL("../../drizzle-pg", import.meta.url),
+					),
+				}))
+					for (const ddl of migration.sql) await exec(ddl);
+			}
+			await db
+				.insert(coreTable(db, organizations))
+				.values({ id: "org", name: "Example", slug: "example" });
+			await db.insert(coreTable(db, tedis)).values([
+				{
+					id: "due",
+					organizationId: "org",
+					name: "Due",
+					slug: "due",
+					descopeUserId: "person",
+				},
+				{
+					id: "fresh",
+					organizationId: "org",
+					name: "Fresh",
+					slug: "fresh",
+					descopeUserId: "person",
+				},
+				{
+					id: "retired",
+					organizationId: "org",
+					name: "Retired",
+					slug: "retired",
+					descopeUserId: "person",
+					retiredAt: "2026-08-01",
+				},
+				{
+					id: "no-identity",
+					organizationId: "org",
+					name: "No identity",
+					slug: "no-identity",
+				},
+				...["rotation", "recovery", "rollback", "crud"].map((id) => ({
+					id,
+					organizationId: "org",
+					name: id,
+					slug: id,
+				})),
+			]);
+		}, 30_000);
+		afterAll(async () => {
+			await close?.();
 		});
 
-		expect(rows).toEqual([
-			expect.objectContaining({
-				tediId: "due",
-				accessKeySecretId: "secret-due",
-			}),
-		]);
-	});
-
-	it("atomically replaces both encrypted values and advances key versions", async () => {
-		const { db, sqlite } = fixture();
-		sqlite
-			.prepare(
-				"INSERT INTO tedis (id, organization_id, slug, descope_user_id) VALUES ('tedi-1', 'org-1', 'cto', 'user-1')",
-			)
-			.run();
-		for (const [id, name] of [
-			["secret-key", "DESCOPE_ACCESS_KEY"],
-			["secret-key-id", "DESCOPE_ACCESS_KEY_ID"],
-		] as const) {
-			sqlite
-				.prepare(
-					"INSERT INTO tedi_secrets (id, tedi_id, name, encrypted_value, key_version, created_at, updated_at) VALUES (?, 'tedi-1', ?, 'old', 2, '2026-01-01', '2026-01-01')",
-				)
-				.run(id, name);
-		}
-
-		await replaceTediAccessKeySecrets(db, {
-			accessKeySecretId: "secret-key",
-			accessKeyIdSecretId: "secret-key-id",
-			encryptedAccessKey: "new-key",
-			encryptedAccessKeyId: "new-key-id",
-			updatedAt: "2026-08-20T00:00:00.000Z",
+		it("discovers only old keys for live identity-backed tedis", async () => {
+			await db.insert(coreTable(db, tediSecrets)).values(
+				["due", "fresh", "retired", "no-identity"].map((tediId) => ({
+					id: `secret-${tediId}`,
+					tediId,
+					name: "DESCOPE_ACCESS_KEY",
+					encryptedValue: "encrypted",
+					createdAt: "2026-05-01",
+					updatedAt:
+						tediId === "fresh"
+							? "2026-08-19T00:00:00.000Z"
+							: "2026-05-01T00:00:00.000Z",
+				})),
+			);
+			expect(
+				await listTediAccessKeysDueForRotation(db, {
+					updatedBefore: "2026-06-20T00:00:00.000Z",
+					limit: 25,
+				}),
+			).toEqual([
+				expect.objectContaining({
+					tediId: "due",
+					accessKeySecretId: "secret-due",
+				}),
+			]);
 		});
 
-		const rows = sqlite
-			.prepare(
-				"SELECT id, encrypted_value, key_version, updated_at FROM tedi_secrets ORDER BY id",
-			)
-			.all();
-		expect(rows).toEqual([
-			{
-				id: "secret-key",
-				encrypted_value: "new-key",
-				key_version: 3,
-				updated_at: "2026-08-20T00:00:00.000Z",
-			},
-			{
-				id: "secret-key-id",
-				encrypted_value: "new-key-id",
-				key_version: 3,
-				updated_at: "2026-08-20T00:00:00.000Z",
-			},
-		]);
-	});
-});
-
-describe("provider worker credential recovery", () => {
-	it("creates a pair and replaces an incomplete pair atomically", async () => {
-		const { db, sqlite } = fixture();
-		await upsertTediAccessKeySecrets(db, {
-			tediId: "worker",
-			encryptedAccessKey: "key1",
-			encryptedAccessKeyId: "id1",
-		});
-		sqlite.exec(
-			"DELETE FROM tedi_secrets WHERE name = 'DESCOPE_ACCESS_KEY_ID'",
-		);
-		await upsertTediAccessKeySecrets(db, {
-			tediId: "worker",
-			encryptedAccessKey: "key2",
-			encryptedAccessKeyId: "id2",
-		});
-		expect(
-			sqlite
-				.prepare("SELECT name, encrypted_value FROM tedi_secrets ORDER BY name")
-				.all(),
-		).toEqual([
-			{ name: "DESCOPE_ACCESS_KEY", encrypted_value: "key2" },
-			{ name: "DESCOPE_ACCESS_KEY_ID", encrypted_value: "id2" },
-		]);
-	});
-	it("rolls back the first half if persisting the second fails", async () => {
-		const { db, sqlite } = fixture();
-		await upsertTediAccessKeySecrets(db, {
-			tediId: "worker",
-			encryptedAccessKey: "old-key",
-			encryptedAccessKeyId: "old-id",
-		});
-		sqlite.exec(
-			"CREATE TRIGGER reject_pair BEFORE INSERT ON tedi_secrets WHEN NEW.name = 'DESCOPE_ACCESS_KEY_ID' BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",
-		);
-		await expect(
-			upsertTediAccessKeySecrets(db, {
-				tediId: "worker",
-				encryptedAccessKey: "new-key",
+		it("atomically replaces both encrypted values and advances key versions", async () => {
+			await upsertTediAccessKeySecrets(db, {
+				tediId: "rotation",
+				encryptedAccessKey: "old",
+				encryptedAccessKeyId: "old-id",
+			});
+			const key = (await getTediSecret(db, "rotation", "DESCOPE_ACCESS_KEY"))!;
+			const keyId = (await getTediSecret(
+				db,
+				"rotation",
+				"DESCOPE_ACCESS_KEY_ID",
+			))!;
+			await replaceTediAccessKeySecrets(db, {
+				accessKeySecretId: key.id,
+				accessKeyIdSecretId: keyId.id,
+				encryptedAccessKey: "new",
 				encryptedAccessKeyId: "new-id",
-			}),
-		).rejects.toThrow();
-		expect(
-			sqlite
-				.prepare("SELECT encrypted_value FROM tedi_secrets ORDER BY name")
-				.all(),
-		).toEqual([{ encrypted_value: "old-key" }, { encrypted_value: "old-id" }]);
+				updatedAt: "2026-08-20T00:00:00.000Z",
+			});
+			expect(
+				(await getAllTediSecrets(db, "rotation"))
+					.map((row) => [
+						row.name,
+						row.encryptedValue,
+						row.keyVersion,
+						row.updatedAt,
+					])
+					.sort(),
+			).toEqual([
+				["DESCOPE_ACCESS_KEY", "new", 2, "2026-08-20T00:00:00.000Z"],
+				["DESCOPE_ACCESS_KEY_ID", "new-id", 2, "2026-08-20T00:00:00.000Z"],
+			]);
+		});
+
+		it("creates a pair and replaces an incomplete pair atomically", async () => {
+			await upsertTediAccessKeySecrets(db, {
+				tediId: "recovery",
+				encryptedAccessKey: "key1",
+				encryptedAccessKeyId: "id1",
+			});
+			await deleteTediSecret(
+				db,
+				(await getTediSecret(db, "recovery", "DESCOPE_ACCESS_KEY_ID"))!.id,
+			);
+			await upsertTediAccessKeySecrets(db, {
+				tediId: "recovery",
+				encryptedAccessKey: "key2",
+				encryptedAccessKeyId: "id2",
+			});
+			expect(
+				(await getAllTediSecrets(db, "recovery"))
+					.map((row) => [row.name, row.encryptedValue])
+					.sort(),
+			).toEqual([
+				["DESCOPE_ACCESS_KEY", "key2"],
+				["DESCOPE_ACCESS_KEY_ID", "id2"],
+			]);
+		});
+
+		it("keeps per-tedi values and metadata separate through upserts and deletion", async () => {
+			const original = await upsertTediSecret(
+				db,
+				"crud",
+				"TOKEN",
+				"old",
+				"hint",
+				"creator",
+			);
+			await upsertTediSecret(db, "due", "TOKEN", "other", null, null);
+			const updated = await upsertTediSecret(
+				db,
+				"crud",
+				"TOKEN",
+				"new",
+				null,
+				"another",
+			);
+			expect(updated).toMatchObject({
+				id: original.id,
+				createdBy: "creator",
+				encryptedValue: "new",
+				hint: null,
+			});
+			expect(await getTediSecretById(db, original.id)).toEqual(updated);
+			const {
+				encryptedValue: _encrypted,
+				tediId: _owner,
+				...metadata
+			} = updated;
+			expect(await listTediSecrets(db, "crud")).toEqual([metadata]);
+			expect((await getTediSecret(db, "due", "TOKEN"))?.encryptedValue).toBe(
+				"other",
+			);
+			expect(await deleteTediSecret(db, original.id)).toBe(true);
+			expect(await deleteTediSecret(db, original.id)).toBe(false);
+			expect(await getTediSecret(db, "crud", "TOKEN")).toBeUndefined();
+		});
+
+		it("rolls back the first half if persisting the second fails", async () => {
+			await upsertTediAccessKeySecrets(db, {
+				tediId: "rollback",
+				encryptedAccessKey: "old-key",
+				encryptedAccessKeyId: "old-id",
+			});
+			await exec(
+				store === "d1"
+					? "CREATE TRIGGER reject_pair BEFORE INSERT ON tedi_secrets WHEN NEW.tedi_id = 'rollback' AND NEW.name = 'DESCOPE_ACCESS_KEY_ID' BEGIN SELECT RAISE(ABORT, 'injected failure'); END;"
+					: `CREATE FUNCTION reject_pair() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.tedi_id = 'rollback' AND NEW.name = 'DESCOPE_ACCESS_KEY_ID' THEN RAISE EXCEPTION 'injected failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_pair BEFORE INSERT ON tedi_secrets FOR EACH ROW EXECUTE FUNCTION reject_pair();`,
+			);
+			await expect(
+				upsertTediAccessKeySecrets(db, {
+					tediId: "rollback",
+					encryptedAccessKey: "new-key",
+					encryptedAccessKeyId: "new-id",
+				}),
+			).rejects.toThrow();
+			const secrets = coreTable(db, tediSecrets);
+			expect(
+				await db
+					.select({ name: secrets.name, value: secrets.encryptedValue })
+					.from(secrets)
+					.where(eq(secrets.tediId, "rollback"))
+					.orderBy(asc(secrets.name)),
+			).toEqual([
+				{ name: "DESCOPE_ACCESS_KEY", value: "old-key" },
+				{ name: "DESCOPE_ACCESS_KEY_ID", value: "old-id" },
+			]);
+		});
 	});
-});
