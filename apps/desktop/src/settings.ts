@@ -312,10 +312,11 @@ function general(now: PanelState): Group[] {
 		{
 			items: [
 				now.openAtLogin !== undefined && {
-					title: "Open at login",
+					title: "Open at Login",
+					sub: "Turned on when you enable tasks on this Mac.",
 					control: [
 						toggle(
-							"Open at login",
+							"Open at Login",
 							now.openAtLogin,
 							(on) => void tedixShell.openAtLogin(on),
 						),
@@ -485,12 +486,20 @@ function tools(now: PanelState): Group[] {
 				view.ready ? READY_MARK(limit ? "Connected" : "Ready") : action,
 				// Takes Tedix out so it can be connected fresh; it asks first.
 				named.tedix === "added" && removeButton(named),
-				toggle(
-					`Let ${named.name} work on Tedix tasks from this Mac`,
-					on,
-					(next) => useForTasks(now, named, next),
-					!now.setup.signedIn,
-				),
+				!now.setup.signedIn && !on
+					? button(
+							"Enable tasks on this Mac",
+							"plain",
+							() => act("run-tasks", named.id),
+							Boolean(view.working) || named.found !== "found",
+							{ pending: "Enabling…", key: `${named.id}:run-tasks` },
+						)
+					: toggle(
+							`Let ${named.name} work on Tedix tasks from this Mac`,
+							on,
+							(next) => useForTasks(now, named, next),
+							Boolean(view.working),
+						),
 			],
 			below: fail(view.error, view.retry, view.details),
 			words: `${app ?? ""} ${named.name} sign in add check`,

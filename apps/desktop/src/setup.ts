@@ -1586,6 +1586,29 @@ function classifySignIn(output: string): string {
 	return reason || "The sign-in did not finish.";
 }
 
+async function signInOnMac(
+	key: string,
+	say: (line: string) => void,
+): Promise<string> {
+	say("Finish authorizing this Mac in your browser…");
+	const result = await tedix(["-w", "connect", "login"], {
+		env: { TEDIX_DESKTOP_APP: "1" },
+		onLine: say,
+		onStart: (stop) => {
+			stops[key] = stop;
+		},
+		timeoutMs: 15 * 60_000,
+	});
+	if (!result.ok) throw new Error(classifySignIn(result.output));
+	await readSignIn();
+	if (!signedIn) throw new Error("This Mac is not authorized yet. Try again.");
+	if (cancelled.has(key)) throw new Error("Authorization cancelled.");
+	delete stops[key];
+	delete steps[key]!.address;
+	changed();
+	return "This Mac is authorized.";
+}
+
 const ACTIONS = [
 	"check",
 	"manage-cli",
@@ -1726,7 +1749,7 @@ export async function setupAction(
 	if (action === "check") return refreshSetup(true);
 	if (action === "app-sign-in") return signInToApp();
 	if (action === "open-sign-in") {
-		const pending = /^(account|connect):/.test(id) ? steps[id] : undefined;
+		const pending = /^(account|connect|run):/.test(id) ? steps[id] : undefined;
 		const url = pending?.working && URL.parse(pending.address ?? "");
 		if (url && url.protocol === "https:" && !url.username && !url.password)
 			return openSignIn(url.href);
@@ -1762,18 +1785,7 @@ export async function setupAction(
 		return refreshSetup(false);
 	}
 	if (action === "sign-in") {
-		await step("sign-in", async (say) => {
-			const result = await tedix(["-w", "connect", "login"], {
-				env: { TEDIX_DESKTOP_APP: "1" },
-				onLine: say,
-				onStart: (stop) => {
-					stops["sign-in"] = stop;
-				},
-				timeoutMs: 15 * 60_000,
-			});
-			if (!result.ok) throw new Error(classifySignIn(result.output));
-			return "The command-line tool is signed in.";
-		});
+		await step("sign-in", (say) => signInOnMac("sign-in", say));
 		return refreshSetup(false);
 	}
 	if (action === "sessions-on" || action === "sessions-off") {
@@ -2107,7 +2119,8 @@ export async function setupAction(
 	if (action === "run-tasks") {
 		await step(`run:${tool.executor}`, async (say) => {
 			if (!command) throw new Error(`Open ${toolName}, then check again.`);
-			if (!signedIn) throw new Error("Sign in on this Mac first.");
+			await readSignIn();
+			if (!signedIn) await signInOnMac(`run:${tool.executor}`, say);
 			const org = organization();
 			if (!org)
 				throw new Error(

@@ -149,6 +149,10 @@ The app is not signed or notarized yet and has been run on macOS only.
   with **Try again**, or up to date and when it was checked. A tool's switch starts or stops only that
   tool's runner: the supervisor reads `~/.tedix/supervisor-runners.json`
   by itself, so other tools keep their tasks.
+  **Enable tasks on this Mac** opens this Mac's separate authorization in
+  the browser and continues runner setup once you approve it. No project
+  folder is needed for non-code tasks. Enabling tasks turns on the visible
+  **Open at Login** switch in General; chat-only and demo setup leave it off.
 - **Update when you choose.** While an update is ready, **Update Tedix**
   also shows in the app menu and the menu bar menu. **Check for Updates…**
   in the menu updates at once when one is found, else opens Settings ›

@@ -339,9 +339,9 @@ export function toolView(
 		(running?.working ? (["run", running] as const) : undefined);
 	if (busy) {
 		const [kind, ran] = busy;
-		const stoppable = kind !== "run";
+		const key = `${kind}:${kind === "run" ? tool.executor : tool.id}`;
 		const browser =
-			(kind === "account" || kind === "connect") &&
+			(kind === "account" || kind === "connect" || kind === "run") &&
 			(ran as StepRun).address?.startsWith("https://");
 		return {
 			sub: "",
@@ -351,11 +351,9 @@ export function toolView(
 					? "Finish signing in in your browser…"
 					: (ran as StepRun).working,
 			action: browser
-				? button("Open sign-in again", "plain", () =>
-						act("open-sign-in", `${kind}:${tool.id}`),
-					)
+				? button("Open sign-in again", "plain", () => act("open-sign-in", key))
 				: undefined,
-			cancel: stoppable ? () => act("cancel", `${kind}:${tool.id}`) : undefined,
+			cancel: kind !== "run" || browser ? () => act("cancel", key) : undefined,
 		};
 	}
 	const failed =
@@ -572,7 +570,8 @@ export function useForTasks(
 	on: boolean,
 ): void {
 	const runner = runnerFor(state, tool);
-	if (runner) void tedixShell.set(runner.index, "enabled", on);
+	if (on && !state.setup.signedIn) act("run-tasks", tool.id);
+	else if (runner) void tedixShell.set(runner.index, "enabled", on);
 	else if (on) act("run-tasks", tool.id);
 }
 
