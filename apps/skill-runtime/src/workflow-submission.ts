@@ -1,4 +1,4 @@
-import { createDbClient } from "@tedix/db/client";
+import { skillRuntimeDb } from "./db";
 import { admitSubmission } from "@tedix/db/queries/runtime-submissions/admission";
 import {
 	reopenSubmissionForOperatorRestart,
@@ -22,7 +22,7 @@ export async function ensureWorkflowSubmissionStarted(args: {
 	organizationId: string;
 	tediId: string;
 }): Promise<boolean> {
-	const db = createDbClient(args.db);
+	const db = skillRuntimeDb(args.db);
 	const submission = await admitSubmission(db, {
 		id: `sub:${args.runId}`,
 		organizationId: args.organizationId,
@@ -58,7 +58,7 @@ export async function ensureWorkflowRestartSubmissionAttempt(args: {
 	executionEpoch: number;
 }): Promise<boolean> {
 	const result = await reopenSubmissionForOperatorRestart(
-		createDbClient(args.db),
+		skillRuntimeDb(args.db),
 		{
 			submissionId: `sub:${args.runId}`,
 			organizationId: args.organizationId,
@@ -152,7 +152,7 @@ export async function hasWorkflowSubmissionAbortIntent(args: {
 	executionEpoch: number;
 }): Promise<boolean> {
 	const submission = await getSubmissionById(
-		createDbClient(args.db),
+		skillRuntimeDb(args.db),
 		`sub:${args.runId}`,
 		args.organizationId,
 	);
@@ -181,7 +181,7 @@ export async function settleWorkflowSubmissionBeforeTerminal(args: {
 		return false;
 	}
 	const terminalStatus: TerminalWorkflowStatus = args.status;
-	const result = await settleSubmission(createDbClient(args.db), {
+	const result = await settleSubmission(skillRuntimeDb(args.db), {
 		submissionId: `sub:${args.runId}`,
 		organizationId: args.organizationId,
 		outcome: submissionOutcome(terminalStatus),

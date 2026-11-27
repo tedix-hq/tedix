@@ -37,13 +37,6 @@
 			"binding": "env.DB D1Database",
 			"reason": "The paced cutover copy Worker is the reviewed storage owner for raw keyset D1 reads: it pages every core table with pacing, overload backoff and checkpoints that no @tedix/db/queries module expresses, and it never writes to D1."
 		},
-		"apps/skill-runtime/src/db.ts": {
-			"storagePlane": "runtime-enforcement-d1",
-			"disposition": "approved",
-			"owner": "apps/skill-runtime:canonical-lifecycle-store",
-			"binding": "D1Database db",
-			"reason": "This Worker-local storage owner centralizes skill_runs lifecycle transitions, sealed artifact reads and writes, admission deduplication, runtime pins, and trusted evidence lookups."
-		},
 		"apps/skill-runtime/src/workflow-approval.ts": {
 			"storagePlane": "runtime-enforcement-d1",
 			"disposition": "approved",

@@ -1078,11 +1078,11 @@ export async function enforceGroundingPolicy(input: {
 	// The policy verdict is re-evaluated per epoch (an operator restart must be
 	// able to clear a warning), so this path is a normal upsert — unlike the
 	// evidence records and the grounding summary, which are sealed.
-	const { createDbClient } = await import("@tedix/db/client");
+	const { skillRuntimeDb } = await import("./db");
 	const { recordRunArtifact } =
 		await import("@tedix/db/queries/skill-run-artifacts");
 	await recordRunArtifact(
-		createDbClient(input.db),
+		skillRuntimeDb(input.db),
 		{ organizationId: input.organizationId },
 		{
 			runId: input.runId,

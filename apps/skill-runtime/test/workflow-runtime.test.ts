@@ -1,3 +1,6 @@
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { tableDdl } from "@tedix/db/test/schema-ddl";
+import { skillRuns } from "@tedix/db/schema/cognitive";
 import { loadPinnedFactoryContext } from "../src/factory-context";
 import { Database } from "bun:sqlite";
 import "./runner-shims.test";
@@ -552,46 +555,47 @@ const { WORKFLOW_ADMISSION_CREATE_FAILED } =
 async function control(
 	route: string,
 	body: Record<string, unknown>,
-	row: Record<string, unknown>,
+	row: Record<string, string | number | null>,
 ) {
 	const statements: string[] = [];
 	const engine: string[] = [];
+	const sqlite = new Database(":memory:");
+	for (const ddl of tableDdl(skillRuns)) sqlite.exec(ddl);
+	const run = {
+		id: "run-1",
+		skill_id: "skill-1",
+		tedi_id: "tedi-1",
+		organization_id: "org-1",
+		workflow_instance_id: "wf-1",
+		execution_epoch: 1,
+		restart_requested_at: null,
+		restart_command_id: null,
+		workflow_retired_at: null,
+		runtime_environment: "production",
+		status: "running",
+		error: null,
+		started_at: "2026-09-01T00:00:00.000Z",
+		completed_at: null,
+		paused_at: null,
+		...row,
+	};
+	sqlite
+		.prepare(
+			`INSERT INTO skill_runs (${Object.keys(run).join(",")}) VALUES (${Object.keys(
+				run,
+			)
+				.map(() => "?")
+				.join(",")})`,
+		)
+		.run(...Object.values(run));
 	const env = {
 		PLATFORM_SERVICE_TOKEN: "service-token",
 		ENVIRONMENT: "production",
-		DB: {
-			prepare: (sql: string) => {
+		DB: createD1Facade(sqlite, {
+			onPrepare: (sql) => {
 				statements.push(sql.replace(/\s+/g, " ").trim());
-				return {
-					bind: () => ({
-						first: async () =>
-							/FROM skill_runs WHERE id/.test(sql)
-								? {
-										id: "run-1",
-										skill_id: "skill-1",
-										tedi_id: "tedi-1",
-										organization_id: "org-1",
-										workflow_instance_id: "wf-1",
-										execution_epoch: 1,
-										restart_requested_at: null,
-										restart_command_id: null,
-										workflow_retired_at: null,
-										runtime_environment: "production",
-										status: "running",
-										error: null,
-										started_at: "2026-09-01T00:00:00.000Z",
-										completed_at: null,
-										paused_at: null,
-										...row,
-									}
-								: null,
-						all: async () => ({ results: [] }),
-						run: async () => ({ success: true, meta: { changes: 0 } }),
-					}),
-				};
 			},
-			batch: async () => [],
-		},
+		}),
 		WORKFLOWS: new Proxy(
 			{},
 			{
@@ -618,6 +622,7 @@ async function control(
 		env as never,
 		{ waitUntil() {}, passThroughOnException() {} } as never,
 	);
+	sqlite.close();
 	return {
 		status: response.status,
 		body: (await response.json().catch(() => ({}))) as { error?: string },
@@ -1990,24 +1995,24 @@ for (const scenario of [
 				bind: (...values: unknown[]) => {
 					const bound = statement.bind(...values);
 					return {
-						first: async () => {
-							reads++;
-							if (
-								reads > 1 &&
-								(scenario === "readback-fails" ||
-									scenario === "commit-readback-fails")
-							)
-								throw new Error("readback unavailable");
-							return bound.first();
-						},
-						run: async () => {
+						raw: async () => {
+							if (!/^insert/i.test(query)) {
+								reads++;
+								if (
+									reads > 1 &&
+									(scenario === "readback-fails" ||
+										scenario === "commit-readback-fails")
+								)
+									throw new Error("readback unavailable");
+								return bound.raw();
+							}
 							if (scenario === "delayed-commit")
-								finishCommit = () => bound.run();
+								finishCommit = () => bound.raw();
 							if (
 								scenario === "commit-then-throw" ||
 								scenario === "commit-readback-fails"
 							) {
-								await bound.run();
+								await bound.raw();
 							}
 							if (
 								scenario === "concurrent-winner" ||
@@ -2030,7 +2035,7 @@ for (const scenario of [
 										winnerKey ? null : '"winner"',
 										winnerKey,
 									);
-								if (scenario === "ignored-insert") return bound.run();
+								if (scenario === "ignored-insert") return bound.raw();
 							}
 							throw insertError;
 						},
@@ -2059,7 +2064,10 @@ for (const scenario of [
 	if (scenario === "ignored-insert") {
 		assert.equal((await write).id, "winner-ignored-insert");
 	} else {
-		await assert.rejects(write, (error) => error === insertError);
+		await assert.rejects(
+			write,
+			(error) => error instanceof Error && error.cause === insertError,
+		);
 	}
 	const preserve =
 		scenario === "rollback" ||

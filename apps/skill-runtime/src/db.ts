@@ -8,7 +8,10 @@ import type { OsDerivedAccessEnvelope } from "@tedix/api-contract/schemas/os-wor
  * smaller binding-level projection needed during Workflow dispatch/resume.
  */
 
-import { createDbClient } from "@tedix/db/client";
+import type { DbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
+import * as runtimeStore from "@tedix/db/queries/skill-runtime-store";
+
 import {
 	createPinnedSkillRun,
 	createPinnedSkillRunWithinCap,
@@ -25,6 +28,11 @@ import {
 import { recordSkillRunOutcome } from "@tedix/db/queries/skill-usage";
 import { logRuntimeFailure } from "./control-log";
 import { isWorkflowRetirementError } from "./workflow-retirement";
+
+/** Preserve binding callers while selecting the request's core store. */
+export function skillRuntimeDb(db: D1Database | DbClient): DbClient {
+	return "prepare" in db ? coreDb({ DB: db }) : db;
+}
 
 /**
  * The partition discriminator persisted on `skill_runs.runtime_environment`.
@@ -56,7 +64,7 @@ export interface SkillRunRow {
 	runtimeEnvironment: SkillRunEnvironment;
 	status: string;
 	error: string | null;
-	createdAt: string;
+	createdAt: string | null;
 	completedAt: string | null;
 	pausedAt: string | null;
 }
@@ -70,19 +78,19 @@ export interface SkillRunRow {
  * current dispatcher; null database values are treated as invalid runs.
  */
 export async function createSkillRun(
-	db: D1Database,
+	db: D1Database | DbClient,
 	input: CreatePinnedSkillRunParams,
 ): Promise<void> {
-	await createPinnedSkillRun(createDbClient(db), input);
+	await createPinnedSkillRun(skillRuntimeDb(db), input);
 }
 
 /** Same snapshot insert, refused (false) once `cap.max` runs of the skill are open. */
 export function createSkillRunWithinCap(
-	db: D1Database,
+	db: D1Database | DbClient,
 	input: CreatePinnedSkillRunParams,
 	cap: { max: number; since: string },
 ): Promise<boolean> {
-	return createPinnedSkillRunWithinCap(createDbClient(db), input, cap);
+	return createPinnedSkillRunWithinCap(skillRuntimeDb(db), input, cap);
 }
 
 /**
@@ -110,48 +118,21 @@ export interface SkillRunSnapshot {
 }
 
 export async function loadSkillRunSnapshot(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 ): Promise<SkillRunSnapshot | null> {
-	const row = await db
-		.prepare(
-			`SELECT skill_id, tedi_id, organization_id, params, execution_epoch,
-			        runtime_environment, workflow_retired_at, error,
-			        started_at,
-			        skill_slug, skill_revision,
-			        workflow_source, skill_doc, capability_manifest, resource_access_envelope, created_by,
-			        work_item_id, origin_tedi_run_id, certification
-			 FROM skill_runs WHERE id = ?1 LIMIT 1`,
-		)
-		.bind(runId)
-		.first<{
-			skill_id: string;
-			tedi_id: string;
-			organization_id: string;
-			params: string | null;
-			execution_epoch: number;
-			runtime_environment: "development" | "staging" | "production";
-			workflow_retired_at: string | null;
-			error: string | null;
-			started_at: string;
-			skill_slug: string | null;
-			skill_revision: number | null;
-			workflow_source: string | null;
-			skill_doc: string | null;
-			capability_manifest: string | null;
-			resource_access_envelope: string | null;
-			certification: number | null;
-			created_by: string | null;
-			work_item_id: string | null;
-			origin_tedi_run_id: string | null;
-		}>();
+	const row = await runtimeStore.loadSkillRunSnapshotRow(
+		skillRuntimeDb(db),
+		runId,
+	);
 	if (row && !row.workflow_source)
 		row.workflow_source = await getPinnedSkillWorkflowSource(
-			createDbClient(db),
+			skillRuntimeDb(db),
 			runId,
 		);
 	if (
 		!row?.workflow_source ||
+		!row.started_at ||
 		row.workflow_retired_at != null ||
 		isWorkflowRetirementError(row.error)
 	) {
@@ -175,7 +156,7 @@ export async function loadSkillRunSnapshot(
 		resourceAccessEnvelope: row.resource_access_envelope
 			? JSON.parse(row.resource_access_envelope)
 			: null,
-		certification: row.certification === 1,
+		certification: row.certification === true,
 		createdBy: row.created_by ?? null,
 		workItemId: row.work_item_id ?? null,
 		originTediRunId: row.origin_tedi_run_id ?? null,
@@ -183,37 +164,11 @@ export async function loadSkillRunSnapshot(
 }
 
 export async function getSkillRun(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 	expectedEnvironment?: "development" | "staging" | "production",
 ): Promise<SkillRunRow | null> {
-	const row = await db
-		.prepare(
-			`SELECT id, skill_id, tedi_id, organization_id, workflow_instance_id,
-				        execution_epoch, restart_requested_at, restart_command_id,
-				        workflow_retired_at,
-				        runtime_environment,
-			        status, error, started_at, completed_at, paused_at
-			 FROM skill_runs WHERE id = ?1 LIMIT 1`,
-		)
-		.bind(runId)
-		.first<{
-			id: string;
-			skill_id: string;
-			tedi_id: string;
-			organization_id: string;
-			workflow_instance_id: string | null;
-			execution_epoch: number;
-			restart_requested_at: string | null;
-			restart_command_id: string | null;
-			workflow_retired_at: string | null;
-			runtime_environment: "development" | "staging" | "production";
-			status: string;
-			error: string | null;
-			started_at: string;
-			completed_at: string | null;
-			paused_at: string | null;
-		}>();
+	const row = await runtimeStore.getSkillRunRow(skillRuntimeDb(db), runId);
 	if (!row) return null;
 	const run: SkillRunRow = {
 		runId: row.id,
@@ -250,28 +205,17 @@ export function skillRunEnvironmentMatches(
 
 /** Reserve a collision-free identity epoch before an explicit engine restart. */
 export async function reserveSkillRunExecutionEpoch(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 	expectedExecutionEpoch: number,
 	restartCommandId: string,
 ): Promise<number | null> {
-	const row = await db
-		.prepare(
-			`UPDATE skill_runs
-			 SET execution_epoch = execution_epoch + 1,
-			     restart_requested_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-			     restart_command_id = ?3
-			 WHERE id = ?1
-			   AND execution_epoch = ?2
-			   AND restart_requested_at IS NULL
-			   AND workflow_retired_at IS NULL
-			   AND COALESCE(error, '') <> 'REVOKED'
-			   AND COALESCE(error, '') NOT GLOB 'REVOKED:*'
-			 RETURNING execution_epoch`,
-		)
-		.bind(runId, expectedExecutionEpoch, restartCommandId)
-		.first<{ execution_epoch: number }>();
-	return row?.execution_epoch ?? null;
+	return runtimeStore.reserveSkillRunExecutionEpoch(
+		skillRuntimeDb(db),
+		runId,
+		expectedExecutionEpoch,
+		restartCommandId,
+	);
 }
 
 /**
@@ -282,7 +226,7 @@ export async function reserveSkillRunExecutionEpoch(
  * Restart clears stale terminal output/error data.
  */
 export async function updateSkillRunAfterControl(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 	status: string,
 	options: {
@@ -293,70 +237,12 @@ export async function updateSkillRunAfterControl(
 		requireRestartIntent?: boolean;
 	} = {},
 ): Promise<boolean> {
-	const now = new Date().toISOString();
-	const terminal = ["completed", "failed", "canceled"].includes(status);
-	const result = await db
-		.prepare(
-			`UPDATE skill_runs
-			    SET status = ?2,
-			        started_at = CASE
-			          WHEN ?3 = 1 AND ?8 = 1
-			            AND restart_requested_at IS NOT NULL THEN restart_requested_at
-			          ELSE started_at
-			        END,
-			        result = CASE WHEN ?3 = 1 THEN NULL ELSE result END,
-			        error = CASE WHEN ?3 = 1 THEN NULL ELSE error END,
-			        cost_summary = CASE WHEN ?3 = 1 THEN NULL ELSE cost_summary END,
-			        completed_at = CASE
-			          WHEN ?3 = 1 THEN NULL
-			          WHEN ?4 = 1 THEN COALESCE(completed_at, ?5)
-			          ELSE completed_at
-			        END,
-			        paused_at = CASE
-			          WHEN ?2 = 'paused' THEN COALESCE(paused_at, ?5)
-			          ELSE NULL
-			        END,
-			        restart_requested_at = CASE
-			          WHEN ?6 = 1 THEN NULL
-			          ELSE restart_requested_at
-			        END,
-			        restart_command_id = CASE
-			          WHEN ?6 = 1 THEN NULL
-			          ELSE restart_command_id
-			        END
-			  WHERE id = ?1
-			    AND (?7 IS NULL OR execution_epoch = ?7)
-			    AND (?8 = 0 OR restart_requested_at IS NOT NULL)
-			    AND (
-			      ?9 = 0 OR (
-			        status = 'failed' AND (
-			          error LIKE 'WORKFLOW_ADMISSION_PENDING:%'
-			          OR error LIKE 'WORKFLOW_ADMISSION_CREATE_FAILED:%'
-			        )
-			      )
-			    )
-			    AND (
-			      status NOT IN ('completed','failed','canceled')
-			      OR (?3 = 1 AND ?8 = 1 AND restart_requested_at IS NOT NULL)
-			      OR (?3 = 1 AND ?9 = 1 AND status = 'failed' AND (
-			        error LIKE 'WORKFLOW_ADMISSION_PENDING:%'
-			        OR error LIKE 'WORKFLOW_ADMISSION_CREATE_FAILED:%'
-			      ))
-			    )`,
-		)
-		.bind(
-			runId,
-			status,
-			options.restart ? 1 : 0,
-			terminal ? 1 : 0,
-			now,
-			options.clearRestartIntent ? 1 : 0,
-			options.expectedExecutionEpoch ?? null,
-			options.requireRestartIntent ? 1 : 0,
-			options.requireAdmissionMarker ? 1 : 0,
-		)
-		.run();
-	return (result.meta?.changes ?? 0) === 1;
+	return runtimeStore.updateSkillRunAfterControl(
+		skillRuntimeDb(db),
+		runId,
+		status,
+		options,
+	);
 }
 
 /**
@@ -365,22 +251,15 @@ export async function updateSkillRunAfterControl(
  * from clearing a newer restart's intent.
  */
 export async function clearSkillRunRestartIntent(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 	executionEpoch: number,
 ): Promise<boolean> {
-	const result = await db
-		.prepare(
-			`UPDATE skill_runs
-			    SET restart_requested_at = NULL,
-			        restart_command_id = NULL
-			  WHERE id = ?1
-			    AND execution_epoch = ?2
-			    AND restart_requested_at IS NOT NULL`,
-		)
-		.bind(runId, executionEpoch)
-		.run();
-	return (result.meta?.changes ?? 0) === 1;
+	return runtimeStore.clearSkillRunRestartIntent(
+		skillRuntimeDb(db),
+		runId,
+		executionEpoch,
+	);
 }
 
 /**
@@ -390,32 +269,17 @@ export async function clearSkillRunRestartIntent(
  * the already-canceled row after this mutation rather than reopening it.
  */
 export async function finalizeAbortedSkillRunRestart(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 	executionEpoch: number,
 	restartCommandId: string,
 ): Promise<boolean> {
-	const result = await db
-		.prepare(
-			`UPDATE skill_runs
-			    SET status = 'canceled',
-			        result = NULL,
-			        error = NULL,
-			        cost_summary = NULL,
-			        started_at = restart_requested_at,
-			        completed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-			        paused_at = NULL,
-			        workflow_retired_at = COALESCE(workflow_retired_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-			        restart_requested_at = NULL,
-			        restart_command_id = NULL
-			  WHERE id = ?1
-			    AND execution_epoch = ?2
-			    AND restart_requested_at IS NOT NULL
-			    AND restart_command_id = ?3`,
-		)
-		.bind(runId, executionEpoch, restartCommandId)
-		.run();
-	return (result.meta?.changes ?? 0) === 1;
+	return runtimeStore.finalizeAbortedSkillRunRestart(
+		skillRuntimeDb(db),
+		runId,
+		executionEpoch,
+		restartCommandId,
+	);
 }
 
 /**
@@ -424,7 +288,7 @@ export async function finalizeAbortedSkillRunRestart(
  * cron without checking current status.
  */
 export async function reconcileSkillRun(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 	patch: {
 		status: string;
@@ -435,46 +299,16 @@ export async function reconcileSkillRun(
 ): Promise<boolean> {
 	const now = new Date().toISOString();
 	const isTerminal = ["completed", "failed", "canceled"].includes(patch.status);
-	const isPaused = patch.status === "paused";
 	// RETURNING captures the execution epoch + restart intent ATOMICALLY with
 	// the CAS so the terminal usage stamp below can be pinned to the epoch this
 	// transition belongs to (an operator restart racing in between would
 	// otherwise re-read a bumped epoch and mis-attribute the old outcome).
-	const casRow = await db
-		.prepare(
-			`UPDATE skill_runs
-			   SET status = ?2,
-			       result = COALESCE(?3, result),
-			       error = COALESCE(?4, error),
-			       completed_at = CASE WHEN ?5 = 1 AND completed_at IS NULL THEN ?6 ELSE completed_at END,
-			       paused_at = CASE WHEN ?7 = 1 AND paused_at IS NULL THEN ?6 ELSE paused_at END
-			 WHERE id = ?1
-			   AND (?8 IS NULL OR execution_epoch = ?8)
-			   AND (
-			     status NOT IN ('completed','failed','canceled')
-			     OR (
-			       status = 'failed'
-			       AND ?2 = 'failed'
-			       AND (error LIKE 'WORKFLOW_ADMISSION_PENDING:%'
-			            OR error LIKE 'WORKFLOW_ADMISSION_CREATE_FAILED:%')
-			     )
-			   )
-			 RETURNING execution_epoch, restart_requested_at`,
-		)
-		.bind(
-			runId,
-			patch.status,
-			patch.result === undefined ? null : JSON.stringify(patch.result),
-			patch.error ?? null,
-			isTerminal ? 1 : 0,
-			now,
-			isPaused ? 1 : 0,
-			patch.expectedExecutionEpoch ?? null,
-		)
-		.first<{
-			execution_epoch: number;
-			restart_requested_at: string | null;
-		}>();
+	const casRow = await runtimeStore.reconcileSkillRunRow(
+		skillRuntimeDb(db),
+		runId,
+		patch,
+		now,
+	);
 	const reconciled = casRow != null;
 	// Every terminal completed/failed transition funnels through this CAS, so
 	// this is the single choke point that stamps the canonical skill usage
@@ -490,7 +324,7 @@ export async function reconcileSkillRun(
 				// outcome onto the new epoch. If the restart intent was already
 				// pending at CAS time, the outcome is superseded — skip.
 				if (casRow.restart_requested_at == null) {
-					await recordSkillRunOutcome(createDbClient(db), runId, {
+					await recordSkillRunOutcome(skillRuntimeDb(db), runId, {
 						expected: {
 							status: patch.status,
 							executionEpoch: casRow.execution_epoch ?? 0,
@@ -503,7 +337,7 @@ export async function reconcileSkillRun(
 				// insert makes stamping observed terminal-but-unstamped state safe;
 				// already-stamped rows no-op as duplicates and rows with a pending
 				// restart intent are skipped inside recordSkillRunOutcome.
-				await recordSkillRunOutcome(createDbClient(db), runId);
+				await recordSkillRunOutcome(skillRuntimeDb(db), runId);
 			}
 		} catch (error) {
 			logRuntimeFailure("workflow.skill_usage_stamp.failed", error, runId);
@@ -515,7 +349,7 @@ export async function reconcileSkillRun(
 	// older dispatch rows that were prematurely closed as success.
 	if (reconciled && isTerminal) {
 		try {
-			await reconcileSkillWorkflowDispatchRationale(createDbClient(db), {
+			await reconcileSkillWorkflowDispatchRationale(skillRuntimeDb(db), {
 				runId,
 				status: patch.status as "completed" | "failed" | "canceled",
 				error: patch.error,
@@ -539,7 +373,7 @@ export async function reconcileSkillRun(
  * an underscore→dash fallback handled by the dispatch shim.
  */
 export async function resolveNamespaceSlugs(
-	db: D1Database,
+	db: D1Database | DbClient,
 	namespaces: string[],
 ): Promise<Record<string, string>> {
 	if (namespaces.length === 0) return {};
@@ -549,14 +383,11 @@ export async function resolveNamespaceSlugs(
 		candidates.add(`${ns}-tedix`);
 		candidates.add(ns.replace(/_/g, "-"));
 	}
-	const placeholders = Array.from(candidates)
-		.map((_, i) => `?${i + 1}`)
-		.join(",");
-	const stmt = db
-		.prepare(`SELECT slug FROM apps WHERE slug IN (${placeholders})`)
-		.bind(...Array.from(candidates));
-	const res = await stmt.all<{ slug: string }>();
-	const known = new Set((res.results ?? []).map((r) => r.slug));
+	const rows = await runtimeStore.listRuntimeAppSlugs(
+		skillRuntimeDb(db),
+		Array.from(candidates),
+	);
+	const known = new Set(rows.map((row) => row.slug));
 
 	const out: Record<string, string> = {};
 	for (const ns of namespaces) {
@@ -585,7 +416,7 @@ export async function resolveNamespaceSlugs(
  * best-effort and never changes this run's routing.
  */
 export async function resolveSkillNamespaceSlugs(
-	db: D1Database,
+	db: D1Database | DbClient,
 	params: {
 		orgId: string;
 		skillId: string;
@@ -594,7 +425,7 @@ export async function resolveSkillNamespaceSlugs(
 	},
 ): Promise<Record<string, string>> {
 	if (params.namespaces.length === 0) return {};
-	const client = createDbClient(db);
+	const client = skillRuntimeDb(db);
 	let resolved: Awaited<ReturnType<typeof resolveSkillMcpNamespaceSlugs>>;
 	try {
 		resolved = await resolveSkillMcpNamespaceSlugs(client, {
@@ -658,12 +489,6 @@ export interface SkillWorkflowMcpGateway {
 	tediNamespace: string | null;
 }
 
-interface AggregateGatewayRow {
-	organization_id: string;
-	slug: string;
-	metadata: unknown;
-}
-
 function parseAppMetadata(value: unknown): Record<string, unknown> | null {
 	if (typeof value === "string") {
 		try {
@@ -704,26 +529,23 @@ function configuredTediNamespace(
 }
 
 export async function resolveSkillWorkflowMcpGateway(
-	db: D1Database,
+	db: D1Database | DbClient,
 	organizationId: string,
 	tediId: string,
 ): Promise<SkillWorkflowMcpGateway | null> {
-	const tedi = await db
-		.prepare("SELECT slug FROM tedis WHERE id = ?1 AND organization_id = ?2")
-		.bind(tediId, organizationId)
-		.first<{ slug: string }>();
+	const tedi = await runtimeStore.getRuntimeTediSlug(
+		skillRuntimeDb(db),
+		organizationId,
+		tediId,
+	);
 	if (!tedi?.slug) return null;
 
-	const rows = await db
-		.prepare(
-			`SELECT organization_id, slug, metadata
-			   FROM apps
-			  WHERE organization_id = ?1`,
-		)
-		.bind(organizationId)
-		.all<AggregateGatewayRow>();
+	const rows = await runtimeStore.listRuntimeGatewayApps(
+		skillRuntimeDb(db),
+		organizationId,
+	);
 	const candidates: SkillWorkflowMcpGateway[] = [];
-	for (const row of rows.results ?? []) {
+	for (const row of rows) {
 		if (row.organization_id !== organizationId) continue;
 		const metadata = parseAppMetadata(row.metadata);
 		if (!metadata) continue;
@@ -754,7 +576,7 @@ export async function resolveSkillWorkflowMcpGateway(
 
 /** Pending/running rows plus terminal rows with an unresolved restart intent. */
 export async function listNonTerminalRuns(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runtimeEnvironment: "development" | "staging" | "production",
 	limit = 50,
 ): Promise<
@@ -774,7 +596,7 @@ export async function listNonTerminalRuns(
 	}>
 > {
 	const rows = await listSkillRunsAwaitingReconcile(
-		createDbClient(db),
+		skillRuntimeDb(db),
 		runtimeEnvironment,
 		limit,
 	);
@@ -799,43 +621,30 @@ export async function listNonTerminalRuns(
 
 /** Advance the fair-scan cursor even when engine state did not change. */
 export async function touchSkillRunReconciled(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 ): Promise<void> {
-	await db
-		.prepare(
-			`UPDATE skill_runs
-			    SET last_reconciled_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-			  WHERE id = ?1`,
-		)
-		.bind(runId)
-		.run();
+	return runtimeStore.touchSkillRunReconciled(skillRuntimeDb(db), runId);
 }
 
-export interface SkillRunArtifactStorageRow {
-	id: string;
-	size_bytes: number;
-	content_r2_key: string | null;
-	sha256: string | null;
-}
+export type SkillRunArtifactStorageRow = NonNullable<
+	Awaited<ReturnType<typeof runtimeStore.getSkillRunArtifactStorageRow>>
+>;
 
 export async function getSkillRunArtifactStorageRow(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 	path: string,
 ): Promise<SkillRunArtifactStorageRow | null> {
-	return db
-		.prepare(
-			`SELECT id, size_bytes, content_r2_key, sha256
-			 FROM skill_run_artifacts
-			 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-		)
-		.bind(runId, path)
-		.first<SkillRunArtifactStorageRow>();
+	return runtimeStore.getSkillRunArtifactStorageRow(
+		skillRuntimeDb(db),
+		runId,
+		path,
+	);
 }
 
 export async function insertSkillRunArtifactOnce(
-	db: D1Database,
+	db: D1Database | DbClient,
 	input: {
 		id: string;
 		runId: string;
@@ -849,31 +658,11 @@ export async function insertSkillRunArtifactOnce(
 		outcome: string;
 	},
 ): Promise<boolean> {
-	const inserted = await db
-		.prepare(
-			`INSERT OR IGNORE INTO skill_run_artifacts (
-				id, run_id, path, mime_type, size_bytes, content_inline,
-				content_r2_key, sha256, attempt, outcome
-			) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
-		)
-		.bind(
-			input.id,
-			input.runId,
-			input.path,
-			input.mimeType,
-			input.sizeBytes,
-			input.contentInline,
-			input.contentR2Key,
-			input.sha256,
-			input.attempt,
-			input.outcome,
-		)
-		.run();
-	return (inserted.meta.changes ?? 0) > 0;
+	return runtimeStore.insertSkillRunArtifactOnce(skillRuntimeDb(db), input);
 }
 
 export async function listSkillRunArtifactInlineContent(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 	paths: string[],
 	bucket?: R2Bucket,
@@ -893,16 +682,16 @@ export async function listSkillRunArtifactInlineContent(
 }
 
 export async function getSkillRunArtifactInlineContent(
-	db: D1Database,
+	db: D1Database | DbClient,
 	runId: string,
 	path: string,
 	bucket?: R2Bucket,
 ): Promise<string | null> {
-	const inline = await db
-		.prepare(`SELECT content_inline FROM skill_run_artifacts
-		 WHERE run_id = ?1 AND path = ?2 LIMIT 1`)
-		.bind(runId, path)
-		.first<{ content_inline: string | null }>();
+	const inline = await runtimeStore.getRuntimeArtifactInlineContent(
+		skillRuntimeDb(db),
+		runId,
+		path,
+	);
 	if (inline?.content_inline != null) return inline.content_inline;
 	if (!bucket) return null;
 	const { getRunArtifact } =
@@ -910,7 +699,7 @@ export async function getSkillRunArtifactInlineContent(
 	const run = await getSkillRun(db, runId);
 	if (!run) return null;
 	const row = await getRunArtifact(
-		createDbClient(db),
+		skillRuntimeDb(db),
 		{ organizationId: run.orgId },
 		runId,
 		path,
@@ -922,7 +711,7 @@ export async function getSkillRunArtifactInlineContent(
 }
 
 export async function claimSkillWorkflowAdmissionFence(
-	db: D1Database,
+	db: D1Database | DbClient,
 	input: {
 		fingerprint: string;
 		candidateRunId: string;
@@ -930,63 +719,45 @@ export async function claimSkillWorkflowAdmissionFence(
 		now: string;
 	},
 ): Promise<{ run_id: string; expires_at: string } | null> {
-	return db
-		.prepare(
-			`INSERT INTO skill_run_admission_dedup (
-				fingerprint, run_id, expires_at, created_at
-			) VALUES (?1, ?2, ?3, ?4)
-			ON CONFLICT(fingerprint) DO UPDATE SET
-				run_id = excluded.run_id,
-				expires_at = excluded.expires_at,
-				created_at = excluded.created_at
-			WHERE skill_run_admission_dedup.expires_at <= ?4
-			RETURNING run_id, expires_at`,
-		)
-		.bind(input.fingerprint, input.candidateRunId, input.expiresAt, input.now)
-		.first();
+	return runtimeStore.claimSkillWorkflowAdmissionFence(
+		skillRuntimeDb(db),
+		input,
+	);
 }
 
 export async function getSkillWorkflowAdmissionFence(
-	db: D1Database,
+	db: D1Database | DbClient,
 	fingerprint: string,
 ): Promise<{ run_id: string; expires_at: string } | null> {
-	return db
-		.prepare(
-			`SELECT run_id, expires_at
-			 FROM skill_run_admission_dedup
-			 WHERE fingerprint = ?1
-			 LIMIT 1`,
-		)
-		.bind(fingerprint)
-		.first();
+	return runtimeStore.getSkillWorkflowAdmissionFence(
+		skillRuntimeDb(db),
+		fingerprint,
+	);
 }
 
 export async function pruneSkillWorkflowAdmissionFences(
-	db: D1Database,
+	db: D1Database | DbClient,
 	retentionCutoff: string,
 ): Promise<void> {
-	await db
-		.prepare("DELETE FROM skill_run_admission_dedup WHERE expires_at < ?1")
-		.bind(retentionCutoff)
-		.run();
+	return runtimeStore.pruneSkillWorkflowAdmissionFences(
+		skillRuntimeDb(db),
+		retentionCutoff,
+	);
 }
 
 export async function releaseSkillWorkflowAdmissionFence(
-	db: D1Database,
+	db: D1Database | DbClient,
 	input: { fingerprint: string; runId: string },
 ): Promise<void> {
-	await db
-		.prepare(
-			`DELETE FROM skill_run_admission_dedup
-			 WHERE fingerprint = ?1 AND run_id = ?2`,
-		)
-		.bind(input.fingerprint, input.runId)
-		.run();
+	return runtimeStore.releaseSkillWorkflowAdmissionFence(
+		skillRuntimeDb(db),
+		input,
+	);
 }
 
 /** Bounded, epoch-scoped scan used before asserting workflow completion. */
 export async function listWorkflowCallReceiptStorage(
-	db: D1Database,
+	db: D1Database | DbClient,
 	organizationId: string,
 	runId: string,
 	executionEpoch: number,
@@ -998,23 +769,11 @@ export async function listWorkflowCallReceiptStorage(
 		content_r2_key: string | null;
 	}>
 > {
-	const rows = await db
-		.prepare(
-			`SELECT a.path, a.content_inline, a.content_r2_key FROM skill_run_artifacts a
-		 JOIN skill_runs r ON r.id = a.run_id
-		 WHERE a.run_id = ?1 AND a.path GLOB ?2 AND a.path > ?3 AND r.organization_id = ?4
-		 ORDER BY a.path LIMIT 200`,
-		)
-		.bind(
-			runId,
-			`epochs/${executionEpoch}/steps/*/calls/*.json`,
-			after,
-			organizationId,
-		)
-		.all<{
-			path: string;
-			content_inline: string | null;
-			content_r2_key: string | null;
-		}>();
-	return rows.results ?? [];
+	return runtimeStore.listWorkflowCallReceiptStorage(
+		skillRuntimeDb(db),
+		organizationId,
+		runId,
+		executionEpoch,
+		after,
+	);
 }
