@@ -469,6 +469,27 @@ export async function copyStatus(ports: CopyPorts): Promise<StatusReport> {
  * next one from writing the same table; a crashed tick's lease expires.
  * A table D1 refused stays paused and is resumed by a later tick.
  */
+/**
+ * Large append-only logs copied after every other table. Nothing reads them
+ * to serve a request's core data, so they can finish after the switch.
+ */
+export const DEFERRED_TABLES: ReadonlySet<string> = new Set([
+	"skill_run_artifacts",
+	"external_agent_attributions",
+	"kernel_runtime_events",
+	"tedi_runtime_events",
+	"widget_events",
+	"learning_interaction_events",
+	"tedi_plugin_events",
+	"tedi_email_events",
+	"harness_eval_results",
+	"harness_subject_trace_bundles",
+	"trace_bundles",
+	"skill_usage_events",
+	"tedi_approval_dependency_events",
+	"graph_retrieval_benchmark_results",
+]);
+
 /** Tables copied side by side per tick, each lane on its own connection. */
 // Eight lanes ran the Worker out of memory when several large-row tables
 // were in flight together.
@@ -506,6 +527,11 @@ export async function cronTick(
 				continue;
 			queue.push(entry.table);
 		}
+		// Core tables first: the switch can happen once they are done, while
+		// these append-only logs finish afterwards in insert-only mode.
+		queue.sort(
+			(a, b) => Number(DEFERRED_TABLES.has(a)) - Number(DEFERRED_TABLES.has(b)),
+		);
 		if (queue.length === 0) {
 			await store.setRunState({
 				mode: "idle",
