@@ -79,13 +79,6 @@
 			"binding": "BrainAuditDeps.db D1 executor",
 			"reason": "The canonical memory audit composes parameterized tenant-scoped filters, grouped counts, and ordering dynamically, then executes through a deliberately narrow D1 reader."
 		},
-		"packages/db/src/queries/runtime-body-generations.ts": {
-			"storagePlane": "platform-d1",
-			"disposition": "approved",
-			"owner": "packages/db:runtime-body-generation-cas",
-			"binding": "D1Executor db",
-			"reason": "Runtime body generation updates select between tedis and workstation_leases and use affected-row compare-and-set semantics that require parameterized native D1 statements."
-		},
 		"packages/db/src/queries/tedi-runtime-bootstrap.ts": {
 			"storagePlane": "platform-d1",
 			"disposition": "approved",
