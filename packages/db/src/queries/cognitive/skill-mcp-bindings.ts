@@ -25,6 +25,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { skillEntries } from "../../schema/cognitive";
+import { coreStore, jsonParameter, jsonRead } from "../../core-store/dialect";
 import {
 	filterAppConnectionResourceTools,
 	isAggregateSourceAllowed,
@@ -144,7 +145,7 @@ export async function listOrganizationGatewayAppIds(
 		.where(
 			and(
 				eq(apps.organizationId, organizationId),
-				sql`json_extract(${apps.metadata}, '$.mcpConfig.aggregateApps') IS NOT NULL`,
+				sql`${jsonRead(db, apps.metadata, ["mcpConfig", "aggregateApps"])} IS NOT NULL`,
 			),
 		);
 	const gateways = rows.filter((row) => {
@@ -376,7 +377,10 @@ export async function recordMissingSkillMcpAppBindings(
 	await db
 		.update(skillEntries)
 		.set({
-			mcpAppBindings: sql`json_patch(${JSON.stringify(params.bindings)}, coalesce(${skillEntries.mcpAppBindings}, '{}'))`,
+			mcpAppBindings:
+				coreStore(db) === "postgres"
+					? sql`${jsonParameter(db, params.bindings)} || coalesce(${skillEntries.mcpAppBindings}, '{}'::jsonb)`
+					: sql`json_patch(${JSON.stringify(params.bindings)}, coalesce(${skillEntries.mcpAppBindings}, '{}'))`,
 		})
 		.where(
 			and(
@@ -402,7 +406,10 @@ export async function repairSkillMcpAppBindings(
 	await db
 		.update(skillEntries)
 		.set({
-			mcpAppBindings: sql`json_patch(coalesce(${skillEntries.mcpAppBindings}, '{}'), ${JSON.stringify(params.bindings)})`,
+			mcpAppBindings:
+				coreStore(db) === "postgres"
+					? sql`coalesce(${skillEntries.mcpAppBindings}, '{}'::jsonb) || ${jsonParameter(db, params.bindings)}`
+					: sql`json_patch(coalesce(${skillEntries.mcpAppBindings}, '{}'), ${JSON.stringify(params.bindings)})`,
 		})
 		.where(
 			and(

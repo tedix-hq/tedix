@@ -1,5 +1,6 @@
 import { and, eq, ne, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { coreStore, jsonParameter } from "../../core-store/dialect";
 import { skillEntries } from "../../schema/cognitive";
 
 /**
@@ -21,6 +22,7 @@ export async function ensurePlatformSkill(
 		tags: string[];
 	},
 ): Promise<{ id: string; slug: string; revision: number }> {
+	const postgres = coreStore(db) === "postgres";
 	const [row] = await db
 		.insert(skillEntries)
 		.values({
@@ -45,16 +47,20 @@ export async function ensurePlatformSkill(
 				description: input.description,
 				lifecycleState: "active",
 				revision: sql`${skillEntries.revision} + 1`,
-				updatedAt: sql`(CURRENT_TIMESTAMP)`,
+				updatedAt: postgres
+					? sql`to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')`
+					: sql`(CURRENT_TIMESTAMP)`,
 			},
 			setWhere: and(
 				eq(skillEntries.organizationId, input.organizationId),
 				or(
 					ne(skillEntries.content, input.content),
-					ne(
-						sql`coalesce(${skillEntries.files}, '')`,
-						JSON.stringify(input.files),
-					),
+					postgres
+						? sql`${skillEntries.files} IS DISTINCT FROM ${jsonParameter(db, input.files)}`
+						: ne(
+								sql`coalesce(${skillEntries.files}, '')`,
+								JSON.stringify(input.files),
+							),
 					ne(sql`coalesce(${skillEntries.lifecycleState}, '')`, "active"),
 				),
 			),

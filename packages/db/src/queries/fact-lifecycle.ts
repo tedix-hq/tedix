@@ -27,6 +27,7 @@
 
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreStore, jsonRead, jsonWrite } from "../core-store/dialect";
 import { memoryFacts } from "../schema/memory-graph";
 import { freshReadMarkExists, unusedReportNote } from "./read-marks";
 
@@ -241,7 +242,10 @@ export async function sweepExpiredProbationFacts(
 
 	// datetime() normalizes both D1 default "YYYY-MM-DD HH:MM:SS" and ISO
 	// timestamps; the per-fact TTL rides in as a '+N days' modifier.
-	const expiredCondition = sql`datetime(${memoryFacts.createdAt}, '+' || CAST(COALESCE(json_extract(${memoryFacts.metadata}, '$.brainAdmission.ttlDays'), ${defaultTtlDays}) AS TEXT) || ' days') <= datetime(${nowIso})`;
+	const postgres = coreStore(db) === "postgres";
+	const expiredCondition = postgres
+		? sql`${memoryFacts.createdAt}::timestamptz + COALESCE(${jsonRead(db, memoryFacts.metadata, ["brainAdmission", "ttlDays"], "number")}, ${defaultTtlDays}::numeric) * interval '1 day' <= ${nowIso}::timestamptz`
+		: sql`datetime(${memoryFacts.createdAt}, '+' || CAST(COALESCE(json_extract(${memoryFacts.metadata}, '$.brainAdmission.ttlDays'), ${defaultTtlDays}) AS TEXT) || ' days') <= datetime(${nowIso})`;
 	// A lesson read while the fact was alive counts as retrieval even when it
 	// never reached access_count: reads leave a daily date in read_marks
 	// (kind 'lesson'). The latest read on/after creation means it was read.
@@ -249,7 +253,9 @@ export async function sweepExpiredProbationFacts(
 		organizationId: memoryFacts.organizationId,
 		kind: "lesson",
 		rowId: memoryFacts.id,
-		sinceDate: sql`date(${memoryFacts.createdAt})`,
+		sinceDate: postgres
+			? sql`left(${memoryFacts.createdAt}, 10)`
+			: sql`date(${memoryFacts.createdAt})`,
 	});
 	const baseConditions = [
 		eq(memoryFacts.status, "probation"),
@@ -307,7 +313,12 @@ export async function sweepExpiredProbationFacts(
 					.set({
 						archivedAt: nowIso,
 						updatedAt: nowIso,
-						metadata: sql`json_set(COALESCE(${memoryFacts.metadata}, '{}'), '$.archiveReason', 'probation-ttl-sweep')`,
+						metadata: jsonWrite(
+							db,
+							memoryFacts.metadata,
+							["archiveReason"],
+							"probation-ttl-sweep",
+						),
 					})
 					.where(
 						sql`${memoryFacts.id} IN (${sql.join(

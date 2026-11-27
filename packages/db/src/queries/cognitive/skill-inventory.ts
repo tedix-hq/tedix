@@ -15,6 +15,8 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import {
 	type CognitiveVisibility,
 	type SkillEntry,
@@ -33,23 +35,33 @@ const {
 	revisionReasoning: _revisionReasoning,
 	...skillSummaryColumns
 } = getColumns(skillEntries);
-const skillSummaryProjection = {
-	...skillSummaryColumns,
-	content: sql<string>`CASE
-		WHEN (substr(${skillEntries.content}, 1, 4) = '---' || char(10) OR substr(${skillEntries.content}, 1, 5) = '---' || char(13) || char(10))
-			AND instr(${skillEntries.content}, char(10) || '---') > 0
-		THEN substr(${skillEntries.content}, 1, instr(${skillEntries.content}, char(10) || '---') + 3)
-		ELSE '' END || char(10) || '[summary view — fetch this skill by id or slug for the full SKILL.md]'`.as(
-		"content",
-	),
-	files: sql<null>`NULL`.as("files"),
-	inputSchema: sql<null>`NULL`.as("input_schema"),
-	agentSkillsFormat: sql<null>`NULL`.as("agent_skills_format"),
-	archivedFrom: sql<null>`NULL`.as("archived_from"),
-	revisionReasoning: sql<null>`NULL`.as("revision_reasoning"),
-};
+function skillSummaryProjection(db: object) {
+	const [newline, carriageReturn, find] =
+		coreStore(db) === "postgres"
+			? [sql`chr(10)`, sql`chr(13)`, sql`strpos`]
+			: [sql`char(10)`, sql`char(13)`, sql`instr`];
+	return {
+		...skillSummaryColumns,
+		content: sql<string>`CASE
+		WHEN (substr(${skillEntries.content}, 1, 4) = '---' || ${newline} OR substr(${skillEntries.content}, 1, 5) = '---' || ${carriageReturn} || ${newline})
+			AND ${find}(${skillEntries.content}, ${newline} || '---') > 0
+		THEN substr(${skillEntries.content}, 1, ${find}(${skillEntries.content}, ${newline} || '---') + 3)
+		ELSE '' END || ${newline} || '[summary view — fetch this skill by id or slug for the full SKILL.md]'`.as(
+			"content",
+		),
+		files: sql<null>`NULL`.as("files"),
+		inputSchema: sql<null>`NULL`.as("input_schema"),
+		agentSkillsFormat: sql<null>`NULL`.as("agent_skills_format"),
+		archivedFrom: sql<null>`NULL`.as("archived_from"),
+		revisionReasoning: sql<null>`NULL`.as("revision_reasoning"),
+	};
+}
 
-const improvementTag = sql`EXISTS (SELECT 1 FROM json_each(${skillEntries.tags}) WHERE value = 'workflow-improvement')`;
+function improvementTag(db: object): SQL {
+	return coreStore(db) === "postgres"
+		? sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(${skillEntries.tags}) = 'array' THEN ${skillEntries.tags} ELSE '[]'::jsonb END) AS tag(value) WHERE tag.value = 'workflow-improvement')`
+		: sql`EXISTS (SELECT 1 FROM json_each(${skillEntries.tags}) WHERE value = 'workflow-improvement')`;
+}
 
 export async function listAllSkillsForOrg(
 	db: DbClient,
@@ -74,13 +86,13 @@ export async function listAllSkillsForOrg(
 	const conditions = [eq(skillEntries.organizationId, orgId)];
 	if (options?.excludeImprovements) {
 		conditions.push(
-			sql`(${skillEntries.sourceSkillId} IS NULL OR NOT ${improvementTag})`,
+			sql`(${skillEntries.sourceSkillId} IS NULL OR NOT ${improvementTag(db)})`,
 		);
 	}
 	if (options?.improvementsOf) {
 		conditions.push(
 			eq(skillEntries.sourceSkillId, options.improvementsOf),
-			improvementTag,
+			improvementTag(db),
 		);
 	}
 	if (options?.excludeArchived) {
@@ -104,7 +116,7 @@ export async function listAllSkillsForOrg(
 		conditions.push(readableSkillCondition(options.tediId));
 		if (!options.lifecycleState)
 			conditions.push(ne(skillEntries.lifecycleState, "draft"));
-		const override = alias(skillEntries, "tedi_skill_override");
+		const override = alias(coreTable(db, skillEntries), "tedi_skill_override");
 		// Selecting a constant keeps this per-row probe inside the covering
 		// idx_skill_entries_org_tedi_supersedes index.
 		conditions.push(
@@ -155,7 +167,9 @@ export async function listAllSkillsForOrg(
 	const [entries, total] = await Promise.all([
 		db
 			.select(
-				options?.summary ? skillSummaryProjection : getColumns(skillEntries),
+				options?.summary
+					? skillSummaryProjection(db)
+					: getColumns(skillEntries),
 			)
 			.from(skillEntries)
 			.where(whereClause)
@@ -206,11 +220,13 @@ export async function listExecutableSkillWorkflowsForOrg(
 }> {
 	const conditions: SQL[] = [
 		eq(skillEntries.organizationId, orgId),
-		sql`json_type(${skillEntries.files}, '$."scripts/workflow.ts"') = 'text'`,
+		coreStore(db) === "postgres"
+			? sql`jsonb_typeof(${skillEntries.files} -> 'scripts/workflow.ts') = 'string'`
+			: sql`json_type(${skillEntries.files}, '$."scripts/workflow.ts"') = 'text'`,
 	];
 	if (options?.excludeImprovements) {
 		conditions.push(
-			sql`(${skillEntries.sourceSkillId} IS NULL OR NOT ${improvementTag})`,
+			sql`(${skillEntries.sourceSkillId} IS NULL OR NOT ${improvementTag(db)})`,
 		);
 	}
 	if (options?.lifecycleState) {

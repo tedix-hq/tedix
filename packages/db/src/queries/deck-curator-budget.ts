@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import { coreStore, jsonRead } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { organizations } from "../schema/organizations";
 
@@ -33,6 +34,38 @@ export async function reserveDeckRankingSlots(
 		input.maxCards <= 0
 	)
 		return 0;
+	if (coreStore(db) === "postgres") {
+		const today = sql`to_char(timezone('UTC', now()), 'YYYY-MM-DD')`;
+		const day = jsonRead(db, organizations.metadata, [
+			"deckRankerBudget",
+			"day",
+		]);
+		const reserved = jsonRead(
+			db,
+			organizations.metadata,
+			["deckRankerBudget", "reservedMicros"],
+			"number",
+		);
+		const used = sql`case when ${day} = ${today}
+ then case when ${reserved} = trunc(${reserved}) and ${reserved} >= 0
+ then ${reserved} else NULL end else 0 end`;
+		// SQLite min() returns NULL for a corrupt counter; Postgres least() would ignore it.
+		const slots = sql`case when (${used}) is null then NULL else least(${input.maxCards}::bigint, trunc((${input.dailyLimitMicros}::bigint - (${used})) / ${input.amountMicros}::bigint)::bigint) end`;
+		const [row] = await db
+			.update(organizations)
+			.set({
+				metadata: sql`jsonb_set(coalesce(${organizations.metadata}, '{}'::jsonb), '{deckRankerBudget}',
+ jsonb_build_object('day', ${today}, 'reservedMicros', (${used}) + (${slots}) * ${input.amountMicros}::bigint, 'lastReservedCards', ${slots}), true)`,
+			})
+			.where(and(eq(organizations.id, input.organizationId), sql`${slots} > 0`))
+			.returning({
+				slots:
+					sql<number>`${jsonRead(db, organizations.metadata, ["deckRankerBudget", "lastReservedCards"], "number")}`.mapWith(
+						Number,
+					),
+			});
+		return row?.slots ?? 0;
+	}
 	const today = sql`strftime('%Y-%m-%d', 'now')`;
 	const day = sql`json_extract(${organizations.metadata}, '$.deckRankerBudget.day')`;
 	const used = sql`case when ${day} = ${today}

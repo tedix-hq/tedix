@@ -1,6 +1,8 @@
 import { and, eq, exists, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import type { DbClient } from "../../client";
+import { coreTable } from "../../core-store/client";
+import { coreStore } from "../../core-store/dialect";
 import {
 	skillEntries,
 	skillSchedules,
@@ -11,8 +13,20 @@ import { disableSkillScheduleInContent } from "../skill-schedules";
 import { paceLayerForLifecycle } from "../skill-lifecycle";
 import { resolveSkillMcpAppBindings } from "./skill-mcp-bindings";
 
-function removableCopy(now: Date, abandonedOnly: boolean) {
+function removableCopy(db: object, now: Date, abandonedOnly: boolean) {
 	const cutoff = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+	if (coreStore(db) === "postgres")
+		return sql`skill_entries.source_skill_id IS NOT NULL
+		AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(skill_entries.tags) = 'array' THEN skill_entries.tags ELSE '[]'::jsonb END) AS tag(value) WHERE tag.value = 'workflow-improvement')
+		AND skill_entries.improvement_adoption IS NULL
+		AND NOT EXISTS (SELECT 1 FROM skill_runs r WHERE r.skill_id = skill_entries.id
+			AND r.status NOT IN ('completed', 'failed', 'canceled'))
+		AND EXISTS (SELECT 1 FROM skill_entries main WHERE main.id = skill_entries.source_skill_id
+			AND main.organization_id = skill_entries.organization_id
+			AND strpos(coalesce(main.revision_reasoning, ''), 'Workflow improvement ' || skill_entries.id || ' activated by ') = 0
+			AND (${!abandonedOnly}::boolean OR main.revision > skill_entries.source_revision
+				OR (skill_entries.lifecycle_state = 'draft'
+					AND coalesce(skill_entries.updated_at, skill_entries.created_at)::timestamptz <= ${cutoff}::timestamptz)))`;
 	return sql`skill_entries.source_skill_id IS NOT NULL
 		AND EXISTS (SELECT 1 FROM json_each(skill_entries.tags) WHERE value = 'workflow-improvement')
 		AND skill_entries.improvement_adoption IS NULL
@@ -53,9 +67,42 @@ export async function removeSkillImprovementCopy(
 		eq(skillEntries.id, params.id),
 		eq(skillEntries.organizationId, params.organizationId),
 		eq(skillEntries.sourceSkillId, copy.sourceSkillId),
-		removableCopy(now, params.abandonedOnly ?? false),
+		removableCopy(db, now, params.abandonedOnly ?? false),
 	)!;
 	const note = `Removed 1 workflow improvement copy (${params.id}): ${params.reason}`;
+	if (coreStore(db) === "postgres") {
+		// Postgres has no changes(): the note reads the DELETE receipt in the same statement.
+		const removed = db
+			.$with("removed", { id: skillEntries.id })
+			.as(
+				db
+					.delete(skillEntries)
+					.where(eligible)
+					.returning({ id: skillEntries.id })
+					.getSQL(),
+			);
+		const noted = db.$with("noted", { id: skillEntries.id }).as(
+			db
+				.update(skillEntries)
+				.set({
+					revisionReasoning: sql`coalesce(${skillEntries.revisionReasoning} || chr(10), '') || ${note}`,
+				})
+				.where(
+					and(
+						eq(skillEntries.organizationId, params.organizationId),
+						eq(skillEntries.id, copy.sourceSkillId),
+						sql`EXISTS (SELECT 1 FROM ${removed})`,
+					),
+				)
+				.returning({ id: skillEntries.id })
+				.getSQL(),
+		);
+		const rows = await db
+			.with(removed, noted)
+			.select({ id: removed.id })
+			.from(removed);
+		return rows.length === 1;
+	}
 	const [removed] = await db.batch([
 		db.delete(skillEntries).where(eligible).returning({ id: skillEntries.id }),
 		db
@@ -86,7 +133,7 @@ export async function sweepAbandonedSkillImprovements(
 			organizationId: skillEntries.organizationId,
 		})
 		.from(skillEntries)
-		.where(removableCopy(now, true))
+		.where(removableCopy(db, now, true))
 		.orderBy(skillEntries.id)
 		.limit(params.limit ?? 500);
 	const removedIds: string[] = [];
@@ -128,6 +175,7 @@ export async function adoptSkillImprovementCopy(
 		eq(skillEntries.sourceSkillId, baseline.id),
 		sql`${skillEntries.improvementAdoption} IS NULL`,
 	)!;
+	const schedules = coreTable(db, skillSchedules);
 	const [updated] = await db.batch([
 		db
 			.update(skillEntries)
@@ -159,14 +207,22 @@ export async function adoptSkillImprovementCopy(
 				content: disableSkillScheduleInContent(proposal.content),
 				updatedAt: new Date().toISOString(),
 			})
-			.where(and(proposalGuard, sql`changes() = 1`)),
+			.where(
+				and(
+					proposalGuard,
+					coreStore(db) === "postgres"
+						? // The baseline row version was written by this transaction.
+							sql`EXISTS (SELECT 1 FROM skill_entries b WHERE b.id = ${baseline.id} AND b.xmin = pg_current_xact_id()::xid)`
+						: sql`changes() = 1`,
+				),
+			),
 		db
-			.update(skillSchedules)
+			.update(schedules)
 			.set({ enabled: false, updatedAt: new Date().toISOString() })
 			.where(
 				and(
-					eq(skillSchedules.skillId, proposal.id),
-					eq(skillSchedules.organizationId, baseline.organizationId),
+					eq(schedules.skillId, proposal.id),
+					eq(schedules.organizationId, baseline.organizationId),
 					sql`EXISTS (SELECT 1 FROM skill_entries p WHERE p.id = ${proposal.id} AND p.improvement_adoption IS NOT NULL)`,
 				),
 			),

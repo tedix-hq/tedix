@@ -1175,7 +1175,7 @@ function approvedHomeApprovalHistoryGuard(
 				event.kind !== "approval.resolved",
 		)
 	)
-		return sql`0`;
+		return postgres(db) ? sql`false` : sql`0`;
 	if (postgres(db)) {
 		const field = (name: string) => sql`(approval_snapshot.value ->> ${name})`;
 		return sql`

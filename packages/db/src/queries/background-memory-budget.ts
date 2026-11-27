@@ -1,8 +1,31 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
+import {
+	coreStore,
+	jsonRead,
+	jsonWrite,
+	pgTextArray,
+} from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { organizations } from "../schema/organizations";
 
-function budgetExpressions() {
+const BUDGET_PATH = ["organizationDailyBudgets", "backgroundMemoryChanges"];
+
+function budgetExpressions(db: DbQueryClient) {
+	if (coreStore(db) === "postgres") {
+		const today = sql`to_char(timezone('UTC', now()), 'YYYY-MM-DD')`;
+		const day = jsonRead(db, organizations.metadata, [...BUDGET_PATH, "day"]);
+		const reserved = jsonRead(
+			db,
+			organizations.metadata,
+			[...BUDGET_PATH, "reserved"],
+			"number",
+		);
+		const used = sql`case when ${day} = ${today}
+ then case when ${reserved} = trunc(${reserved})
+ and ${reserved} >= 0
+ then (${reserved})::bigint else NULL end else 0 end`;
+		return { today, day, used };
+	}
 	const today = sql`strftime('%Y-%m-%d', 'now')`;
 	const day = sql`json_extract(${organizations.metadata}, '$.organizationDailyBudgets.backgroundMemoryChanges.day')`;
 	const reserved = sql`json_extract(${organizations.metadata}, '$.organizationDailyBudgets.backgroundMemoryChanges.reserved')`;
@@ -13,6 +36,20 @@ function budgetExpressions() {
  and ${reserved} >= 0
  then cast(${reserved} as integer) else NULL end else 0 end`;
 	return { today, day, used };
+}
+
+/** Postgres json_set: creates missing parent objects like SQLite does. */
+function pgJsonSet(
+	column: SQL | typeof organizations.metadata,
+	path: string[],
+	value: SQL,
+): SQL {
+	let document = sql`coalesce(${column}, '{}'::jsonb)`;
+	for (let length = 1; length < path.length; length++) {
+		const prefix = pgTextArray(path.slice(0, length));
+		document = sql`jsonb_set(${document}, ${prefix}::text[], coalesce(${column} #> ${prefix}::text[], '{}'::jsonb), true)`;
+	}
+	return sql`jsonb_set(${document}, ${pgTextArray(path)}::text[], ${value}, true)`;
 }
 
 export interface ReserveBackgroundMemoryChangeSlotsParams {
@@ -52,19 +89,38 @@ export async function reserveBackgroundMemoryChangeSlots(
 	if (!validateReservation(input)) {
 		return { reserved: 0, capReached: true, logCap: false };
 	}
-	const { today, day, used } = budgetExpressions();
-	const slots = sql`min(${input.maxSlots}, ${input.dailyLimit} - (${used}))`;
-	const capLogged = sql`coalesce(json_extract(${organizations.metadata}, '$.organizationDailyBudgets.backgroundMemoryChanges.capLogged'), 0)`;
+	const { today, day, used } = budgetExpressions(db);
+	const postgres = coreStore(db) === "postgres";
+	// SQLite min() returns NULL for a corrupt counter; Postgres least() would ignore it.
+	const slots = postgres
+		? sql`case when (${used}) is null then NULL else least(${input.maxSlots}::bigint, ${input.dailyLimit}::bigint - (${used})) end`
+		: sql`min(${input.maxSlots}, ${input.dailyLimit} - (${used}))`;
+	const capLoggedPath = [...BUDGET_PATH, "capLogged"];
+	const capLogged = postgres
+		? sql`coalesce(${jsonRead(db, organizations.metadata, capLoggedPath, "number")}, 0)`
+		: sql`coalesce(json_extract(${organizations.metadata}, '$.organizationDailyBudgets.backgroundMemoryChanges.capLogged'), 0)`;
 	const [row] = await db
 		.update(organizations)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.organizationDailyBudgets.backgroundMemoryChanges',
+			metadata: postgres
+				? pgJsonSet(
+						organizations.metadata,
+						BUDGET_PATH,
+						sql`jsonb_build_object('day', ${today}, 'reserved', (${used}) + (${slots}), 'lastReservedSlots', (${slots}), 'capLogged', case when ${day} = ${today} then ${capLogged} else 0 end)`,
+					)
+				: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.organizationDailyBudgets.backgroundMemoryChanges',
  json_object('day', ${today}, 'reserved', (${used}) + (${slots}), 'lastReservedSlots', (${slots}), 'capLogged', case when ${day} = ${today} then ${capLogged} else 0 end))`,
 		})
 		.where(and(eq(organizations.id, input.organizationId), sql`${slots} > 0`))
 		.returning({
-			slots: sql<number>`json_extract(${organizations.metadata}, '$.organizationDailyBudgets.backgroundMemoryChanges.lastReservedSlots')`,
-			reservedAfter: sql<number>`json_extract(${organizations.metadata}, '$.organizationDailyBudgets.backgroundMemoryChanges.reserved')`,
+			slots:
+				sql<number>`${jsonRead(db, organizations.metadata, [...BUDGET_PATH, "lastReservedSlots"], "number")}`.mapWith(
+					Number,
+				),
+			reservedAfter:
+				sql<number>`${jsonRead(db, organizations.metadata, [...BUDGET_PATH, "reserved"], "number")}`.mapWith(
+					Number,
+				),
 		});
 	const reserved = row?.slots ?? 0;
 	if (reserved > 0) {
@@ -81,18 +137,22 @@ async function markBackgroundMemoryCapLogged(
 	db: DbQueryClient,
 	input: ReserveBackgroundMemoryChangeSlotsParams,
 ): Promise<BackgroundMemoryChangeSlotsReservation> {
-	const { today, day, used } = budgetExpressions();
+	const { today, day, used } = budgetExpressions(db);
+	const capLoggedPath = [...BUDGET_PATH, "capLogged"];
 	const [row] = await db
 		.update(organizations)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.organizationDailyBudgets.backgroundMemoryChanges.capLogged', 1)`,
+			metadata:
+				coreStore(db) === "postgres"
+					? jsonWrite(db, organizations.metadata, capLoggedPath, 1)
+					: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.organizationDailyBudgets.backgroundMemoryChanges.capLogged', 1)`,
 		})
 		.where(
 			and(
 				eq(organizations.id, input.organizationId),
 				sql`${day} = ${today}`,
 				sql`(${used}) >= ${input.dailyLimit}`,
-				sql`coalesce(json_extract(${organizations.metadata}, '$.organizationDailyBudgets.backgroundMemoryChanges.capLogged'), 0) != 1`,
+				sql`coalesce(${jsonRead(db, organizations.metadata, capLoggedPath, "number")}, 0) != 1`,
 			),
 		)
 		.returning({ id: organizations.id });
@@ -112,11 +172,11 @@ export async function getBackgroundMemoryChangeSlotsRemaining(
 	if (!Number.isSafeInteger(input.dailyLimit) || input.dailyLimit <= 0) {
 		return 0;
 	}
-	const { day, used } = budgetExpressions();
+	const { day, used } = budgetExpressions(db);
 	const [row] = await db
 		.select({
 			day: sql<string | null>`${day}`,
-			used: sql<number | null>`${used}`,
+			used: sql<number | null>`${used}`.mapWith(Number),
 		})
 		.from(organizations)
 		.where(eq(organizations.id, input.organizationId));

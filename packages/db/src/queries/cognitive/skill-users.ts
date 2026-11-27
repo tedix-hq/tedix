@@ -6,6 +6,7 @@
  */
 
 import { and, eq, gte, sql } from "drizzle-orm";
+import { jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import { skillEntries, skillSchedules } from "../../schema/cognitive";
 import { dispatcherHealthReports } from "../../schema/dispatcher-health";
@@ -80,14 +81,14 @@ export async function listSkillUsers(
 				projectName: projects.name,
 				factorySlug: sql<
 					string | null
-				>`json_extract(${projects.metadata}, '$.factory.slug')`,
+				>`${jsonRead(db, projects.metadata, ["factory", "slug"])}`,
 			})
 			.from(projects)
 			.where(
 				and(
 					eq(projects.orgId, params.orgId),
 					eq(projects.status, "active"),
-					sql`json_extract(${projects.metadata}, '$.factory.skillId') = ${params.skillId}`,
+					sql`${jsonRead(db, projects.metadata, ["factory", "skillId"])} = ${params.skillId}`,
 				),
 			),
 		db
