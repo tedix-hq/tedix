@@ -1,11 +1,13 @@
 /**
  * Canonical CMS control-plane storage owner.
  *
- * CMS deploy/provisioning spans the platform D1 metadata catalog and tenant
- * bundle lifecycle tables, so these statements remain on native D1. Keep all
- * such SQL here; workflows and tools call typed operations instead of issuing
- * ad hoc statements.
+ * CMS deploy/provisioning spans the core metadata catalog and tenant
+ * bundle lifecycle tables. Bundle mutations still use provisioning's native
+ * D1 contract. Workflows and tools call these typed operations.
  */
+
+import { coreQueryDb } from "@tedix/db/core-store/scope";
+import { getCmsSiteBySlug } from "@tedix/db/queries/cms-sites";
 
 import {
 	readCmsBundle,
@@ -81,24 +83,21 @@ export async function getCmsAppMetadata(
 	db: D1Database,
 	orgSlug: string,
 ): Promise<string | Record<string, unknown> | null> {
-	const row = await db
-		.prepare("SELECT config AS metadata FROM cms_sites WHERE slug = ?")
-		.bind(orgSlug)
-		.first<{ metadata: string | Record<string, unknown> | null }>();
-	return row?.metadata ?? null;
+	const site = await getCmsSiteBySlug(coreQueryDb({ DB: db }), orgSlug);
+	return site?.config ? { ...site.config } : null;
 }
 
 export async function getCmsPrivacyBannerSetting(
 	db: D1Database,
 	orgSlug: string,
 ): Promise<number | boolean | string | null> {
-	const row = await db
-		.prepare(
-			"SELECT json_extract(config, '$.blog.privacyBannerEnabled') AS privacyBannerEnabled FROM cms_sites WHERE slug = ?",
-		)
-		.bind(orgSlug)
-		.first<{ privacyBannerEnabled: number | boolean | string | null }>();
-	return row?.privacyBannerEnabled ?? null;
+	const site = await getCmsSiteBySlug(coreQueryDb({ DB: db }), orgSlug);
+	const value = site?.config?.blog?.privacyBannerEnabled;
+	return typeof value === "boolean" ||
+		typeof value === "number" ||
+		typeof value === "string"
+		? value
+		: null;
 }
 
 /** Public, nonsecret inputs for a tenant's statically compiled Astro bundle. */
@@ -106,12 +105,13 @@ export async function getCmsPublicBuildRoute(
 	db: D1Database,
 	orgSlug: string,
 ): Promise<{ publicSiteUrl: string; publicPathPrefix: string | null } | null> {
-	return db
-		.prepare(
-			"SELECT canonical_url AS publicSiteUrl, public_path_prefix AS publicPathPrefix FROM cms_sites WHERE slug = ? AND status = 'active'",
-		)
-		.bind(orgSlug.toLowerCase())
-		.first();
+	const site = await getCmsSiteBySlug(coreQueryDb({ DB: db }), orgSlug);
+	return site?.status === "active"
+		? {
+				publicSiteUrl: site.canonicalUrl,
+				publicPathPrefix: site.publicPathPrefix,
+			}
+		: null;
 }
 
 export async function getCmsTemplateSelection(
@@ -433,13 +433,9 @@ export async function getCmsDefaultLocale(
 	db: D1Database,
 	orgSlug: string,
 ): Promise<string | null> {
-	const row = await db
-		.prepare(
-			"SELECT json_extract(config, '$.blog.defaultLocale') AS defaultLocale FROM cms_sites WHERE slug = ?",
-		)
-		.bind(orgSlug)
-		.first<{ defaultLocale: string | null }>();
-	return row?.defaultLocale ?? null;
+	const site = await getCmsSiteBySlug(coreQueryDb({ DB: db }), orgSlug);
+	const value = site?.config?.blog?.defaultLocale;
+	return typeof value === "string" ? value : null;
 }
 
 /** A durable site reservation survives activation until the Workflow is terminal. */

@@ -1,4 +1,4 @@
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	deleteExpiredCmsBundleRetentionPermits,
 	enterCmsRestorePermit,
@@ -22,7 +22,7 @@ export async function reclaimCmsBundleRetentionPermits(
 	site: ExactCmsActiveSite,
 ): Promise<number> {
 	return deleteExpiredCmsBundleRetentionPermits(
-		createDbQueryClient(platformDb),
+		coreQueryDb({ DB: platformDb }),
 		{
 			site,
 			limit: 1_000,
@@ -35,7 +35,7 @@ export async function hasExactCmsDeprovisionAuthority(
 	platformDb: D1Database,
 	site: ExactCmsSite,
 ): Promise<boolean> {
-	const db = createDbQueryClient(platformDb);
+	const db = coreQueryDb({ DB: platformDb });
 	const canonical = await getCmsSiteBySlug(db, site.slug);
 	if (
 		!canonical ||
@@ -60,7 +60,7 @@ export async function getActiveCmsSiteForPermit(
 	platformDb: D1Database,
 	slug: string,
 ): Promise<ExactCmsActiveSite> {
-	const site = await getCmsSiteBySlug(createDbQueryClient(platformDb), slug);
+	const site = await getCmsSiteBySlug(coreQueryDb({ DB: platformDb }), slug);
 	if (!site || site.status !== "active") {
 		throw new Error(`CMS restore permit denied for site ${slug}`);
 	}
@@ -95,7 +95,7 @@ export async function withExactCmsSiteRestorePermit<T>(
 	) {
 		throw new Error("CMS restore permit denied: exact site identity required");
 	}
-	const db = createDbQueryClient(platformDb);
+	const db = coreQueryDb({ DB: platformDb });
 	const permit = {
 		siteId: site.siteId,
 		slug: site.slug,

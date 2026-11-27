@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { requireUnrestrictedCmsModels } from "./data-residency";
 import {
 	WorkflowEntrypoint,
@@ -524,7 +525,7 @@ function buildPrompt(
  * the job phase with the refusal as its message.
  */
 async function assertCmsVertexDailyBudget(db: D1Database): Promise<void> {
-	const totals = await getProviderSpendWindowTotals(db, {
+	const totals = await getProviderSpendWindowTotals(coreQueryDb({ DB: db }), {
 		provider: VERTEX_PROVIDER,
 		since: utcDayStartIso(),
 	});
@@ -548,9 +549,10 @@ async function recordCmsVertexImageCall(
 	},
 ): Promise<void> {
 	try {
-		const organization = await getOrganizationBySlug(db, input.orgSlug).catch(
-			() => undefined,
-		);
+		const organization = await getOrganizationBySlug(
+			coreQueryDb({ DB: db }),
+			input.orgSlug,
+		).catch(() => undefined);
 		const tokens = vertexUsageTokens(input.usageMetadata);
 		let priced: { costUsd: number; rateVersionId: string } | null = null;
 		let costReason: string | null = null;
@@ -560,7 +562,7 @@ async function recordCmsVertexImageCall(
 			typeof tokens.outputTokens === "number"
 		) {
 			const resolved = await resolveDirectProviderUsagePrice(
-				db,
+				coreQueryDb({ DB: db }),
 				{
 					provider: VERTEX_PROVIDER,
 					modelId: input.model,
@@ -582,7 +584,7 @@ async function recordCmsVertexImageCall(
 			}
 			costReason = resolved.reason;
 		}
-		await insertCallCosts(db, [
+		await insertCallCosts(coreQueryDb({ DB: db }), [
 			buildVertexCallCostRow({
 				orgId: organization?.id ?? null,
 				source: "vertex-direct:cms-image",

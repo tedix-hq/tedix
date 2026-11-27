@@ -1,3 +1,9 @@
+import {
+	getCmsAppMetadata,
+	getCmsPrivacyBannerSetting,
+	getCmsPublicBuildRoute,
+	getCmsDefaultLocale,
+} from "./storage";
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
@@ -6,17 +12,23 @@ import {
 	releaseCmsRestoreFence,
 } from "@tedix/db/queries/cms-restore-fences";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
-import { describe, expect, it } from "vite-plus/test";
+import { createPGliteFacade } from "@tedix/db/test/pglite-facade";
+import * as coreClient from "@tedix/db/core-store/client";
+import { coreQueryDb, withCoreStore } from "@tedix/db/core-store/scope";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	CmsUnknownProcessOutcomeError,
 	hasExactCmsDeprovisionAuthority,
+	getActiveCmsSiteForPermit,
 	withCmsSiteRestorePermit,
 	withExactCmsSiteRestorePermit,
 } from "./cms-restore-permit";
 
-function fixture() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(`
+vi.mock("@tedix/db/core-store/client", async (original) => ({
+	...(await original<typeof coreClient>()),
+}));
+
+const restoreSchema = `
 		CREATE TABLE cms_sites (
 			id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
 			name TEXT NOT NULL, description TEXT, status TEXT NOT NULL,
@@ -48,7 +60,11 @@ function fixture() {
 			site_id TEXT PRIMARY KEY, slug TEXT NOT NULL, capture_id TEXT NOT NULL,
 			expires_at_unix INTEGER NOT NULL, drained_at_unix INTEGER
 		);
-	`);
+	`;
+
+function fixture() {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec(restoreSchema);
 	const binding = createD1Facade(sqlite);
 	return { sqlite, binding, db: createDbQueryClient(binding) };
 }
@@ -398,3 +414,75 @@ describe("CMS Builder restore permit", () => {
 		}
 	});
 });
+
+it.each(["d1", "postgres"] as const)(
+	"uses the selected %s store for restore admission and release",
+	async (store) => {
+		const d1 = fixture();
+		const pg = store === "postgres" ? await createPGliteFacade() : null;
+		const unusedD1 = {
+			prepare: () => {
+				throw new Error("unexpected D1 access");
+			},
+		} as unknown as D1Database;
+		const binding = pg ? unusedD1 : d1.binding;
+		const close = vi.fn(async () => {});
+		const create = pg
+			? vi
+					.spyOn(coreClient, "createCoreStore")
+					.mockReturnValue({ db: pg.db, close })
+			: null;
+		try {
+			if (pg)
+				await pg.engine.exec(
+					restoreSchema.replace("config TEXT", "config JSONB"),
+				);
+			const config = `UPDATE cms_sites SET config = '{"blog":{"defaultLocale":"de","privacyBannerEnabled":true}}' WHERE slug = 'one'`;
+			if (pg) await pg.engine.exec(config);
+			else d1.sqlite.exec(config);
+			await withCoreStore({ CORE_STORE: store, DB: binding }, async () => {
+				const db = coreQueryDb({ DB: binding });
+				const site = await getActiveCmsSiteForPermit(binding, "one");
+				expect(await getCmsAppMetadata(binding, "one")).toEqual({
+					blog: { defaultLocale: "de", privacyBannerEnabled: true },
+				});
+				expect(await getCmsDefaultLocale(binding, "one")).toBe("de");
+				expect(await getCmsPrivacyBannerSetting(binding, "one")).toBe(true);
+				expect(await getCmsPublicBuildRoute(binding, "one")).toEqual({
+					publicSiteUrl: "https://one.test",
+					publicPathPrefix: null,
+				});
+				await expect(
+					withExactCmsSiteRestorePermit(binding, site, async () => {
+						expect((await getCmsRestoreFenceState(db, site)).inFlight).toBe(1);
+						return "admitted";
+					}),
+				).resolves.toBe("admitted");
+				expect((await getCmsRestoreFenceState(db, site)).inFlight).toBe(0);
+				const mutate = vi.fn(async () => {});
+				await expect(
+					withExactCmsSiteRestorePermit(
+						binding,
+						{ ...site, restoreEpoch: 1 },
+						mutate,
+					),
+				).rejects.toThrow("permit denied");
+				expect(mutate).not.toHaveBeenCalled();
+				await closeCmsRestoreFence(db, {
+					...site,
+					generation: "scope-fence",
+					captureId: "capture",
+				});
+				await expect(
+					withExactCmsSiteRestorePermit(binding, site, mutate),
+				).rejects.toThrow("permit denied");
+				expect(mutate).not.toHaveBeenCalled();
+			});
+			if (pg) expect(close).toHaveBeenCalledOnce();
+		} finally {
+			create?.mockRestore();
+			await pg?.close();
+			d1.sqlite.close();
+		}
+	},
+);
