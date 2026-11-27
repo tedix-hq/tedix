@@ -1662,8 +1662,10 @@ export class ConversationFacet extends PiAgent<
 			throw new Error("Pi turn configuration is waiting on unfinished work");
 		if (input.regenerationOf)
 			await this.forkForRegeneration(input.regenerationOf);
-		else if (input.freshHistory) await this.session.clearMessages();
 		const prior = await this.configureConversationTurn(input.configuration);
+		// Clearing a fresh session invokes Pi settings, which need the turn's model.
+		if (!input.regenerationOf && input.freshHistory)
+			await this.session.clearMessages();
 		this.heapProxy = new TurnHeapProxy();
 		const text =
 			prior === 0 && !input.freshHistory

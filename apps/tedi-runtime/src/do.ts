@@ -1345,7 +1345,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				{ conversationId },
 				{ retry: { maxAttempts: 5 } },
 			),
-		run: (turn) => this.runConversationFacetTurn(turn),
+		run: async (turn) => {
+			await this.ensureModelPolicy();
+			return this.runConversationFacetTurn(turn);
+		},
 	});
 	async onPoppyDrain(payload: { conversationId: string }): Promise<void> {
 		await this.poppy.drain(payload.conversationId);

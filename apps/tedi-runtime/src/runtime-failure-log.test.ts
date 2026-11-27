@@ -188,14 +188,27 @@ try {
 			type: "UnknownThrown",
 			cause: { type: "TypeError" },
 		});
-		assert.ok(!JSON.stringify(fields).includes(privateText));
+		if (report.kind === "host_error") {
+			assert.equal(fields.callback, "settings");
+			assert.equal(fields.errorMessage, privateText);
+		} else {
+			assert.ok(!JSON.stringify(fields).includes(privateText));
+		}
 		if ("task" in report && report.task) {
 			assert.equal(fields.taskId, task.id);
 			assert.equal(fields.conversationId, task.conversationId);
 		}
 		if ("reason" in report) assert.equal(fields.reason, report.reason);
-		if (report.kind === "host_error") assert.equal(fields.callback, "settings");
 	}
+	logTediPiReport({
+		kind: "host_error",
+		callback: "settings",
+		error: new Error("x".repeat(2000)),
+	});
+	assert.equal(
+		(errors.pop()?.[0] as { errorMessage: string }).errorMessage.length,
+		1024,
+	);
 	console.error = () => {
 		throw new Error(privateText);
 	};

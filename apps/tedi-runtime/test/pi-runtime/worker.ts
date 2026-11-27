@@ -564,6 +564,8 @@ export class PiConversationFixture extends ProductionConversationFacet {
 		};
 	}
 	protected selectModelForTurn() {
+		// Preserve production rejection before turn configuration loads the catalog.
+		if (!this.state.modelCatalog) super.selectModelForTurn();
 		return {
 			model: this.conversationModel(),
 			identity: this.state.modelRef?.startsWith("azure-openai/")

@@ -1,4 +1,5 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { serializeException } from "@tedix/worker-kit/logger";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import type { Report, ReportInfo } from "@earendil-works/pi-durable";
 import type { FacetBudgetStopReason } from "./conversation-facet";
@@ -109,7 +110,7 @@ function failureMessageClass(error: unknown): string[] | undefined {
 	return matched.length ? matched : undefined;
 }
 
-/** Log only code-owned event names and bounded exception topology. */
+/** Log code-owned events and bounded diagnostics supplied by each caller. */
 export function logTediRuntimeFailure(
 	event: RuntimeFailureEvent,
 	error: unknown,
@@ -121,6 +122,7 @@ export function logTediRuntimeFailure(
 				conversationId?: number;
 				reason?: Extract<ReportInfo, { reason: unknown }>["reason"];
 				callback?: Extract<ReportInfo, { kind: "host_error" }>["callback"];
+				errorMessage?: string;
 		  }
 		| { parserCode: (typeof POSTAL_ERROR_CODES)[number] | "unknown" },
 ): void {
@@ -174,7 +176,7 @@ export function logTediEmailParseFailure(error: unknown): void {
 	});
 }
 
-/** Extension names, task kinds and thrown payloads may contain tenant content. */
+/** Host failures retain a bounded message; other reports omit thrown payloads. */
 export function logTediPiReport(report: Report): void {
 	const { error, ...info } = report;
 	const task = "task" in info ? info.task : undefined;
@@ -187,7 +189,12 @@ export function logTediPiReport(report: Report): void {
 					? { conversationId: info.conversationId }
 					: {}),
 			...("reason" in info ? { reason: info.reason } : {}),
-			...(info.kind === "host_error" ? { callback: info.callback } : {}),
+			...(info.kind === "host_error"
+				? {
+						callback: info.callback,
+						errorMessage: serializeException(error).message,
+					}
+				: {}),
 		}),
 	);
 }

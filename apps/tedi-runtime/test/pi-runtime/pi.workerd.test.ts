@@ -32,6 +32,15 @@ async function waitForApproval(agent: Awaited<ReturnType<typeof fixture>>) {
 	throw new Error("durable approval never paused");
 }
 describe("Production ConversationFacet on native Pi", () => {
+	it("replies to a fresh-history first turn before any model was configured", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		const result = await agent.turn("poppy-first", {
+			freshHistory: true,
+			maxSteps: 1,
+		});
+		expect(result.result.assistantText).toContain("owned answer");
+		expect((await inspect(agent)).stats.requests).toBe(1);
+	});
 	it("resumes a due native sleeper while another task is still running", async () => {
 		const agent = await fixture(crypto.randomUUID());
 		await agent.turn("concurrent-wake-bootstrap");
