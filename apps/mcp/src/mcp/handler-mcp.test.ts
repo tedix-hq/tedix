@@ -6,6 +6,8 @@ import {
 	emitUpstreamProtocolMetric,
 } from "./handler-upstream-protocol";
 import { resetUpstreamEraCache } from "./upstream-mcp-client";
+import { preflightSecretEgress } from "./tool-execution";
+import type { AppTool, ServerContext } from "./server-context";
 
 const TRACE_UUID = "4bf92f35-77b3-4da6-a3ce-929d0e0e4736";
 
@@ -111,6 +113,99 @@ function mcpCtx(
 }
 
 describe("ToolHandler MCP transport", () => {
+	it("passes workflow references back only to their returning namespace across requests", async () => {
+		const productRef = "a8f3k29dj4h5l6m7n8b9v0c1x2z3q4w5e6r7t8y9";
+		const secret = ["ghp", "0123456789abcdefghij0123"].join("_");
+		const markers = new Set<string>();
+		const bucket = {
+			put: vi.fn(async (key: string) => {
+				markers.add(key);
+			}),
+			head: vi.fn(async (key: string) => (markers.has(key) ? {} : null)),
+		};
+		const context = (namespace = "shop") => {
+			const ctx = mcpCtx({
+				transport: "mcp",
+				mcpServerUrl: "https://provider.example/mcp",
+				mcpToolName: "get_product_offers",
+				_aggregateNamespace: namespace,
+			});
+			ctx.env = {
+				...ctx.env,
+				AGGREGATE_CACHE: bucket,
+			} as unknown as CloudflareEnv;
+			ctx.callerIdentity = {
+				authType: "service",
+				tediId: "shop-agent",
+				skillRunId: "workflow-run",
+				workflowExecutionEpoch: 0,
+				workflowCallId: crypto.randomUUID(),
+			};
+			return ctx;
+		};
+		const search = context();
+		search.config.mcpToolName = "search_products";
+		const upstream = methodAwareFetch({
+			content: [{ type: "text", text: JSON.stringify({ productRef, secret }) }],
+		});
+		vi.stubGlobal("fetch", upstream);
+		try {
+			// A reference is denied before the server has actually returned it.
+			expect(
+				await new ToolHandler().execute({ productRef }, context()),
+			).toMatchObject({ status: 403 });
+			expect(upstream).not.toHaveBeenCalled();
+			expect(
+				await new ToolHandler().execute({ query: "shoes" }, search),
+			).toMatchObject({ status: 200 });
+			expect(markers.size).toBe(1);
+			const offers = context();
+			const preflight = await preflightSecretEgress(
+				{ ...offers, apiClient: undefined } as unknown as ServerContext,
+				{ config: offers.config, inputSchema: {} } as unknown as AppTool,
+				{ productRef },
+			);
+			expect(preflight.denial).toBeNull();
+			expect(
+				await new ToolHandler().execute({ productRef }, offers),
+			).toMatchObject({ status: 200 });
+			const calls = upstream.mock.calls.length;
+			const otherRun = context();
+			otherRun.callerIdentity!.skillRunId = "other-run";
+			const otherEpoch = context();
+			otherEpoch.callerIdentity!.workflowExecutionEpoch = 1;
+			const otherOrg = context();
+			otherOrg.app = { ...otherOrg.app, organizationId: "other-org" };
+			const external = context();
+			external.callerIdentity = { authType: "oauth" };
+			external.requestMeta = { returnedValues: [productRef] };
+			for (const ctx of [
+				context("other_shop"),
+				otherRun,
+				otherEpoch,
+				otherOrg,
+				external,
+			])
+				expect(
+					await new ToolHandler().execute({ productRef }, ctx),
+				).toMatchObject({ status: 403 });
+			for (const args of [
+				{ productRef, secret },
+				{ productRef: productRef + "x" },
+			])
+				expect(await new ToolHandler().execute(args, context())).toMatchObject({
+					status: 403,
+				});
+			bucket.head.mockRejectedValueOnce(new Error("storage unavailable"));
+			expect(
+				await new ToolHandler().execute({ productRef }, context()),
+			).toMatchObject({ status: 403 });
+			expect(upstream.mock.calls.length).toBe(calls);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
 	it("rejects a changed reconnect binding before credential lookup or provider execution", async () => {
 		const ctx = mcpCtx({
 			transport: "mcp",

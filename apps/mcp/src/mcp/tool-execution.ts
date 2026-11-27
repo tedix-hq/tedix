@@ -145,8 +145,12 @@ export async function preflightSecretEgress(
 		| "publicEgress"
 		| "secretEgressDecision"
 		| "toolInputSchema"
+		| "env"
+		| "callerIdentity"
 	> = {
 		apiClient: agent.apiClient,
+		env: agent.env,
+		callerIdentity: agent.callerIdentity,
 		app: agent.app,
 		config: (tool.config ?? {}) as unknown as ToolConfig,
 		publicEgress: tool.publicEgress === true,

@@ -73,6 +73,10 @@ import {
 } from "./handler-request-context";
 import { gateDecisionMetadata } from "./gate-decision";
 import { findSecretValuePattern } from "./utils/secret-egress-scan";
+import {
+	readWorkflowReturnedReferences,
+	recordWorkflowReturnedReferences,
+} from "./workflow-returned-references";
 
 /**
  * Tool Handler
@@ -268,7 +272,8 @@ type SecretEgressContext = Pick<
 	| "publicEgress"
 	| "secretEgressDecision"
 	| "toolInputSchema"
->;
+> &
+	Partial<Pick<ToolExecutionContext<ToolConfig>, "env" | "callerIdentity">>;
 
 export async function checkSecretEgress(
 	input: Record<string, unknown>,
@@ -290,6 +295,9 @@ export async function checkSecretEgress(
 	)
 		return null;
 
+	const workflowValues = await readWorkflowReturnedReferences(input, ctx);
+	if (workflowValues?.size)
+		returnedValues = new Set([...(returnedValues ?? []), ...workflowValues]);
 	const secretPattern = findSecretValuePattern(
 		input,
 		ctx.toolInputSchema,
@@ -448,6 +456,16 @@ export class ToolHandler {
 	readonly type = "rpc";
 
 	async execute(
+		input: Record<string, unknown>,
+		ctx: ToolExecutionContext<ToolConfig>,
+	): Promise<RpcToolResult> {
+		const result = await this.executeTool(input, ctx);
+		if (result.status >= 200 && result.status < 300)
+			await recordWorkflowReturnedReferences(result.data, ctx);
+		return result;
+	}
+
+	private async executeTool(
 		input: Record<string, unknown>,
 		ctx: ToolExecutionContext<ToolConfig>,
 	): Promise<RpcToolResult> {
