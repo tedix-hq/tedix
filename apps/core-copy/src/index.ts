@@ -48,17 +48,11 @@ function portsFor(env: Env): { ports: CopyPorts; end(): Promise<void> } {
 	return {
 		ports: {
 			readD1: async (sql, params) => {
-				// raw() with column names, so a row always becomes an object keyed
-				// by column, even for tables whose columns D1's object conversion
-				// mishandles (workflow_run_ledger came back as arrays).
-				const [names, ...rows] = await d1
+				const result = await d1
 					.prepare(sql)
 					.bind(...params)
-					.raw<unknown[]>({ columnNames: true });
-				const columns = (names ?? []) as unknown as string[];
-				return rows.map((row) =>
-					Object.fromEntries(columns.map((name, i) => [name, row[i]])),
-				);
+					.all();
+				return result.results as Record<string, unknown>[];
 			},
 			query,
 			copyQuery,
