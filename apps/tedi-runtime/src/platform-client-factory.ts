@@ -12,6 +12,7 @@
  * Durable Object so the JWT survives between turns.
  */
 
+import { readReplicaFirst } from "@tedix/db/client";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import {
@@ -277,7 +278,9 @@ async function ensureScopedAccessKey(
 	);
 
 	try {
-		const identity = await resolveTediRuntimeIdentity(env.DB, tediId, true);
+		const identity = await readReplicaFirst(env.DB, (db) =>
+			resolveTediRuntimeIdentity(db, tediId, true),
+		);
 		if (identity?.id !== tediId || !identity.orgId) {
 			throw new Error(
 				"Tedi organization could not be resolved for key rotation",

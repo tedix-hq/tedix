@@ -35,7 +35,7 @@ import {
 	type WorkspaceRecoveryPhase,
 } from "./workspace-recovery-drill";
 import type { Message } from "@earendil-works/pi-ai";
-import { createDbClient } from "@tedix/db/client";
+import { createDbClient, createDbSession } from "@tedix/db/client";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
 import {
@@ -5065,9 +5065,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		for (const other of new Set(responders.values())) {
 			if (other === undefined || other === responder) continue;
 			const tedi = other
-				? await getTediById(createDbClient(this.env.DB), other).catch(
-						() => null,
-					)
+				? // Display names only, so any replica will do.
+					await (async () =>
+						getTediById(
+							createDbSession(this.env.DB, null, "first-unconstrained").db,
+							other,
+						))().catch(() => null)
 				: null;
 			names.set(
 				other,

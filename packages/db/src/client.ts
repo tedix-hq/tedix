@@ -14,6 +14,28 @@ export function createDbClient(d1: D1Database) {
 }
 
 /**
+ * Runs a read on any D1 instance, including a read replica, so it keeps
+ * answering while the primary stalls. An empty answer or an error is read
+ * again on the primary: a replica may not have a row written moments ago.
+ * Use it only for reads where a slightly old row is harmless (routing,
+ * names, configuration), never for access or balance checks.
+ */
+export async function readReplicaFirst<T>(
+	d1: D1Database,
+	read: (db: Pick<D1Database, "prepare" | "batch">) => Promise<T>,
+): Promise<T> {
+	try {
+		const value = await read(
+			observeD1(d1.withSession("first-unconstrained"), d1),
+		);
+		if (value !== null && value !== undefined) return value;
+	} catch {
+		// Fall through to the primary.
+	}
+	return read(d1);
+}
+
+/**
  * Log-store routing. The logs database (`LOGS_DB`) is a second D1 that takes
  * the append-only log tables (see `schema/logs-db.ts`). A request-scoped
  * client registered here reads both stores and writes `mcp.tool.execute`

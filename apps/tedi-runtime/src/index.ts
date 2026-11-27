@@ -1,4 +1,5 @@
 import { setD1LedgerOrganization, withD1Ledger } from "@tedix/db/slow-query";
+import { readReplicaFirst } from "@tedix/db/client";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
@@ -426,7 +427,9 @@ async function resolveTedi(
 	env: Cloudflare.Env,
 	slug: string,
 ): Promise<ResolvedTedi | null> {
-	const tedi = await getTediRuntimeRouteBySlug(env.DB, slug);
+	const tedi = await readReplicaFirst(env.DB, (db) =>
+		getTediRuntimeRouteBySlug(db, slug),
+	);
 	if (!tedi) return null;
 	if (tedi.status === "paused") return null;
 	return {

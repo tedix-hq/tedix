@@ -1,4 +1,5 @@
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import { readReplicaFirst } from "@tedix/db/client";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { resolveTediRuntimeIdentity } from "@tedix/db/queries/tedi-runtime-bootstrap";
 import { identityValue } from "./runtime-facet-turns";
@@ -75,7 +76,9 @@ async function resolveMeshTarget(
 } | null> {
 	const key = identityValue(lookup);
 	if (!key || key === "tedi") return null;
-	const row = await resolveTediRuntimeIdentity(env.DB, key, true);
+	const row = await readReplicaFirst(env.DB, (db) =>
+		resolveTediRuntimeIdentity(db, key, true),
+	);
 	if (!row) return null;
 	if (row.status === "paused") return null;
 	return {

@@ -9,6 +9,7 @@
  * Uses Cloudflare Email Routing (GA, free) on tedix.tech domain.
  */
 
+import { readReplicaFirst } from "@tedix/db/client";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { getTediEmailIngressRouteBySlug } from "@tedix/db/queries/tedi-runtime-bootstrap";
 import { routeAgentEmail } from "agents";
@@ -710,7 +711,9 @@ async function maybeRouteToAgent(
 ): Promise<"sdk_returned" | "no_route" | "skipped" | "failed"> {
 	let route: { agentId: string } | null;
 	try {
-		route = await getTediEmailIngressRouteBySlug(env.DB, input.slug);
+		route = await readReplicaFirst(env.DB, (db) =>
+			getTediEmailIngressRouteBySlug(db, input.slug),
+		);
 	} catch {
 		console.warn("[Email] active tedi lookup failed");
 		return "failed";
