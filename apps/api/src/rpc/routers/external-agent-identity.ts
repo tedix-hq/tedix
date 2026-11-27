@@ -1,3 +1,4 @@
+import { isD1CoreStore } from "@tedix/db/core-store/scope";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement, ORPCError } from "@orpc/server";
@@ -1530,7 +1531,7 @@ const resolveSessionAuth = authed.resolveSessionAuth.handler(
 			context.db,
 			params,
 		);
-		if (!resolved && context.env.DB) {
+		if (!resolved && isD1CoreStore(context.env) && context.env.DB) {
 			// Replica lag must not deny a newly active session or credential.
 			const primary = createDbSession(context.env.DB, null, "first-primary");
 			resolved = await resolveAuthorizedExternalAgentMcpSession(

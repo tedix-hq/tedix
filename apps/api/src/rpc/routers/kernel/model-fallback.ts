@@ -3,27 +3,25 @@ import {
 	validateCatalogFallback,
 	type ModelCatalogConfig,
 } from "@tedix/api-contract/schemas/model-catalog-config";
-import { createDbClient } from "@tedix/db/client";
+import { type DbClient } from "@tedix/db/client";
 import { getOrganizationModelFallback } from "@tedix/db/queries/model-fallback";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { insertKernelRuntimeEventIfAbsent } from "@tedix/db/queries/kernel-runtime-events";
 import { type ModelFallbackStep } from "@tedix/api-contract/schemas/model-fallback";
 export function kernelFallbackHooks(
-	binding: D1Database,
+	db: DbClient,
 	scope: { organizationId: string; runId: string },
 	catalog: ModelCatalogConfig,
 ) {
-	const db = () => createDbClient(binding);
 	return {
 		load: async () =>
 			validateCatalogFallback(
-				(await getOrganizationModelFallback(db(), scope.organizationId)) ??
+				(await getOrganizationModelFallback(db, scope.organizationId)) ??
 					catalog.fallback,
 				catalog.entries,
 			),
 		record: async (step: ModelFallbackStep) => {
-			const client = db();
-			const run = await getKernelRuntimeRun(client, {
+			const run = await getKernelRuntimeRun(db, {
 				id: scope.runId,
 				organizationId: scope.organizationId,
 			});
@@ -31,7 +29,7 @@ export function kernelFallbackHooks(
 				throw baseErrorConstructors.CONFLICT({
 					message: "Model fallback run is unavailable",
 				});
-			await insertKernelRuntimeEventIfAbsent(client, {
+			await insertKernelRuntimeEventIfAbsent(db, {
 				id: crypto.randomUUID(),
 				organizationId: run.organizationId,
 				conversationId: run.conversationId,

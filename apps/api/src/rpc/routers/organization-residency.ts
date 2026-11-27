@@ -4,7 +4,7 @@ import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
 
 import { implement } from "@orpc/server";
 import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
-import { coreDb } from "@tedix/db/core-store/scope";
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 import {
 	getOrganizationResidencyPolicy,
 	setOrganizationResidencyPolicy,
@@ -19,7 +19,9 @@ import { AUTHZ, withAuth, type BaseContext } from "../orpc";
 import { requireOrgId } from "../org-scope";
 
 function primaryResidencyDb(context: BaseContext) {
-	return context.env.DB ? coreDb(context.env) : context.db;
+	return !isD1CoreStore(context.env) || context.env.DB
+		? coreDb(context.env)
+		: context.db;
 }
 
 const os = implement(organizationsContract)

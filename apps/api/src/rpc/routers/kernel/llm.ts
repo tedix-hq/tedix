@@ -1,6 +1,6 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 
-import { coreDb } from "@tedix/db/core-store/scope";
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catalog-config";
 import {
@@ -66,7 +66,7 @@ export async function configuredKernelModel(
 	override?: ModelOverride | { modelRef?: unknown } | null,
 	context?: KernelGatewayContext | string,
 ) {
-	if (!env.DB) return null;
+	if (isD1CoreStore(env) && !env.DB) return null;
 	const config = await getModelCatalogConfig(coreDb(env));
 	return kernelModel(env, override, context, config);
 }
@@ -75,7 +75,7 @@ export async function configuredKernelRouteModel(
 	env: KernelEnv,
 	context?: KernelGatewayContext | string,
 ) {
-	if (!env.DB) return null;
+	if (isD1CoreStore(env) && !env.DB) return null;
 	const config = await getModelCatalogConfig(coreDb(env));
 	const ref = config.defaults?.kernelRouteModelRef;
 	return (
@@ -89,6 +89,7 @@ export interface KernelEnv {
 	MCP_URL?: string;
 	PLATFORM_SERVICE_TOKEN?: string;
 	DB?: D1Database;
+	CORE_STORE?: "d1" | "postgres";
 	AGENT_MEMORY?: AgentMemoryNamespace;
 	AZURE_OPENAI_RESOURCE?: string;
 	AZURE_OPENAI_BASE_URL?: string;
@@ -406,7 +407,7 @@ export function kernelModel(
 		!selected ||
 		env.TEDIX_LOCAL_DEMO_ENABLED === "true" ||
 		typeof selected.model === "string" ||
-		!env.DB ||
+		(isD1CoreStore(env) && !env.DB) ||
 		!catalog ||
 		typeof gatewayContext !== "object" ||
 		!gatewayContext?.runId ||
@@ -418,7 +419,7 @@ export function kernelModel(
 			? override.modelRef
 			: env.KERNEL_MODEL_REF?.trim() || PLATFORM_DEFAULT_MODEL_REF;
 	const hooks = kernelFallbackHooks(
-		env.DB,
+		coreDb(env),
 		{
 			organizationId: gatewayContext.organizationId,
 			runId: gatewayContext.runId,

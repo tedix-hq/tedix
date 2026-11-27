@@ -3,7 +3,10 @@ import type { KernelGovernancePolicy } from "@tedix/api-contract/utils/approval-
 import { createRouterClient } from "@orpc/server";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { tediApprovalDependencyEvents } from "@tedix/db/schema/approval-simulations";
-import { auditEvents } from "@tedix/db/schema/audit-events";
+import {
+	auditEvents,
+	auditDeliveryOutbox,
+} from "@tedix/db/schema/audit-events";
 import { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
 import { decisionEdges } from "@tedix/db/schema/decision-graph";
 import { workItems } from "@tedix/db/schema/work-items";
@@ -98,6 +101,7 @@ function fixture(service = true) {
 			tediApprovalRequests,
 			tediApprovalDependencyEvents,
 			auditEvents,
+			auditDeliveryOutbox,
 			kernelRuntimeRuns,
 			decisionEdges,
 			workItems,
@@ -233,7 +237,9 @@ describe("repo proposal decisions", () => {
 			revisionExpectation: repoInput.revisionExpectation,
 		});
 		expect(
-			f.sqlite.prepare("SELECT action FROM audit_events ORDER BY rowid").all(),
+			f.sqlite
+				.prepare("SELECT action FROM audit_delivery_outbox ORDER BY rowid")
+				.all(),
 		).toEqual([
 			{ action: "approval.requested" },
 			{ action: "approval.approved" },

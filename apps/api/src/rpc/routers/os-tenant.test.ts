@@ -4,6 +4,11 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { createPGliteFacade } from "@tedix/db/test/pglite-facade";
+import * as coreStoreClient from "@tedix/db/core-store/client";
+import { withCoreStore } from "@tedix/db/core-store/scope";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { organizations, cmsDomainClaims } from "@tedix/db/schema";
@@ -192,4 +197,50 @@ describe("osTenant.resolveHostname", () => {
 			await api.resolveHostname({ hostname: "share.example.com" }),
 		).toMatchObject({ provisioned: false, organizationId: null, slug: null });
 	});
+});
+
+it("resolves tenants on Postgres without using an available legacy D1 binding", async () => {
+	const fixture = await createPGliteFacade();
+	const legacyRead = vi.fn(() => {
+		throw new Error("legacy D1 read");
+	});
+	const store = vi.spyOn(coreStoreClient, "createCoreStore").mockReturnValue({
+		db: fixture.db,
+		close: async () => {},
+	});
+	try {
+		for (const migration of readMigrationFiles({
+			migrationsFolder: fileURLToPath(
+				new URL("../../../../../packages/db/drizzle-pg", import.meta.url),
+			),
+		}))
+			for (const ddl of migration.sql) await fixture.engine.exec(ddl);
+		await fixture.engine.exec(`INSERT INTO organizations(id,name,slug,features)
+			VALUES ('fictional-tenant','Fictional','fictional','{"os":false}')`);
+		const env = {
+			CORE_STORE: "postgres",
+			DB: { withSession: legacyRead, prepare: legacyRead },
+		} as unknown as CloudflareEnv;
+		await withCoreStore(env, async () => {
+			const client = createRouterClient(osTenantContractRouter, {
+				context: {
+					authType: "none",
+					db: fixture.db,
+					env,
+					headers: new Headers({ "X-Service-Binding": "true" }),
+					url: new URL("https://api.internal/rpc/osTenant/resolve"),
+				} as BaseContext,
+			});
+			expect(await client.resolve({ slug: "fictional" })).toMatchObject({
+				provisioned: false,
+			});
+			expect(
+				await client.resolveHostname({ hostname: "missing.example.com" }),
+			).toMatchObject({ provisioned: false });
+			expect(legacyRead).not.toHaveBeenCalled();
+		});
+	} finally {
+		store.mockRestore();
+		await fixture.close();
+	}
 });

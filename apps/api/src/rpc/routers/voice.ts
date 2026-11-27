@@ -1,3 +1,4 @@
+import { isD1CoreStore } from "@tedix/db/core-store/scope";
 import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
 import {
 	createVoiceBilling,
@@ -74,7 +75,7 @@ export const voiceContractRouter = voiceOs.router({
 					context.db,
 					organizationId,
 					"Speech synthesis",
-					context.env.DB,
+					isD1CoreStore(context.env) ? context.env.DB : undefined,
 				);
 				const speech = await synthesizeSpeech(
 					context.env as unknown as VoiceTtsEnv,

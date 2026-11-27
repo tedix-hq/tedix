@@ -12,7 +12,7 @@ import type { z } from "zod";
 import { resolveBillingSettlementMode } from "../../../lib/billing-settlement-mode";
 import { authorizeRuntimeInference } from "../../../services/runtime-entitlement-admission";
 import type { KernelGatewayContext } from "./gateway-attribution";
-import { coreDb } from "@tedix/db/core-store/scope";
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 
 const providerCredentials = new WeakMap<
 	KernelGatewayContext,
@@ -131,9 +131,9 @@ export async function reserveKernelBilling(
 			message: "Kernel paid inference requires organization attribution",
 		});
 	}
-	if (!env.DB) {
+	if (isD1CoreStore(env) && !env.DB) {
 		throw baseErrorConstructors.SERVICE_UNAVAILABLE({
-			message: "Kernel paid inference requires the canonical D1 binding",
+			message: "Kernel paid inference requires the selected core store",
 		});
 	}
 	const tokens = input.tokenEstimates ?? estimate(input.body);

@@ -1,3 +1,4 @@
+import { isD1CoreStore } from "@tedix/db/core-store/scope";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
 import { DataResidencyError } from "../../services/data-residency";
@@ -85,7 +86,7 @@ const checkModelEgress = os.checkModelEgress
 				context.db,
 				input.organizationId,
 				input.operation,
-				context.env.DB,
+				isD1CoreStore(context.env) ? context.env.DB : undefined,
 			);
 			return { allowed: true };
 		} catch (error) {

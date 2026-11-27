@@ -1,3 +1,4 @@
+import { isD1CoreStore } from "@tedix/db/core-store/scope";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { fetchContentSource } from "../../lib/content-source-fetch";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
@@ -421,7 +422,7 @@ export const answerContentProcedure = authedContentOs.answer
 				db,
 				app.organizationId,
 				"Content query embeddings",
-				env.DB,
+				isD1CoreStore(env) ? env.DB : undefined,
 			);
 			const aiEnv = env as unknown as AiSearchEnv;
 			const result = await aiSearchContent(aiEnv, query, {

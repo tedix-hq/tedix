@@ -1,3 +1,4 @@
+import { isD1CoreStore } from "@tedix/db/core-store/scope";
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
@@ -61,7 +62,7 @@ function pdfConverter(
 			context.db,
 			organizationId,
 			"PDF text reading",
-			context.env.DB,
+			isD1CoreStore(context.env) ? context.env.DB : undefined,
 		);
 		const converted = await ai.toMarkdown({
 			name,

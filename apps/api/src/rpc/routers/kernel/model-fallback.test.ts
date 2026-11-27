@@ -63,7 +63,7 @@ describe("kernel fallback ledger boundary", () => {
 				status: "running",
 			});
 			const hooks = kernelFallbackHooks(
-				binding,
+				db,
 				{
 					organizationId: "fictional-a",
 					runId: "fictional-run",
@@ -82,7 +82,7 @@ describe("kernel fallback ledger boundary", () => {
 				payload: { operation: "model_fallback", ...step },
 			});
 			const other = kernelFallbackHooks(
-				binding,
+				db,
 				{
 					organizationId: "fictional-b",
 					runId: "fictional-run",
@@ -93,7 +93,7 @@ describe("kernel fallback ledger boundary", () => {
 			await expect(other.record(step)).rejects.toThrow("unavailable");
 			await expect(
 				kernelFallbackHooks(
-					binding,
+					db,
 					{
 						organizationId: "fictional-a",
 						runId: "missing",

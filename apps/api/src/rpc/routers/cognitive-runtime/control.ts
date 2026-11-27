@@ -1,3 +1,4 @@
+import { isD1CoreStore } from "@tedix/db/core-store/scope";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { actingMemberSubject } from "../../../services/acting-member";
 import { admitPersonalRequest } from "../../../services/personal-request-authority";
@@ -90,7 +91,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				context.db,
 				tedi.organizationId,
 				"Speech transcription",
-				context.env.DB,
+				isD1CoreStore(context.env) ? context.env.DB : undefined,
 			);
 		const { content: dispatchContent, voiceTranscript } = isInboxWakeTurn
 			? {

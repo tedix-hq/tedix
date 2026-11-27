@@ -138,10 +138,10 @@ describe("reserveKernelBilling", () => {
 		expect(authorizeRuntimeInference).not.toHaveBeenCalled();
 	});
 
-	it("fails closed without the canonical D1 binding (non-policy shape)", async () => {
-		await expect(reserveKernelBilling({}, input())).rejects.toThrow(
-			/canonical D1 binding/,
-		);
+	it("fails closed without the selected D1 binding (non-policy shape)", async () => {
+		await expect(reserveKernelBilling({}, input())).rejects.toMatchObject({
+			code: "SERVICE_UNAVAILABLE",
+		});
 		expect(authorizeRuntimeInference).not.toHaveBeenCalled();
 	});
 

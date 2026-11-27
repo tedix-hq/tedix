@@ -1,3 +1,4 @@
+import { isD1CoreStore } from "@tedix/db/core-store/scope";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
@@ -418,7 +419,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				context.db,
 				organizationId,
 				"Speech transcription",
-				context.env.DB,
+				isD1CoreStore(context.env) ? context.env.DB : undefined,
 			);
 		const { content: turnContent, voiceTranscript } =
 			await resolveVoiceMessageContent({
