@@ -11,12 +11,13 @@
  * The effective layer is the required stored `pace_layer` column.
  */
 
+import { coreTable } from "../core-store/client";
 import { and, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	SKILL_PACE_LAYERS,
 	type SkillPaceLayer,
-	skillEntries,
+	skillEntries as d1SkillEntries,
 } from "../schema/cognitive";
 
 /** Healthy pace-layer share envelope (record/differentiation/innovation). */
@@ -57,15 +58,16 @@ function round(value: number): number {
 	return Math.round(value * 1000) / 1000;
 }
 
-const layerExpr = skillEntries.paceLayer;
-
 /**
  * Portfolio population predicate: the org's own non-archived operating
  * skills. App-scoped rows are product surfaces, not the org's routine
  * portfolio (same population rule as knowledge-market commons — fixes the
  * 51-vs-6 envelope audit item).
  */
-function portfolioConditions(organizationId: string) {
+function portfolioConditions(
+	skillEntries: typeof d1SkillEntries,
+	organizationId: string,
+) {
 	return [
 		sql`${skillEntries.organizationId} = ${organizationId}`,
 		sql`coalesce(${skillEntries.lifecycleState}, 'draft') <> 'archived'`,
@@ -119,15 +121,16 @@ export async function getSkillPortfolioBalance(
 	organizationId: string,
 	options: GetSkillPortfolioBalanceOptions = {},
 ): Promise<SkillPortfolioBalance> {
-	const conditions = portfolioConditions(organizationId);
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const conditions = portfolioConditions(skillEntries, organizationId);
 	if (options.tediId) {
 		conditions.push(sql`${skillEntries.tediId} = ${options.tediId}`);
 	}
 	const rows = await db
-		.select({ layer: layerExpr, count: sql<number>`count(*)` })
+		.select({ layer: skillEntries.paceLayer, count: sql<number>`count(*)` })
 		.from(skillEntries)
 		.where(and(...conditions))
-		.groupBy(layerExpr);
+		.groupBy(skillEntries.paceLayer);
 
 	const counts = emptyLayerCounts();
 	for (const row of rows) {
@@ -150,20 +153,21 @@ export async function getSkillPortfolioBalanceByTedi(
 	db: DbClient,
 	organizationId: string,
 ): Promise<Map<string, SkillPortfolioBalance>> {
+	const skillEntries = coreTable(db, d1SkillEntries);
 	const rows = await db
 		.select({
 			tediId: skillEntries.tediId,
-			layer: layerExpr,
+			layer: skillEntries.paceLayer,
 			count: sql<number>`count(*)`,
 		})
 		.from(skillEntries)
 		.where(
 			and(
-				...portfolioConditions(organizationId),
+				...portfolioConditions(skillEntries, organizationId),
 				sql`${skillEntries.tediId} IS NOT NULL`,
 			),
 		)
-		.groupBy(skillEntries.tediId, layerExpr);
+		.groupBy(skillEntries.tediId, skillEntries.paceLayer);
 
 	const countsByTedi = new Map<string, Record<SkillPaceLayer, number>>();
 	for (const row of rows) {

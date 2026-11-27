@@ -31,6 +31,7 @@
  * squatting a workflow slot becomes impossible.
  */
 
+import { coreTable } from "../core-store/client";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
@@ -38,9 +39,9 @@ import {
 	type SkillUsageEvent,
 	type SkillUsageOutcome,
 	type SkillUsageSource,
-	skillEntries,
-	skillRuns,
-	skillUsageEvents,
+	skillEntries as d1SkillEntries,
+	skillRuns as d1SkillRuns,
+	skillUsageEvents as d1SkillUsageEvents,
 } from "../schema/cognitive";
 import {
 	countConsecutiveRecentFailures,
@@ -90,6 +91,8 @@ async function recordSkillUsageEventInternal(
 	input: RecordSkillUsageEventInput,
 	promotionEligible: boolean,
 ): Promise<RecordSkillUsageEventResult> {
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillUsageEvents = coreTable(db, d1SkillUsageEvents);
 	const runId = input.runId ?? crypto.randomUUID();
 	const executionEpoch = input.executionEpoch ?? 0;
 	const outcome: SkillUsageOutcome = input.success ? "success" : "failure";
@@ -219,7 +222,7 @@ async function recordSkillUsageEventInternal(
 						promotionLayer
 							? and(
 									eq(skillEntries.revision, updated.revision),
-									skillEvalGateCondition(promotionLayer),
+									skillEvalGateCondition(db, promotionLayer),
 								)
 							: undefined,
 					),
@@ -304,6 +307,7 @@ export async function recordSkillUsageEvent(
 	db: DbClient,
 	input: RecordSkillUsageEventInput,
 ): Promise<RecordSkillUsageEventResult> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	if (input.source === "workflow_run") {
 		throw new Error(
 			"workflow_run usage must be recorded via recordSkillRunOutcome() so terminal execution evidence is resolved canonically",
@@ -367,6 +371,7 @@ export async function recordSkillRunOutcome(
 	runId: string,
 	options?: RecordSkillRunOutcomeOptions,
 ): Promise<RecordSkillRunOutcomeResult | null> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	const rows = await db
 		.select()
 		.from(skillRuns)

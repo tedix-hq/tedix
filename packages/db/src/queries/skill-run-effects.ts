@@ -1,7 +1,8 @@
 import { and, desc, eq } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
 import type { DbQueryClient } from "../query-client";
 import {
-	skillRunEffectObservations,
+	skillRunEffectObservations as d1SkillRunEffectObservations,
 	type SkillRunEffectObservation,
 } from "../schema/skill-run-effects";
 
@@ -27,6 +28,10 @@ export async function recordSkillRunEffectObservation(
 	db: DbQueryClient,
 	input: RecordSkillRunEffectObservationParams,
 ): Promise<SkillRunEffectObservation> {
+	const skillRunEffectObservations = coreTable(
+		db,
+		d1SkillRunEffectObservations,
+	);
 	const inserted = await db
 		.insert(skillRunEffectObservations)
 		.values(input)
@@ -62,6 +67,10 @@ export async function listSkillRunEffectObservations(
 	db: DbQueryClient,
 	input: { organizationId: string; skillRunId: string; limit?: number },
 ): Promise<{ rows: SkillRunEffectObservation[]; truncated: boolean }> {
+	const skillRunEffectObservations = coreTable(
+		db,
+		d1SkillRunEffectObservations,
+	);
 	const limit = Math.min(Math.max(input.limit ?? 5, 1), 10);
 	const rows = await db
 		.select()

@@ -1,7 +1,11 @@
 import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
 import type { DbClient } from "../client";
-import { skillRuns, skillUsageEvents } from "../schema/cognitive";
-import { tediRuntimeEvents } from "../schema/cognitive-runtime";
+import {
+	skillRuns as d1SkillRuns,
+	skillUsageEvents as d1SkillUsageEvents,
+} from "../schema/cognitive";
+import { tediRuntimeEvents as d1TediRuntimeEvents } from "../schema/cognitive-runtime";
 
 const MAX_INJECTIONS = 50;
 const MAX_COMPLETIONS = 1_000;
@@ -66,6 +70,9 @@ export async function listSkillRetrievalUtility(
 		limit?: number;
 	},
 ): Promise<SkillRetrievalUtilityResult> {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const skillUsageEvents = coreTable(db, d1SkillUsageEvents);
+	const tediRuntimeEvents = coreTable(db, d1TediRuntimeEvents);
 	const limit = Math.min(Math.max(input.limit ?? 20, 1), MAX_INJECTIONS);
 	const injectionEvents = await db
 		.select({

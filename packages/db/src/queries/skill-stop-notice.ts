@@ -12,13 +12,19 @@
  */
 
 import { and, asc, desc, eq, isNotNull, or, sql } from "drizzle-orm";
+import { coreTable } from "../core-store/client";
+import { jsonRead } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
-import { skillEntries, skillRuns, skillSchedules } from "../schema/cognitive";
-import { organizationMembers } from "../schema/organization-members";
-import { projects } from "../schema/projects";
-import { tedis } from "../schema/tedis";
-import { workInteractions } from "../schema/work-factory";
-import { workItems } from "../schema/work-items";
+import {
+	skillEntries as d1SkillEntries,
+	skillRuns as d1SkillRuns,
+	skillSchedules as d1SkillSchedules,
+} from "../schema/cognitive";
+import { organizationMembers as d1OrganizationMembers } from "../schema/organization-members";
+import { projects as d1Projects } from "../schema/projects";
+import { tedis as d1Tedis } from "../schema/tedis";
+import { workInteractions as d1WorkInteractions } from "../schema/work-factory";
+import { workItems as d1WorkItems } from "../schema/work-items";
 import { createWorkInteraction } from "./work-items/interactions";
 
 /** `metadata.schema` of the "skill stopped" inbox item. */
@@ -92,6 +98,7 @@ async function resolveRecipient(
 	organizationId: string,
 	tediOwnerSubject: string | null,
 ): Promise<string | null> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const activeHuman = and(
 		eq(organizationMembers.organizationId, organizationId),
 		eq(organizationMembers.status, "active"),
@@ -127,6 +134,9 @@ async function resolveWorkContext(
 	db: DbQueryClient,
 	input: { organizationId: string; tediId: string; runId?: string | null },
 ): Promise<{ workItemId: string } | { projectId: string } | null> {
+	const workItems = coreTable(db, d1WorkItems);
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const projects = coreTable(db, d1Projects);
 	if (input.runId) {
 		const [run] = await db
 			.select({ workItemId: workItems.id })
@@ -155,7 +165,7 @@ async function resolveWorkContext(
 				eq(projects.orgId, input.organizationId),
 				eq(projects.status, "active"),
 				// The private agent-review project is not a place for owner notices.
-				sql`json_extract(${projects.metadata}, '$.agentReviewTriage') IS NULL`,
+				sql`${jsonRead(db, projects.metadata, ["agentReviewTriage"], "json")} IS NULL`,
 			),
 		)
 		.orderBy(
@@ -176,6 +186,10 @@ export async function raiseSkillStoppedNotice(
 	db: DbQueryClient,
 	input: RaiseSkillStoppedNoticeInput,
 ): Promise<SkillStoppedNoticeResult> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const tedis = coreTable(db, d1Tedis);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const [row] = await db
 		.select({
 			scheduleEnabled: skillSchedules.enabled,
@@ -223,8 +237,8 @@ export async function raiseSkillStoppedNotice(
 				eq(workInteractions.orgId, input.organizationId),
 				// target_type keeps this on idx_work_interactions_target_status.
 				eq(workInteractions.targetType, "user"),
-				sql`json_extract(${workInteractions.metadata}, '$.schema') = ${SKILL_STOPPED_SCHEMA}`,
-				sql`json_extract(${workInteractions.metadata}, '$.skillId') = ${input.skillId}`,
+				sql`${jsonRead(db, workInteractions.metadata, ["schema"])} = ${SKILL_STOPPED_SCHEMA}`,
+				sql`${jsonRead(db, workInteractions.metadata, ["skillId"])} = ${input.skillId}`,
 			),
 		)
 		.orderBy(desc(workInteractions.createdAt))

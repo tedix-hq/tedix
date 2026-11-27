@@ -21,6 +21,8 @@
  * Writers (proposal creation) stay in `apps/api` (`skills.mineCandidates`).
  */
 
+import { coreTable } from "../core-store/client";
+import { coreStore, likeText } from "../core-store/dialect";
 import {
 	and,
 	desc,
@@ -30,16 +32,18 @@ import {
 	inArray,
 	isNotNull,
 	isNull,
-	like,
 	or,
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { apps } from "../schema/apps";
-import { skillEntries, skillRuns } from "../schema/cognitive";
-import { tediRuntimeEvents } from "../schema/cognitive-runtime";
-import { tediRationaleRecords } from "../schema/rationale-records";
-import { appTools } from "../schema/tools";
+import { apps as d1Apps } from "../schema/apps";
+import {
+	skillEntries as d1SkillEntries,
+	skillRuns as d1SkillRuns,
+} from "../schema/cognitive";
+import { tediRuntimeEvents as d1TediRuntimeEvents } from "../schema/cognitive-runtime";
+import { tediRationaleRecords as d1TediRationaleRecords } from "../schema/rationale-records";
+import { appTools as d1AppTools } from "../schema/tools";
 
 // ============================================================================
 // Constants
@@ -587,6 +591,9 @@ export async function listLinkedSuccessfulEpisodes(
 	db: DbClient,
 	options: ListLinkedSuccessfulEpisodesOptions,
 ): Promise<LinkedEpisodeRecord[]> {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const tediRuntimeEvents = coreTable(db, d1TediRuntimeEvents);
+	const tediRationaleRecords = coreTable(db, d1TediRationaleRecords);
 	const conditions = [
 		eq(tediRationaleRecords.orgId, options.orgId),
 		eq(tediRationaleRecords.outcomeStatus, "success"),
@@ -652,6 +659,7 @@ export async function listSkillsForTrajectoryDedupe(
 	db: DbClient,
 	orgId: string,
 ): Promise<ExistingSkillForDedupe[]> {
+	const skillEntries = coreTable(db, d1SkillEntries);
 	return db
 		.select({
 			id: skillEntries.id,
@@ -666,7 +674,13 @@ export async function listSkillsForTrajectoryDedupe(
 				eq(skillEntries.organizationId, orgId),
 				or(
 					isNotNull(skillEntries.toolIds),
-					like(skillEntries.tags, `%${TRAJECTORY_MINED_TAG}%`),
+					likeText(
+						db,
+						coreStore(db) === "postgres"
+							? sql`${skillEntries.tags}::text`
+							: skillEntries.tags,
+						`%${TRAJECTORY_MINED_TAG}%`,
+					),
 				),
 			),
 		);
@@ -681,6 +695,8 @@ export async function resolveToolNamesToAppToolIds(
 	db: DbClient,
 	toolNames: readonly string[],
 ): Promise<ToolNameResolution> {
+	const apps = coreTable(db, d1Apps);
+	const appTools = coreTable(db, d1AppTools);
 	const unique = [...new Set(toolNames)].filter(Boolean);
 	if (unique.length === 0) {
 		return { toolIdByName: new Map(), unresolved: [], ambiguous: [] };

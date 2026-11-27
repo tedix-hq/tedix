@@ -3,15 +3,18 @@ import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-sch
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { and, asc, eq, getColumns, gte, lte, sql } from "drizzle-orm";
 import { parseDocument } from "yaml";
+import type { SQLWrapper } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
 import {
 	type SkillEntry,
 	type SkillSchedule,
-	skillEntries,
-	skillRuns,
-	skillSchedules,
+	skillEntries as d1SkillEntries,
+	skillRuns as d1SkillRuns,
+	skillSchedules as d1SkillSchedules,
 } from "../schema/cognitive";
-import { workItems } from "../schema/work-items";
+import { workItems as d1WorkItems } from "../schema/work-items";
 import { toJsonRecord } from "../utils/json";
 
 /** Persist the pause in the manifest so restoring a skill cannot resume it. */
@@ -43,6 +46,7 @@ export async function upsertSkillSchedule(
 		nextFireAt: string;
 	},
 ): Promise<SkillSchedule> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	const now = new Date().toISOString();
 	await db
 		.insert(skillSchedules)
@@ -93,6 +97,7 @@ export async function insertActivatedSkillSchedule(
 	>,
 	now: number = Date.now(),
 ): Promise<boolean> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	if (!entry.tediId || entry.tags?.includes("workflow-improvement"))
 		return false;
 	const { schedule, issues } = validateSkillSchedulePolicy(entry.content ?? "");
@@ -130,6 +135,7 @@ export async function pauseSkillSchedule(
 	skillId: string,
 	organizationId: string,
 ): Promise<void> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	await db
 		.update(skillSchedules)
 		.set({ enabled: false, updatedAt: new Date().toISOString() })
@@ -146,6 +152,7 @@ export async function deleteSkillSchedule(
 	skillId: string,
 	organizationId?: string,
 ): Promise<void> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	await db
 		.delete(skillSchedules)
 		.where(
@@ -163,6 +170,7 @@ export async function getSkillSchedule(
 	skillId: string,
 	organizationId?: string,
 ): Promise<SkillSchedule | undefined> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	const [row] = await db
 		.select()
 		.from(skillSchedules)
@@ -183,6 +191,8 @@ export async function listDueSkillSchedules(
 	now: string,
 	limit = 50,
 ): Promise<SkillSchedule[]> {
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	return db
 		.select()
 		.from(skillSchedules)
@@ -202,16 +212,29 @@ export async function listDueSkillSchedules(
  * it — trip the collection-read review guard; leave them out for callers
  * without access so one private schedule cannot refuse the whole list.
  */
-function paramsReferenceExclusion(referenceId: string) {
+function paramsReferenceExclusion(db: DbClient, referenceId: string) {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
+	const workItems = coreTable(db, d1WorkItems);
+	const params =
+		coreStore(db) === "postgres"
+			? sql`coalesce(${skillSchedules.params}::text, '')`
+			: sql`coalesce(${skillSchedules.params}, '')`;
 	return [
-		sql`instr(coalesce(${skillSchedules.params}, ''), ${referenceId}) = 0`,
+		sql`${position(db, params, referenceId)} = 0`,
 		sql`NOT EXISTS (
 			SELECT 1 FROM ${workItems}
 			WHERE ${workItems.orgId} = ${skillSchedules.organizationId}
 				AND ${workItems.projectId} = ${referenceId}
-				AND instr(coalesce(${skillSchedules.params}, ''), ${workItems.id}) > 0
+				AND ${position(db, params, workItems.id)} > 0
 		)`,
 	];
+}
+
+/** 1-based substring position; 0 when absent. */
+function position(db: DbClient, text: SQLWrapper, part: SQLWrapper | string) {
+	return coreStore(db) === "postgres"
+		? sql`strpos(${text}, ${part})`
+		: sql`instr(${text}, ${part})`;
 }
 
 export async function listSkillSchedules(
@@ -226,13 +249,15 @@ export async function listSkillSchedules(
 		excludeParamsReferenceId?: string;
 	},
 ): Promise<SkillSchedule[]> {
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	const conditions = [
 		eq(skillSchedules.organizationId, organizationId),
 		sql`not exists (select 1 from ${skillEntries} where ${skillEntries.id} = ${skillSchedules.skillId} and ${skillEntries.organizationId} = ${skillSchedules.organizationId} and ${skillEntries.lifecycleState} = 'archived')`,
 	];
 	if (options.excludeParamsReferenceId) {
 		conditions.push(
-			...paramsReferenceExclusion(options.excludeParamsReferenceId),
+			...paramsReferenceExclusion(db, options.excludeParamsReferenceId),
 		);
 	}
 	if (options.skillId)
@@ -270,13 +295,15 @@ export async function listSkillSchedulesPage(
 	})[];
 	total: number;
 }> {
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	const conditions = [
 		eq(skillSchedules.organizationId, organizationId),
 		sql`not exists (select 1 from ${skillEntries} where ${skillEntries.id} = ${skillSchedules.skillId} and ${skillEntries.organizationId} = ${skillSchedules.organizationId} and ${skillEntries.lifecycleState} = 'archived')`,
 	];
 	if (options.excludeParamsReferenceId) {
 		conditions.push(
-			...paramsReferenceExclusion(options.excludeParamsReferenceId),
+			...paramsReferenceExclusion(db, options.excludeParamsReferenceId),
 		);
 	}
 	if (options.enabled !== undefined) {
@@ -290,18 +317,18 @@ export async function listSkillSchedulesPage(
 	}
 	const query = options.query?.trim().toLowerCase();
 	if (query) {
-		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a
-		// 48+ character search failed as a D1_ERROR. `instr` takes the bound
+		// A substring position, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a
+		// 48+ character search failed as a D1_ERROR. The position takes the bound
 		// substring at any length and needs no wildcard escaping.
 		conditions.push(sql`(
-			instr(lower(${skillSchedules.cron}), ${query}) > 0
+			${position(db, sql`lower(${skillSchedules.cron})`, query)} > 0
 			OR EXISTS (
 				SELECT 1 FROM ${skillEntries}
 				WHERE ${skillEntries.id} = ${skillSchedules.skillId}
 				AND (
-					instr(lower(${skillEntries.title}), ${query}) > 0
-					OR instr(lower(coalesce(${skillEntries.slug}, '')), ${query}) > 0
-					OR instr(lower(coalesce(${skillEntries.description}, '')), ${query}) > 0
+					${position(db, sql`lower(${skillEntries.title})`, query)} > 0
+					OR ${position(db, sql`lower(coalesce(${skillEntries.slug}, ''))`, query)} > 0
+					OR ${position(db, sql`lower(coalesce(${skillEntries.description}, ''))`, query)} > 0
 				)
 			)
 		)`);
@@ -336,6 +363,7 @@ export async function advanceSkillScheduleToSlot(
 	schedule: SkillSchedule,
 	nextFireAt: string,
 ): Promise<void> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	await db
 		.update(skillSchedules)
 		.set({ nextFireAt, updatedAt: new Date().toISOString() })
@@ -354,6 +382,7 @@ export async function migrateFactorySlotGuard(
 	skill: Pick<SkillEntry, "id" | "organizationId" | "revision" | "files">,
 	files: NonNullable<SkillEntry["files"]>,
 ): Promise<boolean> {
+	const skillEntries = coreTable(db, d1SkillEntries);
 	const applied = await db
 		.update(skillEntries)
 		.set({
@@ -382,6 +411,7 @@ export async function recordSkillScheduleDispatch(
 		runId: string;
 	},
 ): Promise<void> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	await db
 		.update(skillSchedules)
 		.set({
@@ -425,6 +455,7 @@ export async function recordSkillScheduleSuppressed(
 		admissionClass: "background" | "governed_learning";
 	},
 ): Promise<void> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	await db
 		.update(skillSchedules)
 		.set({
@@ -451,6 +482,8 @@ export async function listSchedulesWithFailedLastRun(
 	since: string,
 	limit = 50,
 ) {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	return db
 		.select({
 			schedule: skillSchedules,
@@ -481,6 +514,7 @@ export async function recordSkillScheduleRetry(
 	db: DbClient,
 	input: { scheduleId: string; failedRunId: string; runId: string },
 ): Promise<void> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	await db
 		.update(skillSchedules)
 		.set({
@@ -501,6 +535,7 @@ export async function recordSkillScheduleError(
 	scheduleId: string,
 	error: string,
 ): Promise<void> {
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	await db
 		.update(skillSchedules)
 		.set({

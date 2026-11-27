@@ -32,20 +32,22 @@
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonRead } from "../core-store/dialect";
 import {
 	type SkillEntry,
 	type SkillPaceLayer,
 	type SkillUsageOutcome,
-	skillEntries,
-	skillRunArtifacts,
-	skillRuns,
-	skillUsageEvents,
+	skillEntries as d1SkillEntries,
+	skillRunArtifacts as d1SkillRunArtifacts,
+	skillRuns as d1SkillRuns,
+	skillUsageEvents as d1SkillUsageEvents,
 } from "../schema/cognitive";
 import {
 	DEFAULT_PACE_LAYER_POLICY,
-	policyPacks,
+	policyPacks as d1PolicyPacks,
 } from "../schema/control-plane";
-import { tedis } from "../schema/tedis";
+import { tedis as d1Tedis } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
 import { freshReadMarkExists, unusedReportNote } from "./read-marks";
 
@@ -113,11 +115,21 @@ const LIFECYCLE_RANK: Record<SkillLifecycleState, number> = {
 
 /** Resolve the owning tedi's pack without crossing organization boundaries. */
 function skillPolicyKnob(
+	db: DbClient,
 	layer: SkillPaceLayer | SQL,
 	knob: "evalRequired" | "draftTtlDays",
 ) {
-	const path = sql`'$.paceLayerPolicy.' || ${layer} || ${"." + knob}`;
-	return sql`(select json_extract(${policyPacks.definition}, ${path})
+	const policyPacks = coreTable(db, d1PolicyPacks);
+	const tedis = coreTable(db, d1Tedis);
+	const skillEntries = coreTable(db, d1SkillEntries);
+	// SQLite reads JSON true as 1; read booleans as 1/0 on Postgres too.
+	const value =
+		coreStore(db) === "postgres"
+			? sql`(select case jsonb_typeof(v) when 'number' then (v #>> '{}')::numeric
+            when 'boolean' then case when (v #>> '{}')::boolean then 1 else 0 end end
+            from (select ${policyPacks.definition} -> 'paceLayerPolicy' -> (${layer})::text -> ${knob}::text as v) knob)`
+			: sql`json_extract(${policyPacks.definition}, ${sql`'$.paceLayerPolicy.' || ${layer} || ${"." + knob}`})`;
+	return sql`(select ${value}
         from ${tedis} join ${policyPacks} on ${policyPacks.id} = ${tedis.policyPackId}
         where ${tedis.id} = ${skillEntries.tediId}
         and ${tedis.organizationId} = ${skillEntries.organizationId}
@@ -153,13 +165,19 @@ export function isSkillReturnFromArchive(
 	);
 }
 
-const certificationPassed = sql<boolean>`(
-    json_extract(${skillRuns.result}, '$.certification.passed') = 1
-    or json_extract(${skillRuns.result}, '$.certification.status') = 'passed'
-    or json_extract(${skillRuns.result}, '$.certification.overallStatus') = 'passed'
+function certificationPassed(db: DbClient) {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const passed =
+		coreStore(db) === "postgres"
+			? sql`(${jsonRead(db, skillRuns.result, ["certification", "passed"], "boolean")} is true
+    or ${jsonRead(db, skillRuns.result, ["certification", "passed"], "number")} = 1)`
+			: sql`${jsonRead(db, skillRuns.result, ["certification", "passed"])} = 1`;
+	return sql<boolean>`(
+    ${passed}
+    or ${jsonRead(db, skillRuns.result, ["certification", "status"])} = 'passed'
+    or ${jsonRead(db, skillRuns.result, ["certification", "overallStatus"])} = 'passed'
 )`;
-
-const laterStepAttempt = alias(skillRunArtifacts, "later_step_attempt");
+}
 
 /**
  * A tool call of this run that failed and was never made good. The runtime
@@ -169,38 +187,55 @@ const laterStepAttempt = alias(skillRunArtifacts, "later_step_attempt");
  * step (`…/attempts/2.json`) succeeded. A failure inside an attempt that
  * itself succeeded still counts: the workflow carried on past a failed call.
  */
-const unrecoveredFailedCall = sql<boolean>`(
+function unrecoveredFailedCall(db: DbClient) {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
+	const laterStepAttempt = alias(skillRunArtifacts, "later_step_attempt");
+	const postgres = coreStore(db) === "postgres";
+	const failedCallPath = postgres
+		? sql`(${skillRunArtifacts.path} ~ 'calls/run/[0-9].*[.]json$'
+        or ${skillRunArtifacts.path} ~ 'calls/compensate/[0-9].*[.]json$')`
+		: sql`(${skillRunArtifacts.path} glob '*calls/run/[0-9]*.json'
+        or ${skillRunArtifacts.path} glob '*calls/compensate/[0-9]*.json')`;
+	const attemptsAt = postgres
+		? sql`strpos(${skillRunArtifacts.path}, '/attempts/')`
+		: sql`instr(${skillRunArtifacts.path}, '/attempts/')`;
+	return sql<boolean>`(
     ${skillRunArtifacts.runId} = ${skillRuns.id}
     and ${skillRunArtifacts.outcome} = 'failure'
-    and (${skillRunArtifacts.path} glob '*calls/run/[0-9]*.json'
-        or ${skillRunArtifacts.path} glob '*calls/compensate/[0-9]*.json')
+    and ${failedCallPath}
     and not exists (
         select 1 from ${skillRunArtifacts} as ${laterStepAttempt}
         where ${laterStepAttempt.runId} = ${skillRunArtifacts.runId}
         and ${laterStepAttempt.outcome} = 'success'
         and ${laterStepAttempt.attempt} > ${skillRunArtifacts.attempt}
-        and instr(${skillRunArtifacts.path}, '/attempts/') > 0
-        and ${laterStepAttempt.path} = substr(${skillRunArtifacts.path}, 1, instr(${skillRunArtifacts.path}, '/attempts/') + 9)
+        and ${attemptsAt} > 0
+        and ${laterStepAttempt.path} = substr(${skillRunArtifacts.path}, 1, ${attemptsAt} + 9)
             || ${laterStepAttempt.attempt} || '.json'
     )
 )`;
+}
 
 /** Kept in the UPDATE predicate so a concurrent revision cannot reuse an older eval. */
 export function skillEvalGateCondition(
+	db: DbClient,
 	layer: SkillPaceLayer,
 	allowRecordedEval = true,
 ): SQL<boolean> {
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	return sql<boolean>`(
-        coalesce(${skillPolicyKnob(layer, "evalRequired")}, ${DEFAULT_PACE_LAYER_POLICY[layer].evalRequired ? 1 : 0}) = 0
+        coalesce(${skillPolicyKnob(db, layer, "evalRequired")}, ${DEFAULT_PACE_LAYER_POLICY[layer].evalRequired ? 1 : 0}) = 0
         or (${allowRecordedEval ? 1 : 0} = 1 and exists (
             select 1 from ${skillRuns}
             where ${skillRuns.skillId} = ${skillEntries.id}
             and ${skillRuns.organizationId} = ${skillEntries.organizationId}
             and ${skillRuns.skillRevision} = ${skillEntries.revision}
             and ${skillRuns.status} = 'completed'
-            and ${certificationPassed}
+            and ${certificationPassed(db)}
             and not exists (
-                select 1 from ${skillRunArtifacts} where ${unrecoveredFailedCall}
+                select 1 from ${skillRunArtifacts} where ${unrecoveredFailedCall(db)}
             )
         ))
     )`;
@@ -214,15 +249,18 @@ async function describeMissingSkillEval(
 ): Promise<string> {
 	if (!allowRecordedEval)
 		return "This change also edits the skill, and a certification run only covers the revision it ran on. Save the edit first, run certification on the new revision, then promote.";
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	const runs = await db
 		.select({
 			runId: skillRuns.id,
 			runStatus: skillRuns.status,
 			entryRevision: skillEntries.revision,
-			passed: sql<number>`case when ${certificationPassed} then 1 else 0 end`,
+			passed: sql<number>`case when ${certificationPassed(db)} then 1 else 0 end`,
 			failedCall: sql<
 				string | null
-			>`(select min(${skillRunArtifacts.path}) from ${skillRunArtifacts} where ${unrecoveredFailedCall})`,
+			>`(select min(${skillRunArtifacts.path}) from ${skillRunArtifacts} where ${unrecoveredFailedCall(db)})`,
 		})
 		.from(skillRuns)
 		.innerJoin(
@@ -256,6 +294,7 @@ export async function assertSkillPaceLayerEval(
 	allowRecordedEval = true,
 	target?: SkillLifecycleState,
 ): Promise<void> {
+	const skillEntries = coreTable(db, d1SkillEntries);
 	const [allowed] = await db
 		.select({ id: skillEntries.id })
 		.from(skillEntries)
@@ -263,7 +302,7 @@ export async function assertSkillPaceLayerEval(
 			and(
 				eq(skillEntries.id, entry.id),
 				eq(skillEntries.organizationId, entry.organizationId),
-				skillEvalGateCondition(layer, allowRecordedEval),
+				skillEvalGateCondition(db, layer, allowRecordedEval),
 			),
 		)
 		.limit(1);
@@ -420,6 +459,7 @@ export async function loadSkillUsageSignals(
 	organizationId: string,
 	skillId: string,
 ): Promise<SkillUsageSignals> {
+	const skillUsageEvents = coreTable(db, d1SkillUsageEvents);
 	const scope = and(
 		eq(skillUsageEvents.organizationId, organizationId),
 		eq(skillUsageEvents.skillId, skillId),
@@ -451,8 +491,14 @@ export async function loadSkillUsageSignals(
 					),
 				),
 			)
-			// rowid tiebreak keeps same-millisecond events in insert order.
-			.orderBy(desc(skillUsageEvents.createdAt), sql`rowid DESC`)
+			// rowid tiebreak keeps same-millisecond events in insert order on D1;
+			// Postgres has no insertion order for this table, so ties break by id.
+			.orderBy(
+				desc(skillUsageEvents.createdAt),
+				coreStore(db) === "postgres"
+					? desc(skillUsageEvents.id)
+					: sql`rowid DESC`,
+			)
 			.limit(SKILL_PROVEN_RECENT_WINDOW),
 	]);
 	return {
@@ -773,15 +819,31 @@ export async function sweepExpiredDraftSkills(
 		now.getTime() - olderThanDays * 24 * 60 * 60 * 1000,
 	).toISOString();
 
-	const layerTtl = sql`max(0, coalesce(${skillPolicyKnob(sql`${skillEntries.paceLayer}`, "draftTtlDays")},
-        case ${skillEntries.paceLayer} when 'innovation' then ${DEFAULT_PACE_LAYER_POLICY.innovation.draftTtlDays ?? olderThanDays}
-        when 'differentiation' then ${DEFAULT_PACE_LAYER_POLICY.differentiation.draftTtlDays ?? olderThanDays}
-        when 'record' then ${DEFAULT_PACE_LAYER_POLICY.record.draftTtlDays ?? olderThanDays}
-        else ${olderThanDays} end))`;
-	const layerCutoff = sql`datetime(${now.toISOString()}, '-' || ${layerTtl} || ' days')`;
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillUsageEvents = coreTable(db, d1SkillUsageEvents);
+	const postgres = coreStore(db) === "postgres";
+	// A CASE of bound values alone resolves to text on Postgres.
+	const days = (value: number) =>
+		postgres ? sql`${value}::numeric` : sql`${value}`;
+	const layerTtl = sql`${postgres ? sql`greatest` : sql`max`}(0, coalesce(${skillPolicyKnob(db, sql`${skillEntries.paceLayer}`, "draftTtlDays")},
+        case ${skillEntries.paceLayer} when 'innovation' then ${days(DEFAULT_PACE_LAYER_POLICY.innovation.draftTtlDays ?? olderThanDays)}
+        when 'differentiation' then ${days(DEFAULT_PACE_LAYER_POLICY.differentiation.draftTtlDays ?? olderThanDays)}
+        when 'record' then ${days(DEFAULT_PACE_LAYER_POLICY.record.draftTtlDays ?? olderThanDays)}
+        else ${days(olderThanDays)} end))`;
+	const layerCutoff = postgres
+		? sql`(${now.toISOString()}::timestamptz - (${layerTtl})::float8 * interval '1 day')`
+		: sql`datetime(${now.toISOString()}, '-' || ${layerTtl} || ' days')`;
+	// Stored times are ISO text or `YYYY-MM-DD HH:MM:SS`; both read as UTC.
+	const storedTime = (value: SQL) =>
+		postgres
+			? sql`CASE WHEN ${value} ~ '(Z|z|[+-][0-9]{2}:?[0-9]{2})$' THEN ${value}::timestamptz ELSE ${value}::timestamp AT TIME ZONE 'UTC' END`
+			: sql`datetime(${value})`;
+	const tags = postgres
+		? sql`jsonb_array_elements_text(coalesce(${skillEntries.tags}, '[]'::jsonb))`
+		: sql`json_each(coalesce(${skillEntries.tags}, '[]'))`;
 	const isEphemeralFlow = sql<boolean>`exists (
 		select 1
-		from json_each(coalesce(${skillEntries.tags}, '[]'))
+		from ${tags}
 		where value = ${FLOW_EPHEMERAL_SKILL_TAG}
 	)`;
 	const hasNoUsage = and(
@@ -791,11 +853,11 @@ export async function sweepExpiredDraftSkills(
 	);
 	const ordinaryDraftIsExpired = and(
 		hasNoUsage,
-		sql`datetime(coalesce(${skillEntries.updatedAt}, ${skillEntries.createdAt})) < ${layerCutoff}`,
+		sql`${storedTime(sql`coalesce(${skillEntries.updatedAt}, ${skillEntries.createdAt})`)} < ${layerCutoff}`,
 	);
 	const ephemeralFlowIsExpired = and(
 		isEphemeralFlow,
-		sql`datetime(coalesce(${skillEntries.lastUsedAt}, ${skillEntries.updatedAt}, ${skillEntries.createdAt})) < ${layerCutoff}`,
+		sql`${storedTime(sql`coalesce(${skillEntries.lastUsedAt}, ${skillEntries.updatedAt}, ${skillEntries.createdAt})`)} < ${layerCutoff}`,
 	);
 	// A draft read within its TTL window is not unused even with zero recorded
 	// runs: reads leave a daily date in read_marks (kind 'skill'). The mark is
@@ -804,12 +866,14 @@ export async function sweepExpiredDraftSkills(
 		organizationId: skillEntries.organizationId,
 		kind: "skill",
 		rowId: skillEntries.id,
-		sinceDate: sql`date(${layerCutoff})`,
+		sinceDate: postgres
+			? sql`to_char(${layerCutoff} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`
+			: sql`date(${layerCutoff})`,
 	})}`;
 	const conditions = [
 		eq(skillEntries.lifecycleState, "draft"),
 		// Improvement copies have their own deletion sweep and evidence guards.
-		sql`NOT EXISTS (SELECT 1 FROM json_each(coalesce(${skillEntries.tags}, '[]')) WHERE value = 'workflow-improvement')`,
+		sql`NOT EXISTS (SELECT 1 FROM ${tags} WHERE value = 'workflow-improvement')`,
 		notReadWithinTtl,
 		or(ordinaryDraftIsExpired, ephemeralFlowIsExpired),
 	];
@@ -855,9 +919,11 @@ export async function sweepExpiredDraftSkills(
 			.set({
 				lifecycleState: "archived",
 				paceLayer: paceLayerForLifecycle("archived"),
-				archivedFrom: sql`json_object('lifecycleState', 'draft', 'revision', ${skillEntries.revision} + 1)`,
+				archivedFrom: postgres
+					? sql`jsonb_build_object('lifecycleState', 'draft', 'revision', ${skillEntries.revision} + 1)`
+					: sql`json_object('lifecycleState', 'draft', 'revision', ${skillEntries.revision} + 1)`,
 				revision: sql`${skillEntries.revision} + 1`,
-				revisionReasoning: sql`CASE WHEN ${skillEntries.revisionReasoning} IS NULL OR ${skillEntries.revisionReasoning} = '' THEN ${note} ELSE ${skillEntries.revisionReasoning} || char(10) || ${note} END`,
+				revisionReasoning: sql`CASE WHEN ${skillEntries.revisionReasoning} IS NULL OR ${skillEntries.revisionReasoning} = '' THEN ${note} ELSE ${skillEntries.revisionReasoning} || ${postgres ? sql`chr(10)` : sql`char(10)`} || ${note} END`,
 				updatedAt: now.toISOString(),
 			})
 			.where(and(inArray(skillEntries.id, ids), ...conditions))

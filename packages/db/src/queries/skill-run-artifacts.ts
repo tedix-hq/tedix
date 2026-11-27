@@ -25,12 +25,14 @@ import { isTransientD1ReadError } from "../utils/d1-retry";
 import { and, asc, eq, inArray, like, notLike, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
-import { osGadgetExecutions } from "../schema/os-workspaces";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
+import { osGadgetExecutions as d1OsGadgetExecutions } from "../schema/os-workspaces";
 import {
 	type NewSkillRunArtifact,
 	type SkillRunArtifact,
-	skillRunArtifacts,
-	skillRuns,
+	skillRunArtifacts as d1SkillRunArtifacts,
+	skillRuns as d1SkillRuns,
 } from "../schema/cognitive";
 import { chunkForBoundParams } from "../utils/batch";
 import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
@@ -41,6 +43,8 @@ export async function resolveRunArtifactTenantScope(
 	db: DbQueryClient,
 	runId: string,
 ): Promise<TenantScope | undefined> {
+	const skillRuns = coreTable(db, d1SkillRuns);
+	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const [runs, executions] = await db.batch([
 		db
 			.select({ organizationId: skillRuns.organizationId })
@@ -242,6 +246,7 @@ export async function recordRunArtifact(
 	input: RecordArtifactInput,
 	bucket?: R2Bucket,
 ): Promise<SkillRunArtifact> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	validateArtifactPath(input.path);
 	const mimeType = input.mimeType ?? "application/json";
@@ -373,7 +378,13 @@ function isUniqueConstraintError(error: unknown): boolean {
 	for (let current = error, depth = 0; current && depth < 4; depth++) {
 		const message =
 			current instanceof Error ? current.message : String(current);
-		if (/UNIQUE constraint failed/i.test(message)) return true;
+		if (
+			/UNIQUE constraint failed|duplicate key value violates unique constraint/i.test(
+				message,
+			) ||
+			(current as { code?: unknown }).code === "23505"
+		)
+			return true;
 		current = current instanceof Error ? current.cause : undefined;
 	}
 	return false;
@@ -398,6 +409,7 @@ async function readRunArtifact(
 	runId: string,
 	path: string,
 ): Promise<SkillRunArtifact | null> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	// Artifact rows past the retention keep window live in the logs database.
 	const pages = await readLogStores(db, async (store) => {
@@ -421,6 +433,7 @@ export async function listRunArtifacts(
 	tenantScope: TenantScope,
 	runId: string,
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	const pages = await readLogStores(db, (store) =>
 		listRunArtifacts(store, tenantScope, runId),
@@ -440,6 +453,7 @@ export async function listRunArtifactsPage(
 	runId: string,
 	options?: { limit?: number; offset?: number },
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	const limit = Math.min(Math.max(options?.limit ?? 201, 1), 2_001);
 	const offset = Math.max(options?.offset ?? 0, 0);
@@ -481,6 +495,7 @@ export async function listRunArtifactsForRuns(
 	runIds: string[],
 	limit = 5_000,
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	if (runIds.length === 0) return [];
 	const boundedLimit = Math.min(Math.max(limit, 1), 10_000);
@@ -505,6 +520,7 @@ export async function listRunOperationalArtifactsForRuns(
 	runIds: string[],
 	limit = 5_000,
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	if (runIds.length === 0) return [];
 	const boundedLimit = Math.min(Math.max(limit, 1), 10_000);
@@ -539,6 +555,7 @@ export async function listRunOperationalArtifacts(
 	runId: string,
 	limit = 2_001,
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	return db
 		.select()
@@ -562,7 +579,8 @@ export async function listRunOperationalArtifacts(
 		.limit(Math.min(Math.max(limit, 1), 2_001));
 }
 
-function stepPathPredicate() {
+function stepPathPredicate(db: DbClient) {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	return or(
 		like(skillRunArtifacts.path, "steps/%"),
 		like(skillRunArtifacts.path, "epochs/%/steps/%"),
@@ -586,7 +604,8 @@ export interface WorkflowArtifactPageOptions {
 	attempt?: number;
 }
 
-function stepNamePathPredicate(stepName: string | undefined) {
+function stepNamePathPredicate(db: DbClient, stepName: string | undefined) {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	if (!stepName) return undefined;
 	// The runtime escapes dots because the shared artifact path validator rejects
 	// every `..` sequence. Keep SQL-first filtering byte-identical to that
@@ -596,13 +615,24 @@ function stepNamePathPredicate(stepName: string | undefined) {
 	// cases. Skip the GLOB optimization for those names; the API's exact parsed
 	// record filter remains authoritative.
 	if (/[*?[\]]/.test(encoded)) return undefined;
+	if (coreStore(db) === "postgres") {
+		const component = encoded.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+		return or(
+			sql`starts_with(${skillRunArtifacts.path}, ${`steps/${encoded}/`})`,
+			sql`${skillRunArtifacts.path} ~ ${`^epochs/.*/steps/${component}/`}`,
+		);
+	}
 	return or(
 		sql`${skillRunArtifacts.path} GLOB ${`steps/${encoded}/*`}`,
 		sql`${skillRunArtifacts.path} GLOB ${`epochs/*/steps/${encoded}/*`}`,
 	);
 }
 
-function stepKindPathPredicate(kind: WorkflowStepArtifactKind | undefined) {
+function stepKindPathPredicate(
+	db: DbClient,
+	kind: WorkflowStepArtifactKind | undefined,
+) {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	if (!kind || kind === "other") return undefined;
 	if (kind === "tool_call") {
 		return like(skillRunArtifacts.path, "%/calls/%");
@@ -636,11 +666,12 @@ export async function listRunWorkflowStepArtifacts(
 	runId: string,
 	options: WorkflowArtifactPageOptions = {},
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	const structured = and(
-		stepPathPredicate(),
-		stepNamePathPredicate(options.stepName),
-		stepKindPathPredicate(options.kind),
+		stepPathPredicate(db),
+		stepNamePathPredicate(db, options.stepName),
+		stepKindPathPredicate(db, options.kind),
 		options.kind === "tool_call"
 			? like(skillRunArtifacts.path, "%/calls/%")
 			: notLike(skillRunArtifacts.path, "%/calls/%"),
@@ -661,6 +692,7 @@ export async function listRunWorkflowCallArtifacts(
 	runId: string,
 	options: WorkflowArtifactPageOptions = {},
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	return db
 		.select()
@@ -669,9 +701,9 @@ export async function listRunWorkflowCallArtifacts(
 			and(
 				eq(skillRunArtifacts.runId, runId),
 				and(
-					stepPathPredicate(),
+					stepPathPredicate(db),
 					like(skillRunArtifacts.path, "%/calls/%"),
-					stepNamePathPredicate(options.stepName),
+					stepNamePathPredicate(db, options.stepName),
 					options.attempt
 						? eq(skillRunArtifacts.attempt, options.attempt)
 						: undefined,
@@ -690,6 +722,7 @@ export async function listRunArtifactsForRunsByPath(
 	runIds: string[],
 	path: string,
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	if (runIds.length === 0) return [];
 	validateArtifactPath(path);
@@ -718,6 +751,7 @@ export async function listRunWorkflowRuntimeObservationsForRuns(
 	runIds: string[],
 	limit = 10_000,
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	if (runIds.length === 0) return [];
 	const boundedLimit = Math.min(Math.max(limit, 1), 10_000);
@@ -756,6 +790,7 @@ export async function deleteRunArtifacts(
 	tenantScope: TenantScope,
 	runId: string,
 ): Promise<number> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	const deleted = await db
 		.delete(skillRunArtifacts)
@@ -771,6 +806,7 @@ export async function listRunTimelineArtifacts(
 	runId: string,
 	executionEpoch: number,
 ): Promise<SkillRunArtifact[]> {
+	const skillRunArtifacts = coreTable(db, d1SkillRunArtifacts);
 	tenantScope = normalizeTenantScope(tenantScope);
 	const pages = await readLogStores(db, (store) =>
 		listRunTimelineArtifacts(store, tenantScope, runId, executionEpoch),

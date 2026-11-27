@@ -11,12 +11,14 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonParameter } from "../core-store/dialect";
 import { auditWriteTable } from "./audit-delivery";
 import {
 	type SkillSchedule,
-	skillEntries,
-	skillRuns,
-	skillSchedules,
+	skillEntries as d1SkillEntries,
+	skillRuns as d1SkillRuns,
+	skillSchedules as d1SkillSchedules,
 } from "../schema/cognitive";
 
 /** Run states that still execute, or wait to, under the run's tedi. */
@@ -34,6 +36,7 @@ export async function listInFlightSkillRuns(
 	db: DbClient,
 	params: { organizationId: string; skillId: string; limit?: number },
 ): Promise<InFlightSkillRun[]> {
+	const skillRuns = coreTable(db, d1SkillRuns);
 	return db
 		.select({
 			id: skillRuns.id,
@@ -83,8 +86,11 @@ export async function moveSkillToTedi(
 	db: DbClient,
 	params: MoveSkillToTediParams,
 ): Promise<MoveSkillToTediResult> {
+	const skillEntries = coreTable(db, d1SkillEntries);
+	const skillSchedules = coreTable(db, d1SkillSchedules);
 	const now = params.now ?? new Date();
 	const updatedAt = now.toISOString();
+	const epoch = Math.floor(now.getTime() / 1000);
 	const auditEventId = crypto.randomUUID();
 	// The row this batch's first statement wrote: the target owner AND this
 	// write's timestamp, so a concurrent move to the same target is not mistaken
@@ -129,14 +135,15 @@ export async function moveSkillToTedi(
 					action: sql<string>`${params.audit.action}`.as("action"),
 					resourceType: sql<string>`'skill'`.as("resource_type"),
 					resourceId: skillEntries.id,
-					metadata: sql<string>`${JSON.stringify(params.audit.metadata)}`.as(
+					metadata: sql<string>`${jsonParameter(db, params.audit.metadata)}`.as(
 						"metadata",
 					),
 					ipAddress: sql<null>`NULL`.as("ip_address"),
 					userAgent: sql<null>`NULL`.as("user_agent"),
-					timestamp: sql<number>`${Math.floor(now.getTime() / 1000)}`.as(
-						"timestamp",
-					),
+					timestamp: (coreStore(db) === "postgres"
+						? sql<number>`to_timestamp(${epoch})`
+						: sql<number>`${epoch}`
+					).as("timestamp"),
 				})
 				.from(skillEntries)
 				.where(movedSkill),

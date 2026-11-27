@@ -367,7 +367,7 @@ export async function updateSkillEntry(
 						: eq(skillEntries.updatedAt, current.updatedAt),
 					returning
 						? undefined
-						: skillEvalGateCondition(layer, !substantiveEdit),
+						: skillEvalGateCondition(db, layer, !substantiveEdit),
 				)!;
 			}
 		}
