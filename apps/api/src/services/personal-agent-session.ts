@@ -41,15 +41,38 @@ async function fetchIdentityDocument(
 	const env = identityHostEnv;
 	const target = new URL(url);
 	const match = env ? TEDIX_IDENTITY_PATH.exec(target.pathname) : null;
-	if (!env || !match || target.origin !== new URL(env.API_URL).origin)
-		return fetch(url, init);
-	const doc = await loadPoppyAgentPublicDocument(
-		env,
-		createDbClient(env.DB),
-		match[1]!,
-		match[2] as "client" | "jwks",
+	const inProcess = Boolean(
+		env && match && target.origin === new URL(env.API_URL).origin,
 	);
-	return doc ? Response.json(doc) : new Response("Not found", { status: 404 });
+	let status = 0;
+	try {
+		if (!env || !match || !inProcess) {
+			const response = await fetch(url, init);
+			status = response.status;
+			return response;
+		}
+		const doc = await loadPoppyAgentPublicDocument(
+			env,
+			createDbClient(env.DB),
+			match[1]!,
+			match[2] as "client" | "jwks",
+		);
+		status = doc ? 200 : 404;
+		return doc
+			? Response.json(doc)
+			: new Response("Not found", { status: 404 });
+	} finally {
+		console.log(
+			JSON.stringify({
+				_tr: "personal_agent_identity_document",
+				host: target.host,
+				path: target.pathname.slice(0, 200),
+				hostEnvSet: Boolean(env),
+				inProcess,
+				status,
+			}),
+		);
+	}
 }
 
 function jwtSegment(token: string, index: number): Record<string, unknown> {
