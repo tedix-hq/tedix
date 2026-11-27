@@ -157,6 +157,8 @@ assert.equal(conversationsCall.endpoint, "conversations");
 const eventsCall = (await run(POPPY_CALL_TOOL_NAME, {
 	company: "company.example",
 	surface: "conversations",
+	// Models send POST here; reading replies must still be a GET of events.
+	method: "POST",
 	conversationId: "conv-1",
 })) as { status: number };
 assert.equal(eventsCall.status, 200);

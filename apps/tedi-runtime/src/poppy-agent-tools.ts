@@ -207,15 +207,10 @@ export function createPoppyAgentAiTools(input: PoppyAgentToolInput): ToolSet {
 						code: "invalid_request" as const,
 						message: "conversationId applies to the conversations surface.",
 					};
-				const method = (
-					requestedMethod ?? (conversationId ? "GET" : "POST")
-				).toUpperCase();
-				if (conversationId && method !== "GET")
-					return {
-						status: "error" as const,
-						code: "invalid_request" as const,
-						message: "Reading a conversation's events uses GET.",
-					};
+				// Reading a conversation's replies is always a GET of its events.
+				const method = conversationId
+					? "GET"
+					: (requestedMethod ?? "POST").toUpperCase();
 				if (method === "GET" && rawBody !== undefined)
 					return {
 						status: "error" as const,
