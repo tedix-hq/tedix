@@ -14,6 +14,8 @@ has its own setup and, where applicable, tests.
 - [Today digest](today-digest/) produces a saved project progress post.
 - [Work board hygiene](work-board-hygiene/) proposes consolidation and cleans up
   eligible empty Work items.
+- [Poppy personal agent](poppy-personal-agent/) hosts the public client
+  metadata and JWKS for the simulated `tedix poppy` demo identities.
 
 The workflow examples require an existing installation and explicit configuration.
 Their local tests do not establish that a workflow is installed or running.

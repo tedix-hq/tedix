@@ -1,0 +1,5 @@
+{
+	"client_id": "https://raw.githubusercontent.com/tedix-hq/tedix/main/examples/poppy-personal-agent/client.json",
+	"client_name": "Simulated Poppy Demo Agent",
+	"jwks_uri": "https://raw.githubusercontent.com/tedix-hq/tedix/main/examples/poppy-personal-agent/jwks.json"
+}
