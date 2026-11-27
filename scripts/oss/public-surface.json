@@ -89,6 +89,11 @@
 			"licenseClass": "mit-ecosystem"
 		},
 		{
+			"path": "apps/core-copy",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
 			"path": "apps/desktop",
 			"decision": "public-product",
 			"licenseClass": "agpl-product"
