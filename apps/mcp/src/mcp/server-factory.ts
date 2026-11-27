@@ -10,6 +10,7 @@
  *
  * @module @tedix/mcp/mcp/server-factory
  */
+import { joinableInFlight } from "../lib/request-local-in-flight";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { ATTENTION_GUIDANCE } from "./attention-guidance";
 import {
@@ -285,7 +286,7 @@ export async function getAppContext(
 		);
 	}
 
-	const inFlight = appContextInFlight.get(appId);
+	const inFlight = joinableInFlight(appContextInFlight, appId);
 	if (inFlight)
 		return joinInFlightLoad(appContextInFlight, appId, inFlight, {
 			step: "app_context_join",

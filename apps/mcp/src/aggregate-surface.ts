@@ -3,6 +3,7 @@ import type {
 	AggregatedMcpSurface,
 	InternalAppTool,
 } from "./aggregate-types";
+import { joinableInFlight } from "./lib/request-local-in-flight";
 import { readAggregateActivationEpoch } from "./aggregate-activation-epoch";
 import { compileDiscoveryShard } from "./aggregate-discovery-shards";
 import { withAggregateConnectionProvider } from "./aggregate-host-defaults";
@@ -239,7 +240,7 @@ async function aggregateAndPrefixToolsCached(
 		return cached.result;
 	}
 
-	const inFlight = aggregateSurfaceInFlight.get(cacheKey);
+	const inFlight = joinableInFlight(aggregateSurfaceInFlight, cacheKey);
 	if (inFlight) {
 		return joinAggregateLoad(
 			inFlight,

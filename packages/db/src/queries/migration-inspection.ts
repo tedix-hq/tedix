@@ -1,7 +1,11 @@
 import { sql } from "drizzle-orm";
+import { coreStore } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 
 export async function readD1MigrationPublicationRevision(db: DbQueryClient) {
+	// The ledger is D1's (tedix_drizzle_migrations); Postgres has none, so the
+	// publication fence sees no revision there (follow-up f83460e3).
+	if (coreStore(db) === "postgres") return null;
 	const rows = await db
 		.select({
 			id: sql<number>`id`.as("id"),

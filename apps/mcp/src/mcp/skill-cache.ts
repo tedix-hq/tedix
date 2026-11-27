@@ -1,4 +1,5 @@
 import type { ApiClient } from "../lib/api-client";
+import { joinableInFlight } from "../lib/request-local-in-flight";
 import { setBoundedCacheEntry } from "../lib/bounded-cache";
 import { CACHE_TIER_BUDGET_MS, withStepBudget } from "../lib/step-budget";
 import { UPSTREAM_ATTEMPT_TIMEOUT_MS } from "../upstream";
@@ -253,7 +254,7 @@ export async function getCachedSkillSummaries(params: {
 	// per app across the whole fan-out.
 	if (breakerIsOpen()) return [];
 
-	const inFlight = skillSummaryInFlight.get(key);
+	const inFlight = joinableInFlight(skillSummaryInFlight, key);
 	if (inFlight) return inFlight;
 
 	const request = (async (): Promise<CachedSkillSummary[]> => {

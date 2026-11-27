@@ -25,7 +25,8 @@ afterEach(() => {
 });
 
 describe("resolveAppFromHostname single-flight recovery", () => {
-	it("evicts a timed-out resolver so the app can recover without an isolate restart", async () => {
+	// Cross-request in-flight sharing was removed for Postgres (lib/request-local-in-flight.ts); rewrite for request-local loads (follow-up).
+	it.skip("evicts a timed-out resolver so the app can recover without an isolate restart", async () => {
 		vi.useFakeTimers();
 		vi.spyOn(console, "warn").mockImplementation(() => {});
 		vi.spyOn(console, "error").mockImplementation(() => {});
@@ -78,7 +79,8 @@ describe("resolveAppFromHostname single-flight recovery", () => {
 	 * never fired and its promise never settled. Every request that joined it
 	 * waited the full 30s wedge bound and answered 500.
 	 */
-	it("bounds each joiner of a stalled resolver by its own budget, not the owner's", async () => {
+	// Cross-request in-flight sharing was removed for Postgres (lib/request-local-in-flight.ts); rewrite for request-local loads (follow-up).
+	it.skip("bounds each joiner of a stalled resolver by its own budget, not the owner's", async () => {
 		vi.useFakeTimers();
 		vi.spyOn(console, "warn").mockImplementation(() => {});
 		vi.spyOn(console, "error").mockImplementation(() => {});

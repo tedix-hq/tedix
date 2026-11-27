@@ -1,4 +1,5 @@
 import { type ApiClient, getApiClient } from "./lib/api-client";
+import { joinableInFlight } from "./lib/request-local-in-flight";
 import type { InternalResolveResult } from "./aggregate-types";
 import { UPSTREAM_ATTEMPT_TIMEOUT_MS } from "./upstream";
 import { setBoundedCacheEntry } from "./lib/bounded-cache";
@@ -165,7 +166,7 @@ export async function loadInternalTools(
 	const staleReady = new Promise<InternalResolveResult>((resolve) => {
 		serveStale = resolve;
 	});
-	let pending = internalToolInFlight.get(cacheKey);
+	let pending = joinableInFlight(internalToolInFlight, cacheKey);
 	const ownsLoad = !pending;
 	if (!pending) {
 		pending = (async () => {

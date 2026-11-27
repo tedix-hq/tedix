@@ -17,6 +17,7 @@
  * Per docs/engineering/platform/auth.md and Descope's own MCP Gateway pattern (one MCP server per
  * tenant), the resource server is the canonical enforcement point.
  */
+import { joinableInFlight } from "./request-local-in-flight";
 import type { CoreStoreEnv } from "@tedix/db/core-store/client";
 import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 import { getOrganizationDescopeTenantId } from "@tedix/db/queries/organizations";
@@ -93,7 +94,7 @@ async function getOrgDescopeTenantId(
 	if (cached && Date.now() < cached.expiresAt) {
 		return { resolved: true, descopeTenantId: cached.descopeTenantId };
 	}
-	const inFlight = orgTenantInFlight.get(orgId);
+	const inFlight = joinableInFlight(orgTenantInFlight, orgId);
 	if (inFlight) return inFlight;
 
 	const work = (async (): Promise<OrgTenantLookup> => {

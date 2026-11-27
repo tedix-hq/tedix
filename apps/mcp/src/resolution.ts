@@ -2,6 +2,7 @@
  * MCP Worker — App resolution and caching
  */
 
+import { joinableInFlight } from "./lib/request-local-in-flight";
 import type { AppMetadata, AppTool } from "@tedix/api-contract/schemas/app";
 import type { HostnameInfo } from "./hostname";
 import { getApiClient } from "./lib/api-client";
@@ -382,7 +383,7 @@ export async function resolveAppFromHostname(
 		? `${cacheKey}\nepoch:${epoch ?? "legacy"}`
 		: `${cacheKey}\nepoch-unavailable:${crypto.randomUUID()}`;
 
-	const inFlight = appResolutionInFlight.get(loadKey);
+	const inFlight = joinableInFlight(appResolutionInFlight, loadKey);
 	if (inFlight) {
 		// Another request owns this load. Bound our wait by the joiner budget,
 		// not the owner's wedge bound: if the owner's request has ended, its
