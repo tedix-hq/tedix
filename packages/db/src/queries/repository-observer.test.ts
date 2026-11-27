@@ -381,7 +381,7 @@ it("reuses Ship surface and step alerts across commits and closes them on recove
 	await createRepositoryObservation(db, red(4));
 	expect((await step(4, "deploy:api")).id).toBe("deploy:api-4");
 });
-it("appends to the newest open Ship alert within its tenant and failure scope", async () => {
+it("consolidates older Ship alerts within their tenant and failure scope", async () => {
 	const { db, sqlite } = fixture();
 	const shipEvent = {
 		kind: "ship_red",
@@ -403,6 +403,12 @@ it("appends to the newest open Ship alert within its tenant and failure scope", 
 			event.orgId,
 			{ repositoryObserver: 1, event: shipEvent },
 			"2026-10-17T11:00:00Z",
+		],
+		[
+			"older-busy",
+			event.orgId,
+			{ repositoryObserver: 1, event: shipEvent },
+			"2026-10-17T10:00:00Z",
 		],
 		[
 			"other-tenant",
@@ -456,6 +462,17 @@ it("appends to the newest open Ship alert within its tenant and failure scope", 
 			metadata,
 			createdAt,
 		});
+	await db.insert(workAttempts).values({
+		id: "busy-attempt",
+		orgId: event.orgId,
+		workItemId: "older-busy",
+		executorType: "tedi",
+		executorId: event.ownerTediId,
+		attemptNumber: 1,
+		startedAt: event.now,
+		heartbeatAt: event.now,
+		expiresAt: "2026-10-17T13:00:00Z",
+	});
 	expect(
 		(
 			await createRepositoryObservation(db, {
@@ -494,6 +511,20 @@ it("appends to the newest open Ship alert within its tenant and failure scope", 
 			)
 			.all(),
 	).toEqual([{ id: "newest" }, { id: "newest-step" }]);
+	expect(
+		sqlite
+			.prepare(
+				"SELECT id FROM work_items WHERE disposition = 'cancelled' ORDER BY id",
+			)
+			.all(),
+	).toEqual([{ id: "older" }, { id: "older-step" }]);
+	expect(
+		sqlite
+			.prepare(
+				"SELECT json_extract(metadata, '$.shipSupersededBy') AS id FROM work_items WHERE id = 'older-step'",
+			)
+			.get(),
+	).toEqual({ id: "newest-step" });
 });
 it("closes older red Ship records and shift fixes on the recovered surface", async () => {
 	const { db } = fixture();

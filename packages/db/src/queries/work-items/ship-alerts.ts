@@ -51,6 +51,7 @@ export async function appendOpenShipAlert(
 ) {
 	const items = coreTable(db, workItems);
 	const comments = coreTable(db, workItemComments);
+	const attempts = coreTable(db, workAttempts);
 	const [row] = await db
 		.select(coreStore(db) === "d1" ? workItemStoredColumns : getColumns(items))
 		.from(items)
@@ -108,6 +109,29 @@ export async function appendOpenShipAlert(
 						sql`coalesce(${jsonRead(db, items.metadata, ["latestShipFailure", "occurredAt"])}, ${occurredAt})`,
 						occurredAt,
 					),
+				),
+			),
+		db
+			.update(items)
+			.set({
+				disposition: "cancelled",
+				cancelledAt: p.now,
+				updatedAt: p.now,
+				version: sql`${items.version} + 1`,
+				metadata: jsonWrite(db, items.metadata, ["shipSupersededBy"], row.id),
+			})
+			.where(
+				and(
+					eq(items.orgId, p.orgId),
+					p.scope,
+					sql`${items.disposition} IN ('proposed','accepted')`,
+					sql`(${items.createdAt} < ${row.createdAt} OR (${items.createdAt} = ${row.createdAt} AND ${items.id} < ${row.id}))`,
+					notAfter(
+						db,
+						sql`coalesce(${jsonRead(db, items.metadata, ["latestShipFailure", "occurredAt"])}, ${jsonRead(db, items.metadata, ["event", "occurredAt"])}, ${items.createdAt})`,
+						occurredAt,
+					),
+					sql`NOT EXISTS (SELECT 1 FROM ${attempts} active_attempt WHERE active_attempt.org_id = ${items.orgId} AND active_attempt.work_item_id = ${items.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${p.now}))`,
 				),
 			),
 	]);
