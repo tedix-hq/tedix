@@ -17,7 +17,7 @@
  * Per docs/engineering/platform/auth.md and Descope's own MCP Gateway pattern (one MCP server per
  * tenant), the resource server is the canonical enforcement point.
  */
-import { createDbClient } from "@tedix/db/client";
+import { createDbClient, createDbSession } from "@tedix/db/client";
 import { getOrganizationDescopeTenantId } from "@tedix/db/queries/organizations";
 import { getApiClient } from "./api-client";
 import { setBoundedCacheEntry } from "./bounded-cache";
@@ -76,10 +76,17 @@ async function getOrgDescopeTenantIdFromD1(
 	if (!env.DB) return undefined;
 
 	try {
-		return await getOrganizationDescopeTenantId(
-			createDbClient(env.DB as D1Database),
-			orgId,
-		);
+		// A replica answers first, so the lookup survives primary stalls. Only
+		// a found tenant id is taken from it: an empty answer is re-read on the
+		// primary, because the caller caches it for the isolate's lifetime.
+		const db = env.DB as D1Database;
+		const replica = await (async () =>
+			getOrganizationDescopeTenantId(
+				createDbSession(db, null, "first-unconstrained").db,
+				orgId,
+			))().catch(() => null);
+		if (replica) return replica;
+		return await getOrganizationDescopeTenantId(createDbClient(db), orgId);
 	} catch (error) {
 		console.warn(
 			`[MCP TenantMatch] failed to load org ${orgId} from D1:`,

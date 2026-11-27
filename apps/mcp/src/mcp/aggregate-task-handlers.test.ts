@@ -380,6 +380,7 @@ describe("aggregate task handlers — generic-<uuid> routing", () => {
 			"generic-abc",
 			"org-1",
 			undefined,
+			{ preferReplica: true },
 		);
 		// No runtime API calls for a generic task.
 		expect(calls).toHaveLength(0);

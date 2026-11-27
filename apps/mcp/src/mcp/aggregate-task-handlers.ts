@@ -450,6 +450,7 @@ export function buildAggregateTaskHandlers(
 					taskId,
 					organizationId,
 					input.callerIdentity?.userId,
+					{ preferReplica: true },
 				);
 			}
 			if (isOsGadgetTaskId(taskId)) {

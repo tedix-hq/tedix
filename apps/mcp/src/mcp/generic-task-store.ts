@@ -10,7 +10,7 @@
  * run ids or namespaced `tedi:<id>:<runId>` ids.
  */
 
-import { createDbClient } from "@tedix/db/client";
+import { createDbClient, createDbSession } from "@tedix/db/client";
 import { mcpTasks, type NewMcpTask } from "@tedix/db/schema/mcp-tasks";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
@@ -211,8 +211,15 @@ export async function getGenericTaskState(
 	taskId: string,
 	orgId: string,
 	subjectUserId?: string,
+	options: { preferReplica?: boolean } = {},
 ): Promise<McpTaskState> {
-	const db = createDbClient(d1);
+	// Polling may read a replica, so it keeps working while the primary
+	// stalls. A replica that has not seen the row yet falls back to the
+	// primary before answering not-found; the expiry write below always goes
+	// to the primary through the session.
+	const db = options.preferReplica
+		? createDbSession(d1, null, "first-unconstrained").db
+		: createDbClient(d1);
 	const rows = await db
 		.select()
 		.from(mcpTasks)
@@ -223,8 +230,11 @@ export async function getGenericTaskState(
 		!row ||
 		row.orgId !== orgId ||
 		(row.subjectUserId !== null && row.subjectUserId !== subjectUserId)
-	)
+	) {
+		if (options.preferReplica)
+			return getGenericTaskState(d1, taskId, orgId, subjectUserId);
 		throw McpTaskError.notFound(taskId);
+	}
 
 	let status = row.status as McpTaskStatus;
 	let statusMessage: string | undefined;
