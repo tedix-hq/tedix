@@ -10,7 +10,7 @@
  * - invoice.payment_failed: Mark subscription as suspended
  */
 
-import { createDbClient } from "@tedix/db/client";
+import type { DbClient } from "@tedix/db/client";
 import {
 	forfeitRefundedTopUp,
 	getTopUpPackVersion,
@@ -36,7 +36,7 @@ import type Stripe from "stripe";
 import {
 	assertFleetAuthorityAvailable,
 	FleetAuthorityUnavailableError,
-	resolveFleetAuthorityBinding,
+	resolveFleetAuthorityDb,
 } from "../lib/fleet-authority";
 import { getStripe } from "../lib/stripe";
 import {
@@ -125,10 +125,8 @@ export async function handleStripeWebhook(
 	stripeEnvironment: StripeEnvironment,
 ): Promise<Response> {
 	const env = c.env;
-	let fleetBinding: D1Database;
 	try {
 		assertFleetAuthorityAvailable(env);
-		fleetBinding = resolveFleetAuthorityBinding(env);
 	} catch (error) {
 		if (error instanceof FleetAuthorityUnavailableError) {
 			return c.json(
@@ -178,7 +176,7 @@ export async function handleStripeWebhook(
 		});
 	}
 
-	const db = createDbClient(fleetBinding);
+	const db = resolveFleetAuthorityDb(env);
 	const nowMs = Date.now();
 	const now = new Date(nowMs).toISOString();
 	const receipt = await claimStripeWebhookEvent(db, {
@@ -421,7 +419,7 @@ export function assertTopUpCheckoutPayment(input: {
 }
 
 async function handleCreditTopUpCheckoutCompleted(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	stripe: Stripe,
 	session: Stripe.Checkout.Session,
 	stripeEnvironment: StripeEnvironment,
@@ -488,7 +486,7 @@ async function handleCreditTopUpCheckoutCompleted(
 }
 
 async function handleCheckoutCompleted(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	receipt: StripeBillingReceipt,
 	stripe: Stripe,
 	session: Stripe.Checkout.Session,
@@ -561,7 +559,7 @@ export function stripeSubscriptionHasActiveEntitlement(
 }
 
 async function syncSubscriptionState(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	receipt: StripeBillingReceipt,
 	subscription: Stripe.Subscription,
 	tier: "starter" | "growth" | "business" | "enterprise",
@@ -643,7 +641,7 @@ async function syncSubscriptionState(
 }
 
 async function handleSubscriptionUpdated(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	receipt: StripeBillingReceipt,
 	stripe: Stripe,
 	eventSubscription: Stripe.Subscription,
@@ -678,7 +676,7 @@ async function handleSubscriptionUpdated(
 }
 
 async function handleSubscriptionDeleted(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	receipt: StripeBillingReceipt,
 	subscription: Stripe.Subscription,
 	stripeEnvironment: StripeEnvironment,
@@ -719,7 +717,7 @@ async function handleSubscriptionDeleted(
 }
 
 async function handlePaymentFailed(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	receipt: StripeBillingReceipt,
 	stripe: Stripe,
 	eventInvoice: Stripe.Invoice,
@@ -775,7 +773,7 @@ async function handlePaymentFailed(
 }
 
 async function handleInvoicePaid(
-	db: ReturnType<typeof createDbClient>,
+	db: DbClient,
 	receipt: StripeBillingReceipt,
 	stripe: Stripe,
 	invoice: Stripe.Invoice,
