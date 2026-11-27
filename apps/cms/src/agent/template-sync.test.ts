@@ -1,5 +1,6 @@
 import type { CmsSandbox as CmsSandbox } from "../sandbox";
 import { describe, expect, it } from "vite-plus/test";
+import { CMS_TEMPLATE_SLUGS, lockedFilesForTemplate } from "../template-policy";
 import {
 	TEMPLATE_SNAPSHOTS,
 	TEMPLATE_SNAPSHOT_PATHS_BY_TEMPLATE,
@@ -135,25 +136,34 @@ describe("template-aware snapshot sync", () => {
 		);
 	});
 
-	it("resyncs locked files into a private deploy root", async () => {
-		const workspace =
-			"/tmp/tedix-cms-deploy-11111111-1111-4111-8111-111111111111";
-		const { sandbox, writes } = createSandbox({
-			"/workspace/src/pages/index.astro": "<OtherBuild />",
-		});
-		await resyncTemplate(sandbox, {
-			scope: "locked",
-			templateSlug: "marketing",
-			workspace,
-		});
-		expect(writes.get(`${workspace}/astro.config.mjs`)).toBe(
-			TEMPLATE_SNAPSHOTS.marketing!["astro.config.mjs"],
-		);
-		expect(writes.has("/workspace/astro.config.mjs")).toBe(false);
-		expect(
-			await sandbox.readFile("/workspace/src/pages/index.astro"),
-		).toMatchObject({ content: "<OtherBuild />" });
-	});
+	it.each(CMS_TEMPLATE_SLUGS)(
+		"resyncs every %s locked file into a private deploy root",
+		async (templateSlug) => {
+			const workspace =
+				"/tmp/tedix-cms-deploy-11111111-1111-4111-8111-111111111111";
+			const { sandbox, writes } = createSandbox({
+				"/workspace/src/pages/index.astro": "<OtherBuild />",
+			});
+			await resyncTemplate(sandbox, {
+				scope: "locked",
+				templateSlug,
+				workspace,
+			});
+			for (const path of lockedFilesForTemplate(templateSlug)) {
+				expect(writes.get(`${workspace}/${path}`), path).toBe(
+					TEMPLATE_SNAPSHOTS[templateSlug]![path],
+				);
+				expect(writes.has(`${workspace}/${path}`), path).toBe(true);
+			}
+			expect(writes.get(`${workspace}/src/lib/blog-pagination.ts`)).toBe(
+				TEMPLATE_SNAPSHOTS.tedix!["src/lib/blog-pagination.ts"],
+			);
+			expect(writes.has("/workspace/astro.config.mjs")).toBe(false);
+			expect(
+				await sandbox.readFile("/workspace/src/pages/index.astro"),
+			).toMatchObject({ content: "<OtherBuild />" });
+		},
+	);
 
 	it("creates nested starter directories in a fresh deploy root before writing", async () => {
 		const workspace = "/tmp/tedix-cms-deploy-fresh";

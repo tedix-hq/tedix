@@ -61,6 +61,7 @@ export const LOCKED_FILES = [
 	"src/lib/publish-delivery.ts",
 	"src/lib/site-url.ts",
 	"src/lib/content-url.ts",
+	"src/lib/blog-pagination.ts",
 	"src/lib/post-markdown.ts",
 	"src/lib/worker-loader-durable-objects.mjs",
 	"src/lib/worker-loader-do-sql-runtime.ts",
@@ -73,7 +74,6 @@ const NATIVE_THEME_LOCKED_FILES = [
 	"src/components/ThemeInit.astro",
 	"src/components/ThemeControls.astro",
 	"src/lib/theme-preference.ts",
-	"src/lib/blog-pagination.ts",
 ] as const;
 export const MARKETING_LOCKED_FILES = [
 	"src/lib/authored-discovery.ts",

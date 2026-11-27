@@ -51,6 +51,9 @@ it("declares full commit IDs with the pattern the gateway secret scan exempts", 
 		);
 	}
 	expect(found.length).toBeGreaterThan(0);
+	expect(found).toContain(
+		`read_theme_artifact_file.properties.sourceCommit=${EXEMPT_COMMIT_ID_PATTERN}`,
+	);
 	expect(
 		found.filter((entry) => !entry.endsWith(`=${EXEMPT_COMMIT_ID_PATTERN}`)),
 	).toEqual([]);
