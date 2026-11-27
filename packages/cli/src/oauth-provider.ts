@@ -105,6 +105,9 @@ const humanCapabilityScopes = new Set<string>([
 	...HUMAN_CONNECT_CONSENT_SCOPES,
 	...TEDI_MCP_SCOPES,
 ]);
+const CONNECT_CONSENT_PROTOCOL_SCOPES = CONSENT_PROTOCOL_SCOPES.filter(
+	(scope) => scope === "openid" || scope === "offline_access",
+).join(" ");
 
 /**
  * Select the permission envelope to present for human consent.
@@ -163,6 +166,23 @@ export function selectRequestedOAuthScope(
 		if (supported.has(scope)) requested.push(scope);
 	}
 	return requested.join(" ");
+}
+
+/**
+ * Connect's consent page owns the final permission choice. When discovery
+ * advertises no capabilities, request only the protocol scopes needed to open
+ * it; the person still approves every capability there.
+ */
+function selectConnectConsentRequestScope(
+	supportedScopes: readonly string[] | undefined,
+	platformAdministration: boolean,
+): string {
+	const requested = selectConnectConsentRequestScopes(
+		supportedScopes ?? [],
+		platformAdministration,
+	);
+	if (requested.length === 0) return CONNECT_CONSENT_PROTOCOL_SCOPES;
+	return selectRequestedOAuthScope(supportedScopes, requested);
 }
 
 /** Constrain an untrusted insufficient_scope challenge to the same consent
@@ -397,12 +417,9 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 						)
 					: this.#options.offerConsentChoices &&
 						  isMultiOrganizationMcpUrl(this.#options.mcpUrl)
-						? selectRequestedOAuthScope(
+						? selectConnectConsentRequestScope(
 								supportedScopes,
-								selectConnectConsentRequestScopes(
-									supportedScopes ?? [],
-									this.#scopeProfile === "platform-admin",
-								),
+								this.#scopeProfile === "platform-admin",
 							)
 						: selectInteractiveOAuthScope(supportedScopes, this.#scopeProfile);
 			const authOptions = { ...options, scope };

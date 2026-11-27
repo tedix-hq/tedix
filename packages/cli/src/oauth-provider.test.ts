@@ -218,6 +218,46 @@ describe("WorkspaceOAuthProvider", () => {
 			]);
 		},
 	);
+
+	test("Connect consent choices open when discovery advertises no scopes", async () => {
+		let authorization: URL | undefined;
+		const provider = new WorkspaceOAuthProvider({
+			mcpUrl: TEDIX_CONNECT_MCP_URL,
+			loadStored: false,
+			staticClientId: TEDIX_OAUTH_CLIENT_ID,
+			offerConsentChoices: true,
+			captureCallback: async (url) => {
+				authorization = url;
+				return new URLSearchParams({ code: "code" });
+			},
+		});
+		const baseFetch = oauthFetch(
+			jwt({
+				sub: "user-1",
+				iss: "https://api.descope.com/v1/apps/agentic/Ptest/Rtest",
+				azp: TEDIX_OAUTH_CLIENT_ID,
+				token_type: "access_token",
+				aud: TEDIX_CONNECT_MCP_URL,
+				dci: "consent-1",
+				tedixSelectedOrganizations: ["org_tedix"],
+			}),
+		);
+		await beginSdkOAuthLogin(provider, TEDIX_CONNECT_MCP_URL, {
+			fetchFn: async (input) =>
+				String(input).includes("oauth-protected-resource")
+					? Response.json({
+							resource: TEDIX_CONNECT_MCP_URL,
+							authorization_servers: [ISSUER],
+							scopes_supported: [],
+						})
+					: baseFetch(input),
+		});
+		expect(authorization!.searchParams.get("scope")).toBe(
+			"openid offline_access",
+		);
+		expect(issuedOAuthScopes(provider.credential())).toEqual(["mcp:apps.read"]);
+	});
+
 	test.each(["success", "wrong-tenant", "save-failed"] as const)(
 		"completes real browser callback after validated durable save: %s",
 		async (result) => {

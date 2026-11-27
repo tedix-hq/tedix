@@ -882,7 +882,9 @@ async function signIn(): Promise<void> {
 		code = await appSignInCode(pending.origin ?? osOrigin(), pending.publicKey);
 	} catch (error) {
 		log(`sign-in: command-line login not used (${(error as Error).message})`);
-		if (setupState().signedIn) return signInWithBrowser();
+		const state = setupState();
+		if (state.signedIn || state.steps["sign-in"]?.error)
+			return signInWithBrowser();
 		return;
 	}
 	log("sign-in: signed in with the command-line tool's login");
