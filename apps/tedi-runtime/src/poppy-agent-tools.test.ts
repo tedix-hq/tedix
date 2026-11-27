@@ -53,7 +53,13 @@ let client: PersonalAgentClient;
 const fetchFn = async (url: string, init?: RequestInit) => {
 	if (url === `${company}/.well-known/poppy.json`)
 		return Response.json(discoveryDocument);
-	if (url === mcpUrl || url === agentUrl || url === tasksUrl) {
+	const bare = url.split("?")[0]!;
+	if (
+		bare === mcpUrl ||
+		bare === tasksUrl ||
+		bare === agentUrl ||
+		bare.startsWith(`${agentUrl}/`)
+	) {
 		calls.push({
 			url,
 			method: init?.method ?? "GET",
@@ -147,10 +153,20 @@ const conversationsCall = (await run(POPPY_CALL_TOOL_NAME, {
 })) as { status: number; host: string; endpoint: string };
 assert.equal(conversationsCall.status, 200);
 assert.equal(conversationsCall.endpoint, "conversations");
+// The company agent's reply arrives on the long poll or on the events path.
+const eventsCall = (await run(POPPY_CALL_TOOL_NAME, {
+	company: "company.example",
+	surface: "conversations",
+	conversationId: "conv-1",
+})) as { status: number };
+assert.equal(eventsCall.status, 200);
 
-assert.equal(calls.length, 2);
+assert.equal(calls.length, 3);
 assert.equal(calls[0]!.url, mcpUrl);
-assert.equal(calls[1]!.url, agentUrl);
+assert.equal(calls[1]!.url, `${agentUrl}?wait=25`);
+assert.equal(calls[1]!.method, "POST");
+assert.equal(calls[2]!.url, `${agentUrl}/conv-1/events?wait=25`);
+assert.equal(calls[2]!.method, "GET");
 assert.equal(calls[0]!.headers.get("Poppy-Version"), "1.0");
 // A Streamable HTTP MCP door answers 406 without both media types.
 assert.equal(
