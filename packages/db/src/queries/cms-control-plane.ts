@@ -1,4 +1,5 @@
 import { and, desc, eq, exists, isNull, sql } from "drizzle-orm";
+import { scopedCoreQueryDb } from "../core-store/scope";
 import { coreTable } from "../core-store/client";
 import {
 	booleanValue,
@@ -529,7 +530,13 @@ export type CmsDatabase =
 	| DbQueryClient
 	| Parameters<typeof createDbQueryClient>[0];
 
-/** Core callers supply the selected client; explicit D1 callers can supply their binding. */
+/**
+ * Core callers supply the selected client. A raw D1 binding still works on
+ * D1, but inside a Postgres core-store scope it resolves to that scope's
+ * client, so a caller that passes env.DB cannot split data from Postgres.
+ */
 export function cmsQueryDb(db: CmsDatabase): DbQueryClient {
-	return "prepare" in db ? createDbQueryClient(db) : db;
+	if (db && !("prepare" in db)) return db;
+	// A Postgres environment may have no D1 binding at all.
+	return scopedCoreQueryDb() ?? createDbQueryClient(db);
 }

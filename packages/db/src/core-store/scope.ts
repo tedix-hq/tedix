@@ -78,6 +78,15 @@ export function coreDb(env: CoreStoreEnv): DbClient {
 	);
 }
 
+/**
+ * The scoped Postgres client when called inside a Postgres withCoreStore
+ * scope, else undefined. Lets helpers that still accept a raw D1 binding
+ * follow the selected store instead of silently reading D1.
+ */
+export function scopedCoreQueryDb(): DbQueryClient | undefined {
+	return storage.getStore()?.db as unknown as DbQueryClient | undefined;
+}
+
 /** `coreDb` narrowed to the relation-free query surface. */
 export function coreQueryDb(env: CoreStoreEnv): DbQueryClient {
 	const scope = storage.getStore();
