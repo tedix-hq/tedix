@@ -46,11 +46,15 @@ import {
  *
  * Replication state is an operator setting on the database. When disabled,
  * `first-unconstrained` still routes to the primary. When enabled, these
- * procedures may observe replica lag; grant verification retries a negative
- * answer on the primary. Writes always go to the primary, and the session
- * keeps them read-your-own-writes.
+ * procedures may observe replica lag; session and tenant resolution retry a
+ * negative answer on the primary. Writes always go to the primary, and the
+ * session keeps them read-your-own-writes.
  */
 export const D1_REPLICA_READ_RPC_PATHS: ReadonlySet<string> = new Set([
+	"/rpc/externalAgentIdentity/resolveSessionAuth",
+	"/rpc/osTenant/resolve",
+	"/v1/external-agents/internal/session-auth",
+	"/v1/os-tenant/resolve",
 	"/rpc/organizations/verifyMultiOrgMcpGrant",
 	"/rpc/apps/getBySlugWithTools",
 	"/rpc/apps/getBySlugsWithTools",

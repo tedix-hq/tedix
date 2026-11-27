@@ -9,8 +9,9 @@ import { createDbClient } from "@tedix/db/client";
 import { organizations, cmsDomainClaims } from "@tedix/db/schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
+import { createContext } from "../context";
 import { osTenantContractRouter } from "./os-tenant";
 
 let sqlite: DatabaseSync;
@@ -53,6 +54,47 @@ describe("osTenant.resolve", () => {
 		await expect(client.resolve({ slug: "tedix" })).rejects.toMatchObject({
 			code: "UNAUTHORIZED",
 		});
+	});
+
+	it("rechecks an unprovisioned replica tenant on the primary", async () => {
+		seedOrganization("provisioned", JSON.stringify({ os: true }));
+		const replicaSqlite = new DatabaseSync(":memory:");
+		replicaSqlite.exec(schemaDdl(organizations));
+		replicaSqlite.exec(`INSERT INTO organizations (id, name, slug, features)
+			VALUES ('org-provisioned', 'provisioned', 'provisioned', '{"os":false}')`);
+		const replica = createD1Facade(replicaSqlite);
+		const primary = createD1Facade(sqlite);
+		const withSession = vi.fn((constraint: string) =>
+			constraint === "first-primary" ? primary : replica,
+		);
+		const request = new Request("https://api.internal/rpc/osTenant/resolve", {
+			method: "POST",
+			headers: { "X-Service-Binding": "true" },
+		});
+		const client = createRouterClient(osTenantContractRouter, {
+			context: createContext(request, {
+				DB: { withSession },
+			} as unknown as CloudflareEnv),
+		});
+		try {
+			await expect(
+				client.resolve({ slug: "provisioned" }),
+			).resolves.toMatchObject({
+				provisioned: true,
+				organizationId: "org-provisioned",
+			});
+			expect(withSession.mock.calls).toEqual([
+				["first-unconstrained"],
+				["first-primary"],
+			]);
+			await expect(client.resolve({ slug: "missing" })).resolves.toMatchObject({
+				provisioned: false,
+				organizationId: null,
+			});
+			expect(withSession).toHaveBeenCalledTimes(3);
+		} finally {
+			replicaSqlite.close();
+		}
 	});
 
 	it("resolves only organizations with the explicit os feature", async () => {

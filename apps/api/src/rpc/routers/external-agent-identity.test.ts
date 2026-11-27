@@ -13,6 +13,7 @@ import {
 import { createDbClient } from "@tedix/db/client";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
+import { createContext } from "../context";
 import {
 	forgetMcpServerClients,
 	forgetMcpServerRegistrations,
@@ -261,6 +262,52 @@ beforeEach(() => {
 });
 
 describe("external-agent review API identity", () => {
+	it("rechecks a missing replica session on the primary before denying it", async () => {
+		const replicaSqlite = new DatabaseSync(":memory:");
+		replicaSqlite.exec(DDL);
+		const replica = createD1Facade(replicaSqlite);
+		const primary = createD1Facade(sqlite);
+		const withSession = vi.fn((constraint: string) =>
+			constraint === "first-primary" ? primary : replica,
+		);
+		const request = new Request(
+			"https://api.internal/rpc/externalAgentIdentity/resolveSessionAuth",
+			{ method: "POST", headers: { "X-Service-Binding": "true" } },
+		);
+		const client = createRouterClient(externalAgentIdentityContractRouter, {
+			context: {
+				...createContext(request, {
+					DB: { withSession },
+				} as unknown as CloudflareEnv),
+				organizationId: ORG,
+			},
+		});
+		const params = {
+			organizationId: ORG,
+			principalId: SUBJECT,
+			sessionId: SUBJECT_SESSION,
+			clientRecordId: "subject-client",
+		};
+		try {
+			await expect(client.resolveSessionAuth(params)).resolves.toMatchObject({
+				session: { id: SUBJECT_SESSION, status: "active" },
+			});
+			expect(withSession.mock.calls).toEqual([
+				["first-unconstrained"],
+				["first-primary"],
+			]);
+			sqlite.exec(
+				"UPDATE external_agent_mcp_credentials SET status = 'revoked'",
+			);
+			await expect(client.resolveSessionAuth(params)).rejects.toMatchObject({
+				code: "NOT_FOUND",
+			});
+			expect(withSession).toHaveBeenCalledTimes(3);
+		} finally {
+			replicaSqlite.close();
+		}
+	});
+
 	it("derives a human reviewer from authenticated user identity", async () => {
 		const client = createRouterClient(externalAgentIdentityContractRouter, {
 			context: context({ type: "user", id: "user-reviewer" }),

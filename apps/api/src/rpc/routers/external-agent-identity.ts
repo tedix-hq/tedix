@@ -34,6 +34,7 @@ import {
 	WorkloadIdentityError,
 } from "@tedix/auth/workload-identity";
 import { getApiKeyById } from "@tedix/db/queries/api-keys";
+import { createDbSession } from "@tedix/db/client";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
@@ -1524,13 +1525,19 @@ const resolveSessionAuth = authed.resolveSessionAuth.handler(
 				"External-agent session resolution requires a trusted service binding",
 			);
 		}
-		const resolved = await resolveAuthorizedExternalAgentMcpSession(
+		const params = { ...input, now: new Date().toISOString() };
+		let resolved = await resolveAuthorizedExternalAgentMcpSession(
 			context.db,
-			{
-				...input,
-				now: new Date().toISOString(),
-			},
+			params,
 		);
+		if (!resolved && context.env.DB) {
+			// Replica lag must not deny a newly active session or credential.
+			const primary = createDbSession(context.env.DB, null, "first-primary");
+			resolved = await resolveAuthorizedExternalAgentMcpSession(
+				primary.db,
+				params,
+			);
+		}
 		if (!resolved) {
 			throw createError(
 				ErrorCodes.NOT_FOUND,

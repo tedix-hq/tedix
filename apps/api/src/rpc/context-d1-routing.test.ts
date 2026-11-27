@@ -75,7 +75,15 @@ describe("d1SessionConstraintFor", () => {
 			expect(context.dbBookmark?.()).toBe("after-query");
 		},
 	);
-	it("lets the grant check and discovery reads start on a replica", () => {
+	it("lets the named POST reads start on a replica", () => {
+		for (const path of [
+			"/rpc/externalAgentIdentity/resolveSessionAuth",
+			"/rpc/osTenant/resolve",
+			"/v1/external-agents/internal/session-auth",
+			"/v1/os-tenant/resolve",
+		]) {
+			expect(d1SessionConstraintFor(at(path))).toBe("first-unconstrained");
+		}
 		expect(
 			d1SessionConstraintFor(at("/rpc/organizations/verifyMultiOrgMcpGrant")),
 		).toBe("first-unconstrained");

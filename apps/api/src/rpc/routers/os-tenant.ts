@@ -1,4 +1,5 @@
 import { coreDb } from "@tedix/db/core-store/scope";
+import { createDbSession } from "@tedix/db/client";
 import { resolveOrganizationHostname } from "@tedix/db/queries/organization-domains";
 import { withTransientD1ReadRetry } from "@tedix/db/utils/d1-retry";
 import { implement } from "@orpc/server";
@@ -37,9 +38,15 @@ function readTenant<T>(label: string, read: () => Promise<T>): Promise<T> {
 }
 
 const resolve = service.resolve.handler(async ({ input, context }) => {
-	const organization = await readTenant("resolve", () =>
-		getOrganizationBySlug(context.db, input.slug),
-	);
+	const organization = await readTenant("resolve", async () => {
+		const row = await getOrganizationBySlug(context.db, input.slug);
+		if (row?.features?.os !== true && context.env.DB) {
+			// A just-provisioned tenant may not have reached the replica yet.
+			const primary = createDbSession(context.env.DB, null, "first-primary");
+			return getOrganizationBySlug(primary.db, input.slug);
+		}
+		return row;
+	});
 	const provisioned = organization?.features?.os === true;
 	return {
 		provisioned,
