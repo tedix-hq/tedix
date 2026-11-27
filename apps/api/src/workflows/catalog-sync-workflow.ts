@@ -58,6 +58,7 @@ import { NonRetryableError } from "cloudflare:workflows";
 
 import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { syncCatalogMcpTools } from "@tedix/db/queries/catalog/mcp-tools";
 import {
 	getCatalogSnapshotStats,
@@ -190,6 +191,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<CatalogSyncWorkflowParams>,
 		step: WorkflowStep,
 	) {
+		step = withCoreStoreSteps(this.env, step);
 		const {
 			syncType,
 			r2Path,

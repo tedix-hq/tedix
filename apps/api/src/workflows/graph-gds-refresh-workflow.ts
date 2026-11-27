@@ -14,6 +14,7 @@ import {
 import { NonRetryableError } from "cloudflare:workflows";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import {
 	cancelGraphProjectionMaintenance,
 	failGraphProjectionMaintenance,
@@ -67,6 +68,7 @@ export class GraphGdsRefreshWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<GraphGdsRefreshWorkflowParams>,
 		step: WorkflowStep,
 	): Promise<GraphGdsRefreshWorkflowResult> {
+		step = withCoreStoreSteps(this.env, step);
 		const payload = event.payload;
 		const db = coreDb(this.env);
 

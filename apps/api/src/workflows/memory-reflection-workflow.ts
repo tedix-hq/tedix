@@ -1,6 +1,7 @@
 import { backgroundOrganizationMemoryRecorder } from "../services/organization-memory-binding";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { consolidateMemory } from "@tedix/db/queries/memory-graph/observations";
 import { organizationModelEnv } from "../services/unrouted-model-egress";
 /**
@@ -301,6 +302,7 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 	ReflectionParams
 > {
 	async run(event: WorkflowEvent<ReflectionParams>, step: WorkflowStep) {
+		step = withCoreStoreSteps(this.env, step);
 		const { organizationId, tediId, scope, ownerUserId } = event.payload;
 		const db = coreDb(this.env);
 		const steps = <T>(

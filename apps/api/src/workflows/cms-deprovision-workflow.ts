@@ -7,6 +7,7 @@ import { NonRetryableError } from "cloudflare:workflows";
 import { controlCmsPublishedFallback } from "../services/cms-published-fallback";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import {
 	deleteApp,
 	getAppMetadataJson,
@@ -83,6 +84,7 @@ export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
 	CmsDeprovisionParams
 > {
 	async run(event: WorkflowEvent<CmsDeprovisionParams>, step: WorkflowStep) {
+		step = withCoreStoreSteps(this.env, step);
 		const { siteId, organizationId } = event.payload;
 		const db = coreDb(this.env);
 		const operation = await step.do(

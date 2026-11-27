@@ -15,6 +15,7 @@ import {
 
 import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { getAppById } from "@tedix/db/queries/app-records";
 import { getAppBySlug, getAppsByOrganization } from "@tedix/db/queries/apps";
 import {
@@ -76,6 +77,7 @@ export class TediMcpAccessHealthWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<TediMcpAccessHealthWorkflowParams>,
 		step: WorkflowStep,
 	) {
+		step = withCoreStoreSteps(this.env, step);
 		const payload = event.payload ?? {};
 		const repairInvalid = payload.repairInvalid ?? false;
 		const db = coreDb(this.env);

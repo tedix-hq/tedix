@@ -18,6 +18,7 @@ import {
 } from "cloudflare:workers";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import {
 	getApprovalRequestById,
 	expireStaleApprovals,
@@ -45,6 +46,7 @@ export class ApprovalWorkflow extends WorkflowEntrypoint<
 	ApprovalWorkflowParams
 > {
 	async run(event: WorkflowEvent<ApprovalWorkflowParams>, step: WorkflowStep) {
+		step = withCoreStoreSteps(this.env, step);
 		const { approvalRequestId, tediId, orgId, ttlHours } = event.payload;
 		const db = coreDb(this.env);
 

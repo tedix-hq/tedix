@@ -27,6 +27,7 @@ import {
 
 import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { listBaseAppsForCatalogApp } from "@tedix/db/queries/apps";
 import {
 	resolveDriftReport,
@@ -397,6 +398,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 	private readonly BATCH_SIZE = 5;
 
 	async run(event: WorkflowEvent<McpScanWorkflowParams>, step: WorkflowStep) {
+		step = withCoreStoreSteps(this.env, step);
 		const payload = event.payload ?? {};
 		const {
 			limit = 25,

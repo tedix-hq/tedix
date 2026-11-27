@@ -22,6 +22,7 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { getOrganizationBySlug } from "@tedix/db/queries/organizations";
 import { executeJevJudgment } from "../services/jev-judgment";
 import {
@@ -104,6 +105,7 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<McpToolTestWorkflowParams>,
 		step: WorkflowStep,
 	) {
+		step = withCoreStoreSteps(this.env, step);
 		const {
 			tools: explicitTargets,
 			limit = 50,

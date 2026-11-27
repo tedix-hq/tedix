@@ -21,6 +21,7 @@ import {
 import { NonRetryableError } from "cloudflare:workflows";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { getAppById } from "@tedix/db/queries/app-records";
 import {
 	getContentSource,
@@ -195,6 +196,7 @@ export class ContentIngestionWorkflow extends WorkflowEntrypoint<
 	ContentIngestionParams
 > {
 	async run(event: WorkflowEvent<ContentIngestionParams>, step: WorkflowStep) {
+		step = withCoreStoreSteps(this.env, step);
 		const { sourceId, appId } = event.payload;
 
 		console.log(`[ContentIngestion] Starting ingestion for source ${sourceId}`);

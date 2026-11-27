@@ -17,6 +17,7 @@ import type {
 
 import type { DbClient } from "@tedix/db/client";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { getAppById } from "@tedix/db/queries/app-records";
 import {
 	getAppMetadataById,
@@ -70,6 +71,7 @@ export class OpenApiSyncWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<OpenApiSyncWorkflowInput>,
 		step: WorkflowStep,
 	) {
+		step = withCoreStoreSteps(this.env, step);
 		const db = coreDb(this.env);
 		const payload = event.payload ?? {};
 		const appIds = await step.do("plan openapi app sync", async () => {

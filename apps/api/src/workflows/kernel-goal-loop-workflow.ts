@@ -45,6 +45,7 @@ import {
 } from "cloudflare:workers";
 import { createRouterClient } from "@orpc/server";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { type DbClient } from "@tedix/db/client";
 import { listKernelRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import { getGoalLoopWorkItemSnapshot } from "@tedix/db/queries/work-items/crud";
@@ -169,6 +170,7 @@ export class KernelGoalLoopWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<KernelGoalLoopWorkflowParams>,
 		step: WorkflowStep,
 	): Promise<GoalLoopResult> {
+		step = withCoreStoreSteps(this.env, step);
 		const { organizationId } = event.payload;
 		const conversationId =
 			event.payload.conversationId ??

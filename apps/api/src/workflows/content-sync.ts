@@ -17,6 +17,7 @@ import {
 } from "cloudflare:workers";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
 import {
 	listContentSources,
@@ -80,6 +81,7 @@ export class ContentSyncWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<ContentSyncWorkflowParams>,
 		step: WorkflowStep,
 	) {
+		step = withCoreStoreSteps(this.env, step);
 		const { interval, force = false, appId } = event.payload;
 
 		console.log(

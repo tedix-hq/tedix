@@ -43,6 +43,7 @@ import {
 	type ToolSchemaSyncBatchReport,
 } from "./tool-schema-sync-batching";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 
 interface FrozenPlan {
 	appId: string;
@@ -70,6 +71,7 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<ToolSchemaSyncWorkflowInput>,
 		step: WorkflowStep,
 	) {
+		step = withCoreStoreSteps(this.env, step);
 		const db = coreDb(this.env);
 		if (event.payload.kind === "publish_tool_metadata") {
 			const expected = event.payload.expectedMigration;

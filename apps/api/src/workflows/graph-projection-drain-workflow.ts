@@ -17,6 +17,7 @@ import {
 	type WorkflowStepConfig,
 } from "cloudflare:workers";
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import type { DbClient } from "@tedix/db/client";
 import {
 	acquireGraphProjectionLease,
@@ -470,6 +471,7 @@ export class GraphProjectionDrainWorkflow extends WorkflowEntrypoint<
 		event: WorkflowEvent<GraphProjectionDrainParams>,
 		step: WorkflowStep,
 	) {
+		step = withCoreStoreSteps(this.env, step);
 		const organizationId = event.payload.organizationId;
 		const maxBatches = Math.max(
 			1,

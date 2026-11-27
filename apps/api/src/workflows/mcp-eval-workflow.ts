@@ -20,6 +20,7 @@ import {
 import { NonRetryableError } from "cloudflare:workflows";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import { getAppBySlug } from "@tedix/db/queries/apps";
 import { updateJobProgress, updateJobStatus } from "@tedix/db/queries/jobs";
 import { toJsonValue } from "@tedix/db/utils/json";
@@ -145,6 +146,7 @@ export class McpEvalWorkflow extends WorkflowEntrypoint<
 	McpEvalWorkflowParams
 > {
 	async run(event: WorkflowEvent<McpEvalWorkflowParams>, step: WorkflowStep) {
+		step = withCoreStoreSteps(this.env, step);
 		const { jobId, appSlug, model, customTests } = event.payload;
 		const db = coreDb(this.env);
 		const overallStart = Date.now();

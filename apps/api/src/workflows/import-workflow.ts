@@ -20,6 +20,7 @@ import { NonRetryableError } from "cloudflare:workflows";
 import type { Vertical } from "@tedix/api-contract/schemas/app";
 
 import { coreDb } from "@tedix/db/core-store/scope";
+import { withCoreStoreSteps } from "./core-store-step";
 import {
 	getAppById,
 	getAppMetadataJson,
@@ -96,6 +97,7 @@ export class ImportWorkflow extends WorkflowEntrypoint<
 	private readonly BATCH_SIZE = 10;
 
 	async run(event: WorkflowEvent<ImportWorkflowParams>, step: WorkflowStep) {
+		step = withCoreStoreSteps(this.env, step);
 		const {
 			appId,
 			data,
