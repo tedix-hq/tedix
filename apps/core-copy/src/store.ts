@@ -61,6 +61,7 @@ export interface TableProgress {
 }
 
 const RUN_KEY = "core-copy:run";
+const LEASE_KEY = "core-copy:lease";
 export const tableKey = (table: string) => `core-copy:table:${table}`;
 /** One key per page receipt, so no stored value grows with the table. */
 export const receiptKey = (table: string, index: number) =>
@@ -76,6 +77,13 @@ export class ProgressStore {
 	}
 	async setRunState(state: RunState): Promise<void> {
 		await this.kv.put(RUN_KEY, JSON.stringify(state));
+	}
+	/** ISO time until which a cron tick holds the copy, or undefined. */
+	async leaseUntil(): Promise<string | undefined> {
+		return (await this.kv.get(LEASE_KEY)) || undefined;
+	}
+	async setLease(until: string | undefined): Promise<void> {
+		await this.kv.put(LEASE_KEY, until ?? "");
 	}
 	async tableProgress(table: string): Promise<TableProgress | undefined> {
 		const raw = await this.kv.get(tableKey(table));

@@ -37,8 +37,13 @@ export const LARGE_ROW_PAGE_SIZES: Record<string, number> = {
 };
 export const PAUSE_MS = 1000;
 /** Pages one cron tick may copy before yielding to the next schedule. */
-/** Pages per 5-minute tick: about 4 minutes of reads at one page a second. */
-export const CRON_PAGE_BUDGET = 200;
+/**
+ * Pages per 5-minute tick. A page takes about 4 s end to end (1 s pause, the
+ * D1 read, the Postgres upsert, the checkpoint), so 60 pages fit one tick.
+ */
+export const CRON_PAGE_BUDGET = 60;
+/** Longer than any tick; a tick that dies leaves this lease to expire. */
+export const CRON_LEASE_MS = 12 * 60_000;
 
 export interface CopyPorts {
 	/** Read-only D1 access; every call is a SELECT the copy engine issues. */
@@ -328,26 +333,44 @@ export async function copyStatus(ports: CopyPorts): Promise<StatusReport> {
 }
 
 /**
- * One cron tick: while the run says "running", copy the first unfinished
- * table for a bounded number of pages. An overloaded D1 pauses the run; the
- * next tick after POST /run resumes from the checkpoint.
+ * One cron tick: while the run says "running", copy unfinished tables in plan
+ * order until the page budget is spent. A lease keeps a slow tick and the
+ * next one from writing the same table; a crashed tick's lease expires.
+ * A table D1 refused stays paused and is resumed by a later tick.
  */
 export async function cronTick(ports: CopyPorts): Promise<CopyResult | null> {
-	const run = await ports.store.runState();
+	const { store } = ports;
+	const run = await store.runState();
 	if (run.mode !== "running") return null;
-	for (const entry of coreCopyPlan()) {
-		const progress = await ports.store.tableProgress(entry.table);
-		if (progress?.status === "done" || progress?.status === "verified")
-			continue;
-		if (progress?.status === "error") continue;
-		return copyTable(ports, entry.table, { maxPages: CRON_PAGE_BUDGET });
+	const lease = await store.leaseUntil();
+	if (lease && Date.parse(lease) > Date.now()) return null;
+	await store.setLease(new Date(Date.now() + CRON_LEASE_MS).toISOString());
+	try {
+		let budget = CRON_PAGE_BUDGET;
+		let last: CopyResult | null = null;
+		for (const entry of coreCopyPlan()) {
+			if (budget <= 0) return last;
+			const progress = await store.tableProgress(entry.table);
+			if (
+				progress?.status === "done" ||
+				progress?.status === "verified" ||
+				progress?.status === "error"
+			)
+				continue;
+			const before = progress?.pages ?? 0;
+			last = await copyTable(ports, entry.table, { maxPages: budget });
+			if (last.status !== "done") return last;
+			budget -= Math.max(1, last.pages - before);
+		}
+		await store.setRunState({
+			mode: "idle",
+			note: "all planned tables copied",
+			updatedAt: new Date().toISOString(),
+		});
+		return last;
+	} finally {
+		await store.setLease(undefined);
 	}
-	await ports.store.setRunState({
-		mode: "idle",
-		note: "all planned tables copied",
-		updatedAt: new Date().toISOString(),
-	});
-	return null;
 }
 
 /** postgres.js query port over a Hyperdrive connection string. */
