@@ -6,96 +6,63 @@ describe("Work approvals contract", () => {
 		return workApprovalsContract[name]["~orpc"].inputSchemas[0]!;
 	}
 
-	it("keeps exact typed admission proposal bindings mandatory", () => {
-		const valid = {
-			workItemId: "00000000-0000-4000-8000-000000000001",
-			workItemVersion: 4,
-			proposal: {
-				artifactRef: "tedix-api-production",
-				artifactVersion: "sha:a54939e",
-			},
-			authorityKey: "deploy:production",
-			approverType: "user",
-			approverId: "owner@example.com",
-			requestRationale: "Release the reviewed change",
-			expiresAt: "2026-08-21T00:00:00.000Z",
-		};
-		expect(inputSchema("propose").safeParse(valid).success).toBe(true);
+	const validPropose = {
+		workItemId: "00000000-0000-4000-8000-000000000001",
+		workItemVersion: 1,
+		proposal: { summary: "Ship the reviewed change" },
+		authorityKey: "deploy:production",
+		approverType: "user",
+		approverId: "owner@example.com",
+		requestRationale: "Release the reviewed change",
+		expiresAt: "2099-01-01T00:00:00.000Z",
+	};
+
+	it("defaults to an admission proposal and keeps its bindings mandatory", () => {
+		const parsed = inputSchema("propose").safeParse(validPropose);
+		expect(parsed.success).toBe(true);
+		if (parsed.success) expect(parsed.data.action).toBe("admission");
 		expect(
-			inputSchema("propose").safeParse({
-				...valid,
-				action: "evaluate_high_risk_repair",
-			}).success,
+			inputSchema("propose").safeParse({ ...validPropose, action: "bogus" })
+				.success,
 		).toBe(false);
 		expect(
 			inputSchema("propose").safeParse({
-				...valid,
+				...validPropose,
 				proposal: undefined,
 			}).success,
 		).toBe(false);
 		expect(
 			inputSchema("propose").safeParse({
-				...valid,
+				...validPropose,
 				approverId: undefined,
 			}).success,
 		).toBe(false);
 	});
 
-	it("requires an exact action, owner, justification and sensitivity for agent requests", () => {
-		const valid = {
-			workItemId: "00000000-0000-4000-8000-000000000001",
-			workItemVersion: 1,
-			action: "agent.create",
-			authorityKey: "agent.create",
-			approverType: "user",
-			approverId: "admin",
-			requestRationale: "Research support",
-			expiresAt: "2099-01-01T00:00:00.000Z",
-			proposal: {
-				kind: "tedi",
-				name: "Research",
-				slug: "research",
-				ownerUserId: "owner",
-				justification: "Research support",
-				dataSensitivity: "internal",
-			},
-		};
-		expect(inputSchema("propose").safeParse(valid).success).toBe(true);
-		for (const field of [
-			"ownerUserId",
-			"justification",
-			"dataSensitivity",
-		] as const) {
+	it("keeps the acceptance contract versioned and its outcome statement required", () => {
+		expect(
+			inputSchema("propose").safeParse({
+				...validPropose,
+				action: "acceptance",
+				acceptanceContract: {
+					version: 1,
+					doneLooksLike: "The watch completes green",
+				},
+			}).success,
+		).toBe(true);
+		for (const acceptanceContract of [
+			{ version: 1 },
+			{ version: 2, doneLooksLike: "Done" },
+			{ version: 1, doneLooksLike: "Done", extra: true },
+		]) {
 			expect(
 				inputSchema("propose").safeParse({
-					...valid,
-					proposal: { ...valid.proposal, [field]: undefined },
+					...validPropose,
+					action: "acceptance",
+					acceptanceContract,
 				}).success,
 			).toBe(false);
 		}
-		expect(
-			inputSchema("propose").safeParse({ ...valid, action: "agent.connect" })
-				.success,
-		).toBe(false);
-		expect(
-			inputSchema("propose").safeParse({
-				...valid,
-				authorityKey: "work:accept",
-			}).success,
-		).toBe(false);
-		expect(
-			inputSchema("propose").safeParse({ ...valid, approverType: "tedi" })
-				.success,
-		).toBe(false);
-		expect(
-			inputSchema("propose").safeParse({
-				...valid,
-				proposal: {
-					...valid.proposal,
-					organizationId: "00000000-0000-4000-8000-000000000099",
-				},
-			}).success,
-		).toBe(false);
 	});
 
 	it("requires a version-fenced typed decision with rationale", () => {
@@ -120,14 +87,7 @@ describe("Work approvals contract", () => {
 		const decisionShape = inputSchema("decide");
 		expect(
 			proposalShape.safeParse({
-				workItemId: "00000000-0000-4000-8000-000000000001",
-				workItemVersion: 1,
-				proposal: {},
-				authorityKey: "deploy:production",
-				approverType: "user",
-				approverId: "owner@example.com",
-				requestRationale: "Release",
-				expiresAt: "2026-08-21T00:00:00.000Z",
+				...validPropose,
 				resolutionFence: "00000000-0000-4000-8000-000000000099",
 			}).success,
 		).toBe(false);
@@ -155,23 +115,17 @@ describe("Work approvals contract", () => {
 	});
 
 	it("bounds structured proposal depth, keys, and serialized size", () => {
-		const base = {
-			workItemId: "00000000-0000-4000-8000-000000000001",
-			workItemVersion: 4,
-			authorityKey: "deploy:production",
-			approverType: "user",
-			approverId: "owner@example.com",
-			requestRationale: "Release the reviewed change",
-			expiresAt: "2026-08-21T00:00:00.000Z",
-		};
 		let nested: Record<string, unknown> = { leaf: true };
 		for (let index = 0; index < 9; index += 1) nested = { nested };
 		expect(
-			inputSchema("propose").safeParse({ ...base, proposal: nested }).success,
+			inputSchema("propose").safeParse({
+				...validPropose,
+				proposal: nested,
+			}).success,
 		).toBe(false);
 		expect(
 			inputSchema("propose").safeParse({
-				...base,
+				...validPropose,
 				proposal: Object.fromEntries(
 					Array.from({ length: 257 }, (_, index) => [`key${index}`, index]),
 				),
@@ -179,7 +133,7 @@ describe("Work approvals contract", () => {
 		).toBe(false);
 		expect(
 			inputSchema("propose").safeParse({
-				...base,
+				...validPropose,
 				proposal: { body: "x".repeat(32_769) },
 			}).success,
 		).toBe(false);

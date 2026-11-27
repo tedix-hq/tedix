@@ -95,11 +95,6 @@ const cases = [
 		input: { tediId: id },
 	},
 	{
-		name: "tasks",
-		procedure: tediObjectivesContract.listTasks,
-		input: { objectiveId: id },
-	},
-	{
 		name: "tedis",
 		procedure: tedisContract.list,
 		input: { search: "example", includeRetired: true },
@@ -153,7 +148,6 @@ test("optional collection inputs still accept omission", () => {
 		roleTemplatesContract.list,
 		tediApprovalsContract.list,
 		tediObjectivesContract.list,
-		tediObjectivesContract.listTasks,
 		tedisContract.list,
 	]) {
 		expect(
