@@ -3,12 +3,13 @@
  * CRUD operations for encrypted customer API keys and credentials
  */
 
+import { coreTable } from "../core-store/client";
 import { and, eq } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type NewOrganizationSecret,
 	type OrganizationSecret,
-	organizationSecrets,
+	organizationSecrets as d1OrganizationSecrets,
 } from "../schema/organization-secrets";
 
 // =============================================================================
@@ -33,6 +34,7 @@ export async function listOrgSecrets(
 		updatedAt: string;
 	}>
 > {
+	const organizationSecrets = coreTable(db, d1OrganizationSecrets);
 	const results = await db
 		.select({
 			id: organizationSecrets.id,
@@ -86,6 +88,7 @@ export async function createOrgSecret(
 	db: DbClient,
 	data: Omit<NewOrganizationSecret, "id" | "createdAt" | "updatedAt">,
 ): Promise<OrganizationSecret> {
+	const organizationSecrets = coreTable(db, d1OrganizationSecrets);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -116,6 +119,7 @@ export async function updateOrgSecret(
 		keyVersion?: number;
 	},
 ): Promise<OrganizationSecret | undefined> {
+	const organizationSecrets = coreTable(db, d1OrganizationSecrets);
 	const existing = await getOrgSecretById(db, secretId);
 	if (!existing) {
 		return undefined;
@@ -141,6 +145,7 @@ export async function deleteOrgSecret(
 	db: DbClient,
 	secretId: string,
 ): Promise<boolean> {
+	const organizationSecrets = coreTable(db, d1OrganizationSecrets);
 	const existing = await getOrgSecretById(db, secretId);
 	if (!existing) {
 		return false;

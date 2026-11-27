@@ -37,6 +37,10 @@ import {
 import { upsertUserForExternalIdentity } from "./users";
 
 function isUniqueConstraintError(error: unknown): boolean {
+	if (error && typeof error === "object") {
+		if ("code" in error && error.code === "23505") return true;
+		if ("cause" in error && isUniqueConstraintError(error.cause)) return true;
+	}
 	const message =
 		error instanceof Error
 			? error.message

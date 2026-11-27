@@ -7,19 +7,21 @@ import { normalizeStoredJsonText } from "../utils/json";
  * adapter edge for invitations and migration fallback.
  */
 
+import { coreTable } from "../core-store/client";
+import { jsonRead, booleanValue } from "../core-store/dialect";
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
-import { apps } from "../schema/apps";
+import { apps as d1Apps } from "../schema/apps";
 import type {
 	MemberRole,
 	MemberStatus,
 	NewOrganizationMember,
 	OrganizationMember,
 } from "../schema/organization-members";
-import { organizationMembers } from "../schema/organization-members";
-import { organizations } from "../schema/organizations";
-import { tedis } from "../schema/tedis";
+import { organizationMembers as d1OrganizationMembers } from "../schema/organization-members";
+import { organizations as d1Organizations } from "../schema/organizations";
+import { tedis as d1Tedis } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
 import { isOrganizationOffboarding } from "./organizations";
 import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-settings";
@@ -74,6 +76,7 @@ export async function getMemberAccessByUserId(
 	organizationId: string,
 	descopeUserId: string,
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const rows = await db
 		.select({
 			role: organizationMembers.role,
@@ -97,6 +100,7 @@ export async function getMemberNameByUserId(
 	organizationId: string,
 	descopeUserId: string,
 ): Promise<string | null> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const rows = await db
 		.select({ name: organizationMembers.name })
 		.from(organizationMembers)
@@ -147,6 +151,8 @@ export async function getMembershipsByDescopeTenants(
 		inboundClientPolicyJson: string | null;
 	}>
 > {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const organizations = coreTable(db, d1Organizations);
 	const tenantIds = [...new Set(descopeTenantIds)];
 	if (tenantIds.length === 0) return [];
 	const rows: Array<{
@@ -165,7 +171,7 @@ export async function getMembershipsByDescopeTenants(
 					status: organizationMembers.status,
 					inboundClientPolicyJson: sql<
 						string | null
-					>`json_extract(${organizations.metadata}, '$.mcpInboundClientPolicy')`,
+					>`${jsonRead(db, organizations.metadata, ["mcpInboundClientPolicy"])}`,
 				})
 				.from(organizations)
 				.innerJoin(
@@ -178,7 +184,7 @@ export async function getMembershipsByDescopeTenants(
 				.where(
 					and(
 						inArray(organizations.descopeTenantId, chunk),
-						sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+						isNull(jsonRead(db, organizations.metadata, ["retiredAt"])),
 					),
 				)),
 		);
@@ -215,6 +221,7 @@ export async function listMemberRepresentatives(
 	organizationId: string,
 	userIds: string[],
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const rows: { userId: string | null; name: string | null; email: string }[] =
 		[];
 	for (const ids of chunkForBoundParams([...new Set(userIds)], 50)) {
@@ -251,6 +258,7 @@ export async function listTedisByMemberDescopeUserIds(
 ): Promise<
 	Array<{ descopeUserId: string | null; tediId: string; avatar: string | null }>
 > {
+	const tedis = coreTable(db, d1Tedis);
 	const rows: Array<{
 		descopeUserId: string | null;
 		tediId: string;
@@ -292,6 +300,7 @@ export async function setMemberIdentity(
 				avatarUrl?: string | null;
 		  },
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const representedUserId =
 		identity.kind !== "human" ? identity.representedUserId : null;
 	return (
@@ -335,6 +344,7 @@ export async function suspendBrowserAgentSeat(
 	db: DbQueryClient,
 	input: { organizationId: string; memberId: string; actorUserId: string },
 ) {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const [seat] = await db
 		.update(organizationMembers)
 		.set({ status: "deactivated", updatedAt: new Date().toISOString() })
@@ -362,6 +372,7 @@ export async function countActiveOwners(
 	db: DbClient,
 	organizationId: string,
 ): Promise<number> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	return db.$count(
 		organizationMembers,
 		and(
@@ -389,6 +400,7 @@ export async function getMembersByOrganization(
 		offset?: number;
 	},
 ): Promise<OrganizationMember[]> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const conditions = [eq(organizationMembers.organizationId, organizationId)];
 
 	if (opts?.status) {
@@ -433,6 +445,7 @@ export async function getUserOrganizationMemberships(
 		tediCount: number;
 	}>
 > {
+	const tedis = coreTable(db, d1Tedis);
 	const rows = await db.query.organizationMembers.findMany({
 		where: opts?.activeOnly
 			? { descopeUserId, status: "active" }
@@ -555,6 +568,7 @@ export async function getOrganizationAggregatorGateways(
 	db: DbClient,
 	organizationIds: string[],
 ): Promise<Map<string, { slug: string; customMcpDomain: string | null }>> {
+	const apps = coreTable(db, d1Apps);
 	const result = new Map<
 		string,
 		{ slug: string; customMcpDomain: string | null }
@@ -576,8 +590,14 @@ export async function getOrganizationAggregatorGateways(
 					// call returned each app's full metadata (164 rows a call for some
 					// users, about 17k calls in 2 h on 21 Nov 2026) only to discard
 					// all but one per organization.
-					sql`json_extract(${apps.metadata}, '$.mcpConfig.authMode') = 'authenticated'`,
-					sql`json_type(${apps.metadata}, '$.mcpConfig.codeMode') = 'true'`,
+					eq(
+						jsonRead(db, apps.metadata, ["mcpConfig", "authMode"]),
+						"authenticated",
+					),
+					eq(
+						jsonRead(db, apps.metadata, ["mcpConfig", "codeMode"], "boolean"),
+						booleanValue(db, true),
+					),
 				),
 			);
 	const rows: Awaited<ReturnType<typeof selectChunk>> = [];
@@ -632,6 +652,7 @@ export async function addMember(
 	db: DbClient,
 	data: Omit<NewOrganizationMember, "id" | "createdAt" | "updatedAt">,
 ): Promise<OrganizationMember> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -669,6 +690,7 @@ export async function inviteMember(
 	descopeUserId?: string,
 	invitedBy?: string,
 ): Promise<OrganizationMember> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -740,6 +762,7 @@ export async function acceptInvite(
 	descopeUserId: string,
 	userInfo?: { name?: string; avatarUrl?: string },
 ): Promise<OrganizationMember> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const now = new Date().toISOString();
 
 	await db
@@ -774,6 +797,7 @@ export async function updateMember(
 	id: string,
 	data: Partial<Omit<NewOrganizationMember, "id" | "createdAt">>,
 ): Promise<OrganizationMember> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const now = new Date().toISOString();
 
 	await db
@@ -807,6 +831,7 @@ export async function updateMemberRole(
 	id: string,
 	role: MemberRole,
 ): Promise<OrganizationMember | undefined> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	const activeOwners = db
 		.select({ count: sql<number>`count(*)` })
 		.from(organizationMembers)
@@ -865,5 +890,6 @@ export async function setMemberPermissions(
  * @param id - Member ID
  */
 export async function removeMember(db: DbClient, id: string): Promise<void> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
 	await db.delete(organizationMembers).where(eq(organizationMembers.id, id));
 }

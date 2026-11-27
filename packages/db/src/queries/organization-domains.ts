@@ -1,3 +1,5 @@
+import { coreTable } from "../core-store/client";
+import { jsonRead, booleanValue } from "../core-store/dialect";
 import {
 	and,
 	eq,
@@ -10,11 +12,12 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
-import { cmsDomainClaims } from "../schema/cms-domain-claims";
-import { cmsSites } from "../schema/cms-sites";
-import { organizations } from "../schema/organizations";
+import { cmsDomainClaims as d1CmsDomainClaims } from "../schema/cms-domain-claims";
+import { cmsSites as d1CmsSites } from "../schema/cms-sites";
+import { organizations as d1Organizations } from "../schema/organizations";
 
-function scope(organizationId: string, id?: string) {
+function scope(db: DbQueryClient, organizationId: string, id?: string) {
+	const cmsDomainClaims = coreTable(db, d1CmsDomainClaims);
 	return and(
 		eq(cmsDomainClaims.organizationId, organizationId),
 		eq(cmsDomainClaims.kind, "organization"),
@@ -26,10 +29,11 @@ export async function getOrganizationDomain(
 	db: DbQueryClient,
 	organizationId: string,
 ) {
+	const cmsDomainClaims = coreTable(db, d1CmsDomainClaims);
 	const [row] = await db
 		.select()
 		.from(cmsDomainClaims)
-		.where(scope(organizationId))
+		.where(scope(db, organizationId))
 		.limit(1);
 	return row ?? null;
 }
@@ -45,6 +49,9 @@ export async function reserveOrganizationDomain(
 		expiresAt: string;
 	},
 ) {
+	const cmsDomainClaims = coreTable(db, d1CmsDomainClaims);
+	const cmsSites = coreTable(db, d1CmsSites);
+	const organizations = coreTable(db, d1Organizations);
 	const now = new Date().toISOString();
 	const [row] = await db
 		.insert(cmsDomainClaims)
@@ -71,7 +78,10 @@ export async function reserveOrganizationDomain(
 				.where(
 					and(
 						eq(organizations.id, input.organizationId),
-						sql`json_extract(${organizations.features}, '$.os') = 1`,
+						eq(
+							jsonRead(db, organizations.features, ["os"], "boolean"),
+							booleanValue(db, true),
+						),
 						notExists(
 							db
 								.select({ id: cmsSites.id })
@@ -92,6 +102,7 @@ export async function lockOrganizationDomain(
 	id: string,
 	action: "provisioning" | "removing",
 ) {
+	const cmsDomainClaims = coreTable(db, d1CmsDomainClaims);
 	const now = new Date().toISOString();
 	const stale = new Date(Date.now() - 5 * 60_000).toISOString();
 	const [row] = await db
@@ -99,7 +110,7 @@ export async function lockOrganizationDomain(
 		.set({ status: action, updatedAt: now })
 		.where(
 			and(
-				scope(organizationId, id),
+				scope(db, organizationId, id),
 				action === "provisioning"
 					? and(
 							or(
@@ -139,6 +150,7 @@ export async function finishOrganizationDomainVerification(
 		providerHostnameId: string | null;
 	},
 ) {
+	const cmsDomainClaims = coreTable(db, d1CmsDomainClaims);
 	const [row] = await db
 		.update(cmsDomainClaims)
 		.set({
@@ -148,7 +160,7 @@ export async function finishOrganizationDomainVerification(
 		})
 		.where(
 			and(
-				scope(input.organizationId, input.id),
+				scope(db, input.organizationId, input.id),
 				eq(cmsDomainClaims.status, "provisioning"),
 				eq(cmsDomainClaims.updatedAt, input.lease),
 			),
@@ -161,10 +173,14 @@ export async function deleteOrganizationDomain(
 	organizationId: string,
 	id: string,
 ) {
+	const cmsDomainClaims = coreTable(db, d1CmsDomainClaims);
 	const rows = await db
 		.delete(cmsDomainClaims)
 		.where(
-			and(scope(organizationId, id), eq(cmsDomainClaims.status, "removing")),
+			and(
+				scope(db, organizationId, id),
+				eq(cmsDomainClaims.status, "removing"),
+			),
 		)
 		.returning({ id: cmsDomainClaims.id });
 	return rows.length === 1;
@@ -175,6 +191,8 @@ export async function resolveOrganizationHostname(
 	db: DbQueryClient,
 	hostname: string,
 ) {
+	const cmsDomainClaims = coreTable(db, d1CmsDomainClaims);
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({
 			organizationId: organizations.id,
@@ -194,7 +212,10 @@ export async function resolveOrganizationHostname(
 				isNull(cmsDomainClaims.siteId),
 				eq(cmsDomainClaims.status, "active"),
 				isNotNull(cmsDomainClaims.providerHostnameId),
-				sql`json_extract(${organizations.features}, '$.os') = 1`,
+				eq(
+					jsonRead(db, organizations.features, ["os"], "boolean"),
+					booleanValue(db, true),
+				),
 			),
 		)
 		.limit(1);

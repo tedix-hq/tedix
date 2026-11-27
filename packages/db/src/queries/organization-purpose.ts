@@ -1,14 +1,30 @@
 /** Organization purpose revisions and the deterministic owner-attention brief. */
 
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
 import type { WorkItem } from "../schema/work-items";
-import { and, desc, eq, gt, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	getColumns,
+	gt,
+	gte,
+	inArray,
+	isNull,
+	lte,
+	sql,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type OrganizationPurposeCharter,
-	organizationPurposeCharters,
+	organizationPurposeCharters as d1OrganizationPurposeCharters,
 } from "../schema/organization-purpose";
-import { tediObjectives } from "../schema/tedi-objectives";
-import { workItems, workItemStoredColumns } from "../schema/work-items";
+import { tediObjectives as d1TediObjectives } from "../schema/tedi-objectives";
+import {
+	workItems as d1WorkItems,
+	workItemStoredColumns,
+} from "../schema/work-items";
 
 export interface CreatePurposeCharterRevisionParams {
 	id: string;
@@ -62,6 +78,10 @@ export async function getActivePurposeCharter(
 	db: DbClient,
 	orgId: string,
 ): Promise<OrganizationPurposeCharter | undefined> {
+	const organizationPurposeCharters = coreTable(
+		db,
+		d1OrganizationPurposeCharters,
+	);
 	const rows = await db
 		.select()
 		.from(organizationPurposeCharters)
@@ -79,6 +99,10 @@ export async function getPurposeCharterById(
 	db: DbClient,
 	id: string,
 ): Promise<OrganizationPurposeCharter | undefined> {
+	const organizationPurposeCharters = coreTable(
+		db,
+		d1OrganizationPurposeCharters,
+	);
 	const rows = await db
 		.select()
 		.from(organizationPurposeCharters)
@@ -92,6 +116,10 @@ export async function listPurposeCharterRevisions(
 	orgId: string,
 	limit = 20,
 ): Promise<OrganizationPurposeCharter[]> {
+	const organizationPurposeCharters = coreTable(
+		db,
+		d1OrganizationPurposeCharters,
+	);
 	return db
 		.select()
 		.from(organizationPurposeCharters)
@@ -108,6 +136,11 @@ export async function createPurposeCharterRevision(
 	db: DbClient,
 	data: CreatePurposeCharterRevisionParams,
 ): Promise<OrganizationPurposeCharter> {
+	const organizationPurposeCharters = coreTable(
+		db,
+		d1OrganizationPurposeCharters,
+	);
+	const tediObjectives = coreTable(db, d1TediObjectives);
 	const [current, versionRows] = await Promise.all([
 		getActivePurposeCharter(db, data.orgId),
 		db
@@ -297,6 +330,8 @@ export async function getOrganizationOwnerBrief(
 	db: DbClient,
 	params: { orgId: string; now: string; outcomeWindowDays?: number },
 ): Promise<OrganizationOwnerBrief> {
+	const tediObjectives = coreTable(db, d1TediObjectives);
+	const workItems = coreTable(db, d1WorkItems);
 	const outcomeWindowDays = params.outcomeWindowDays ?? 7;
 	const outcomeCutoff = new Date(
 		Date.parse(params.now) - outcomeWindowDays * 86_400_000,
@@ -328,7 +363,9 @@ export async function getOrganizationOwnerBrief(
 				),
 			),
 		db
-			.select(workItemStoredColumns)
+			.select(
+				coreStore(db) === "d1" ? workItemStoredColumns : getColumns(workItems),
+			)
 			.from(workItems)
 			.where(
 				and(
@@ -339,7 +376,9 @@ export async function getOrganizationOwnerBrief(
 			.orderBy(desc(workItems.updatedAt), desc(workItems.createdAt))
 			.limit(500),
 		db
-			.select(workItemStoredColumns)
+			.select(
+				coreStore(db) === "d1" ? workItemStoredColumns : getColumns(workItems),
+			)
 			.from(workItems)
 			.where(
 				and(
