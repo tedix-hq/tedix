@@ -3,19 +3,20 @@ import { PrincipalIdentityConflictError as IdentityConflictError } from "../util
 export const PrincipalIdentityConflictError = IdentityConflictError;
 export type PrincipalIdentityConflictError = IdentityConflictError;
 import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
-import { jsonRead } from "../core-store/dialect";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../core-store/client";
+import { jsonRead } from "../core-store/dialect";
 import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-settings";
 import type { DbQueryClient } from "../query-client";
-import { organizationMembers } from "../schema/organization-members";
-import { organizations } from "../schema/organizations";
+import { organizationMembers as schemaOrganizationMembers } from "../schema/organization-members";
+import { organizations as schemaOrganizations } from "../schema/organizations";
 import type {
 	NewPrincipalIdentity,
 	PrincipalIdentity,
 	PrincipalType,
 } from "../schema/principal-identities";
-import { principalIdentities } from "../schema/principal-identities";
-import { projects, type Project } from "../schema/projects";
+import { principalIdentities as schemaPrincipalIdentities } from "../schema/principal-identities";
+import { projects as schemaProjects, type Project } from "../schema/projects";
 
 export interface ExternalIdentity {
 	provider: string;
@@ -57,7 +58,7 @@ export interface UserTenantIdentityContext {
 	memberId: string | null;
 	memberUserId: string | null;
 	memberDescopeUserId: string | null;
-	memberKind: typeof organizationMembers.$inferSelect.kind | null;
+	memberKind: typeof schemaOrganizationMembers.$inferSelect.kind | null;
 	memberRole: string | null;
 	memberPermissionOverrides: OrganizationPermission[] | null;
 	reviewProject?: { id: string; project: Project | undefined };
@@ -81,6 +82,10 @@ export async function resolveUserTenantIdentityContext(
 		input.organizationIdentity,
 	);
 	const userIdentity = normalizeExternalIdentity(input.userIdentity);
+	const principalIdentities = coreTable(db, schemaPrincipalIdentities);
+	const organizations = coreTable(db, schemaOrganizations);
+	const organizationMembers = coreTable(db, schemaOrganizationMembers);
+	const projects = coreTable(db, schemaProjects);
 	const organizationMapping = alias(
 		principalIdentities,
 		"tenant_organization_identity",
@@ -231,6 +236,7 @@ export async function resolvePrincipalIdentity(
 		includeRevoked?: boolean;
 	},
 ): Promise<PrincipalIdentity | undefined> {
+	const principalIdentities = coreTable(db, schemaPrincipalIdentities);
 	const external = normalizeExternalIdentity(identity);
 	const conditions = [
 		eq(principalIdentities.provider, external.provider),
@@ -269,6 +275,7 @@ export async function bindPrincipalIdentity(
 			verifiedAt?: string;
 		},
 ): Promise<PrincipalIdentity> {
+	const principalIdentities = coreTable(db, schemaPrincipalIdentities);
 	const external = normalizeExternalIdentity(input);
 	const existing = await resolvePrincipalIdentity(db, external, {
 		includeRevoked: true,
@@ -338,6 +345,7 @@ export async function listPrincipalIdentities(
 	db: DbQueryClient,
 	principal: CanonicalPrincipal,
 ): Promise<PrincipalIdentity[]> {
+	const principalIdentities = coreTable(db, schemaPrincipalIdentities);
 	const conditions = [
 		eq(principalIdentities.principalType, principal.principalType),
 		eq(principalIdentities.principalId, principal.principalId),
@@ -360,6 +368,7 @@ export async function revokePrincipalIdentity(
 	identity: ExternalIdentity,
 	revokedAt = new Date().toISOString(),
 ): Promise<boolean> {
+	const principalIdentities = coreTable(db, schemaPrincipalIdentities);
 	const external = normalizeExternalIdentity(identity);
 	const result = await db
 		.update(principalIdentities)
