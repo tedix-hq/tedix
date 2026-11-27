@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import type { DbClient } from "@tedix/db/client";
 import { createDbClient } from "@tedix/db/client";
 import { coreTable } from "@tedix/db/core-store/client";
+import { coreQueryDb, withCoreStore } from "@tedix/db/core-store/scope";
+import { providerModelRateVersions } from "@tedix/db/schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { createPGliteFacade } from "@tedix/db/test/pglite-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -20,6 +22,8 @@ import {
 } from "@tedix/db/schema/workspace-feed";
 import type { CoreStoreEnv } from "@tedix/db/core-store/client";
 import { WorkspaceDO } from "../src/do";
+import { turnPricingIdentity } from "../src/model";
+import { priceTurn } from "../src/pricing";
 import { workspaceSessionAccess } from "../src/session-access";
 
 vi.mock("cloudflare:workers", () => ({
@@ -57,7 +61,7 @@ const at = "2026-11-20T10:00:00.000Z";
 
 for (const dialect of ["d1", "postgres"] as const) {
 	describe(dialect, () => {
-		it("publishes workspace activity and usage to the selected core and closes each scope", async () => {
+		it("publishes activity, usage and prices through the selected core and closes each scope", async () => {
 			const sqlite =
 				dialect === "d1" ? new DatabaseSync(":memory:") : undefined;
 			const pg =
@@ -75,6 +79,7 @@ for (const dialect of ["d1", "postgres"] as const) {
 							workspaceFeedCursors,
 							workspaceFeedLedger,
 							workspaceOutputIndex,
+							providerModelRateVersions,
 						),
 					);
 				}
@@ -168,6 +173,67 @@ for (const dialect of ["d1", "postgres"] as const) {
 					runCount: 1,
 				});
 				if (pg) expect(connection.closed).toBe(3);
+				const env = {
+					DB: d1 as D1Database,
+					CORE_STORE: dialect,
+					AI_GATEWAY_ACCOUNT_ID: "fixture-account",
+				};
+				const modelId = "@cf/example/model";
+				await db.insert(coreTable(db, providerModelRateVersions)).values({
+					id: "fixture-rate",
+					...turnPricingIdentity(env, modelId)!,
+					effectiveFrom: at,
+					inputMicrousdPerMillion: 1_000_000,
+					outputMicrousdPerMillion: 2_000_000,
+					cacheReadMicrousdPerMillion: 500_000,
+					cacheWriteMicrousdPerMillion: 3_000_000,
+					currency: "USD",
+					evidenceUri: "https://example.com/rates",
+					evidenceDigest: "fixture-digest",
+					verifiedAt: at,
+					publishedAt: at,
+					publishedBy: "fixture-user",
+					changeReason: "fixture",
+				});
+				await withCoreStore(env, async () => {
+					const query = coreQueryDb(env);
+					const usage = {
+						input: 10,
+						output: 5,
+						cacheRead: 4,
+						cacheWrite: 2,
+						partial: false,
+					};
+					const failedRead = vi
+						.spyOn(query, "select")
+						.mockImplementation(() => {
+							throw new Error("Rate store unavailable");
+						});
+					try {
+						expect(
+							await priceTurn(
+								query,
+								env,
+								modelId,
+								{ ...usage, partial: true },
+								at,
+							),
+						).toEqual({ costUnavailable: "usage incomplete" });
+						expect(failedRead).not.toHaveBeenCalled();
+						expect(await priceTurn(query, env, modelId, usage, at)).toEqual({
+							costUnavailable: "price lookup failed",
+						});
+					} finally {
+						failedRead.mockRestore();
+					}
+					expect(await priceTurn(query, env, modelId, usage, at)).toEqual({
+						costUsd: 0.000028,
+					});
+					expect(
+						await priceTurn(query, env, "@cf/example/missing", usage, at),
+					).toEqual({ costUnavailable: "no price for this model" });
+				});
+				if (pg) expect(connection.closed).toBe(4);
 			} finally {
 				connection.db = undefined;
 				sqlite?.close();

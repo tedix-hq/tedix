@@ -3,6 +3,7 @@
  * the chat can show what a turn cost or say exactly why it cannot.
  */
 import { resolveDirectProviderUsagePrice } from "@tedix/db/queries/billing/provider-model-rates";
+import type { DbQueryClient } from "@tedix/db/query-client";
 import { type AzureGatewayEnv, turnPricingIdentity } from "./model";
 import type { TurnResult } from "./turn-loop";
 import type { TurnUsage } from "./wire";
@@ -18,7 +19,7 @@ const REASONS: Record<string, string> = {
 
 /** Cost fields for a finished turn; never a fabricated zero. */
 export async function priceTurn(
-	db: D1Database | undefined,
+	db: DbQueryClient | D1Database | undefined,
 	env: AzureGatewayEnv,
 	modelId: string | undefined,
 	usage: NonNullable<TurnResult["usage"]>,

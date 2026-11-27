@@ -6969,7 +6969,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					? {
 							...toTurnUsage(result.usage),
 							...(await priceTurn(
-								this.env.DB,
+								coreQueryDb(this.env),
 								this.env,
 								plan.modelId,
 								result.usage,
