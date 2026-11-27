@@ -19,6 +19,8 @@ import {
 	type ProgressStore,
 	type CheckpointStore,
 	type TableProgress,
+	type DeltaPhase,
+	type DeltaProgress,
 } from "./store.ts";
 
 type Row = Record<string, unknown>;
@@ -167,6 +169,7 @@ async function hotStartRowid(
 	table: string,
 	column: string,
 	water: number,
+	from: string | number = HOT_WINDOW_FROM,
 ): Promise<number> {
 	let low = 0;
 	let high = water;
@@ -178,7 +181,8 @@ async function hotStartRowid(
 			[mid],
 		);
 		const time = rows[0]?.t;
-		if (typeof time === "string" && time < HOT_WINDOW_FROM) low = mid;
+		if ((typeof time === "string" || typeof time === "number") && time < from)
+			low = mid;
 		else high = mid;
 	}
 	return Math.max(0, low - HOT_START_MARGIN);
@@ -511,11 +515,15 @@ export async function cronTick(
 ): Promise<CopyResult | null> {
 	const { store } = ports;
 	const run = await store.runState();
-	if (run.mode !== "running") return null;
+	if (run.mode !== "running" && run.mode !== "delta") return null;
 	const lease = await store.leaseUntil();
 	if (lease && Date.parse(lease) > Date.now()) return null;
 	await store.setLease(new Date(Date.now() + CRON_LEASE_MS).toISOString());
 	try {
+		if (run.mode === "delta") {
+			await deltaTick(ports, openLane);
+			return null;
+		}
 		const queue: string[] = [];
 		for (const entry of coreCopyPlan()) {
 			const progress = await store.tableProgress(entry.table);
@@ -574,6 +582,237 @@ export async function cronTick(
 		return results.at(-1) ?? null;
 	} finally {
 		await store.setLease(undefined);
+	}
+}
+
+/** Tables at or under this many copied pages are recopied in full by the delta. */
+const DELTA_FULL_PAGES = 40;
+
+function deltaValue(
+	entry: CoreCopyTable,
+	column: string,
+	iso: string,
+): string | number {
+	// Epoch columns hold seconds; text timestamps compare by prefix, which
+	// works for both "YYYY-MM-DD HH:MM:SS" and ISO forms.
+	return entry.columns[column] === "epoch"
+		? Math.floor(Date.parse(iso) / 1000)
+		: iso.slice(0, 10);
+}
+
+/** Works out what a table needs copied again after its first copy. */
+async function deltaPhases(
+	ports: CopyPorts,
+	entry: CoreCopyTable,
+	copied: TableProgress,
+	run: { since: string; recentSince: string },
+): Promise<DeltaPhase[]> {
+	const copiedWater = copied.highWater ?? 0;
+	const water = await highWater(ports, entry.table);
+	const phases: DeltaPhase[] = [];
+	if (water > copiedWater)
+		phases.push({ kind: "new", after: copiedWater, through: water });
+	const columns = Object.keys(entry.columns);
+	if (columns.includes("updated_at")) {
+		phases.push({
+			kind: "updated",
+			after: 0,
+			through: copiedWater,
+			column: "updated_at",
+			from: deltaValue(entry, "updated_at", run.since),
+		});
+	} else if (copied.pages <= DELTA_FULL_PAGES) {
+		phases.push({ kind: "full", after: 0, through: copiedWater });
+	} else if (columns.includes("created_at")) {
+		const from = deltaValue(entry, "created_at", run.recentSince);
+		const after = await hotStartRowid(
+			ports,
+			entry.table,
+			"created_at",
+			copiedWater,
+			from,
+		);
+		phases.push({
+			kind: "recent",
+			after,
+			through: copiedWater,
+			column: "created_at",
+			from,
+		});
+	}
+	return phases;
+}
+
+/**
+ * Copies one table's changes since its first copy, phase by phase, as
+ * upserts. Runs during the write freeze, so nothing else writes Postgres.
+ */
+export async function deltaTable(
+	ports: CopyPorts,
+	tableName: string,
+	options: { maxPages?: number } = {},
+): Promise<DeltaProgress> {
+	const entry = planTable(tableName);
+	if (!entry) throw new Error(`Unknown copy table: ${tableName}`);
+	const { store } = ports;
+	const run = await store.deltaRun();
+	if (!run) throw new Error("No delta run started");
+	const now = () => new Date().toISOString();
+	let progress = await store.deltaProgress(tableName);
+	if (!progress) {
+		const copied = await store.tableProgress(tableName);
+		if (!copied?.state?.done) {
+			progress = {
+				table: tableName,
+				status: "skipped",
+				phases: [],
+				phase: 0,
+				pages: 0,
+				lastError: "first copy not done",
+				updatedAt: now(),
+			};
+			await store.putDeltaProgress(progress);
+			return progress;
+		}
+		progress = {
+			table: tableName,
+			status: "running",
+			phases: await deltaPhases(ports, entry, copied, run),
+			phase: 0,
+			pages: 0,
+			updatedAt: now(),
+		};
+		await store.putDeltaProgress(progress);
+	}
+	if (progress.status === "done" || progress.status === "skipped")
+		return progress;
+	const table = asCopyTable(entry);
+	const pageSize =
+		(await store.tableProgress(tableName))?.pageSize ??
+		LARGE_ROW_PAGE_SIZES[tableName] ??
+		PAGE_SIZE;
+	const hotColumn = HOT_WINDOW_TABLES[tableName];
+	let budget = options.maxPages ?? Number.POSITIVE_INFINITY;
+	try {
+		while (progress.phase < progress.phases.length && budget > 0) {
+			const phase = progress.phases[progress.phase]!;
+			const column = phase.column ?? (hotColumn as string | undefined);
+			const from =
+				phase.column !== undefined
+					? phase.from
+					: hotColumn
+						? HOT_WINDOW_FROM
+						: undefined;
+			const source = keysetSource({
+				id: `core-copy-delta/${tableName}/${progress.phase}`,
+				table: tableName,
+				read: blankedRead(ports, entry),
+				highWater: phase.through,
+				afterRowid: phase.after,
+				...(column !== undefined && from !== undefined
+					? { hot: { column, from } }
+					: {}),
+			});
+			const before = progress.pages;
+			const result = await copyPages({
+				table,
+				source,
+				query: ports.copyQuery ?? ports.query,
+				state: progress.state,
+				save: async (state) => {
+					progress = {
+						...progress!,
+						state,
+						pages: progress!.pages + 1,
+						updatedAt: now(),
+					};
+					await store.putDeltaProgress(progress);
+				},
+				onReceipt: async () => undefined,
+				pageSize,
+				pauseMs: 0,
+				maxPages: Number.isFinite(budget) ? budget : undefined,
+				wait: ports.wait ?? wait,
+			});
+			budget -= Math.max(1, progress.pages - before);
+			if (!result.done) break;
+			progress = {
+				...progress,
+				phase: progress.phase + 1,
+				state: undefined,
+				updatedAt: now(),
+			};
+			await store.putDeltaProgress(progress);
+		}
+		if (progress.phase >= progress.phases.length) {
+			progress = { ...progress, status: "done", updatedAt: now() };
+			await store.putDeltaProgress(progress);
+		}
+		return progress;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		progress = {
+			...progress,
+			status: isD1Overloaded(error) ? "running" : "error",
+			lastError: message,
+			updatedAt: now(),
+		};
+		await store.putDeltaProgress(progress);
+		return progress;
+	}
+}
+
+/** Starts the final delta: every table with a finished first copy. */
+export async function startDelta(
+	ports: CopyPorts,
+	run: { since: string; recentSince: string },
+): Promise<void> {
+	await ports.store.setDeltaRun({
+		...run,
+		startedAt: new Date().toISOString(),
+	});
+	await ports.store.setRunState({
+		mode: "delta",
+		note: `delta since ${run.since}`,
+		updatedAt: new Date().toISOString(),
+	});
+}
+
+/** One cron tick of the delta: lanes over tables whose delta is not done. */
+async function deltaTick(
+	ports: CopyPorts,
+	openLane?: () => LanePorts,
+): Promise<void> {
+	const queue: string[] = [];
+	for (const entry of coreCopyPlan()) {
+		const progress = await ports.store.deltaProgress(entry.table);
+		if (progress && ["done", "skipped", "error"].includes(progress.status))
+			continue;
+		queue.push(entry.table);
+	}
+	if (queue.length === 0) {
+		await ports.store.setRunState({
+			mode: "idle",
+			note: "delta done",
+			updatedAt: new Date().toISOString(),
+		});
+		return;
+	}
+	const lanes: LanePorts[] = openLane
+		? Array.from({ length: CRON_LANES }, () => openLane())
+		: [{ ports, end: async () => undefined }];
+	const lane = async (lanePorts: CopyPorts) => {
+		for (let table = queue.shift(); table; table = queue.shift()) {
+			const progress = await deltaTable(lanePorts, table, {
+				maxPages: LANE_PAGE_BUDGET,
+			});
+			if (progress.status === "running") return;
+		}
+	};
+	try {
+		await Promise.allSettled(lanes.map((l) => lane(l.ports)));
+	} finally {
+		await Promise.allSettled(lanes.map((l) => l.end()));
 	}
 }
 

@@ -37,7 +37,7 @@ export function doCheckpointStore(
 	};
 }
 
-export type RunMode = "idle" | "running" | "paused";
+export type RunMode = "idle" | "running" | "paused" | "delta";
 export interface RunState {
 	mode: RunMode;
 	note?: string;
@@ -72,6 +72,34 @@ export const tableKey = (table: string) => `core-copy:table:${table}`;
 /** One key per page receipt, so no stored value grows with the table. */
 export const receiptKey = (table: string, index: number) =>
 	`core-copy:receipt:${table}:${index}`;
+
+const DELTA_RUN_KEY = "core-copy:delta-run";
+const deltaKey = (table: string) => `core-copy:delta:${table}`;
+
+export interface DeltaRun {
+	/** Rows changed on or after this value are copied again (text compares by prefix). */
+	since: string;
+	/** Rows created on or after this are recopied where a table has no updated_at. */
+	recentSince: string;
+	startedAt: string;
+}
+export interface DeltaPhase {
+	kind: "new" | "updated" | "full" | "recent";
+	after: number;
+	through: number;
+	column?: string;
+	from?: string | number;
+}
+export interface DeltaProgress {
+	table: string;
+	status: "pending" | "running" | "done" | "error" | "skipped";
+	phases: DeltaPhase[];
+	phase: number;
+	state?: CopyState;
+	pages: number;
+	lastError?: string;
+	updatedAt: string;
+}
 
 export class ProgressStore {
 	constructor(private readonly kv: CheckpointStore) {}
@@ -111,6 +139,21 @@ export class ProgressStore {
 	async insertOnlySetting(): Promise<"all" | string[] | null> {
 		const raw = (await this.kv.get(INSERT_ONLY_KEY)) || "";
 		return raw ? (JSON.parse(raw) as "all" | string[]) : null;
+	}
+	/** The final delta run, set when the write freeze starts. */
+	async deltaRun(): Promise<DeltaRun | undefined> {
+		const raw = await this.kv.get(DELTA_RUN_KEY);
+		return raw ? (JSON.parse(raw) as DeltaRun) : undefined;
+	}
+	async setDeltaRun(run: DeltaRun): Promise<void> {
+		await this.kv.put(DELTA_RUN_KEY, JSON.stringify(run));
+	}
+	async deltaProgress(table: string): Promise<DeltaProgress | undefined> {
+		const raw = await this.kv.get(deltaKey(table));
+		return raw ? (JSON.parse(raw) as DeltaProgress) : undefined;
+	}
+	async putDeltaProgress(progress: DeltaProgress): Promise<void> {
+		await this.kv.put(deltaKey(progress.table), JSON.stringify(progress));
 	}
 	async tableProgress(table: string): Promise<TableProgress | undefined> {
 		const raw = await this.kv.get(tableKey(table));

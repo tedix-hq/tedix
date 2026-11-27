@@ -9,11 +9,12 @@ import {
 	cronTick,
 	hyperdriveQuery,
 	resetCopy,
+	startDelta,
 	verifyTable,
 	type CopyPorts,
 } from "./copy.ts";
 import type { Env } from "./env.ts";
-import { planTable } from "./plan.ts";
+import { coreCopyPlan, planTable } from "./plan.ts";
 import { doCheckpointStore, ProgressStore } from "./store.ts";
 
 export { CheckpointDO } from "./checkpoint-do.ts";
@@ -195,6 +196,56 @@ export default {
 					},
 					{ status: 500 },
 				);
+			} finally {
+				await end();
+			}
+		}
+		if (url.pathname === "/delta") {
+			// POST starts the final delta (during the write freeze); GET reports it.
+			const denied = await requireAdmin(request, env);
+			if (denied) return denied;
+			const { ports, end } = portsFor(env);
+			try {
+				if (request.method === "POST") {
+					const body = (await request.json().catch(() => ({}))) as {
+						since?: string;
+						recentSince?: string;
+					};
+					if (
+						!body.since ||
+						!body.recentSince ||
+						Number.isNaN(Date.parse(body.since)) ||
+						Number.isNaN(Date.parse(body.recentSince))
+					)
+						return Response.json(
+							{ error: "since and recentSince must be ISO times" },
+							{ status: 400 },
+						);
+					await startDelta(ports, {
+						since: body.since,
+						recentSince: body.recentSince,
+					});
+				}
+				const tables = [];
+				for (const entry of coreCopyPlan()) {
+					const p = await ports.store.deltaProgress(entry.table);
+					if (p)
+						tables.push({
+							table: p.table,
+							status: p.status,
+							phase: `${p.phase}/${p.phases.length}`,
+							kinds: p.phases.map((x) => x.kind).join(","),
+							pages: p.pages,
+							...(p.lastError ? { lastError: p.lastError } : {}),
+						});
+				}
+				return Response.json({
+					run: await ports.store.deltaRun(),
+					mode: (await ports.store.runState()).mode,
+					tables,
+				});
+			} catch (error) {
+				return jsonError(error);
 			} finally {
 				await end();
 			}

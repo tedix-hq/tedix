@@ -7,6 +7,8 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import type { PgQuery } from "../../../scripts/db/core-copy.ts";
 import {
 	applySchema,
+	deltaTable,
+	startDelta,
 	copyTable,
 	copyStatus,
 	verifyTable,
@@ -268,6 +270,46 @@ describe("core-copy worker", () => {
 			);
 			expect((all.rows[0] as { n: number }).n).toBe(600);
 			expect((await verifyTable(ports, "organizations")).verified).toBe(true);
+		} finally {
+			await engine.close();
+			sqlite.close();
+		}
+	});
+	test("delta copies rows added and rows updated after the first copy", async () => {
+		const sqlite = seedSource(600);
+		const engine = new PGlite();
+		try {
+			await targetSchema(engine);
+			const store = new ProgressStore(memoryStore());
+			const ports: CopyPorts = {
+				readD1: d1Port(sqlite).readD1,
+				query: pgliteQuery(engine),
+				store,
+				wait: noWait,
+			};
+			expect((await copyTable(ports, "organizations")).done).toBe(true);
+			// After the copy: one row changes, one is added.
+			sqlite.exec(
+				`UPDATE organizations SET name = 'renamed', updated_at = '2026-11-27T13:00:00.000Z' WHERE id = 'org-7'`,
+			);
+			sqlite.exec(
+				`INSERT INTO organizations VALUES ('org-new','New','org-new','team','t-new',NULL,'d',1,'{}','{}','2026-11-27T13:00:00.000Z','2026-11-27T13:00:00.000Z')`,
+			);
+			await startDelta(ports, {
+				since: "2026-11-27T05:00:00.000Z",
+				recentSince: "2026-11-20T00:00:00.000Z",
+			});
+			const delta = await deltaTable(ports, "organizations");
+			expect(delta.status).toBe("done");
+			expect(delta.phases.map((p) => p.kind)).toEqual(["new", "updated"]);
+			const renamed = await engine.query(
+				`SELECT name FROM organizations WHERE id = 'org-7'`,
+			);
+			expect((renamed.rows[0] as { name: string }).name).toBe("renamed");
+			const all = await engine.query(
+				`SELECT count(*)::int AS n FROM organizations`,
+			);
+			expect((all.rows[0] as { n: number }).n).toBe(601);
 		} finally {
 			await engine.close();
 			sqlite.close();
