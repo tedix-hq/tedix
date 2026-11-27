@@ -1,3 +1,4 @@
+import type { CmsDatabase } from "@tedix/db/queries/cms-control-plane";
 import { readThemeCandidate } from "./theme-candidate";
 import {
 	getActiveCmsSiteForPermit,
@@ -93,7 +94,7 @@ export function cmsDeployWorkflowInstanceId(
 /** Reserve a site before creating a Workflow; only terminal receipts free it. */
 export async function startCmsDeployWorkflow(input: {
 	workflow: CmsDeployWorkflowBinding;
-	db: D1Database;
+	db: CmsDatabase;
 	orgSlug: string;
 	summary?: string;
 	sourceCommit?: string;

@@ -1,3 +1,4 @@
+import type { CmsDatabase } from "@tedix/db/queries/cms-control-plane";
 import type { NativeProcess } from "@tedix/container-runtime/sandbox";
 import { type CmsJobClient } from "../sandbox";
 import {
@@ -98,7 +99,7 @@ export function hasCmsBuildSuccessMarker(output: string): boolean {
 	return CMS_BUILD_SUCCESS_MARKERS.some((marker) => output.includes(marker));
 }
 export async function resolveCmsPrivacyBannerEnabled(
-	db: D1Database,
+	db: CmsDatabase,
 	orgSlug: string,
 ): Promise<boolean> {
 	const value = await getCmsPrivacyBannerSetting(db, orgSlug);

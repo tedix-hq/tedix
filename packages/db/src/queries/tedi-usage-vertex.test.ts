@@ -1,3 +1,6 @@
+import { createPGliteFacade } from "../test/pglite-facade";
+import { pgTableDdl } from "../test/pg-schema-ddl";
+import { tediCallCosts as pgTediCallCosts } from "../schema-pg/core";
 /**
  * Direct-Vertex ledger rows + the provider spend window that gates dispatch.
  * Rows built by `buildVertexCallCostRow` are usage evidence only — they carry
@@ -114,4 +117,63 @@ describe("getProviderSpendWindowTotals", () => {
 		expect(totals.totalTokens).toBe(10);
 		expect(totals.quarantinedCalls).toBe(1);
 	});
+});
+
+it("deduplicates and scopes provider budget receipts on Postgres", async () => {
+	const pg = await createPGliteFacade();
+	try {
+		await pg.engine.exec(
+			"CREATE TABLE tedis(id TEXT PRIMARY KEY); CREATE TABLE organizations(id TEXT PRIMARY KEY); INSERT INTO organizations VALUES ('org-one')",
+		);
+		for (const ddl of pgTableDdl(pgTediCallCosts)) await pg.engine.exec(ddl);
+		const row = buildVertexCallCostRow({
+			orgId: "org-one",
+			source: "vertex-direct:test",
+			model: "image",
+			snapshotAt: "2026-11-27T00:00:00.000Z",
+			tokens: { inputTokens: 5, outputTokens: 5 },
+			priced: { costUsd: 2, rateVersionId: "rate" },
+		});
+		await insertCallCosts(pg.db, [row]);
+		await insertCallCosts(pg.db, [row]);
+		await insertCallCosts(pg.db, [
+			buildVertexCallCostRow({
+				orgId: "org-one",
+				source: "vertex-direct:failed",
+				model: "image",
+				snapshotAt: "2026-11-27T00:00:00.000Z",
+				success: false,
+			}),
+			buildVertexCallCostRow({
+				orgId: "org-one",
+				source: "vertex-direct:old",
+				model: "image",
+				snapshotAt: "2020-01-01T00:00:00.000Z",
+			}),
+		]);
+		expect(
+			await getProviderSpendWindowTotals(pg.db, {
+				provider: "google-vertex",
+				since: "2026-11-27T00:00:00.000Z",
+			}),
+		).toEqual({
+			callCount: 2,
+			totalTokens: 10,
+			knownCostUsd: 2,
+			quarantinedCalls: 1,
+		});
+		expect(
+			await getProviderSpendWindowTotals(pg.db, {
+				provider: "other",
+				since: "2026-11-27T00:00:00.000Z",
+			}),
+		).toEqual({
+			callCount: 0,
+			totalTokens: 0,
+			knownCostUsd: 0,
+			quarantinedCalls: 0,
+		});
+	} finally {
+		await pg.close();
+	}
 });

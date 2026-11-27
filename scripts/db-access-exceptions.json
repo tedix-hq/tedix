@@ -30,13 +30,6 @@
 		}
 	},
 	"directD1": {
-		"apps/cms/src/agent/storage.ts": {
-			"storagePlane": "provisioning-control-plane",
-			"disposition": "approved",
-			"owner": "apps/cms:cms-control-plane-storage",
-			"binding": "D1Database db",
-			"reason": "This centralized CMS storage owner coordinates platform app metadata with tenant_bundles lifecycle reads and atomic rollback writes for provisioning and deploy workflows."
-		},
 		"apps/core-copy/src/index.ts": {
 			"storagePlane": "platform-d1",
 			"disposition": "approved",
@@ -85,13 +78,6 @@
 			"owner": "packages/db:d1-observability-wrapper",
 			"binding": "D1Database db",
 			"reason": "observeD1 only proxies the bound D1's prepare and batch to time each statement and count rows for heavy-use logging; it issues no SQL of its own, so every statement still comes from @tedix/db/queries/*."
-		},
-		"packages/provisioning/src/cms.ts": {
-			"storagePlane": "provisioning-control-plane",
-			"disposition": "approved",
-			"owner": "packages/provisioning:cms-fleet-lifecycle",
-			"binding": "CmsBundlesBindings.platformDb",
-			"reason": "The environment-neutral CMS bundle owner coordinates R2 publication with atomic platform tenant_bundles activation and rollback, and deletes bundle records during resource teardown."
 		}
 	}
 }

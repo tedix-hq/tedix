@@ -36,7 +36,7 @@ function fixture(slug = "acme") {
 		CREATE TABLE cms_deprovision_operations (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'queued');
 		CREATE TABLE tenant_bundles (
 			slug TEXT NOT NULL, version INTEGER NOT NULL, is_active INTEGER NOT NULL,
-			source_revision TEXT
+			source_revision TEXT, etag TEXT
 		);
 	`);
 	const insertSite = (siteId: string) => {
@@ -140,7 +140,7 @@ describe("CMS deploy workflow admission", () => {
 		const { sqlite, db } = fixture();
 		try {
 			sqlite.exec(
-				"INSERT INTO tenant_bundles VALUES ('acme', 38, 1, 'artifacts-commit:abc')",
+				"INSERT INTO tenant_bundles (slug,version,is_active,source_revision) VALUES ('acme', 38, 1, 'artifacts-commit:abc')",
 			);
 			const flow = workflow();
 			await expect(
@@ -197,7 +197,7 @@ describe("CMS deploy workflow admission", () => {
 		const { sqlite, db } = fixture();
 		try {
 			sqlite.exec(
-				"INSERT INTO tenant_bundles VALUES ('acme', 7, 1, 'artifacts-commit:abc')",
+				"INSERT INTO tenant_bundles (slug,version,is_active,source_revision) VALUES ('acme', 7, 1, 'artifacts-commit:abc')",
 			);
 			const flow = workflow();
 			const sourceCommit = "a".repeat(40);
@@ -312,7 +312,7 @@ describe("CMS deploy workflow admission", () => {
 				sourceCommit,
 			});
 			sqlite.exec(
-				"INSERT INTO tenant_bundles VALUES ('acme', 1, 1, 'artifacts-commit:abc')",
+				"INSERT INTO tenant_bundles (slug,version,is_active,source_revision) VALUES ('acme', 1, 1, 'artifacts-commit:abc')",
 			);
 			expect(
 				await startCmsDeployWorkflow({
@@ -345,7 +345,9 @@ describe("CMS deploy workflow admission", () => {
 				db,
 				orgSlug: "acme",
 			});
-			sqlite.exec("INSERT INTO tenant_bundles VALUES ('acme', 1, 1, NULL)");
+			sqlite.exec(
+				"INSERT INTO tenant_bundles (slug,version,is_active,source_revision) VALUES ('acme', 1, 1, NULL)",
+			);
 			const second = await startCmsDeployWorkflow({
 				workflow: flow,
 				db,

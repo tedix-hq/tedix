@@ -320,6 +320,7 @@
 		"./queries/app-secrets": "./src/queries/app-secrets.ts",
 		"./queries/app-config-versions": "./src/queries/app-config-versions.ts",
 		"./queries/apps": "./src/queries/apps.ts",
+		"./queries/cms-control-plane": "./src/queries/cms-control-plane.ts",
 		"./queries/cms-sites": "./src/queries/cms-sites.ts",
 		"./queries/cms-domain-claims": "./src/queries/cms-domain-claims.ts",
 		"./queries/cms-deprovision-operations": "./src/queries/cms-deprovision-operations.ts",

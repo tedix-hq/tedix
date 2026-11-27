@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { listThemeCandidatePreviews } from "./agent/theme-candidate";
 import { getActiveCmsSiteForPermit } from "./agent/cms-restore-permit";
 import { previewContainerHeaders } from "./preview-headers";
@@ -491,7 +492,7 @@ export async function mapWorkflowStatus(
 				etag?: string;
 			};
 			const versions = await listTenantBundleVersions(
-				{ platformDb: env.DB, bundlesBucket: env.BUNDLES_BUCKET },
+				{ platformDb: coreQueryDb(env), bundlesBucket: env.BUNDLES_BUCKET },
 				orgSlug,
 			);
 			const active = versions.filter((version) => version.isActive);
@@ -610,7 +611,7 @@ async function buildSiteBuilderContext(
 			return getRequestSandbox();
 		},
 		bundlesBucket: env.BUNDLES_BUCKET,
-		platformDb: env.DB,
+		platformDb: coreQueryDb(env),
 	};
 
 	const assertOrgOperationAllowed = (targetOrgSlug: string, action: string) => {
@@ -628,7 +629,7 @@ async function buildSiteBuilderContext(
 			orgSlug,
 			parseCmsServiceKeys(env.CMS_SERVICE_KEYS),
 		),
-		getCmsTemplateSelection(env.DB, orgSlug),
+		getCmsTemplateSelection(coreQueryDb(env), orgSlug),
 	]);
 	const templateSlug = normalizeCmsTemplateSlug(
 		templateSelection?.blogTemplateSlug ?? templateSelection?.metaTemplateSlug,
@@ -654,7 +655,10 @@ async function buildSiteBuilderContext(
 				});
 				return;
 			}
-			const authority = await getCmsHumanSiteAuthority(env.DB, orgSlug);
+			const authority = await getCmsHumanSiteAuthority(
+				coreQueryDb(env),
+				orgSlug,
+			);
 			const existingSite = Boolean(authority?.activeBundleEtag);
 			let source: { remote: string; token: string } | undefined;
 			if (env.ARTIFACTS) {
@@ -699,7 +703,7 @@ async function buildSiteBuilderContext(
 			auth.user && humanAuthRequired
 				? (
 						await resolveCmsHumanAuthorization({
-							db: env.DB,
+							db: coreQueryDb(env),
 							descope: env,
 							slug,
 							user: auth.user,
@@ -718,14 +722,14 @@ async function buildSiteBuilderContext(
 		cmsDispatch: env.CMS_DISPATCH,
 		geminiApiKey: env.GEMINI_API_KEY,
 		geminiGateway: {
-			beforeSend: () => requireUnrestrictedCmsModels(env.DB, orgSlug),
+			beforeSend: () => requireUnrestrictedCmsModels(coreQueryDb(env), orgSlug),
 			accountId: env.AI_GATEWAY_ACCOUNT_ID,
 			gatewayId: env.AI_GATEWAY_ID,
 			token: env.CF_AI_GATEWAY_TOKEN,
 			binding: env.AI,
 			bindingProviders: env.AI_GATEWAY_BINDING_PROVIDERS,
 		},
-		db: env.DB,
+		db: coreQueryDb(env),
 		getSandboxForOrg: (slug: string) => {
 			assertOrgOperationAllowed(slug, "open sandbox for");
 			return getSiteBuilderSandbox(env, slug);
@@ -734,7 +738,7 @@ async function buildSiteBuilderContext(
 			assertOrgOperationAllowed(slug, "deploy");
 			const admission = await startCmsDeployWorkflow({
 				workflow: env.DEPLOY_WORKFLOW,
-				db: env.DB,
+				db: coreQueryDb(env),
 				orgSlug: slug,
 				summary,
 				sourceCommit,
@@ -758,7 +762,7 @@ async function buildSiteBuilderContext(
 		},
 		listVersions: (slug) => {
 			assertOrgOperationAllowed(slug, "list versions for");
-			return listVersions(env.BUNDLES_BUCKET, env.DB, slug);
+			return listVersions(env.BUNDLES_BUCKET, coreQueryDb(env), slug);
 		},
 	};
 }
@@ -789,7 +793,7 @@ async function buildCmsProxyContext(
 			auth.user && humanAuthRequired
 				? (
 						await resolveCmsHumanAuthorization({
-							db: env.DB,
+							db: coreQueryDb(env),
 							descope: env,
 							slug,
 							user: auth.user,
@@ -805,7 +809,7 @@ async function buildCmsProxyContext(
 		internalAuthToken: env.CMS_INTERNAL_AUTH_TOKEN,
 		environment: env.ENVIRONMENT || "production",
 		cmsDispatch: env.CMS_DISPATCH,
-		db: env.DB,
+		db: coreQueryDb(env),
 		bundlesBucket: env.BUNDLES_BUCKET,
 	};
 }
@@ -969,7 +973,10 @@ async function handleMcpRequest(c: {
 			},
 		);
 	}
-	const cmsSelection = await getCmsTemplateSelection(c.env.DB, orgSlug);
+	const cmsSelection = await getCmsTemplateSelection(
+		coreQueryDb(c.env),
+		orgSlug,
+	);
 	if (!cmsSelection) {
 		return jsonRpcError(
 			null,
@@ -986,7 +993,7 @@ async function handleMcpRequest(c: {
 	const humanAuth: CmsHumanAuthResolution =
 		forwardedHumanJwt && auth.user
 			? await resolveCmsHumanAuthorization({
-					db: c.env.DB,
+					db: coreQueryDb(c.env),
 					descope: c.env,
 					slug: orgSlug,
 					user: auth.user,
@@ -1176,7 +1183,7 @@ app.get("/api/internal/deployments/:slug/theme-version", async (c) => {
 		return c.json({ error: "Internal service authorization required" }, 403);
 	}
 	const versions = await listTenantBundleVersions(
-		{ bundlesBucket: c.env.BUNDLES_BUCKET, platformDb: c.env.DB },
+		{ bundlesBucket: c.env.BUNDLES_BUCKET, platformDb: coreQueryDb(c.env) },
 		slug,
 	);
 	const active = versions.find((version) => version.isActive);
@@ -1245,9 +1252,9 @@ app.get("/api/internal/deployments/:slug/resources", async (c) => {
 	}
 	let themeCandidates;
 	if (c.req.query("includeThemeCandidates") === "1") {
-		const site = await getActiveCmsSiteForPermit(c.env.DB, slug);
+		const site = await getActiveCmsSiteForPermit(coreQueryDb(c.env), slug);
 		const versions = await listTenantBundleVersions(
-			{ platformDb: c.env.DB, bundlesBucket: c.env.BUNDLES_BUCKET },
+			{ platformDb: coreQueryDb(c.env), bundlesBucket: c.env.BUNDLES_BUCKET },
 			slug,
 		);
 		themeCandidates = await listThemeCandidatePreviews(
@@ -1343,7 +1350,7 @@ app.post("/api/internal/deployments/:slug/recovery-bookmark", async (c) => {
 	) {
 		return c.json({ error: "Internal service authorization required" }, 403);
 	}
-	const site = await getCmsTemplateSelection(c.env.DB, slug);
+	const site = await getCmsTemplateSelection(coreQueryDb(c.env), slug);
 	if (!site) return c.json({ error: "Active CMS site required" }, 404);
 	if (!c.env.CMS_DISPATCH || !c.env.CMS_INTERNAL_AUTH_TOKEN) {
 		return c.json({ error: "CMS runtime unavailable" }, 503);
@@ -1518,7 +1525,12 @@ app.delete("/api/internal/deployments/:slug", async (c) => {
 	)
 		return c.json({ error: "Exact CMS site ID required" }, 400);
 	try {
-		if (!(await hasExactCmsDeprovisionAuthority(c.env.DB, { siteId, slug })))
+		if (
+			!(await hasExactCmsDeprovisionAuthority(coreQueryDb(c.env), {
+				siteId,
+				slug,
+			}))
+		)
 			return c.json({ error: "CMS deprovision authority mismatch" }, 409);
 	} catch {
 		return c.json({ error: "CMS deprovision authority unavailable" }, 503);
@@ -1554,7 +1566,7 @@ app.delete("/api/internal/deployments/:slug", async (c) => {
 	}
 
 	const result = await deprovisionCms(
-		{ bundlesBucket: c.env.BUNDLES_BUCKET, platformDb: c.env.DB },
+		{ bundlesBucket: c.env.BUNDLES_BUCKET, platformDb: coreQueryDb(c.env) },
 		slug,
 		async () => {
 			if (!c.env.CMS_DISPATCH || !c.env.CMS_INTERNAL_AUTH_TOKEN)

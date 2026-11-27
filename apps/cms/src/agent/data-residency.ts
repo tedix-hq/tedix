@@ -1,9 +1,12 @@
-import { coreQueryDb } from "@tedix/db/core-store/scope";
+import {
+	cmsQueryDb,
+	type CmsDatabase,
+} from "@tedix/db/queries/cms-control-plane";
 import { getOrganizationResidencyPolicy } from "@tedix/db/queries/data-residency";
 import { getCmsTemplateSelection } from "./storage";
 
 export async function requireUnrestrictedCmsModels(
-	binding: D1Database,
+	binding: CmsDatabase,
 	slug: string,
 ): Promise<void> {
 	const site = await getCmsTemplateSelection(binding, slug);
@@ -12,7 +15,7 @@ export async function requireUnrestrictedCmsModels(
 			"Data residency requires a verified site owner before model processing",
 		);
 	const policy = await getOrganizationResidencyPolicy(
-		coreQueryDb({ DB: binding }),
+		cmsQueryDb(binding),
 		site.organizationId,
 	);
 	if (policy && policy.mode !== "unrestricted")

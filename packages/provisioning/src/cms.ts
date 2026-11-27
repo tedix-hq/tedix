@@ -3,7 +3,7 @@
  *
  * Tenant bundles live in R2 and are activated through platform tenant_bundles
  * rows for apps/cms-runtime Worker Loader. Tenant content uses EmDashDB Durable
- * Object SQLite; platform D1 tracks bundle publication metadata.
+ * Object SQLite; the core store tracks bundle publication metadata.
  *
  * Resource teardown requires a Cloudflare token with R2 bucket deletion
  * permissions. Bundle publication uses caller-supplied bindings.
@@ -17,6 +17,17 @@ import {
 	COMPRESSED_CMS_BUNDLE_KEY,
 	type CmsBundle,
 } from "./cms-bundle";
+import {
+	cmsQueryDb,
+	type CmsDatabase,
+	activateCmsBundle,
+	deleteCmsBundles,
+	getCmsBundle,
+	listCmsBundleVersions,
+	readCmsBundleGeneration,
+	readCmsHumanAuthMarker,
+	reserveCmsBundle,
+} from "@tedix/db/queries/cms-control-plane";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 // Minimal structural types — each caller worker has its own auto-generated
@@ -53,24 +64,6 @@ interface R2Bucket {
 	list(opts: { prefix?: string; cursor?: string }): Promise<R2ListResult>;
 }
 
-interface D1Result<T> {
-	results: T[];
-	success: boolean;
-	meta: Record<string, unknown>;
-}
-interface D1PreparedStatement {
-	bind(...args: unknown[]): D1PreparedStatement;
-	first<T = Record<string, unknown>>(): Promise<T | null>;
-	all<T = Record<string, unknown>>(): Promise<D1Result<T>>;
-	run(): Promise<{ success: boolean; meta: Record<string, unknown> }>;
-}
-interface D1Database {
-	prepare(sql: string): D1PreparedStatement;
-	batch<T = unknown>(
-		statements: D1PreparedStatement[],
-	): Promise<Array<D1Result<T>>>;
-}
-
 export interface CmsProvisioningConfig {
 	accountId: string;
 	apiToken: string;
@@ -86,7 +79,7 @@ export interface CmsProvisioningConfig {
  */
 export interface CmsBundlesBindings {
 	bundlesBucket: R2Bucket;
-	platformDb: D1Database;
+	platformDb: CmsDatabase;
 }
 
 /** Read the immutable compiled target before changing the active bundle pointer. */
@@ -104,20 +97,14 @@ export async function verifyTenantBundleDirectDo(
 	slug: string,
 	version: number,
 ): Promise<VerifiedTenantBundle> {
-	const row = await bindings.platformDb
-		.prepare(
-			`SELECT id, r2_prefix AS r2Prefix, main_module AS mainModule,
-			        etag, modules_json AS modulesJson
-			 FROM tenant_bundles WHERE slug = ? AND version = ?`,
-		)
-		.bind(slug, version)
-		.first<{
-			id: string;
-			r2Prefix: string;
-			mainModule: string;
-			etag: string;
-			modulesJson: string;
-		}>();
+	const stored = await getCmsBundle(
+		cmsQueryDb(bindings.platformDb),
+		slug,
+		version,
+	);
+	const row = stored
+		? { ...stored, modulesJson: JSON.stringify(stored.modulesJson) }
+		: null;
 	if (!row) return { error: `version ${version} not found for ${slug}` };
 	const incompatible = (reason: string) => ({
 		error: `version ${version} for ${slug} cannot activate: ${reason}`,
@@ -549,26 +536,10 @@ interface TenantBundleGeneration {
 }
 
 async function readTenantBundleGeneration(
-	db: D1Database,
+	db: CmsDatabase,
 	slug: string,
 ): Promise<TenantBundleGeneration> {
-	const row = await db
-		.prepare(
-			`SELECT
-			   COALESCE(MAX(version), 0) + 1 AS nextVersion,
-			   MAX(CASE WHEN is_active = 1 THEN version END) AS activeVersion,
-			   MAX(CASE WHEN is_active = 1 THEN etag END) AS activeEtag,
-			   SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS activeCount
-			 FROM tenant_bundles WHERE slug = ?`,
-		)
-		.bind(slug)
-		.first<TenantBundleGeneration>();
-	return {
-		activeVersion: row?.activeVersion ?? null,
-		activeEtag: row?.activeEtag ?? null,
-		activeCount: row?.activeCount ?? 0,
-		nextVersion: row?.nextVersion ?? 1,
-	};
+	return readCmsBundleGeneration(cmsQueryDb(db), slug);
 }
 
 /** The locked middleware root that imports the reviewed human auth chunk. */
@@ -705,22 +676,14 @@ export async function hasReviewedCmsHumanAuth(
  */
 export type CmsHumanAuthorityCarry = "carried" | "needs_review" | "unchanged";
 
-export interface CmsHumanAuthorityCarryPlan<
-	TStatement extends D1PreparedStatement = D1PreparedStatement,
-> {
-	statement: TStatement | null;
+export interface CmsHumanAuthorityCarryPlan {
+	carry: { previousEtag: string; targetEtag: string } | null;
 	outcome: CmsHumanAuthorityCarry;
 }
 
-/**
- * Decide, before the activation batch, whether the human OAuth marker can
- * follow the active bundle. The returned statement must run immediately after
- * the `is_active = 1` statement in the same `db.batch()`: `changes() = 1`
- * gates it on that activation winning, and the marker CAS plus the unique
- * active-etag subquery keep it from ever naming a bundle that is not live.
- */
-export async function planCmsHumanAuthorityCarry<TDb extends D1Database>(
-	db: TDb,
+/** The reviewed capability is checked before the query owner atomically activates and carries its marker. */
+export async function planCmsHumanAuthorityCarry(
+	db: CmsDatabase,
 	input: {
 		slug: string;
 		previousActiveEtag: string | null;
@@ -728,69 +691,42 @@ export async function planCmsHumanAuthorityCarry<TDb extends D1Database>(
 		modules: string[];
 		readModule: (module: string) => Promise<string | null>;
 	},
-): Promise<CmsHumanAuthorityCarryPlan<ReturnType<TDb["prepare"]>>> {
-	type Statement = ReturnType<TDb["prepare"]>;
+): Promise<CmsHumanAuthorityCarryPlan> {
 	if (input.previousActiveEtag === null)
-		return { statement: null, outcome: "unchanged" };
-	const site = await db
-		.prepare(
-			`SELECT json_extract(config, '$.blog.humanAssertionBundleEtag') AS marker
-			 FROM cms_sites WHERE slug = ? AND status = 'active'`,
-		)
-		.bind(input.slug)
-		.first<{ marker: unknown }>();
-	if (
-		typeof site?.marker !== "string" ||
-		site.marker !== input.previousActiveEtag
-	)
-		return { statement: null, outcome: "unchanged" };
+		return { carry: null, outcome: "unchanged" };
+	const marker = await readCmsHumanAuthMarker(cmsQueryDb(db), input.slug);
+	if (typeof marker !== "string" || marker !== input.previousActiveEtag)
+		return { carry: null, outcome: "unchanged" };
 	try {
 		if (
 			input.modules.filter((module) => module === CMS_HUMAN_AUTH_MODULE)
 				.length !== 1
 		)
-			return { statement: null, outcome: "needs_review" };
+			return { carry: null, outcome: "needs_review" };
 		const source = await input.readModule(CMS_HUMAN_AUTH_MODULE);
 		if (
 			source === null ||
 			source.length > HUMAN_AUTH_MODULE_MAX_BYTES ||
 			!(await hasReviewedCmsHumanAuth(source, input))
 		)
-			return { statement: null, outcome: "needs_review" };
+			return { carry: null, outcome: "needs_review" };
 	} catch {
-		return { statement: null, outcome: "needs_review" };
+		return { carry: null, outcome: "needs_review" };
 	}
 	return {
 		outcome: "carried",
-		statement: (db as D1Database)
-			.prepare(
-				`UPDATE cms_sites
-				 SET config = json_set(config, '$.blog.humanAssertionBundleEtag', ?),
-				     updated_at = datetime('now')
-				 WHERE slug = ? AND status = 'active' AND changes() = 1
-				   AND json_type(config, '$.blog') = 'object'
-				   AND json_extract(config, '$.blog.humanAssertionBundleEtag') = ?
-				   AND (SELECT COUNT(*) FROM tenant_bundles b
-				        WHERE b.slug = cms_sites.slug AND b.is_active = 1) = 1
-				   AND EXISTS (SELECT 1 FROM tenant_bundles b
-				        WHERE b.slug = cms_sites.slug AND b.is_active = 1 AND b.etag = ?)`,
-			)
-			.bind(
-				input.targetEtag,
-				input.slug,
-				input.previousActiveEtag,
-				input.targetEtag,
-			) as Statement,
+		carry: {
+			previousEtag: input.previousActiveEtag,
+			targetEtag: input.targetEtag,
+		},
 	};
 }
 
-/** Resolve a carry plan against its batch result (the statement's own D1Result). */
 export function resolveCmsHumanAuthorityCarry(
 	plan: CmsHumanAuthorityCarryPlan,
-	result: D1Result<unknown> | undefined,
+	carried: boolean,
 ): CmsHumanAuthorityCarry {
-	if (!plan.statement) return plan.outcome;
-	return result?.meta.changes === 1 ? "carried" : "needs_review";
+	return plan.carry ? (carried ? "carried" : "needs_review") : plan.outcome;
 }
 
 function assertBundleVersion(value: number, label: string): void {
@@ -868,48 +804,26 @@ export async function uploadTenantBundle(
 
 	// Reserve the version before writing R2 so competing publishers cannot
 	// overwrite the same immutable prefix with different bytes.
-	await bindings.platformDb
-		.prepare(
-			`INSERT INTO tenant_bundles
-			 (id, slug, version, r2_prefix, main_module, etag, modules_json,
-			  source_revision, is_active, deployed_at, deployed_by, summary)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-			 ON CONFLICT(slug, version) DO NOTHING`,
-		)
-		.bind(
-			reservationId,
-			orgSlug,
-			version,
-			r2Prefix,
-			mainModule,
-			etag,
-			modulesJson,
-			sourceRevision,
-			deployedAt,
-			deployedBy ?? null,
-			summary ?? null,
-		)
-		.run();
-
-	const reserved = await bindings.platformDb
-		.prepare(
-			`SELECT id, r2_prefix AS r2Prefix, main_module AS mainModule,
-			        etag, modules_json AS modulesJson, is_active AS isActive,
-			        deployed_at AS deployedAt, source_revision AS sourceRevision
-			 FROM tenant_bundles
-			 WHERE slug = ? AND version = ? AND deployed_by IS ?`,
-		)
-		.bind(orgSlug, version, deployedBy ?? null)
-		.first<{
-			id: string;
-			r2Prefix: string;
-			mainModule: string;
-			etag: string;
-			modulesJson: string;
-			isActive: number;
-			deployedAt: string;
-			sourceRevision: string | null;
-		}>();
+	const db = cmsQueryDb(bindings.platformDb);
+	await reserveCmsBundle(db, {
+		id: reservationId,
+		slug: orgSlug,
+		version,
+		r2Prefix,
+		mainModule,
+		etag,
+		modulesJson: modules,
+		sourceRevision,
+		isActive: false,
+		deployedAt,
+		deployedBy: deployedBy ?? null,
+		summary: summary ?? null,
+	});
+	const stored = await getCmsBundle(db, orgSlug, version);
+	const reserved =
+		stored && stored.deployedBy === (deployedBy ?? null)
+			? { ...stored, modulesJson: JSON.stringify(stored.modulesJson) }
+			: null;
 	if (
 		!reserved ||
 		reserved.r2Prefix !== r2Prefix ||
@@ -922,7 +836,7 @@ export async function uploadTenantBundle(
 			`CMS bundle version ${version} for ${orgSlug} is already reserved by another deploy`,
 		);
 	}
-	if (reserved.isActive === 1) {
+	if (reserved.isActive) {
 		return {
 			slug: orgSlug,
 			version,
@@ -930,13 +844,13 @@ export async function uploadTenantBundle(
 			r2Prefix,
 			mainModule,
 			modules,
-			deployedAt: reserved.deployedAt,
+			deployedAt: reserved.deployedAt ?? deployedAt,
 			sourceRevision: normalizedSourceRevision,
 			humanAuthority: "unchanged",
 		};
 	}
 
-	// Publish the single immutable runtime object before activating its D1 row.
+	// Publish the single immutable runtime object before activating its core-store row.
 	const compressed = await compressCmsBundle(
 		mainModule,
 		modules,
@@ -953,12 +867,8 @@ export async function uploadTenantBundle(
 		},
 	);
 
-	// Activate only if the predecessor captured at admission is still active.
-	// `changes()` is intentionally the first condition in the next statement of
-	// the same D1 batch; it gates the dependent activation on the CAS winner.
-	// The human OAuth marker follows the activation in the same batch when the
-	// site's authority was live on the predecessor and the new verifier is the
-	// reviewed one; the marker is only read against that exact predecessor.
+	// The marker follows a winning activation only when the new bundle carries
+	// the reviewed verifier and the marker still names the captured predecessor.
 	const humanAuthority = await planCmsHumanAuthorityCarry(bindings.platformDb, {
 		slug: orgSlug,
 		previousActiveEtag:
@@ -977,60 +887,16 @@ export async function uploadTenantBundle(
 				? new TextDecoder().decode(files[module])
 				: null,
 	});
-	const releaseCurrent =
-		expectedActiveVersion === null
-			? bindings.platformDb
-					.prepare(
-						`UPDATE tenant_bundles SET is_active = is_active
-						 WHERE id = ? AND is_active = 0
-						   AND NOT EXISTS (
-						     SELECT 1 FROM cms_restore_permits maintenance
-						     WHERE maintenance.slug = tenant_bundles.slug
-						       AND maintenance.kind = 'scheduled'
-						       AND (maintenance.id LIKE 'bundle-retention:%' OR maintenance.id LIKE 'lease:v1:bundle-retention:%')
-						   )
-						   AND NOT EXISTS (
-						     SELECT 1 FROM tenant_bundles active
-						     WHERE active.slug = ? AND active.is_active = 1
-						   )`,
-					)
-					.bind(reserved.id, orgSlug)
-			: bindings.platformDb
-					.prepare(
-						`UPDATE tenant_bundles SET is_active = 0
-						 WHERE slug = ? AND version = ? AND is_active = 1
-						   AND NOT EXISTS (
-						     SELECT 1 FROM cms_restore_permits maintenance
-						     WHERE maintenance.slug = tenant_bundles.slug
-						       AND maintenance.kind = 'scheduled'
-						       AND (maintenance.id LIKE 'bundle-retention:%' OR maintenance.id LIKE 'lease:v1:bundle-retention:%')
-						   )
-						   AND EXISTS (
-						     SELECT 1 FROM tenant_bundles target
-						     WHERE target.id = ? AND target.is_active = 0
-						   )`,
-					)
-					.bind(orgSlug, expectedActiveVersion, reserved.id);
-	const activation = (await bindings.platformDb.batch([
-		releaseCurrent,
-		bindings.platformDb
-			.prepare(
-				`UPDATE tenant_bundles SET is_active = 1
-				 WHERE id = ? AND is_active = 0 AND changes() = 1
-				   AND NOT EXISTS (
-				     SELECT 1 FROM tenant_bundles active
-				     WHERE active.slug = ? AND active.is_active = 1
-				   )
-				 RETURNING version`,
-			)
-			.bind(reserved.id, orgSlug),
-		...(humanAuthority.statement ? [humanAuthority.statement] : []),
-	])) as Array<D1Result<{ version: number }>>;
-	if (activation[1]?.results[0]?.version !== version) {
+	const activation = await activateCmsBundle(db, {
+		slug: orgSlug,
+		targetId: reserved.id,
+		expectedActiveVersion,
+		carry: humanAuthority.carry,
+	});
+	if (!activation.activated)
 		throw new Error(
 			`CMS bundle ${orgSlug} v${version} lost the active-version compare-and-swap`,
 		);
-	}
 	const active = await readTenantBundleGeneration(bindings.platformDb, orgSlug);
 	if (active.activeCount !== 1 || active.activeVersion !== version) {
 		throw new Error(`CMS bundle ${orgSlug} v${version} is not uniquely active`);
@@ -1047,14 +913,14 @@ export async function uploadTenantBundle(
 		sourceRevision: normalizedSourceRevision,
 		humanAuthority: resolveCmsHumanAuthorityCarry(
 			humanAuthority,
-			activation[2],
+			activation.carried,
 		),
 	};
 }
 
 /**
  * Activate a previously-uploaded version (manual rollback) using the active
- * version observed immediately before the D1 batch as a compare-and-swap.
+ * version observed immediately before activation as a compare-and-swap.
  */
 export async function activateTenantBundleVersion(
 	bindings: CmsBundlesBindings,
@@ -1098,61 +964,17 @@ export async function activateTenantBundleVersion(
 					: CMS_HUMAN_AUTH_CHUNK_MAX_BYTES,
 			),
 	});
-	const releaseCurrent =
-		generation.activeVersion === null
-			? bindings.platformDb
-					.prepare(
-						`UPDATE tenant_bundles SET is_active = is_active
-						 WHERE id = ? AND is_active = 0
-						   AND NOT EXISTS (
-						     SELECT 1 FROM cms_restore_permits maintenance
-						     WHERE maintenance.slug = tenant_bundles.slug
-						       AND maintenance.kind = 'scheduled'
-						       AND (maintenance.id LIKE 'bundle-retention:%' OR maintenance.id LIKE 'lease:v1:bundle-retention:%')
-						   )
-						   AND NOT EXISTS (
-						     SELECT 1 FROM tenant_bundles active
-						     WHERE active.slug = ? AND active.is_active = 1
-						   )`,
-					)
-					.bind(target.id, slug)
-			: bindings.platformDb
-					.prepare(
-						`UPDATE tenant_bundles SET is_active = 0
-						 WHERE slug = ? AND version = ? AND is_active = 1
-						   AND NOT EXISTS (
-						     SELECT 1 FROM cms_restore_permits maintenance
-						     WHERE maintenance.slug = tenant_bundles.slug
-						       AND maintenance.kind = 'scheduled'
-						       AND (maintenance.id LIKE 'bundle-retention:%' OR maintenance.id LIKE 'lease:v1:bundle-retention:%')
-						   )
-						   AND EXISTS (
-						     SELECT 1 FROM tenant_bundles target
-						     WHERE target.id = ? AND target.is_active = 0
-						   )`,
-					)
-					.bind(slug, generation.activeVersion, target.id);
-	const activation = (await bindings.platformDb.batch([
-		releaseCurrent,
-		bindings.platformDb
-			.prepare(
-				`UPDATE tenant_bundles SET is_active = 1
-				 WHERE id = ? AND is_active = 0 AND changes() = 1
-				   AND NOT EXISTS (
-				     SELECT 1 FROM tenant_bundles active
-				     WHERE active.slug = ? AND active.is_active = 1
-				   )
-				 RETURNING version`,
-			)
-			.bind(target.id, slug),
-		...(humanAuthority.statement ? [humanAuthority.statement] : []),
-	])) as Array<D1Result<{ version: number }>>;
-	if (activation[1]?.results[0]?.version !== version) {
+	const activation = await activateCmsBundle(cmsQueryDb(bindings.platformDb), {
+		slug,
+		targetId: target.id,
+		expectedActiveVersion: generation.activeVersion,
+		carry: humanAuthority.carry,
+	});
+	if (!activation.activated)
 		return {
 			success: false,
 			error: `version ${version} lost a concurrent activation race for ${slug}`,
 		};
-	}
 	const active = await readTenantBundleGeneration(bindings.platformDb, slug);
 	if (active.activeCount !== 1 || active.activeVersion !== version) {
 		return {
@@ -1164,7 +986,7 @@ export async function activateTenantBundleVersion(
 		success: true,
 		humanAuthority: resolveCmsHumanAuthorityCarry(
 			humanAuthority,
-			activation[2],
+			activation.carried,
 		),
 	};
 }
@@ -1185,25 +1007,14 @@ export async function listTenantBundleVersions(
 		sourceRevision: TenantBundleSourceRevision | null;
 	}>
 > {
-	const res = await bindings.platformDb
-		.prepare(
-			`SELECT version, etag, is_active AS isActive, deployed_at AS deployedAt, summary,
-			        source_revision AS sourceRevision
-			 FROM tenant_bundles WHERE slug = ? ORDER BY version DESC`,
-		)
-		.bind(slug)
-		.all<{
-			version: number;
-			etag: string;
-			isActive: number;
-			deployedAt: string | null;
-			summary: string | null;
-			sourceRevision: string | null;
-		}>();
-	return (res.results ?? []).map((r) => ({
+	const rows = await listCmsBundleVersions(
+		cmsQueryDb(bindings.platformDb),
+		slug,
+	);
+	return rows.map((r) => ({
 		version: r.version,
 		etag: r.etag,
-		isActive: r.isActive === 1,
+		isActive: r.isActive,
 		deployedAt: r.deployedAt,
 		summary: r.summary,
 		sourceRevision: parseSourceRevision(r.sourceRevision),
@@ -1233,10 +1044,7 @@ async function purgeBundlesForSlug(
 		}
 	}
 
-	await bindings.platformDb
-		.prepare("DELETE FROM tenant_bundles WHERE slug = ?")
-		.bind(slug)
-		.run();
+	await deleteCmsBundles(cmsQueryDb(bindings.platformDb), slug);
 	return true;
 }
 

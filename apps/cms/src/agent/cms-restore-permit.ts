@@ -1,4 +1,7 @@
-import { coreQueryDb } from "@tedix/db/core-store/scope";
+import {
+	cmsQueryDb,
+	type CmsDatabase,
+} from "@tedix/db/queries/cms-control-plane";
 import {
 	deleteExpiredCmsBundleRetentionPermits,
 	enterCmsRestorePermit,
@@ -18,24 +21,21 @@ export interface ExactCmsActiveSite extends ExactCmsSite {
 
 /** Recover only platform-expired retention holders for the captured site. */
 export async function reclaimCmsBundleRetentionPermits(
-	platformDb: D1Database,
+	platformDb: CmsDatabase,
 	site: ExactCmsActiveSite,
 ): Promise<number> {
-	return deleteExpiredCmsBundleRetentionPermits(
-		coreQueryDb({ DB: platformDb }),
-		{
-			site,
-			limit: 1_000,
-		},
-	);
+	return deleteExpiredCmsBundleRetentionPermits(cmsQueryDb(platformDb), {
+		site,
+		limit: 1_000,
+	});
 }
 
 /** Only the paused canonical site with its running teardown receipt may be deleted. */
 export async function hasExactCmsDeprovisionAuthority(
-	platformDb: D1Database,
+	platformDb: CmsDatabase,
 	site: ExactCmsSite,
 ): Promise<boolean> {
-	const db = coreQueryDb({ DB: platformDb });
+	const db = cmsQueryDb(platformDb);
 	const canonical = await getCmsSiteBySlug(db, site.slug);
 	if (
 		!canonical ||
@@ -57,10 +57,10 @@ export async function hasExactCmsDeprovisionAuthority(
 
 /** Resolve the canonical active identity before deploy admission. */
 export async function getActiveCmsSiteForPermit(
-	platformDb: D1Database,
+	platformDb: CmsDatabase,
 	slug: string,
 ): Promise<ExactCmsActiveSite> {
-	const site = await getCmsSiteBySlug(coreQueryDb({ DB: platformDb }), slug);
+	const site = await getCmsSiteBySlug(cmsQueryDb(platformDb), slug);
 	if (!site || site.status !== "active") {
 		throw new Error(`CMS restore permit denied for site ${slug}`);
 	}
@@ -82,7 +82,7 @@ export interface ExactCmsSiteRestorePermitOptions {
 
 /** Admit only the captured immutable site, and hold its permit through the callback. */
 export async function withExactCmsSiteRestorePermit<T>(
-	platformDb: D1Database,
+	platformDb: CmsDatabase,
 	site: ExactCmsActiveSite,
 	operation: () => Promise<T>,
 	options?: ExactCmsSiteRestorePermitOptions,
@@ -95,7 +95,7 @@ export async function withExactCmsSiteRestorePermit<T>(
 	) {
 		throw new Error("CMS restore permit denied: exact site identity required");
 	}
-	const db = coreQueryDb({ DB: platformDb });
+	const db = cmsQueryDb(platformDb);
 	const permit = {
 		siteId: site.siteId,
 		slug: site.slug,
@@ -104,7 +104,7 @@ export async function withExactCmsSiteRestorePermit<T>(
 		kind: "nested" as const,
 	};
 	// The INSERT checks the active site ID, slug, fence, and deprovision receipt
-	// in one D1 write. A read before this point alone would race teardown.
+	// in one write. A read before this point alone would race teardown.
 	if (!(await enterCmsRestorePermit(db, permit))) {
 		throw new Error(`CMS restore permit denied for site ${site.slug}`);
 	}
@@ -127,7 +127,7 @@ export async function withExactCmsSiteRestorePermit<T>(
 
 /** Keep the exact site's restore permit until the complete mutation and readback finish. */
 export async function withCmsSiteRestorePermit<T>(
-	platformDb: D1Database,
+	platformDb: CmsDatabase,
 	orgSlug: string,
 	operation: () => Promise<T>,
 ): Promise<T> {

@@ -15,10 +15,12 @@
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@tedix/db": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/worker-kit": "workspace:*"
 	},
 	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
 		"@tedix/tsconfig": "workspace:*",
 		"typescript": "catalog:"
 	}

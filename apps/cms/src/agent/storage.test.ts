@@ -1,3 +1,7 @@
+import * as coreClient from "@tedix/db/core-store/client";
+import { coreQueryDb, withCoreStore } from "@tedix/db/core-store/scope";
+import { createPGliteFacade } from "@tedix/db/test/pglite-facade";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { gzipSync, gunzipSync } from "node:zlib";
 import type { CmsBundle } from "@tedix/provisioning/cms-bundle";
 import { DatabaseSync } from "node:sqlite";
@@ -6,10 +10,15 @@ import {
 	listTenantBundleVersions,
 	uploadTenantBundle,
 } from "@tedix/provisioning/cms";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
 	getCmsBundleDeployGeneration,
+	getCmsDeployAdmission,
+	reserveCmsDeployAdmission,
+	updateCmsHotThemeMetadata,
+	getCmsAppMetadata,
+	listCmsFleetBundles,
 	getCmsHumanSiteAuthority,
 	inspectCmsHumanAuthActivation,
 	getCmsSiteDeployment,
@@ -1798,6 +1807,246 @@ it.each(["bundle-retention:tick", "lease:v1:bundle-retention:tick"])(
 			} finally {
 				sqlite.close();
 			}
+		}
+	},
+);
+
+it.each(["d1", "postgres"] as const)(
+	"preserves CMS publication, authority CAS and fenced rollback on %s",
+	async (store) => {
+		const d1 = createD1Fixture(true);
+		const { bucket, objects } = createBucket();
+		d1.sqlite
+			.exec(`CREATE TABLE organizations (id TEXT PRIMARY KEY, descope_tenant_id TEXT, metadata TEXT);
+  INSERT INTO organizations VALUES ('org-acme','tenant-acme',NULL);
+  UPDATE cms_sites SET config = '{"blog":{"defaultLocale":"de","humanAssertionBundleEtag":"etag-2"},"branding":{"name":"Acme"}}';`);
+		seedBundle(d1.sqlite, 1, false);
+		seedBundle(d1.sqlite, 2, true);
+		seedCarryBundle(d1.sqlite, objects, 1, emittedHumanAuthChunk);
+		seedCarryBundle(d1.sqlite, objects, 2, emittedHumanAuthChunk);
+		const pg = store === "postgres" ? await createPGliteFacade() : null;
+		const create = pg
+			? vi
+					.spyOn(coreClient, "createCoreStore")
+					.mockReturnValue({ db: pg.db, close: async () => {} })
+			: null;
+		const env = {
+			CORE_STORE: store,
+			DB: pg
+				? ({
+						prepare() {
+							throw new Error("unexpected D1 access");
+						},
+					} as unknown as D1Database)
+				: createD1Facade(d1.sqlite),
+		};
+		const exec = async (sql: string) => {
+			if (pg) await pg.engine.exec(sql);
+			else d1.sqlite.exec(sql);
+		};
+		try {
+			if (pg) {
+				const tables = d1.sqlite
+					.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table'")
+					.all() as Array<{ name: string; sql: string }>;
+				for (const table of tables) {
+					await pg.engine.exec(
+						table.sql
+							.replaceAll(
+								"is_active INTEGER NOT NULL DEFAULT 0",
+								"is_active BOOLEAN NOT NULL DEFAULT false",
+							)
+							.replaceAll("config TEXT", "config JSONB")
+							.replaceAll("metadata TEXT", "metadata JSONB")
+							.replaceAll("modules_json TEXT", "modules_json JSONB"),
+					);
+					for (const row of d1.sqlite
+						.prepare(`SELECT * FROM ${table.name}`)
+						.all()) {
+						const columns = Object.keys(row);
+						await pg.engine.query(
+							`INSERT INTO ${table.name} (${columns.join(",")}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(",")})`,
+							columns.map((key) =>
+								key === "is_active" ? Boolean(row[key]) : row[key],
+							),
+						);
+					}
+				}
+			}
+			await withCoreStore(env, async () => {
+				const db = coreQueryDb(env);
+				const bindings = { platformDb: db, bundlesBucket: bucket };
+				const site = { siteId: "site-acme", slug: "acme", restoreEpoch: 0 };
+				expect(await getCmsTemplateSelection(db, "ACME")).toMatchObject({
+					organizationId: "org-acme",
+					blogTemplateSlug: "tedix",
+				});
+				expect(await getCmsHumanSiteAuthority(db, "acme")).toMatchObject({
+					tenantId: "tenant-acme",
+					activeBundleEtag: "etag-2",
+					humanAssertionBundleEtag: "etag-2",
+				});
+				expect(await getCmsHumanSiteAuthority(db, "other")).toBeNull();
+				expect(await getCmsDeployAdmission(db, site)).toBeNull();
+				expect(await reserveCmsDeployAdmission(db, site, null, "job-1")).toBe(
+					true,
+				);
+				expect(await reserveCmsDeployAdmission(db, site, null, "job-2")).toBe(
+					false,
+				);
+				expect(
+					await reserveCmsDeployAdmission(
+						db,
+						{ ...site, restoreEpoch: 1 },
+						"job-1",
+						"job-2",
+					),
+				).toBe(false);
+				expect(await getCmsDeployAdmission(db, site)).toBe("job-1");
+				await updateCmsHotThemeMetadata(db, "acme", { revision: "hot-1" });
+				expect(await getCmsAppMetadata(db, "acme")).toMatchObject({
+					branding: { name: "Acme" },
+					blog: { hotTheme: { revision: "hot-1" } },
+				});
+				const expected = {
+					slug: "acme",
+					expectedSiteId: "site-acme",
+					expectedTenantId: "tenant-acme",
+					expectedVersion: 2,
+					expectedBundleEtag: "etag-2",
+					expectedCurrentMarker: "etag-2",
+				};
+				await expect(
+					setCmsHumanAuthActivation(db, bucket, {
+						...expected,
+						expectedTenantId: "other",
+						enabled: false,
+					}),
+				).rejects.toThrow("CAS conflict");
+				await setCmsHumanAuthActivation(db, bucket, {
+					...expected,
+					enabled: false,
+				});
+				await setCmsHumanAuthActivation(db, bucket, {
+					...expected,
+					expectedCurrentMarker: null,
+					enabled: true,
+				});
+				expect(await activateTenantBundleVersion(bindings, "acme", 1)).toEqual({
+					success: true,
+					humanAuthority: "carried",
+				});
+				expect(await getCmsHumanSiteAuthority(db, "acme")).toMatchObject({
+					activeBundleEtag: "etag-1",
+					humanAssertionBundleEtag: "etag-1",
+				});
+				expect(
+					await rollbackCmsTenantBundle(db, bucket, {
+						site,
+						failedVersion: 1,
+						previousVersion: 2,
+					}),
+				).toEqual({ rolledBack: true, humanAuthority: "carried" });
+				expect(
+					await rollbackCmsTenantBundle(db, bucket, {
+						site,
+						failedVersion: 1,
+						previousVersion: 2,
+					}),
+				).toEqual({ rolledBack: false });
+				await exec(
+					"INSERT INTO cms_restore_permits (id,site_id,slug,kind) VALUES ('bundle-retention:held','site-acme','acme','scheduled')",
+				);
+				expect(
+					(await activateTenantBundleVersion(bindings, "acme", 1)).success,
+				).toBe(false);
+				await exec(
+					"DELETE FROM cms_restore_permits WHERE id='bundle-retention:held'",
+				);
+				const packed = unpack(objects, "acme/v1/");
+				const files = Object.fromEntries(
+					Object.entries(packed.modules).map(([name, source]) => [
+						name,
+						new TextEncoder().encode(source.js),
+					]),
+				);
+				const published = await uploadTenantBundle(bindings, {
+					orgSlug: "acme",
+					mainModule: "entry.mjs",
+					files,
+					sourceRevision,
+					deployedBy: "job-3",
+				});
+				expect(published).toMatchObject({
+					version: 3,
+					humanAuthority: "carried",
+				});
+				await expect(
+					uploadTenantBundle(bindings, {
+						orgSlug: "acme",
+						mainModule: "entry.mjs",
+						files,
+						sourceRevision,
+						version: 4,
+						expectedActiveVersion: 2,
+					}),
+				).rejects.toThrow("compare-and-swap");
+				expect(
+					(await listTenantBundleVersions(bindings, "acme"))
+						.filter((row) => row.isActive)
+						.map((row) => row.version),
+				).toEqual([3]);
+				expect(await getCmsSiteDeployment(db, bucket, "acme")).toMatchObject({
+					activeBundleVersion: 3,
+					sourceRevision,
+				});
+				expect(await listCmsFleetBundles(db)).toMatchObject([
+					{
+						slug: "acme",
+						activeVersion: 3,
+						latestVersion: 4,
+						defaultLocale: "de",
+					},
+				]);
+				expect(
+					await uploadTenantBundle(bindings, {
+						orgSlug: "fresh",
+						mainModule: "entry.mjs",
+						files,
+						sourceRevision,
+					}),
+				).toMatchObject({ version: 1 });
+				// Failure after releasing the predecessor must roll back activation and marker together.
+				await exec(
+					pg
+						? `CREATE FUNCTION reject_marker() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'marker unavailable'; END $$;
+    CREATE TRIGGER reject_marker BEFORE UPDATE ON cms_sites FOR EACH ROW EXECUTE FUNCTION reject_marker();`
+						: "CREATE TRIGGER reject_marker BEFORE UPDATE ON cms_sites BEGIN SELECT RAISE(ABORT,'marker unavailable'); END",
+				);
+				await expect(
+					activateTenantBundleVersion(bindings, "acme", 1),
+				).rejects.toThrow();
+				expect(
+					(await listTenantBundleVersions(bindings, "acme"))
+						.filter((row) => row.isActive)
+						.map((row) => row.version),
+				).toEqual([3]);
+				expect(await getCmsHumanSiteAuthority(db, "acme")).toMatchObject({
+					activeBundleEtag: published.etag,
+					humanAssertionBundleEtag: published.etag,
+				});
+				await expect(
+					rollbackCmsTenantBundle(db, bucket, {
+						site: { ...site, restoreEpoch: 1 },
+						failedVersion: 3,
+						previousVersion: 1,
+					}),
+				).rejects.toThrow("permit denied");
+			});
+		} finally {
+			create?.mockRestore();
+			await pg?.close();
+			d1.sqlite.close();
 		}
 	},
 );

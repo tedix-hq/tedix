@@ -209,7 +209,7 @@ describe("publishStagedCmsBundle restore fence", () => {
 			"CMS restore permit denied",
 		);
 		expect(withExactCmsSiteRestorePermit).toHaveBeenCalledWith(
-			db,
+			expect.objectContaining({ $client: db }),
 			input.site,
 			expect.any(Function),
 		);
@@ -240,7 +240,7 @@ describe("publishStagedCmsBundle restore fence", () => {
 			.getMockImplementation()!;
 		vi.mocked(uploadTenantBundle).mockImplementationOnce(async (...args) => {
 			expect(reclaimCmsBundleRetentionPermits).toHaveBeenCalledExactlyOnceWith(
-				input.env.DB,
+				expect.objectContaining({ $client: input.env.DB }),
 				input.site,
 			);
 			await uploadBlocked;

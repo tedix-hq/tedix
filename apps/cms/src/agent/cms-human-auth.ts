@@ -1,3 +1,4 @@
+import type { CmsDatabase } from "@tedix/db/queries/cms-control-plane";
 import { loadUserTenantEditorialIdentity } from "@tedix/auth/descope";
 import { isUserToken } from "@tedix/auth/jwt";
 import type { JWTPayload } from "@tedix/auth/types";
@@ -115,11 +116,11 @@ export function describeCmsHumanAuthDenial(denial: CmsHumanAuthDenial): string {
 }
 
 /**
- * The marker is platform D1 configuration, tied to one immutable active bundle.
+ * The marker is core-store configuration, tied to one immutable active bundle.
  * Resolves the identity or the exact reason it was denied, from the same reads.
  */
 export async function resolveCmsHumanAuthorization(args: {
-	db: D1Database;
+	db: CmsDatabase;
 	descope: DescopeEnv;
 	slug: string;
 	user: JWTPayload;

@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { themeReleaseSchema, type ThemeRelease } from "./theme-release";
 import { checkLiveThemeCompatibility } from "./theme-content-compatibility";
 import { CmsDeployFailure } from "./deploy-failure";
@@ -70,7 +71,7 @@ export async function publishStagedCmsBundle(
 			"CMS publish site identity does not match organization slug",
 		);
 	}
-	return withExactCmsSiteRestorePermit(env.DB, site, async () => {
+	return withExactCmsSiteRestorePermit(coreQueryDb(env), site, async () => {
 		const manifestObj = await stagingBucket.get(
 			stagingManifestKey(orgSlug, stagingAttemptId),
 		);
@@ -189,7 +190,10 @@ export async function publishStagedCmsBundle(
 			);
 		}
 
-		const reclaimed = await reclaimCmsBundleRetentionPermits(env.DB, site);
+		const reclaimed = await reclaimCmsBundleRetentionPermits(
+			coreQueryDb(env),
+			site,
+		);
 		if (reclaimed > 0)
 			console.info("cms.deploy.retention-permits-reclaimed", {
 				jobId,
@@ -198,7 +202,7 @@ export async function publishStagedCmsBundle(
 			});
 
 		const result = await uploadTenantBundle(
-			{ bundlesBucket: env.BUNDLES_BUCKET, platformDb: env.DB },
+			{ bundlesBucket: env.BUNDLES_BUCKET, platformDb: coreQueryDb(env) },
 			{
 				orgSlug,
 				mainModule: manifest.mainModule,

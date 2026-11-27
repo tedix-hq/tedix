@@ -1,3 +1,4 @@
+import type { CmsDatabase } from "@tedix/db/queries/cms-control-plane";
 import { themeReleaseSchema, type ThemeRelease } from "./theme-release";
 import type { CmsSandbox } from "../sandbox";
 import {
@@ -27,7 +28,7 @@ export interface DeployContext {
 	config: DeployConfig;
 	sandbox: CmsSandbox;
 	bundlesBucket: R2Bucket;
-	platformDb: D1Database;
+	platformDb: CmsDatabase;
 }
 
 export async function rollback(
@@ -54,7 +55,7 @@ export async function rollback(
 
 export async function listVersions(
 	bundlesBucket: R2Bucket,
-	platformDb: D1Database,
+	platformDb: CmsDatabase,
 	orgSlug: string,
 ): Promise<
 	Array<{

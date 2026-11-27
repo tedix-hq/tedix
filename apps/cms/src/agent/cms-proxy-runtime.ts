@@ -1,3 +1,4 @@
+import type { CmsDatabase } from "@tedix/db/queries/cms-control-plane";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	buildSurfaceUrl,
@@ -28,7 +29,7 @@ export interface CmsProxyContext {
 	/** Service binding to the CMS dispatch worker (avoids public DNS 522s). */
 	cmsDispatch?: Fetcher;
 	/** Platform bindings for get_site_overview; other proxy calls do not need them. */
-	db?: D1Database;
+	db?: CmsDatabase;
 	bundlesBucket?: R2Bucket;
 	/** Server-only lookup; transfer tools invoke this after admin and ownership checks. */
 	loadTransferServiceKey?: (slug: string) => Promise<string | undefined>;

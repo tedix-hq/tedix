@@ -1,3 +1,4 @@
+import { coreTable } from "../core-store/client";
 import { getColumns } from "drizzle-orm";
 import {
 	normalizeEffectiveCallCost,
@@ -15,11 +16,11 @@ import {
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { createDbQueryClient, type DbQueryClient } from "../query-client";
-import { tediRuntimeEvents } from "../schema/cognitive-runtime";
+import { tediRuntimeEvents as schemaTediRuntimeEvents } from "../schema/cognitive-runtime";
 import {
 	type NewTediCallCost,
 	type TediCallCost,
-	tediCallCosts,
+	tediCallCosts as schemaTediCallCosts,
 } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
 
@@ -38,6 +39,7 @@ export async function insertCallCosts(
 ) {
 	if (costs.length === 0) return [];
 	const query = "prepare" in db ? createDbQueryClient(db) : db;
+	const tediCallCosts = coreTable(query, schemaTediCallCosts);
 	const rows: TediCallCost[] = [];
 	// A Gateway page is 50 rows: 25 parameter-safe statements, one D1 trip.
 	for (const page of chunkForBoundParams(costs, 50)) {
@@ -76,6 +78,7 @@ export async function settleGatewayReportedReceiptCosts(
 		receipts: GatewayReportedReceiptCost[];
 	},
 ): Promise<void> {
+	const tediCallCosts = coreTable(db, schemaTediCallCosts);
 	const statements = params.receipts.map((receipt) =>
 		db
 			.update(tediCallCosts)
@@ -112,6 +115,7 @@ export async function getExistingGatewayLogIds(
 	gatewayId: string,
 	logIds: string[],
 ): Promise<string[]> {
+	const tediCallCosts = coreTable(db, schemaTediCallCosts);
 	const existing: string[] = [];
 	for (const ids of chunkForBoundParams([...new Set(logIds)], 50)) {
 		const rows = await db
@@ -138,6 +142,7 @@ export async function getCallCosts(
 		limit?: number;
 	} = {},
 ) {
+	const tediCallCosts = coreTable(db, schemaTediCallCosts);
 	const conditions = [eq(tediCallCosts.tediId, tediId)];
 
 	if (opts.from) {
@@ -156,7 +161,7 @@ export async function getCallCosts(
 			providerCostEvidence: providerCostEvidenceProjection,
 			sourceRetired: sourceRetiredProjection,
 		})
-		.from(effectiveCallCostsRelation())
+		.from(effectiveCallCostsRelation(undefined, db))
 		.where(and(...conditions))
 		.orderBy(desc(tediCallCosts.snapshotAt))
 		.limit(opts.limit ?? 500);
@@ -176,7 +181,7 @@ export async function getCallCosts(
 
 /**
  * Platform spend window for one provider, read off the base `tedi_call_costs`
- * table — deliberately NOT `effectiveCallCostsRelation()`. A dispatch
+ * table — deliberately NOT `effectiveCallCostsRelation(undefined, db)`. A dispatch
  * admission check runs on every upstream call and must stay cheap; reviewed
  * evidence overrides refine reporting later and do not change what admission
  * recorded. `knownCostUsd` counts only `dataQuality='ok'` priced rows; the
@@ -194,6 +199,7 @@ export async function getProviderSpendWindowTotals(
 	params: { provider: string; since: string },
 ): Promise<ProviderSpendWindowTotals> {
 	const query = "prepare" in db ? createDbQueryClient(db) : db;
+	const tediCallCosts = coreTable(query, schemaTediCallCosts);
 	const rows = await query
 		.select({
 			callCount: sql<number>`COUNT(*)`,
@@ -351,6 +357,7 @@ export async function getCallCostTotals(
 	tediId: string,
 	opts: { from?: string; to?: string } = {},
 ): Promise<CallCostTotals> {
+	const tediCallCosts = coreTable(db, schemaTediCallCosts);
 	const conditions = [eq(tediCallCosts.tediId, tediId)];
 	if (opts.from) conditions.push(gte(tediCallCosts.snapshotAt, opts.from));
 	if (opts.to) conditions.push(lte(tediCallCosts.snapshotAt, opts.to));
@@ -372,7 +379,7 @@ export async function getCallCostTotals(
 			unpricedTokens: sql<number>`SUM(CASE WHEN NOT ${effectiveCostKnown} THEN ${tediCallCosts.totalTokens} ELSE 0 END)`,
 			callCount: sql<number>`COUNT(*)`,
 		})
-		.from(effectiveCallCostsRelation())
+		.from(effectiveCallCostsRelation(undefined, db))
 		.where(and(...conditions));
 
 	const row = rows[0];
@@ -421,11 +428,12 @@ export async function getCallCostHistory(
 	tediId: string,
 	opts: { from?: string; to?: string; bucket?: "daily" } = {},
 ): Promise<CallCostHistoryBucket[]> {
+	const tediCallCosts = coreTable(db, schemaTediCallCosts);
 	const conditions = [eq(tediCallCosts.tediId, tediId)];
 	if (opts.from) conditions.push(gte(tediCallCosts.snapshotAt, opts.from));
 	if (opts.to) conditions.push(lte(tediCallCosts.snapshotAt, opts.to));
 
-	const dateBucket = sql<string>`date(${tediCallCosts.snapshotAt})`;
+	const dateBucket = sql<string>`substr(${tediCallCosts.snapshotAt}, 1, 10)`;
 
 	const rows = await db
 		.select({
@@ -443,7 +451,7 @@ export async function getCallCostHistory(
 			unpricedTokens: sql<number>`SUM(CASE WHEN NOT ${effectiveCostKnown} THEN ${tediCallCosts.totalTokens} ELSE 0 END)`,
 			callCount: sql<number>`COUNT(*)`,
 		})
-		.from(effectiveCallCostsRelation())
+		.from(effectiveCallCostsRelation(undefined, db))
 		.where(and(...conditions))
 		.groupBy(dateBucket)
 		.orderBy(dateBucket);
@@ -498,6 +506,7 @@ export async function getCostLedgerFreshness(
 	db: DbClient,
 	nowMs: number,
 ): Promise<CostLedgerFreshness> {
+	const tediCallCosts = coreTable(db, schemaTediCallCosts);
 	const iso24h = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
 	const iso30d = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
 	const rows = await db
@@ -541,6 +550,7 @@ export async function getRuntimeLedgerFreshness(
 	db: DbClient,
 	nowMs: number,
 ): Promise<RuntimeLedgerFreshness> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	const iso1h = new Date(nowMs - 60 * 60 * 1000).toISOString();
 	const iso24h = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
 	const iso7d = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -629,6 +639,7 @@ export async function getDailySpendRate(
 	tediId: string | null,
 	lookbackDays = 1,
 ): Promise<DailySpendRate> {
+	const tediCallCosts = coreTable(db, schemaTediCallCosts);
 	const now = new Date();
 	const windowStart = new Date(
 		now.getTime() - lookbackDays * 24 * 60 * 60 * 1000,
@@ -655,7 +666,7 @@ export async function getDailySpendRate(
 			calls: sql<number>`COUNT(*)`,
 			quarantinedCalls: sql<number>`COALESCE(SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' THEN 1 ELSE 0 END), 0)`,
 		})
-		.from(effectiveCallCostsRelation())
+		.from(effectiveCallCostsRelation(undefined, db))
 		.where(
 			and(
 				...tediFilter,
@@ -710,7 +721,7 @@ export async function getDailySpendRate(
 			unpricedCalls: sql<number>`SUM(CASE WHEN NOT ${effectiveCostKnown} THEN 1 ELSE 0 END)`,
 			cost: sql<number>`COALESCE(SUM(CASE WHEN ${effectiveCostKnown} THEN ${effectiveCostUsd} ELSE 0 END), 0)`,
 		})
-		.from(effectiveCallCostsRelation())
+		.from(effectiveCallCostsRelation(undefined, db))
 		.where(
 			and(
 				...tediFilter,
@@ -769,6 +780,7 @@ export async function getOrgCostLedgerFreshness(
 	organizationId: string,
 	nowMs: number,
 ): Promise<CostLedgerFreshness> {
+	const tediCallCosts = coreTable(db, schemaTediCallCosts);
 	const iso24h = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
 	const iso30d = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
 	const rows = await db
@@ -831,6 +843,7 @@ export async function getOrgCallCostProvenanceGroups(
 	organizationId: string,
 	fromIso: string,
 ): Promise<OrgCallCostProvenanceGroup[]> {
+	const tediCallCosts = coreTable(db, schemaTediCallCosts);
 	const hasCost = sql<number>`CASE WHEN ${tediCallCosts.estimatedCostUsd} IS NOT NULL AND ${tediCallCosts.estimatedCostUsd} >= 0 AND ${tediCallCosts.costBasis} != 'unknown' THEN 1 ELSE 0 END`;
 	const hasTokens = sql<number>`CASE WHEN ${tediCallCosts.totalTokens} > 0 THEN 1 ELSE 0 END`;
 	const rows = await db
@@ -845,7 +858,7 @@ export async function getOrgCallCostProvenanceGroups(
 			totalTokens: sql<number>`COALESCE(SUM(${tediCallCosts.totalTokens}), 0)`,
 			costUsd: sql<number>`COALESCE(SUM(CASE WHEN ${hasCost} = 1 THEN ${tediCallCosts.estimatedCostUsd} ELSE 0 END), 0)`,
 		})
-		.from(effectiveCallCostsRelation())
+		.from(effectiveCallCostsRelation(undefined, db))
 		.where(
 			and(
 				eq(tediCallCosts.orgId, organizationId),

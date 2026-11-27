@@ -1,3 +1,4 @@
+import type { CmsDatabase } from "@tedix/db/queries/cms-control-plane";
 import type { CmsSandbox } from "../sandbox";
 import * as z from "zod";
 import { type CmsBuildSnapshot } from "./build-runner";
@@ -42,7 +43,7 @@ export interface ThemeDeployHumanAuthority {
  * stale and every cms_* human call fails until an admin re-activates it.
  */
 export async function readThemeDeployHumanAuthority(
-	db: D1Database,
+	db: CmsDatabase,
 	orgSlug: string,
 ): Promise<ThemeDeployHumanAuthority> {
 	const authority = await getCmsHumanSiteAuthority(db, orgSlug);
@@ -395,8 +396,8 @@ export interface SiteBuilderToolContext {
 				| null;
 		}>
 	>;
-	/** Platform D1 — used to enumerate all active org sandboxes for template_propagate. */
-	db: D1Database;
+	/** Core store — used to enumerate all active org sandboxes for template_propagate. */
+	db: CmsDatabase;
 	/** Get a sandbox instance for any org slug — used by template_propagate. */
 	getSandboxForOrg(slug: string): CmsSandbox;
 }

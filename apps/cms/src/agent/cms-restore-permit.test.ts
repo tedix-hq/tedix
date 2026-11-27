@@ -441,19 +441,19 @@ it.each(["d1", "postgres"] as const)(
 			if (pg) await pg.engine.exec(config);
 			else d1.sqlite.exec(config);
 			await withCoreStore({ CORE_STORE: store, DB: binding }, async () => {
-				const db = coreQueryDb({ DB: binding });
-				const site = await getActiveCmsSiteForPermit(binding, "one");
-				expect(await getCmsAppMetadata(binding, "one")).toEqual({
+				const db = coreQueryDb({ CORE_STORE: store, DB: binding });
+				const site = await getActiveCmsSiteForPermit(db, "one");
+				expect(await getCmsAppMetadata(db, "one")).toEqual({
 					blog: { defaultLocale: "de", privacyBannerEnabled: true },
 				});
-				expect(await getCmsDefaultLocale(binding, "one")).toBe("de");
-				expect(await getCmsPrivacyBannerSetting(binding, "one")).toBe(true);
-				expect(await getCmsPublicBuildRoute(binding, "one")).toEqual({
+				expect(await getCmsDefaultLocale(db, "one")).toBe("de");
+				expect(await getCmsPrivacyBannerSetting(db, "one")).toBe(true);
+				expect(await getCmsPublicBuildRoute(db, "one")).toEqual({
 					publicSiteUrl: "https://one.test",
 					publicPathPrefix: null,
 				});
 				await expect(
-					withExactCmsSiteRestorePermit(binding, site, async () => {
+					withExactCmsSiteRestorePermit(db, site, async () => {
 						expect((await getCmsRestoreFenceState(db, site)).inFlight).toBe(1);
 						return "admitted";
 					}),
@@ -462,7 +462,7 @@ it.each(["d1", "postgres"] as const)(
 				const mutate = vi.fn(async () => {});
 				await expect(
 					withExactCmsSiteRestorePermit(
-						binding,
+						db,
 						{ ...site, restoreEpoch: 1 },
 						mutate,
 					),
@@ -474,7 +474,7 @@ it.each(["d1", "postgres"] as const)(
 					captureId: "capture",
 				});
 				await expect(
-					withExactCmsSiteRestorePermit(binding, site, mutate),
+					withExactCmsSiteRestorePermit(db, site, mutate),
 				).rejects.toThrow("permit denied");
 				expect(mutate).not.toHaveBeenCalled();
 			});

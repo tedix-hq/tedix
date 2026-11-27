@@ -1,3 +1,11 @@
+import { createPGliteFacade } from "../test/pglite-facade";
+import { pgTableDdl } from "../test/pg-schema-ddl";
+import {
+	organizationResidencyPolicies as pgPolicies,
+	residencyProviderVersions as pgProviders,
+	residencyExecutionReceipts as pgReceipts,
+	auditEvents as pgAudit,
+} from "../schema-pg/core";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { describe, it, expect, vi } from "vite-plus/test";
@@ -240,5 +248,68 @@ it("does not overwrite execution evidence on a conflicting policy replay", async
 		).toBe(1);
 	} finally {
 		sqlite.close();
+	}
+});
+
+it("preserves residency CAS, catalog JSON and atomic audit on Postgres", async () => {
+	const pg = await createPGliteFacade();
+	try {
+		await pg.engine.exec(
+			"CREATE TABLE organizations(id TEXT PRIMARY KEY); INSERT INTO organizations VALUES ('org_lark'),('org_elm')",
+		);
+		for (const table of [pgPolicies, pgProviders, pgReceipts, pgAudit])
+			for (const ddl of pgTableDdl(table)) await pg.engine.exec(ddl);
+		const update = {
+			organizationId: "org_lark",
+			mode: "eu" as const,
+			expectedRevision: 0,
+			actorId: "owner_lark",
+			now: "2026-11-27T00:00:00.000Z",
+		};
+		expect(await getOrganizationResidencyPolicy(pg.db, "org_lark")).toBeNull();
+		await setOrganizationResidencyPolicy(pg.db, update);
+		expect(
+			await getOrganizationResidencyPolicy(pg.db, "org_lark"),
+		).toMatchObject({ mode: "eu", revision: 1 });
+		expect(await getOrganizationResidencyPolicy(pg.db, "org_elm")).toBeNull();
+		await expect(setOrganizationResidencyPolicy(pg.db, update)).rejects.toThrow(
+			"revision conflict",
+		);
+		expect(
+			(await pg.engine.query("SELECT * FROM audit_events")).rows,
+		).toHaveLength(1);
+		await publishResidencyProvider(pg.db, member, "owner", update.now);
+		expect(await listResidencyProviders(pg.db)).toEqual([member]);
+		const receipt = {
+			executionId: "execution",
+			organizationId: "org_lark",
+			policyRevision: 1,
+			memberKey: member.memberKey,
+			poolRevision: 1,
+			providerOrigin: member.execution.providerOrigin,
+			evidenceRef: member.evidenceRef,
+			credentialRef: member.credentialRef,
+			createdAt: update.now,
+		};
+		await recordResidencyExecution(pg.db, receipt);
+		await recordResidencyExecution(pg.db, receipt);
+		await expect(
+			recordResidencyExecution(pg.db, { ...receipt, policyRevision: 2 }),
+		).rejects.toThrow("receipt conflict");
+		await pg.engine
+			.exec(`CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$;
+   CREATE TRIGGER reject_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_audit();`);
+		await expect(
+			setOrganizationResidencyPolicy(pg.db, {
+				...update,
+				expectedRevision: 1,
+				mode: "unrestricted",
+			}),
+		).rejects.toThrow();
+		expect(
+			await getOrganizationResidencyPolicy(pg.db, "org_lark"),
+		).toMatchObject({ mode: "eu", revision: 1 });
+	} finally {
+		await pg.close();
 	}
 });

@@ -2,6 +2,7 @@
 	"extends": "@tedix/tsconfig/base.json",
 	"compilerOptions": {
 		"noEmit": true,
+		"types": ["@cloudflare/workers-types"],
 		"declaration": true
 	},
 	"include": ["src"]

@@ -1,3 +1,4 @@
+import type { CmsDatabase } from "@tedix/db/queries/cms-control-plane";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { withCmsSiteRestorePermit } from "./cms-restore-permit";
 export const HOT_THEME_PUBLIC_PATH = "/_tedix/theme.css";
@@ -40,7 +41,7 @@ export interface HotThemeHistory {
 
 interface HotThemeWriteContext {
 	bundlesBucket: R2Bucket;
-	db: D1Database;
+	db: CmsDatabase;
 	orgSlug: string;
 }
 

@@ -1,10 +1,12 @@
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonParameter } from "../core-store/dialect";
 import { getD1BindingKey } from "../slow-query";
 import { and, eq, desc, sql } from "drizzle-orm";
 import { createDbQueryClient, type DbQueryClient } from "../query-client";
 import {
-	organizationResidencyPolicies,
-	residencyProviderVersions,
-	residencyExecutionReceipts,
+	organizationResidencyPolicies as schemaOrganizationResidencyPolicies,
+	residencyProviderVersions as schemaResidencyProviderVersions,
+	residencyExecutionReceipts as schemaResidencyExecutionReceipts,
 } from "../schema/data-residency";
 import { auditWriteTable } from "./audit-delivery";
 import {
@@ -12,7 +14,8 @@ import {
 	type ResidencyProvider,
 } from "@tedix/api-contract/schemas/data-residency";
 
-type ResidencyPolicyRow = typeof organizationResidencyPolicies.$inferSelect;
+type ResidencyPolicyRow =
+	typeof schemaOrganizationResidencyPolicies.$inferSelect;
 const policySnapshots = new WeakMap<
 	object,
 	Map<string, { expiresAt: number; row: Promise<ResidencyPolicyRow | null> }>
@@ -23,6 +26,10 @@ export async function getOrganizationResidencyPolicy(
 	organizationId: string,
 ) {
 	const query = "prepare" in db ? createDbQueryClient(db) : db;
+	const organizationResidencyPolicies = coreTable(
+		query,
+		schemaOrganizationResidencyPolicies,
+	);
 	const key = getD1BindingKey(query.$client);
 	let policies = policySnapshots.get(key);
 	if (!policies) {
@@ -61,6 +68,10 @@ export async function setOrganizationResidencyPolicy(
 		now: string;
 	},
 ) {
+	const organizationResidencyPolicies = coreTable(
+		db,
+		schemaOrganizationResidencyPolicies,
+	);
 	const { organizationId, mode, expectedRevision, actorId, now } = input;
 	const values = {
 		organizationId,
@@ -100,6 +111,57 @@ export async function setOrganizationResidencyPolicy(
 						),
 					)
 					.returning({ revision: organizationResidencyPolicies.revision });
+	if (coreStore(db) === "postgres") {
+		const changed = db
+			.$with("changed", { revision: organizationResidencyPolicies.revision })
+			.as(update.getSQL());
+		const auditTable = auditWriteTable(db);
+		const audited = db.$with("audited", { id: auditTable.id }).as(
+			db
+				.insert(auditTable)
+				.select(
+					db
+						.select({
+							id: sql<string>`${crypto.randomUUID()}`.as("id"),
+							organizationId: sql<string>`${organizationId}`.as(
+								"organization_id",
+							),
+							actorId: sql<string>`${actorId}`.as("actor_id"),
+							actorType: sql<string>`'user'`.as("actor_type"),
+							action: sql<string>`'organization.residency.updated'`.as(
+								"action",
+							),
+							resourceType: sql<string>`'organization'`.as("resource_type"),
+							resourceId: sql<string>`${organizationId}`.as("resource_id"),
+							metadata: jsonParameter(db, {
+								mode,
+								revision: expectedRevision + 1,
+							}).as("metadata"),
+							timestamp:
+								sql<Date>`to_timestamp(${Math.floor(Date.parse(now) / 1000)})`.as(
+									"timestamp",
+								),
+						})
+						.from(changed),
+				)
+				.returning({ id: auditTable.id })
+				.getSQL(),
+		);
+		const rows = await db
+			.with(changed, audited)
+			.select({ revision: changed.revision })
+			.from(changed);
+		if (rows.length !== 1)
+			throw new Error("Residency policy revision conflict");
+		policySnapshots.get(getD1BindingKey(db.$client))?.delete(organizationId);
+		return {
+			mode,
+			revision: expectedRevision + 1,
+			updatedAt: now,
+			updatedBy: actorId,
+		};
+	}
+
 	// The policy row exists whenever the upsert changed it, so it doubles as the
 	// one-row source for an audit insert gated on changes().
 	const audit = db.insert(auditWriteTable(db)).select(
@@ -143,6 +205,10 @@ export async function setOrganizationResidencyPolicy(
 export async function listResidencyProviders(
 	db: DbQueryClient,
 ): Promise<ResidencyProvider[]> {
+	const residencyProviderVersions = coreTable(
+		db,
+		schemaResidencyProviderVersions,
+	);
 	const rows = await db
 		.select()
 		.from(residencyProviderVersions)
@@ -161,6 +227,10 @@ export async function publishResidencyProvider(
 	actorId: string,
 	now: string,
 ) {
+	const residencyProviderVersions = coreTable(
+		db,
+		schemaResidencyProviderVersions,
+	);
 	const config = ResidencyProviderSchema.parse(member);
 	await db.insert(residencyProviderVersions).values({
 		id: crypto.randomUUID(),
@@ -175,8 +245,12 @@ export async function publishResidencyProvider(
 
 export async function recordResidencyExecution(
 	db: DbQueryClient,
-	receipt: typeof residencyExecutionReceipts.$inferInsert,
+	receipt: typeof schemaResidencyExecutionReceipts.$inferInsert,
 ) {
+	const residencyExecutionReceipts = coreTable(
+		db,
+		schemaResidencyExecutionReceipts,
+	);
 	const [inserted] = await db
 		.insert(residencyExecutionReceipts)
 		.values(receipt)

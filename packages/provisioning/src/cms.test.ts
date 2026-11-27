@@ -176,6 +176,9 @@ describe("CMS deprovision after a partial attempt", () => {
 			delete: vi.fn(),
 		},
 		platformDb: {
+			batch: vi.fn(async () => [
+				{ results: [], success: true, meta: { changes: 1 } },
+			]),
 			prepare: vi.fn(() => ({
 				bind: () => ({ run: async () => ({ success: true, meta: {} }) }),
 			})),
@@ -309,13 +312,11 @@ describe("CMS deprovision after a partial attempt", () => {
 				}),
 			},
 			platformDb: {
-				prepare: vi.fn(() => ({
-					bind: () => ({
-						run: async () => {
-							events.push("row");
-						},
-					}),
-				})),
+				batch: vi.fn(async () => {
+					events.push("row");
+					return [{ results: [], success: true, meta: { changes: 1 } }];
+				}),
+				prepare: vi.fn(() => ({ bind: () => ({}) })),
 			},
 		} as unknown as Parameters<typeof deprovisionCms>[0];
 		const result = await deprovisionCms(
@@ -342,7 +343,7 @@ describe("Manifest-listed native auth chunk verification", () => {
 		const reads: string[] = [];
 		const statement = {
 			bind: () => statement,
-			first: async () => ({ marker: "old-etag" }),
+			raw: async () => [["old-etag"]],
 		};
 		const db = { prepare: () => statement } as unknown as Parameters<
 			typeof planCmsHumanAuthorityCarry
@@ -363,7 +364,7 @@ describe("Manifest-listed native auth chunk verification", () => {
 			},
 		});
 		expect(plan.outcome).toBe("carried");
-		expect(plan.statement).not.toBeNull();
+		expect(plan.carry).not.toBeNull();
 		expect(reads).toEqual([
 			"virtual_astro_middleware.mjs",
 			"chunks/middleware_current.mjs",

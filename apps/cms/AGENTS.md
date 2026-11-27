@@ -1,5 +1,5 @@
 ---
-summary: "apps/cms scoped rules: the generated template snapshot, locked-vs-editable theme policy, D1 batch activation, internal proxy auth, and the Docker-bound deploy lane"
+summary: "apps/cms scoped rules: the generated template snapshot, locked-vs-editable theme policy, atomic bundle activation, internal proxy auth, and the Docker-bound deploy lane"
 read_when:
   - Touching anything under apps/cms/ (Site Builder Worker or templates/)
   - Editing src/agent/constraints.ts or anything under templates/
@@ -59,13 +59,14 @@ claim that this hook revalidates the whole native schema.
 - Hook handlers declare `errorPolicy: "continue"` and never throw
   — a publish must not fail because a side-effect hook did.
 
-## D1: activation is a batch
+## Bundle activation is atomic
 
-Bundle activation/rollback flips `is_active` across rows atomically with
-`db.batch()`, never a transaction (root D1 rule):
 `activateTenantBundleVersion` (`packages/provisioning/src/cms.ts`) and
-`rollbackCmsTenantBundle` (`src/agent/storage.ts`). Keep any new
-multi-statement bundle mutation in that shape.
+`rollbackCmsTenantBundle` (`src/agent/storage.ts`) use the DB-owned
+`activateCmsBundle` query in `packages/db/src/queries/cms-control-plane.ts`.
+It changes the active bundle and carries its human-authority marker atomically:
+D1 uses `db.batch()`, never a transaction; Postgres uses dependent write CTEs
+under the CMS write lock. Keep activation and rollback on this query path.
 
 ## Auth boundaries
 

@@ -1,3 +1,4 @@
+import type { CmsDatabase } from "@tedix/db/queries/cms-control-plane";
 import { readCmsBundle } from "@tedix/provisioning/cms-bundle";
 import { listTenantBundleVersions } from "@tedix/provisioning/cms";
 import type { CmsSandbox } from "../sandbox";
@@ -44,7 +45,7 @@ type RecoveryPreflightInput = {
 	pins: CmsSandboxRecoveryPins;
 	currentOrgSlug: string;
 	isPlatformAdmin: boolean;
-	db: D1Database;
+	db: CmsDatabase;
 	bundlesBucket: R2Bucket;
 	storage: R2Bucket;
 	getDeployStatus: (
