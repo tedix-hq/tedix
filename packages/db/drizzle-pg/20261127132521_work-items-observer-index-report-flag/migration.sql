@@ -1,0 +1,2 @@
+DROP INDEX "idx_work_items_observer_report_woken";--> statement-breakpoint
+CREATE INDEX "idx_work_items_observer_report_woken" ON "work_items" ("org_id","project_id","repository_observer",("report" IS NULL),"observer_woken_at");

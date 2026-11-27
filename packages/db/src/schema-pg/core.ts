@@ -13330,11 +13330,14 @@ export const workItems = pgTable(
 			t["metadataSource"],
 			t["createdAt"],
 		),
+		// Postgres btree entries are capped near 2.7 KB and reports can be
+		// longer, so the index keeps whether a report exists, which is all the
+		// observer queries filter on.
 		index("idx_work_items_observer_report_woken").on(
 			t["orgId"],
 			t["projectId"],
 			t["repositoryObserver"],
-			t["report"],
+			sql`(${t["report"]} IS NULL)`,
 			t["observerWokenAt"],
 		),
 		index("idx_work_items_deadline").on(t["deadline"]),

@@ -1,0 +1,79 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "e82f982d-3674-4e27-b57b-d19f10c72826",
+	"prevIds": ["ab88cdf7-102e-45b4-a039-e0f020809912"],
+	"footprints": [
+		{
+			"statementType": "recreate_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"work_items",
+				"idx_work_items_observer_report_woken"
+			],
+			"writes": [
+				"s|idx|public.idx_work_items_observer_report_woken",
+				"n|idx|public.idx_work_items_observer_report_woken",
+				"e|idx|public.idx_work_items_observer_report_woken",
+				"n|rel|public.idx_work_items_observer_report_woken"
+			],
+			"reads": [
+				"n|tbl|public.work_items",
+				"n|sch|public",
+				"n|col|public.work_items.org_id",
+				"n|col|public.work_items.project_id",
+				"n|col|public.work_items.repository_observer",
+				"n|col|public.work_items.observer_woken_at"
+			],
+			"sharedWrites": [],
+			"sqlHash": "3ff517b7c39ed428"
+		}
+	],
+	"deltas": [
+		{
+			"op": "alter",
+			"key": "indexes\u0000[\"public\",\"idx_work_items_observer_report_woken\"]",
+			"set": {
+				"columns": [
+					{
+						"value": "org_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "project_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "repository_observer",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "(\"report\" IS NULL)",
+						"isExpression": true,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "observer_woken_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				]
+			}
+		}
+	]
+}
