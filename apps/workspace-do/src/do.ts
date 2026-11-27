@@ -40,8 +40,7 @@ import {
 	type WorkspaceRecoveryPhase,
 } from "./workspace-recovery-drill";
 import type { Message } from "@earendil-works/pi-ai";
-import { createDbClient, createDbSession } from "@tedix/db/client";
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { coreDb, coreQueryDb, withCoreStore } from "@tedix/db/core-store/scope";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
 import {
 	executeOutputQuery,
@@ -939,26 +938,30 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		tables: Record<string, TenantStoreImportRow[]>,
 	): Promise<{ seeded: boolean }> {
-		if (this.env.ENVIRONMENT !== "development")
-			throw new Error("Demo seeding runs only in local development");
-		this.bindScope(scope);
-		if (this.#ownsOutputs()) return { seeded: false };
-		await this.outputQuery(scope, { op: "initialize" });
-		const outputIds = (tables.os_outputs ?? []).map((row) => String(row.id));
-		await this.#serializeOutput(async () => {
-			this.ctx.storage.transactionSync(() => {
-				for (const [table, rows] of Object.entries(tables))
-					this.importRowsSync(scope, {
-						batchId: `local-demo:${table}`,
-						table,
-						rows,
-					});
+		return withCoreStore(this.env, async () => {
+			if (this.env.ENVIRONMENT !== "development")
+				throw new Error("Demo seeding runs only in local development");
+			this.bindScope(scope);
+			if (this.#ownsOutputs()) return { seeded: false };
+			await this.outputQuery(scope, { op: "initialize" });
+			const outputIds = (tables.os_outputs ?? []).map((row) => String(row.id));
+			await this.#serializeOutput(async () => {
+				this.ctx.storage.transactionSync(() => {
+					for (const [table, rows] of Object.entries(tables))
+						this.importRowsSync(scope, {
+							batchId: `local-demo:${table}`,
+							table,
+							rows,
+						});
+				});
+				for (const outputId of outputIds)
+					await this.#markOutputPending(scope, outputId);
 			});
-			for (const outputId of outputIds)
-				await this.#markOutputPending(scope, outputId);
+			await this.#serializePublish(() =>
+				this.#flushOutputProjections(outputIds),
+			);
+			return { seeded: true };
 		});
-		await this.#serializePublish(() => this.#flushOutputProjections(outputIds));
-		return { seeded: true };
 	}
 
 	async rehearseStorageRecovery(
@@ -967,27 +970,29 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		agentId: string,
 		drillId: string,
 	) {
-		const fixture = await workspaceRecoveryScope(
-			scope.organizationId,
-			agentId,
-			drillId,
-		);
-		if (scope.workspaceId !== fixture.workspaceId) {
-			throw new Error("Recovery drill requires a reserved fixture");
-		}
-		this.bindScope(scope);
-		return runWorkspaceRecoveryDrill({
-			ctx: this.ctx,
-			db: this.db as TenantStoreDb,
-			env: this.env,
-			scope,
-			phase,
-			agentId,
-			copyExecution: (id, output) =>
-				this.copyGadgetExecutionOutput(scope, id, output),
-			readExecution: (id, sha256) =>
-				this.readGadgetExecutionOutput(scope, id, sha256),
-			restart: () => this.ctx.abort(),
+		return withCoreStore(this.env, async () => {
+			const fixture = await workspaceRecoveryScope(
+				scope.organizationId,
+				agentId,
+				drillId,
+			);
+			if (scope.workspaceId !== fixture.workspaceId) {
+				throw new Error("Recovery drill requires a reserved fixture");
+			}
+			this.bindScope(scope);
+			return runWorkspaceRecoveryDrill({
+				ctx: this.ctx,
+				db: this.db as TenantStoreDb,
+				env: this.env,
+				scope,
+				phase,
+				agentId,
+				copyExecution: (id, output) =>
+					this.copyGadgetExecutionOutput(scope, id, output),
+				readExecution: (id, sha256) =>
+					this.readGadgetExecutionOutput(scope, id, sha256),
+				restart: () => this.ctx.abort(),
+			});
 		});
 	}
 
@@ -1032,10 +1037,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (this.#ownsOutputs()) return;
 		await this.#serializeOutput(async () => {
 			if (this.#ownsOutputs()) return;
-			const workspace = await getOsWorkspace(
-				createDbQueryClient(this.env.DB),
-				scope,
-			);
+			const workspace = await getOsWorkspace(coreQueryDb(this.env), scope);
 			if (!workspace) throw new Error("Workspace directory is missing");
 			this.ctx.storage.transactionSync(() => {
 				initializeWorkspaceDirectory(this.db as TenantStoreDb, workspace);
@@ -1048,155 +1050,165 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
 	): Promise<OutputQueryResult<K>> {
-		this.bindScope(scope);
-		await this.#initializeOutputs(scope);
-		const operation = query as OutputQuery;
-		if (operation.op === "purge")
-			return this.#serializeOutput(async () => {
-				this.ctx.storage.transactionSync(() => {
-					purgeWorkspaceDocuments(this.db as TenantStoreDb, scope);
-				});
-				return undefined as OutputQueryResult<K>;
-			});
-		if (operation.op === "initialize") return "object" as OutputQueryResult<K>;
-		if (operation.op === "placementPlan")
-			return this.#serializeOutput(async () => {
-				const key = `document-placement:${operation.planId}`;
-				const previous = this.#store.get<DocumentTransfer[]>(key) ?? [];
-				if (
-					operation.documents.some(
-						(document) =>
-							document.targetWorkspaceId !== scope.workspaceId ||
-							document.sourceWorkspaceId === scope.workspaceId,
-					)
-				)
-					throw new Error("Document placement scope mismatch");
-				const documents = [
-					...previous,
-					...operation.documents.filter(
-						(document) =>
-							!previous.some((saved) => saved.outputId === document.outputId),
-					),
-				];
-				this.#store.put(key, documents);
-				return documents as OutputQueryResult<K>;
-			});
-		if (operation.op === "resources")
-			return this.#serializeOutput(async () => {
-				return executeOutputQuery(this.db as TenantStoreDb, scope, query);
-			});
-		if (operation.op === "snapshot" || operation.op === "import")
-			throw new Error("Use the output transfer RPC");
-		let outputId =
-			operation.op === "create"
-				? operation.output.id
-				: operation.op === "mergeProposal"
-					? operation.proposal.documentId
-					: operation.op === "revise"
-						? operation.params.outputId
-						: operation.op === "update" ||
-							  operation.op === "delete" ||
-							  operation.op === "thin"
-							? operation.outputId
-							: null;
-		if (operation.op === "rebody") {
-			const revision = await executeOutputQuery(
-				this.db as TenantStoreDb,
-				scope,
-				{ op: "revision", revisionId: operation.revisionId },
-			);
-			outputId = revision?.outputId ?? null;
-		}
-		// The writer knows the body's searchable text; publish it with this save.
-		const excerpt =
-			operation.op === "create" || operation.op === "revise"
-				? operation.excerpt
-				: undefined;
-		const excerptRevisionId = !excerpt
-			? undefined
-			: operation.op === "create"
-				? operation.revision.id
-				: (operation as OutputQuery<"revise">).params.id;
-		if (excerptRevisionId)
-			this.#store.put(`output-excerpt:${excerptRevisionId}`, excerpt);
-		const write = async () => {
-			const authorizedQuery: OutputQuery =
-				operation.op === "thin"
-					? {
-							...operation,
-							revisionIds: await unreferencedObjectOutputRevisions(
-								createDbQueryClient(this.env.DB),
-								{ ...scope, outputId: operation.outputId },
-								operation.revisionIds,
-							),
-						}
-					: operation;
-			const result = await executeOutputQuery(
-				this.db as TenantStoreDb,
-				scope,
-				authorizedQuery,
-			);
-			if (operation.op === "revise") {
-				const revised = result as OutputQueryResult<"revise">;
-				if (revised.ok)
-					return { ...revised, projectionQueued: true } as OutputQueryResult<K>;
-			}
-			if (operation.op === "update" && result) {
-				const row = result as OutputQueryResult<"update">;
-				if (row?.currentRevisionId) {
-					// This RPC carries no requesting actor; attribute execution to the service.
-					this.#activityRecords.append({
-						...scope,
-						kind: "run",
-						id: operation.outputId,
-						revision: 1,
-						actor: { kind: "service", id: "workspace_object" },
-						changeRecordId: crypto.randomUUID(),
-						at: row.updatedAt,
-						summary: {
-							action: {
-								resource: "outputs",
-								operation:
-									operation.patch.status === "archived"
-										? "archive"
-										: operation.patch.status === "active"
-											? "restore"
-											: "update_metadata",
-								outcome: "applied",
-								surface: "workspace_object",
-								revisionId: row.currentRevisionId,
-							},
-						},
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			await this.#initializeOutputs(scope);
+			const operation = query as OutputQuery;
+			if (operation.op === "purge")
+				return this.#serializeOutput(async () => {
+					this.ctx.storage.transactionSync(() => {
+						purgeWorkspaceDocuments(this.db as TenantStoreDb, scope);
 					});
+					return undefined as OutputQueryResult<K>;
+				});
+			if (operation.op === "initialize")
+				return "object" as OutputQueryResult<K>;
+			if (operation.op === "placementPlan")
+				return this.#serializeOutput(async () => {
+					const key = `document-placement:${operation.planId}`;
+					const previous = this.#store.get<DocumentTransfer[]>(key) ?? [];
+					if (
+						operation.documents.some(
+							(document) =>
+								document.targetWorkspaceId !== scope.workspaceId ||
+								document.sourceWorkspaceId === scope.workspaceId,
+						)
+					)
+						throw new Error("Document placement scope mismatch");
+					const documents = [
+						...previous,
+						...operation.documents.filter(
+							(document) =>
+								!previous.some((saved) => saved.outputId === document.outputId),
+						),
+					];
+					this.#store.put(key, documents);
+					return documents as OutputQueryResult<K>;
+				});
+			if (operation.op === "resources")
+				return this.#serializeOutput(async () => {
+					return executeOutputQuery(this.db as TenantStoreDb, scope, query);
+				});
+			if (operation.op === "snapshot" || operation.op === "import")
+				throw new Error("Use the output transfer RPC");
+			let outputId =
+				operation.op === "create"
+					? operation.output.id
+					: operation.op === "mergeProposal"
+						? operation.proposal.documentId
+						: operation.op === "revise"
+							? operation.params.outputId
+							: operation.op === "update" ||
+								  operation.op === "delete" ||
+								  operation.op === "thin"
+								? operation.outputId
+								: null;
+			if (operation.op === "rebody") {
+				const revision = await executeOutputQuery(
+					this.db as TenantStoreDb,
+					scope,
+					{ op: "revision", revisionId: operation.revisionId },
+				);
+				outputId = revision?.outputId ?? null;
+			}
+			// The writer knows the body's searchable text; publish it with this save.
+			const excerpt =
+				operation.op === "create" || operation.op === "revise"
+					? operation.excerpt
+					: undefined;
+			const excerptRevisionId = !excerpt
+				? undefined
+				: operation.op === "create"
+					? operation.revision.id
+					: (operation as OutputQuery<"revise">).params.id;
+			if (excerptRevisionId)
+				this.#store.put(`output-excerpt:${excerptRevisionId}`, excerpt);
+			const write = async () => {
+				const authorizedQuery: OutputQuery =
+					operation.op === "thin"
+						? {
+								...operation,
+								revisionIds: await unreferencedObjectOutputRevisions(
+									coreQueryDb(this.env),
+									{ ...scope, outputId: operation.outputId },
+									operation.revisionIds,
+								),
+							}
+						: operation;
+				const result = await executeOutputQuery(
+					this.db as TenantStoreDb,
+					scope,
+					authorizedQuery,
+				);
+				if (operation.op === "revise") {
+					const revised = result as OutputQueryResult<"revise">;
+					if (revised.ok)
+						return {
+							...revised,
+							projectionQueued: true,
+						} as OutputQueryResult<K>;
 				}
+				if (operation.op === "update" && result) {
+					const row = result as OutputQueryResult<"update">;
+					if (row?.currentRevisionId) {
+						// This RPC carries no requesting actor; attribute execution to the service.
+						this.#activityRecords.append({
+							...scope,
+							kind: "run",
+							id: operation.outputId,
+							revision: 1,
+							actor: { kind: "service", id: "workspace_object" },
+							changeRecordId: crypto.randomUUID(),
+							at: row.updatedAt,
+							summary: {
+								action: {
+									resource: "outputs",
+									operation:
+										operation.patch.status === "archived"
+											? "archive"
+											: operation.patch.status === "active"
+												? "restore"
+												: "update_metadata",
+									outcome: "applied",
+									surface: "workspace_object",
+									revisionId: row.currentRevisionId,
+								},
+							},
+						});
+					}
+				}
+				return result as OutputQueryResult<K>;
+			};
+			const committed = outputId
+				? this.#commitOutput(scope, outputId, write)
+				: write();
+			if (!excerptRevisionId) return committed;
+			// Publishing a revision clears its text. A save that stored no revision
+			// under this id is never published, so its text is cleared here.
+			const dropUnsavedExcerpt = async () => {
+				const saved = await executeOutputQuery(
+					this.db as TenantStoreDb,
+					scope,
+					{
+						op: "revision",
+						revisionId: excerptRevisionId,
+					},
+				);
+				if (!saved) this.#store.delete(`output-excerpt:${excerptRevisionId}`);
+			};
+			try {
+				const result = await committed;
+				if (operation.op === "revise") {
+					const revised = result as OutputQueryResult<"revise">;
+					if (!revised.ok || revised.revision.id !== excerptRevisionId)
+						await dropUnsavedExcerpt();
+				}
+				return result;
+			} catch (error) {
+				await dropUnsavedExcerpt();
+				throw error;
 			}
-			return result as OutputQueryResult<K>;
-		};
-		const committed = outputId
-			? this.#commitOutput(scope, outputId, write)
-			: write();
-		if (!excerptRevisionId) return committed;
-		// Publishing a revision clears its text. A save that stored no revision
-		// under this id is never published, so its text is cleared here.
-		const dropUnsavedExcerpt = async () => {
-			const saved = await executeOutputQuery(this.db as TenantStoreDb, scope, {
-				op: "revision",
-				revisionId: excerptRevisionId,
-			});
-			if (!saved) this.#store.delete(`output-excerpt:${excerptRevisionId}`);
-		};
-		try {
-			const result = await committed;
-			if (operation.op === "revise") {
-				const revised = result as OutputQueryResult<"revise">;
-				if (!revised.ok || revised.revision.id !== excerptRevisionId)
-					await dropUnsavedExcerpt();
-			}
-			return result;
-		} catch (error) {
-			await dropUnsavedExcerpt();
-			throw error;
-		}
+		});
 	}
 
 	#outputTransfers() {
@@ -1211,88 +1223,92 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		transfer: DocumentTransfer,
 	): Promise<DocumentTransferPackage> {
-		this.bindScope(scope);
-		await this.#initializeOutputs(scope);
-		return this.#serializeOutput(async () => {
-			if (
-				!transfer.transferId.trim() ||
-				transfer.sourceWorkspaceId !== scope.workspaceId ||
-				transfer.targetWorkspaceId === scope.workspaceId
-			)
-				throw new Error("Invalid document transfer scope");
-			const key = `document-transfer:${transfer.transferId}`;
-			const saved = this.#store.get<DocumentTransferPackage>(key);
-			if (saved) {
-				if (!sameDocumentTransfer(saved.transfer, transfer))
-					throw new Error("Document transfer id conflicts with its receipt");
-				return this.#store.get(
-					`document-transfer-removed:${transfer.transferId}`,
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			await this.#initializeOutputs(scope);
+			return this.#serializeOutput(async () => {
+				if (
+					!transfer.transferId.trim() ||
+					transfer.sourceWorkspaceId !== scope.workspaceId ||
+					transfer.targetWorkspaceId === scope.workspaceId
 				)
-					? { ...saved, completed: true }
-					: saved;
-			}
-			if (
-				this.#store.get(`document-transfer-owner:${transfer.outputId}`) ||
-				(this.#outputTransfers()[transfer.outputId] &&
-					this.#outputTransfers()[transfer.outputId]!.transferId !==
-						transfer.transferId) ||
-				this.#store.get(`incoming-output:${transfer.outputId}`)
-			)
-				throw new Error("Output transfer already in progress");
-			const snapshot = await executeOutputQuery(
-				this.db as TenantStoreDb,
-				scope,
-				{ op: "snapshot", outputId: transfer.outputId },
-			);
-			if (!snapshot) throw new Error("Document transfer source not found");
-			if (
-				!snapshot.revisions.length ||
-				!snapshot.revisions.some(
-					(row) => row.id === snapshot.output.currentRevisionId,
-				) ||
-				snapshot.revisions.some((row) => !row.bodyR2Key)
-			)
-				throw new Error("Document transfer requires all revision bodies in R2");
-			const outputRows = this.#store
-				.exec<TenantStoreImportRow>(
-					"SELECT * FROM os_outputs WHERE id = ?",
-					transfer.outputId,
+					throw new Error("Invalid document transfer scope");
+				const key = `document-transfer:${transfer.transferId}`;
+				const saved = this.#store.get<DocumentTransferPackage>(key);
+				if (saved) {
+					if (!sameDocumentTransfer(saved.transfer, transfer))
+						throw new Error("Document transfer id conflicts with its receipt");
+					return this.#store.get(
+						`document-transfer-removed:${transfer.transferId}`,
+					)
+						? { ...saved, completed: true }
+						: saved;
+				}
+				if (
+					this.#store.get(`document-transfer-owner:${transfer.outputId}`) ||
+					(this.#outputTransfers()[transfer.outputId] &&
+						this.#outputTransfers()[transfer.outputId]!.transferId !==
+							transfer.transferId) ||
+					this.#store.get(`incoming-output:${transfer.outputId}`)
 				)
-				.map((row) => ({ ...row, workspace_id: transfer.targetWorkspaceId }));
-			const revisions = this.#store.exec<TenantStoreImportRow>(
-				"SELECT * FROM os_output_revisions WHERE output_id = ? ORDER BY revision",
-				transfer.outputId,
-			);
-			const batches: DocumentTransferPackage["batches"] = [];
-			for (const [table, rows] of [
-				["os_outputs", outputRows],
-				["os_output_revisions", revisions],
-			] as const)
-				for (let offset = 0; offset < rows.length; offset += 1000)
-					batches.push({
-						batchId: `document-transfer:${transfer.transferId}:${table}:${offset}`,
-						table,
-						rows: rows.slice(offset, offset + 1000),
-					});
-			const payload = {
-				transfer,
-				snapshot: {
-					...snapshot,
-					output: {
-						...snapshot.output,
-						workspaceId: transfer.targetWorkspaceId,
-					},
-				},
-				batches,
-			};
-			this.ctx.storage.transactionSync(() => {
-				this.#store.put(key, payload);
-				this.#store.put(
-					`document-transfer-owner:${transfer.outputId}`,
-					transfer.transferId,
+					throw new Error("Output transfer already in progress");
+				const snapshot = await executeOutputQuery(
+					this.db as TenantStoreDb,
+					scope,
+					{ op: "snapshot", outputId: transfer.outputId },
 				);
+				if (!snapshot) throw new Error("Document transfer source not found");
+				if (
+					!snapshot.revisions.length ||
+					!snapshot.revisions.some(
+						(row) => row.id === snapshot.output.currentRevisionId,
+					) ||
+					snapshot.revisions.some((row) => !row.bodyR2Key)
+				)
+					throw new Error(
+						"Document transfer requires all revision bodies in R2",
+					);
+				const outputRows = this.#store
+					.exec<TenantStoreImportRow>(
+						"SELECT * FROM os_outputs WHERE id = ?",
+						transfer.outputId,
+					)
+					.map((row) => ({ ...row, workspace_id: transfer.targetWorkspaceId }));
+				const revisions = this.#store.exec<TenantStoreImportRow>(
+					"SELECT * FROM os_output_revisions WHERE output_id = ? ORDER BY revision",
+					transfer.outputId,
+				);
+				const batches: DocumentTransferPackage["batches"] = [];
+				for (const [table, rows] of [
+					["os_outputs", outputRows],
+					["os_output_revisions", revisions],
+				] as const)
+					for (let offset = 0; offset < rows.length; offset += 1000)
+						batches.push({
+							batchId: `document-transfer:${transfer.transferId}:${table}:${offset}`,
+							table,
+							rows: rows.slice(offset, offset + 1000),
+						});
+				const payload = {
+					transfer,
+					snapshot: {
+						...snapshot,
+						output: {
+							...snapshot.output,
+							workspaceId: transfer.targetWorkspaceId,
+						},
+					},
+					batches,
+				};
+				this.ctx.storage.transactionSync(() => {
+					this.#store.put(key, payload);
+					this.#store.put(
+						`document-transfer-owner:${transfer.outputId}`,
+						transfer.transferId,
+					);
+				});
+				return payload;
 			});
-			return payload;
 		});
 	}
 
@@ -1300,49 +1316,51 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		payload: DocumentTransferPackage,
 	) {
-		this.bindScope(scope);
-		await this.#initializeOutputs(scope);
-		return this.#serializeOutput(async () => {
-			const { transfer, snapshot, batches } = payload;
-			if (
-				transfer.targetWorkspaceId !== scope.workspaceId ||
-				snapshot.output.workspaceId !== scope.workspaceId ||
-				snapshot.output.organizationId !== scope.organizationId ||
-				snapshot.output.id !== transfer.outputId
-			)
-				throw new Error("Document transfer scope mismatch");
-			const key = `document-transfer-import:${transfer.transferId}`;
-			const payloadSha256 = await sha256Hex(JSON.stringify(payload));
-			const receipt = { transfer, snapshot, payloadSha256 };
-			const saved = this.#store.get<DocumentTransferReceipt>(key);
-			if (saved) {
-				if (saved.payloadSha256 !== payloadSha256)
-					throw new Error("Document transfer id conflicts with its receipt");
-				return;
-			}
-			if (
-				this.#store.get(`incoming-output:${transfer.outputId}`) ||
-				this.#store.get(`document-transfer-owner:${transfer.outputId}`) ||
-				this.#outputTransfers()[transfer.outputId]
-			)
-				throw new Error("Output transfer already in progress");
-			this.ctx.storage.transactionSync(() => {
-				for (const batch of batches) {
-					if (
-						!["os_outputs", "os_output_revisions"].includes(batch.table) ||
-						!batch.batchId.startsWith(
-							`document-transfer:${transfer.transferId}:`,
-						)
-					)
-						throw new Error("Invalid document transfer batch");
-					this.importRowsSync(scope, batch);
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			await this.#initializeOutputs(scope);
+			return this.#serializeOutput(async () => {
+				const { transfer, snapshot, batches } = payload;
+				if (
+					transfer.targetWorkspaceId !== scope.workspaceId ||
+					snapshot.output.workspaceId !== scope.workspaceId ||
+					snapshot.output.organizationId !== scope.organizationId ||
+					snapshot.output.id !== transfer.outputId
+				)
+					throw new Error("Document transfer scope mismatch");
+				const key = `document-transfer-import:${transfer.transferId}`;
+				const payloadSha256 = await sha256Hex(JSON.stringify(payload));
+				const receipt = { transfer, snapshot, payloadSha256 };
+				const saved = this.#store.get<DocumentTransferReceipt>(key);
+				if (saved) {
+					if (saved.payloadSha256 !== payloadSha256)
+						throw new Error("Document transfer id conflicts with its receipt");
+					return;
 				}
-				this.#store.put(
-					`incoming-output:${transfer.outputId}`,
-					transfer.transferId,
-				);
-				this.#store.delete(`transferred-output:${transfer.outputId}`);
-				this.#store.put(key, receipt);
+				if (
+					this.#store.get(`incoming-output:${transfer.outputId}`) ||
+					this.#store.get(`document-transfer-owner:${transfer.outputId}`) ||
+					this.#outputTransfers()[transfer.outputId]
+				)
+					throw new Error("Output transfer already in progress");
+				this.ctx.storage.transactionSync(() => {
+					for (const batch of batches) {
+						if (
+							!["os_outputs", "os_output_revisions"].includes(batch.table) ||
+							!batch.batchId.startsWith(
+								`document-transfer:${transfer.transferId}:`,
+							)
+						)
+							throw new Error("Invalid document transfer batch");
+						this.importRowsSync(scope, batch);
+					}
+					this.#store.put(
+						`incoming-output:${transfer.outputId}`,
+						transfer.transferId,
+					);
+					this.#store.delete(`transferred-output:${transfer.outputId}`);
+					this.#store.put(key, receipt);
+				});
 			});
 		});
 	}
@@ -1351,103 +1369,111 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		transfer: DocumentTransfer,
 	) {
-		this.bindScope(scope);
-		await this.#initializeOutputs(scope);
-		const saved = this.#store.get<DocumentTransferReceipt>(
-			`document-transfer-import:${transfer.transferId}`,
-		);
-		if (!saved || !sameDocumentTransfer(saved.transfer, transfer))
-			throw new Error("Document transfer is not confirmed");
-		const current = await executeOutputQuery(this.db as TenantStoreDb, scope, {
-			op: "snapshot",
-			outputId: transfer.outputId,
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			await this.#initializeOutputs(scope);
+			const saved = this.#store.get<DocumentTransferReceipt>(
+				`document-transfer-import:${transfer.transferId}`,
+			);
+			if (!saved || !sameDocumentTransfer(saved.transfer, transfer))
+				throw new Error("Document transfer is not confirmed");
+			const current = await executeOutputQuery(
+				this.db as TenantStoreDb,
+				scope,
+				{
+					op: "snapshot",
+					outputId: transfer.outputId,
+				},
+			);
+			if (JSON.stringify(current) !== JSON.stringify(saved.snapshot))
+				throw new Error("Document transfer destination changed after import");
+			return saved.snapshot;
 		});
-		if (JSON.stringify(current) !== JSON.stringify(saved.snapshot))
-			throw new Error("Document transfer destination changed after import");
-		return saved.snapshot;
 	}
 
 	async removeDocumentTransfer(
 		scope: WorkspaceScope,
 		transfer: DocumentTransfer,
 	) {
-		this.bindScope(scope);
-		await this.#initializeOutputs(scope);
-		const saved = this.#store.get<DocumentTransferPackage>(
-			`document-transfer:${transfer.transferId}`,
-		);
-		if (!saved || !sameDocumentTransfer(saved.transfer, transfer))
-			throw new Error("Document transfer source receipt mismatch");
-		const target = {
-			organizationId: scope.organizationId,
-			workspaceId: transfer.targetWorkspaceId,
-		};
-		const destination = durableObjectStubByName(
-			this.env.WORKSPACE,
-			this.env,
-			tenantStoreName(target),
-		) as unknown as WorkspaceRpc;
-		if (this.#store.get(`document-transfer-removed:${transfer.transferId}`)) {
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			await this.#initializeOutputs(scope);
+			const saved = this.#store.get<DocumentTransferPackage>(
+				`document-transfer:${transfer.transferId}`,
+			);
+			if (!saved || !sameDocumentTransfer(saved.transfer, transfer))
+				throw new Error("Document transfer source receipt mismatch");
+			const target = {
+				organizationId: scope.organizationId,
+				workspaceId: transfer.targetWorkspaceId,
+			};
+			const destination = durableObjectStubByName(
+				this.env.WORKSPACE,
+				this.env,
+				tenantStoreName(target),
+			) as unknown as WorkspaceRpc;
+			if (this.#store.get(`document-transfer-removed:${transfer.transferId}`)) {
+				await destination.completeOutputTransfer(
+					target,
+					transfer.outputId,
+					transfer.transferId,
+				);
+				return;
+			}
+			const confirmed = await destination.confirmDocumentTransfer(
+				target,
+				transfer,
+			);
+			if (JSON.stringify(confirmed) !== JSON.stringify(saved.snapshot))
+				throw new Error("Document transfer confirmation mismatch");
+			for (const revision of confirmed.revisions) {
+				const indexed = await getWorkspaceOutputIndexRevision(
+					coreQueryDb(this.env),
+					{ organizationId: scope.organizationId, revisionId: revision.id },
+				);
+				if (indexed?.workspaceId !== target.workspaceId)
+					throw new Error("Document transfer index is not repointed");
+			}
+			await this.#serializeOutput(async () => {
+				if (
+					!this.#store.get(`document-transfer-removed:${transfer.transferId}`)
+				) {
+					if (
+						this.#store.get(`document-transfer-owner:${transfer.outputId}`) !==
+						transfer.transferId
+					)
+						throw new Error("Document transfer source owner changed");
+					this.ctx.storage.transactionSync(() => {
+						this.#store.run(
+							"DELETE FROM os_output_revisions WHERE output_id = ?",
+							transfer.outputId,
+						);
+						this.#store.run(
+							"DELETE FROM os_outputs WHERE id = ?",
+							transfer.outputId,
+						);
+						this.#store.put(`transferred-output:${transfer.outputId}`, true);
+						this.#store.delete(`document-transfer-owner:${transfer.outputId}`);
+						const projections = this.#pendingOutputProjections();
+						delete projections[transfer.outputId];
+						this.#store.put("pending-output-projections", projections);
+						this.#store.put(
+							`document-transfer-removed:${transfer.transferId}`,
+							true,
+						);
+						this.#store.put(`document-transfer:${transfer.transferId}`, {
+							...saved,
+							batches: [],
+						});
+					});
+				}
+			});
 			await destination.completeOutputTransfer(
 				target,
 				transfer.outputId,
 				transfer.transferId,
 			);
-			return;
-		}
-		const confirmed = await destination.confirmDocumentTransfer(
-			target,
-			transfer,
-		);
-		if (JSON.stringify(confirmed) !== JSON.stringify(saved.snapshot))
-			throw new Error("Document transfer confirmation mismatch");
-		for (const revision of confirmed.revisions) {
-			const indexed = await getWorkspaceOutputIndexRevision(
-				createDbQueryClient(this.env.DB),
-				{ organizationId: scope.organizationId, revisionId: revision.id },
-			);
-			if (indexed?.workspaceId !== target.workspaceId)
-				throw new Error("Document transfer index is not repointed");
-		}
-		await this.#serializeOutput(async () => {
-			if (
-				!this.#store.get(`document-transfer-removed:${transfer.transferId}`)
-			) {
-				if (
-					this.#store.get(`document-transfer-owner:${transfer.outputId}`) !==
-					transfer.transferId
-				)
-					throw new Error("Document transfer source owner changed");
-				this.ctx.storage.transactionSync(() => {
-					this.#store.run(
-						"DELETE FROM os_output_revisions WHERE output_id = ?",
-						transfer.outputId,
-					);
-					this.#store.run(
-						"DELETE FROM os_outputs WHERE id = ?",
-						transfer.outputId,
-					);
-					this.#store.put(`transferred-output:${transfer.outputId}`, true);
-					this.#store.delete(`document-transfer-owner:${transfer.outputId}`);
-					const projections = this.#pendingOutputProjections();
-					delete projections[transfer.outputId];
-					this.#store.put("pending-output-projections", projections);
-					this.#store.put(
-						`document-transfer-removed:${transfer.transferId}`,
-						true,
-					);
-					this.#store.put(`document-transfer:${transfer.transferId}`, {
-						...saved,
-						batches: [],
-					});
-				});
-			}
 		});
-		await destination.completeOutputTransfer(
-			target,
-			transfer.outputId,
-			transfer.transferId,
-		);
 	}
 
 	async transferOutput(
@@ -1455,55 +1481,63 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		outputId: string,
 		targetWorkspaceId: string,
 	): Promise<OutputTransferResult> {
-		this.bindScope(scope);
-		await this.#initializeOutputs(scope);
-		if (scope.workspaceId === targetWorkspaceId) {
-			const output = await executeOutputQuery(this.db as TenantStoreDb, scope, {
-				op: "get",
-				outputId,
-			});
-			return output ? { ok: true, output } : { ok: false, reason: "not_found" };
-		}
-		const prepared = await this.#serializeOutput(async () => {
-			let pending = this.#outputTransfers()[outputId];
-			const owner = this.#store.get<string>(
-				`document-transfer-owner:${outputId}`,
-			);
-			if (
-				(pending && pending.targetWorkspaceId !== targetWorkspaceId) ||
-				(owner && owner !== pending?.transferId) ||
-				this.#store.get(`incoming-output:${outputId}`)
-			)
-				return { ok: false as const, reason: "conflict" as const };
-			if (!pending) {
-				const snapshot = await executeOutputQuery(
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			await this.#initializeOutputs(scope);
+			if (scope.workspaceId === targetWorkspaceId) {
+				const output = await executeOutputQuery(
 					this.db as TenantStoreDb,
 					scope,
-					{ op: "snapshot", outputId },
+					{
+						op: "get",
+						outputId,
+					},
 				);
-				if (!snapshot)
-					return { ok: false as const, reason: "not_found" as const };
-				pending = {
-					scope,
-					targetWorkspaceId,
-					transferId: crypto.randomUUID(),
-				};
-				await this.#scheduleAlarm(Date.now() + KEEPALIVE_MS);
-				this.#store.put("output-transfers", {
-					...this.#outputTransfers(),
-					[outputId]: pending,
-				});
+				return output
+					? { ok: true, output }
+					: { ok: false, reason: "not_found" };
 			}
-			// A publish already running must land before the index is repointed;
-			// later ones skip a file that is moving.
-			await this.#publishSerial;
-			return { pending };
+			const prepared = await this.#serializeOutput(async () => {
+				let pending = this.#outputTransfers()[outputId];
+				const owner = this.#store.get<string>(
+					`document-transfer-owner:${outputId}`,
+				);
+				if (
+					(pending && pending.targetWorkspaceId !== targetWorkspaceId) ||
+					(owner && owner !== pending?.transferId) ||
+					this.#store.get(`incoming-output:${outputId}`)
+				)
+					return { ok: false as const, reason: "conflict" as const };
+				if (!pending) {
+					const snapshot = await executeOutputQuery(
+						this.db as TenantStoreDb,
+						scope,
+						{ op: "snapshot", outputId },
+					);
+					if (!snapshot)
+						return { ok: false as const, reason: "not_found" as const };
+					pending = {
+						scope,
+						targetWorkspaceId,
+						transferId: crypto.randomUUID(),
+					};
+					await this.#scheduleAlarm(Date.now() + KEEPALIVE_MS);
+					this.#store.put("output-transfers", {
+						...this.#outputTransfers(),
+						[outputId]: pending,
+					});
+				}
+				// A publish already running must land before the index is repointed;
+				// later ones skip a file that is moving.
+				await this.#publishSerial;
+				return { pending };
+			});
+			if (!prepared.pending) return prepared;
+			return {
+				ok: true,
+				output: await this.#runOutputTransfer(outputId, prepared.pending),
+			};
 		});
-		if (!prepared.pending) return prepared;
-		return {
-			ok: true,
-			output: await this.#runOutputTransfer(outputId, prepared.pending),
-		};
 	}
 
 	#runOutputTransfer(outputId: string, pending: PendingOutputTransfer) {
@@ -1520,57 +1554,62 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		outputId: string,
 		pending: PendingOutputTransfer,
 	) {
-		const target = {
-			organizationId: pending.scope.organizationId,
-			workspaceId: pending.targetWorkspaceId,
-		};
-		const destination = durableObjectStubByName(
-			this.env.WORKSPACE,
-			this.env,
-			tenantStoreName(target),
-		) as unknown as WorkspaceRpc;
-		const transfer = {
-			transferId: pending.transferId,
-			outputId,
-			sourceWorkspaceId: pending.scope.workspaceId,
-			targetWorkspaceId: pending.targetWorkspaceId,
-		};
-		const payload = await this.prepareDocumentTransfer(pending.scope, transfer);
-		if (!payload.completed) {
-			await destination.importDocumentTransfer(target, payload);
-			const snapshot = payload.snapshot;
-			for (const revision of snapshot.revisions)
-				await publishOutputProjection(
-					createDbQueryClient(this.env.DB),
-					snapshot.output,
-					revision,
-					{
-						historical: revision.id !== snapshot.output.currentRevisionId,
-						continuesBurst: continuesOutputAutosaveBurst(
-							snapshot.revisions.find(
-								(row) => row.revision === revision.revision - 1,
-							),
-							revision,
-						),
-					},
-				);
-			const confirmed = await destination.confirmDocumentTransfer(
-				target,
+		return withCoreStore(this.env, async () => {
+			const target = {
+				organizationId: pending.scope.organizationId,
+				workspaceId: pending.targetWorkspaceId,
+			};
+			const destination = durableObjectStubByName(
+				this.env.WORKSPACE,
+				this.env,
+				tenantStoreName(target),
+			) as unknown as WorkspaceRpc;
+			const transfer = {
+				transferId: pending.transferId,
+				outputId,
+				sourceWorkspaceId: pending.scope.workspaceId,
+				targetWorkspaceId: pending.targetWorkspaceId,
+			};
+			const payload = await this.prepareDocumentTransfer(
+				pending.scope,
 				transfer,
 			);
-			if (JSON.stringify(confirmed) !== JSON.stringify(payload.snapshot))
-				throw new Error("Document transfer confirmation mismatch");
-			await repointDocumentTransferIndex(
-				createDbQueryClient(this.env.DB),
-				pending.scope.organizationId,
-				payload,
-			);
-		}
-		await this.removeDocumentTransfer(pending.scope, transfer);
-		const transfers = this.#outputTransfers();
-		delete transfers[outputId];
-		this.#store.put("output-transfers", transfers);
-		return payload.snapshot.output;
+			if (!payload.completed) {
+				await destination.importDocumentTransfer(target, payload);
+				const snapshot = payload.snapshot;
+				for (const revision of snapshot.revisions)
+					await publishOutputProjection(
+						coreQueryDb(this.env),
+						snapshot.output,
+						revision,
+						{
+							historical: revision.id !== snapshot.output.currentRevisionId,
+							continuesBurst: continuesOutputAutosaveBurst(
+								snapshot.revisions.find(
+									(row) => row.revision === revision.revision - 1,
+								),
+								revision,
+							),
+						},
+					);
+				const confirmed = await destination.confirmDocumentTransfer(
+					target,
+					transfer,
+				);
+				if (JSON.stringify(confirmed) !== JSON.stringify(payload.snapshot))
+					throw new Error("Document transfer confirmation mismatch");
+				await repointDocumentTransferIndex(
+					coreQueryDb(this.env),
+					pending.scope.organizationId,
+					payload,
+				);
+			}
+			await this.removeDocumentTransfer(pending.scope, transfer);
+			const transfers = this.#outputTransfers();
+			delete transfers[outputId];
+			this.#store.put("output-transfers", transfers);
+			return payload.snapshot.output;
+		});
 	}
 
 	completeOutputTransfer(
@@ -1599,210 +1638,213 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		seq: number;
 		queued?: true;
 	}> {
-		this.bindScope(scope);
-		const turnId = input.turnId ?? crypto.randomUUID();
-		const existing = this.#turn(turnId);
-		if (existing) {
-			return {
-				turnId,
-				conversationId: existing.conversation_id,
-				seq: existing.first_seq ?? this.#events.latestSeq(),
-			};
-		}
-		const waiting = this.#queuedMessage(turnId);
-		if (waiting) return queuedReceipt(waiting);
-		// Resolved again when a queued message starts: the setting or the
-		// sender's right to the tedi may have changed meanwhile.
-		let defaultTedi: { tediId: string; name: string } | null = null;
-		let answererNote: string | undefined;
-		if (input.defaultTedi) {
-			const resolved = await this.#defaultAnswerer(scope, input.actorId);
-			if (resolved && "note" in resolved) answererNote = resolved.note;
-			else defaultTedi = resolved;
-			const { tediId: _picked, ...rest } = input;
-			input = defaultTedi ? { ...rest, tediId: defaultTedi.tediId } : rest;
-		}
-		await this.refreshModelCatalog();
-		const models = this.configuredModels();
-		// A person's chat with a tedi, or in their own private workspace, starts
-		// on the administrator's default for a person's chat; so does a run's
-		// report to the person who started it.
-		const personChat =
-			!input.modelId &&
-			(Boolean(input.tediId || input.runReport) ||
-				(input.actorKind === "user" &&
-					(await this.#privateTo(scope, input.actorId))));
-		const modelId =
-			input.modelId ??
-			defaultWorkspaceModelId(
-				models,
-				personChat ? this.#modelCatalog?.personChatModelRef : undefined,
-			);
-		if (!modelId) throw new Error("No model is configured for workspace chat");
-		if (!models.some((model) => model.id === modelId))
-			throw new Error("This model is not configured for workspace chat");
-		const text = input.text.trim();
-		if (!text) throw new Error("A turn needs text");
-		const selected = await resolveAttachments(
-			this.#dataPort(scope, input.actorKind),
-			input.attachments,
-			(file, canReadChatUpload) =>
-				workspaceImageAttachment(
-					this.env.SKILL_ARTIFACTS,
-					scope,
-					file,
-					canReadChatUpload,
-				),
-			async (resourceId) => {
-				const upload = await workspaceChatUpload(
-					this.env.SKILL_ARTIFACTS,
-					scope,
-					resourceId,
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			const turnId = input.turnId ?? crypto.randomUUID();
+			const existing = this.#turn(turnId);
+			if (existing) {
+				return {
+					turnId,
+					conversationId: existing.conversation_id,
+					seq: existing.first_seq ?? this.#events.latestSeq(),
+				};
+			}
+			const waiting = this.#queuedMessage(turnId);
+			if (waiting) return queuedReceipt(waiting);
+			// Resolved again when a queued message starts: the setting or the
+			// sender's right to the tedi may have changed meanwhile.
+			let defaultTedi: { tediId: string; name: string } | null = null;
+			let answererNote: string | undefined;
+			if (input.defaultTedi) {
+				const resolved = await this.#defaultAnswerer(scope, input.actorId);
+				if (resolved && "note" in resolved) answererNote = resolved.note;
+				else defaultTedi = resolved;
+				const { tediId: _picked, ...rest } = input;
+				input = defaultTedi ? { ...rest, tediId: defaultTedi.tediId } : rest;
+			}
+			await this.refreshModelCatalog();
+			const models = this.configuredModels();
+			// A person's chat with a tedi, or in their own private workspace, starts
+			// on the administrator's default for a person's chat; so does a run's
+			// report to the person who started it.
+			const personChat =
+				!input.modelId &&
+				(Boolean(input.tediId || input.runReport) ||
+					(input.actorKind === "user" &&
+						(await this.#privateTo(scope, input.actorId))));
+			const modelId =
+				input.modelId ??
+				defaultWorkspaceModelId(
+					models,
+					personChat ? this.#modelCatalog?.personChatModelRef : undefined,
 				);
-				if (!upload) return null;
-				if (
-					(upload.createdByKind === input.actorKind &&
-						upload.createdById === input.actorId) ||
-					(input.conversationId &&
-						this.#events.hasChatFile(input.conversationId, resourceId))
-				)
-					return upload;
-				return null;
-			},
-		);
-		// Resolving file bodies yields; a retried frame may have admitted this id.
-		const admitted = this.#turn(turnId);
-		if (admitted)
-			return {
-				turnId,
-				conversationId: admitted.conversation_id,
-				seq: admitted.first_seq ?? this.#events.latestSeq(),
+			if (!modelId)
+				throw new Error("No model is configured for workspace chat");
+			if (!models.some((model) => model.id === modelId))
+				throw new Error("This model is not configured for workspace chat");
+			const text = input.text.trim();
+			if (!text) throw new Error("A turn needs text");
+			const selected = await resolveAttachments(
+				this.#dataPort(scope, input.actorKind),
+				input.attachments,
+				(file, canReadChatUpload) =>
+					workspaceImageAttachment(
+						this.env.SKILL_ARTIFACTS,
+						scope,
+						file,
+						canReadChatUpload,
+					),
+				async (resourceId) => {
+					const upload = await workspaceChatUpload(
+						this.env.SKILL_ARTIFACTS,
+						scope,
+						resourceId,
+					);
+					if (!upload) return null;
+					if (
+						(upload.createdByKind === input.actorKind &&
+							upload.createdById === input.actorId) ||
+						(input.conversationId &&
+							this.#events.hasChatFile(input.conversationId, resourceId))
+					)
+						return upload;
+					return null;
+				},
+			);
+			// Resolving file bodies yields; a retried frame may have admitted this id.
+			const admitted = this.#turn(turnId);
+			if (admitted)
+				return {
+					turnId,
+					conversationId: admitted.conversation_id,
+					seq: admitted.first_seq ?? this.#events.latestSeq(),
+				};
+			const requeued = this.#queuedMessage(turnId);
+			if (requeued) return queuedReceipt(requeued);
+			const now = new Date().toISOString();
+			this.#store.put("activity-scope", scope);
+			const author = {
+				authorId: input.actorId,
+				authorKind:
+					input.actorKind === "tedi" ? ("tedi" as const) : ("person" as const),
+				...(input.fromAppId ? { fromAppId: input.fromAppId } : {}),
 			};
-		const requeued = this.#queuedMessage(turnId);
-		if (requeued) return queuedReceipt(requeued);
-		const now = new Date().toISOString();
-		this.#store.put("activity-scope", scope);
-		const author = {
-			authorId: input.actorId,
-			authorKind:
-				input.actorKind === "tedi" ? ("tedi" as const) : ("person" as const),
-			...(input.fromAppId ? { fromAppId: input.fromAppId } : {}),
-		};
-		const working = input.conversationId
-			? this.#runningTurnIn(input.conversationId)
-			: undefined;
-		if (working) {
-			// A run's report never joins a working turn, which may run code.
-			if (input.runReport)
-				throw new Error("A turn is already working in this conversation");
-			const shown: QueuedRequest["shown"] = {
+			const working = input.conversationId
+				? this.#runningTurnIn(input.conversationId)
+				: undefined;
+			if (working) {
+				// A run's report never joins a working turn, which may run code.
+				if (input.runReport)
+					throw new Error("A turn is already working in this conversation");
+				const shown: QueuedRequest["shown"] = {
+					text,
+					...(displayText ? { displayText } : {}),
+					...(selected.attachments.length
+						? { attachments: selected.attachments }
+						: {}),
+					...author,
+				};
+				const request: QueuedRequest = {
+					input: { ...input, modelId },
+					...(selected.images.length
+						? { imageAttachments: selected.images }
+						: {}),
+					...(displayText ? { displayText } : {}),
+					shown,
+				};
+				return queuedReceipt(
+					this.#queueMessage(working, turnId, now, {
+						actorId: input.actorId,
+						actorKind: input.actorKind,
+						modelText: text + selected.context,
+						request,
+					}),
+				);
+			}
+			if (defaultTedi) {
+				const profile = await this.#defaultTediProfile(
+					scope,
+					defaultTedi.tediId,
+					text,
+				);
+				if (profile) this.#guestProfiles.set(turnId, profile);
+				else {
+					const { tediId: _default, ...rest } = input;
+					input = rest;
+					answererNote = unavailableDefaultNote(defaultTedi.name);
+				}
+				// The profile call yields; a retried frame may have started this id.
+				const raced = this.#turn(turnId);
+				if (raced) {
+					this.#guestProfiles.delete(turnId);
+					return {
+						turnId,
+						conversationId: raced.conversation_id,
+						seq: raced.first_seq ?? this.#events.latestSeq(),
+					};
+				}
+			}
+			const conversationId = this.#ensureConversation(
+				input.conversationId ?? null,
+				text,
+				now,
+				input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
+			);
+			this.#store.run(
+				"INSERT INTO turns (turn_id, conversation_id, started_at, status, actor_id, actor_kind, tedi_id) VALUES (?, ?, ?, 'running', ?, ?, ?)",
+				turnId,
+				conversationId,
+				now,
+				input.actorId,
+				input.actorKind,
+				input.tediId ?? null,
+			);
+			const startEvent = {
+				type: "turn.started" as const,
+				...(input.retryOfTurnId ? { retryOfTurnId: input.retryOfTurnId } : {}),
+				turnId,
 				text,
 				...(displayText ? { displayText } : {}),
 				...(selected.attachments.length
 					? { attachments: selected.attachments }
 					: {}),
 				...author,
+				respondingTediId:
+					input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
+				...(answererNote ? { answererNote } : {}),
+				...(input.handedFrom ? { handedFrom: input.handedFrom } : {}),
+				...(input.runReport ? { runReport: input.runReport } : {}),
 			};
-			const request: QueuedRequest = {
-				input: { ...input, modelId },
-				...(selected.images.length
-					? { imageAttachments: selected.images }
-					: {}),
-				...(displayText ? { displayText } : {}),
-				shown,
-			};
-			return queuedReceipt(
-				this.#queueMessage(working, turnId, now, {
-					actorId: input.actorId,
-					actorKind: input.actorKind,
-					modelText: text + selected.context,
-					request,
-				}),
-			);
-		}
-		if (defaultTedi) {
-			const profile = await this.#defaultTediProfile(
-				scope,
-				defaultTedi.tediId,
-				text,
-			);
-			if (profile) this.#guestProfiles.set(turnId, profile);
-			else {
-				const { tediId: _default, ...rest } = input;
-				input = rest;
-				answererNote = unavailableDefaultNote(defaultTedi.name);
-			}
-			// The profile call yields; a retried frame may have started this id.
-			const raced = this.#turn(turnId);
-			if (raced) {
-				this.#guestProfiles.delete(turnId);
-				return {
-					turnId,
-					conversationId: raced.conversation_id,
-					seq: raced.first_seq ?? this.#events.latestSeq(),
-				};
-			}
-		}
-		const conversationId = this.#ensureConversation(
-			input.conversationId ?? null,
-			text,
-			now,
-			input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
-		);
-		this.#store.run(
-			"INSERT INTO turns (turn_id, conversation_id, started_at, status, actor_id, actor_kind, tedi_id) VALUES (?, ?, ?, 'running', ?, ?, ?)",
-			turnId,
-			conversationId,
-			now,
-			input.actorId,
-			input.actorKind,
-			input.tediId ?? null,
-		);
-		const startEvent = {
-			type: "turn.started" as const,
-			...(input.retryOfTurnId ? { retryOfTurnId: input.retryOfTurnId } : {}),
-			turnId,
-			text,
-			...(displayText ? { displayText } : {}),
-			...(selected.attachments.length
-				? { attachments: selected.attachments }
-				: {}),
-			...author,
-			respondingTediId:
-				input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
-			...(answererNote ? { answererNote } : {}),
-			...(input.handedFrom ? { handedFrom: input.handedFrom } : {}),
-			...(input.runReport ? { runReport: input.runReport } : {}),
-		};
-		const started = this.#events.append(conversationId, startEvent);
-		this.#store.run(
-			"UPDATE turns SET first_seq = ? WHERE turn_id = ?",
-			started.seq,
-			turnId,
-		);
-		// Decisions made while an earlier turn worked reach the model with
-		// this message; the chat shows only what the person wrote.
-		const decisions = this.#takeDecisionNotes(conversationId)
-			.map((note) => `${note.text}\n\n`)
-			.join("");
-		const controller = new AbortController();
-		this.#running.set(turnId, controller);
-		await this.#scheduleAlarm(Date.now() + KEEPALIVE_MS);
-		this.ctx.waitUntil(
-			this.#execute(
-				scope,
+			const started = this.#events.append(conversationId, startEvent);
+			this.#store.run(
+				"UPDATE turns SET first_seq = ? WHERE turn_id = ?",
+				started.seq,
 				turnId,
-				conversationId,
-				{
-					...input,
-					modelId,
-					text: decisions + text + selected.context,
-					imageAttachments: selected.images,
-				},
-				controller,
-			),
-		);
-		return { turnId, conversationId, seq: started.seq };
+			);
+			// Decisions made while an earlier turn worked reach the model with
+			// this message; the chat shows only what the person wrote.
+			const decisions = this.#takeDecisionNotes(conversationId)
+				.map((note) => `${note.text}\n\n`)
+				.join("");
+			const controller = new AbortController();
+			this.#running.set(turnId, controller);
+			await this.#scheduleAlarm(Date.now() + KEEPALIVE_MS);
+			this.ctx.waitUntil(
+				this.#execute(
+					scope,
+					turnId,
+					conversationId,
+					{
+						...input,
+						modelId,
+						text: decisions + text + selected.context,
+						imageAttachments: selected.images,
+					},
+					controller,
+				),
+			);
+			return { turnId, conversationId, seq: started.seq };
+		});
 	}
 
 	async cancelTurn(scope: WorkspaceScope, turnId: string): Promise<boolean> {
@@ -2466,143 +2508,151 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			note?: string;
 		},
 	): Promise<ApprovalResult[]> {
-		this.bindScope(scope);
-		const results: ApprovalResult[] = [];
-		const approve = input.decision === "approve";
-		const rows = input.approvalIds.map((approvalId) => {
-			const [approval] = this.#store.exec<ApprovalRow>(
-				"SELECT * FROM approvals WHERE approval_id = ?",
-				approvalId,
-			);
-			if (!approval) throw new Error("Unknown approval");
-			this.#expireStaged(approval.conversation_id);
-			if (!this.#mayDecide(approval, input.by))
-				throw new Error(
-					"Not decided: only the person who sent the message can approve using their computer.",
-				);
-			return approval;
-		});
-		/** What this run decided, by conversation, in the order it happened. */
-		const decided = new Map<
-			string,
-			{
-				first: ApprovalRow;
-				settled: Array<{ index: number; approvalId: string; applied: boolean }>;
-				summaries: string[];
-			}
-		>();
-		let stopped = false;
-		for (const [index, approval] of rows.entries()) {
-			if (stopped) {
-				results.push({ applied: false, left: true });
-				continue;
-			}
-			const approvalId = approval.approval_id;
-			// The rows above were read before the first change was applied, and
-			// applying one lets other calls in. So each request is taken here,
-			// just before it is applied, and only if it is still waiting.
-			const outcome = await this.#settleApproval(scope, approval, input);
-			if (!outcome) {
-				// Someone else decided it, or is still applying it: wait for that
-				// to land and report what it was.
-				await this.#deciding.get(approvalId);
-				const [current] = this.#store.exec<{ status: ApprovalRow["status"] }>(
-					"SELECT status FROM approvals WHERE approval_id = ?",
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			const results: ApprovalResult[] = [];
+			const approve = input.decision === "approve";
+			const rows = input.approvalIds.map((approvalId) => {
+				const [approval] = this.#store.exec<ApprovalRow>(
+					"SELECT * FROM approvals WHERE approval_id = ?",
 					approvalId,
 				);
-				const otherwise = approve
-					? current?.status === "denied"
-					: current?.status !== "denied";
-				stopped = otherwise;
+				if (!approval) throw new Error("Unknown approval");
+				this.#expireStaged(approval.conversation_id);
+				if (!this.#mayDecide(approval, input.by))
+					throw new Error(
+						"Not decided: only the person who sent the message can approve using their computer.",
+					);
+				return approval;
+			});
+			/** What this run decided, by conversation, in the order it happened. */
+			const decided = new Map<
+				string,
+				{
+					first: ApprovalRow;
+					settled: Array<{
+						index: number;
+						approvalId: string;
+						applied: boolean;
+					}>;
+					summaries: string[];
+				}
+			>();
+			let stopped = false;
+			for (const [index, approval] of rows.entries()) {
+				if (stopped) {
+					results.push({ applied: false, left: true });
+					continue;
+				}
+				const approvalId = approval.approval_id;
+				// The rows above were read before the first change was applied, and
+				// applying one lets other calls in. So each request is taken here,
+				// just before it is applied, and only if it is still waiting.
+				const outcome = await this.#settleApproval(scope, approval, input);
+				if (!outcome) {
+					// Someone else decided it, or is still applying it: wait for that
+					// to land and report what it was.
+					await this.#deciding.get(approvalId);
+					const [current] = this.#store.exec<{ status: ApprovalRow["status"] }>(
+						"SELECT status FROM approvals WHERE approval_id = ?",
+						approvalId,
+					);
+					const otherwise = approve
+						? current?.status === "denied"
+						: current?.status !== "denied";
+					stopped = otherwise;
+					results.push({
+						...(this.#store.get<{ applied: boolean; turnId?: string }>(
+							`approval-result:${approvalId}`,
+						) ?? { applied: current?.status === "applied" }),
+						alreadyDecided: true,
+						...(otherwise
+							? { stopped: { reason: "decided_otherwise" as const } }
+							: {}),
+					});
+					continue;
+				}
+				if (outcome.refusal) {
+					stopped = true;
+					results.push({
+						applied: false,
+						stopped: { reason: "failed", error: outcome.refusal },
+					});
+					continue;
+				}
+				const conversation = decided.get(approval.conversation_id) ?? {
+					first: approval,
+					settled: [],
+					summaries: [],
+				};
+				decided.set(approval.conversation_id, conversation);
+				conversation.settled.push({
+					index,
+					approvalId,
+					applied: outcome.applied,
+				});
+				conversation.summaries.push(outcome.summary);
+				const failed = approve && !outcome.applied;
+				stopped = failed;
 				results.push({
-					...(this.#store.get<{ applied: boolean; turnId?: string }>(
-						`approval-result:${approvalId}`,
-					) ?? { applied: current?.status === "applied" }),
-					alreadyDecided: true,
-					...(otherwise
-						? { stopped: { reason: "decided_otherwise" as const } }
+					applied: outcome.applied,
+					...(failed
+						? {
+								stopped: {
+									reason: "failed" as const,
+									...(outcome.outcome && !outcome.outcome.ok
+										? { error: outcome.outcome.error }
+										: {}),
+								},
+							}
 						: {}),
 				});
-				continue;
 			}
-			if (outcome.refusal) {
-				stopped = true;
-				results.push({
-					applied: false,
-					stopped: { reason: "failed", error: outcome.refusal },
-				});
-				continue;
+			for (const [conversationId, { first, settled, summaries }] of decided) {
+				const note: DecisionNote = {
+					by: input.by,
+					tediId: first.tedi_id,
+					originTurnIds: [
+						...new Set(
+							settled.flatMap((item) => {
+								const approval = rows.find(
+									(row) => row.approval_id === item.approvalId,
+								)!;
+								return this.#createOrigins(approval.turn_id);
+							}),
+						),
+					],
+					text: summaries.join("\n"),
+					displayText:
+						settled.length > 1
+							? approve
+								? `Approved ${settled.length} requested actions.`
+								: `Denied ${settled.length} requested actions.`
+							: approve
+								? "Approved the requested action."
+								: "Denied the requested action.",
+				};
+				// The person kept chatting and a turn is still working: it would race
+				// a second answer. The results wait for that turn to finish.
+				if (this.#runningTurnIn(conversationId)) {
+					this.#queueDecisionNote(conversationId, note);
+					continue;
+				}
+				const { turnId } = await this.#sendDecisionNotes(
+					scope,
+					conversationId,
+					[note],
+				);
+				for (const item of settled) {
+					this.#store.put(`approval-result:${item.approvalId}`, {
+						applied: item.applied,
+						turnId,
+					});
+					results[item.index] = { ...results[item.index]!, turnId };
+				}
 			}
-			const conversation = decided.get(approval.conversation_id) ?? {
-				first: approval,
-				settled: [],
-				summaries: [],
-			};
-			decided.set(approval.conversation_id, conversation);
-			conversation.settled.push({
-				index,
-				approvalId,
-				applied: outcome.applied,
-			});
-			conversation.summaries.push(outcome.summary);
-			const failed = approve && !outcome.applied;
-			stopped = failed;
-			results.push({
-				applied: outcome.applied,
-				...(failed
-					? {
-							stopped: {
-								reason: "failed" as const,
-								...(outcome.outcome && !outcome.outcome.ok
-									? { error: outcome.outcome.error }
-									: {}),
-							},
-						}
-					: {}),
-			});
-		}
-		for (const [conversationId, { first, settled, summaries }] of decided) {
-			const note: DecisionNote = {
-				by: input.by,
-				tediId: first.tedi_id,
-				originTurnIds: [
-					...new Set(
-						settled.flatMap((item) => {
-							const approval = rows.find(
-								(row) => row.approval_id === item.approvalId,
-							)!;
-							return this.#createOrigins(approval.turn_id);
-						}),
-					),
-				],
-				text: summaries.join("\n"),
-				displayText:
-					settled.length > 1
-						? approve
-							? `Approved ${settled.length} requested actions.`
-							: `Denied ${settled.length} requested actions.`
-						: approve
-							? "Approved the requested action."
-							: "Denied the requested action.",
-			};
-			// The person kept chatting and a turn is still working: it would race
-			// a second answer. The results wait for that turn to finish.
-			if (this.#runningTurnIn(conversationId)) {
-				this.#queueDecisionNote(conversationId, note);
-				continue;
-			}
-			const { turnId } = await this.#sendDecisionNotes(scope, conversationId, [
-				note,
-			]);
-			for (const item of settled) {
-				this.#store.put(`approval-result:${item.approvalId}`, {
-					applied: item.applied,
-					turnId,
-				});
-				results[item.index] = { ...results[item.index]!, turnId };
-			}
-		}
-		return results;
+			return results;
+		});
 	}
 
 	#runningTurnIn(conversationId: string): TurnRow | undefined {
@@ -2871,7 +2921,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				if (
 					!attachment?.conversationId ||
 					attachment.conversationId === event.conversationId ||
-					!(await workspaceSessionAllowed(this.env.DB, attachment))
+					!(await workspaceSessionAllowed(this.env, attachment))
 				)
 					continue;
 				try {
@@ -3080,10 +3130,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#pushSerial = this.#pushSerial.then(async () => {
 			for (const ws of this.ctx.getWebSockets()) {
 				if (
-					!(await workspaceSessionAllowed(
-						this.env.DB,
-						ws.deserializeAttachment(),
-					))
+					!(await workspaceSessionAllowed(this.env, ws.deserializeAttachment()))
 				)
 					continue;
 				try {
@@ -3342,27 +3389,29 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			args: unknown[];
 		},
 	): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> {
-		this.bindScope(scope);
-		const turn = this.#turn(input.turnId);
-		if (!turn || turn.status !== "running")
-			return { ok: false, error: "This turn is no longer running" };
-		if (this.#codeRuns.get(input.turnId)?.id !== input.runId)
-			return { ok: false, error: ENDED_CODE_RUN_ERROR };
-		return this.#invokeBinding(
-			scope,
-			{
-				turnId: input.turnId,
-				conversationId: turn.conversation_id,
-				actor: {
-					id: turn.tedi_id ?? turn.actor_id,
-					kind: turn.tedi_id ? "tedi" : turn.actor_kind,
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			const turn = this.#turn(input.turnId);
+			if (!turn || turn.status !== "running")
+				return { ok: false, error: "This turn is no longer running" };
+			if (this.#codeRuns.get(input.turnId)?.id !== input.runId)
+				return { ok: false, error: ENDED_CODE_RUN_ERROR };
+			return this.#invokeBinding(
+				scope,
+				{
+					turnId: input.turnId,
+					conversationId: turn.conversation_id,
+					actor: {
+						id: turn.tedi_id ?? turn.actor_id,
+						kind: turn.tedi_id ? "tedi" : turn.actor_kind,
+					},
+					tediId: turn.tedi_id,
 				},
-				tediId: turn.tedi_id,
-			},
-			input.binding,
-			input.method,
-			input.args,
-		);
+				input.binding,
+				input.method,
+				input.args,
+			);
+		});
 	}
 
 	/**
@@ -3791,35 +3840,36 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	// ----------------------------------------------------------------- HTTP
 
 	override async fetch(request: Request): Promise<Response> {
-		const url = new URL(request.url);
-		const scope = this.#scopeFromHeaders(request);
-		if (
-			url.pathname.endsWith("/subscribe") ||
-			url.pathname.endsWith("/search")
-		) {
-			const session: WorkspaceSession = {
-				scope,
-				actorId: request.headers.get("X-Workspace-Actor-Id") ?? "",
-				actorKind: "user",
-				scopes: null,
-			};
-			const access = await workspaceSessionAccess(this.env.DB, session);
-			if (access === "unknown")
-				return new Response(busyFrameText(undefined), { status: 503 });
-			if (access === "denied")
-				return new Response("Workspace access denied", { status: 403 });
-			if (url.pathname.endsWith("/search")) {
-				this.bindScope(scope);
-				const search = url.searchParams.get("search")?.trim();
-				if (!search || search.length > 200)
-					return new Response("Invalid search", { status: 400 });
-				const matches = this.#store.exec<{
-					id: string;
-					title: string | null;
-					updatedAt: string;
-					body: string;
-				}>(
-					`
+		return withCoreStore(this.env, async () => {
+			const url = new URL(request.url);
+			const scope = this.#scopeFromHeaders(request);
+			if (
+				url.pathname.endsWith("/subscribe") ||
+				url.pathname.endsWith("/search")
+			) {
+				const session: WorkspaceSession = {
+					scope,
+					actorId: request.headers.get("X-Workspace-Actor-Id") ?? "",
+					actorKind: "user",
+					scopes: null,
+				};
+				const access = await workspaceSessionAccess(this.env, session);
+				if (access === "unknown")
+					return new Response(busyFrameText(undefined), { status: 503 });
+				if (access === "denied")
+					return new Response("Workspace access denied", { status: 403 });
+				if (url.pathname.endsWith("/search")) {
+					this.bindScope(scope);
+					const search = url.searchParams.get("search")?.trim();
+					if (!search || search.length > 200)
+						return new Response("Invalid search", { status: 400 });
+					const matches = this.#store.exec<{
+						id: string;
+						title: string | null;
+						updatedAt: string;
+						body: string;
+					}>(
+						`
                     WITH visible AS (
                       SELECT e.conversation_id, e.seq, coalesce(json_extract(e.body,'$.displayText'),json_extract(e.body,'$.text')) AS body
                       FROM events e WHERE e.type IN ('turn.started','message.read','assistant.done')
@@ -3830,319 +3880,325 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
                       AND (SELECT actor_kind FROM turns WHERE conversation_id=c.id ORDER BY started_at LIMIT 1)='user'
                     GROUP BY c.id ORDER BY c.updated_at DESC LIMIT 100
                 `,
-					search,
-				);
-				return Response.json(
-					matches.map(({ id, title, updatedAt, body }) => ({
-						id,
-						title,
-						updatedAt,
-						match: matchingChatSentence(body, search),
-					})),
-					{ headers: { "Cache-Control": "private, no-store" } },
-				);
-			}
-			await this.refreshModelCatalog();
-			if (request.headers.get("Upgrade") !== "websocket")
-				return new Response("Expected WebSocket", { status: 426 });
-			const pair = new WebSocketPair();
-			const [client, server] = [pair[0], pair[1]];
-			this.ctx.acceptWebSocket(server);
-			// Keep the verified principal, never its credentials or a cached role.
-			server.serializeAttachment({ ...session, conversationId: null });
-			const cursor = Number(url.searchParams.get("after") ?? "");
-			if (Number.isFinite(cursor) && url.searchParams.has("after")) {
-				try {
-					await this.#subscribe(
-						server,
-						scope,
-						url.searchParams.get("conversation"),
-						cursor,
+						search,
 					);
-				} catch (error) {
-					// The socket is accepted: say what failed instead of dropping it.
-					workspaceLog.warn("Workspace chat frame failed", {
-						event: "workspace.frame_failed",
-						frameType: "subscribe",
-						where: "upgrade",
-						error,
-						...this.#diagnostics(),
-					});
-					this.#control(server, {
-						type: "error",
-						code: "replay_failed",
-						message:
-							"This chat's history could not be loaded. Reload the page; if it keeps happening, tell your workspace owner.",
-					});
+					return Response.json(
+						matches.map(({ id, title, updatedAt, body }) => ({
+							id,
+							title,
+							updatedAt,
+							match: matchingChatSentence(body, search),
+						})),
+						{ headers: { "Cache-Control": "private, no-store" } },
+					);
 				}
+				await this.refreshModelCatalog();
+				if (request.headers.get("Upgrade") !== "websocket")
+					return new Response("Expected WebSocket", { status: 426 });
+				const pair = new WebSocketPair();
+				const [client, server] = [pair[0], pair[1]];
+				this.ctx.acceptWebSocket(server);
+				// Keep the verified principal, never its credentials or a cached role.
+				server.serializeAttachment({ ...session, conversationId: null });
+				const cursor = Number(url.searchParams.get("after") ?? "");
+				if (Number.isFinite(cursor) && url.searchParams.has("after")) {
+					try {
+						await this.#subscribe(
+							server,
+							scope,
+							url.searchParams.get("conversation"),
+							cursor,
+						);
+					} catch (error) {
+						// The socket is accepted: say what failed instead of dropping it.
+						workspaceLog.warn("Workspace chat frame failed", {
+							event: "workspace.frame_failed",
+							frameType: "subscribe",
+							where: "upgrade",
+							error,
+							...this.#diagnostics(),
+						});
+						this.#control(server, {
+							type: "error",
+							code: "replay_failed",
+							message:
+								"This chat's history could not be loaded. Reload the page; if it keeps happening, tell your workspace owner.",
+						});
+					}
+				}
+				return new Response(null, { status: 101, webSocket: client });
 			}
-			return new Response(null, { status: 101, webSocket: client });
-		}
-		if (url.pathname.endsWith("/mcp") && request.method === "POST") {
-			const actorId =
-				request.headers.get("X-Workspace-Actor-Id") ?? "anonymous";
-			const actorKind = (request.headers.get("X-Workspace-Actor-Kind") ??
-				"external_agent") as ActorKind;
-			const session: WorkspaceSession = {
-				scope,
-				actorId,
-				actorKind,
-				scopes: (request.headers.get("X-Workspace-Scopes") ?? "")
-					.split(/\s+/)
-					.filter(Boolean),
-			};
-			const body = await request.json().catch(() => null);
-			const authorize = async (write = false) => {
-				if (!(await workspaceSessionAllowed(this.env.DB, session, write)))
-					throw new Error("Workspace access denied");
-			};
-			if (!(await workspaceSessionAllowed(this.env.DB, session)))
-				return new Response("Workspace access denied", { status: 403 });
-			const reply = await handleMcpRequest(
-				{
-					sendTurn: async (input) => {
-						await authorize(true);
-						await assertWorkspaceGuestTedi(this.env.DB, session, input.tediId);
-						return this.sendTurn(scope, input);
+			if (url.pathname.endsWith("/mcp") && request.method === "POST") {
+				const actorId =
+					request.headers.get("X-Workspace-Actor-Id") ?? "anonymous";
+				const actorKind = (request.headers.get("X-Workspace-Actor-Kind") ??
+					"external_agent") as ActorKind;
+				const session: WorkspaceSession = {
+					scope,
+					actorId,
+					actorKind,
+					scopes: (request.headers.get("X-Workspace-Scopes") ?? "")
+						.split(/\s+/)
+						.filter(Boolean),
+				};
+				const body = await request.json().catch(() => null);
+				const authorize = async (write = false) => {
+					if (!(await workspaceSessionAllowed(this.env, session, write)))
+						throw new Error("Workspace access denied");
+				};
+				if (!(await workspaceSessionAllowed(this.env, session)))
+					return new Response("Workspace access denied", { status: 403 });
+				const reply = await handleMcpRequest(
+					{
+						sendTurn: async (input) => {
+							await authorize(true);
+							await assertWorkspaceGuestTedi(this.env, session, input.tediId);
+							return this.sendTurn(scope, input);
+						},
+						awaitTurn: async (turnId, timeoutMs) => {
+							await authorize();
+							const result = await this.awaitTurn(scope, turnId, timeoutMs);
+							await authorize();
+							return result;
+						},
+						readChangeRecords: async (query) => {
+							await authorize();
+							return this.readChangeRecords(scope, query);
+						},
+						readEvents: async (input) => {
+							await authorize();
+							return this.readEvents(scope, input);
+						},
 					},
-					awaitTurn: async (turnId, timeoutMs) => {
-						await authorize();
-						const result = await this.awaitTurn(scope, turnId, timeoutMs);
-						await authorize();
-						return result;
-					},
-					readChangeRecords: async (query) => {
-						await authorize();
-						return this.readChangeRecords(scope, query);
-					},
-					readEvents: async (input) => {
-						await authorize();
-						return this.readEvents(scope, input);
-					},
-				},
-				{ actorId, actorKind },
-				body,
-			);
-			return Response.json(reply);
-		}
-		return new Response("Not found", { status: 404 });
+					{ actorId, actorKind },
+					body,
+				);
+				return Response.json(reply);
+			}
+			return new Response("Not found", { status: 404 });
+		});
 	}
 
 	override async webSocketMessage(
 		ws: WebSocket,
 		message: string | ArrayBuffer,
 	) {
-		if (typeof message !== "string") return;
-		let frame: ClientFrame | null = null;
-		try {
-			frame = JSON.parse(message) as ClientFrame;
-		} catch {
-			this.#control(ws, {
-				type: "error",
-				code: "bad_frame",
-				message: "Frames are JSON",
-			});
-			return;
-		}
-		const attachment = ws.deserializeAttachment() as WorkspaceSession & {
-			conversationId: string | null;
-		};
-		const write =
-			frame?.type !== "subscribe" &&
-			frame?.type !== "read_ledger" &&
-			frame?.type !== "ping";
-		const access = await workspaceSessionAccess(this.env.DB, attachment, write);
-		if (access === "unknown" && !write) return this.#closeRetry(ws, "frame");
-		const sendReceipt =
-			frame?.type === "send_turn" && typeof frame.clientTurnId === "string"
-				? { clientTurnId: frame.clientTurnId }
-				: {};
-		if (access === "unknown") {
-			// Nothing was refused: the frame was not carried out, the socket stays.
-			this.#control(ws, {
-				type: "error",
-				code: "unavailable",
-				message: busyFrameText(frame?.type),
-				...sendReceipt,
-			});
-			return;
-		}
-		if (access === "denied") {
-			const mayView =
-				write && (await workspaceSessionAllowed(this.env.DB, attachment));
-			this.#control(ws, {
-				type: "error",
-				code: "access_denied",
-				message: refusedFrameText(frame?.type, mayView),
-				...sendReceipt,
-			});
-			this.#closeDenied(ws, "frame");
-			return;
-		}
-		const { scope } = attachment;
-		const frameType = FRAME_TYPES.has(String(frame?.type))
-			? String(frame?.type)
-			: "unknown";
-		// Written before the work, so a reset names the frame it was handling.
-		if (frameType !== "ping")
-			workspaceLog.info("Workspace chat frame received", {
-				event: "workspace.frame",
-				frameType,
-				...this.#diagnostics(),
-			});
-		try {
-			switch (frame?.type) {
-				case "subscribe":
-					await this.refreshModelCatalog();
-					await this.#subscribe(
-						ws,
-						scope,
-						frame.conversationId,
-						frame.cursor ?? null,
-					);
-					return;
-				case "send_turn": {
-					await assertWorkspaceGuestTedi(this.env.DB, attachment, frame.tediId);
-					const started = await this.sendTurn(scope, {
-						turnId: frame.clientTurnId,
-						...(typeof frame.retryOfTurnId === "string"
-							? { retryOfTurnId: frame.retryOfTurnId }
-							: {}),
-						conversationId: frame.conversationId,
-						actorId: attachment.actorId,
-						actorKind: "user",
-						text: frame.text,
-						modelId: frame.modelId,
-						attachments: frame.attachments,
-						...(frame.tediId ? { tediId: frame.tediId } : {}),
-						// Nobody picked: the workspace's default tedi answers, unless
-						// the person chose the agent or an app asked for them.
-						...(!frame.tediId &&
-						frame.answerer !== "agent" &&
-						typeof frame.fromAppId !== "string"
-							? { defaultTedi: true }
-							: {}),
-						...(typeof frame.fromAppId === "string" &&
-						/^[0-9a-f-]{36}$/i.test(frame.fromAppId)
-							? { fromAppId: frame.fromAppId }
-							: {}),
-					});
-					this.#control(ws, {
-						type: "turn.accepted",
-						clientTurnId: frame.clientTurnId,
-						turnId: started.turnId,
-						conversationId: started.conversationId,
-					});
-					return;
-				}
-				case "decide_approval":
-				case "decide_approvals": {
-					const approvalIds =
-						frame.type === "decide_approval"
-							? [
-									frame.approvalId,
-									...(frame.likeThis && frame.decision === "approve"
-										? this.#approveAllLike(frame.approvalId, attachment.actorId)
-										: []),
-								]
-							: frame.approvalIds;
-					const results = await this.decideApprovals(scope, {
-						approvalIds,
-						decision: frame.decision,
-						by: attachment.actorId,
-						...(frame.type === "decide_approval" && frame.note
-							? { note: frame.note }
-							: {}),
-					});
-					// Tell the person who decided how far it got: what their own
-					// decision changed, and where and why it stopped.
-					const at = results.findIndex((result) => result.stopped);
-					const stop = results[at]?.stopped;
-					this.#control(ws, {
-						type: "approvals.decided",
-						...(frame.runId ? { runId: frame.runId } : {}),
-						decision: frame.decision,
-						total: results.length,
-						done: results.filter(
-							(result) =>
-								!result.alreadyDecided && !result.left && !result.stopped,
-						).length,
-						alreadyDecided: results.filter((result) => result.alreadyDecided)
-							.length,
-						...(stop
-							? { stopped: { approvalId: approvalIds[at]!, ...stop } }
-							: {}),
-					});
-					return;
-				}
-				case "cancel_turn":
-					await this.cancelTurn(scope, frame.turnId);
-					return;
-				case "rename_conversation":
-					this.renameConversation(scope, {
-						conversationId: frame.conversationId,
-						title: frame.title,
-					});
-					return;
-				case "archive_conversation":
-					this.archiveConversation(scope, {
-						conversationId: frame.conversationId,
-						archived: frame.archived === true,
-					});
-					return;
-				case "delete_conversation":
-					this.deleteConversation(scope, frame.conversationId);
-					return;
-				case "read_ledger": {
-					this.bindScope(scope);
-					const page = this.#events.historyPage(
-						frame.conversationId,
-						frame.before,
-						frame.limit ?? 500,
-					);
-					this.#control(ws, {
-						type: "ledger.page",
-						conversationId: frame.conversationId,
-						events: page.events.map((event) => this.#withTurnAuthors(event)),
-						hasMore: page.more,
-					});
-					return;
-				}
-				case "set_approval_mode":
-					this.#control(ws, {
-						type: "approval_mode",
-						...(await this.setApprovalMode(scope, {
-							userId: attachment.actorId,
-							mode: frame.mode,
-						})),
-					});
-					return;
-				case "ping":
-					this.#control(ws, { type: "pong" });
-					return;
-				default:
-					this.#control(ws, {
-						type: "error",
-						code: "unknown_frame",
-						message: "Unknown frame type",
-					});
+		return withCoreStore(this.env, async () => {
+			if (typeof message !== "string") return;
+			let frame: ClientFrame | null = null;
+			try {
+				frame = JSON.parse(message) as ClientFrame;
+			} catch {
+				this.#control(ws, {
+					type: "error",
+					code: "bad_frame",
+					message: "Frames are JSON",
+				});
+				return;
 			}
-		} catch (error) {
-			workspaceLog.warn("Workspace chat frame failed", {
-				event: "workspace.frame_failed",
-				frameType,
-				error,
-				...this.#diagnostics(),
-			});
-			this.#control(ws, {
-				type: "error",
-				code: "failed",
-				message: error instanceof Error ? error.message : String(error),
-				...(frame && "clientTurnId" in frame
+			const attachment = ws.deserializeAttachment() as WorkspaceSession & {
+				conversationId: string | null;
+			};
+			const write =
+				frame?.type !== "subscribe" &&
+				frame?.type !== "read_ledger" &&
+				frame?.type !== "ping";
+			const access = await workspaceSessionAccess(this.env, attachment, write);
+			if (access === "unknown" && !write) return this.#closeRetry(ws, "frame");
+			const sendReceipt =
+				frame?.type === "send_turn" && typeof frame.clientTurnId === "string"
 					? { clientTurnId: frame.clientTurnId }
-					: {}),
-			});
-		}
+					: {};
+			if (access === "unknown") {
+				// Nothing was refused: the frame was not carried out, the socket stays.
+				this.#control(ws, {
+					type: "error",
+					code: "unavailable",
+					message: busyFrameText(frame?.type),
+					...sendReceipt,
+				});
+				return;
+			}
+			if (access === "denied") {
+				const mayView =
+					write && (await workspaceSessionAllowed(this.env, attachment));
+				this.#control(ws, {
+					type: "error",
+					code: "access_denied",
+					message: refusedFrameText(frame?.type, mayView),
+					...sendReceipt,
+				});
+				this.#closeDenied(ws, "frame");
+				return;
+			}
+			const { scope } = attachment;
+			const frameType = FRAME_TYPES.has(String(frame?.type))
+				? String(frame?.type)
+				: "unknown";
+			// Written before the work, so a reset names the frame it was handling.
+			if (frameType !== "ping")
+				workspaceLog.info("Workspace chat frame received", {
+					event: "workspace.frame",
+					frameType,
+					...this.#diagnostics(),
+				});
+			try {
+				switch (frame?.type) {
+					case "subscribe":
+						await this.refreshModelCatalog();
+						await this.#subscribe(
+							ws,
+							scope,
+							frame.conversationId,
+							frame.cursor ?? null,
+						);
+						return;
+					case "send_turn": {
+						await assertWorkspaceGuestTedi(this.env, attachment, frame.tediId);
+						const started = await this.sendTurn(scope, {
+							turnId: frame.clientTurnId,
+							...(typeof frame.retryOfTurnId === "string"
+								? { retryOfTurnId: frame.retryOfTurnId }
+								: {}),
+							conversationId: frame.conversationId,
+							actorId: attachment.actorId,
+							actorKind: "user",
+							text: frame.text,
+							modelId: frame.modelId,
+							attachments: frame.attachments,
+							...(frame.tediId ? { tediId: frame.tediId } : {}),
+							// Nobody picked: the workspace's default tedi answers, unless
+							// the person chose the agent or an app asked for them.
+							...(!frame.tediId &&
+							frame.answerer !== "agent" &&
+							typeof frame.fromAppId !== "string"
+								? { defaultTedi: true }
+								: {}),
+							...(typeof frame.fromAppId === "string" &&
+							/^[0-9a-f-]{36}$/i.test(frame.fromAppId)
+								? { fromAppId: frame.fromAppId }
+								: {}),
+						});
+						this.#control(ws, {
+							type: "turn.accepted",
+							clientTurnId: frame.clientTurnId,
+							turnId: started.turnId,
+							conversationId: started.conversationId,
+						});
+						return;
+					}
+					case "decide_approval":
+					case "decide_approvals": {
+						const approvalIds =
+							frame.type === "decide_approval"
+								? [
+										frame.approvalId,
+										...(frame.likeThis && frame.decision === "approve"
+											? this.#approveAllLike(
+													frame.approvalId,
+													attachment.actorId,
+												)
+											: []),
+									]
+								: frame.approvalIds;
+						const results = await this.decideApprovals(scope, {
+							approvalIds,
+							decision: frame.decision,
+							by: attachment.actorId,
+							...(frame.type === "decide_approval" && frame.note
+								? { note: frame.note }
+								: {}),
+						});
+						// Tell the person who decided how far it got: what their own
+						// decision changed, and where and why it stopped.
+						const at = results.findIndex((result) => result.stopped);
+						const stop = results[at]?.stopped;
+						this.#control(ws, {
+							type: "approvals.decided",
+							...(frame.runId ? { runId: frame.runId } : {}),
+							decision: frame.decision,
+							total: results.length,
+							done: results.filter(
+								(result) =>
+									!result.alreadyDecided && !result.left && !result.stopped,
+							).length,
+							alreadyDecided: results.filter((result) => result.alreadyDecided)
+								.length,
+							...(stop
+								? { stopped: { approvalId: approvalIds[at]!, ...stop } }
+								: {}),
+						});
+						return;
+					}
+					case "cancel_turn":
+						await this.cancelTurn(scope, frame.turnId);
+						return;
+					case "rename_conversation":
+						this.renameConversation(scope, {
+							conversationId: frame.conversationId,
+							title: frame.title,
+						});
+						return;
+					case "archive_conversation":
+						this.archiveConversation(scope, {
+							conversationId: frame.conversationId,
+							archived: frame.archived === true,
+						});
+						return;
+					case "delete_conversation":
+						this.deleteConversation(scope, frame.conversationId);
+						return;
+					case "read_ledger": {
+						this.bindScope(scope);
+						const page = this.#events.historyPage(
+							frame.conversationId,
+							frame.before,
+							frame.limit ?? 500,
+						);
+						this.#control(ws, {
+							type: "ledger.page",
+							conversationId: frame.conversationId,
+							events: page.events.map((event) => this.#withTurnAuthors(event)),
+							hasMore: page.more,
+						});
+						return;
+					}
+					case "set_approval_mode":
+						this.#control(ws, {
+							type: "approval_mode",
+							...(await this.setApprovalMode(scope, {
+								userId: attachment.actorId,
+								mode: frame.mode,
+							})),
+						});
+						return;
+					case "ping":
+						this.#control(ws, { type: "pong" });
+						return;
+					default:
+						this.#control(ws, {
+							type: "error",
+							code: "unknown_frame",
+							message: "Unknown frame type",
+						});
+				}
+			} catch (error) {
+				workspaceLog.warn("Workspace chat frame failed", {
+					event: "workspace.frame_failed",
+					frameType,
+					error,
+					...this.#diagnostics(),
+				});
+				this.#control(ws, {
+					type: "error",
+					code: "failed",
+					message: error instanceof Error ? error.message : String(error),
+					...(frame && "clientTurnId" in frame
+						? { clientTurnId: frame.clientTurnId }
+						: {}),
+				});
+			}
+		});
 	}
 
 	override async webSocketClose(
@@ -4169,17 +4225,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	override async alarm(alarmInfo?: AlarmInvocationInfo) {
-		try {
-			await this.#runAlarm();
-		} catch (error) {
-			workspaceLog.error("Workspace alarm failed; the runtime retries it", {
-				event: "workspace.alarm_failed",
-				error,
-				retryCount: alarmInfo?.retryCount ?? 0,
-				...this.#diagnostics(),
-			});
-			throw error;
-		}
+		return withCoreStore(this.env, async () => {
+			try {
+				await this.#runAlarm();
+			} catch (error) {
+				workspaceLog.error("Workspace alarm failed; the runtime retries it", {
+					event: "workspace.alarm_failed",
+					error,
+					retryCount: alarmInfo?.retryCount ?? 0,
+					...this.#diagnostics(),
+				});
+				throw error;
+			}
+		});
 	}
 
 	async #runAlarm() {
@@ -4411,15 +4469,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		counts: WorkspaceUsage,
 	): Promise<void> {
-		await applyOsWorkspaceObjectUsage(createDbQueryClient(this.env.DB), {
-			...scope,
-			...counts,
-			publishedAt: new Date().toISOString(),
+		return withCoreStore(this.env, async () => {
+			await applyOsWorkspaceObjectUsage(coreQueryDb(this.env), {
+				...scope,
+				...counts,
+				publishedAt: new Date().toISOString(),
+			});
 		});
 	}
 
 	protected projectEvent(event: WorkspaceChangeInput): Promise<void> {
-		return publishWorkspaceAction(createDbQueryClient(this.env.DB), event);
+		return withCoreStore(this.env, async () => {
+			return publishWorkspaceAction(coreQueryDb(this.env), event);
+		});
 	}
 
 	#recordConversationActivity(event: WireEvent): void {
@@ -4514,36 +4576,40 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		record: ChangeRecord,
 	): Promise<void> {
-		if (
-			record.actor.organizationId !== scope.organizationId ||
-			record.source.surface !== "workspace_object"
-		) {
-			throw new Error("Workspace action provenance mismatch");
-		}
-		const actor = WorkspaceChangeActorSchema.parse({
-			kind:
-				record.actor.kind === "agent" ? "external_agent" : record.actor.kind,
-			id: record.actor.id,
-		});
-		const revisionId = (record.after ?? record.before)?.revisionId;
-		await publishWorkspaceAction(createDbQueryClient(this.env.DB), {
-			...scope,
-			kind: "run",
-			id: record.id,
-			revision: 1,
-			actor,
-			changeRecordId: record.id,
-			at: record.recordedAt,
-			summary: {
-				action: {
-					resource: record.resource,
-					operation: record.operation,
-					outcome: record.outcome,
-					surface: "workspace_object",
-					...(record.source.traceId ? { traceId: record.source.traceId } : {}),
-					...(revisionId ? { revisionId } : {}),
+		return withCoreStore(this.env, async () => {
+			if (
+				record.actor.organizationId !== scope.organizationId ||
+				record.source.surface !== "workspace_object"
+			) {
+				throw new Error("Workspace action provenance mismatch");
+			}
+			const actor = WorkspaceChangeActorSchema.parse({
+				kind:
+					record.actor.kind === "agent" ? "external_agent" : record.actor.kind,
+				id: record.actor.id,
+			});
+			const revisionId = (record.after ?? record.before)?.revisionId;
+			await publishWorkspaceAction(coreQueryDb(this.env), {
+				...scope,
+				kind: "run",
+				id: record.id,
+				revision: 1,
+				actor,
+				changeRecordId: record.id,
+				at: record.recordedAt,
+				summary: {
+					action: {
+						resource: record.resource,
+						operation: record.operation,
+						outcome: record.outcome,
+						surface: "workspace_object",
+						...(record.source.traceId
+							? { traceId: record.source.traceId }
+							: {}),
+						...(revisionId ? { revisionId } : {}),
+					},
 				},
-			},
+			});
 		});
 	}
 
@@ -4640,25 +4706,27 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	/** Bounded repair from durable source records, independent of the delivery checkpoint. */
 	async replayActivity(scope: WorkspaceScope, input: ActivityPageInput = {}) {
-		this.bindScope(scope);
-		return this.#serializeActivity(async () => {
-			// A replay also rebuilds the core's chat counts for this workspace.
-			this.#store.delete("published-usage");
-			await this.#publishUsage(scope);
-			if (input.source === "events") {
-				const records = this.#activityRecords.list(input);
-				for (const record of records) await this.projectEvent(record.event);
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			return this.#serializeActivity(async () => {
+				// A replay also rebuilds the core's chat counts for this workspace.
+				this.#store.delete("published-usage");
+				await this.#publishUsage(scope);
+				if (input.source === "events") {
+					const records = this.#activityRecords.list(input);
+					for (const record of records) await this.projectEvent(record.event);
+					return {
+						published: records.length,
+						lastSequence: records.at(-1)?.sequence ?? input.afterSequence ?? 0,
+					};
+				}
+				const records = await this.#ledger.list(input);
+				for (const record of records) await this.projectAction(scope, record);
 				return {
 					published: records.length,
 					lastSequence: records.at(-1)?.sequence ?? input.afterSequence ?? 0,
 				};
-			}
-			const records = await this.#ledger.list(input);
-			for (const record of records) await this.projectAction(scope, record);
-			return {
-				published: records.length,
-				lastSequence: records.at(-1)?.sequence ?? input.afterSequence ?? 0,
-			};
+			});
 		});
 	}
 
@@ -4666,33 +4734,35 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		input: ActivityPageInput = {},
 	) {
-		this.bindScope(scope);
-		const records =
-			input.source === "events"
-				? this.#activityRecords.list(input).map((record) => ({
-						sequence: record.sequence,
-						id: record.event.changeRecordId,
-					}))
-				: await this.#ledger.list(input);
-		const missing: string[] = [];
-		for (const record of records) {
-			if (
-				!(await hasWorkspaceActionProjection(createDbQueryClient(this.env.DB), {
-					...scope,
-					changeRecordId: record.id,
-				}))
-			)
-				missing.push(record.id);
-		}
-		return {
-			checked: records.length,
-			missing,
-			lastSequence: records.at(-1)?.sequence ?? input.afterSequence ?? 0,
-			coverage:
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			const records =
 				input.source === "events"
-					? ("recorded_workspace_events" as const)
-					: ("recorded_binding_actions" as const),
-		};
+					? this.#activityRecords.list(input).map((record) => ({
+							sequence: record.sequence,
+							id: record.event.changeRecordId,
+						}))
+					: await this.#ledger.list(input);
+			const missing: string[] = [];
+			for (const record of records) {
+				if (
+					!(await hasWorkspaceActionProjection(coreQueryDb(this.env), {
+						...scope,
+						changeRecordId: record.id,
+					}))
+				)
+					missing.push(record.id);
+			}
+			return {
+				checked: records.length,
+				missing,
+				lastSequence: records.at(-1)?.sequence ?? input.afterSequence ?? 0,
+				coverage:
+					input.source === "events"
+						? ("recorded_workspace_events" as const)
+						: ("recorded_binding_actions" as const),
+			};
+		});
 	}
 
 	async refreshOutputProjection(
@@ -4735,78 +4805,89 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	protected async projectOutput(scope: WorkspaceScope, outputId: string) {
-		const core = createDbQueryClient(this.env.DB);
-		await this.#initializeOutputs(scope);
-		const row = await executeOutputQuery(this.db as TenantStoreDb, scope, {
-			op: "get",
-			outputId,
-		});
-		if (!row) {
-			await retireWorkspaceOutputIndex(core, {
-				organizationId: scope.organizationId,
+		return withCoreStore(this.env, async () => {
+			const core = coreQueryDb(this.env);
+			await this.#initializeOutputs(scope);
+			const row = await executeOutputQuery(this.db as TenantStoreDb, scope, {
+				op: "get",
 				outputId,
 			});
-			return;
-		}
-		if (row.workspaceId !== scope.workspaceId || !row.currentRevisionId) return;
-		const revision = await executeOutputQuery(this.db as TenantStoreDb, scope, {
-			op: "revision",
-			revisionId: row.currentRevisionId,
-		});
-		const publish = async (
-			saved: Omit<NonNullable<typeof revision>, "content">,
-			historical = false,
-		) => {
-			const [previous] = await executeOutputQuery(
+			if (!row) {
+				await retireWorkspaceOutputIndex(core, {
+					organizationId: scope.organizationId,
+					outputId,
+				});
+				return;
+			}
+			if (row.workspaceId !== scope.workspaceId || !row.currentRevisionId)
+				return;
+			const revision = await executeOutputQuery(
+				this.db as TenantStoreDb,
+				scope,
+				{
+					op: "revision",
+					revisionId: row.currentRevisionId,
+				},
+			);
+			const publish = async (
+				saved: Omit<NonNullable<typeof revision>, "content">,
+				historical = false,
+			) => {
+				const [previous] = await executeOutputQuery(
+					this.db as TenantStoreDb,
+					scope,
+					{
+						op: "history",
+						outputId,
+						options: { limit: 1, beforeRevision: saved.revision },
+					},
+				);
+				const excerptKey = `output-excerpt:${saved.id}`;
+				await publishOutputProjection(core, row, saved, {
+					historical,
+					continuesBurst: continuesOutputAutosaveBurst(previous, saved),
+					excerpt: this.#store.get<string>(excerptKey),
+				});
+				this.#store.delete(excerptKey);
+			};
+			if (revision) await publish(revision);
+			const throughKey = `output-history-through:${outputId}`;
+			const through = this.#store.get<number>(throughKey);
+			// Advance only from a completely recovered history. An index entry for
+			// the previous revision alone cannot prove older coalesced saves arrived.
+			if (revision && through != null && through >= revision.revision - 1) {
+				this.#store.put(throughKey, revision.revision);
+				return true;
+			}
+			// Immutable revisions recover every file save even when notifications coalesced.
+			const beforeRevision = this.#store.get<number>(
+				`output-history-before:${outputId}`,
+			);
+			const options = {
+				limit: 10,
+				...(beforeRevision ? { beforeRevision } : {}),
+			};
+			const history = await executeOutputQuery(
 				this.db as TenantStoreDb,
 				scope,
 				{
 					op: "history",
 					outputId,
-					options: { limit: 1, beforeRevision: saved.revision },
+					options,
 				},
 			);
-			const excerptKey = `output-excerpt:${saved.id}`;
-			await publishOutputProjection(core, row, saved, {
-				historical,
-				continuesBurst: continuesOutputAutosaveBurst(previous, saved),
-				excerpt: this.#store.get<string>(excerptKey),
-			});
-			this.#store.delete(excerptKey);
-		};
-		if (revision) await publish(revision);
-		const throughKey = `output-history-through:${outputId}`;
-		const through = this.#store.get<number>(throughKey);
-		// Advance only from a completely recovered history. An index entry for
-		// the previous revision alone cannot prove older coalesced saves arrived.
-		if (revision && through != null && through >= revision.revision - 1) {
-			this.#store.put(throughKey, revision.revision);
+			for (const saved of [...history].reverse()) await publish(saved, true);
+			if (history.length === options.limit) {
+				this.#store.put(
+					`output-history-before:${outputId}`,
+					history.at(-1)!.revision,
+				);
+				return false;
+			}
+			this.#store.delete(`output-history-before:${outputId}`);
+			if (revision) this.#store.put(throughKey, revision.revision);
 			return true;
-		}
-		// Immutable revisions recover every file save even when notifications coalesced.
-		const beforeRevision = this.#store.get<number>(
-			`output-history-before:${outputId}`,
-		);
-		const options = {
-			limit: 10,
-			...(beforeRevision ? { beforeRevision } : {}),
-		};
-		const history = await executeOutputQuery(this.db as TenantStoreDb, scope, {
-			op: "history",
-			outputId,
-			options,
 		});
-		for (const saved of [...history].reverse()) await publish(saved, true);
-		if (history.length === options.limit) {
-			this.#store.put(
-				`output-history-before:${outputId}`,
-				history.at(-1)!.revision,
-			);
-			return false;
-		}
-		this.#store.delete(`output-history-before:${outputId}`);
-		if (revision) this.#store.put(throughKey, revision.revision);
-		return true;
 	}
 
 	/**
@@ -4824,7 +4905,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		cursor: number | null,
 	) {
 		const access = await workspaceSessionAccess(
-			this.env.DB,
+			this.env,
 			ws.deserializeAttachment(),
 		);
 		if (access !== "allowed") {
@@ -4931,7 +5012,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			const attachment = ws.deserializeAttachment() as
 				| (WorkspaceSession & { conversationId?: string | null })
 				| null;
-			const access = await workspaceSessionAccess(this.env.DB, attachment);
+			const access = await workspaceSessionAccess(this.env, attachment);
 			if (access !== "allowed") {
 				// Closed either way: a socket that missed this event replays it
 				// from its cursor when it reconnects.
@@ -5071,11 +5152,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			if (other === undefined || other === responder) continue;
 			const tedi = other
 				? // Display names only, so any replica will do.
-					await (async () =>
-						getTediById(
-							createDbSession(this.env.DB, null, "first-unconstrained").db,
-							other,
-						))().catch(() => null)
+					await (async () => getTediById(coreDb(this.env), other))().catch(
+						() => null,
+					)
 				: null;
 			names.set(
 				other,
@@ -5149,7 +5228,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return new TenantDataPort({
 			...scope,
 			tenant: this.db as TenantStoreDb,
-			core: createDbQueryClient(this.env.DB),
+			core: coreQueryDb(this.env),
 			bucket: this.env.R2_BUCKET,
 			workspaceFiles: this.env.SKILL_ARTIFACTS,
 			actorKind,
@@ -5250,7 +5329,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			notifyOutputRevision: (notice) =>
 				notifyOutputRevision(
 					{
-						db: createDbQueryClient(this.env.DB),
+						db: coreQueryDb(this.env),
 						rooms: this.env.COLLAB_ROOM,
 						env: this.env,
 						development: this.env.ENVIRONMENT === "development",
@@ -5924,7 +6003,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	async #settings(scope: WorkspaceScope): Promise<WorkspaceChatSettings> {
 		const held = this.#chatSettings;
 		if (held && Date.now() - held.readAt < SETTINGS_TTL_MS) return held;
-		const db = createDbQueryClient(this.env.DB);
+		const db = coreQueryDb(this.env);
 		const [workspace, organization] = await Promise.all([
 			getOsWorkspace(db, scope),
 			// Unreadable, no command runs without asking and the platform default applies.
@@ -5975,20 +6054,22 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		input: { userId: string; mode: ApprovalMode },
 	) {
-		this.bindScope(scope);
-		const mode = ApprovalModeSchema.parse(input.mode);
-		// A pick above the limit this object remembers follows a change of the
-		// workspace's limit made a moment ago: read it again instead of capping
-		// the pick for up to a minute.
-		const held = this.#chatSettings;
-		if (
-			held &&
-			APPROVAL_MODES.indexOf(mode) >
-				APPROVAL_MODES.indexOf(held.highestApprovalMode)
-		)
-			this.#chatSettings = null;
-		this.#store.put(`approval-mode:${input.userId}`, mode);
-		return this.#approvalMode(scope, input.userId);
+		return withCoreStore(this.env, async () => {
+			this.bindScope(scope);
+			const mode = ApprovalModeSchema.parse(input.mode);
+			// A pick above the limit this object remembers follows a change of the
+			// workspace's limit made a moment ago: read it again instead of capping
+			// the pick for up to a minute.
+			const held = this.#chatSettings;
+			if (
+				held &&
+				APPROVAL_MODES.indexOf(mode) >
+					APPROVAL_MODES.indexOf(held.highestApprovalMode)
+			)
+				this.#chatSettings = null;
+			this.#store.put(`approval-mode:${input.userId}`, mode);
+			return this.#approvalMode(scope, input.userId);
+		});
 	}
 
 	/**
@@ -6056,11 +6137,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		});
 		if (!tediId) return null;
 		try {
-			const db = createDbClient(this.env.DB);
+			const db = coreDb(this.env);
 			const [tedi, allowed] = await Promise.all([
 				getTediById(db, tediId),
 				isWorkspaceGuestTediAllowed(
-					createDbQueryClient(this.env.DB),
+					coreQueryDb(this.env),
 					scope.organizationId,
 					{ actorKind: "user", actorId },
 					tediId,
@@ -6121,7 +6202,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		userText: string,
 		actorKind: ActorKind,
 	): Promise<GuestProfile> {
-		const tedi = await getTediById(createDbClient(this.env.DB), tediId);
+		const tedi = await getTediById(coreDb(this.env), tediId);
 		if (
 			!tedi ||
 			tedi.organizationId !== scope.organizationId ||
@@ -6129,7 +6210,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		)
 			throw new Error("Guest tedi is not in this organization");
 		// A personal tedi's memory stays out of a workspace others can read.
-		const core = createDbClient(this.env.DB);
+		const core = coreDb(this.env);
 		const [workspace, permissions] = await Promise.all([
 			getOsWorkspace(core, scope),
 			loadOsWorkspacePermissionRows(core, { ...scope, collaborators: false }),
@@ -6188,7 +6269,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		tedi: string,
 	): Promise<Omit<HandOff, "note">> {
 		const roster = await getTedisByOrganization(
-			createDbClient(this.env.DB),
+			coreDb(this.env),
 			scope.organizationId,
 		);
 		const wanted = tedi.toLowerCase();
@@ -6204,7 +6285,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			matches.length === 1 &&
 			!!target?.isolateAgentId &&
 			(await isWorkspaceGuestTediAllowed(
-				createDbQueryClient(this.env.DB),
+				coreQueryDb(this.env),
 				scope.organizationId,
 				{ actorKind: "user", actorId: senderId },
 				target.id,
@@ -6260,11 +6341,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const [started] = this.#events.ofTurn(turnId, "turn.started");
 		if (started?.type !== "turn.started" || started.fromAppId) return null;
 		const senderUserId = turn.actor_id;
-		const core = createDbClient(this.env.DB);
+		const core = coreDb(this.env);
 		const [tedi, allowed, workspace, permissions] = await Promise.all([
 			getTediById(core, turn.tedi_id),
 			isWorkspaceGuestTediAllowed(
-				createDbQueryClient(this.env.DB),
+				coreQueryDb(this.env),
 				scope.organizationId,
 				{ actorKind: "user", actorId: senderUserId },
 				turn.tedi_id,
@@ -6341,64 +6422,67 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		turnId: string,
 		reply: { text: string; model?: string },
 	) {
-		try {
-			const guest = await this.#guestTurn(scope, turnId);
-			if (!guest) return;
-			const [started] = this.#events.ofTurn(turnId, "turn.started");
-			if (started?.type !== "turn.started") return;
-			const finished = new Map<string, { ok: boolean; text?: string }>();
-			for (const event of this.#events.ofTurn(turnId, "step.finished"))
-				if (event.type === "step.finished")
-					finished.set(event.stepId, {
-						ok: event.status === "ok",
-						text: event.detail ?? event.error ?? event.result ?? event.summary,
+		return withCoreStore(this.env, async () => {
+			try {
+				const guest = await this.#guestTurn(scope, turnId);
+				if (!guest) return;
+				const [started] = this.#events.ofTurn(turnId, "turn.started");
+				if (started?.type !== "turn.started") return;
+				const finished = new Map<string, { ok: boolean; text?: string }>();
+				for (const event of this.#events.ofTurn(turnId, "step.finished"))
+					if (event.type === "step.finished")
+						finished.set(event.stepId, {
+							ok: event.status === "ok",
+							text:
+								event.detail ?? event.error ?? event.result ?? event.summary,
+						});
+				// The calls the code made; the code steps around them only repeat them.
+				const steps = this.#events
+					.ofTurn(turnId, "step.started")
+					.flatMap((event) => {
+						if (
+							event.type !== "step.started" ||
+							!event.tool ||
+							event.tool === RUN_CODE_TOOL
+						)
+							return [];
+						const outcome = finished.get(event.stepId);
+						if (!outcome) return [];
+						const input = event.input as { tool?: unknown } | undefined;
+						const tool =
+							event.tool === "tedi.call" && typeof input?.tool === "string"
+								? input.tool
+								: event.tool;
+						return [
+							{
+								tool: tool.slice(0, 200),
+								ok: outcome.ok,
+								...(outcome.text ? { result: outcome.text.slice(0, 500) } : {}),
+							},
+						];
+					})
+					.slice(-GUEST_TURN_MAX_STEPS);
+				const result = await guest.service.guestTurnLearn({
+					...guest.scope,
+					turnId,
+					userText: started.text,
+					replyText: reply.text,
+					steps,
+					...(reply.model ? { model: reply.model.slice(0, 200) } : {}),
+				});
+				if (!result.accepted)
+					workspaceLog.info("The tedi did not learn from the turn", {
+						event: "workspace.tedi_learn_declined",
+						...this.#diagnostics(),
 					});
-			// The calls the code made; the code steps around them only repeat them.
-			const steps = this.#events
-				.ofTurn(turnId, "step.started")
-				.flatMap((event) => {
-					if (
-						event.type !== "step.started" ||
-						!event.tool ||
-						event.tool === RUN_CODE_TOOL
-					)
-						return [];
-					const outcome = finished.get(event.stepId);
-					if (!outcome) return [];
-					const input = event.input as { tool?: unknown } | undefined;
-					const tool =
-						event.tool === "tedi.call" && typeof input?.tool === "string"
-							? input.tool
-							: event.tool;
-					return [
-						{
-							tool: tool.slice(0, 200),
-							ok: outcome.ok,
-							...(outcome.text ? { result: outcome.text.slice(0, 500) } : {}),
-						},
-					];
-				})
-				.slice(-GUEST_TURN_MAX_STEPS);
-			const result = await guest.service.guestTurnLearn({
-				...guest.scope,
-				turnId,
-				userText: started.text,
-				replyText: reply.text,
-				steps,
-				...(reply.model ? { model: reply.model.slice(0, 200) } : {}),
-			});
-			if (!result.accepted)
-				workspaceLog.info("The tedi did not learn from the turn", {
-					event: "workspace.tedi_learn_declined",
+			} catch (error) {
+				workspaceLog.warn("The finished turn did not reach the tedi", {
+					event: "workspace.tedi_learn_failed",
+					error,
 					...this.#diagnostics(),
 				});
-		} catch (error) {
-			workspaceLog.warn("The finished turn did not reach the tedi", {
-				event: "workspace.tedi_learn_failed",
-				error,
-				...this.#diagnostics(),
-			});
-		}
+			}
+		});
 	}
 
 	/**
@@ -6409,7 +6493,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (this.#viewApp?.organizationId === organizationId)
 			return this.#viewApp.slug;
 		const gateway = (
-			await getOrganizationAggregatorGateways(createDbClient(this.env.DB), [
+			await getOrganizationAggregatorGateways(coreDb(this.env), [
 				organizationId,
 			])
 		).get(organizationId);
@@ -6430,7 +6514,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	async #referencedSkills(scope: WorkspaceScope, text: string) {
 		const slugs = parseSkillReferences(text).slice(0, 3);
 		if (slugs.length === 0) return [];
-		const db = createDbClient(this.env.DB);
+		const db = coreDb(this.env);
 		const rows = await Promise.all(
 			slugs.map((slug) =>
 				getSkillEntryBySlug(db, scope.organizationId, slug).catch(
@@ -6655,25 +6739,27 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	/** Reread the administrator's published model catalog at most once a minute. */
 	protected async refreshModelCatalog(): Promise<void> {
-		if (
-			this.#modelCatalog &&
-			Date.now() - this.#modelCatalog.readAt < MODEL_CATALOG_TTL_MS
-		)
-			return;
-		try {
-			const { entries, defaults } = await getModelCatalogConfig(
-				createDbQueryClient(this.env.DB),
-			);
-			this.#modelCatalog = {
-				entries,
-				personChatModelRef: defaults?.personChatModelRef,
-				readAt: Date.now(),
-			};
-		} catch (error) {
-			// A missing or malformed catalog offers no model; never an older list.
-			this.#modelCatalog = null;
-			console.warn("workspace model catalog unavailable", error);
-		}
+		return withCoreStore(this.env, async () => {
+			if (
+				this.#modelCatalog &&
+				Date.now() - this.#modelCatalog.readAt < MODEL_CATALOG_TTL_MS
+			)
+				return;
+			try {
+				const { entries, defaults } = await getModelCatalogConfig(
+					coreQueryDb(this.env),
+				);
+				this.#modelCatalog = {
+					entries,
+					personChatModelRef: defaults?.personChatModelRef,
+					readAt: Date.now(),
+				};
+			} catch (error) {
+				// A missing or malformed catalog offers no model; never an older list.
+				this.#modelCatalog = null;
+				console.warn("workspace model catalog unavailable", error);
+			}
+		});
 	}
 
 	protected configuredModels() {
@@ -6778,10 +6864,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	/** Whether this is the person's own private workspace; unreadable counts as no. */
 	async #privateTo(scope: WorkspaceScope, userId: string) {
-		const workspace = await getOsWorkspace(
-			createDbQueryClient(this.env.DB),
-			scope,
-		).catch(() => undefined);
+		const workspace = await getOsWorkspace(coreQueryDb(this.env), scope).catch(
+			() => undefined,
+		);
 		return (
 			workspace?.status === "active" &&
 			workspace.visibility === "private" &&
@@ -6791,7 +6876,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	/** Whether nobody but this person can open the workspace, read live. */
 	async #onlyOpenableBy(scope: WorkspaceScope, userId: string) {
-		const core = createDbClient(this.env.DB);
+		const core = coreDb(this.env);
 		const [workspace, permissions] = await Promise.all([
 			getOsWorkspace(core, scope),
 			loadOsWorkspacePermissionRows(core, { ...scope, collaborators: false }),
@@ -6824,197 +6909,203 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		input: TurnRequest & { imageAttachments?: WorkspaceImageAttachment[] },
 		controller: AbortController,
 	) {
-		const startedAt = Date.now();
-		let answered = false;
-		let handOff: HandOff | undefined;
-		const report = Boolean(input.runReport);
-		try {
-			const plan = await this.#plan(scope, turnId, conversationId, input);
-			// A run's report stays here, where its code is refused, and leaves
-			// what the person writes meanwhile to a turn of its own.
-			const isolate =
-				!report &&
-				(input.isolate ?? plan.history.length > ISOLATE_AFTER_MESSAGES);
-			// Written before the model call, so a reset mid-turn shows its size.
-			workspaceLog.info("Workspace turn running", {
-				event: "workspace.turn_running",
-				isolated: isolate,
-				historyMessages: plan.history.length,
-				imageAttachments: plan.imageAttachments?.length ?? 0,
-				...this.#diagnostics(() => ({
-					historyBytes:
-						this.#store.exec<{ bytes: number }>(
-							"SELECT coalesce(sum(length(message)), 0) AS bytes FROM (SELECT message FROM messages WHERE conversation_id = ? ORDER BY seq DESC LIMIT 200)",
-							conversationId,
-						)[0]?.bytes ?? 0,
-				})),
-			});
-			const result = isolate
-				? await this.#runIsolated(plan, controller.signal)
-				: await executeTurn(plan, {
-						env: this.env,
-						model: this.modelFor(plan),
-						codeRuns: {
-							env: (runId) =>
-								loopbackEnv(this.ctx.exports.WorkspaceBindingLoopback, {
-									objectName: tenantStoreName(scope),
-									scope,
-									turnId,
-									runId,
-								}),
-							start: (runId) => this.startCodeRun(scope, turnId, runId),
-							end: (runId) => this.endCodeRun(scope, turnId, runId),
-							timeoutMs: this.codeTimeoutMs(),
-						},
-						emit: (event) => {
-							if (!report || event.type !== "text_delta")
-								this.#emitLoopEvent(conversationId, turnId, event);
-						},
-						save: (progress) => {
-							if (!report) this.#saveProgress(conversationId, turnId, progress);
-						},
-						takeAdded: () =>
-							report ? [] : this.takeQueuedMessages(scope, turnId),
-						signal: controller.signal,
-					});
-			if (this.#turn(turnId)?.status !== "running") return;
-			const usage = result.usage
-				? {
-						...toTurnUsage(result.usage),
-						...(await priceTurn(
-							this.env.DB,
-							this.env,
-							plan.modelId,
-							result.usage,
-							new Date().toISOString(),
-						)),
-					}
-				: null;
-			if (this.#turn(turnId)?.status !== "running") return;
-			if (report && result.stopReason !== "aborted") {
-				// Old report turns may have saved a provisional message before they failed.
-				this.#store.run("DELETE FROM messages WHERE turn_id = ?", turnId);
-				this.#saveProgress(conversationId, turnId, {
-					messages: result.appended,
+		return withCoreStore(this.env, async () => {
+			const startedAt = Date.now();
+			let answered = false;
+			let handOff: HandOff | undefined;
+			const report = Boolean(input.runReport);
+			try {
+				const plan = await this.#plan(scope, turnId, conversationId, input);
+				// A run's report stays here, where its code is refused, and leaves
+				// what the person writes meanwhile to a turn of its own.
+				const isolate =
+					!report &&
+					(input.isolate ?? plan.history.length > ISOLATE_AFTER_MESSAGES);
+				// Written before the model call, so a reset mid-turn shows its size.
+				workspaceLog.info("Workspace turn running", {
+					event: "workspace.turn_running",
+					isolated: isolate,
+					historyMessages: plan.history.length,
+					imageAttachments: plan.imageAttachments?.length ?? 0,
+					...this.#diagnostics(() => ({
+						historyBytes:
+							this.#store.exec<{ bytes: number }>(
+								"SELECT coalesce(sum(length(message)), 0) AS bytes FROM (SELECT message FROM messages WHERE conversation_id = ? ORDER BY seq DESC LIMIT 200)",
+								conversationId,
+							)[0]?.bytes ?? 0,
+					})),
 				});
-			}
-			this.#persist(conversationId, turnId, result);
-			this.#events.append(conversationId, {
-				type: "assistant.done",
-				turnId,
-				messageId: turnId,
-				text: result.text,
-				model: result.model,
-				...(usage ? { usage } : {}),
-			});
-			this.#showOpenAppDrafts(conversationId, turnId);
-			this.#events.append(conversationId, {
-				type: "turn.finished",
-				turnId,
-				status: result.stopReason === "aborted" ? "cancelled" : "done",
-				durationMs: Date.now() - startedAt,
-			});
-			if (result.stopReason !== "aborted") {
-				answered = true;
-				// Never delays the reply; a failure is logged and dropped.
-				if (!report)
-					this.ctx.waitUntil(this.#nameConversation(plan, result.text));
-				if (input.tediId && input.actorKind === "user" && !report)
-					this.ctx.waitUntil(
-						this.#learnFromTurn(scope, turnId, {
-							text: result.text,
-							model: result.model,
-						}),
-					);
-			}
-		} catch (error) {
-			const turn = this.#turn(turnId);
-			if (turn?.status !== "running") return;
-			const cancelled = controller.signal.aborted;
-			// The message stays on the turn; a model error can quote the chat.
-			workspaceLog.warn("Workspace turn did not finish", {
-				event: "workspace.turn_failed",
-				reason: cancelled
-					? "cancelled"
-					: error instanceof Error
-						? error.name
-						: "error",
-				durationMs: Date.now() - startedAt,
-				...this.#diagnostics(),
-			});
-			const message = cancelled
-				? "cancelled by user"
-				: error instanceof Error
-					? error.message
-					: String(error);
-			this.#store.run(
-				"UPDATE turns SET status = ?, error = ?, finished_at = ? WHERE turn_id = ?",
-				cancelled ? "cancelled" : "failed",
-				message,
-				new Date().toISOString(),
-				turnId,
-			);
-			const retrying =
-				report &&
-				!cancelled &&
-				isRunReportOverload(message) &&
-				(await this.#queueRunReportRetry(turn));
-			if (!retrying) this.#showOpenAppDrafts(conversationId, turnId);
-			if (!retrying)
+				const result = isolate
+					? await this.#runIsolated(plan, controller.signal)
+					: await executeTurn(plan, {
+							env: this.env,
+							model: this.modelFor(plan),
+							codeRuns: {
+								env: (runId) =>
+									loopbackEnv(this.ctx.exports.WorkspaceBindingLoopback, {
+										objectName: tenantStoreName(scope),
+										scope,
+										turnId,
+										runId,
+									}),
+								start: (runId) => this.startCodeRun(scope, turnId, runId),
+								end: (runId) => this.endCodeRun(scope, turnId, runId),
+								timeoutMs: this.codeTimeoutMs(),
+							},
+							emit: (event) => {
+								if (!report || event.type !== "text_delta")
+									this.#emitLoopEvent(conversationId, turnId, event);
+							},
+							save: (progress) => {
+								if (!report)
+									this.#saveProgress(conversationId, turnId, progress);
+							},
+							takeAdded: () =>
+								report ? [] : this.takeQueuedMessages(scope, turnId),
+							signal: controller.signal,
+						});
+				if (this.#turn(turnId)?.status !== "running") return;
+				const usage = result.usage
+					? {
+							...toTurnUsage(result.usage),
+							...(await priceTurn(
+								this.env.DB,
+								this.env,
+								plan.modelId,
+								result.usage,
+								new Date().toISOString(),
+							)),
+						}
+					: null;
+				if (this.#turn(turnId)?.status !== "running") return;
+				if (report && result.stopReason !== "aborted") {
+					// Old report turns may have saved a provisional message before they failed.
+					this.#store.run("DELETE FROM messages WHERE turn_id = ?", turnId);
+					this.#saveProgress(conversationId, turnId, {
+						messages: result.appended,
+					});
+				}
+				this.#persist(conversationId, turnId, result);
+				this.#events.append(conversationId, {
+					type: "assistant.done",
+					turnId,
+					messageId: turnId,
+					text: result.text,
+					model: result.model,
+					...(usage ? { usage } : {}),
+				});
+				this.#showOpenAppDrafts(conversationId, turnId);
 				this.#events.append(conversationId, {
 					type: "turn.finished",
 					turnId,
-					status: cancelled ? "cancelled" : "error",
-					...(cancelled ? { error: message } : turnFailure(message)),
+					status: result.stopReason === "aborted" ? "cancelled" : "done",
 					durationMs: Date.now() - startedAt,
 				});
-		} finally {
-			this.#running.delete(turnId);
-			this.#codeRuns.delete(turnId);
-			this.#forgetTurnConnections(turnId);
-			this.#viewsShown.delete(turnId);
-			this.#turnPolicies.delete(turnId);
-			this.#store.delete(`approve-all:${turnId}`);
-			handOff = this.#store.get<HandOff>(`hand-off:${turnId}`);
-			if (handOff) this.#store.delete(`hand-off:${turnId}`);
-			for (const wake of this.#waiters.get(turnId) ?? []) wake();
-			this.#waiters.delete(turnId);
-		}
-		// A hand-off answers next; what the person sent too late for this turn
-		// starts the turn after. A stopped turn handed its unread messages back.
-		const handed =
-			answered &&
-			!!handOff &&
-			(await this.#startHandOff(
-				scope,
-				conversationId,
-				turnId,
-				input,
-				handOff,
-			).then(
-				() => true,
-				(error: unknown) => {
-					workspaceLog.warn("A hand-off did not start a turn", {
-						event: "workspace.hand_off_not_started",
-						error,
-						...this.#diagnostics(),
+				if (result.stopReason !== "aborted") {
+					answered = true;
+					// Never delays the reply; a failure is logged and dropped.
+					if (!report)
+						this.ctx.waitUntil(this.#nameConversation(plan, result.text));
+					if (input.tediId && input.actorKind === "user" && !report)
+						this.ctx.waitUntil(
+							this.#learnFromTurn(scope, turnId, {
+								text: result.text,
+								model: result.model,
+							}),
+						);
+				}
+			} catch (error) {
+				const turn = this.#turn(turnId);
+				if (turn?.status !== "running") return;
+				const cancelled = controller.signal.aborted;
+				// The message stays on the turn; a model error can quote the chat.
+				workspaceLog.warn("Workspace turn did not finish", {
+					event: "workspace.turn_failed",
+					reason: cancelled
+						? "cancelled"
+						: error instanceof Error
+							? error.name
+							: "error",
+					durationMs: Date.now() - startedAt,
+					...this.#diagnostics(),
+				});
+				const message = cancelled
+					? "cancelled by user"
+					: error instanceof Error
+						? error.message
+						: String(error);
+				this.#store.run(
+					"UPDATE turns SET status = ?, error = ?, finished_at = ? WHERE turn_id = ?",
+					cancelled ? "cancelled" : "failed",
+					message,
+					new Date().toISOString(),
+					turnId,
+				);
+				const retrying =
+					report &&
+					!cancelled &&
+					isRunReportOverload(message) &&
+					(await this.#queueRunReportRetry(turn));
+				if (!retrying) this.#showOpenAppDrafts(conversationId, turnId);
+				if (!retrying)
+					this.#events.append(conversationId, {
+						type: "turn.finished",
+						turnId,
+						status: cancelled ? "cancelled" : "error",
+						...(cancelled ? { error: message } : turnFailure(message)),
+						durationMs: Date.now() - startedAt,
 					});
-					return false;
-				},
-			));
-		const next =
-			handed ||
-			(!controller.signal.aborted &&
-				(await this.#startQueuedMessage(scope, conversationId)));
-		if (answered && !next)
-			await this.#continueAfterDecisions(scope, conversationId).catch(
-				(error: unknown) =>
-					workspaceLog.warn("Decisions made during a turn were not answered", {
-						event: "workspace.decisions_unanswered",
-						error,
-						...this.#diagnostics(),
-					}),
-			);
+			} finally {
+				this.#running.delete(turnId);
+				this.#codeRuns.delete(turnId);
+				this.#forgetTurnConnections(turnId);
+				this.#viewsShown.delete(turnId);
+				this.#turnPolicies.delete(turnId);
+				this.#store.delete(`approve-all:${turnId}`);
+				handOff = this.#store.get<HandOff>(`hand-off:${turnId}`);
+				if (handOff) this.#store.delete(`hand-off:${turnId}`);
+				for (const wake of this.#waiters.get(turnId) ?? []) wake();
+				this.#waiters.delete(turnId);
+			}
+			// A hand-off answers next; what the person sent too late for this turn
+			// starts the turn after. A stopped turn handed its unread messages back.
+			const handed =
+				answered &&
+				!!handOff &&
+				(await this.#startHandOff(
+					scope,
+					conversationId,
+					turnId,
+					input,
+					handOff,
+				).then(
+					() => true,
+					(error: unknown) => {
+						workspaceLog.warn("A hand-off did not start a turn", {
+							event: "workspace.hand_off_not_started",
+							error,
+							...this.#diagnostics(),
+						});
+						return false;
+					},
+				));
+			const next =
+				handed ||
+				(!controller.signal.aborted &&
+					(await this.#startQueuedMessage(scope, conversationId)));
+			if (answered && !next)
+				await this.#continueAfterDecisions(scope, conversationId).catch(
+					(error: unknown) =>
+						workspaceLog.warn(
+							"Decisions made during a turn were not answered",
+							{
+								event: "workspace.decisions_unanswered",
+								error,
+								...this.#diagnostics(),
+							},
+						),
+				);
+		});
 	}
 
 	async #runIsolated(plan: TurnPlan, signal: AbortSignal): Promise<TurnResult> {

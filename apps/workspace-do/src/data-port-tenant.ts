@@ -14,7 +14,7 @@ import type {
 } from "@tedix/api-contract/schemas/workspace-app-operation";
 import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 import type { DbQueryClient } from "@tedix/db/query-client";
-import { createDbClient } from "@tedix/db/client";
+import type { DbClient } from "@tedix/db/client";
 import {
 	createOsOutput,
 	createOsOutputRevision,
@@ -1326,7 +1326,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		)
 			throw new Error("This linked source is unavailable for reads.");
 		const { organizationId } = this.deps;
-		const core = createDbClient(this.deps.core.$client);
+		const core = this.deps.core as DbClient;
 		const { providerId, connectionInstanceId, connectionScope } = resource;
 		const route = {
 			organizationId,

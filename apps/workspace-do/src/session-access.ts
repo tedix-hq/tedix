@@ -4,7 +4,8 @@ import {
 	readWorkspaceRuntimeRole,
 } from "@tedix/db/queries/os-workspace-access";
 import { hasActiveOsWorkspaceInspection } from "@tedix/db/queries/os-workspace-inspections";
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { coreQueryDb, withCoreStore } from "@tedix/db/core-store/scope";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
 import {
 	delegatedMachineScopes,
 	hasScope,
@@ -29,11 +30,11 @@ export type WorkspaceAccess = "allowed" | "denied" | "unknown";
 
 /** Fails closed: true only when the read succeeded and allows the session. */
 export async function workspaceSessionAllowed(
-	database: D1Database,
+	env: CoreStoreEnv,
 	session: WorkspaceSession | null | undefined,
 	write = false,
 ): Promise<boolean> {
-	return (await workspaceSessionAccess(database, session, write)) === "allowed";
+	return (await workspaceSessionAccess(env, session, write)) === "allowed";
 }
 
 /**
@@ -42,16 +43,16 @@ export async function workspaceSessionAllowed(
  * unchanged, so a revoke is seen by the next check.
  */
 export async function workspaceSessionAccess(
-	database: D1Database,
+	env: CoreStoreEnv,
 	session: WorkspaceSession | null | undefined,
 	write = false,
 ): Promise<WorkspaceAccess> {
-	const allowed = await readSessionAllowed(database, session, write);
+	const allowed = await readSessionAllowed(env, session, write);
 	return allowed === undefined ? "unknown" : allowed ? "allowed" : "denied";
 }
 
 async function readSessionAllowed(
-	database: D1Database,
+	env: CoreStoreEnv,
 	session: WorkspaceSession | null | undefined,
 	write: boolean,
 ): Promise<boolean | undefined> {
@@ -65,18 +66,24 @@ async function readSessionAllowed(
 		if (!hasScope(scopes, write ? "apps:write" : "apps:read")) return false;
 	}
 	try {
-		const db = createDbQueryClient(database);
-		const role = await readWorkspaceRuntimeRole(db, session.scope, session);
-		if (operationAllowed(role, "app.chat")) return true;
-		// An organization admin's recorded inspection reads the chat through the
-		// OS worker's socket and nothing else: no send, approval, cancel, rename,
-		// archive or delete, and never on the MCP lane.
-		return (
-			!write &&
-			session.scopes === null &&
-			session.actorKind === "user" &&
-			(await hasActiveOsWorkspaceInspection(db, session.scope, session.actorId))
-		);
+		return await withCoreStore(env, async () => {
+			const db = coreQueryDb(env);
+			const role = await readWorkspaceRuntimeRole(db, session.scope, session);
+			if (operationAllowed(role, "app.chat")) return true;
+			// An organization admin's recorded inspection reads the chat through the
+			// OS worker's socket and nothing else: no send, approval, cancel, rename,
+			// archive or delete, and never on the MCP lane.
+			return (
+				!write &&
+				session.scopes === null &&
+				session.actorKind === "user" &&
+				(await hasActiveOsWorkspaceInspection(
+					db,
+					session.scope,
+					session.actorId,
+				))
+			);
+		});
 	} catch (error) {
 		// Fails closed; the line tells a refused person from a failed read.
 		workspaceLog.warn("Workspace access check failed", {
@@ -89,17 +96,19 @@ async function readSessionAllowed(
 }
 
 export async function assertWorkspaceGuestTedi(
-	database: D1Database,
+	env: CoreStoreEnv,
 	session: WorkspaceSession,
 	tediId?: string,
 ) {
 	if (!tediId) return;
 	if (
-		!(await isWorkspaceGuestTediAllowed(
-			createDbQueryClient(database),
-			session.scope.organizationId,
-			session,
-			tediId,
+		!(await withCoreStore(env, () =>
+			isWorkspaceGuestTediAllowed(
+				coreQueryDb(env),
+				session.scope.organizationId,
+				session,
+				tediId,
+			),
 		))
 	)
 		throw new Error(

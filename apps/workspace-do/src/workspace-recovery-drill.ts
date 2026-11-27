@@ -1,4 +1,4 @@
-import { createDbQueryClient } from "@tedix/db/query-client";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { loadWorkspaceAccess } from "@tedix/db/queries/os-workspace-access";
 import {
 	grantOsWorkspaceAccess,
@@ -84,7 +84,7 @@ export async function runWorkspaceRecoveryDrill(input: {
 	restart: () => void;
 }) {
 	const { ctx, db, env, scope, phase, restart } = input;
-	const shared = createDbQueryClient(env.DB);
+	const shared = coreQueryDb(env);
 	if (readDurableObjectJurisdiction(env) !== "eu") {
 		throw new Error("Workspace recovery requires a reserved EU fixture");
 	}
