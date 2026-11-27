@@ -282,7 +282,10 @@ for (const store of ["d1", "postgres"] as const) {
 
 		test("resolves the owning gateway without crossing organizations", async () => {
 			expect(
-				await resolveNamespaceSlugs(db, ["org-unified", "missing"]),
+				await resolveNamespaceSlugs(db, [
+					...Array.from({ length: 120 }, (_, index) => `missing-${index}`),
+					"org-unified",
+				]),
 			).toEqual({ "org-unified": "org-unified" });
 			expect(await resolveSkillWorkflowMcpGateway(db, "org", "tedi")).toEqual({
 				slug: "org-unified",

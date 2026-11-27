@@ -9,6 +9,7 @@ import {
 } from "../schema/cognitive";
 import { apps } from "../schema/apps";
 import { tedis } from "../schema/tedis";
+import { chunkForBoundParams } from "../utils/batch";
 
 export async function reserveSkillRunExecutionEpoch(
 	db: DbClient,
@@ -404,7 +405,16 @@ export async function reconcileSkillRunRow(
 
 export async function listRuntimeAppSlugs(db: DbClient, slugs: string[]) {
 	const t = coreTable(db, apps);
-	return db.select({ slug: t.slug }).from(t).where(inArray(t.slug, slugs));
+	const rows: Array<{ slug: string }> = [];
+	for (const chunk of chunkForBoundParams(slugs, 50)) {
+		rows.push(
+			...(await db
+				.select({ slug: t.slug })
+				.from(t)
+				.where(inArray(t.slug, chunk))),
+		);
+	}
+	return rows;
 }
 
 export async function getRuntimeTediSlug(
