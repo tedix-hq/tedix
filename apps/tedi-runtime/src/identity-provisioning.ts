@@ -47,6 +47,36 @@ export interface IdentityProvisioningEnv {
 	CF_ACCOUNT_ID?: string;
 }
 
+/** Explicit personality edits replace only the generated owner identity files. */
+export async function syncPersonalityFiles(
+	env: IdentityProvisioningEnv,
+	input: { tediId: string; organizationId: string; slug: string },
+	deps: IdentityProvisioningDeps = defaultDeps,
+): Promise<void> {
+	if (!env.API_SERVICE || !env.ARTIFACTS || !env.CF_ACCOUNT_ID)
+		throw new Error(
+			"Personality file sync requires API and Artifacts bindings",
+		);
+	const workspaceFiles = await deps.fetchWorkspaceFiles(
+		{ ...env, API_SERVICE: env.API_SERVICE },
+		input.tediId,
+		input.organizationId,
+	);
+	const files = selectIdentityWorkspaceFiles(workspaceFiles, [
+		"SOUL.md",
+		"IDENTITY.md",
+	]);
+	if (files.length !== 2)
+		throw new Error("Personality file sync requires SOUL.md and IDENTITY.md");
+	await deps.commit(env.ARTIFACTS, {
+		assertReady: async () => {},
+		accountId: env.CF_ACCOUNT_ID,
+		namespace: TEDIX_ARTIFACTS_NAMESPACE_PRODUCTION,
+		...input,
+		files,
+	});
+}
+
 /**
  * Write a tedi's missing instruction files (SOUL, IDENTITY, USER, AGENTS,
  * TOOLS, memory/MEMORY.md) from its generated defaults, then return them so

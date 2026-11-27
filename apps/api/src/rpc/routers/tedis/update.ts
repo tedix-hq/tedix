@@ -329,9 +329,8 @@ export const updateTediProcedure = authedTedisOs.update
 			);
 		});
 
-		// Fire-and-forget: invalidate tedi Worker resolve cache
 		const provConfig = getProvisioningConfig(tedi, context.env);
-		if (provConfig) {
+		if (provConfig && data.personality === undefined) {
 			const p = invalidateConfig(provConfig).catch(() => {});
 			if (context.waitUntil) context.waitUntil(p);
 		}
@@ -390,6 +389,21 @@ export const updateTediProcedure = authedTedisOs.update
 						),
 				);
 				if (context.waitUntil) context.waitUntil(resync);
+			}
+		}
+
+		if (data.personality !== undefined) {
+			// Await the file-history write before acknowledging an owner rule change.
+			if (
+				!provConfig ||
+				!(await invalidateConfig(provConfig, undefined, {
+					syncPersonality: true,
+				}))
+			) {
+				throw createError(
+					ErrorCodes.SERVICE_UNAVAILABLE,
+					"Personality was saved, but its instruction files could not be updated. Retry the personality update before relying on the new rules.",
+				);
 			}
 		}
 

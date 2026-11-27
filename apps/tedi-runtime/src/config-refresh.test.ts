@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { RuntimeConfigCache } from "./runtime-config-cache";
 import { configRefreshEdgeDecision } from "./agent-status";
 import { AGENT_PROMPT_VERSION } from "./runtime-tool-guidance";
+import { resolveWorkspaceFiles } from "@tedix/context-core/tedi-workspace";
 
 // Native platform boundaries are mocked only for this source-level config test.
 // The production config cache and DO methods below remain the actual modules.
@@ -19,6 +20,36 @@ mock.module("cloudflare:workers", () => ({
 mock.module("cloudflare:email", () => ({ EmailMessage: class {} }));
 mock.module("cloudflare:workflows", () => ({
 	NonRetryableError: class extends Error {},
+}));
+const workspaceFiles = new Map<string, string>();
+const fileHistory: { path: string; content: string }[][] = [];
+let rejectFileWrite = false;
+const artifactsGit = await import("./artifacts-git");
+mock.module("./artifacts-git", () => ({
+	...artifactsGit,
+	async commitDailyLogs(input: { files: { path: string; content: string }[] }) {
+		if (rejectFileWrite) throw new Error("push rejected");
+		fileHistory.push(input.files);
+		for (const file of input.files) workspaceFiles.set(file.path, file.content);
+		return { commitOid: "test-commit" };
+	},
+	async readFilesFromExistingRepoWithStatus(
+		_artifacts: unknown,
+		_account: string,
+		_namespace: string,
+		_tediId: string,
+		paths: string[],
+	) {
+		return {
+			repoFound: true,
+			cloneOk: true,
+			files: paths.map((path) => ({
+				path,
+				content: workspaceFiles.get(path) ?? null,
+				fileFound: workspaceFiles.has(path),
+			})),
+		};
+	},
 }));
 const { tediDo } = await import("../test/tedi-do");
 const { edgeFetch, tediRequest } = await import("../test/tedi-edge");
@@ -160,7 +191,7 @@ for (const stale of ["value", "missing", "failure"] as const) {
 // --- edge: the platform alias forwards to the DO route; nothing else does ---
 {
 	const forwarded = await edgeFetch(
-		tediRequest("/api/admin/invalidate-config", {
+		tediRequest("/api/admin/invalidate-config?syncPersonality=true", {
 			method: "POST",
 			serviceBinding: true,
 		}),
@@ -172,6 +203,10 @@ for (const stale of ["value", "missing", "failure"] as const) {
 		"/__internal/config/refresh",
 	);
 	assert.equal(forwarded.forwarded[0]!.method, "POST");
+	assert.equal(
+		new URL(forwarded.forwarded[0]!.url).searchParams.get("syncPersonality"),
+		"true",
+	);
 	for (const request of [
 		tediRequest("/api/admin/invalidate-config", { method: "POST" }),
 		tediRequest("/__internal/config/refresh", {
@@ -301,3 +336,81 @@ for (const via of ["api", "storage", "storage-failure"] as const) {
 	assert.equal(cache.modelPolicy?.chatModelRef, "fresh");
 }
 console.log("config reads straddling an invalidation are re-read");
+
+// An edited owner rule must replace existing files and the warm cached prompt.
+{
+	workspaceFiles.set("SOUL.md", "Always use the old rule");
+	workspaceFiles.set("IDENTITY.md", "Old identity");
+	workspaceFiles.set("USER.md", "Preserve owner notes");
+	const editedRule = "Ask the owner before contacting a seller";
+	const generated = resolveWorkspaceFiles({
+		name: "Shopper",
+		slug: "shopper",
+		personality: editedRule,
+	}).workspaceFiles;
+	const agent = tediDo({
+		env: {
+			CF_ACCOUNT_ID: "account",
+			ARTIFACTS: {},
+			API_SERVICE: {
+				async fetch() {
+					return Response.json({ json: { workspaceFiles: generated } });
+				},
+			},
+		},
+		runtimeConfigCache: new RuntimeConfigCache(async () => null),
+		state: {
+			tediId: "tedi-1",
+			orgId: "org-1",
+			slug: "shopper",
+			identityLoaded: true,
+			systemPrompt: "Always use the old rule",
+			systemPromptVersion: AGENT_PROMPT_VERSION,
+			identityDiagnostics: { missingFiles: [] },
+			telegramChannel: null,
+			toolPolicy: {},
+			budgets: {},
+			governanceLoadedAt: Date.now(),
+		},
+		setState(next: unknown) {
+			this.state = next;
+		},
+		maybeReconcileCrons() {},
+		async loadTelegramChannel() {
+			return null;
+		},
+		async loadTediGovernance() {
+			return { toolPolicy: {}, budgets: {} };
+		},
+	});
+	const refresh = () =>
+		agent.onRequest(
+			new Request(
+				"https://do.internal/__internal/config/refresh?syncPersonality=true",
+				{
+					method: "POST",
+					headers: {
+						"X-Service-Binding": "true",
+						"X-Tedi-Id": "tedi-1",
+						"X-Tedi-Org-Id": "org-1",
+						"X-Tedi-Slug": "shopper",
+					},
+				},
+			),
+		);
+	assert.deepEqual(await (await refresh()).json(), {
+		ok: true,
+		personalitySynced: true,
+	});
+	assert.equal(agent.state.identityLoaded, false);
+	assert.deepEqual(fileHistory.at(-1), [
+		{ path: "SOUL.md", content: generated["SOUL.md"] },
+		{ path: "IDENTITY.md", content: generated["IDENTITY.md"] },
+	]);
+	assert.equal(workspaceFiles.get("USER.md"), "Preserve owner notes");
+	await agent.ensureIdentity();
+	assert.ok(agent.state.systemPrompt.includes(editedRule));
+	assert.ok(!agent.state.systemPrompt.includes("Always use the old rule"));
+	rejectFileWrite = true;
+	await assert.rejects(refresh(), /push rejected/);
+}

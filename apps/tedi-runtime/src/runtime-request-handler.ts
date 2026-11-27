@@ -1,4 +1,5 @@
 import { targetsInternalRoute } from "./internal-route";
+import { syncPersonalityFiles } from "./identity-provisioning";
 import {
 	assertOriginalExecutionRestriction,
 	resolveTurnExecutionRestriction,
@@ -556,9 +557,26 @@ export async function handleRuntimeRequest(
 	if (url.pathname === "/__internal/config/refresh") {
 		if (request.method !== "POST")
 			return new Response("Method Not Allowed", { status: 405 });
+		const syncPersonality = url.searchParams.get("syncPersonality") === "true";
+		if (syncPersonality) {
+			if (!hints.tediId || !hints.orgId || !hints.slug)
+				return new Response("Missing tedi identity", { status: 400 });
+			await syncPersonalityFiles(host.env, {
+				tediId: hints.tediId,
+				organizationId: hints.orgId,
+				slug: hints.slug,
+			});
+		}
 		host.runtimeConfigCache.invalidate();
-		host.setState({ ...host.state, governanceLoadedAt: 0 });
-		return Response.json({ ok: true });
+		host.setState({
+			...host.state,
+			governanceLoadedAt: 0,
+			...(syncPersonality ? { identityLoaded: false } : {}),
+		});
+		return Response.json({
+			ok: true,
+			...(syncPersonality ? { personalitySynced: true } : {}),
+		});
 	}
 	if (url.pathname === "/__internal/cron/sync") {
 		if (request.method !== "POST") {

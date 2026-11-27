@@ -31,3 +31,25 @@ for (const [body, status, expected] of [
 	assert.equal(await invalidateConfig(config), expected);
 }
 console.log("config invalidation requires a successful runtime receipt");
+
+for (const personalitySynced of [undefined, true]) {
+	assert.equal(
+		await invalidateConfig(
+			{
+				workerUrl: "https://tedi",
+				fetcher: {
+					fetch: (async (url) => {
+						assert.equal(
+							String(url),
+							"https://tedi/api/admin/invalidate-config?syncPersonality=true",
+						);
+						return Response.json({ ok: true, personalitySynced });
+					}) as typeof fetch,
+				},
+			},
+			undefined,
+			{ syncPersonality: true },
+		),
+		personalitySynced === true,
+	);
+}

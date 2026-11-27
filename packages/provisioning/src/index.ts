@@ -543,18 +543,27 @@ export async function revokeCodingSession(
 export async function invalidateConfig(
 	config: ProvisioningConfig,
 	hostname?: string,
+	options?: { syncPersonality?: boolean },
 ): Promise<boolean> {
 	try {
-		const receipt = await runtimeFetch<{ ok?: boolean }>(
+		const receipt = await runtimeFetch<{
+			ok?: boolean;
+			personalitySynced?: boolean;
+		}>(
 			config,
-			"/api/admin/invalidate-config",
+			options?.syncPersonality
+				? "/api/admin/invalidate-config?syncPersonality=true"
+				: "/api/admin/invalidate-config",
 			{
 				method: "POST",
 				timeoutMs: 10_000,
 				body: JSON.stringify({ hostname: hostname ?? undefined }),
 			},
 		);
-		return receipt?.ok === true;
+		return (
+			receipt?.ok === true &&
+			(!options?.syncPersonality || receipt.personalitySynced === true)
+		);
 	} catch (error) {
 		console.warn("[provisioning] Failed to invalidate config cache:", error);
 		return false;
