@@ -129,6 +129,10 @@ export function createCoreStore(env: CoreStoreEnv): {
 		prepare: false,
 		fetch_types: false,
 		max: 5,
+		// Fail fast when Hyperdrive has no slot, and let idle connections go
+		// so a finished request stops holding one.
+		connect_timeout: 10,
+		idle_timeout: 5,
 	});
 	const native = drizzle({ client: sql, relations });
 	const run: RunAtomicBatch = async (statements) => {
