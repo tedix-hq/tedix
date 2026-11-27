@@ -3,8 +3,19 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	isNull,
+	or,
+	sql,
+	type SQL,
+	type SQLWrapper,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import { booleanValue, coreStore, jsonParameter } from "../core-store/dialect";
 import {
 	type McpPaymentAccount,
 	type McpPaymentEvent,
@@ -12,20 +23,49 @@ import {
 	type McpPaymentReservation,
 	type McpPaymentReservationStatus,
 	type McpPaymentStatus,
-	mcpPaymentAccounts,
-	mcpPaymentEvents,
-	mcpPaymentPolicies,
-	mcpPaymentReservations,
+	mcpPaymentAccounts as schemaMcpPaymentAccounts,
+	mcpPaymentEvents as schemaMcpPaymentEvents,
+	mcpPaymentPolicies as schemaMcpPaymentPolicies,
+	mcpPaymentReservations as schemaMcpPaymentReservations,
 	type NewMcpPaymentAccount,
 	type NewMcpPaymentEvent,
 	type NewMcpPaymentPolicy,
 	type NewMcpPaymentReservation,
 } from "../schema/mcp-payments";
 
+/** Text timestamp in the stores' shared `YYYY-MM-DD HH24:MI:SS` UTC format. */
+function nowTimestamp(db: DbClient): SQL {
+	return coreStore(db) === "postgres"
+		? sql`to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')`
+		: sql`(CURRENT_TIMESTAMP)`;
+}
+
+/** `datetime(column) >= datetime(since)` on D1; timestamptz comparison on Postgres. */
+function createdAtGte(db: DbClient, column: SQLWrapper, since: string): SQL {
+	return coreStore(db) === "postgres"
+		? sql`CAST(${column} AS timestamptz) >= CAST(${since} AS timestamptz)`
+		: sql`datetime(${column}) >= datetime(${since})`;
+}
+
+/** REAL on D1, double precision on Postgres, for summing the text amount. */
+function realAmount(db: DbClient, column: SQLWrapper): SQL {
+	return coreStore(db) === "postgres"
+		? sql`CAST(${column} AS double precision)`
+		: sql`CAST(${column} AS REAL)`;
+}
+
+/** JSON null stays JSON; absent values stay SQL NULL on both stores. */
+function jsonColumn(db: DbClient, value: unknown): SQL {
+	return value === undefined || value === null
+		? sql`NULL`
+		: jsonParameter(db, value);
+}
+
 export async function insertMcpPaymentEvent(
 	db: DbClient,
 	event: NewMcpPaymentEvent,
 ): Promise<McpPaymentEvent> {
+	const mcpPaymentEvents = coreTable(db, schemaMcpPaymentEvents);
 	const [row] = await db.insert(mcpPaymentEvents).values(event).returning();
 	if (!row) {
 		throw new Error(`Failed to insert mcp_payment_event ${event.id}`);
@@ -61,14 +101,12 @@ export async function insertSettledMcpPaymentEventWithinBudget(
 			"organizationId is required for a budget-guarded settlement",
 		);
 	}
-	const json = (value: unknown): string | null =>
-		value === undefined || value === null ? null : JSON.stringify(value);
-	const e = mcpPaymentEvents;
+	const e = coreTable(db, schemaMcpPaymentEvents);
 	// SUM without GROUP BY yields exactly one row, so the insert selects from
 	// the window total and the budget check stays in the same statement.
 	const window = db
 		.select({
-			spent: sql<number>`COALESCE(SUM(CAST(${e.amount} AS REAL)), 0)`.as(
+			spent: sql<number>`COALESCE(SUM(${realAmount(db, e.amount)}), 0)`.as(
 				"spent",
 			),
 		})
@@ -77,11 +115,11 @@ export async function insertSettledMcpPaymentEventWithinBudget(
 			and(
 				eq(e.organizationId, event.organizationId),
 				sql`${e.status} = 'settled'`,
-				sql`${e.settled} = 1`,
+				sql`${e.settled} = ${booleanValue(db, true)}`,
 				eq(e.appSlug, event.appSlug),
 				eq(e.currency, event.currency ?? "USDC"),
 				eq(e.network, event.network),
-				sql`datetime(${e.createdAt}) >= datetime(${guard.since})`,
+				createdAtGte(db, e.createdAt, guard.since),
 				guard.toolId ? eq(e.toolId, guard.toolId) : undefined,
 				guard.tediId ? eq(e.tediId, guard.tediId) : undefined,
 				guard.userId ? eq(e.userId, guard.userId) : undefined,
@@ -117,14 +155,14 @@ export async function insertSettledMcpPaymentEventWithinBudget(
 					authType: sql`${event.authType ?? null}`.as("auth_type"),
 					traceId: sql`${event.traceId ?? null}`.as("trace_id"),
 					toolArgsHash: sql`${event.toolArgsHash ?? null}`.as("tool_args_hash"),
-					settled: sql`${event.settled ? 1 : 0}`.as("settled"),
-					requirements: sql`${json(event.requirements)}`.as("requirements"),
-					paymentProof: sql`${json(event.paymentProof)}`.as("payment_proof"),
-					paymentResponse: sql`${json(event.paymentResponse)}`.as(
+					settled: booleanValue(db, event.settled ?? false).as("settled"),
+					requirements: jsonColumn(db, event.requirements).as("requirements"),
+					paymentProof: jsonColumn(db, event.paymentProof).as("payment_proof"),
+					paymentResponse: jsonColumn(db, event.paymentResponse).as(
 						"payment_response",
 					),
-					budgetPolicy: sql`${json(event.budgetPolicy)}`.as("budget_policy"),
-					budgetDecision: sql`${json(event.budgetDecision)}`.as(
+					budgetPolicy: jsonColumn(db, event.budgetPolicy).as("budget_policy"),
+					budgetDecision: jsonColumn(db, event.budgetDecision).as(
 						"budget_decision",
 					),
 					decisionRationale: sql`${event.decisionRationale ?? null}`.as(
@@ -137,7 +175,7 @@ export async function insertSettledMcpPaymentEventWithinBudget(
 				})
 				.from(window)
 				.where(
-					sql`${window.spent} + CAST(${event.amount} AS REAL) <= CAST(${guard.maxAmount} AS REAL)`,
+					sql`${window.spent} + ${realAmount(db, sql`${event.amount}`)} <= ${realAmount(db, sql`${guard.maxAmount}`)}`,
 				),
 		)
 		.returning({ id: e.id });
@@ -159,6 +197,7 @@ export async function listMcpPaymentEvents(
 	db: DbClient,
 	options: ListMcpPaymentEventsOptions,
 ): Promise<McpPaymentEvent[]> {
+	const mcpPaymentEvents = coreTable(db, schemaMcpPaymentEvents);
 	const conditions = [
 		eq(mcpPaymentEvents.organizationId, options.organizationId),
 	];
@@ -193,6 +232,7 @@ export async function getMcpPaymentReceiptById(
 		organizationId: string;
 	},
 ): Promise<McpPaymentEvent | null> {
+	const mcpPaymentEvents = coreTable(db, schemaMcpPaymentEvents);
 	const [row] = await db
 		.select()
 		.from(mcpPaymentEvents)
@@ -216,6 +256,7 @@ export async function getMcpPaymentEventByIdForOrg(
 		organizationId: string;
 	},
 ): Promise<McpPaymentEvent | null> {
+	const mcpPaymentEvents = coreTable(db, schemaMcpPaymentEvents);
 	const [row] = await db
 		.select()
 		.from(mcpPaymentEvents)
@@ -237,6 +278,7 @@ export async function listMcpPaymentEventsByRequirementForOrg(
 		organizationId: string;
 	},
 ): Promise<McpPaymentEvent[]> {
+	const mcpPaymentEvents = coreTable(db, schemaMcpPaymentEvents);
 	return db
 		.select()
 		.from(mcpPaymentEvents)
@@ -274,11 +316,12 @@ export async function getMcpPaymentSpendSummary(
 	db: DbClient,
 	options: McpPaymentSpendSummaryOptions,
 ): Promise<McpPaymentSpendSummaryRow[]> {
+	const mcpPaymentEvents = coreTable(db, schemaMcpPaymentEvents);
 	const conditions = [
 		eq(mcpPaymentEvents.organizationId, options.organizationId),
 		eq(mcpPaymentEvents.status, "settled"),
 		eq(mcpPaymentEvents.settled, true),
-		sql`datetime(${mcpPaymentEvents.createdAt}) >= datetime(${options.since})`,
+		createdAtGte(db, mcpPaymentEvents.createdAt, options.since),
 	];
 	if (options.tediId) {
 		conditions.push(eq(mcpPaymentEvents.tediId, options.tediId));
@@ -298,7 +341,7 @@ export async function getMcpPaymentSpendSummary(
 			asset: mcpPaymentEvents.asset,
 			network: mcpPaymentEvents.network,
 			settledCount: sql<number>`count(*)`,
-			totalAmount: sql<number>`sum(cast(${mcpPaymentEvents.amount} as real))`,
+			totalAmount: sql<number>`sum(${realAmount(db, mcpPaymentEvents.amount)})`,
 			firstSettledAt: sql<string>`min(${mcpPaymentEvents.createdAt})`,
 			lastSettledAt: sql<string>`max(${mcpPaymentEvents.createdAt})`,
 		})
@@ -311,7 +354,7 @@ export async function getMcpPaymentSpendSummary(
 			mcpPaymentEvents.asset,
 			mcpPaymentEvents.network,
 		)
-		.orderBy(desc(sql`sum(cast(${mcpPaymentEvents.amount} as real))`))
+		.orderBy(desc(sql`sum(${realAmount(db, mcpPaymentEvents.amount)})`))
 		.limit(options.limit);
 
 	return rows.map((row) => ({
@@ -346,6 +389,7 @@ export async function sumSettledMcpPaymentAmount(
 		);
 	}
 
+	const mcpPaymentEvents = coreTable(db, schemaMcpPaymentEvents);
 	const conditions = [
 		eq(mcpPaymentEvents.organizationId, params.organizationId),
 		eq(mcpPaymentEvents.status, "settled"),
@@ -353,7 +397,7 @@ export async function sumSettledMcpPaymentAmount(
 		eq(mcpPaymentEvents.appSlug, params.appSlug),
 		eq(mcpPaymentEvents.currency, params.currency),
 		eq(mcpPaymentEvents.network, params.network),
-		sql`datetime(${mcpPaymentEvents.createdAt}) >= datetime(${params.since})`,
+		createdAtGte(db, mcpPaymentEvents.createdAt, params.since),
 	];
 
 	if (params.toolId) {
@@ -368,7 +412,7 @@ export async function sumSettledMcpPaymentAmount(
 
 	const [row] = await db
 		.select({
-			spent: sql<number>`COALESCE(SUM(CAST(${mcpPaymentEvents.amount} AS REAL)), 0)`,
+			spent: sql<number>`COALESCE(SUM(${realAmount(db, mcpPaymentEvents.amount)}), 0)`,
 		})
 		.from(mcpPaymentEvents)
 		.where(and(...conditions));
@@ -389,6 +433,7 @@ export async function listMcpPaymentPolicies(
 	db: DbClient,
 	options: ListMcpPaymentPoliciesOptions,
 ): Promise<McpPaymentPolicy[]> {
+	const mcpPaymentPolicies = coreTable(db, schemaMcpPaymentPolicies);
 	const conditions = [
 		eq(mcpPaymentPolicies.organizationId, options.organizationId),
 	];
@@ -417,6 +462,7 @@ export async function upsertMcpPaymentPolicy(
 	db: DbClient,
 	policy: NewMcpPaymentPolicy,
 ): Promise<McpPaymentPolicy> {
+	const mcpPaymentPolicies = coreTable(db, schemaMcpPaymentPolicies);
 	const [row] = await db
 		.insert(mcpPaymentPolicies)
 		.values(policy)
@@ -437,7 +483,7 @@ export async function upsertMcpPaymentPolicy(
 				windowSeconds: policy.windowSeconds ?? 86_400,
 				mode: policy.mode ?? "enforce",
 				updatedBy: policy.updatedBy ?? policy.createdBy ?? null,
-				updatedAt: sql`(CURRENT_TIMESTAMP)`,
+				updatedAt: nowTimestamp(db),
 			},
 		})
 		.returning();
@@ -449,6 +495,7 @@ export async function getMcpPaymentPolicyById(
 	db: DbClient,
 	params: { id: string; organizationId: string },
 ): Promise<McpPaymentPolicy | null> {
+	const mcpPaymentPolicies = coreTable(db, schemaMcpPaymentPolicies);
 	const [row] = await db
 		.select()
 		.from(mcpPaymentPolicies)
@@ -466,12 +513,13 @@ export async function disableMcpPaymentPolicy(
 	db: DbClient,
 	params: { id: string; organizationId: string; updatedBy?: string | null },
 ): Promise<McpPaymentPolicy | null> {
+	const mcpPaymentPolicies = coreTable(db, schemaMcpPaymentPolicies);
 	const [row] = await db
 		.update(mcpPaymentPolicies)
 		.set({
 			enabled: false,
 			updatedBy: params.updatedBy ?? null,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			updatedAt: nowTimestamp(db),
 		})
 		.where(
 			and(
@@ -496,6 +544,7 @@ export async function getEffectiveMcpPaymentPolicy(
 	db: DbClient,
 	options: EffectiveMcpPaymentPolicyOptions,
 ): Promise<McpPaymentPolicy | null> {
+	const mcpPaymentPolicies = coreTable(db, schemaMcpPaymentPolicies);
 	const rows = await db
 		.select()
 		.from(mcpPaymentPolicies)
@@ -554,6 +603,7 @@ export async function listMcpPaymentAccounts(
 	db: DbClient,
 	options: ListMcpPaymentAccountsOptions,
 ): Promise<McpPaymentAccount[]> {
+	const mcpPaymentAccounts = coreTable(db, schemaMcpPaymentAccounts);
 	const conditions = [
 		eq(mcpPaymentAccounts.organizationId, options.organizationId),
 	];
@@ -585,6 +635,7 @@ export async function upsertMcpPaymentAccount(
 	db: DbClient,
 	account: NewMcpPaymentAccount,
 ): Promise<McpPaymentAccount> {
+	const mcpPaymentAccounts = coreTable(db, schemaMcpPaymentAccounts);
 	const [row] = await db
 		.insert(mcpPaymentAccounts)
 		.values(account)
@@ -597,7 +648,7 @@ export async function upsertMcpPaymentAccount(
 				signerProvider: account.signerProvider ?? "mock",
 				metadata: account.metadata,
 				updatedBy: account.updatedBy ?? account.createdBy ?? null,
-				updatedAt: sql`(CURRENT_TIMESTAMP)`,
+				updatedAt: nowTimestamp(db),
 			},
 		})
 		.returning();
@@ -619,6 +670,7 @@ export async function listMcpPaymentReservations(
 	db: DbClient,
 	options: ListMcpPaymentReservationsOptions,
 ): Promise<McpPaymentReservation[]> {
+	const mcpPaymentReservations = coreTable(db, schemaMcpPaymentReservations);
 	const conditions = [
 		eq(mcpPaymentReservations.organizationId, options.organizationId),
 	];
@@ -647,6 +699,7 @@ export async function upsertMcpPaymentReservation(
 	db: DbClient,
 	reservation: NewMcpPaymentReservation,
 ): Promise<McpPaymentReservation> {
+	const mcpPaymentReservations = coreTable(db, schemaMcpPaymentReservations);
 	const [row] = await db
 		.insert(mcpPaymentReservations)
 		.values(reservation)
@@ -659,7 +712,7 @@ export async function upsertMcpPaymentReservation(
 				resource: reservation.resource,
 				expiresAt: reservation.expiresAt,
 				metadata: reservation.metadata,
-				updatedAt: sql`(CURRENT_TIMESTAMP)`,
+				updatedAt: nowTimestamp(db),
 			},
 		})
 		.returning();
@@ -681,13 +734,14 @@ export async function updateMcpPaymentReservationStatus(
 		metadata?: Record<string, JsonValue>;
 	},
 ): Promise<McpPaymentReservation | null> {
+	const mcpPaymentReservations = coreTable(db, schemaMcpPaymentReservations);
 	const [row] = await db
 		.update(mcpPaymentReservations)
 		.set({
 			status: params.status,
 			settledEventId: params.settledEventId ?? null,
 			metadata: params.metadata,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			updatedAt: nowTimestamp(db),
 		})
 		.where(
 			and(
