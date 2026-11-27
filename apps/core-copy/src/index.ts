@@ -178,7 +178,14 @@ export default {
 						[org],
 					),
 				);
-				return Response.json({ ok: true, timings });
+				const limits = await query(
+					`SELECT current_setting('max_connections')::int AS max_connections,
+					        current_setting('superuser_reserved_connections')::int AS reserved,
+					        (SELECT count(*)::int FROM pg_stat_activity) AS connections,
+					        (SELECT count(*)::int FROM pg_stat_activity WHERE usename = current_user) AS ours`,
+					[],
+				);
+				return Response.json({ ok: true, timings, limits: limits.rows[0] });
 			} catch (error) {
 				return Response.json(
 					{
