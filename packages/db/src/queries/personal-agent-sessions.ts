@@ -1,8 +1,9 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { coreTable } from "../core-store/client";
 import {
-	personalAgentClientRates,
-	personalAgentSessions,
+	personalAgentClientRates as schemaPersonalAgentClientRates,
+	personalAgentSessions as schemaPersonalAgentSessions,
 } from "../schema/personal-agent-sessions";
 
 interface PersonalAgentSessionParams {
@@ -16,11 +17,13 @@ interface PersonalAgentSessionParams {
 }
 
 function sessionWhere(
+	db: DbQueryClient,
 	p: Pick<
 		PersonalAgentSessionParams,
 		"organizationId" | "clientId" | "sessionId" | "userId"
 	>,
 ) {
+	const personalAgentSessions = coreTable(db, schemaPersonalAgentSessions);
 	return and(
 		eq(personalAgentSessions.organizationId, p.organizationId),
 		eq(personalAgentSessions.clientId, p.clientId),
@@ -34,6 +37,10 @@ export async function consumePersonalAgentClientRate(
 	db: DbQueryClient,
 	p: { organizationId: string; clientId: string; now: number; limit: number },
 ) {
+	const personalAgentClientRates = coreTable(
+		db,
+		schemaPersonalAgentClientRates,
+	);
 	const windowStart = Math.floor(p.now / 60_000) * 60_000;
 	const [row] = await db
 		.insert(personalAgentClientRates)
@@ -62,6 +69,7 @@ export async function continuePersonalAgentSession(
 	db: DbQueryClient,
 	p: PersonalAgentSessionParams,
 ) {
+	const personalAgentSessions = coreTable(db, schemaPersonalAgentSessions);
 	const [created, rows] = await db.batch([
 		db
 			.insert(personalAgentSessions)
@@ -76,7 +84,7 @@ export async function continuePersonalAgentSession(
 			})
 			.onConflictDoNothing()
 			.returning({ sessionId: personalAgentSessions.sessionId }),
-		db.select().from(personalAgentSessions).where(sessionWhere(p)).limit(1),
+		db.select().from(personalAgentSessions).where(sessionWhere(db, p)).limit(1),
 	]);
 	const row = rows[0];
 	if (!row || row.endedAt !== null) return "session_ended" as const;
@@ -92,8 +100,9 @@ export async function endPersonalAgentSession(
 		"organizationId" | "clientId" | "sessionId" | "userId" | "now"
 	>,
 ) {
+	const personalAgentSessions = coreTable(db, schemaPersonalAgentSessions);
 	await db
 		.update(personalAgentSessions)
 		.set({ endedAt: p.now })
-		.where(sessionWhere(p));
+		.where(sessionWhere(db, p));
 }

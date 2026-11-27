@@ -1,7 +1,8 @@
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { coreTable } from "../core-store/client";
 import {
-	personalResourceDelegations,
+	personalResourceDelegations as schemaPersonalResourceDelegations,
 	type NewPersonalResourceDelegationRow,
 } from "../schema/personal-resource-delegations";
 
@@ -9,6 +10,10 @@ export async function createPersonalResourceDelegation(
 	db: DbQueryClient,
 	row: NewPersonalResourceDelegationRow,
 ) {
+	const personalResourceDelegations = coreTable(
+		db,
+		schemaPersonalResourceDelegations,
+	);
 	const [created] = await db
 		.insert(personalResourceDelegations)
 		.values(row)
@@ -21,6 +26,10 @@ export async function getPersonalResourceDelegation(
 	db: DbQueryClient,
 	input: { organizationId: string; id: string },
 ) {
+	const personalResourceDelegations = coreTable(
+		db,
+		schemaPersonalResourceDelegations,
+	);
 	const [row] = await db
 		.select()
 		.from(personalResourceDelegations)
@@ -37,6 +46,10 @@ export async function listPersonalResourceDelegations(
 	db: DbQueryClient,
 	input: { organizationId: string; ownerUserId: string; limit?: number },
 ) {
+	const personalResourceDelegations = coreTable(
+		db,
+		schemaPersonalResourceDelegations,
+	);
 	return db
 		.select()
 		.from(personalResourceDelegations)
@@ -62,6 +75,10 @@ export async function listActiveSkillPersonalResourceDelegations(
 		now: string;
 	},
 ) {
+	const personalResourceDelegations = coreTable(
+		db,
+		schemaPersonalResourceDelegations,
+	);
 	const ranked = db
 		.select({
 			id: personalResourceDelegations.id,
@@ -108,6 +125,10 @@ export async function listActiveOwnerSkillPersonalResourceDelegations(
 		now: string;
 	},
 ) {
+	const personalResourceDelegations = coreTable(
+		db,
+		schemaPersonalResourceDelegations,
+	);
 	return db
 		.select()
 		.from(personalResourceDelegations)
@@ -134,6 +155,10 @@ export async function revokePersonalResourceDelegation(
 		revokedAt: string;
 	},
 ) {
+	const personalResourceDelegations = coreTable(
+		db,
+		schemaPersonalResourceDelegations,
+	);
 	await db
 		.update(personalResourceDelegations)
 		.set({ revokedAt: input.revokedAt })
