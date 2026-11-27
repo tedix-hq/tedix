@@ -4,7 +4,7 @@ import { agentDecisionReviewIds } from "@tedix/api-contract/utils/agent-decision
 import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
 import { and, eq, getColumns, inArray, isNotNull } from "drizzle-orm";
 import { coreTable } from "../core-store/client";
-import { coreStore } from "../core-store/dialect";
+import { coreStore, anyIds } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import { learningInteractionEvents } from "../schema/learning-feedback";
 import { memoryEntities } from "../schema/memory-entities";
@@ -504,33 +504,9 @@ export async function recordOwnerInstructionEdges(
 		const interactions = coreTable(db, workInteractions);
 		const learningEvents = coreTable(db, learningInteractionEvents);
 		const comments = coreTable(db, workItemComments);
-		const addWork = async (id: string) => {
-			const [work] = await db
-				.select({ id: items.id })
-				.from(items)
-				.where(and(eq(items.orgId, fact.organizationId), eq(items.id, id)))
-				.limit(1);
-			if (work) subjects.set(`work:${id}`, { kind: "work_item", id });
-		};
-		const addCard = async (id: string) => {
-			const [card] = await db
-				.select({
-					id: interactions.id,
-					workItemId: interactions.workItemId,
-				})
-				.from(interactions)
-				.where(
-					and(
-						eq(interactions.orgId, fact.organizationId),
-						eq(interactions.id, id),
-						eq(interactions.targetType, "user"),
-					),
-				)
-				.limit(1);
-			if (!card) return;
-			subjects.set(`card:${id}`, { kind: "deck_card", id });
-			if (card.workItemId) await addWork(card.workItemId);
-		};
+		const candidates: DecisionGraphNode[] = [];
+		const addWork = (id: string) => candidates.push({ kind: "work_item", id });
+		const addCard = (id: string) => candidates.push({ kind: "deck_card", id });
 		if (ids.length) {
 			const events = await db
 				.select({
@@ -547,7 +523,7 @@ export async function recordOwnerInstructionEdges(
 						typeof feed.ownerUserId === "string"
 							? eq(learningEvents.actorId, feed.ownerUserId)
 							: undefined,
-						inArray(learningEvents.id, ids),
+						anyIds(db, learningEvents.id, ids),
 					),
 				)
 				.orderBy(learningEvents.occurredAt, learningEvents.id)
@@ -555,12 +531,11 @@ export async function recordOwnerInstructionEdges(
 			for (const event of events) {
 				occurredAt = event.occurredAt;
 				if (event.targetId && event.targetType === "work_interaction")
-					await addCard(event.targetId);
+					addCard(event.targetId);
 				if (event.targetId && event.targetType === "work_item")
-					await addWork(event.targetId);
+					addWork(event.targetId);
 				const context = record(event.metadata?.decisionContext);
-				if (typeof context.workItemId === "string")
-					await addWork(context.workItemId);
+				if (typeof context.workItemId === "string") addWork(context.workItemId);
 				// Chat imports retain the user's quote. Only explicit record links
 				// identify covered subjects; prose and model-generated titles do not.
 				const answer =
@@ -572,8 +547,8 @@ export async function recordOwnerInstructionEdges(
 				)) {
 					if (referencedSubjects++ >= 50) break;
 					if (match[1] === "work-item:" || match[1] === "/work/items/")
-						await addWork(match[2]!);
-					else await addCard(match[2]!);
+						addWork(match[2]!);
+					else addCard(match[2]!);
 				}
 			}
 		}
@@ -594,8 +569,55 @@ export async function recordOwnerInstructionEdges(
 				)
 				.limit(1);
 			if (comment) {
-				await addWork(comment.workItemId);
+				addWork(comment.workItemId);
 				occurredAt = comment.createdAt;
+			}
+		}
+		const cards = await db
+			.select({ id: interactions.id, workItemId: interactions.workItemId })
+			.from(interactions)
+			.where(
+				and(
+					eq(interactions.orgId, fact.organizationId),
+					eq(interactions.targetType, "user"),
+					anyIds(
+						db,
+						interactions.id,
+						candidates.filter((c) => c.kind === "deck_card").map((c) => c.id),
+					),
+				),
+			);
+		const cardsById = new Map(cards.map((card) => [card.id, card]));
+		const works = await db
+			.select({ id: items.id })
+			.from(items)
+			.where(
+				and(
+					eq(items.orgId, fact.organizationId),
+					anyIds(db, items.id, [
+						...new Set([
+							...candidates
+								.filter((c) => c.kind === "work_item")
+								.map((c) => c.id),
+							...cards.flatMap((c) => (c.workItemId ? [c.workItemId] : [])),
+						]),
+					]),
+				),
+			);
+		const validWorkIds = new Set(works.map((work) => work.id));
+		for (const candidate of candidates) {
+			if (candidate.kind === "work_item") {
+				if (validWorkIds.has(candidate.id))
+					subjects.set(`work:${candidate.id}`, candidate);
+			} else {
+				const card = cardsById.get(candidate.id);
+				if (!card) continue;
+				subjects.set(`card:${candidate.id}`, candidate);
+				if (card.workItemId && validWorkIds.has(card.workItemId))
+					subjects.set(`work:${card.workItemId}`, {
+						kind: "work_item",
+						id: card.workItemId,
+					});
 			}
 		}
 		await writeDecisionEdgesBestEffort(

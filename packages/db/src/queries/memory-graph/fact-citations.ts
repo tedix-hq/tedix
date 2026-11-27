@@ -1,7 +1,10 @@
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { coreStore, anyIds } from "../../core-store/dialect";
+import { memoryFacts as d1MemoryFacts } from "../../schema/memory-graph";
 import type { DbQueryClient } from "../../query-client";
-import { memoryFactCitationBackfills } from "../../schema/memory-fact-citations";
+import { memoryFactCitationBackfills as d1MemoryFactCitationBackfills } from "../../schema/memory-fact-citations";
 
 const SOURCES = [
 	"consolidation://observation",
@@ -10,6 +13,10 @@ const SOURCES = [
 const PAGE_SIZE = 100;
 
 async function progress(db: DbQueryClient, tenantScope: TenantScope) {
+	const memoryFactCitationBackfills = coreTable(
+		db,
+		d1MemoryFactCitationBackfills,
+	);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const [row] = await db
 		.select()
@@ -30,6 +37,8 @@ export async function findCitationDependents(
 	citedIds: string[],
 	options?: { legacyPages?: number },
 ) {
+	const facts = coreTable(db, d1MemoryFacts);
+	const postgres = coreStore(db) === "postgres";
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (!citedIds.length) return [];
 	const checkpoint = await progress(db, tenantScope);
@@ -42,22 +51,42 @@ export async function findCitationDependents(
 			while (pages-- > 0) {
 				// Materialize the page before evaluating JSON; LIMIT after EXISTS would still
 				// parse an unbounded number of candidates when evidence does not match.
-				// Both page reads stay raw: Drizzle cannot emit INDEXED BY or json_each.
-				const page = await db.all<{
-					id: string;
-				}>(sql`SELECT id AS id FROM memory_facts INDEXED BY idx_memory_facts_org_source_id
-    WHERE organization_id = ${orgId} AND source = ${source} AND id > ${cursor}
-    AND NOT EXISTS (SELECT 1 FROM memory_fact_citations link WHERE link.consolidated_fact_id = memory_facts.id)
-    ORDER BY id LIMIT ${PAGE_SIZE}`);
+				// Keep the SQLite index hints and parse only the materialized page.
+				const page = await db
+					.select({ id: sql<string>`${facts.id}`.as("id") })
+					.from(
+						postgres
+							? facts
+							: sql`${facts} INDEXED BY idx_memory_facts_org_source_id`,
+					)
+					.where(
+						and(
+							eq(facts.organizationId, orgId),
+							eq(facts.source, source),
+							gt(facts.id, cursor),
+							sql`NOT EXISTS (SELECT 1 FROM memory_fact_citations link WHERE link.consolidated_fact_id = ${facts.id})`,
+						),
+					)
+					.orderBy(asc(facts.id))
+					.limit(PAGE_SIZE);
 				if (!page.length) break;
 				const matches = await db.all<{
 					id: string;
-				}>(sql`SELECT id AS id FROM memory_facts INDEXED BY sqlite_autoindex_memory_facts_1
-    WHERE organization_id = ${orgId} AND id IN (SELECT value FROM json_each(${JSON.stringify(page.map((row) => row.id))}))
+				}>(sql`SELECT id AS id FROM memory_facts${postgres ? sql`` : sql` INDEXED BY sqlite_autoindex_memory_facts_1`}
+    WHERE organization_id = ${orgId} AND ${anyIds(
+			db,
+			sql`id`,
+			page.map((row) => row.id),
+		)}
     AND NOT EXISTS (SELECT 1 FROM memory_fact_citations link WHERE link.consolidated_fact_id = memory_facts.id)
-    AND json_type(memory_facts.metadata, '$.consolidation.evidence.sources') = 'array'
+    AND ${
+			postgres
+				? sql`EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(memory_facts.metadata #> '{consolidation,evidence,sources}') = 'array' THEN memory_facts.metadata #> '{consolidation,evidence,sources}' ELSE '[]'::jsonb END) citation
+       WHERE jsonb_typeof(citation.value) = 'object' AND ${anyIds(db, sql`citation.value ->> 'id'`, citedIds)})`
+				: sql`json_type(memory_facts.metadata, '$.consolidation.evidence.sources') = 'array'
     AND EXISTS (SELECT 1 FROM json_each(memory_facts.metadata, '$.consolidation.evidence.sources') citation
-     WHERE citation.type = 'object' AND json_extract(citation.value, '$.id') IN (SELECT value FROM json_each(${JSON.stringify(citedIds)})))`);
+     WHERE citation.type = 'object' AND json_extract(citation.value, '$.id') IN (SELECT value FROM json_each(${JSON.stringify(citedIds)})))`
+		}`);
 				for (const row of matches) ids.add(row.id);
 				cursor = page.at(-1)!.id;
 				if (page.length < PAGE_SIZE) break;
@@ -66,12 +95,12 @@ export async function findCitationDependents(
 	}
 	// Read links after the fallback: a concurrent backfill can move a fact out
 	// of the missing-link set between page reads. The final seek includes it.
-	// Stays raw: INDEXED BY plus a json_each id list, neither of which Drizzle emits.
+	// Preserve the indexed citation seek on SQLite.
 	const rows = await db.all<{
 		id: string;
 	}>(sql`SELECT DISTINCT consolidated_fact_id AS id
-  FROM memory_fact_citations INDEXED BY idx_memory_fact_citations_org_cited
-  WHERE organization_id = ${orgId} AND cited_fact_id IN (SELECT value FROM json_each(${JSON.stringify(citedIds)}))`);
+  FROM memory_fact_citations${postgres ? sql`` : sql` INDEXED BY idx_memory_fact_citations_org_cited`}
+  WHERE organization_id = ${orgId} AND ${anyIds(db, sql`cited_fact_id`, citedIds)}`);
 	for (const row of rows) ids.add(row.id);
 	return [...ids];
 }
@@ -82,6 +111,7 @@ export async function backfillFactCitations(
 	tenantScope: TenantScope,
 	limit = PAGE_SIZE,
 ) {
+	const postgres = coreStore(db) === "postgres";
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const checkpoint = await progress(db, tenantScope);
 	if (checkpoint?.done) return 0;
@@ -96,24 +126,37 @@ export async function backfillFactCitations(
 				id: string;
 				source: string;
 			}>(sql`SELECT id AS id, source AS source
-   FROM memory_facts INDEXED BY idx_memory_facts_org_source_id
+   FROM memory_facts${postgres ? sql`` : sql` INDEXED BY idx_memory_facts_org_source_id`}
    WHERE organization_id = ${orgId} AND source = ${source} AND id > ${cursor}
    ORDER BY id LIMIT ${size - page.length}`)),
 		);
 		if (page.length === size) break;
 	}
 	const last = page.at(-1);
-	const factIds = JSON.stringify(page.map((row) => row.id));
+	const memoryFactCitationBackfills = coreTable(
+		db,
+		d1MemoryFactCitationBackfills,
+	);
+	const ids = page.map((row) => row.id);
+	const factIds = JSON.stringify(ids);
 	await db.batch([
 		// Read the persisted metadata inside the batch, never a stale pre-CAS snapshot.
-		// Stays raw: INSERT OR IGNORE over an INDEXED BY json_each join.
-		db.run(sql`INSERT OR IGNORE INTO memory_fact_citations(organization_id, cited_fact_id, consolidated_fact_id)
+		db.run(
+			postgres
+				? sql`INSERT INTO memory_fact_citations(organization_id, cited_fact_id, consolidated_fact_id)
+   SELECT f.organization_id, citation.value ->> 'id', f.id
+   FROM memory_facts f CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(f.metadata #> '{consolidation,evidence,sources}') = 'array' THEN f.metadata #> '{consolidation,evidence,sources}' ELSE '[]'::jsonb END) citation
+   WHERE f.organization_id = ${orgId} AND ${anyIds(db, sql`f.id`, ids)}
+   AND jsonb_typeof(citation.value) = 'object' AND jsonb_typeof(citation.value -> 'id') = 'string'
+   ON CONFLICT DO NOTHING`
+				: sql`INSERT OR IGNORE INTO memory_fact_citations(organization_id, cited_fact_id, consolidated_fact_id)
    SELECT f.organization_id, json_extract(citation.value, '$.id'), f.id
    FROM memory_facts f INDEXED BY sqlite_autoindex_memory_facts_1,
     json_each(f.metadata, '$.consolidation.evidence.sources') citation
    WHERE f.organization_id = ${orgId} AND f.id IN (SELECT value FROM json_each(${factIds}))
     AND json_type(f.metadata, '$.consolidation.evidence.sources') = 'array'
-    AND citation.type = 'object' AND json_type(citation.value, '$.id') = 'text'`),
+    AND citation.type = 'object' AND json_type(citation.value, '$.id') = 'text'`,
+		),
 		db
 			.insert(memoryFactCitationBackfills)
 			.values({

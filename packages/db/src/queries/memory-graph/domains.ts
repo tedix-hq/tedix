@@ -3,13 +3,14 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { coreTable } from "../../core-store/client";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 
 import { eq } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type MemoryDomain,
-	memoryDomains,
+	memoryDomains as d1MemoryDomains,
 	type NewMemoryDomain,
 } from "../../schema/memory-graph";
 
@@ -46,6 +47,7 @@ export async function listDomains(
 	db: DbClient,
 	tenantScope: TenantScope,
 ): Promise<MemoryDomain[]> {
+	const memoryDomains = coreTable(db, d1MemoryDomains);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select()
@@ -57,6 +59,7 @@ async function createDomain(
 	db: DbClient,
 	domain: NewMemoryDomain & TenantScope,
 ): Promise<MemoryDomain> {
+	const memoryDomains = coreTable(db, d1MemoryDomains);
 	domain = { ...domain, ...normalizeTenantScope(domain) };
 	const [created] = await db.insert(memoryDomains).values(domain).returning();
 	if (!created) throw new Error(`Failed to create domain: ${domain.id}`);

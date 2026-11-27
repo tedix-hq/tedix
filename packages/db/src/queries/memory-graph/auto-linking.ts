@@ -1,17 +1,17 @@
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+import { and, desc, asc, eq, isNull, notExists, sql } from "drizzle-orm";
 import {
-	and,
-	desc,
-	asc,
-	eq,
-	inArray,
-	isNull,
-	notExists,
-	sql,
-} from "drizzle-orm";
-import { type AnySQLiteColumn, alias } from "drizzle-orm/sqlite-core";
+	type AnySQLiteColumn,
+	alias as sqliteAlias,
+} from "drizzle-orm/sqlite-core";
+import { alias as pgAlias } from "drizzle-orm/pg-core";
+import { coreTable } from "../../core-store/client";
+import { coreStore, anyIds } from "../../core-store/dialect";
 import type { DbClient } from "../../client";
-import { memoryEdges, memoryFacts } from "../../schema/memory-graph";
+import {
+	memoryEdges as d1MemoryEdges,
+	memoryFacts as d1MemoryFacts,
+} from "../../schema/memory-graph";
 
 export interface AutoLinkScope extends TenantScope {
 	tediId?: string;
@@ -59,6 +59,10 @@ export async function listAutoLinkFacts(
 	db: DbClient,
 	scope: AutoLinkScope,
 ): Promise<AutoLinkFact[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const alias = (
+		coreStore(db) === "postgres" ? pgAlias : sqliteAlias
+	) as typeof sqliteAlias;
 	scope = { ...scope, ...normalizeTenantScope(scope) };
 	if (scope.factIds?.length === 0) return [];
 	if ((scope.factIds?.length ?? 0) > 80)
@@ -78,8 +82,7 @@ export async function listAutoLinkFacts(
 		.where(
 			and(
 				eligible(a, scope),
-				// bound-params: factIds longer than 80 are rejected above.
-				scope.factIds ? inArray(a.id, [...scope.factIds]) : undefined,
+				scope.factIds ? anyIds(db, a.id, scope.factIds) : undefined,
 			),
 		)
 		.orderBy(desc(a.createdAt), asc(a.id))
@@ -97,8 +100,13 @@ export async function createAutoLinkEdge(
 		context: string;
 	},
 ): Promise<boolean> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const alias = (
+		coreStore(db) === "postgres" ? pgAlias : sqliteAlias
+	) as typeof sqliteAlias;
 	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const a = alias(memoryFacts, "a");
+	const memoryEdges = coreTable(db, d1MemoryEdges);
 	const b = alias(memoryFacts, "b");
 	const e = alias(memoryEdges, "e");
 	const edgeCount = (fact: typeof a.id | typeof b.id) =>

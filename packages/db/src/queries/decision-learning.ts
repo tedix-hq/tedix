@@ -1,7 +1,4 @@
 import { advancePlatformCronCheckpoint } from "./platform-cron-executions";
-import type { WorkInteraction } from "../schema/work-factory";
-import type { TediApprovalRequest } from "../schema/approvals";
-import type { WorkItem } from "../schema/work-items";
 import {
 	and,
 	asc,
@@ -17,6 +14,7 @@ import {
 } from "drizzle-orm";
 import { coreTable } from "../core-store/client";
 import {
+	anyIds,
 	booleanValue,
 	coreStore,
 	jsonRead,
@@ -47,7 +45,6 @@ import {
 import type { DbQueryClient } from "../query-client";
 import { organizations } from "../schema/organizations";
 import { platformCronCheckpoints } from "../schema/platform-cron-executions";
-import { chunkForBoundParams } from "../utils/batch";
 
 export async function getDecisionLearningConfig(
 	db: DbQueryClient,
@@ -89,89 +86,76 @@ export async function listDecisionInstrumentationSources(
 		mayReadApprovals: boolean;
 	},
 ) {
-	const interactions: WorkInteraction[] = [];
-	const proposals: (typeof workApprovalProposals.$inferSelect)[] = [];
-	const approvals: TediApprovalRequest[] = [];
 	const postgres = coreStore(db) === "postgres";
 	const cards = coreTable(db, workInteractions);
 	const proposalRows = coreTable(db, workApprovalProposals);
 	const approvalRows = coreTable(db, tediApprovalRequests);
 	const itemsTable = coreTable(db, workItems);
-	for (let offset = 0; offset < p.cardIds.length; offset += 50) {
-		const ids = p.cardIds.slice(offset, offset + 50);
-		interactions.push(
-			...(await db
-				.select(postgres ? getColumns(cards) : workInteractionStoredColumns)
-				.from(cards)
-				.where(
-					and(
-						eq(cards.orgId, p.organizationId),
-						eq(cards.targetType, "user"),
-						eq(cards.targetId, p.actorId),
-						inArray(cards.id, ids),
+	const [interactions, proposals, approvals] = await db.batch([
+		db
+			.select(postgres ? getColumns(cards) : workInteractionStoredColumns)
+			.from(cards)
+			.where(
+				and(
+					eq(cards.orgId, p.organizationId),
+					eq(cards.targetType, "user"),
+					eq(cards.targetId, p.actorId),
+					anyIds(db, cards.id, p.cardIds),
+				),
+			),
+		db
+			.select()
+			.from(proposalRows)
+			.where(
+				and(
+					eq(proposalRows.orgId, p.organizationId),
+					eq(proposalRows.approverType, "user"),
+					eq(proposalRows.approverId, p.actorId),
+					anyIds(
+						db,
+						proposalRows.id,
+						p.cardIds
+							.filter((id) => id.startsWith("work-approval:"))
+							.map((id) => id.slice(14)),
 					),
-				)),
-		);
-		proposals.push(
-			...(await db
-				.select()
-				.from(proposalRows)
-				.where(
-					and(
-						eq(proposalRows.orgId, p.organizationId),
-						eq(proposalRows.approverType, "user"),
-						eq(proposalRows.approverId, p.actorId),
-						inArray(
-							proposalRows.id,
-							ids
-								.filter((id) => id.startsWith("work-approval:"))
-								.map((id) => id.slice(14)),
-						),
-					),
-				)),
-		);
-		if (p.mayReadApprovals)
-			approvals.push(
-				...(await db
-					.select(
-						postgres ? getColumns(approvalRows) : approvalRequestStoredColumns,
-					)
-					.from(approvalRows)
-					.where(
-						and(
-							eq(approvalRows.orgId, p.organizationId),
-							inArray(
-								approvalRows.id,
-								ids
+				),
+			),
+		db
+			.select(
+				postgres ? getColumns(approvalRows) : approvalRequestStoredColumns,
+			)
+			.from(approvalRows)
+			.where(
+				and(
+					eq(approvalRows.orgId, p.organizationId),
+					anyIds(
+						db,
+						approvalRows.id,
+						p.mayReadApprovals
+							? p.cardIds
 									.filter((id) => id.startsWith("approval:"))
-									.map((id) => id.slice(9)),
-							),
-						),
-					)),
-			);
-	}
-	const items: WorkItem[] = [];
-	for (const ids of chunkForBoundParams(
-		[
-			...new Set([
-				...interactions.flatMap((r) => (r.workItemId ? [r.workItemId] : [])),
-				...proposals.map((r) => r.workItemId),
-			]),
-		],
-		50,
-	)) {
-		items.push(
-			...(await db
-				.select(postgres ? getColumns(itemsTable) : workItemStoredColumns)
-				.from(itemsTable)
-				.where(
-					and(
-						eq(itemsTable.orgId, p.organizationId),
-						inArray(itemsTable.id, ids),
+									.map((id) => id.slice(9))
+							: [],
 					),
-				)),
+				),
+			),
+	]);
+	const ids = [
+		...new Set([
+			...interactions.flatMap((r) => (r.workItemId ? [r.workItemId] : [])),
+			...proposals.map((r) => r.workItemId),
+		]),
+	];
+	const items = await db
+		.select(postgres ? getColumns(itemsTable) : workItemStoredColumns)
+		.from(itemsTable)
+		.where(
+			and(
+				eq(itemsTable.orgId, p.organizationId),
+				anyIds(db, itemsTable.id, ids),
+			),
 		);
-	}
+
 	return { interactions, proposals, approvals, items };
 }
 

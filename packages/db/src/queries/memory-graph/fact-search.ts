@@ -1,3 +1,5 @@
+import { coreTable } from "../../core-store/client";
+import { coreStore, anyIds } from "../../core-store/dialect";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import {
 	and,
@@ -6,7 +8,6 @@ import {
 	eq,
 	getColumns,
 	gte,
-	inArray,
 	isNull,
 	not,
 	or,
@@ -16,8 +17,8 @@ import type { MemoryFactType } from "@tedix/api-contract/constants/enums";
 import type { DbClient } from "../../client";
 import {
 	type MemoryFact,
-	memoryDomains,
-	memoryFacts,
+	memoryDomains as d1MemoryDomains,
+	memoryFacts as d1MemoryFacts,
 } from "../../schema/memory-graph";
 
 export type FactType = MemoryFactType;
@@ -45,6 +46,7 @@ export async function searchFacts(
 	db: DbClient,
 	params: FactSearchParams,
 ): Promise<MemoryFact[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	params = { ...params, ...normalizeTenantScope(params) };
 	const conditions = [eq(memoryFacts.organizationId, params.organizationId)];
 
@@ -80,8 +82,8 @@ export async function searchFacts(
 		.where(and(...conditions))
 		.orderBy(
 			desc(memoryFacts.confidence),
-			desc(memoryFacts.lastAccessedAt),
-			desc(memoryFacts.createdAt),
+			sql`${memoryFacts.lastAccessedAt} DESC NULLS LAST`,
+			sql`${memoryFacts.createdAt} DESC NULLS LAST`,
 		)
 		.limit(boundedLimit(params.limit))
 		.offset(params.offset ?? 0);
@@ -103,6 +105,7 @@ export async function countActiveFactsUpTo(
 	tenantScope: TenantScope,
 	cap: number,
 ): Promise<BoundedFactCount> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const live = db
 		.select({ one: sql<number>`1`.as("one") })
@@ -139,6 +142,7 @@ export async function deleteFactsByRunId(
 	tenantScope: TenantScope,
 	runId: string,
 ): Promise<number> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const source = `skill://runs/${runId}`;
 	const result = await db
@@ -166,12 +170,14 @@ export async function listPrivateFactsOfTedis(
 		limit: number;
 	},
 ): Promise<MemoryFact[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const position = coreStore(db) === "postgres" ? sql`strpos` : sql`instr`;
 	if (params.tediIds.length === 0) return [];
 	const { organizationId } = normalizeTenantScope(params);
 	const conditions = [
 		eq(memoryFacts.organizationId, organizationId),
-		// bound-params: one person's tedis, cut to 20 here.
-		inArray(memoryFacts.tediId, params.tediIds.slice(0, 20)),
+		// A person's selected tedis, capped at 20.
+		anyIds(db, memoryFacts.tediId, params.tediIds.slice(0, 20)),
 		eq(memoryFacts.visibility, "private"),
 		isNull(memoryFacts.archivedAt),
 		isNull(memoryFacts.validTo),
@@ -183,8 +189,8 @@ export async function listPrivateFactsOfTedis(
 		conditions.push(
 			or(
 				...terms.flatMap((term) => [
-					sql`instr(lower(${memoryFacts.content}), lower(${term})) > 0`,
-					sql`instr(lower(coalesce(${memoryFacts.summary}, '')), lower(${term})) > 0`,
+					sql`${position}(lower(${memoryFacts.content}), lower(${term})) > 0`,
+					sql`${position}(lower(coalesce(${memoryFacts.summary}, '')), lower(${term})) > 0`,
 				]),
 			)!,
 		);
@@ -209,6 +215,7 @@ export async function searchFactsWithVisibility(
 	db: DbClient,
 	params: VisibilityAwareSearchParams,
 ): Promise<MemoryFact[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	params = { ...params, ...normalizeTenantScope(params) };
 	const conditions = [eq(memoryFacts.organizationId, params.organizationId)];
 
@@ -264,8 +271,8 @@ export async function searchFactsWithVisibility(
 		.where(and(...conditions))
 		.orderBy(
 			desc(memoryFacts.confidence),
-			desc(memoryFacts.lastAccessedAt),
-			desc(memoryFacts.createdAt),
+			sql`${memoryFacts.lastAccessedAt} DESC NULLS LAST`,
+			sql`${memoryFacts.createdAt} DESC NULLS LAST`,
 		)
 		.limit(boundedLimit(params.limit))
 		.offset(params.offset ?? 0);
@@ -285,6 +292,7 @@ export async function listConfirmedOrgFactContents(
 	tenantScope: TenantScope,
 	limit = 200,
 ): Promise<string[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const rows = await db
 		.select({ content: memoryFacts.content })
@@ -321,6 +329,8 @@ export async function getActiveFacts(
 		includeGraphAnchors?: boolean;
 	},
 ) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const memoryDomains = coreTable(db, d1MemoryDomains);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(memoryFacts.organizationId, orgId),

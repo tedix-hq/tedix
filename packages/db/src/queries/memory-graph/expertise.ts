@@ -3,17 +3,19 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { coreStore } from "../../core-store/dialect";
+import { coreTable } from "../../core-store/client";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 
 import { and, count, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type ExpertiseLevel,
-	memoryDomains,
-	memoryFacts,
+	memoryDomains as d1MemoryDomains,
+	memoryFacts as d1MemoryFacts,
 	type NewTediExpertise,
 	type TediExpertise,
-	tediExpertise,
+	tediExpertise as d1TediExpertise,
 } from "../../schema/memory-graph";
 
 export type { ExpertiseLevel };
@@ -26,6 +28,7 @@ async function upsertExpertise(
 		"id" | "createdAt" | "updatedAt" | "lastActivityAt"
 	> & { id?: string },
 ): Promise<TediExpertise> {
+	const tediExpertise = coreTable(db, d1TediExpertise);
 	tenantScope = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
 	const existing = await db.query.tediExpertise.findFirst({
@@ -74,6 +77,9 @@ export async function getExpertise(
 ): Promise<
 	(TediExpertise & { domainName: string | null; competenceScore: number })[]
 > {
+	const memoryDomains = coreTable(db, d1MemoryDomains);
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const tediExpertise = coreTable(db, d1TediExpertise);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const conditions = [eq(tediExpertise.tediId, tediId)];
 	if (domainId) {
@@ -103,11 +109,13 @@ export async function getExpertise(
 	const competenceMap = new Map<string, number>();
 
 	if (domainIds.length > 0) {
+		const least = coreStore(db) === "postgres" ? sql`least` : sql`MIN`;
+		const greatest = coreStore(db) === "postgres" ? sql`greatest` : sql`MAX`;
 		const competenceRows = await db
 			.select({
 				domainId: memoryFacts.domainId,
 				competenceScore: sql<number>`COALESCE(AVG(
-					${memoryFacts.confidence} * MIN(2.0, MAX(0.3, CAST(COALESCE(${memoryFacts.usageCount}, 0) AS REAL) / MAX(1, COALESCE(${memoryFacts.accessCount}, 1))))
+					${memoryFacts.confidence} * ${least}(2.0, ${greatest}(0.3, CAST(COALESCE(${memoryFacts.usageCount}, 0) AS REAL) / ${greatest}(1, COALESCE(${memoryFacts.accessCount}, 1))))
 				), 0)`,
 			})
 			.from(memoryFacts)
@@ -183,6 +191,7 @@ export async function recalculateExpertise(
 	tediId: string,
 	domainId: string,
 ): Promise<TediExpertise> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const result = await db
 		.select({
@@ -190,7 +199,11 @@ export async function recalculateExpertise(
 			avgConf: sql<number>`COALESCE(avg(${memoryFacts.confidence}), 0)`,
 		})
 		// Keep the exact recount on the covering live-fact index, even with stale statistics.
-		.from(sql`${memoryFacts} INDEXED BY idx_memory_facts_expertise_live`)
+		.from(
+			coreStore(db) === "postgres"
+				? memoryFacts
+				: sql`${memoryFacts} INDEXED BY idx_memory_facts_expertise_live`,
+		)
 		.where(
 			and(
 				eq(memoryFacts.organizationId, organizationId),

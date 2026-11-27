@@ -1,7 +1,9 @@
+import { jsonRead, booleanValue, coreStore } from "../../core-store/dialect";
+import { coreTable } from "../../core-store/client";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { memoryFacts } from "../../schema/memory-graph";
+import { memoryFacts as d1MemoryFacts } from "../../schema/memory-graph";
 
 interface BrowseMemoryParams extends TenantScope {
 	tediId?: string;
@@ -18,6 +20,8 @@ export async function browseMemory(
 	db: DbQueryClient,
 	input: BrowseMemoryParams,
 ) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const position = coreStore(db) === "postgres" ? sql`strpos` : sql`instr`;
 	input = { ...input, ...normalizeTenantScope(input) };
 	const visible = input.tediId
 		? sql`(${memoryFacts.visibility} IN ('org', 'shared') OR ${memoryFacts.tediId} = ${input.tediId})`
@@ -49,14 +53,14 @@ export async function browseMemory(
 		else
 			filters.push(
 				sql`${memoryFacts.source} IN ('consolidation://observation', 'consolidation://standing_summary')`,
-				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "isHistory"], "boolean")} = ${booleanValue(db, false)}`,
 			);
 	}
 	if (input.search?.trim())
 		filters.push(
 			or(
-				sql`instr(lower(${memoryFacts.content}), lower(${input.search.trim()})) > 0`,
-				sql`instr(lower(coalesce(${memoryFacts.summary}, '')), lower(${input.search.trim()})) > 0`,
+				sql`${position}(lower(${memoryFacts.content}), lower(${input.search.trim()})) > 0`,
+				sql`${position}(lower(coalesce(${memoryFacts.summary}, '')), lower(${input.search.trim()})) > 0`,
 			)!,
 		);
 	if (input.domainId) filters.push(eq(memoryFacts.domainId, input.domainId));

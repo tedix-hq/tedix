@@ -36,6 +36,7 @@ import {
 	insertDecisionExposure,
 	insertDecisionOutcomeLabel,
 	listDecisionInstrumentation,
+	listDecisionInstrumentationSources,
 	listDueDecisionLabels,
 	listUnlabelledDecisionApprovals,
 	listUnlabelledDecisionDeferrals,
@@ -231,6 +232,36 @@ for (const store of ["d1", "postgres"] as const)
 				expiresAt: expiry,
 			});
 			expect(created?.id).toBe("exp-2");
+			const input = {
+				organizationId: "org",
+				actorId: "river",
+				cardIds: [
+					"card",
+					"approval:appr",
+					...Array.from({ length: 120 }, (_, i) => `missing-${i}`),
+				],
+				mayReadApprovals: false,
+			};
+			const hidden = await listDecisionInstrumentationSources(db, input);
+			expect(hidden.interactions.map((r) => r.id)).toEqual(["card"]);
+			expect(hidden.approvals).toEqual([]);
+			expect(
+				(
+					await listDecisionInstrumentationSources(db, {
+						...input,
+						mayReadApprovals: true,
+					})
+				).approvals.map((r) => r.id),
+			).toEqual(["appr"]);
+			expect(
+				(
+					await listDecisionInstrumentationSources(db, {
+						...input,
+						actorId: "peer",
+					})
+				).interactions,
+			).toEqual([]);
+
 			const listed = await listDecisionInstrumentation(db, {
 				organizationId: "org",
 				actorId: "river",

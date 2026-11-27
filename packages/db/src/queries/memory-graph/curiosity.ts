@@ -1,3 +1,4 @@
+import { coreTable } from "../../core-store/client";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, desc, eq } from "drizzle-orm";
 import type { DbClient } from "../../client";
@@ -6,7 +7,7 @@ import {
 	type CuriosityStatus,
 	type NewTediCuriosityItem,
 	type TediCuriosityItem,
-	tediCuriosityQueue,
+	tediCuriosityQueue as d1TediCuriosityQueue,
 } from "../../schema/memory-graph";
 
 export type { CuriositySource, CuriosityStatus };
@@ -15,6 +16,7 @@ export async function createCuriosityItem(
 	db: DbClient,
 	item: NewTediCuriosityItem & TenantScope,
 ): Promise<TediCuriosityItem> {
+	const tediCuriosityQueue = coreTable(db, d1TediCuriosityQueue);
 	item = { ...item, ...normalizeTenantScope(item) };
 	const id = item.id ?? crypto.randomUUID();
 	const [created] = await db
@@ -30,6 +32,7 @@ export async function listCuriosityQueue(
 	tenantScope: TenantScope,
 	options?: { tediId?: string; status?: CuriosityStatus; limit?: number },
 ): Promise<TediCuriosityItem[]> {
+	const tediCuriosityQueue = coreTable(db, d1TediCuriosityQueue);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [eq(tediCuriosityQueue.organizationId, orgId)];
 
@@ -58,6 +61,7 @@ export async function updateCuriosityStatus(
 	status: CuriosityStatus,
 	results?: { factsLearned?: number; gapsFound?: number },
 ): Promise<void> {
+	const tediCuriosityQueue = coreTable(db, d1TediCuriosityQueue);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
 	await db
@@ -86,6 +90,7 @@ export async function getNextCuriosityItem(
 	tenantScope: TenantScope,
 	tediId?: string,
 ): Promise<TediCuriosityItem | undefined> {
+	const tediCuriosityQueue = coreTable(db, d1TediCuriosityQueue);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(tediCuriosityQueue.organizationId, orgId),

@@ -3,15 +3,16 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { coreTable } from "../../core-store/client";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 
 import { and, eq, isNull, not, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
-	memoryDomains,
-	memoryEdges,
-	memoryFacts,
-	tediCuriosityQueue,
+	memoryDomains as d1MemoryDomains,
+	memoryEdges as d1MemoryEdges,
+	memoryFacts as d1MemoryFacts,
+	tediCuriosityQueue as d1TediCuriosityQueue,
 } from "../../schema/memory-graph";
 
 export interface MemoryHealthExtended {
@@ -37,6 +38,10 @@ export async function getMemoryHealthExtended(
 	db: DbClient,
 	tenantScope: TenantScope,
 ): Promise<MemoryHealthExtended> {
+	const memoryDomains = coreTable(db, d1MemoryDomains);
+	const memoryEdges = coreTable(db, d1MemoryEdges);
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const tediCuriosityQueue = coreTable(db, d1TediCuriosityQueue);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const sixtyDaysAgo = new Date(
 		Date.now() - 60 * 24 * 60 * 60 * 1000,
@@ -58,7 +63,7 @@ export async function getMemoryHealthExtended(
 	] = await db.batch([
 		// 0: active facts count
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(memoryFacts)
 			.where(
 				and(
@@ -68,7 +73,7 @@ export async function getMemoryHealthExtended(
 			),
 		// 1: archived facts count
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(memoryFacts)
 			.where(
 				and(
@@ -78,7 +83,7 @@ export async function getMemoryHealthExtended(
 			),
 		// 2: gaps count
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(memoryFacts)
 			.where(
 				and(
@@ -89,7 +94,7 @@ export async function getMemoryHealthExtended(
 			),
 		// 3: opinions count
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(memoryFacts)
 			.where(
 				and(
@@ -100,13 +105,13 @@ export async function getMemoryHealthExtended(
 			),
 		// 4: total edges (join through facts to scope by org)
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(memoryEdges)
 			.innerJoin(memoryFacts, eq(memoryEdges.sourceFactId, memoryFacts.id))
 			.where(eq(memoryFacts.organizationId, orgId)),
 		// 5: total domains
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(memoryDomains)
 			.where(eq(memoryDomains.organizationId, orgId)),
 		// 6: avg confidence
@@ -122,14 +127,16 @@ export async function getMemoryHealthExtended(
 		// 7: facts with edges (for orphan ratio)
 		db
 			.select({
-				count: sql<number>`count(DISTINCT ${memoryEdges.sourceFactId})`,
+				count: sql<number>`count(DISTINCT ${memoryEdges.sourceFactId})`.mapWith(
+					Number,
+				),
 			})
 			.from(memoryEdges)
 			.innerJoin(memoryFacts, eq(memoryEdges.sourceFactId, memoryFacts.id))
 			.where(eq(memoryFacts.organizationId, orgId)),
 		// 8: stale facts (not accessed in 60+ days)
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(memoryFacts)
 			.where(
 				and(
@@ -140,7 +147,7 @@ export async function getMemoryHealthExtended(
 			),
 		// 9: contradictions
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(memoryEdges)
 			.innerJoin(memoryFacts, eq(memoryEdges.sourceFactId, memoryFacts.id))
 			.where(
@@ -153,7 +160,7 @@ export async function getMemoryHealthExtended(
 		db
 			.select({
 				status: tediCuriosityQueue.status,
-				count: sql<number>`count(*)`,
+				count: sql<number>`count(*)`.mapWith(Number),
 			})
 			.from(tediCuriosityQueue)
 			.where(eq(tediCuriosityQueue.organizationId, orgId))

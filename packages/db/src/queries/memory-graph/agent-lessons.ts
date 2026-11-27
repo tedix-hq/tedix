@@ -17,6 +17,15 @@
  * it an org-wide lesson, provided no tedi owns it.
  */
 
+import { coreTable } from "../../core-store/client";
+import {
+	coreStore,
+	jsonRead,
+	jsonWrite,
+	jsonParameter,
+	booleanValue,
+	anyIds,
+} from "../../core-store/dialect";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 
 import { filterConsolidatedEvidence } from "./observations";
@@ -38,10 +47,10 @@ import {
 	type LessonEvidence,
 	type LessonEvidenceSource,
 } from "@tedix/api-contract/schemas/agent-session-lessons";
-import { learningInteractionEvents } from "../../schema/learning-feedback";
+import { learningInteractionEvents as d1LearningInteractionEvents } from "../../schema/learning-feedback";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../../query-client";
-import { memoryFacts } from "../../schema/memory-graph";
+import { memoryFacts as d1MemoryFacts } from "../../schema/memory-graph";
 import { prefixedColumns } from "../../utils/select";
 import { batchNonEmpty } from "../../utils/batch";
 
@@ -73,11 +82,15 @@ export async function listApprovedAgentLessons(
 		personalOnly?: boolean;
 	} = {},
 ): Promise<ApprovedAgentLessonRow[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
-	const owner = sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId')`;
+	const owner = sql`${jsonRead(db, memoryFacts.metadata, ["learningFeed", "ownerUserId"])}`;
 	const orgWide = and(
 		isNull(memoryFacts.tediId),
-		or(sql`${memoryFacts.visibility} IS NOT 'private'`, sql`${owner} IS NULL`),
+		or(
+			sql`(${memoryFacts.visibility} <> 'private' OR ${memoryFacts.visibility} IS NULL)`,
+			sql`${owner} IS NULL`,
+		),
 	);
 	const rows = await db
 		.select({
@@ -101,7 +114,7 @@ export async function listApprovedAgentLessons(
 							eq(memoryFacts.visibility, "private"),
 							options.viewerUserId
 								? sql`${owner} = ${options.viewerUserId}`
-								: sql`0`,
+								: sql`false`,
 						)
 					: options.viewerUserId
 						? or(orgWide, sql`${owner} = ${options.viewerUserId}`)
@@ -153,6 +166,7 @@ export async function listCurrentLearningFeedLessons(
 	limit = 500,
 	ownerUserId?: string,
 ): Promise<CurrentLearningFeedLessonRow[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select({
@@ -169,7 +183,7 @@ export async function listCurrentLearningFeedLessons(
 			and(
 				eq(memoryFacts.organizationId, orgId),
 				ownerUserId
-					? sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId') = ${ownerUserId}`
+					? sql`${jsonRead(db, memoryFacts.metadata, ["learningFeed", "ownerUserId"])} = ${ownerUserId}`
 					: undefined,
 				gte(memoryFacts.topicKey, topicPrefix),
 				lt(memoryFacts.topicKey, prefixEnd(topicPrefix)),
@@ -192,6 +206,7 @@ export async function listStaleLearningFeedLessons(
 	before: string,
 	limit = 200,
 ): Promise<StaleLearningFeedLessonRow[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select({
@@ -207,7 +222,7 @@ export async function listStaleLearningFeedLessons(
 				lt(memoryFacts.topicKey, prefixEnd(topicPrefix)),
 				isNull(memoryFacts.archivedAt),
 				isNull(memoryFacts.validTo),
-				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.lastEventAt') < ${before}`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["learningFeed", "lastEventAt"])} < ${before}`,
 			),
 		)
 		.limit(limit);
@@ -223,6 +238,7 @@ export async function listArchivedLearningFeedLessons(
 	topicKeys: string[],
 	limit = 50,
 ): Promise<StaleLearningFeedLessonRow[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (topicKeys.length === 0) return [];
 	return db
@@ -255,6 +271,7 @@ export async function listArchivedLearningFeedLessonsForOwner(
 	ownerUserId: string,
 	limit = 200,
 ): Promise<CurrentLearningFeedLessonRow[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select({
@@ -271,7 +288,7 @@ export async function listArchivedLearningFeedLessonsForOwner(
 				gte(memoryFacts.topicKey, topicPrefix),
 				lt(memoryFacts.topicKey, prefixEnd(topicPrefix)),
 				isNotNull(memoryFacts.archivedAt),
-				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId') = ${ownerUserId}`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["learningFeed", "ownerUserId"])} = ${ownerUserId}`,
 			),
 		)
 		.orderBy(desc(memoryFacts.updatedAt))
@@ -285,6 +302,7 @@ export async function setAgentLessonTriggers(
 	row: ApprovedAgentLessonRow,
 	triggers: import("@tedix/api-contract/schemas/agent-session-lessons").LessonTriggers,
 ): Promise<boolean> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const feed = row.metadata?.learningFeed;
 	const learningFeed =
@@ -303,7 +321,7 @@ export async function setAgentLessonTriggers(
 				eq(memoryFacts.id, row.id),
 				eq(memoryFacts.organizationId, orgId),
 				eq(memoryFacts.content, row.content),
-				sql`coalesce(${memoryFacts.metadata}, 'null') = ${JSON.stringify(row.metadata)}`,
+				sql`coalesce(${memoryFacts.metadata}, 'null') = ${jsonParameter(db, row.metadata)}`,
 				eq(memoryFacts.status, "active"),
 				eq(memoryFacts.reviewStatus, "confirmed"),
 				isNull(memoryFacts.archivedAt),
@@ -321,17 +339,22 @@ export async function listCorrectedAgentLessons(
 	ownerUserId: string,
 	eventId: string,
 ) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select(prefixedColumns(memoryFacts, "fact"))
-		.from(sql`${memoryFacts} INDEXED BY idx_memory_facts_org_source_id`)
+		.from(
+			coreStore(db) === "postgres"
+				? memoryFacts
+				: sql`${memoryFacts} INDEXED BY idx_memory_facts_org_source_id`,
+		)
 		.where(
 			and(
 				eq(memoryFacts.organizationId, orgId),
 				isNull(memoryFacts.archivedAt),
-				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId') = ${ownerUserId}`,
-				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.autoConfirmed') = 1`,
-				sql`EXISTS (SELECT 1 FROM json_each(json_extract(${memoryFacts.metadata}, '$.learningFeed.evidenceEventIds')) AS evidence WHERE evidence.value = ${eventId})`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["learningFeed", "ownerUserId"])} = ${ownerUserId}`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["learningFeed", "autoConfirmed"], "boolean")} = ${booleanValue(db, true)}`,
+				sql`EXISTS (SELECT 1 FROM ${coreStore(db) === "postgres" ? sql`jsonb_array_elements_text(CASE WHEN jsonb_typeof(${jsonRead(db, memoryFacts.metadata, ["learningFeed", "evidenceEventIds"], "json")}) = 'array' THEN ${jsonRead(db, memoryFacts.metadata, ["learningFeed", "evidenceEventIds"], "json")} ELSE '[]'::jsonb END)` : sql`json_each(${jsonRead(db, memoryFacts.metadata, ["learningFeed", "evidenceEventIds"])})`} AS evidence WHERE evidence.value = ${eventId})`,
 			),
 		);
 }
@@ -342,10 +365,11 @@ export async function decisionLessonEvidence(
 	tenantScope: TenantScope,
 	ids: string[],
 ): Promise<LessonEvidence> {
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const sources: LessonEvidenceSource[] = [];
 	const unique = [...new Set(ids)];
-	for (let offset = 0; offset < unique.length; offset += 50) {
+	if (unique.length) {
 		const rows = await db
 			.select({
 				id: sql`${learningInteractionEvents.id}`.mapWith(
@@ -360,15 +384,14 @@ export async function decisionLessonEvidence(
 			})
 			// Larger ID batches otherwise choose an organization-only index search.
 			.from(
-				sql`${learningInteractionEvents} INDEXED BY sqlite_autoindex_learning_interaction_events_1`,
+				coreStore(db) === "postgres"
+					? learningInteractionEvents
+					: sql`${learningInteractionEvents} INDEXED BY sqlite_autoindex_learning_interaction_events_1`,
 			)
 			.where(
 				and(
 					eq(learningInteractionEvents.organizationId, orgId),
-					inArray(
-						learningInteractionEvents.id,
-						unique.slice(offset, offset + 50),
-					),
+					anyIds(db, learningInteractionEvents.id, unique),
 				),
 			);
 		for (const row of rows) {
@@ -408,13 +431,24 @@ function buildHoldLessonForRedistillationStatement(
 	id: string,
 	expectedMetadata?: Record<string, JsonValue> | null,
 ) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
 	return db
 		.update(memoryFacts)
 		.set({
 			updatedAt: now,
-			metadata: sql`json_set(COALESCE(${memoryFacts.metadata}, '{}'), '$.learningFeed.evidence.state', 'held', '$.learningFeed.evidence.redistillRequestedAt', ${now})`,
+			metadata: jsonWrite(
+				db,
+				jsonWrite(
+					db,
+					memoryFacts.metadata,
+					["learningFeed", "evidence", "state"],
+					"held",
+				),
+				["learningFeed", "evidence", "redistillRequestedAt"],
+				now,
+			),
 		})
 		.where(
 			and(
@@ -422,10 +456,10 @@ function buildHoldLessonForRedistillationStatement(
 				eq(memoryFacts.id, id),
 				expectedMetadata === undefined
 					? undefined
-					: sql`coalesce(${memoryFacts.metadata}, 'null') = ${JSON.stringify(expectedMetadata)}`,
+					: sql`coalesce(${memoryFacts.metadata}, 'null') = ${jsonParameter(db, expectedMetadata)}`,
 				or(
-					sql`COALESCE(json_extract(${memoryFacts.metadata}, '$.learningFeed.evidence.state'), '') != 'held'`,
-					sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.evidence.redistillRequestedAt') IS NULL`,
+					sql`COALESCE(${jsonRead(db, memoryFacts.metadata, ["learningFeed", "evidence", "state"])}, '') != 'held'`,
+					sql`${jsonRead(db, memoryFacts.metadata, ["learningFeed", "evidence", "redistillRequestedAt"])} IS NULL`,
 				),
 			),
 		);
@@ -462,12 +496,14 @@ export async function holdLessonForRedistillation(
 	);
 }
 
-/** Resolve a set once, in chunks of 50 (under D1's 100 parameter cap). */
+/** Resolve each source set with one tenant-fenced query. */
 async function liveEvidenceSources(
 	db: DbQueryClient,
 	tenantScope: TenantScope,
 	sources: LessonEvidenceSource[],
 ): Promise<Map<string, string>> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const learningInteractionEvents = coreTable(db, d1LearningInteractionEvents);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const live = new Map<string, string>();
 	const factIds = [
@@ -476,14 +512,14 @@ async function liveEvidenceSources(
 	const eventIds = [
 		...new Set(sources.filter((s) => s.kind !== "fact").map((s) => s.id)),
 	];
-	for (let i = 0; i < factIds.length; i += 50) {
+	if (factIds.length) {
 		const facts = await db
 			.select({ id: memoryFacts.id, content: memoryFacts.content })
 			.from(memoryFacts)
 			.where(
 				and(
 					eq(memoryFacts.organizationId, orgId),
-					inArray(memoryFacts.id, factIds.slice(i, i + 50)),
+					anyIds(db, memoryFacts.id, factIds),
 					isNull(memoryFacts.validTo),
 					isNull(memoryFacts.archivedAt),
 					inArray(memoryFacts.status, ["active", "probation"]),
@@ -497,7 +533,7 @@ async function liveEvidenceSources(
 		for (const f of facts)
 			live.set(`fact:${f.id}`, f.content.replace(/\s+/g, " ").trim());
 	}
-	for (let i = 0; i < eventIds.length; i += 50) {
+	if (eventIds.length) {
 		const events = await db
 			.select({
 				id: sql`${learningInteractionEvents.id}`.mapWith(
@@ -508,20 +544,22 @@ async function liveEvidenceSources(
 				),
 			})
 			.from(
-				sql`${learningInteractionEvents} INDEXED BY sqlite_autoindex_learning_interaction_events_1`,
+				coreStore(db) === "postgres"
+					? learningInteractionEvents
+					: sql`${learningInteractionEvents} INDEXED BY sqlite_autoindex_learning_interaction_events_1`,
 			)
 			.where(
 				and(
 					eq(learningInteractionEvents.organizationId, orgId),
-					inArray(learningInteractionEvents.id, eventIds.slice(i, i + 50)),
-					sql`json_extract(${learningInteractionEvents.metadata}, '$.validTo') IS NULL`,
-					sql`json_extract(${learningInteractionEvents.metadata}, '$.supersededBy') IS NULL`,
+					anyIds(db, learningInteractionEvents.id, eventIds),
+					sql`${jsonRead(db, learningInteractionEvents.metadata, ["validTo"])} IS NULL`,
+					sql`${jsonRead(db, learningInteractionEvents.metadata, ["supersededBy"])} IS NULL`,
 					sql`NOT EXISTS (SELECT 1 FROM learning_interaction_events c WHERE c.organization_id = ${orgId}
     AND c.scope_kind = ${learningInteractionEvents.scopeKind} AND c.scope_id = ${learningInteractionEvents.scopeId}
     AND c.target_type = ${learningInteractionEvents.targetType} AND c.target_id = ${learningInteractionEvents.targetId}
     AND c.occurred_at > ${learningInteractionEvents.occurredAt}
     AND c.event_kind IN ('edited', 'manually_replaced')
-    AND json_extract(c.metadata, '$.answer') IS NOT json_extract(${learningInteractionEvents.metadata}, '$.answer'))`,
+    AND ${jsonRead(db, sql`c.metadata`, ["answer"])} ${coreStore(db) === "postgres" ? sql`IS DISTINCT FROM` : sql`IS NOT`} ${jsonRead(db, learningInteractionEvents.metadata, ["answer"])})`,
 				),
 			);
 		for (const event of events) {
@@ -603,19 +641,17 @@ export async function filterEvidenceBackedLessons<
 			live.push(row);
 		else if (!lessonRedistillationIsQueued(row.metadata)) held.push(row);
 	}
-	for (let offset = 0; offset < held.length; offset += 50) {
+	if (held.length) {
 		await db.batch(
 			batchNonEmpty(
-				held
-					.slice(offset, offset + 50)
-					.map((row) =>
-						buildHoldLessonForRedistillationStatement(
-							db,
-							tenantScope,
-							row.id,
-							row.metadata,
-						),
+				held.map((row) =>
+					buildHoldLessonForRedistillationStatement(
+						db,
+						tenantScope,
+						row.id,
+						row.metadata,
 					),
+				),
 			),
 		);
 	}

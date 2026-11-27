@@ -3,14 +3,15 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { coreTable } from "../../core-store/client";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 
 import { and, desc, eq, isNull, not, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type MemoryFact,
-	memoryDomains,
-	memoryFacts,
+	memoryDomains as d1MemoryDomains,
+	memoryFacts as d1MemoryFacts,
 } from "../../schema/memory-graph";
 
 export async function listGaps(
@@ -23,6 +24,7 @@ export async function listGaps(
 		limit?: number;
 	},
 ): Promise<MemoryFact[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(memoryFacts.organizationId, orgId),
@@ -63,6 +65,8 @@ export async function getGapStats(
 	byDomain: Record<string, number>;
 	bySeverity: Record<string, number>;
 }> {
+	const memoryDomains = coreTable(db, d1MemoryDomains);
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	// Run all independent reads in parallel
 	const [totalGaps, resolvedGaps, byDomainRows, allGaps] = await Promise.all([
@@ -90,7 +94,7 @@ export async function getGapStats(
 		db
 			.select({
 				domainName: memoryDomains.name,
-				count: sql<number>`count(*)`,
+				count: sql<number>`count(*)`.mapWith(Number),
 			})
 			.from(memoryFacts)
 			.innerJoin(memoryDomains, eq(memoryFacts.domainId, memoryDomains.id))

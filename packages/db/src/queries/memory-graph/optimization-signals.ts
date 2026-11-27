@@ -1,3 +1,4 @@
+import { coreTable } from "../../core-store/client";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
@@ -5,7 +6,7 @@ import {
 	type NewTediOptimizationSignal,
 	type OptimizationSignalStatus,
 	type TediOptimizationSignal,
-	tediOptimizationSignals,
+	tediOptimizationSignals as d1TediOptimizationSignals,
 } from "../../schema/memory-graph";
 
 export type { OptimizationSignalStatus };
@@ -20,6 +21,7 @@ export async function findOpenOptimizationSignal(
 		evidenceIncludes?: string[];
 	} & TenantScope,
 ): Promise<TediOptimizationSignal | undefined> {
+	const tediOptimizationSignals = coreTable(db, d1TediOptimizationSignals);
 	params = { ...params, ...normalizeTenantScope(params) };
 	const candidates = await db
 		.select()
@@ -51,6 +53,7 @@ export async function createOptimizationSignal(
 	db: DbClient,
 	signal: NewTediOptimizationSignal & TenantScope,
 ): Promise<TediOptimizationSignal> {
+	const tediOptimizationSignals = coreTable(db, d1TediOptimizationSignals);
 	signal = { ...signal, ...normalizeTenantScope(signal) };
 	const id = signal.id ?? crypto.randomUUID();
 	const [created] = await db
@@ -70,6 +73,7 @@ export async function listOptimizationSignals(
 		limit?: number;
 	},
 ): Promise<TediOptimizationSignal[]> {
+	const tediOptimizationSignals = coreTable(db, d1TediOptimizationSignals);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [eq(tediOptimizationSignals.organizationId, orgId)];
 
@@ -97,6 +101,7 @@ export async function updateSignalStatus(
 	id: string,
 	status: OptimizationSignalStatus,
 ): Promise<void> {
+	const tediOptimizationSignals = coreTable(db, d1TediOptimizationSignals);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
 	await db
@@ -125,6 +130,7 @@ export async function getCompiledPatterns(
 	tenantScope: TenantScope,
 	tediId: string,
 ): Promise<string[]> {
+	const tediOptimizationSignals = coreTable(db, d1TediOptimizationSignals);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const signals = await db
 		.select({ suggestedAction: tediOptimizationSignals.suggestedAction })
@@ -155,6 +161,7 @@ export async function getOptimizationBacklog(
 	tenantScope: TenantScope,
 	options?: { tediId?: string; limit?: number },
 ): Promise<TediOptimizationSignal[]> {
+	const tediOptimizationSignals = coreTable(db, d1TediOptimizationSignals);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(tediOptimizationSignals.organizationId, orgId),

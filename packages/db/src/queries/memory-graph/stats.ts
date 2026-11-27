@@ -3,14 +3,15 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { coreTable } from "../../core-store/client";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
-	memoryDomains,
-	memoryEdges,
-	memoryFacts,
+	memoryDomains as d1MemoryDomains,
+	memoryEdges as d1MemoryEdges,
+	memoryFacts as d1MemoryFacts,
 } from "../../schema/memory-graph";
 
 export interface MemoryGraphStats {
@@ -26,13 +27,16 @@ export async function getMemoryGraphStats(
 	db: DbClient,
 	tenantScope: TenantScope,
 ): Promise<MemoryGraphStats> {
+	const memoryDomains = coreTable(db, d1MemoryDomains);
+	const memoryEdges = coreTable(db, d1MemoryEdges);
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	// Run all independent queries in parallel
 	const [edgeResult, totalDomains, byType, byDomain, avgResult] =
 		await Promise.all([
 			// Count edges (join through facts to scope by org)
 			db
-				.select({ count: sql<number>`count(*)` })
+				.select({ count: sql<number>`count(*)`.mapWith(Number) })
 				.from(memoryEdges)
 				.innerJoin(memoryFacts, eq(memoryEdges.sourceFactId, memoryFacts.id))
 				.where(eq(memoryFacts.organizationId, orgId)),
@@ -42,7 +46,7 @@ export async function getMemoryGraphStats(
 			db
 				.select({
 					factType: memoryFacts.factType,
-					count: sql<number>`count(*)`,
+					count: sql<number>`count(*)`.mapWith(Number),
 				})
 				.from(memoryFacts)
 				.where(
@@ -56,7 +60,7 @@ export async function getMemoryGraphStats(
 			db
 				.select({
 					domainName: memoryDomains.name,
-					count: sql<number>`count(*)`,
+					count: sql<number>`count(*)`.mapWith(Number),
 				})
 				.from(memoryFacts)
 				.innerJoin(memoryDomains, eq(memoryFacts.domainId, memoryDomains.id))
