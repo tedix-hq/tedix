@@ -106,7 +106,9 @@ function ownsStripeWebhookLease(
 		eq(stripeWebhookEvents.status, "processing"),
 		eq(stripeWebhookEvents.attemptCount, lease.attemptCount),
 		gt(
-			stripeWebhookEvents.leaseExpiresAt,
+			coreStore(db) === "postgres"
+				? sql`${stripeWebhookEvents.leaseExpiresAt}::timestamptz`
+				: sql`${stripeWebhookEvents.leaseExpiresAt}`,
 			coreStore(db) === "postgres"
 				? sql`now()`
 				: sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
