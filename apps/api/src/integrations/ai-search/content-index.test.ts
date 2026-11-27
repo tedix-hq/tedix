@@ -7,6 +7,7 @@ vi.mock("@tedix/db/queries/data-residency", async (original) => ({
 }));
 import { describe, expect, it, vi } from "vite-plus/test";
 import { indexContentDocument } from "./content-index";
+import { getOrganizationResidencyPolicy } from "@tedix/db/queries/data-residency";
 
 vi.mock("@tedix/db/queries/content-sources", () => ({
 	upsertContentSourceDocument: vi.fn(async (_db, input) => ({
@@ -17,6 +18,41 @@ vi.mock("@tedix/db/queries/content-sources", () => ({
 }));
 
 describe("content AI Search indexing", () => {
+	it("checks residency on the supplied core client before any content leaves", async () => {
+		const db = {} as never;
+		const put = vi.fn();
+		const get = vi.fn();
+		const env = {
+			DB: {
+				prepare: vi.fn(() => {
+					throw new Error("Wrong store");
+				}),
+			},
+			CONTENT_CMS_BUCKET: { put } as never,
+			CONTENT_AI_SEARCH: { get } as never,
+		};
+		vi.mocked(getOrganizationResidencyPolicy).mockResolvedValueOnce({
+			mode: "eu",
+		} as never);
+		await expect(
+			indexContentDocument(db, env, {
+				appId: "5eed0040-0000-4000-8000-000000000040",
+				appSlug: "guide",
+				canonicalUrl: "https://example.com/guide",
+				title: "Guide",
+				contentType: "docs",
+				visibility: "public",
+				markdown: "# Guide",
+			}),
+		).rejects.toMatchObject({ code: "EU_PROVIDER_ROUTE_REQUIRED" });
+		expect(getOrganizationResidencyPolicy).toHaveBeenLastCalledWith(
+			db,
+			"org_lark",
+		);
+		expect(env.DB.prepare).not.toHaveBeenCalled();
+		expect(put).not.toHaveBeenCalled();
+		expect(get).not.toHaveBeenCalled();
+	});
 	it("stores and uploads native image bytes with immutable provenance", async () => {
 		const put = vi.fn(async () => undefined);
 		const upload = vi.fn(async () => ({ id: "image-item", status: "queued" }));

@@ -17,7 +17,6 @@ const CONTENT_METADATA_FIELDS = [
 ];
 
 export interface ContentIndexEnv {
-	DB?: D1Database;
 	CONTENT_CMS_BUCKET: R2Bucket;
 	CONTENT_AI_SEARCH: AiSearchNamespace;
 }
@@ -202,7 +201,6 @@ export async function indexContentDocument(
 		db,
 		app.organizationId,
 		"Content embeddings and OCR",
-		env.DB,
 	);
 	const canonicalUrl = new URL(input.canonicalUrl).toString();
 	let content: string | Blob;
