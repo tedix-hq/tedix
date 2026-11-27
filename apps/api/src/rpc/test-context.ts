@@ -12,7 +12,7 @@
 import type { JWTPayload } from "@tedix/auth/types";
 
 import type { BaseContext } from "./orpc";
-import { coreDb } from "@tedix/db/core-store/scope";
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 
 const DEFAULT_URL = "https://api.tedix.test/rpc";
 
@@ -21,7 +21,7 @@ export interface TestContextOptions {
 	organizationId?: string | null;
 	/** Worker bindings. Defaults to `{ ENVIRONMENT: "test" }`. */
 	env?: CloudflareEnv;
-	/** Database client. Defaults to a client over `env.DB`, or an empty stub when the env has no `DB`. */
+	/** Database client. Defaults to the selected core store, or an empty stub when no store is configured. */
 	db?: BaseContext["db"];
 	/** Request URL. Defaults to `https://api.tedix.test/rpc`. */
 	url?: string | URL;
@@ -57,7 +57,7 @@ function sharedFields(options: TestContextOptions): Partial<BaseContext> {
 	const context: Partial<BaseContext> = {
 		db:
 			options.db ??
-			(env.DB ? (coreDb(env) as BaseContext["db"]) : ({} as BaseContext["db"])),
+			(env.DB || !isD1CoreStore(env) ? coreDb(env) : ({} as BaseContext["db"])),
 		env,
 		headers:
 			options.headers instanceof Headers

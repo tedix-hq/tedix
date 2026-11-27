@@ -24,12 +24,12 @@ async function serveDocument(
 ): Promise<Response> {
 	const slug = c.req.param("slug");
 	if (!slug || !SLUG_PATTERN.test(slug)) return notFound();
-	const { createDbClient } = await import("@tedix/db/client");
+	const { coreDb } = await import("@tedix/db/core-store/scope");
 	const { loadPoppyAgentPublicDocument } =
 		await import("../services/poppy-agent-identity");
 	const doc = await loadPoppyAgentPublicDocument(
 		c.env,
-		createDbClient(c.env.DB),
+		coreDb(c.env),
 		slug,
 		document,
 	);
