@@ -189,6 +189,51 @@ export class RuntimeAdmissionDO {
 	read() {
 		return this.gate.read();
 	}
+	/** Explicit operator cutover; never called by runtime startup or turn recovery. */
+	migrateLegacyAccounting(input: {
+		operationId: string;
+		expectedGeneration: number;
+	}): AdmissionSnapshot {
+		return this.storage.transactionSync(() => {
+			const current = this.read();
+			if (
+				!current ||
+				current.state !== "held" ||
+				current.generation !== input.expectedGeneration
+			)
+				fail("accounting migration requires current held generation");
+			// Validate the old journals before removing them from the hashed facts.
+			this.snapshot();
+			for (const [key, value] of this.storage.kv.list()) {
+				if (!key.startsWith("think-accounting:")) continue;
+				const archive = `runtime-retired-accounting:${key}`;
+				if (this.storage.kv.get(archive) !== undefined)
+					fail("retired accounting archive already exists");
+				this.storage.kv.put(archive, value);
+				this.storage.kv.delete(key);
+			}
+			const snapshot = this.snapshot();
+			const evidence = createHash("sha256")
+				.update(
+					canonical({
+						action: "release",
+						owner: this.owner,
+						snapshot,
+						claim: null,
+					}),
+				)
+				.digest("hex");
+			if (!findRuntimeAdmissionEvidence(this.db, evidence))
+				insertRuntimeAdmissionEvidence(this.db, {
+					digest: evidence,
+					action: "release",
+					snapshot,
+					claim: null,
+				});
+			// Release rechecks owner, idle claims and the new baseline in this transaction.
+			return this.gate.release({ ...input, evidence });
+		});
+	}
 	/** Every table name, for the native-state snapshot; admission tables are not facts. */
 	private tables(): Set<string> {
 		return new Set(
