@@ -398,6 +398,10 @@ export function createPersonalAgentClient(
 			const headers: Record<string, string> = { ...(input.headers ?? {}) };
 			if (input.body !== undefined)
 				headers["Content-Type"] ??= "application/json";
+			// Streamable HTTP MCP servers answer 406 unless the client accepts
+			// both; conversations and tasks endpoints simply return JSON.
+			if (!Object.keys(headers).some((name) => name.toLowerCase() === "accept"))
+				headers.Accept = "application/json, text/event-stream";
 			if (input.signed !== false) {
 				const session = await client.sessionHeaders({
 					audience: input.audience,

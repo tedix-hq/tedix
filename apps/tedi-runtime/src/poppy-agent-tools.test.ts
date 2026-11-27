@@ -152,6 +152,11 @@ assert.equal(calls.length, 2);
 assert.equal(calls[0]!.url, mcpUrl);
 assert.equal(calls[1]!.url, agentUrl);
 assert.equal(calls[0]!.headers.get("Poppy-Version"), "1.0");
+// A Streamable HTTP MCP door answers 406 without both media types.
+assert.equal(
+	calls[0]!.headers.get("Accept"),
+	"application/json, text/event-stream",
+);
 
 // The session the tool sent verifies under the existing Poppy verifier when
 // the company resolves the tedi's hosted client metadata and JWKS.
