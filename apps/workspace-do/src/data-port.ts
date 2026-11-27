@@ -4,6 +4,11 @@
  * directories and Work use the shared database.
  */
 import type { PublishAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
+import type {
+	AppOperations,
+	ListAppOperations,
+	RunAppOperation,
+} from "@tedix/api-contract/schemas/workspace-app-operation";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 import type {
@@ -328,6 +333,10 @@ export interface WorkspaceDataPort {
 		input: EditAppFilesInput & { actorId: string },
 	): Promise<AppCode>;
 	publishAppDraft(input: PublishAppDraft): Promise<CreatedApp>;
+	/** The steps an app declares, with their input shape and effect. */
+	listAppOperations(input: ListAppOperations): Promise<AppOperations>;
+	/** Runs one declared app step as the person who sent the turn. */
+	runAppOperation(input: RunAppOperation): Promise<{ result: unknown }>;
 	/** Checks a new app's name, files and the files it asks to read; saves nothing. */
 	checkNewApp(input: CreateAppInput): Promise<void>;
 	/** Creates an app in this workspace with revision 1. It may read only `reads`. */

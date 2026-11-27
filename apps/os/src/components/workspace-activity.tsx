@@ -205,6 +205,8 @@ function actionDeed(resource: string, operation: string): DeedName | null {
 		return "changedApp";
 	}
 	if (resource === "app_draft") return "proposedAppChange";
+	if (resource === "app_operation")
+		return operation === "read" ? "readApp" : "changedApp";
 	if (resource === "resource") return "listedSources";
 	return null;
 }

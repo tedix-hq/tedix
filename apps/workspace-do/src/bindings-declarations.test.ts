@@ -72,6 +72,12 @@ function fakeData(): WorkspaceDataPort {
 		publishAppDraft: async () => {
 			throw new Error("unused");
 		},
+		listAppOperations: async () => {
+			throw new Error("unused");
+		},
+		runAppOperation: async () => {
+			throw new Error("unused");
+		},
 		checkNewApp: async () => {
 			throw new Error("unused");
 		},
@@ -412,6 +418,68 @@ describe("workspace bindings", () => {
 			revisionId: "u1",
 		});
 		expect(allowed.calls).toEqual(["check", "create"]);
+	});
+
+	test("an app step that writes holds for approval; a read step runs", async () => {
+		const make = (ask: boolean) => {
+			const adapters = createInMemoryAdapters(
+				ask ? { policies: { app_operation: { disposition: "ask" } } } : {},
+			);
+			const data = fakeData();
+			const ran: string[] = [];
+			data.listAppOperations = async (input) => ({
+				appId: input.appId,
+				revisionId: "r1",
+				operations: [
+					{ name: "getState", input: { type: "object" }, effect: "read" },
+					{
+						name: "recordCorrection",
+						input: { type: "object" },
+						effect: "write",
+					},
+				],
+			});
+			data.runAppOperation = async (input) => {
+				ran.push(input.name);
+				return { result: { ok: true } };
+			};
+			const env = buildWorkspaceBindings({
+				data,
+				...adapters,
+				actor: { id: "u1", kind: "user", organizationId: "o" },
+				source: { surface: "workspace_object", traceId: "t" },
+			});
+			return {
+				adapters,
+				ran,
+				apps: env.apps as { run(input: unknown): Promise<unknown> },
+			};
+		};
+		const held = make(true);
+		await expect(
+			held.apps.run({ appId: "a", name: "recordCorrection", input: {} }),
+		).rejects.toThrow("Approval required");
+		await expect(
+			held.apps.run({ appId: "a", name: "deleteAll" }),
+		).rejects.toThrow("no such step");
+		expect(held.ran).toEqual([]);
+		const [hold] = await held.adapters.accountability.list({
+			resource: "app_operation",
+		});
+		expect(hold?.operation).toBe("write");
+		expect(hold?.outcome).toBe("needs_approval");
+		expect(hold?.decision.riskTier).toBe("bounded_write");
+
+		const open = make(false);
+		expect(await open.apps.run({ appId: "a", name: "getState" })).toEqual({
+			result: { ok: true },
+		});
+		const [read] = await open.adapters.accountability.list({
+			resource: "app_operation",
+		});
+		expect(read?.operation).toBe("read");
+		expect(read?.decision.riskTier).toBe("read");
+		expect(open.ran).toEqual(["getState"]);
 	});
 
 	test("a write records before/after revisions and an undo plan", async () => {

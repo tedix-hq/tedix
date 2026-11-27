@@ -7,6 +7,10 @@ import type { AvailableWorkspaceConnection } from "@tedix/api-contract/schemas/w
  */
 import type { PublishAppDraft } from "@tedix/api-contract/schemas/workspace-app-draft";
 import type {
+	ListAppOperations,
+	RunAppOperation,
+} from "@tedix/api-contract/schemas/workspace-app-operation";
+import type {
 	AccountabilityAdapter,
 	Actor,
 	ChangeRecord,
@@ -303,8 +307,38 @@ export function buildWorkspaceBindings(
 			},
 		},
 	);
+	// An app step's effect is known only once its declaration is read, so a
+	// step that only reads runs, and any other follows the approval mode.
+	const appStepGate = wrapBinding(
+		{
+			read: (input: RunAppOperation) => data.runAppOperation(input),
+			write: (input: RunAppOperation) => data.runAppOperation(input),
+		},
+		{
+			...common,
+			resource: "app_operation",
+			methods: {
+				read: { riskTier: "read", blastRadius: "none" },
+				write: { riskTier: "bounded_write", blastRadius: "single_resource" },
+			},
+		},
+	);
 	const apps = {
 		list: () => data.listApps(),
+		operations: (input: ListAppOperations) => data.listAppOperations(input),
+		run: async (input: RunAppOperation) => {
+			const { operations } = await data.listAppOperations({
+				appId: input?.appId,
+			});
+			const step = operations.find((item) => item.name === input?.name);
+			if (!step)
+				throw new Error(
+					"This app has no such step. Call apps.operations({ appId }) for its steps.",
+				);
+			return step.effect === "read"
+				? appStepGate.read(input)
+				: appStepGate.write(input);
+		},
 		create: async (input: CreateAppInput) => {
 			await data.checkNewApp(input);
 			return appCreateGate.create(input);
@@ -856,6 +890,9 @@ export function buildWorkspaceBindings(
 					blastRadius: "single_resource",
 				},
 				list: { riskTier: "read", blastRadius: "none" },
+				operations: { riskTier: "read", blastRadius: "none" },
+				// The step lookup; running it is the gate above.
+				run: { resource: "app_check", riskTier: "read", blastRadius: "none" },
 				access: { riskTier: "read", blastRadius: "none" },
 				getCode: { riskTier: "read", blastRadius: "none" },
 				versions: { riskTier: "read", blastRadius: "none" },

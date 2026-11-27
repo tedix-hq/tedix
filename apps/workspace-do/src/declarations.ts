@@ -191,6 +191,14 @@ interface Apps {
   /** Publish only this conversation's staged draft at the exact sequence last written. Auto runs for a person's own message within the workspace's configured limit; other modes wait for Accept and publish on the draft card. Read only refuses. After success, say plainly which app and changes you published and the new version. */
   publishDraft(input: {appId:string; proposalId:string; expectedSequence:number; rationale:string}): Promise<{id:string; name:string; revision:number; revisionId:string}>;
   list(): Promise<Array<{ id: string; name: string; description: string | null; status: string; updatedAt: string }>>;
+  /** The steps an app declares: name, what it does, its input shape, and whether it only reads ("read") or changes something ("write"). Call this before run. */
+  operations(input: { appId: string }): Promise<{ appId: string; revisionId: string; operations: Array<{ name: string; description?: string; input: Record<string, unknown>; effect: "read" | "write"; outputSlot?: string }> }>;
+  /**
+   * Run one declared app step as the person who sent this message, with input matching that step's input shape.
+   * When a person asks for something an app's steps do, use the step; never edit the app's files or Outputs by hand to imitate it.
+   * A read step runs at once. A write step runs at once in Auto and asks the person in the other modes. Read only refuses it.
+   */
+  run(input: { appId: string; name: string; input?: Record<string, unknown> }): Promise<{ result: unknown }>;
   /**
    * Create a new app with its first revision. Always needs the person's approval; the name and files are checked first.
    * files must hold "server.js" and "client.js"; "README.md" and more lowercase one-segment .js, .json or .txt files are optional.

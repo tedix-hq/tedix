@@ -7,6 +7,11 @@ import type {
 	PublishAppDraft,
 	StagedAppDraft,
 } from "@tedix/api-contract/schemas/workspace-app-draft";
+import type {
+	AppOperations,
+	ListAppOperations,
+	RunAppOperation,
+} from "@tedix/api-contract/schemas/workspace-app-operation";
 import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { createDbClient } from "@tedix/db/client";
@@ -305,6 +310,8 @@ export interface TenantDataPortDeps {
 	agentTurnId?: string;
 	appDraftStaged?: (draft: StagedAppDraft) => void;
 	publishAppDraft?: (input: PublishAppDraft) => Promise<CreatedApp>;
+	listAppOperations?: (input: ListAppOperations) => Promise<AppOperations>;
+	runAppOperation?: (input: RunAppOperation) => Promise<{ result: unknown }>;
 	assertWorkspaceAuthority: () => Promise<void>;
 	validateAppSource: (
 		files: Record<string, string>,
@@ -906,6 +913,18 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		if (!this.deps.publishAppDraft)
 			throw new Error("Publishing requires a workspace conversation");
 		return this.deps.publishAppDraft(input);
+	}
+
+	async listAppOperations(input: ListAppOperations): Promise<AppOperations> {
+		if (!this.deps.listAppOperations)
+			throw new Error("App steps need a person's workspace conversation");
+		return this.deps.listAppOperations(input);
+	}
+
+	async runAppOperation(input: RunAppOperation): Promise<{ result: unknown }> {
+		if (!this.deps.runAppOperation)
+			throw new Error("App steps need a person's workspace conversation");
+		return this.deps.runAppOperation(input);
 	}
 
 	private async checkedNewApp(input: CreateAppInput) {

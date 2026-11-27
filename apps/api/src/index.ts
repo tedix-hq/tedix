@@ -369,6 +369,28 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 		});
 	}
 
+	/** List an app's declared steps as the person who sent the turn. */
+	async listWorkspaceAppOperations(
+		input: import("@tedix/api-contract/schemas/workspace-app-operation").WorkspaceListAppOperations,
+	) {
+		return this.withStore(async () => {
+			const { listWorkspaceAppOperations } =
+				await import("./services/workspace-app-operation");
+			return listWorkspaceAppOperations(this.env, input);
+		});
+	}
+
+	/** Run one declared app step as the person who sent the turn. */
+	async runWorkspaceAppOperation(
+		input: import("@tedix/api-contract/schemas/workspace-app-operation").WorkspaceRunAppOperation,
+	) {
+		return this.withStore(async () => {
+			const { runWorkspaceAppOperation } =
+				await import("./services/workspace-app-operation");
+			return runWorkspaceAppOperation(this.env, input);
+		});
+	}
+
 	/** Read personal memory only in a workspace nobody but the sender can open. */
 	async readPersonMemory(
 		input: import("@tedix/api-contract/schemas/workspace-person-memory").WorkspacePersonMemoryInput,

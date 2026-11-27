@@ -79,6 +79,12 @@ function fixture(ask = false) {
 		publishAppDraft: async () => {
 			throw new Error("unused");
 		},
+		listAppOperations: async () => {
+			throw new Error("unused");
+		},
+		runAppOperation: async () => {
+			throw new Error("unused");
+		},
 		checkNewApp: async () => {
 			throw new Error("unused");
 		},

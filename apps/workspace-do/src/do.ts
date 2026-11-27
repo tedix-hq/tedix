@@ -2,6 +2,11 @@ import type {
 	StagedAppDraft,
 	WorkspacePublishAppDraft,
 } from "@tedix/api-contract/schemas/workspace-app-draft";
+import type {
+	AppOperations,
+	WorkspaceListAppOperations,
+	WorkspaceRunAppOperation,
+} from "@tedix/api-contract/schemas/workspace-app-operation";
 import {
 	copyGadgetExecutionBody,
 	gadgetExecutionOutputKey,
@@ -5214,6 +5219,28 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				);
 				return published;
 			},
+			// App steps run as the person who sent the turn; the API re-checks
+			// their workspace access and the app's grants on every call.
+			listAppOperations:
+				turn && started?.actor_kind === "user" && policy?.personSent
+					? (input) =>
+							this.listAppOperations({
+								...input,
+								...scope,
+								turnId: turn.turnId,
+								userId: started.actor_id,
+							})
+					: undefined,
+			runAppOperation:
+				turn && started?.actor_kind === "user" && policy?.personSent
+					? (input) =>
+							this.runAppOperation({
+								...input,
+								...scope,
+								turnId: turn.turnId,
+								userId: started.actor_id,
+							})
+					: undefined,
 			validateAppSource: (files, date) =>
 				validateWorkspaceAppSource(this.env.LOADER, files, date),
 			assertWorkspaceAuthority: () => this.#initializeOutputs(scope),
@@ -6725,6 +6752,28 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			): Promise<CreatedApp>;
 		};
 		return api.publishWorkspaceAppDraft(input);
+	}
+
+	protected listAppOperations(
+		input: WorkspaceListAppOperations,
+	): Promise<AppOperations> {
+		const api = this.env.API_SERVICE as unknown as {
+			listWorkspaceAppOperations(
+				input: WorkspaceListAppOperations,
+			): Promise<AppOperations>;
+		};
+		return api.listWorkspaceAppOperations(input);
+	}
+
+	protected runAppOperation(
+		input: WorkspaceRunAppOperation,
+	): Promise<{ result: unknown }> {
+		const api = this.env.API_SERVICE as unknown as {
+			runWorkspaceAppOperation(
+				input: WorkspaceRunAppOperation,
+			): Promise<{ result: unknown }>;
+		};
+		return api.runWorkspaceAppOperation(input);
 	}
 
 	/** Whether this is the person's own private workspace; unreadable counts as no. */

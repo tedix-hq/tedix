@@ -24,6 +24,7 @@
 		"./schemas/workspace-agent-access": "./src/schemas/workspace-agent-access.ts",
 		"./schemas/workspace-person-memory": "./src/schemas/workspace-person-memory.ts",
 		"./schemas/workspace-app-draft": "./src/schemas/workspace-app-draft.ts",
+		"./schemas/workspace-app-operation": "./src/schemas/workspace-app-operation.ts",
 		"./utils/os-collaborator-graph": "./src/utils/os-collaborator-graph.ts",
 		"./assets/sheet-blueprint": "./src/blueprints/sheets/blueprint.ts",
 		"./utils/sheet-csv": "./src/utils/sheet-csv.ts",
