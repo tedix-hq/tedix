@@ -6269,6 +6269,7 @@ describe("dispatcher admission", () => {
 		).toEqual([
 			"codex",
 			"claude-code",
+			"cursor",
 			"opencode",
 			"devin",
 			"tedi",

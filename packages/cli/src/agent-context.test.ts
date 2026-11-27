@@ -1264,7 +1264,7 @@ describe("default organization outside a bound repository", () => {
 		command("off", "codex");
 		expect(statusSettings(env, as("codex"))).toBeUndefined();
 		expect(statusSettings(env, as("devin"))).toBeDefined();
-		expect(() => command("on", "cursor")).toThrow("--harness");
+		expect(() => command("on", "not-a-tool")).toThrow("--harness");
 	});
 
 	test("is opt-in per caller and names no repository", () => {
