@@ -1,5 +1,4 @@
 import type { DbClient } from "@tedix/db/client";
-import { coreDb } from "@tedix/db/core-store/scope";
 import { getOrganizationBySlug } from "@tedix/db/queries/organizations";
 import { listToolInvocationLabelsForOrganization } from "@tedix/db/queries/tools";
 import { resolveWidgetCatalog } from "@tedix/widget-i18n/catalogs";
@@ -95,7 +94,7 @@ export interface WidgetBrandingCache {
  */
 export async function handleWidgetBranding(
 	slug: string,
-	database: DbClient | D1Database | undefined,
+	database: DbClient | undefined,
 	localeHint?: string | undefined,
 	cache?: WidgetBrandingCache | undefined,
 ): Promise<Response> {
@@ -115,7 +114,7 @@ export async function handleWidgetBranding(
 
 async function buildWidgetBranding(
 	slug: string,
-	database: DbClient | D1Database | undefined,
+	database: DbClient | undefined,
 	localeHint?: string | undefined,
 ): Promise<Response> {
 	const tenant = String(slug || "").toLowerCase();
@@ -127,8 +126,7 @@ async function buildWidgetBranding(
 			{ headers: brandingHeaders() },
 		);
 	}
-	const client = "prepare" in database ? coreDb({ DB: database }) : database;
-	const organization = await getOrganizationBySlug(client, tenant);
+	const organization = await getOrganizationBySlug(database, tenant);
 	const published = organization?.metadata?.tediWidget as
 		| Record<string, unknown>
 		| undefined;
@@ -156,7 +154,7 @@ async function buildWidgetBranding(
 			locale,
 			catalog,
 			toolLabels: organization?.id
-				? await publishedToolLabels(client, organization.id)
+				? await publishedToolLabels(database, organization.id)
 				: {},
 		},
 		{ headers: brandingHeaders() },

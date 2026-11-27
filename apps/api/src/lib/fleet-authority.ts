@@ -36,24 +36,6 @@ export function resolveFleetAuthorityMode(
 	}
 }
 
-export function resolveFleetAuthorityBinding(
-	env: FleetAuthorityEnv,
-): D1Database {
-	if (resolveFleetAuthorityMode(env) === "disabled") {
-		throw new FleetAuthorityUnavailableError(
-			"disabled",
-			"Fleet authority is disabled for this installation",
-		);
-	}
-	if (!isD1CoreStore(env) || !env.DB) {
-		throw new FleetAuthorityUnavailableError(
-			"missing-binding",
-			"Co-located fleet authority requires DB",
-		);
-	}
-	return env.DB;
-}
-
 export function resolveFleetAuthorityDb(env: FleetAuthorityEnv): DbClient {
 	assertFleetAuthorityAvailable(env);
 	return coreDb(env);
@@ -66,7 +48,11 @@ export function assertFleetAuthorityAvailable(env: FleetAuthorityEnv): void {
 			"Fleet authority is disabled for this installation",
 		);
 	if (isD1CoreStore(env)) {
-		resolveFleetAuthorityBinding(env);
+		if (!env.DB)
+			throw new FleetAuthorityUnavailableError(
+				"missing-binding",
+				"Co-located fleet authority requires DB",
+			);
 		return;
 	}
 	if (env.CORE_STORE !== "postgres" || !env.CORE_HYPERDRIVE)

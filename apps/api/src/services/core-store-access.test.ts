@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { createCoreStore } from "@tedix/db/core-store/client";
-import { withCoreStore } from "@tedix/db/core-store/scope";
+import { coreDb, withCoreStore } from "@tedix/db/core-store/scope";
 import { readAuthContextCacheVersion } from "@tedix/db/queries/auth-context-cache";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { createPGliteFacade } from "@tedix/db/test/pglite-facade";
@@ -8,10 +8,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { createContext } from "../rpc/context";
 import { invalidateIdentityCache } from "./identity-cache-invalidation";
 import { reserveVoiceUsage } from "./voice-billing";
-import {
-	resolveFleetAuthorityDb,
-	resolveFleetAuthorityBinding,
-} from "../lib/fleet-authority";
+import { resolveFleetAuthorityDb } from "../lib/fleet-authority";
 import {
 	organizationModelEnv,
 	requireUnrestrictedModelEgress,
@@ -60,7 +57,7 @@ it.each(["d1", "postgres"] as const)(
 				expect(
 					await readAuthContextCacheVersion(resolveFleetAuthorityDb(env)),
 				).toBe("before");
-				if (pg) expect(() => resolveFleetAuthorityBinding(env)).toThrow();
+				if (pg) expect(resolveFleetAuthorityDb(env)).toBe(pg.db);
 				const gating = vi
 					.spyOn(gatingQueries, "getAppGatingMetadata")
 					.mockImplementation(async (db) => {
@@ -72,7 +69,7 @@ it.each(["d1", "postgres"] as const)(
 					.mockResolvedValue(["example-tool"]);
 				try {
 					await expect(
-						checkAppEligibilityById(env.DB, "app-example", "org-example"),
+						checkAppEligibilityById(coreDb(env), "app-example", "org-example"),
 					).resolves.toMatchObject({
 						eligible: true,
 						availableTools: ["example-tool"],

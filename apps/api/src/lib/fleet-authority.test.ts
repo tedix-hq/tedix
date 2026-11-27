@@ -3,11 +3,8 @@ import {
 	assertFleetAuthorityAvailable,
 	fleetAuthorityIsEnabled,
 	FleetAuthorityUnavailableError,
-	resolveFleetAuthorityBinding,
 	resolveFleetAuthorityMode,
 } from "./fleet-authority";
-
-const db = {} as D1Database;
 
 describe("fleet authority", () => {
 	test("requires an explicit valid mode", () => {
@@ -26,18 +23,20 @@ describe("fleet authority", () => {
 			},
 		};
 		expect(fleetAuthorityIsEnabled(env)).toBe(false);
-		expect(() => resolveFleetAuthorityBinding(env)).toThrowError(
-			FleetAuthorityUnavailableError,
-		);
+		expect(() =>
+			assertFleetAuthorityAvailable({
+				TEDIX_FLEET_AUTHORITY_MODE: "disabled",
+			}),
+		).toThrowError(FleetAuthorityUnavailableError);
 	});
 
 	test("co-located explicitly uses DB", () => {
-		expect(
-			resolveFleetAuthorityBinding({
+		expect(() =>
+			assertFleetAuthorityAvailable({
 				TEDIX_FLEET_AUTHORITY_MODE: "co-located",
-				DB: db,
+				DB: {} as D1Database,
 			}),
-		).toBe(db);
+		).not.toThrow();
 		expect(() =>
 			assertFleetAuthorityAvailable({
 				TEDIX_FLEET_AUTHORITY_MODE: "co-located",
