@@ -45,6 +45,7 @@ import {
 	type AgentGrant,
 	type Connection,
 	tedixAccountSummary,
+	cursorConnection,
 	opencodeConnection,
 	recentConnectionCheck,
 	toolConnection,
@@ -191,6 +192,24 @@ const TOOLS: Tool[] = [
 		},
 		signIn: ["mcp", "auth", "tedix"],
 		separateSignIns: true,
+	},
+	{
+		id: "cursor",
+		name: "Cursor",
+		binary: "agent",
+		folder: join(home, ".cursor"),
+		executor: "cursor",
+		status: "cursor",
+		add: "--cursor",
+		connection: async (command) => {
+			const result = await run(command, ["mcp", "list"], { timeoutMs: 10_000 });
+			return result.ok ? cursorConnection(result.output) : "unknown";
+		},
+		signIn: ["mcp", "login", "tedix"],
+		accountSignIn: ["login"],
+		signInWorks: async (command) =>
+			(await run(command, ["mcp", "login", "--help"], { timeoutMs: 20_000 }))
+				.ok,
 	},
 ];
 
@@ -395,7 +414,13 @@ export interface SessionProject {
 }
 
 /** The coding tools whose sessions can show in Tedix, by executor id. */
-export const SESSION_TOOLS = ["claude-code", "codex", "devin", "opencode"];
+export const SESSION_TOOLS = [
+	"claude-code",
+	"codex",
+	"cursor",
+	"devin",
+	"opencode",
+];
 
 export interface SetupState {
 	cli: CliState;
@@ -1414,6 +1439,7 @@ export function setupState(): SetupState {
 		desktopApps: {
 			claude: Boolean(desktopAppPath("claude")),
 			chatgpt: Boolean(desktopAppPath("chatgpt")),
+			cursor: Boolean(desktopAppPath("cursor")),
 			devin: Boolean(desktopAppPath("devin")),
 			opencode: Boolean(desktopAppPath("opencode")),
 		},
@@ -1442,7 +1468,13 @@ function chatConnected(): SetupState["chatConnected"] {
 const appIcons: Partial<Record<DesktopApp, string>> = {};
 const iconPaths: Partial<Record<DesktopApp, string>> = {};
 async function readAppIcons(): Promise<void> {
-	for (const name of ["claude", "chatgpt", "devin", "opencode"] as const) {
+	for (const name of [
+		"claude",
+		"chatgpt",
+		"cursor",
+		"devin",
+		"opencode",
+	] as const) {
 		const path = desktopAppPath(name);
 		if (!path) {
 			delete appIcons[name];

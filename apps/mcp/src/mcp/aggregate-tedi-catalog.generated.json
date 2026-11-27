@@ -6918,6 +6918,7 @@
 									"tedi",
 									"codex",
 									"claude-code",
+									"cursor",
 									"opencode",
 									"devin",
 									"any-local"
@@ -6934,6 +6935,7 @@
 										"tedi",
 										"codex",
 										"claude-code",
+										"cursor",
 										"opencode",
 										"devin",
 										"any-local"
@@ -10135,6 +10137,7 @@
 								"enum": [
 									"codex",
 									"claude-code",
+									"cursor",
 									"opencode",
 									"devin",
 									"tedi",

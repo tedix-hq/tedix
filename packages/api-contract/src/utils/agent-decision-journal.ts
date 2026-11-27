@@ -57,6 +57,7 @@ export function agentDecisionReviewIds(
 const HARNESS_NAMES: Record<string, string> = {
 	"claude-code": "Claude Code",
 	codex: "Codex",
+	cursor: "Cursor",
 	opencode: "OpenCode",
 	devin: "Devin",
 };

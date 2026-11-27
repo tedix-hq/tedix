@@ -532,7 +532,12 @@ function leaseState(expiry: string, now: Date): string {
 }
 
 const OWNER_HOST_TOOL = "start_external_agent_session_for_host";
-const OWNER_HOST_HARNESSES = new Set(["claude-code", "codex", "opencode"]);
+const OWNER_HOST_HARNESSES = new Set([
+	"claude-code",
+	"codex",
+	"cursor",
+	"opencode",
+]);
 const TUPLE_TOKEN = /^[A-Za-z0-9][\w.:/@+[\]-]*$/;
 const SESSION_RECORD_LIMIT = 65_536;
 const SESSION_RECORDS = 512;
@@ -573,6 +578,9 @@ export function hostTuple(
 	if (harness === "opencode") {
 		harnessVersion = token(event.harness_version, 120);
 		modelProvider = token(event.model_provider, 120);
+	} else if (harness === "cursor") {
+		harnessVersion = token(event.cursor_version, 120);
+		modelProvider = "cursor";
 	} else if (harness === "codex") {
 		const meta = codexSessionMeta(event, session);
 		harnessVersion = token(env.CODEX_VERSION, 120) ?? meta.cliVersion;

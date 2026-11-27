@@ -96,12 +96,19 @@ export function resolveWorkActor(
 	const profile = ref?.id ? directory.get(`${ref.type}:${ref.id}`) : undefined;
 	const personalAgent =
 		ref?.type === "external_agent" && profile?.personalAgent;
-	const harness: "codex" | "claude-code" | "devin" | "opencode" | undefined =
+	const harness:
+		| "codex"
+		| "claude-code"
+		| "cursor"
+		| "devin"
+		| "opencode"
+		| undefined =
 		ref?.type === "external_agent" &&
 		!personalAgent &&
 		!profile?.browserAgent &&
 		(ref.harness === "codex" ||
 			ref.harness === "claude-code" ||
+			ref.harness === "cursor" ||
 			ref.harness === "devin" ||
 			ref.harness === "opencode")
 			? ref.harness
@@ -109,20 +116,22 @@ export function resolveWorkActor(
 	const name =
 		harness === "opencode"
 			? "OpenCode"
-			: harness === "devin"
-				? "Devin"
-				: harness === "codex"
-					? "Codex"
-					: harness === "claude-code"
-						? "Claude Code"
-						: withoutMachine(
-								profile?.name ??
-									(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:\s|$)/i.test(
-										fallback,
-									)
-										? "Agent"
-										: fallback),
-							);
+			: harness === "cursor"
+				? "Cursor"
+				: harness === "devin"
+					? "Devin"
+					: harness === "codex"
+						? "Codex"
+						: harness === "claude-code"
+							? "Claude Code"
+							: withoutMachine(
+									profile?.name ??
+										(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:\s|$)/i.test(
+											fallback,
+										)
+											? "Agent"
+											: fallback),
+								);
 	const represented =
 		personalAgent || profile?.browserAgent || harness
 			? profile?.for

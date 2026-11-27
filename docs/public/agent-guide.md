@@ -561,7 +561,7 @@ Attempt. Event content carries identifiers, never instructions or credentials.
 
 ### Local dispatcher
 
-`tedix lane serve --executor <codex|claude-code|opencode|devin|tedi|any-local>` runs on a
+`tedix lane serve --executor <codex|claude-code|cursor|opencode|devin|tedi|any-local>` runs on a
 person's machine and picks up Work assigned to that executor. A tedi runner
 (`--executor tedi --tedi <slug>`) has a tedi do the task in the run checkout
 through the Mac's machine tools and needs the machine's write tools switched on.

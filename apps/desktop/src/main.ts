@@ -111,6 +111,7 @@ function osOrigin(): string {
 const APP_LINKS = {
 	"claude-app": "claude",
 	"chatgpt-app": "chatgpt",
+	"cursor-app": "cursor",
 	"devin-app": "devin",
 	"opencode-app": "opencode",
 } as const;

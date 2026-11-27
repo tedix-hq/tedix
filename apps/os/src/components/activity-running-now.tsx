@@ -274,6 +274,7 @@ const TOOL_NAMES: Record<string, string> = {
 	"claude-code": "Claude Code",
 	claude: "Claude",
 	codex: "Codex",
+	cursor: "Cursor",
 	devin: "Devin",
 	opencode: "OpenCode",
 };

@@ -74,6 +74,7 @@ export type PanelLink =
 	| "chatgpt-plugins"
 	| "claude-connectors"
 	| "claude-app"
+	| "cursor-app"
 	| "devin-app"
 	| "opencode-app"
 	| "install-claude-code"

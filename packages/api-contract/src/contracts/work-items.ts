@@ -817,6 +817,7 @@ export const workItemsContract = oc
 							fromExecutor: z.enum([
 								"codex",
 								"claude-code",
+								"cursor",
 								"opencode",
 								"devin",
 								"tedi",

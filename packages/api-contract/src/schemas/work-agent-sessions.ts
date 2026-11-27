@@ -5,6 +5,7 @@ import { OfficeObservationSchema } from "./office-activity";
 export const WorkAgentSessionHarnessSchema = z.enum([
 	"claude-code",
 	"codex",
+	"cursor",
 	"opencode",
 	"devin",
 	"tedi",
@@ -42,6 +43,7 @@ export const LaneTelemetryInputSchema = z
 		executor: z.enum([
 			"codex",
 			"claude-code",
+			"cursor",
 			"opencode",
 			"devin",
 			"tedi",

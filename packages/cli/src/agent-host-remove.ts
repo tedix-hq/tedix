@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { applyEdits, modify, parse } from "jsonc-parser";
 import { devinConfigDirectory } from "./devin-config";
+import { removeCursor } from "./cursor-config";
 import {
 	isTedixPlugin,
 	opencodeConfigDirectory,
@@ -25,10 +26,16 @@ import {
  * setting that is not Tedix's stay as they are. Plugins an agent syncs from
  * its account in the cloud are left to that agent.
  */
-export type RemovableHost = "codex" | "claude" | "devin" | "opencode";
+export type RemovableHost =
+	| "codex"
+	| "claude"
+	| "cursor"
+	| "devin"
+	| "opencode";
 export const REMOVABLE_HOSTS: readonly RemovableHost[] = [
 	"codex",
 	"claude",
+	"cursor",
 	"devin",
 	"opencode",
 ];
@@ -180,6 +187,10 @@ export function removeTedix(
 ): string[] {
 	if (host === "devin") return removeFromDevin();
 	if (host === "opencode") return removeFromOpencode(env);
+	if (host === "cursor") {
+		const changed = removeCursor(env);
+		return changed.length ? ["removed the Tedix MCP connection and hooks"] : [];
+	}
 	const done: string[] = [];
 	if (host === "codex") {
 		const home = env.CODEX_HOME || join(homedir(), ".codex");

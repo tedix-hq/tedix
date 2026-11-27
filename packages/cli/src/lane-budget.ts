@@ -68,6 +68,8 @@ const USAGE_EXPOSURE: Record<LocalExecutor, (policy: RoutingPolicy) => string> =
 			const provider = policy.opencodeModel?.split("/")[0];
 			return `OpenCode exposes no plan quota${provider ? `; the configured model runs on ${provider}` : ""} — cost comes from opencode stats.`;
 		},
+		cursor: () =>
+			"Cursor agent exposes no plan quota; usage is billed to the Cursor account.",
 		devin: () =>
 			"Devin CLI exposes usage only inside a session (`/usage`); there is no scriptable account read.",
 		tedi: () => "Tedi exposes no plan quota.",

@@ -64,7 +64,12 @@ const RESUME_CONFIRM_MS = 60_000;
 
 const LOG_LIMIT = 1024 * 1024;
 
-export type LeadHost = "claude-code" | "codex" | "devin" | "opencode";
+export type LeadHost =
+	| "claude-code"
+	| "codex"
+	| "cursor"
+	| "devin"
+	| "opencode";
 
 export interface LeadDelivery {
 	via?: DeliveryVia;
@@ -386,6 +391,20 @@ function resumeCommand(
 				stdout: output,
 				timeoutMs: RESUME_CONFIRM_MS,
 			};
+		case "cursor":
+			return {
+				command: "agent",
+				args: [
+					"-p",
+					"--output-format",
+					"stream-json",
+					"--resume",
+					session,
+					"--trust",
+				],
+				stdout: output,
+				timeoutMs: RESUME_CONFIRM_MS,
+			};
 	}
 }
 
@@ -409,7 +428,12 @@ export function resumeReceipt(text: string): {
 	return {
 		sessions: rows.flatMap((row) => {
 			if (!row || typeof row !== "object") return [];
-			const id = row.thread_id ?? row.session_id ?? row.sessionID;
+			const id =
+				row.thread_id ??
+				row.session_id ??
+				row.sessionID ??
+				row.chat_id ??
+				row.chatId;
 			return typeof id === "string" ? [id] : [];
 		}),
 		failed: rows.some((row) => row?.type === "error" || row?.is_error === true),

@@ -30,7 +30,10 @@ export function executionSettings(
 	settings: LaneExecutionSettings = {},
 ): LaneExecutionSettings {
 	const effort =
-		settings.effort ?? (executor === "devin" ? "model-default" : "medium");
+		settings.effort ??
+		(executor === "devin" || executor === "cursor"
+			? "model-default"
+			: "medium");
 	const permission = settings.permission ?? {};
 	const invalid = (message: string): never => {
 		throw new Error(`${executor}: ${message}`);
@@ -75,6 +78,16 @@ export function executionSettings(
 			invalid("choose an explicit model variant as effort");
 		return { effort, permission: { mode } };
 	}
+	if (executor === "cursor") {
+		// Cursor agent has no documented effort flag; the model decides.
+		if (effort !== "model-default")
+			invalid("Cursor has no supported effort launch flag; use model-default");
+		// Headless turns cannot answer approval prompts: default to --force.
+		const mode = permission.mode ?? "force";
+		if (!["force", "default"].includes(mode))
+			invalid("permission mode must be force or default");
+		return { effort, permission: { mode } };
+	}
 	if (executor === "devin") {
 		// Devin exposes thinking levels interactively, but no documented launch override.
 		if (effort !== "model-default")
@@ -116,6 +129,8 @@ export function executionFlags(
 		];
 	if (executor === "devin")
 		return ["--permission-mode", resolved.permission!.mode!];
+	if (executor === "cursor")
+		return resolved.permission!.mode === "force" ? ["--force"] : [];
 	if (executor === "opencode")
 		return resolved.permission!.mode === "auto" ? ["--auto"] : [];
 	return [];

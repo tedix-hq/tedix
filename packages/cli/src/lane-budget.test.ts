@@ -119,6 +119,7 @@ it("does not select an automatic executor without an operator policy, while reta
 	const available = {
 		codex: { available: true },
 		"claude-code": { available: true },
+		cursor: { available: true },
 		opencode: { available: true },
 		devin: { available: true },
 		tedi: { available: false },
@@ -159,6 +160,7 @@ it("uses explicit choices without merging managed preferences and fails closed o
 			{
 				codex: { available: true },
 				"claude-code": { available: true },
+				cursor: { available: true },
 				opencode: { available: true },
 				devin: { available: true },
 				tedi: { available: false },

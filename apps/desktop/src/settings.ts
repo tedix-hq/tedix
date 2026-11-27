@@ -391,6 +391,7 @@ const setupDetails = (now: PanelState): Item => ({
 const AGENT_APPS = [
 	["chatgpt", "ChatGPT"],
 	["claude", "Claude"],
+	["cursor", "Cursor"],
 	["devin", "Devin"],
 	["opencode", "OpenCode"],
 ] as const;

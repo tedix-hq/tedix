@@ -16,6 +16,7 @@ import { testRoutingPolicy } from "./lane-routing.fixture";
 const available = {
 	codex: { available: true },
 	"claude-code": { available: true },
+	cursor: { available: true },
 	opencode: { available: true },
 	devin: { available: true },
 	tedi: { available: false },
@@ -286,6 +287,7 @@ describe("local capability routing", () => {
 						reason: "codex --version exited 1 after 87 ms",
 					},
 					"claude-code": { available: true },
+					cursor: { available: true },
 					opencode: { available: true },
 					tedi: { available: false },
 					devin: {

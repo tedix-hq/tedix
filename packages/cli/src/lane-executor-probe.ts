@@ -1,5 +1,6 @@
 import { laneCommand } from "./lane-command";
 import { laneChildEnv } from "./lane-child-env";
+import { cursorCommand } from "./cursor-config";
 import type { ExecutorAvailability, LocalExecutor } from "./lane-routing";
 import { machineWriteUnavailable } from "./lane-machine-tools";
 
@@ -13,7 +14,10 @@ export const EXECUTOR_PROBE_CACHE_MS = 5 * 60_000;
 export const EXECUTOR_PROBE_TIMEOUT_CACHE_MS = 30_000;
 
 export function executorBinary(executor: LocalExecutor) {
-	return executor === "claude-code" ? "claude" : executor;
+	if (executor === "claude-code") return "claude";
+	// Cursor's CLI is `agent` (or `cursor-agent`); prefer whichever exists.
+	if (executor === "cursor") return cursorCommand() ?? "agent";
+	return executor;
 }
 
 export function probeTediLane(

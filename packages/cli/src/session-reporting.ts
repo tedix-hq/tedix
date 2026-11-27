@@ -29,6 +29,7 @@ export interface SessionReportingProject {
 export const REPORTING_HARNESSES = [
 	"claude-code",
 	"codex",
+	"cursor",
 	"devin",
 	"opencode",
 ] as const;

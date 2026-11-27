@@ -127,6 +127,7 @@ export const checkAgain = (label = "Check again") => {
 export const EXECUTOR_NAMES: Record<string, string> = {
 	codex: "Codex",
 	"claude-code": "Claude Code",
+	cursor: "Cursor",
 	devin: "Devin",
 	opencode: "OpenCode",
 	"any-local": "Any agent",
@@ -134,10 +135,11 @@ export const EXECUTOR_NAMES: Record<string, string> = {
 /** The Mac app each coding tool comes with, for its icon. */
 export const TOOL_APPS: Record<
 	string,
-	"chatgpt" | "claude" | "devin" | "opencode"
+	"chatgpt" | "claude" | "cursor" | "devin" | "opencode"
 > = {
 	codex: "chatgpt",
 	claude: "claude",
+	cursor: "cursor",
 	devin: "devin",
 	opencode: "opencode",
 };
@@ -145,6 +147,7 @@ export const TOOL_APPS: Record<
 export const TOOL_ICONS: Record<string, IconName> = {
 	claude: "prompt",
 	codex: "brackets",
+	cursor: "arrow",
 	devin: "cube",
 	opencode: "braces",
 };
@@ -256,6 +259,7 @@ export function openAgentApp(state: PanelState, tool: ToolRow) {
 	if (
 		app !== "claude" &&
 		app !== "chatgpt" &&
+		app !== "cursor" &&
 		app !== "devin" &&
 		app !== "opencode"
 	)
@@ -284,7 +288,9 @@ export const connected = (tool: ToolRow) =>
 	tool.enabled &&
 	(tool.account === "signed-in" ||
 		(tool.account === "unknown" &&
-			(tool.id === "devin" || tool.id === "opencode"))) &&
+			(tool.id === "cursor" ||
+				tool.id === "devin" ||
+				tool.id === "opencode"))) &&
 	tool.connection === "signed-in" &&
 	tool.readVerified;
 

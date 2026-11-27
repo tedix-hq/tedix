@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 export const localExecutors = [
 	"codex",
 	"claude-code",
+	"cursor",
 	"opencode",
 	"devin",
 	"tedi",
@@ -124,6 +125,7 @@ export function readRoutingPolicy(
 const AGENT_NAMES: Record<LocalExecutor, string> = {
 	codex: "Codex",
 	"claude-code": "Claude Code",
+	cursor: "Cursor",
 	opencode: "OpenCode",
 	devin: "Devin",
 	tedi: "Tedi",

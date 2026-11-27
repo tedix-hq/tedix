@@ -152,8 +152,8 @@ background programs out of Documents, Desktop and Downloads, so keep checkouts
 somewhere else, for example `~/Developer`.
 
 The supervisor also runs your runners: the processes on this machine that
-pick up accepted Work for one executor each (Codex, Claude Code, OpenCode,
-Devin or a tedi) and carry it out. `tedix lane serve --install` no longer
+pick up accepted Work for one executor each (Codex, Claude Code, Cursor,
+OpenCode, Devin or a tedi) and carry it out. `tedix lane serve --install` no longer
 creates a background service of its own; it adds the runner to
 `~/.tedix/supervisor-runners.json`, and the supervisor starts it within a
 minute, restarts it when it exits (waiting a minute, then longer after
@@ -321,7 +321,8 @@ points to a local checkout, update that checkout yourself first; setup keeps
 its source and does not switch or delete it.
 
 To take Tedix out of one agent and connect it fresh, run
-`tedix setup agents --remove --codex` (or `--claude`, `--devin`, `--opencode`).
+`tedix setup agents --remove --codex` (or `--claude`, `--devin`, `--cursor`,
+`--opencode`).
 It ends that install's Tedix grant and refresh token on the server before
 clearing its local sign-in, plugin, marketplace, hooks and connection. Other
 installs and CLI logins stay signed in, even when they share consent. If the
@@ -824,3 +825,26 @@ lifecycle hooks as Claude Code; see the
 [OpenCode plugin guide](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/opencode.md).
 Tedix cannot check a read inside OpenCode from outside it: start a new OpenCode
 session and ask it about your Tedix work.
+
+## Cursor
+
+The Tedix desktop app adds Tedix to Cursor with **Add** and signs it in with
+**Sign in** under **Coding tools**. From a terminal, the same steps are:
+
+```sh
+tedix setup agents --cursor --yes
+agent mcp login tedix
+```
+
+Cursor has no plugin format, so setup writes the Tedix MCP server into
+`~/.cursor/mcp.json` and the same lifecycle hooks as Claude Code into
+`~/.cursor/hooks.json`. It keeps your other servers and hooks, preserves
+comments in `mcp.json`, and saves the previous files next to them as
+`.bak-tedix-<time>`. Running it again refreshes the entries and changes
+nothing else. `--dry-run` shows the plan, `--status` reports whether the
+connection and hooks are in place, and `--verify` asks a headless Cursor
+session to read your Tedix profile.
+
+A Cursor session gets the Tedix tools through the MCP connection and the
+session context through the hooks. Tedix cannot check a read inside Cursor
+from outside it: start a new Cursor session and ask it about your Tedix work.

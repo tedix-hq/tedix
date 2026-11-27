@@ -60,6 +60,20 @@ export function opencodeConnection(output: string): Connection {
 		: "unknown";
 }
 
+/** `agent mcp list` names each server with its state on the same line. */
+export function cursorConnection(output: string): Connection {
+	const line = output
+		.replace(/\x1b\[[0-9;]*m/g, "")
+		.split(/\r?\n/)
+		.find((row) => /\btedix\b/.test(row));
+	if (!line) return "unknown";
+	if (/not logged in|unauthorized|needs auth|failed|error|disabled/i.test(line))
+		return "signed-out";
+	return /connected|authenticated|logged in|ready|enabled/i.test(line)
+		? "signed-in"
+		: "unknown";
+}
+
 export function devinConnection(line: string): Connection | undefined {
 	// Tedix refused the sign-in Devin stored; only a new sign-in gets past that.
 	if (/Streamable HTTP returned 40[13] for 'tedix'/.test(line))
@@ -97,6 +111,7 @@ export function agentGrant(
 	const names: Record<string, RegExp> = {
 		claude: /^claude[ -]code$/i,
 		codex: /^codex(?: cli)?$/i,
+		cursor: /^cursor(?: agent)?$/i,
 		devin: /^devin$/i,
 		opencode: /^opencode$/i,
 	};

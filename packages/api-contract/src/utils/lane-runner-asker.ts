@@ -3,13 +3,21 @@ import { z } from "zod";
 const laneRequest = z.object({
 	source: z.literal("lane-dispatch-blocker"),
 	laneBlocker: z.object({
-		executor: z.enum(["codex", "claude-code", "opencode", "devin", "tedi"]),
+		executor: z.enum([
+			"codex",
+			"claude-code",
+			"cursor",
+			"opencode",
+			"devin",
+			"tedi",
+		]),
 	}),
 });
 
 const names = {
 	codex: "Codex",
 	"claude-code": "Claude Code",
+	cursor: "Cursor",
 	opencode: "OpenCode",
 	devin: "Devin",
 	tedi: "Tedi",

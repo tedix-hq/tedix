@@ -175,6 +175,7 @@ const HOSTS = {
 	all: "Every agent host",
 	"claude-code": "Claude Code",
 	codex: "Codex",
+	cursor: "Cursor",
 	devin: "Devin",
 	opencode: "OpenCode",
 };

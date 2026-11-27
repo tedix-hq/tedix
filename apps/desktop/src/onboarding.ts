@@ -279,6 +279,7 @@ function screenFor(id: StepId, now: PanelState): Screen {
 	for (const [app, id, name] of [
 		["claude", "claude", "Claude Code"],
 		["chatgpt", "codex", "ChatGPT"],
+		["cursor", "cursor", "Cursor"],
 		["devin", "devin", "Devin"],
 		["opencode", "opencode", "OpenCode"],
 	] as const) {

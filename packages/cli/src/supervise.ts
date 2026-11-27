@@ -751,6 +751,7 @@ export class Supervisor {
 			const claude = this.deps.claude ?? claudeDriver(this.deps.env);
 			this.drivers = {
 				"claude-code": headlessLeadDriver(claude, claude.open),
+				cursor: headlessLeadDriver(resumeDriver("cursor", this.deps.env)),
 				devin: headlessLeadDriver(resumeDriver("devin", this.deps.env)),
 				opencode: headlessLeadDriver(resumeDriver("opencode", this.deps.env)),
 				codex: {

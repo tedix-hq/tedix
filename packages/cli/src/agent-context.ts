@@ -1505,7 +1505,7 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context set-default-organization <selected ID or slug> [--workspace <profile>]
   tedix setup agents context set-default-organization --clear
   tedix setup agents context disconnect-output
-  tedix setup agents context session-reporting --state on|off|show --workspace <profile> [--organization <ID>] [--project <UUID>[,<UUID>…]] [--harness claude-code|codex|devin|opencode] --json
+  tedix setup agents context session-reporting --state on|off|show --workspace <profile> [--organization <ID>] [--project <UUID>[,<UUID>…]] [--harness claude-code|codex|cursor|devin|opencode] --json
   tedix setup agents context show [--json] [--allow-default]
   tedix setup agents context unbind
 

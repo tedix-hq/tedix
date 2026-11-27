@@ -10,6 +10,7 @@ const AttentionColumnSchema = z.enum([
 export const AttentionSourceSchema = z.enum([
 	"local_claude",
 	"local_codex",
+	"local_cursor",
 	"local_devin",
 	"cloud_tedi",
 	"factory",
@@ -36,7 +37,7 @@ export const AttentionLayoutSchema = z.strictObject({
 	focusToday: z.string().max(500).default(""),
 	density: z.enum(["comfortable", "compact"]).default("comfortable"),
 	sessionInactiveAfterMinutes: z.number().int().min(1).max(1440).default(5),
-	sourceFilters: z.array(AttentionSourceSchema).max(6).default([]),
+	sourceFilters: z.array(AttentionSourceSchema).max(7).default([]),
 });
 export const AttentionLayoutResultSchema = z.strictObject({
 	layout: AttentionLayoutSchema,

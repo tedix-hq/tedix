@@ -31,6 +31,7 @@ export const WORK_EXECUTOR_LABELS: Record<WorkExecutor, string> = {
 	human: "Human",
 	tedi: "Tedi",
 	codex: "Codex",
+	cursor: "Cursor",
 	opencode: "OpenCode",
 	"any-local": "Any local agent",
 	devin: "Devin",

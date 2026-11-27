@@ -9,7 +9,7 @@ export const OfficeObservationSchema = z.strictObject({
 		.optional(),
 	at: z.iso.datetime(),
 	source: z.enum(["hook", "supervisor"]),
-	host: z.enum(["claude-code", "codex", "devin", "opencode"]),
+	host: z.enum(["claude-code", "codex", "cursor", "devin", "opencode"]),
 	sessionKey: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/),
 	trigger: z.enum([
 		"SessionStart",

@@ -38,7 +38,7 @@ import {
 
 const text = z.string().trim().min(1);
 const executorSchema = z.object({
-	executor: z.enum(["devin", "codex", "claude-code", "opencode"]),
+	executor: z.enum(["devin", "codex", "claude-code", "cursor", "opencode"]),
 	session: text.regex(/^[a-zA-Z0-9_-]+$/),
 });
 const configSchema = z.object({
@@ -110,6 +110,18 @@ export function leadCommand(
 			return {
 				command: "opencode",
 				args: ["run", "--session", session, "--format", "json"],
+			};
+		case "cursor":
+			return {
+				command: "agent",
+				args: [
+					"-p",
+					"--output-format",
+					"stream-json",
+					"--resume",
+					session,
+					"--trust",
+				],
 			};
 	}
 }

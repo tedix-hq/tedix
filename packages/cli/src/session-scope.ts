@@ -23,9 +23,10 @@ const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/;
 
 /** An explicit harness selection wins; conflicting inherited host ids are ignored. */
 export function scopeSession(env: NodeJS.ProcessEnv): string | undefined {
-	const explicit = /^(?:codex|claude-code|devin|opencode|chatgpt):(.+)$/.exec(
-		env.TEDIX_AGENT_SESSION ?? "",
-	)?.[1];
+	const explicit =
+		/^(?:codex|claude-code|cursor|devin|opencode|chatgpt):(.+)$/.exec(
+			env.TEDIX_AGENT_SESSION ?? "",
+		)?.[1];
 	if (explicit)
 		return isHostSessionId(explicit) ? explicit.toLowerCase() : undefined;
 	const ids = [
@@ -35,6 +36,7 @@ export function scopeSession(env: NodeJS.ProcessEnv): string | undefined {
 				env.CODEX_SESSION_ID,
 				env.CLAUDE_CODE_SESSION_ID,
 				env.DEVIN_SESSION_ID,
+				env.CURSOR_TRACE_ID,
 			]
 				.filter(Boolean)
 				.map((id) => id!.toLowerCase()),

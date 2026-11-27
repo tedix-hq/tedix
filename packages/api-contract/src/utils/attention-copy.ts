@@ -13,6 +13,7 @@ export const ATTENTION_COPY = {
 	unknown: "Status unknown",
 	backlog: "Backlog",
 	local_codex: "Local · Codex",
+	local_cursor: "Local · Cursor",
 	local_devin: "Local · Devin",
 	local_claude: "Local · Claude",
 	local: "Local",
@@ -192,6 +193,7 @@ export function inactiveSessionLabel(
 
 export type AttentionSourceKind =
 	| "local_codex"
+	| "local_cursor"
 	| "local_devin"
 	| "local_claude"
 	| "cloud_tedi"

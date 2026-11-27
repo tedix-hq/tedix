@@ -67,6 +67,7 @@ export const DEFAULT_FEED_COPY: FeedCopy = {
 		tedi: "Tedi",
 		external_agent: "Project team",
 		codex: "Codex",
+		cursor: "Cursor",
 		devin: "Devin",
 		"claude-code": "Claude",
 		system: "Tedix",

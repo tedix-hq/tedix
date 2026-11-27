@@ -17,6 +17,13 @@ import {
 	revokeAgentHostGrants,
 } from "./agent-host-grant";
 import { credentialDirectory } from "./credential-store";
+import {
+	cursorCommand,
+	cursorConfigDirectory,
+	cursorMcpFile,
+	cursorStatus,
+	setupCursor,
+} from "./cursor-config";
 import { devinConfigDirectory, setupDevin } from "./devin-config";
 import {
 	opencodeConfigFile,
@@ -68,6 +75,7 @@ Usage:
   tedix setup agents --claude        Set up Claude Code only
   tedix setup agents --devin --yes   Merge Devin hooks and MCP config (no login)
   tedix setup agents --opencode --yes Add the Tedix plugin to OpenCode (no login)
+  tedix setup agents --cursor --yes  Add the Tedix MCP server and hooks to Cursor (no login)
   tedix setup agents --all --yes     Require both hosts; skip Tedix's prompt
   tedix setup agents --status        Report installed, login, hook, and read steps
   tedix setup agents --status --json Print the same facts as JSON, Devin and OpenCode included
@@ -75,12 +83,13 @@ Usage:
   tedix setup agents --claude --verify Verify a read inside Claude (uses its model)
   tedix setup agents --devin --verify Read the profile with Devin's Tedix sign-in
   tedix setup agents --opencode --verify Read the profile with OpenCode's Tedix sign-in
+  tedix setup agents --cursor --verify  Read the profile inside a Cursor agent turn
   tedix setup agents --update        Preview and refresh installed host plugins
   tedix setup agents --dry-run       Show planned host commands without installing
   tedix setup agents --sign-ins --json Print this Mac's Tedix sign-ins per agent
                                      (--files-only skips the Keychain)
   tedix setup agents --remove --codex Remove Tedix from one agent (also --claude,
-                                     --devin, --opencode) so it can be connected fresh
+                                     --cursor, --devin, --opencode) so it can be connected fresh
 
 The host plugin bundles Tedix skills and a remote MCP connection. The copy the
 Tedix Mac app installs also adds lifecycle hooks that run "tedix hooks <name>"
@@ -787,6 +796,91 @@ function devinStatus(): AgentHostStatus {
 	return { host: "devin", found, installed, account };
 }
 
+/** What a Cursor agent turn showed: a Tedix profile read inside its stream-json output. */
+export function cursorSetupRead(output: string): {
+	called: boolean;
+	account?: string;
+	failed: boolean;
+} {
+	const read = { called: false, failed: false } as {
+		called: boolean;
+		account?: string;
+		failed: boolean;
+	};
+	for (const line of output.split(/\r?\n/)) {
+		try {
+			const event = asRecord(JSON.parse(line));
+			if (!event) continue;
+			if (JSON.stringify(event).includes("get_profile")) read.called = true;
+			if (event.is_error === true || event.type === "error") read.failed = true;
+			for (const key of [
+				"content",
+				"message",
+				"result",
+				"text",
+				"structuredContent",
+			]) {
+				const found = profileAccount(event[key]);
+				if (found) read.account = found;
+			}
+		} catch {
+			/* Not a host event. */
+		}
+	}
+	return read;
+}
+
+/**
+ * Verify a Tedix read inside Cursor: one headless agent turn that calls the
+ * connected get_profile tool. Cursor has no token file to read the account
+ * from, so the tool result itself names it.
+ */
+function verifyCursor(): string | undefined {
+	const binary = cursorCommand();
+	if (!binary)
+		throw new Error(
+			"Cursor's agent CLI was not found; install Cursor or its `agent` command, then check again.",
+		);
+	const result = spawnSync(
+		binary,
+		[
+			"-p",
+			"Call the Tedix get_profile tool once to check the Tedix sign-in, using the tool name actually loaded in this session. Do not use other tools, change anything, or request consent. Stop after that read.",
+			"--output-format",
+			"stream-json",
+			"--workspace",
+			homedir(),
+			"--trust",
+		],
+		{
+			cwd: homedir(),
+			encoding: "utf8",
+			// The desktop Check connection call gives the whole verify 150s.
+			timeout: 120_000,
+			stdio: ["ignore", "pipe", "pipe"],
+			env: {
+				...process.env,
+				TEDIX_AGENT_SESSION: undefined,
+				TEDIX_EXTERNAL_AGENT: undefined,
+			},
+		},
+	);
+	const read = cursorSetupRead(
+		`${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+	);
+	if (!read.called)
+		throw new Error(
+			"Cursor did not call the Tedix get_profile tool. Check the Tedix connection in Cursor's MCP settings, then check again.",
+		);
+	if (!read.account)
+		throw new Error(
+			read.failed
+				? "Cursor's Tedix sign-in did not work. Connect to Tedix again in Cursor's MCP settings."
+				: "Cursor did not read your Tedix profile. Check again in a moment.",
+		);
+	return read.account;
+}
+
 export async function runAgentHostSetup(
 	args: string[],
 	run: HostCommandRunner = runHostCommand,
@@ -799,7 +893,7 @@ export async function runAgentHostSetup(
 			args.length !== 2 + Number(args.includes("--yes"))
 		)
 			throw new Error(
-				"Use --remove with exactly one of --codex, --claude, --devin or --opencode.",
+				"Use --remove with exactly one of --codex, --claude, --cursor, --devin or --opencode.",
 			);
 		const host = hosts[0]!;
 		if (
@@ -828,6 +922,7 @@ export async function runAgentHostSetup(
 			"--files-only",
 			"--codex",
 			"--claude",
+			"--cursor",
 			"--devin",
 			"--opencode",
 		]);
@@ -857,7 +952,7 @@ export async function runAgentHostSetup(
 		const hosts = REMOVABLE_HOSTS.filter((host) => args.includes(`--${host}`));
 		if (hosts.length !== 1 || args.length !== 2 || new Set(args).size !== 2)
 			throw new Error(
-				"Use --verify with exactly one of --codex, --claude, --devin or --opencode.",
+				"Use --verify with exactly one of --codex, --claude, --cursor, --devin or --opencode.",
 			);
 		const host = hosts[0]!;
 		let account: string | undefined;
@@ -871,7 +966,8 @@ export async function runAgentHostSetup(
 				throw new Error(
 					`Could not read the Tedix profile for ${host}. Check its Tedix sign-in inside the agent.`,
 				);
-		} else account = await verifyHost(host, run);
+		} else if (host === "cursor") account = verifyCursor();
+		else account = await verifyHost(host, run);
 		console.log(
 			`${host}: a Tedix profile read succeeded inside the tool${account ? `, as ${account}` : ""}.`,
 		);
@@ -880,6 +976,7 @@ export async function runAgentHostSetup(
 	if (
 		args.includes("--status") &&
 		!args.includes("--devin") &&
+		!args.includes("--cursor") &&
 		!args.includes("--opencode")
 	) {
 		const json = args.includes("--json");
@@ -903,7 +1000,7 @@ export async function runAgentHostSetup(
 						hosts: [
 							...hosts,
 							...(!options.hosts.length
-								? [devinStatus(), opencodeStatus()]
+								? [devinStatus(), cursorStatus(), opencodeStatus()]
 								: []),
 						],
 					},
@@ -932,6 +1029,12 @@ export async function runAgentHostSetup(
 					`opencode: plugin ${opencode.current ? `installed${opencode.version ? ` (v${opencode.version})` : ""}` : opencode.installed ? "installed from an older copy; run tedix setup agents --opencode --yes" : "absent; run tedix setup agents --opencode --yes"}; Connect OAuth: check opencode mcp list.`,
 				);
 			if (opencode.problem) console.error(opencode.problem);
+			const cursor = cursorStatus();
+			if (cursor.found)
+				console.log(
+					`cursor: Tedix MCP ${cursor.installed ? "configured" : "absent; run tedix setup agents --cursor --yes"}${cursor.version ? `; agent ${cursor.version}` : ""}; Connect OAuth: check Cursor's MCP settings.`,
+				);
+			if (cursor.problem) console.error(cursor.problem);
 		}
 		return 0;
 	}
@@ -967,6 +1070,38 @@ export async function runAgentHostSetup(
 		const { configPath, backup } = await setupOpencode();
 		console.log(
 			`OpenCode configured in ${configPath}${backup ? `; previous settings saved as ${backup}` : ""}. Sign in with opencode mcp auth tedix, then start a new OpenCode session.`,
+		);
+		return 0;
+	}
+	if (args.includes("--cursor")) {
+		if (
+			new Set(args).size !== args.length ||
+			args.some(
+				(arg) => !["--cursor", "--yes", "--dry-run", "--status"].includes(arg),
+			) ||
+			(args.includes("--status") && args.includes("--yes"))
+		)
+			throw new Error("Use --cursor with --yes, --dry-run or --status only");
+		if (args.includes("--status")) {
+			const status = cursorStatus();
+			console.log(
+				`cursor: ${status.found ? "found" : "not found"}; Tedix MCP ${status.installed ? "configured" : "absent"}${status.version ? `; agent ${status.version}` : ""}.`,
+			);
+			if (status.problem) console.error(status.problem);
+			return 0;
+		}
+		console.log(
+			`Cursor: write the Tedix MCP server and lifecycle hooks into ${cursorMcpFile()} and ${join(cursorConfigDirectory(), "hooks.json")}; the previous files are backed up first.`,
+		);
+		if (args.includes("--dry-run")) return 0;
+		if (
+			!args.includes("--yes") &&
+			!(await (confirm ?? promptForConsent)("Add Tedix to Cursor? [Y/n] "))
+		)
+			return 0;
+		const { mcpPath, backups } = setupCursor();
+		console.log(
+			`Cursor configured in ${mcpPath}${backups.length ? `; previous settings saved as ${backups.join(", ")}` : ""}. Sign in to Tedix from Cursor's MCP settings (or \`agent mcp login tedix\`), then start a new Cursor session.`,
 		);
 		return 0;
 	}

@@ -18,6 +18,7 @@ import {
 const NAMES: Record<LocalExecutor, string> = {
 	codex: "Codex",
 	"claude-code": "Claude Code",
+	cursor: "Cursor",
 	opencode: "OpenCode",
 	devin: "Devin",
 	tedi: "Tedi",

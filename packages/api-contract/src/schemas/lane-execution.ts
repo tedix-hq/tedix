@@ -18,7 +18,15 @@ const micros = z.number().int().safe().positive();
 export const LaneExecutorSchema = z
 	.object({
 		id: key,
-		kind: z.enum(["codex", "claude", "opencode", "devin", "tedi", "skill"]),
+		kind: z.enum([
+			"codex",
+			"claude",
+			"cursor",
+			"opencode",
+			"devin",
+			"tedi",
+			"skill",
+		]),
 		principalType: z.enum(["external_agent", "tedi"]),
 		principalId: key,
 		resourceKey: key,
@@ -30,7 +38,9 @@ export const LaneExecutorSchema = z
 	.superRefine((value, ctx) => {
 		if (
 			value.kind !== "tedi" &&
-			["codex", "claude", "opencode", "devin"].includes(value.kind) !==
+			["codex", "claude", "cursor", "opencode", "devin"].includes(
+				value.kind,
+			) !==
 				(value.principalType === "external_agent")
 		)
 			ctx.addIssue({

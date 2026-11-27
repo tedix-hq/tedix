@@ -81,6 +81,8 @@ import {
 	type NativeProviderActivity,
 } from "@tedix/api-contract/schemas/dispatcher-health";
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
+import { createCursorLaneThread } from "./cursor-lane-thread";
+import { cursorCommand } from "./cursor-config";
 import {
 	dispatchRequestsDirectory,
 	serveDispatchRequests,
@@ -480,6 +482,7 @@ export function ownerHold(
 const AGENT_NAMES: Record<string, string> = {
 	codex: "Codex",
 	"claude-code": "Claude Code",
+	cursor: "Cursor",
 	opencode: "OpenCode",
 	devin: "Devin",
 	tedi: "Tedi",
@@ -843,13 +846,14 @@ export function parseServeOptions(
 			if (
 				value !== "codex" &&
 				value !== "claude-code" &&
+				value !== "cursor" &&
 				value !== "devin" &&
 				value !== "opencode" &&
 				value !== "tedi" &&
 				value !== "any-local"
 			)
 				throw new Error(
-					"lane serve supports --executor codex|claude-code|opencode|devin|tedi|any-local",
+					"lane serve supports --executor codex|claude-code|cursor|opencode|devin|tedi|any-local",
 				);
 			result.executor = value;
 		}
@@ -870,7 +874,7 @@ export function parseServeOptions(
 	}
 	if (!args.includes("--executor"))
 		throw new Error(
-			"--executor codex|claude-code|opencode|devin|tedi|any-local is required",
+			"--executor codex|claude-code|cursor|opencode|devin|tedi|any-local is required",
 		);
 	if (result.acceptProposed && !result.project)
 		throw new Error("--accept-proposed requires --project");
@@ -3349,7 +3353,21 @@ const defaultDeps: DispatcherDeps = {
 						})
 					: executor === "opencode"
 						? createOpenCodeLaneThread(cwd, model ?? "", resume)
-						: createCodexLaneThread(cwd, "codex", model, resume, env, settings),
+						: executor === "cursor"
+							? createCursorLaneThread(
+									cwd,
+									model ?? "",
+									resume,
+									cursorCommand() ?? "agent",
+								)
+							: createCodexLaneThread(
+									cwd,
+									"codex",
+									model,
+									resume,
+									env,
+									settings,
+								),
 	launch: runLaneProcess,
 	waitForIdentity: waitForLaneProcessIdentity,
 	darkWake: inDarkWake,
@@ -7758,20 +7776,33 @@ ${message.body}`,
 											"--verbose",
 											...(selection.model ? ["--model", thread.model] : []),
 										]
-									: [
-											"codex",
-											"exec",
-											"-C",
-											repo,
-											"resume",
-											...(receipt.repoFree ? ["--skip-git-repo-check"] : []),
-											thread.thread.id,
-											"--output-schema",
-											resultSchema,
-											"-o",
-											last,
-											"-",
-										],
+									: executor === "cursor"
+										? [
+												cursorCommand() ?? "agent",
+												"-p",
+												"--output-format",
+												"stream-json",
+												"--resume",
+												thread.thread.id,
+												"--workspace",
+												repo,
+												"--trust",
+												...(thread.model ? ["--model", thread.model] : []),
+											]
+										: [
+												"codex",
+												"exec",
+												"-C",
+												repo,
+												"resume",
+												...(receipt.repoFree ? ["--skip-git-repo-check"] : []),
+												thread.thread.id,
+												"--output-schema",
+												resultSchema,
+												"-o",
+												last,
+												"-",
+											],
 					);
 				const status = this.tediStatus();
 				if (!status.available) throw new Error(status.reason);
@@ -10216,7 +10247,7 @@ export async function runLaneServe(
 ): Promise<number> {
 	if (args.includes("--help")) {
 		console.log(
-			"tedix lane serve --executor codex|claude-code|opencode|devin|tedi|any-local [--tedi <slug>] [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install] [--once]\n  --machine-tools-only   answer a tedi's machine tool calls and run no Work; the supervisor starts one per machine",
+			"tedix lane serve --executor codex|claude-code|cursor|opencode|devin|tedi|any-local [--tedi <slug>] [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install] [--once]\n  --machine-tools-only   answer a tedi's machine tool calls and run no Work; the supervisor starts one per machine",
 		);
 		return 0;
 	}

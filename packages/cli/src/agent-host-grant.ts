@@ -243,6 +243,8 @@ async function hostStores(
 				: undefined;
 			if (store) stores.push(...namedStores(store, "mcpOAuth"));
 		}
+	} else if (host === "cursor") {
+		// Cursor keeps MCP sign-ins inside the app; no documented file store.
 	} else if (host === "devin") {
 		const directory = join(data, "devin", "mcp", "oauth");
 		if (existsSync(directory))

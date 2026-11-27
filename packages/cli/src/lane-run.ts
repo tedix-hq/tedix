@@ -62,7 +62,58 @@ function devinDeclaredExchange(message: string): boolean {
 	);
 }
 
-export const laneRunUsage = `tedix lane run --executor codex|claude-code|opencode|devin|tedi|skill --brief <file> --project <id>
+/** Text a Cursor stream-json event carries, across its documented shapes. */
+function cursorEventText(event: unknown): string {
+	if (!event || typeof event !== "object") return "";
+	const record = event as Record<string, unknown>;
+	if (typeof record.text === "string") return record.text;
+	if (typeof record.result === "string") return record.result;
+	const message = record.message;
+	if (typeof message === "string") return message;
+	if (message && typeof message === "object") {
+		const content = (message as Record<string, unknown>).content;
+		if (typeof content === "string") return content;
+		if (Array.isArray(content))
+			return content
+				.filter(
+					(part): part is { type: string; text: string } =>
+						typeof part === "object" &&
+						part !== null &&
+						(part as Record<string, unknown>).type === "text" &&
+						typeof (part as Record<string, unknown>).text === "string",
+				)
+				.map((part) => part.text)
+				.join("");
+	}
+	return "";
+}
+
+/** Token counts a Cursor stream-json event reports, when it reports them. */
+function cursorEventUsage(event: unknown) {
+	if (!event || typeof event !== "object") return null;
+	const record = event as Record<string, unknown>;
+	const source =
+		record.usage ??
+		(record.result && typeof record.result === "object"
+			? (record.result as Record<string, unknown>).usage
+			: undefined) ??
+		record.tokens;
+	if (!source || typeof source !== "object") return null;
+	const usage = source as Record<string, unknown>;
+	const num = (value: unknown) =>
+		typeof value === "number" && Number.isFinite(value) ? value : 0;
+	const parsed = LaneTelemetryInputSchema.shape.usage.safeParse({
+		input:
+			num(usage.input ?? usage.input_tokens ?? usage.inputTokens) +
+			num(usage.cache_read ?? usage.cacheRead ?? usage.cached),
+		output: num(usage.output ?? usage.output_tokens ?? usage.outputTokens),
+		cached: num(usage.cache_read ?? usage.cacheRead ?? usage.cached),
+		reasoning: num(usage.reasoning ?? usage.reasoning_tokens),
+	});
+	return parsed.success ? parsed.data : null;
+}
+
+export const laneRunUsage = `tedix lane run --executor codex|claude-code|cursor|opencode|devin|tedi|skill --brief <file> --project <id>
   [--model <id>] [--reasoning <effort>] [--permission <json>] [--rate-scope <scope>] [--work-item <id>]
   [--transcript <file>] [--telemetry <file>] -- <command> [args...]
 tedix lane import --executor codex|claude-code --transcript <file> --project <id> [--apply]
@@ -323,12 +374,18 @@ async function runLaneProcessWithReporter(
 	}
 	const executor = options.get("--executor");
 	if (
-		!["codex", "claude-code", "opencode", "devin", "tedi", "skill"].includes(
-			executor ?? "",
-		)
+		![
+			"codex",
+			"claude-code",
+			"cursor",
+			"opencode",
+			"devin",
+			"tedi",
+			"skill",
+		].includes(executor ?? "")
 	)
 		throw new Error(
-			"Choose --executor codex|claude-code|opencode|devin|tedi|skill",
+			"Choose --executor codex|claude-code|cursor|opencode|devin|tedi|skill",
 		);
 	const settings = executionSettings(executor!, {
 		effort: options.has("--reasoning")
@@ -349,6 +406,7 @@ async function runLaneProcessWithReporter(
 	if (!projectId) throw new Error("--project is required");
 	const devin = executor === "devin";
 	const opencode = executor === "opencode";
+	const cursor = executor === "cursor";
 	const tedi = executor === "tedi";
 	const limits = laneLimitsSchema.parse(deps.limits ?? {});
 	if (
@@ -374,6 +432,10 @@ async function runLaneProcessWithReporter(
 		opencode && !deps.sessionKey
 			? await import("./opencode-lane-thread")
 			: undefined;
+	const cursorThreadModule =
+		cursor && !deps.sessionKey
+			? await import("./cursor-lane-thread")
+			: undefined;
 	const nativeThread =
 		devin && !deps.sessionKey
 			? await devinThreadModule!.createDevinLaneThread(
@@ -386,7 +448,14 @@ async function runLaneProcessWithReporter(
 						deps.cwd ?? process.cwd(),
 						options.get("--model") ?? "",
 					)
-				: undefined;
+				: cursorThreadModule
+					? await cursorThreadModule.createCursorLaneThread(
+							deps.cwd ?? process.cwd(),
+							options.get("--model") ?? "",
+							undefined,
+							(await import("./cursor-config")).cursorCommand() ?? "agent",
+						)
+					: undefined;
 	if (opencode) {
 		const modelAt = command.indexOf("--model");
 		const model =
@@ -419,13 +488,15 @@ async function runLaneProcessWithReporter(
 				? "openai"
 				: executor === "claude-code"
 					? "anthropic"
-					: opencode
-						? (nativeThread?.modelProvider ??
-							options.get("--model")?.split("/")[0] ??
-							null)
-						: tedi
-							? "tedix"
-							: null,
+					: cursor
+						? "cursor"
+						: opencode
+							? (nativeThread?.modelProvider ??
+								options.get("--model")?.split("/")[0] ??
+								null)
+							: tedi
+								? "tedix"
+								: null,
 		reasoningEffort:
 			settings.effort === "model-default" ? null : (settings.effort ?? null),
 		brief: options.has("--brief")
@@ -502,7 +573,10 @@ async function runLaneProcessWithReporter(
 		);
 		return 0;
 	}
-	if ((!command.length && !devin && !opencode) || !options.has("--brief"))
+	if (
+		(!command.length && !devin && !opencode && !cursor) ||
+		!options.has("--brief")
+	)
 		throw new Error(laneRunUsage);
 	LaneTelemetryInputSchema.parse(telemetry);
 	// An admitted Attempt already records the running Work. Optional telemetry
@@ -682,6 +756,26 @@ async function runLaneProcessWithReporter(
 			"--session",
 			sessionKey,
 		);
+	if (cursor) {
+		if (!command.length)
+			command.push(
+				(await import("./cursor-config")).cursorCommand() ?? "agent",
+				"-p",
+				"--output-format",
+				"stream-json",
+				"--resume",
+				sessionKey,
+				"--workspace",
+				deps.cwd ?? process.cwd(),
+				"--trust",
+			);
+		const model = options.get("--model") ?? (nativeThread?.model || undefined);
+		command.push(
+			...executionFlags("cursor", settings),
+			...(model ? ["--model", model] : []),
+			readFileSync(options.get("--brief")!, "utf8"),
+		);
+	}
 	const renewLaneAgent = async () => {
 		if (!laneAgent) return;
 		try {
@@ -793,7 +887,7 @@ async function runLaneProcessWithReporter(
 					stdio: [
 						"pipe",
 						stdout?.fd ??
-							(codexJson || claudeJson || opencode || devin || tedi
+							(codexJson || claudeJson || opencode || cursor || devin || tedi
 								? "pipe"
 								: "inherit"),
 						stderr?.fd ?? "pipe",
@@ -805,7 +899,7 @@ async function runLaneProcessWithReporter(
 				worker.stderr?.on("data", receiveStderr);
 				worker.stdout?.on("data", receiveStdout);
 				worker.stdin?.end(
-					devin ? undefined : readFileSync(options.get("--brief")!),
+					devin || cursor ? undefined : readFileSync(options.get("--brief")!),
 				);
 			});
 		function receiveStdout(chunk: Buffer) {
@@ -956,6 +1050,59 @@ async function runLaneProcessWithReporter(
 									typeof tool === "string" ? tool : undefined,
 								);
 							else observeNativeActivity("provider_waiting");
+						}
+					}
+					if (cursor) {
+						const type = typeof event?.type === "string" ? event.type : "";
+						if (type) deps.onAgentEvent?.(Date.now());
+						const sid =
+							event?.session_id ??
+							event?.sessionId ??
+							event?.chat_id ??
+							event?.chatId;
+						if (typeof sid === "string") nativeId = sid;
+						if (type === "tool_call" || type === "tool_use") {
+							const tool =
+								event?.name ??
+								event?.tool ??
+								event?.tool_name ??
+								event?.part?.tool;
+							if (typeof tool === "string")
+								telemetry.tools[tool] = (telemetry.tools[tool] ?? 0) + 1;
+							observeNativeActivity(
+								"tool_running",
+								typeof tool === "string" ? tool : undefined,
+							);
+						}
+						const text = cursorEventText(event);
+						if (text && !streamError) {
+							observeNativeActivity("provider_progress");
+							telemetry.finalMessage = (telemetry.finalMessage + text).slice(
+								-24000,
+							);
+						}
+						const usage = cursorEventUsage(event);
+						const usageKey =
+							typeof event?.id === "string" ? event.id : type || "usage";
+						if (usage && !usageEventIds.has(usageKey)) {
+							usageEventIds.add(usageKey);
+							const prior = telemetry.usage;
+							telemetry.usage = {
+								input: (prior?.input ?? 0) + usage.input,
+								output: (prior?.output ?? 0) + usage.output,
+								cached: (prior?.cached ?? 0) + (usage.cached ?? 0),
+								reasoning: (prior?.reasoning ?? 0) + (usage.reasoning ?? 0),
+							};
+							limitState.turns = initialTurns + usageEventIds.size;
+							limitState.tokens =
+								initialTokens + telemetry.usage.input + telemetry.usage.output;
+							checkLimit();
+						}
+						if (type === "error" || (type === "result" && event?.is_error)) {
+							streamError = true;
+							streamFailureMessage = JSON.stringify(
+								event?.error ?? event,
+							).slice(-24000);
 						}
 					}
 					if (

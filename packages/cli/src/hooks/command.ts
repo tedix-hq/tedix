@@ -19,6 +19,11 @@ import {
 import { devinPermissionBlock } from "./devin-permission";
 import { skipDevinPluginHook } from "./devin-plugin";
 import { OPENCODE_HOOKS, opencodeHookEvent } from "./opencode-event";
+import {
+	CURSOR_HOOKS,
+	cursorHookEvent,
+	cursorHookOutput,
+} from "./cursor-event";
 
 export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix plugin)
 
@@ -34,7 +39,8 @@ export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix pl
   tedix hooks status          Turn boundaries: local turn status, notification and report (opt-in)
 
 The OpenCode plugin runs the same hooks, using
---host opencode and its native ses_ session id.
+--host opencode and its native ses_ session id. Cursor's hooks.json entries
+run them with --host cursor and its conversation id.
 
 Each reads one host event JSON object on stdin and exits 0; await-input exits 2
 with the answer on stderr for Claude Code and OpenCode, or prints a Codex Stop
@@ -94,6 +100,11 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		if (args.length !== 3 || !OPENCODE_HOOKS.has(args[0]!)) return 1;
 		args = [args[0]!];
 	}
+	const cursor = args[1] === "--host" && args[2] === "cursor";
+	if (cursor) {
+		if (args.length !== 3 || !CURSOR_HOOKS.has(args[0]!)) return 1;
+		args = [args[0]!];
+	}
 	const waitHost =
 		args[0] === "await-input" &&
 		args[1] === "--host" &&
@@ -136,11 +147,13 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		return 0;
 	}
 	let env = process.env;
-	if (devin || opencode) {
+	if (devin || opencode || cursor) {
 		try {
 			const normalized = devin
 				? devinHookEvent(stdin, env)
-				: opencodeHookEvent(stdin, env);
+				: opencode
+					? opencodeHookEvent(stdin, env)
+					: cursorHookEvent(stdin, env);
 			stdin = normalized.stdin;
 			env = normalized.env;
 		} catch {
@@ -161,7 +174,11 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 			readHookCommand(args, timeout, input, { cwd, env, ...options }),
 		write: (line) =>
 			console.log(
-				devin ? devinContextOutput(line, env.DEVIN_SESSION_ID!) : line,
+				devin
+					? devinContextOutput(line, env.DEVIN_SESSION_ID!)
+					: cursor
+						? cursorHookOutput(line)
+						: line,
 			),
 		deferRead: (args, input) => {
 			const [command, prefix] = selfCommand();

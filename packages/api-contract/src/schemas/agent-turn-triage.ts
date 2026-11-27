@@ -845,6 +845,7 @@ export const RetriageAgentTurnQuestionsResultSchema = z.object({
 export const LocalToolSchema = z.enum([
 	"codex",
 	"claude-code",
+	"cursor",
 	"opencode",
 	"devin",
 	"tedi",

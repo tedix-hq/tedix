@@ -16,6 +16,7 @@ import { findCommand, run, toolPath } from "./shell";
 const APPS = {
 	chatgpt: { file: "ChatGPT.app", bundle: "com.openai.codex" },
 	claude: { file: "Claude.app", bundle: "com.anthropic.claudefordesktop" },
+	cursor: { file: "Cursor.app", bundle: "com.todesktop.230313mzl4w4u92" },
 	devin: { file: "Devin.app", bundle: "com.exafunction.windsurf" },
 	opencode: { file: "OpenCode.app", bundle: "ai.opencode.desktop" },
 } as const;
@@ -29,6 +30,12 @@ const HOSTS = {
 		executable: "codex-cli/bin/codex",
 	},
 	claude: { app: "claude", name: "Claude Code in Claude Desktop" },
+	cursor: {
+		app: "cursor",
+		name: "Cursor",
+		// Cursor's CLI is `agent`; `cursor-agent` is its accepted alias.
+		commands: ["cursor-agent", "agent"],
+	},
 	devin: {
 		app: "devin",
 		name: "Devin Desktop",
@@ -145,12 +152,17 @@ export function harnessTarget(host: Harness) {
 		app &&
 		("executable" in spec
 			? executable(join(app, "Contents", "Resources", spec.executable))
-			: claudeCode());
-	const standalone = findCommand(
-		host,
-		(candidate) =>
-			!bundled || realpathSync(candidate) !== realpathSync(bundled),
-	);
+			: "commands" in spec
+				? undefined
+				: claudeCode());
+	const names = "commands" in spec ? spec.commands : [host];
+	const standalone = names
+		.map((name) =>
+			findCommand(name, (candidate) =>
+				bundled ? realpathSync(candidate) !== realpathSync(bundled) : true,
+			),
+		)
+		.find(Boolean);
 	return {
 		// A Mac app without its own executable leaves the standalone command.
 		command: bundled || standalone,

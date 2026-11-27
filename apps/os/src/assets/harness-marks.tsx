@@ -3,8 +3,21 @@
 export function HarnessMark({
 	harness,
 }: {
-	harness: "codex" | "claude-code" | "devin" | "opencode";
+	harness: "codex" | "claude-code" | "cursor" | "devin" | "opencode";
 }) {
+	// A drawn pointer stands in for Cursor's mark.
+	if (harness === "cursor")
+		return (
+			<svg
+				viewBox="0 0 24 24"
+				fill="currentColor"
+				aria-hidden="true"
+				focusable="false"
+				data-harness-mark={harness}
+			>
+				<path d="M4.5 2.5 21.5 13l-7.4 1.2L10.6 22 8.4 14.4 4.5 2.5z" />
+			</svg>
+		);
 	// Devin and OpenCode marks from LobeHub (MIT). See lobe-icons-LICENSE.txt.
 	if (harness === "devin" || harness === "opencode")
 		return (

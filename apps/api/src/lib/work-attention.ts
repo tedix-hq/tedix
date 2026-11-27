@@ -43,11 +43,13 @@ export function buildAttention(
 			source: "interaction",
 			activitySource: row.creatorSession?.startsWith("devin:")
 				? "local_devin"
-				: row.creatorSession?.startsWith("codex:")
-					? "local_codex"
-					: row.creatorSession?.startsWith("claude-code:")
-						? "local_claude"
-						: "unknown",
+				: row.creatorSession?.startsWith("cursor:")
+					? "local_cursor"
+					: row.creatorSession?.startsWith("codex:")
+						? "local_codex"
+						: row.creatorSession?.startsWith("claude-code:")
+							? "local_claude"
+							: "unknown",
 		});
 		if (row.workItemId) representedItems.add(row.workItemId);
 	}
@@ -125,13 +127,15 @@ export function buildAttention(
 					? "cloud_tedi"
 					: row.session?.startsWith("devin:")
 						? "local_devin"
-						: row.session?.startsWith("codex:")
-							? "local_codex"
-							: row.session?.startsWith("claude-code:")
-								? "local_claude"
-								: row.who === "tedi"
-									? "cloud_tedi"
-									: "unknown",
+						: row.session?.startsWith("cursor:")
+							? "local_cursor"
+							: row.session?.startsWith("codex:")
+								? "local_codex"
+								: row.session?.startsWith("claude-code:")
+									? "local_claude"
+									: row.who === "tedi"
+										? "cloud_tedi"
+										: "unknown",
 			tediName: worker,
 			finishedAt: row.finishedAt,
 		});
@@ -149,9 +153,11 @@ export function buildAttention(
 			who:
 				row.harness === "devin"
 					? ATTENTION_COPY.local_devin
-					: row.harness === "codex"
-						? ATTENTION_COPY.local_codex
-						: ATTENTION_COPY.local_claude,
+					: row.harness === "cursor"
+						? ATTENTION_COPY.local_cursor
+						: row.harness === "codex"
+							? ATTENTION_COPY.local_codex
+							: ATTENTION_COPY.local_claude,
 			title: row.label,
 			projectId: row.projectId,
 			column: !fresh
@@ -175,9 +181,11 @@ export function buildAttention(
 			activitySource:
 				row.harness === "devin"
 					? "local_devin"
-					: row.harness === "codex"
-						? "local_codex"
-						: "local_claude",
+					: row.harness === "cursor"
+						? "local_cursor"
+						: row.harness === "codex"
+							? "local_codex"
+							: "local_claude",
 			finishedAt: row.state === "done" ? row.lastEventAt : null,
 		});
 	}
@@ -272,9 +280,11 @@ export function buildAttention(
 			who:
 				row.harness === "devin"
 					? ATTENTION_COPY.local_devin
-					: row.harness === "codex"
-						? ATTENTION_COPY.local_codex
-						: ATTENTION_COPY.local_claude,
+					: row.harness === "cursor"
+						? ATTENTION_COPY.local_cursor
+						: row.harness === "codex"
+							? ATTENTION_COPY.local_codex
+							: ATTENTION_COPY.local_claude,
 			title: row.text,
 			projectId: row.projectId ?? parent?.projectId ?? null,
 			column: reportedDone ? "done" : "blocked",
@@ -290,9 +300,11 @@ export function buildAttention(
 			activitySource:
 				row.harness === "devin"
 					? "local_devin"
-					: row.harness === "codex"
-						? "local_codex"
-						: "local_claude",
+					: row.harness === "cursor"
+						? "local_cursor"
+						: row.harness === "codex"
+							? "local_codex"
+							: "local_claude",
 			finishedAt: reportedDone ? row.statusChangedAt : null,
 		});
 	}
