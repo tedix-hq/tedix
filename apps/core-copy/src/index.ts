@@ -1,3 +1,4 @@
+import { syncIdentitySequences } from "./identities.ts";
 import {
 	extractBearerToken,
 	secureEqual,
@@ -370,6 +371,23 @@ export default {
 			const { ports, end } = portsFor(env);
 			try {
 				return Response.json(await resetCopy(ports));
+			} catch (error) {
+				return jsonError(error);
+			} finally {
+				await end();
+			}
+		}
+		if (url.pathname === "/sync-identities" && request.method === "POST") {
+			const denied = await requireAdmin(request, env);
+			if (denied) return denied;
+			const { ports, end } = portsFor(env);
+			try {
+				return Response.json(
+					await syncIdentitySequences(
+						ports.query,
+						url.searchParams.get("dryRun") === "1",
+					),
+				);
 			} catch (error) {
 				return jsonError(error);
 			} finally {
