@@ -51,11 +51,21 @@ export async function withCoreStore<T>(
 	try {
 		return await storage.run({ db: store.db, close: store.close }, fn);
 	} finally {
-		const closing = store.close();
-		if (schedule) schedule(closing);
-		else await closing;
+		if (schedule) {
+			// Background work started in fn (waitUntil) can still query after
+			// fn settles, so the client stays open for most of the 30 s the
+			// runtime grants waitUntil work, then closes.
+			schedule(
+				new Promise((resolve) =>
+					setTimeout(resolve, SCHEDULED_CLOSE_DELAY_MS),
+				).then(() => store.close()),
+			);
+		} else await store.close();
 	}
 }
+
+/** Kept under the runtime's 30 s waitUntil limit, so the close still runs. */
+export const SCHEDULED_CLOSE_DELAY_MS = 25_000;
 
 /** The scoped core client, or a fresh D1 client outside a Postgres scope. */
 export function coreDb(env: CoreStoreEnv): DbClient {
