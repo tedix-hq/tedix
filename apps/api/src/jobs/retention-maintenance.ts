@@ -774,7 +774,7 @@ function retentionCleanupSteps(
 				const { collectAllTediGrowthMetrics, createGrowthSnapshot } =
 					await import("@tedix/db/queries/growth-snapshots");
 				const snapshotData = await collectAllTediGrowthMetrics(
-					env.DB,
+					db,
 					scheduledDate.toISOString().slice(0, 10),
 				);
 				let created = 0;
