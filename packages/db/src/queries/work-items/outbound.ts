@@ -10,16 +10,27 @@ import {
 	type OutboundPolicy,
 	type OutboundRecord,
 } from "@tedix/api-contract/schemas/outbound";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { batchNonEmpty, chunkForBoundParams } from "../../utils/batch";
 import type { DbQueryClient } from "../../query-client";
-import { anyIds } from "../../core-store/dialect";
-import { organizations } from "../../schema/organizations";
-import { workItems, workEvents } from "../../schema/work-items";
+import { coreTable } from "../../core-store/client";
 import {
-	workInteractions,
-	workInteractionResponses,
+	anyIds,
+	booleanValue,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
+import { organizations as organizationsTable } from "../../schema/organizations";
+import {
+	workItems as workItemsTable,
+	workEvents as workEventsTable,
+} from "../../schema/work-items";
+import {
+	workInteractions as interactionsTable,
+	workInteractionResponses as responsesTable,
 	workInteractionCardRevisions,
 } from "../../schema/work-factory";
 import {
@@ -28,10 +39,16 @@ import {
 } from "@tedix/api-contract/utils/card-secrets";
 import { buildCardRevisionLearningStatement } from "./card-revisions";
 
+/** A JSON parameter, or SQL NULL; INSERT ... SELECT casts it to the target column. */
+function jsonOrNull(db: object, value: unknown): SQL {
+	return value == null ? sql`${null}` : jsonParameter(db, value);
+}
+
 export async function getOutboundPolicy(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<OutboundPolicy> {
+	const organizations = coreTable(db, organizationsTable);
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -47,10 +64,16 @@ export async function putOutboundPolicy(
 	orgId: string,
 	policy: OutboundPolicy,
 ) {
+	const organizations = coreTable(db, organizationsTable);
 	await db
 		.update(organizations)
 		.set({
-			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.outboundReview', json(${JSON.stringify(policy)}))`,
+			metadata: jsonWrite(
+				db,
+				organizations.metadata,
+				["outboundReview"],
+				policy,
+			),
 		})
 		.where(eq(organizations.id, orgId));
 }
@@ -61,6 +84,7 @@ export async function listOutbound(
 	projectId: string | undefined,
 	limit: number,
 ) {
+	const workItems = coreTable(db, workItemsTable);
 	const rows = await db
 		.select({
 			id: workItems.id,
@@ -131,14 +155,26 @@ export async function saveOutbound(
 	const nextVersion = p.expectedVersion + 1;
 	if (containsCardSecret([p.state.draft, p.response, p.revisionFeedback]))
 		throw new Error(CARD_SECRET_MESSAGE);
+	const workItems = coreTable(db, workItemsTable);
+	const workEvents = coreTable(db, workEventsTable);
+	const workInteractions = coreTable(db, interactionsTable);
+	const workInteractionResponses = coreTable(db, responsesTable);
+	const revisions = coreTable(db, workInteractionCardRevisions);
 	const transitionId = crypto.randomUUID();
-	const changed = sql`EXISTS (SELECT 1 FROM work_items WHERE org_id=${p.orgId} AND id=${p.workItemId} AND version=${nextVersion} AND json_extract(metadata, '$.outboundTransitionId')=${transitionId})`;
+	const changed = sql`EXISTS (SELECT 1 FROM work_items WHERE org_id=${p.orgId} AND id=${p.workItemId} AND version=${nextVersion} AND ${jsonRead(db, sql`metadata`, ["outboundTransitionId"])}=${transitionId})`;
+	const changeRequest = (column: string, kind: "text" | "json" = "text") =>
+		sql`(SELECT ${column === "id" ? sql`id` : jsonRead(db, sql`metadata`, [column], kind)} FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.state.interactionId} AND ${jsonRead(db, sql`metadata`, ["cardAction"])}='ask_changes' ORDER BY resolved_request_version DESC,responded_at DESC,id DESC LIMIT 1)`;
 	const statements: BatchItem<"sqlite">[] = [
 		db
 			.update(workItems)
 			.set({
 				workKind: "outbound",
-				metadata: sql`json_set(coalesce(${workItems.metadata}, '{}'), '$.outbound', json(${JSON.stringify(p.state)}), '$.outboundTransitionId', ${transitionId})`,
+				metadata: jsonWrite(
+					db,
+					jsonWrite(db, workItems.metadata, ["outbound"], p.state),
+					["outboundTransitionId"],
+					transitionId,
+				),
 				reviewerType: "tedi",
 				reviewerId: p.state.reviewerTediId,
 				updatedAt: p.now,
@@ -168,7 +204,7 @@ export async function saveOutbound(
 						"actor_session_id",
 					),
 					payload:
-						sql`json_object('action', ${p.action}, 'draftRevision', ${p.state.draftRevision})`.as(
+						sql`${jsonParameter(db, { action: p.action, draftRevision: p.state.draftRevision })}`.as(
 							"payload",
 						),
 					occurredAt: sql<string>`${p.now}`.as("occurred_at"),
@@ -217,7 +253,7 @@ export async function saveOutbound(
 						targetId: sql<string>`${p.state.ownerUserId}`.as("target_id"),
 						createdAt: sql<string>`${p.now}`.as("created_at"),
 						metadata:
-							sql`json(${JSON.stringify({ schema: OUTBOUND_SCHEMA, outboundWorkItemId: p.workItemId, decisionClass: p.state.draft.topic, channel: p.state.draft.channel, personId: p.state.draft.recipient, proposerTediId: p.state.reviewerTediId })})`.as(
+							sql`${jsonParameter(db, { schema: OUTBOUND_SCHEMA, outboundWorkItemId: p.workItemId, decisionClass: p.state.draft.topic, channel: p.state.draft.channel, personId: p.state.draft.recipient, proposerTediId: p.state.reviewerTediId })}`.as(
 								"metadata",
 							),
 					})
@@ -260,12 +296,13 @@ export async function saveOutbound(
 								"response_kind",
 							),
 						body: sql<string>`${response.body}`.as("body"),
-						resolvesRequest: sql<boolean>`${response.resolves ? 1 : 0}`.as(
-							"resolves_request",
-						),
+						resolvesRequest:
+							sql<boolean>`${booleanValue(db, response.resolves)}`.as(
+								"resolves_request",
+							),
 						respondedAt: sql<string>`${p.now}`.as("responded_at"),
 						metadata:
-							sql`json(${JSON.stringify({ schema: OUTBOUND_SCHEMA, action: p.action, ...(p.action === "feedback" ? { cardAction: "ask_changes", instruction: response.feedback, anchors: response.anchors ?? [], chips: response.chips ?? [], fromRevision: response.fromRevision ?? p.state.draftRevision } : {}), before: response.before, after: response.body, feedback: response.feedback ?? null, draftRevision: p.state.draftRevision, source: "os-outbound" })})`.as(
+							sql`${jsonParameter(db, { schema: OUTBOUND_SCHEMA, action: p.action, ...(p.action === "feedback" ? { cardAction: "ask_changes", instruction: response.feedback, anchors: response.anchors ?? [], chips: response.chips ?? [], fromRevision: response.fromRevision ?? p.state.draftRevision } : {}), before: response.before, after: response.body, feedback: response.feedback ?? null, draftRevision: p.state.draftRevision, source: "os-outbound" })}`.as(
 								"metadata",
 							),
 					})
@@ -282,7 +319,7 @@ export async function saveOutbound(
 	}
 	const revisionId = crypto.randomUUID();
 	statements.push(
-		db.insert(workInteractionCardRevisions).select(
+		db.insert(revisions).select(
 			db
 				.select({
 					id: sql<string>`${revisionId}`.as("id"),
@@ -296,17 +333,13 @@ export async function saveOutbound(
 					field: sql<string>`'draft'`.as("field"),
 					anchors: sql<
 						(typeof workInteractionCardRevisions.$inferInsert)["anchors"]
-					>`(SELECT json_extract(metadata,'$.anchors') FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.state.interactionId} AND json_extract(metadata,'$.cardAction')='ask_changes' ORDER BY resolved_request_version DESC,responded_at DESC,id DESC LIMIT 1)`.as(
-						"anchors",
-					),
+					>`${changeRequest("anchors", "json")}`.as("anchors"),
 					summary: sql<
 						string | null
 					>`${p.revisionFeedback?.summary ?? null}`.as("summary"),
 					keptHunks: sql<
 						(typeof workInteractionCardRevisions.$inferInsert)["keptHunks"]
-					>`${p.revisionFeedback?.keptHunks ? JSON.stringify(p.revisionFeedback.keptHunks) : null}`.as(
-						"kept_hunks",
-					),
+					>`${jsonOrNull(db, p.revisionFeedback?.keptHunks)}`.as("kept_hunks"),
 					learningEventId: sql<string>`${crypto.randomUUID()}`.as(
 						"learning_event_id",
 					),
@@ -327,12 +360,10 @@ export async function saveOutbound(
 					),
 					instruction: sql<
 						string | null
-					>`CASE WHEN ${p.action}='restore' THEN ${p.response?.feedback ?? null} ELSE (SELECT json_extract(metadata,'$.instruction') FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.state.interactionId} AND json_extract(metadata,'$.cardAction')='ask_changes' ORDER BY resolved_request_version DESC,responded_at DESC,id DESC LIMIT 1) END`.as(
+					>`${p.action === "restore" ? sql`${p.response?.feedback ?? null}` : changeRequest("instruction")}`.as(
 						"instruction",
 					),
-					responseId: sql<
-						string | null
-					>`(SELECT id FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.state.interactionId} AND json_extract(metadata,'$.cardAction')='ask_changes' ORDER BY resolved_request_version DESC,responded_at DESC,id DESC LIMIT 1)`.as(
+					responseId: sql<string | null>`${changeRequest("id")}`.as(
 						"response_id",
 					),
 					createdAt: sql<string>`${p.now}`.as("created_at"),
@@ -363,7 +394,8 @@ export async function outboundApprovalHistory(
 	orgId: string,
 	ownerUserId: string,
 ) {
-	return db
+	const workInteractionResponses = coreTable(db, responsesTable);
+	const rows = await db
 		.select({
 			id: workInteractionResponses.id,
 			body: workInteractionResponses.body,
@@ -377,12 +409,14 @@ export async function outboundApprovalHistory(
 				eq(workInteractionResponses.orgId, orgId),
 				eq(workInteractionResponses.responderType, "user"),
 				eq(workInteractionResponses.responderId, ownerUserId),
-				sql`json_extract(${workInteractionResponses.metadata}, '$.schema')=${OUTBOUND_SCHEMA}`,
-				sql`json_extract(${workInteractionResponses.metadata}, '$.action') IN ('approve_manual','approve_send')`,
+				sql`${jsonRead(db, workInteractionResponses.metadata, ["schema"])}=${OUTBOUND_SCHEMA}`,
+				sql`${jsonRead(db, workInteractionResponses.metadata, ["action"])} IN ('approve_manual','approve_send')`,
 			),
 		)
 		.orderBy(desc(workInteractionResponses.respondedAt))
 		.limit(10);
+	// Postgres returns count(*) as a bigint string.
+	return rows.map((row) => ({ ...row, totalCount: Number(row.totalCount) }));
 }
 
 /** Projection only: the original Interaction's prompt, author and metadata stay immutable. */
@@ -398,6 +432,8 @@ export async function outboundInteractionOverlays(
 		status: OutboundState["status"];
 		record: OutboundRecord;
 	}[] = [];
+	const workItems = coreTable(db, workItemsTable);
+	const workInteractions = coreTable(db, interactionsTable);
 	for (const ids of chunkForBoundParams(interactionIds, 50)) {
 		const rows = await db
 			.select({
@@ -453,8 +489,12 @@ export async function sweepStuckOutboundReviews(
 	db: DbQueryClient,
 	p: { now: string; limit: number; scope?: { orgId: string; ids: string[] } },
 ) {
-	const requestedAt = sql`coalesce(json_extract(${workItems.metadata}, '$.outbound.reviewRequestedAt'), (SELECT max(occurred_at) FROM work_events e WHERE e.org_id=${workItems.orgId} AND e.work_item_id=${workItems.id} AND e.event_type='outbound.action'), ${workItems.updatedAt}, ${workItems.createdAt})`;
-	const timeoutMinutes = sql`coalesce(json_extract(${organizations.metadata}, '$.outboundReview.reviewTimeoutMinutes'), 30)`;
+	const workItems = coreTable(db, workItemsTable);
+	const organizations = coreTable(db, organizationsTable);
+	const outbound = (field: string) =>
+		jsonRead(db, workItems.metadata, ["outbound", field]);
+	const requestedAt = sql`coalesce(${outbound("reviewRequestedAt")}, (SELECT max(occurred_at) FROM work_events e WHERE e.org_id=${workItems.orgId} AND e.work_item_id=${workItems.id} AND e.event_type='outbound.action'), ${workItems.updatedAt}, ${workItems.createdAt})`;
+	const timeoutMinutes = sql`coalesce(${jsonRead(db, organizations.metadata, ["outboundReview", "reviewTimeoutMinutes"], "number")}, 30)`;
 	const rows = await db
 		.select({
 			orgId: workItems.orgId,
@@ -474,9 +514,11 @@ export async function sweepStuckOutboundReviews(
 					: undefined,
 				eq(workItems.workKind, "outbound"),
 				sql`${workItems.disposition} NOT IN ('completed','cancelled')`,
-				sql`json_extract(${workItems.metadata}, '$.outbound.status') IN ('reviewing','feedback')`,
-				sql`julianday(${requestedAt}) + ${timeoutMinutes} / 1440.0 <= julianday(${p.now})`,
-				sql`EXISTS (SELECT 1 FROM work_interactions q WHERE q.org_id=${workItems.orgId} AND q.work_item_id=${workItems.id} AND q.id=json_extract(${workItems.metadata}, '$.outbound.interactionId') AND q.target_type='user' AND q.target_id=json_extract(${workItems.metadata}, '$.outbound.ownerUserId') AND q.kind IN ('question','input') AND q.status='open' AND (q.expires_at IS NULL OR q.expires_at>${p.now}))`,
+				sql`${outbound("status")} IN ('reviewing','feedback')`,
+				coreStore(db) === "postgres"
+					? sql`(${requestedAt})::timestamp + (${timeoutMinutes}) * interval '1 minute' <= (${p.now})::timestamp`
+					: sql`julianday(${requestedAt}) + ${timeoutMinutes} / 1440.0 <= julianday(${p.now})`,
+				sql`EXISTS (SELECT 1 FROM work_interactions q WHERE q.org_id=${workItems.orgId} AND q.work_item_id=${workItems.id} AND q.id=${outbound("interactionId")} AND q.target_type='user' AND q.target_id=${outbound("ownerUserId")} AND q.kind IN ('question','input') AND q.status='open' AND (q.expires_at IS NULL OR q.expires_at>${p.now}))`,
 			),
 		)
 		.orderBy(requestedAt, workItems.id)

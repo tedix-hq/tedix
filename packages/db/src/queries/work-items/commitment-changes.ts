@@ -42,8 +42,8 @@ import {
 /** Byte order on both stores; SQLite has no "C" collation and Postgres no BINARY. */
 function binary(db: object, value: SQLWrapper): SQL {
 	return coreStore(db) === "postgres"
-		? sql`${value} COLLATE "C"`
-		: sql`${value} COLLATE BINARY`;
+		? sql`(${value}) COLLATE "C"`
+		: sql`(${value}) COLLATE BINARY`;
 }
 
 /** SQLite index hints; Postgres has no INDEXED BY and plans on its own statistics. */

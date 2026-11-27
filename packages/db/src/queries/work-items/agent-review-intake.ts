@@ -1,10 +1,27 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import {
+	booleanValue,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+} from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
-import { workItems } from "../../schema/work-items";
+import { workItems as d1WorkItems } from "../../schema/work-items";
 
-const recentReviews = sql`${workItems} INDEXED BY idx_work_items_org_project_created`;
-const isAgentReview = sql`json_extract(${workItems.metadata}, '$.agentReview') = 1`;
+/** The SQLite index hint is D1-only; Postgres plans the same seek itself. */
+function reviewSource(db: DbQueryClient) {
+	const workItems = coreTable(db, d1WorkItems);
+	return {
+		workItems,
+		recentReviews:
+			coreStore(db) === "postgres"
+				? workItems
+				: sql`${workItems} INDEXED BY ${sql.identifier("idx_work_items_org_project_created")}`,
+		isAgentReview: sql`${jsonRead(db, workItems.metadata, ["agentReview"], "boolean")} = ${booleanValue(db, true)}`,
+	};
+}
 
 /** One conditional insert makes the D1 daily cap atomic across callers and colos. */
 export async function createAgentReviewWithinDailyCap(
@@ -25,13 +42,14 @@ export async function createAgentReviewWithinDailyCap(
 		dailyCap: number;
 	},
 ) {
+	const { workItems, recentReviews, isAgentReview } = reviewSource(db);
 	// An aggregate without GROUP BY yields exactly one row, so the insert
 	// selects from the day's counts and the cap check stays in one statement.
 	const today = db
 		.select({
 			total: sql<number>`count(*)`.as("total"),
 			caller:
-				sql<number>`count(CASE WHEN json_extract(${workItems.metadata}, '$.callerOrgId') = ${p.metadata.callerOrgId ?? null} THEN 1 END)`.as(
+				sql<number>`count(CASE WHEN ${jsonRead(db, workItems.metadata, ["callerOrgId"])} = ${p.metadata.callerOrgId ?? null} THEN 1 END)`.as(
 					"caller",
 				),
 		})
@@ -69,13 +87,15 @@ export async function createAgentReviewWithinDailyCap(
 					stewardType: sql<"tedi">`'tedi'`.as("steward_type"),
 					stewardId: sql<string>`${p.leadTediId}`.as("steward_id"),
 					workClass: sql<"objective">`'objective'`.as("work_class"),
-					metadata: sql<
-						Record<string, JsonValue>
-					>`${JSON.stringify(p.metadata)}`.as("metadata"),
+					metadata: sql<Record<string, JsonValue>>`${jsonParameter(
+						db,
+						p.metadata,
+					)}`.as("metadata"),
 					createdAt: sql<string>`${p.createdAt}`.as("created_at"),
-					admissionSpecRevision: sql<string>`lower(hex(randomblob(16)))`.as(
-						"admission_spec_revision",
-					),
+					admissionSpecRevision: (coreStore(db) === "postgres"
+						? sql<string>`replace(gen_random_uuid()::text, '-', '')`
+						: sql<string>`lower(hex(randomblob(16)))`
+					).as("admission_spec_revision"),
 				})
 				.from(today)
 				.where(and(lt(today.total, p.dailyCap), lt(today.caller, p.dailyCap))),
@@ -89,6 +109,7 @@ export async function purgeExpiredAgentReviews(
 	db: DbQueryClient,
 	p: { orgId: string; projectId: string; before: string },
 ) {
+	const { workItems, recentReviews, isAgentReview } = reviewSource(db);
 	const rows = await db
 		.delete(workItems)
 		.where(

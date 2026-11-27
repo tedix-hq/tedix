@@ -1,16 +1,21 @@
 import { and, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
-import { workAttempts, workItems } from "../../schema/work-items";
 import {
-	workAdmissions,
-	workApprovalProposals,
-	workBudgetEnvelopes,
-	workInteractions,
-	workResourcePools,
+	workAttempts as d1WorkAttempts,
+	workItems as d1WorkItems,
+} from "../../schema/work-items";
+import {
+	workAdmissions as d1WorkAdmissions,
+	workApprovalProposals as d1WorkApprovalProposals,
+	workBudgetEnvelopes as d1WorkBudgetEnvelopes,
+	workInteractions as d1WorkInteractions,
+	workResourcePools as d1WorkResourcePools,
 	CREDIT_BUDGET_CURRENCY,
 } from "../../schema/work-factory";
 
+// Postgres returns COUNT/SUM as bigint/numeric text; mapWith(Number) keeps numbers.
 type CountRow = { key: string; count: number };
 const countMap = (rows: CountRow[]) =>
 	Object.fromEntries(rows.map((row) => [row.key, row.count]));
@@ -21,6 +26,13 @@ export async function getWorkFleetProjection(
 	db: DbQueryClient,
 	p: { orgId: string; now: string },
 ) {
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workAdmissions = coreTable(db, d1WorkAdmissions);
+	const workApprovalProposals = coreTable(db, d1WorkApprovalProposals);
+	const workBudgetEnvelopes = coreTable(db, d1WorkBudgetEnvelopes);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const workResourcePools = coreTable(db, d1WorkResourcePools);
 	const newerAdmission = alias(workAdmissions, "newer_admission");
 	// Keep the aggregate in one sequential D1 round trip. Concurrent
 	// statements exceed D1's six simultaneous-connection limit in production.
@@ -37,7 +49,7 @@ export async function getWorkFleetProjection(
 		db
 			.select({
 				key: workItems.disposition,
-				count: sql<number>`COUNT(*)`.as("count"),
+				count: sql<number>`COUNT(*)`.mapWith(Number).as("count"),
 			})
 			.from(workItems)
 			.where(eq(workItems.orgId, p.orgId))
@@ -45,25 +57,25 @@ export async function getWorkFleetProjection(
 		db
 			.select({
 				key: workAttempts.runtimeState,
-				count: sql<number>`COUNT(*)`.as("count"),
+				count: sql<number>`COUNT(*)`.mapWith(Number).as("count"),
 				active:
-					sql<number>`SUM(CASE WHEN ${workAttempts.runtimeState} IN ('queued','running','waiting','retrying') AND (${workAttempts.expiresAt} IS NULL OR ${workAttempts.expiresAt}>${p.now}) THEN 1 ELSE 0 END)`.as(
-						"active",
-					),
+					sql<number>`SUM(CASE WHEN ${workAttempts.runtimeState} IN ('queued','running','waiting','retrying') AND (${workAttempts.expiresAt} IS NULL OR ${workAttempts.expiresAt}>${p.now}) THEN 1 ELSE 0 END)`
+						.mapWith(Number)
+						.as("active"),
 				stale:
-					sql<number>`SUM(CASE WHEN ${workAttempts.runtimeState} IN ('queued','running','waiting','retrying') AND ${workAttempts.expiresAt} IS NOT NULL AND ${workAttempts.expiresAt}<=${p.now} THEN 1 ELSE 0 END)`.as(
-						"stale",
-					),
+					sql<number>`SUM(CASE WHEN ${workAttempts.runtimeState} IN ('queued','running','waiting','retrying') AND ${workAttempts.expiresAt} IS NOT NULL AND ${workAttempts.expiresAt}<=${p.now} THEN 1 ELSE 0 END)`
+						.mapWith(Number)
+						.as("stale"),
 				// Actionable subset: an elapsed lease on a terminal Work Item can
 				// never be recovered into progress, so it is census, not pressure.
 				staleActionable:
-					sql<number>`SUM(CASE WHEN ${workAttempts.runtimeState} IN ('queued','running','waiting','retrying') AND ${workAttempts.expiresAt} IS NOT NULL AND ${workAttempts.expiresAt}<=${p.now} AND EXISTS (SELECT 1 FROM work_items wi WHERE wi.org_id=${workAttempts.orgId} AND wi.id=${workAttempts.workItemId} AND wi.disposition NOT IN ('completed','cancelled')) THEN 1 ELSE 0 END)`.as(
-						"stale_actionable",
-					),
+					sql<number>`SUM(CASE WHEN ${workAttempts.runtimeState} IN ('queued','running','waiting','retrying') AND ${workAttempts.expiresAt} IS NOT NULL AND ${workAttempts.expiresAt}<=${p.now} AND EXISTS (SELECT 1 FROM work_items wi WHERE wi.org_id=${workAttempts.orgId} AND wi.id=${workAttempts.workItemId} AND wi.disposition NOT IN ('completed','cancelled')) THEN 1 ELSE 0 END)`
+						.mapWith(Number)
+						.as("stale_actionable"),
 				withoutAdmission:
-					sql<number>`SUM(CASE WHEN ${workAttempts.admissionId} IS NULL THEN 1 ELSE 0 END)`.as(
-						"without_admission",
-					),
+					sql<number>`SUM(CASE WHEN ${workAttempts.admissionId} IS NULL THEN 1 ELSE 0 END)`
+						.mapWith(Number)
+						.as("without_admission"),
 			})
 			.from(workAttempts)
 			.where(eq(workAttempts.orgId, p.orgId))
@@ -73,15 +85,16 @@ export async function getWorkFleetProjection(
 				key: sql<string>`CASE WHEN ${workAdmissions.expiresAt}<=${p.now} THEN 'expired' ELSE ${workAdmissions.decision} END`.as(
 					"key",
 				),
-				count: sql<number>`COUNT(*)`.as("count"),
+				count: sql<number>`COUNT(*)`.mapWith(Number).as("count"),
 			})
 			.from(workAdmissions)
 			.where(eq(workAdmissions.orgId, p.orgId))
 			.groupBy(
-				sql`CASE WHEN ${workAdmissions.expiresAt}<=${p.now} THEN 'expired' ELSE ${workAdmissions.decision} END`,
+				// The first column: Postgres does not match a repeated expression with new bound parameters.
+				sql`1`,
 			),
 		db
-			.select({ count: sql<number>`COUNT(*)`.as("count") })
+			.select({ count: sql<number>`COUNT(*)`.mapWith(Number).as("count") })
 			.from(workAdmissions)
 			.innerJoin(
 				workItems,
@@ -125,45 +138,47 @@ export async function getWorkFleetProjection(
 				key: sql<string>`CASE WHEN ${workApprovalProposals.status}='pending' AND ${workApprovalProposals.expiresAt}<=${p.now} THEN 'expired' ELSE ${workApprovalProposals.status} END`.as(
 					"key",
 				),
-				count: sql<number>`COUNT(*)`.as("count"),
+				count: sql<number>`COUNT(*)`.mapWith(Number).as("count"),
 			})
 			.from(workApprovalProposals)
 			.where(eq(workApprovalProposals.orgId, p.orgId))
 			.groupBy(
-				sql`CASE WHEN ${workApprovalProposals.status}='pending' AND ${workApprovalProposals.expiresAt}<=${p.now} THEN 'expired' ELSE ${workApprovalProposals.status} END`,
+				// The first column: Postgres does not match a repeated expression with new bound parameters.
+				sql`1`,
 			),
 		db
 			.select({
 				key: sql<string>`CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.now} THEN 'expired' ELSE ${workInteractions.status} END`.as(
 					"key",
 				),
-				count: sql<number>`COUNT(*)`.as("count"),
+				count: sql<number>`COUNT(*)`.mapWith(Number).as("count"),
 				awaiting:
-					sql<number>`SUM(CASE WHEN ${workInteractions.status}='open' AND (${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now}) THEN 1 ELSE 0 END)`.as(
-						"awaiting",
-					),
+					sql<number>`SUM(CASE WHEN ${workInteractions.status}='open' AND (${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now}) THEN 1 ELSE 0 END)`
+						.mapWith(Number)
+						.as("awaiting"),
 				overdue:
-					sql<number>`SUM(CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.dueAt} IS NOT NULL AND ${workInteractions.dueAt}<${p.now} AND (${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now}) THEN 1 ELSE 0 END)`.as(
-						"overdue",
-					),
+					sql<number>`SUM(CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.dueAt} IS NOT NULL AND ${workInteractions.dueAt}<${p.now} AND (${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now}) THEN 1 ELSE 0 END)`
+						.mapWith(Number)
+						.as("overdue"),
 			})
 			.from(workInteractions)
 			.where(eq(workInteractions.orgId, p.orgId))
 			.groupBy(
-				sql`CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.now} THEN 'expired' ELSE ${workInteractions.status} END`,
+				// The first column: Postgres does not match a repeated expression with new bound parameters.
+				sql`1`,
 			),
 		db
 			.select({
 				resourceKey: workResourcePools.resourceKey,
 				capacity: workResourcePools.capacity,
 				activeReserved:
-					sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id="work_resource_pools"."org_id" AND r.pool_id="work_resource_pools"."id" AND r.state='active' AND r.expires_at>${p.now}),0)`.as(
-						"active_reserved",
-					),
+					sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id="work_resource_pools"."org_id" AND r.pool_id="work_resource_pools"."id" AND r.state='active' AND r.expires_at>${p.now}),0)`
+						.mapWith(Number)
+						.as("active_reserved"),
 				consumed:
-					sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id="work_resource_pools"."org_id" AND r.pool_id="work_resource_pools"."id" AND r.state='consumed'),0)`.as(
-						"consumed",
-					),
+					sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id="work_resource_pools"."org_id" AND r.pool_id="work_resource_pools"."id" AND r.state='consumed'),0)`
+						.mapWith(Number)
+						.as("consumed"),
 			})
 			.from(workResourcePools)
 			.where(
@@ -178,13 +193,13 @@ export async function getWorkFleetProjection(
 				scopeType: workBudgetEnvelopes.scopeType,
 				limitMicros: workBudgetEnvelopes.limitMicros,
 				activeReservedMicros:
-					sql<number>`COALESCE((SELECT SUM(r.amount_micros) FROM work_budget_reservations r WHERE r.org_id="work_budget_envelopes"."org_id" AND r.envelope_id="work_budget_envelopes"."id" AND r.state='active' AND r.expires_at>${p.now}),0)`.as(
-						"active_reserved_micros",
-					),
+					sql<number>`COALESCE((SELECT SUM(r.amount_micros) FROM work_budget_reservations r WHERE r.org_id="work_budget_envelopes"."org_id" AND r.envelope_id="work_budget_envelopes"."id" AND r.state='active' AND r.expires_at>${p.now}),0)`
+						.mapWith(Number)
+						.as("active_reserved_micros"),
 				consumedMicros:
-					sql<number>`COALESCE((SELECT SUM(COALESCE(r.consumed_micros,r.amount_micros)) FROM work_budget_reservations r WHERE r.org_id="work_budget_envelopes"."org_id" AND r.envelope_id="work_budget_envelopes"."id" AND r.state='consumed'),0)`.as(
-						"consumed_micros",
-					),
+					sql<number>`COALESCE((SELECT SUM(COALESCE(r.consumed_micros,r.amount_micros)) FROM work_budget_reservations r WHERE r.org_id="work_budget_envelopes"."org_id" AND r.envelope_id="work_budget_envelopes"."id" AND r.state='consumed'),0)`
+						.mapWith(Number)
+						.as("consumed_micros"),
 			})
 			.from(workBudgetEnvelopes)
 			.where(

@@ -17,20 +17,21 @@ import {
 	sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
-import { dispatcherHealthReports } from "../../schema/dispatcher-health";
-import { projects } from "../../schema/projects";
-import { tediObjectives } from "../../schema/tedi-objectives";
+import { dispatcherHealthReports as d1DispatcherHealthReports } from "../../schema/dispatcher-health";
+import { projects as d1Projects } from "../../schema/projects";
+import { tediObjectives as d1TediObjectives } from "../../schema/tedi-objectives";
 import {
-	workInteractions,
-	workResourceReservations,
+	workInteractions as d1WorkInteractions,
+	workResourceReservations as d1WorkResourceReservations,
 } from "../../schema/work-factory";
 import {
-	workAttempts,
-	workEvents,
-	workItemComments,
-	workItemRelations,
-	workItems,
+	workAttempts as d1WorkAttempts,
+	workEvents as d1WorkEvents,
+	workItemComments as d1WorkItemComments,
+	workItemRelations as d1WorkItemRelations,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 
 export const WORK_MAP_ITEM_LIMIT = 500;
@@ -39,9 +40,16 @@ export async function readWorkMapSnapshot(
 	db: DbQueryClient,
 	p: { orgId: string; now: string },
 ) {
-	const e = alias(workEvents, "e");
-	const c = alias(workItemComments, "c");
-	const a = alias(workAttempts, "a");
+	const workItems = coreTable(db, d1WorkItems);
+	const projects = coreTable(db, d1Projects);
+	const tediObjectives = coreTable(db, d1TediObjectives);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const workItemRelations = coreTable(db, d1WorkItemRelations);
+	const workResourceReservations = coreTable(db, d1WorkResourceReservations);
+	const dispatcherHealthReports = coreTable(db, d1DispatcherHealthReports);
+	const e = alias(coreTable(db, d1WorkEvents), "e");
+	const c = alias(coreTable(db, d1WorkItemComments), "c");
+	const a = alias(coreTable(db, d1WorkAttempts), "a");
 	const child = alias(workItems, "child");
 	const [
 		items,
@@ -147,7 +155,7 @@ export async function readWorkMapSnapshot(
 			.select({
 				parentId: sql<string>`${workItems.parentWorkItemId}`.as("parent_id"),
 				disposition: workItems.disposition,
-				count: sql<number>`COUNT(*)`.as("count"),
+				count: sql<number>`COUNT(*)`.mapWith(Number).as("count"),
 			})
 			.from(workItems)
 			.where(

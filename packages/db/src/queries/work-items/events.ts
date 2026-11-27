@@ -1,6 +1,11 @@
 import { and, asc, eq, gt, inArray, max, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
-import { type WorkEvent, workEvents } from "../../schema/work-items";
+import {
+	type WorkEvent,
+	workEvents as d1WorkEvents,
+} from "../../schema/work-items";
 export async function listWorkItemEvents(
 	db: DbQueryClient,
 	params: {
@@ -10,6 +15,7 @@ export async function listWorkItemEvents(
 		limit?: number;
 	},
 ): Promise<WorkEvent[]> {
+	const workEvents = coreTable(db, d1WorkEvents);
 	return db
 		.select()
 		.from(workEvents)
@@ -18,7 +24,7 @@ export async function listWorkItemEvents(
 				eq(workEvents.orgId, params.orgId),
 				eq(workEvents.workItemId, params.workItemId),
 				params.afterSequence === undefined
-					? sql`1`
+					? undefined
 					: gt(workEvents.sequence, params.afterSequence),
 			),
 		)
@@ -55,6 +61,7 @@ export async function listWorkStateChangeEvents(
 		limit: number;
 	},
 ): Promise<WorkStateChangeEventRow[]> {
+	const workEvents = coreTable(db, d1WorkEvents);
 	return db
 		.select({
 			sequence: workEvents.sequence,
@@ -65,7 +72,7 @@ export async function listWorkStateChangeEvents(
 			occurredAt: workEvents.occurredAt,
 			outcome: sql<
 				string | null
-			>`json_extract(${workEvents.payload}, '$.outcome')`.as("outcome"),
+			>`${jsonRead(db, workEvents.payload, ["outcome"])}`.as("outcome"),
 		})
 		.from(workEvents)
 		.where(
@@ -87,6 +94,7 @@ export async function getWorkEventHeadSequence(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<number> {
+	const workEvents = coreTable(db, d1WorkEvents);
 	const [row] = await db
 		.select({ head: max(workEvents.sequence) })
 		.from(workEvents)

@@ -43,19 +43,31 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead } from "../../core-store/dialect";
 import {
 	type WorkInteractionDeliveryVia,
 	type WorkInteractionReplyDraft,
 	type WorkInteractionResponse,
 	type WorkInteractionTargetType,
-	workInteractionDeliveries,
-	workInteractionReplyDrafts,
-	workInteractionResponses,
-	workInteractions,
+	workInteractionDeliveries as deliveriesTable,
+	workInteractionReplyDrafts as draftsTable,
+	workInteractionResponses as responsesTable,
+	workInteractions as interactionsTable,
 	workInteractionStoredColumns,
 } from "../../schema/work-factory";
 import { WorkControlError } from "./factory-validation";
 import { tedis } from "../../schema/tedis";
+
+/** Stored (non-generated) interaction columns of the selected store's table. */
+function storedInteractionColumns(table: typeof interactionsTable) {
+	return Object.fromEntries(
+		Object.keys(workInteractionStoredColumns).map((key) => [
+			key,
+			table[key as keyof typeof workInteractionStoredColumns],
+		]),
+	) as typeof workInteractionStoredColumns;
+}
 
 /** Response `metadata.source` of an auto draft answering in the tedi's name. */
 export const AUTO_REPLY_SOURCE = "auto-reply";
@@ -136,7 +148,7 @@ export async function insertReplyDraft(
 ): Promise<WorkInteractionReplyDraft> {
 	try {
 		const [row] = await db
-			.insert(workInteractionReplyDrafts)
+			.insert(coreTable(db, draftsTable))
 			.values({
 				id: p.id,
 				orgId: p.orgId,
@@ -169,6 +181,7 @@ export async function listLatestReplyDrafts(
 	orgId: string,
 	interactionIds: string[],
 ) {
+	const workInteractionReplyDrafts = coreTable(db, draftsTable);
 	const rows: WorkInteractionReplyDraft[] = [];
 	for (let offset = 0; offset < interactionIds.length; offset += 50) {
 		rows.push(
@@ -194,6 +207,7 @@ export async function getLatestReplyDraft(
 	db: DbQueryClient,
 	p: GetLatestReplyDraftParams,
 ): Promise<WorkInteractionReplyDraft | null> {
+	const workInteractionReplyDrafts = coreTable(db, draftsTable);
 	const [row] = await db
 		.select()
 		.from(workInteractionReplyDrafts)
@@ -240,8 +254,9 @@ export async function countConsecutiveAutoReplies(
 	p: CountConsecutiveAutoRepliesParams,
 ): Promise<number> {
 	if (p.limit <= 0) return 0;
-	const d = alias(workInteractionReplyDrafts, "d");
-	const r = alias(workInteractionResponses, "r");
+	const q = sessionQuestions(db);
+	const d = alias(coreTable(db, draftsTable), "d");
+	const r = alias(coreTable(db, responsesTable), "r");
 	const rows: ConsecutiveRow[] = await db
 		.select({
 			has_auto: sql<number>`${exists(
@@ -266,13 +281,13 @@ export async function countConsecutiveAutoReplies(
 							eq(r.interactionId, q.id),
 							eq(r.responderType, "user"),
 							eq(r.responderId, p.targetUserId),
-							sql`json_extract(${r.metadata}, '$.source') = ${USER_REPLY_SOURCE}`,
+							sql`${jsonRead(db, r.metadata, ["source"])} = ${USER_REPLY_SOURCE}`,
 						),
 					),
 			)}`.as("user_replied"),
 		})
 		.from(q)
-		.where(earlierSessionQuestions(p))
+		.where(earlierSessionQuestions(db, q, p))
 		.orderBy(desc(q.createdAt), desc(q.id))
 		.limit(p.limit);
 	let count = 0;
@@ -301,7 +316,8 @@ export async function getPreviousSessionDraftTurnType(
 	db: DbQueryClient,
 	p: GetPreviousSessionDraftTurnTypeParams,
 ): Promise<string | null> {
-	const d = alias(workInteractionReplyDrafts, "d");
+	const q = sessionQuestions(db);
+	const d = alias(coreTable(db, draftsTable), "d");
 	const [row] = await db
 		.select({
 			turn_type: sql<string | null>`${db
@@ -312,24 +328,29 @@ export async function getPreviousSessionDraftTurnType(
 				.limit(1)}`.as("turn_type"),
 		})
 		.from(q)
-		.where(earlierSessionQuestions(p))
+		.where(earlierSessionQuestions(db, q, p))
 		.orderBy(desc(q.createdAt), desc(q.id))
 		.limit(1);
 	return row?.turn_type ?? null;
 }
 
-const q = alias(workInteractions, "q");
+const sessionQuestions = (db: object) =>
+	alias(coreTable(db, interactionsTable), "q");
 
 /** The session's decision-capture questions before the current one. */
-function earlierSessionQuestions(p: GetPreviousSessionDraftTurnTypeParams) {
+function earlierSessionQuestions(
+	db: object,
+	q: ReturnType<typeof sessionQuestions>,
+	p: GetPreviousSessionDraftTurnTypeParams,
+) {
 	return and(
 		eq(q.orgId, p.orgId),
 		eq(q.targetType, "user"),
 		eq(q.targetId, p.targetUserId),
 		eq(q.kind, "question"),
 		ne(q.id, p.interactionId),
-		sql`json_extract(${q.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
-		sql`json_extract(${q.metadata}, '$.sessionId') = ${p.sessionId}`,
+		sql`${jsonRead(db, q.metadata, ["schema"])} = ${DECISION_CAPTURE_SCHEMA}`,
+		sql`${jsonRead(db, q.metadata, ["sessionId"])} = ${p.sessionId}`,
 		or(
 			lt(q.createdAt, p.createdAt),
 			and(eq(q.createdAt, p.createdAt), lt(q.id, p.interactionId)),
@@ -409,16 +430,13 @@ interface DraftOutcomeScope {
  * how long after the question it landed (`reply_seconds`).
  */
 function draftOutcomes(db: DbQueryClient, p: DraftOutcomeScope) {
-	const since = p.since ?? null;
-	const orgId = p.orgId ?? null;
-	const targetUserId = p.targetUserId ?? null;
-	const d = alias(workInteractionReplyDrafts, "d");
-	const i = alias(workInteractions, "i");
-	const r = alias(workInteractionResponses, "r");
-	const u = alias(workInteractionResponses, "u");
-	const n = alias(workInteractions, "n");
+	const d = alias(coreTable(db, draftsTable), "d");
+	const i = alias(coreTable(db, interactionsTable), "i");
+	const r = alias(coreTable(db, responsesTable), "r");
+	const u = alias(coreTable(db, responsesTable), "u");
+	const n = alias(coreTable(db, interactionsTable), "n");
 	const outcome = db
-		.select({ outcome: sql`json_extract(${r.metadata}, '$.draftOutcome')` })
+		.select({ outcome: jsonRead(db, r.metadata, ["draftOutcome"]) })
 		.from(r)
 		.where(
 			and(
@@ -426,7 +444,7 @@ function draftOutcomes(db: DbQueryClient, p: DraftOutcomeScope) {
 				eq(r.interactionId, d.interactionId),
 				eq(r.responderType, "user"),
 				eq(r.responderId, i.targetId),
-				sql`json_extract(${r.metadata}, '$.draftId') = ${d.id}`,
+				sql`${jsonRead(db, r.metadata, ["draftId"])} = ${d.id}`,
 			),
 		)
 		.orderBy(asc(r.respondedAt), asc(r.id))
@@ -440,8 +458,8 @@ function draftOutcomes(db: DbQueryClient, p: DraftOutcomeScope) {
 				eq(n.targetType, "user"),
 				eq(n.targetId, i.targetId),
 				eq(n.kind, "question"),
-				sql`json_extract(${n.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
-				sql`json_extract(${n.metadata}, '$.sessionId') = json_extract(${i.metadata}, '$.sessionId')`,
+				sql`${jsonRead(db, n.metadata, ["schema"])} = ${DECISION_CAPTURE_SCHEMA}`,
+				sql`${jsonRead(db, n.metadata, ["sessionId"])} = ${jsonRead(db, i.metadata, ["sessionId"])}`,
 				or(
 					gt(n.createdAt, i.createdAt),
 					and(eq(n.createdAt, i.createdAt), gt(n.id, i.id)),
@@ -452,7 +470,7 @@ function draftOutcomes(db: DbQueryClient, p: DraftOutcomeScope) {
 		.limit(1);
 	const followup = db
 		.select({
-			replyClass: sql`coalesce(json_extract(${u.metadata}, '$.replyClass'), '')`,
+			replyClass: sql`coalesce(${jsonRead(db, u.metadata, ["replyClass"])}, '')`,
 		})
 		.from(u)
 		.where(
@@ -460,7 +478,7 @@ function draftOutcomes(db: DbQueryClient, p: DraftOutcomeScope) {
 				eq(u.orgId, d.orgId),
 				eq(u.responderType, "user"),
 				eq(u.responderId, i.targetId),
-				sql`(json_extract(${u.metadata}, '$.source') = ${USER_REPLY_SOURCE} OR json_extract(${u.metadata}, '$.corrects') IS NOT NULL)`,
+				sql`(${jsonRead(db, u.metadata, ["source"])} = ${USER_REPLY_SOURCE} OR ${jsonRead(db, u.metadata, ["corrects"], "json")} IS NOT NULL)`,
 				sql`${u.interactionId} IN (${d.interactionId}, ${nextSessionQuestion})`,
 			),
 		)
@@ -475,8 +493,8 @@ function draftOutcomes(db: DbQueryClient, p: DraftOutcomeScope) {
 				eq(n.targetType, "user"),
 				eq(n.targetId, i.targetId),
 				eq(n.kind, "question"),
-				sql`json_extract(${n.metadata}, '$.priorDraft.draftId') = ${d.id}`,
-				sql`json_extract(${n.metadata}, '$.priorDraft.draftOutcome') = 'rejected'`,
+				sql`${jsonRead(db, n.metadata, ["priorDraft", "draftId"])} = ${d.id}`,
+				sql`${jsonRead(db, n.metadata, ["priorDraft", "draftOutcome"])} = 'rejected'`,
 			),
 		);
 	return db
@@ -487,17 +505,17 @@ function draftOutcomes(db: DbQueryClient, p: DraftOutcomeScope) {
 			turnType: sql<string | null>`${d.turnType}`.as("turn_type"),
 			drafterId: sql<string>`${d.drafterId}`.as("drafter_id"),
 			createdAt: sql<string>`${d.createdAt}`.as("created_at"),
-			replySeconds:
-				sql<number>`(julianday(${d.createdAt}) - julianday(${i.createdAt})) * 86400`.as(
-					"reply_seconds",
-				),
+			replySeconds: (coreStore(db) === "postgres"
+				? sql<number>`extract(epoch FROM (${d.createdAt})::timestamp - (${i.createdAt})::timestamp)`
+				: sql<number>`(julianday(${d.createdAt}) - julianday(${i.createdAt})) * 86400`
+			).as("reply_seconds"),
 			outcome: sql<string | null>`${outcome}`.as("outcome"),
 			delivery: sql<ReplyDraftDelivery>`${d.delivery}`.as("delivery"),
 			followup: sql<
 				string | null
 			>`CASE WHEN ${d.delivery} = 'auto' THEN ${followup} END`.as("followup"),
 			rejected:
-				sql<number>`CASE WHEN ${d.delivery} = 'auto' THEN ${exists(declined)} ELSE 0 END`.as(
+				sql<number>`CASE WHEN ${d.delivery} = 'auto' AND ${exists(declined)} THEN 1 ELSE 0 END`.as(
 					"rejected",
 				),
 		})
@@ -505,10 +523,12 @@ function draftOutcomes(db: DbQueryClient, p: DraftOutcomeScope) {
 		.innerJoin(i, and(eq(i.orgId, d.orgId), eq(i.id, d.interactionId)))
 		.where(
 			and(
-				sql`(${orgId} IS NULL OR ${d.orgId} = ${orgId})`,
+				p.orgId === undefined ? undefined : eq(d.orgId, p.orgId),
 				eq(i.targetType, "user"),
-				sql`(${targetUserId} IS NULL OR ${i.targetId} = ${targetUserId})`,
-				sql`(${since} IS NULL OR ${d.createdAt} >= ${since})`,
+				p.targetUserId === undefined
+					? undefined
+					: eq(i.targetId, p.targetUserId),
+				p.since === undefined ? undefined : gte(d.createdAt, p.since),
 			),
 		);
 }
@@ -642,9 +662,9 @@ export async function getReplyDraftLeaderboard(
 	p: GetReplyDraftLeaderboardParams,
 ): Promise<ReplyDraftLeaderboardResult[]> {
 	const o = draftOutcomes(db, p).as("o");
-	const t = alias(tedis, "t");
+	const t = alias(coreTable(db, tedis), "t");
 	const overridden = overriddenDraft(o);
-	const stood = sql`((${o.delivery} = 'auto' AND NOT ${overridden}) OR (${o.delivery} IS NOT 'auto' AND ${o.outcome} = 'accepted'))`;
+	const stood = sql`((${o.delivery} = 'auto' AND NOT ${overridden}) OR (coalesce(${o.delivery}, '') <> 'auto' AND ${o.outcome} = 'accepted'))`;
 	const corrected = sql`(${o.outcome} IN ('edited', 'replaced') OR (${o.delivery} = 'auto' AND ${overridden}))`;
 	const today = sql`${o.createdAt} >= ${p.todaySince}`;
 	const steered = sql`${o.turnType} = ${STEER_TURN_TYPE}`;
@@ -698,7 +718,7 @@ export async function getReplyDraftLeaderboard(
 		})
 		.from(o)
 		.leftJoin(t, and(eq(t.id, o.drafterId), eq(t.organizationId, p.orgId)))
-		.groupBy(o.drafterId)
+		.groupBy(o.drafterId, t.name, t.avatar)
 		.orderBy(
 			desc(sql`w_stood`),
 			asc(sql`w_corrected`),
@@ -732,6 +752,7 @@ export async function getAutoReplyResponse(
 	db: DbQueryClient,
 	p: { orgId: string; interactionId: string; draftId: string },
 ): Promise<WorkInteractionResponse | null> {
+	const workInteractionResponses = coreTable(db, responsesTable);
 	const [row] = await db
 		.select()
 		.from(workInteractionResponses)
@@ -740,8 +761,8 @@ export async function getAutoReplyResponse(
 				eq(workInteractionResponses.orgId, p.orgId),
 				eq(workInteractionResponses.interactionId, p.interactionId),
 				eq(workInteractionResponses.responderType, "tedi"),
-				sql`json_extract(${workInteractionResponses.metadata},'$.draftId')=${p.draftId}`,
-				sql`json_extract(${workInteractionResponses.metadata},'$.draftOutcome')='auto'`,
+				sql`${jsonRead(db, workInteractionResponses.metadata, ["draftId"])}=${p.draftId}`,
+				sql`${jsonRead(db, workInteractionResponses.metadata, ["draftOutcome"])}='auto'`,
 			),
 		)
 		.limit(1);
@@ -780,8 +801,12 @@ export async function recordAutoReplyDelivery(
 	db: DbQueryClient,
 	p: RecordAutoReplyDeliveryParams,
 ): Promise<AutoReplyDeliveryResult> {
+	const workInteractions = coreTable(db, interactionsTable);
+	const workInteractionReplyDrafts = coreTable(db, draftsTable);
+	const workInteractionDeliveries = coreTable(db, deliveriesTable);
+	const workInteractionResponses = coreTable(db, responsesTable);
 	const [request] = await db
-		.select(workInteractionStoredColumns)
+		.select(storedInteractionColumns(workInteractions))
 		.from(workInteractions)
 		.where(
 			and(

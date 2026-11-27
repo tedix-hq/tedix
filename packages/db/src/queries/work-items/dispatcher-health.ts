@@ -27,16 +27,18 @@ import {
 	type SQLWrapper,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../../core-store/client";
+import { booleanValue, coreStore, jsonRead } from "../../core-store/dialect";
 import { policyPacks } from "../../schema/control-plane";
 import { kernelRequests } from "../../schema/kernel-requests";
 import { organizationMembers } from "../../schema/organization-members";
-import { organizations } from "../../schema/organizations";
-import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
+import { organizations as d1Organizations } from "../../schema/organizations";
+import { platformCronCheckpoints as d1PlatformCronCheckpoints } from "../../schema/platform-cron-executions";
 import { workInteractions } from "../../schema/work-factory";
 import { workAttempts, workItems } from "../../schema/work-items";
 import type { DbQueryClient } from "../../query-client";
 import {
-	dispatcherHealthReports,
+	dispatcherHealthReports as d1DispatcherHealthReports,
 	type DispatcherHealthReportRow,
 	type NewDispatcherHealthReportRow,
 } from "../../schema/dispatcher-health";
@@ -53,6 +55,7 @@ export async function getDispatcherHealthSettings(
 	db: DbQueryClient,
 	orgId: string,
 ) {
+	const organizations = coreTable(db, d1Organizations);
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -67,6 +70,7 @@ export async function listDispatcherWorkReferences(
 	orgId: string,
 	ids: string[],
 ) {
+	const w = coreTable(db, workItems);
 	const unique = [...new Set(ids)];
 	const rows: Pick<
 		typeof workItems.$inferSelect,
@@ -76,16 +80,16 @@ export async function listDispatcherWorkReferences(
 		rows.push(
 			...(await db
 				.select({
-					id: workItems.id,
-					title: workItems.title,
-					disposition: workItems.disposition,
-					completedAt: workItems.completedAt,
+					id: w.id,
+					title: w.title,
+					disposition: w.disposition,
+					completedAt: w.completedAt,
 				})
-				.from(workItems)
+				.from(w)
 				.where(
 					and(
-						eq(workItems.orgId, orgId),
-						inArray(workItems.id, unique.slice(offset, offset + 50)),
+						eq(w.orgId, orgId),
+						inArray(w.id, unique.slice(offset, offset + 50)),
 					),
 				)),
 		);
@@ -98,6 +102,7 @@ export async function upsertDispatcherHealthReport(
 	db: DbQueryClient,
 	params: UpsertDispatcherHealthReportParams,
 ): Promise<DispatcherHealthReportRow> {
+	const dispatcherHealthReports = coreTable(db, d1DispatcherHealthReports);
 	const [row] = await db
 		.insert(dispatcherHealthReports)
 		.values(params)
@@ -133,6 +138,7 @@ export function listDispatcherHealthReports(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<DispatcherHealthReportRow[]> {
+	const dispatcherHealthReports = coreTable(db, d1DispatcherHealthReports);
 	return db
 		.select()
 		.from(dispatcherHealthReports)
@@ -149,20 +155,30 @@ export function listDispatcherHealthReports(
  * Only these organizations run the dispatcher, so only they can stall.
  */
 function trackerEnabled(db: DbQueryClient, orgId: SQLWrapper): SQL {
-	const p = alias(policyPacks, "p");
-	// `+status` keeps the planner on the (organization_id, version) seek.
+	const p = alias(coreTable(db, policyPacks), "p");
+	const enabled = jsonRead(
+		db,
+		p.definition,
+		["kernelRequestCoordinator", "enabled"],
+		"boolean",
+	);
+	// SQLite: `+status` keeps the planner on the (organization_id, version) seek.
+	const active =
+		coreStore(db) === "postgres"
+			? sql`${p.status} = 'active'`
+			: sql`+${p.status} = 'active'`;
 	return sql`coalesce(${db
 		.select({
-			enabled: sql`json_extract(${p.definition}, '$.kernelRequestCoordinator.enabled') = 1`,
+			enabled: sql`CASE WHEN ${enabled} = ${booleanValue(db, true)} THEN 1 ELSE 0 END`,
 		})
 		.from(p)
-		.where(and(eq(p.organizationId, orgId), sql`+${p.status} = 'active'`))
+		.where(and(eq(p.organizationId, orgId), active))
 		.orderBy(desc(p.version))
 		.limit(1)}, 0)`;
 }
 
 function lastAdmission(db: DbQueryClient, orgId: SQLWrapper): SQL {
-	const a = alias(workAttempts, "a");
+	const a = alias(coreTable(db, workAttempts), "a");
 	return sql`${db
 		.select({ startedAt: a.startedAt })
 		.from(a)
@@ -172,7 +188,7 @@ function lastAdmission(db: DbQueryClient, orgId: SQLWrapper): SQL {
 }
 
 function lastTrackerAction(db: DbQueryClient, orgId: SQLWrapper): SQL {
-	const k = alias(kernelRequests, "k");
+	const k = alias(coreTable(db, kernelRequests), "k");
 	return sql`${db
 		.select({ updatedAt: k.updatedAt })
 		.from(k)
@@ -195,7 +211,7 @@ export async function readDispatcherActivity(
 ): Promise<DispatcherActivity> {
 	if (orgIds?.length === 0)
 		return { lastAdmissionAt: null, lastTrackerActionAt: null };
-	const o = alias(organizations, "o");
+	const o = alias(coreTable(db, d1Organizations), "o");
 	const [row] = await db
 		.select({
 			last_admission_at: sql<string | null>`max(${lastAdmission(db, o.id)})`.as(
@@ -259,10 +275,23 @@ type OrgRow = {
 	answered_alert_at: string | null;
 };
 
-const w = alias(workItems, "w");
+function workAlias(db: DbQueryClient) {
+	return alias(coreTable(db, workItems), "w");
+}
 
-function dispatchable(db: DbQueryClient, orgId: SQLWrapper): SQL | undefined {
-	const x = alias(workAttempts, "x");
+/** ISO-8601 UTC text for the statement's clock, as stored timestamps are written. */
+function nowIso(db: DbQueryClient): SQL {
+	return coreStore(db) === "postgres"
+		? sql`to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
+		: sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
+}
+
+function dispatchable(
+	db: DbQueryClient,
+	w: ReturnType<typeof workAlias>,
+	orgId: SQLWrapper,
+): SQL | undefined {
+	const x = alias(coreTable(db, workAttempts), "x");
 	return and(
 		eq(w.orgId, orgId),
 		eq(w.disposition, "accepted"),
@@ -270,7 +299,7 @@ function dispatchable(db: DbQueryClient, orgId: SQLWrapper): SQL | undefined {
 		// Literal: it must match the idx_work_items_lane_ready partial index.
 		sql`${w.dispatchState} = 'ready'`,
 		// Work waiting for its start date is not waiting for a runner.
-		sql`(${w.startAt} IS NULL OR ${w.startAt} <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+		sql`(${w.startAt} IS NULL OR ${w.startAt} <= ${nowIso(db)})`,
 		notExists(
 			db
 				.select({ one: sql`1` })
@@ -299,14 +328,15 @@ export async function listDispatcherHealthOrgs(
 ): Promise<DispatcherHealthOrgRow[]> {
 	if (orgIds?.length === 0) return [];
 	// The alarm addresses its item to a user; target_type keeps this on an index.
-	const h = alias(workInteractions, "h");
+	const w = workAlias(db);
+	const h = alias(coreTable(db, workInteractions), "h");
 	const alertOf = (orgId: SQLWrapper) =>
 		and(
 			eq(h.orgId, orgId),
 			eq(h.targetType, "user"),
-			sql`json_extract(${h.metadata}, '$.schema') = ${DISPATCHER_HEALTH_SCHEMA}`,
+			sql`${jsonRead(db, h.metadata, ["schema"])} = ${DISPATCHER_HEALTH_SCHEMA}`,
 		);
-	const o = alias(organizations, "o");
+	const o = alias(coreTable(db, d1Organizations), "o");
 	const c = db.$with("c").as(
 		db
 			.select({
@@ -339,8 +369,10 @@ export async function listDispatcherHealthOrgs(
 			.from(c)
 			.where(or(eq(c.trackerEnabled, 1), isNotNull(c.alertId))),
 	);
-	const m = alias(organizationMembers, "m");
-	const a = alias(workInteractions, "a");
+	const m = alias(coreTable(db, organizationMembers), "m");
+	const a = alias(coreTable(db, workInteractions), "a");
+	const setting = (name: string, kind?: "number") =>
+		jsonRead(db, t.orgMetadata, ["dispatcherHealth", name], kind);
 	const rows: OrgRow[] = await db
 		.with(c, t)
 		.select({
@@ -348,27 +380,21 @@ export async function listDispatcherHealthOrgs(
 			tracker_enabled: t.trackerEnabled,
 			stale_after: sql<
 				number | null
-			>`json_extract(${t.orgMetadata}, '$.dispatcherHealth.staleAfterMinutes')`.as(
-				"stale_after",
-			),
+			>`${setting("staleAfterMinutes", "number")}`.as("stale_after"),
 			alarm_interval: sql<
 				number | null
-			>`json_extract(${t.orgMetadata}, '$.dispatcherHealth.alarmIntervalMinutes')`.as(
-				"alarm_interval",
-			),
-			alarm_enabled: sql<
-				number | string | null
-			>`json_extract(${t.orgMetadata}, '$.dispatcherHealth.enabled')`.as(
+			>`${setting("alarmIntervalMinutes", "number")}`.as("alarm_interval"),
+			alarm_enabled: sql<number | string | null>`${setting("enabled")}`.as(
 				"alarm_enabled",
 			),
 			waiting: sql<number>`${db
 				.select({ n: sql`count(*)` })
 				.from(w)
-				.where(dispatchable(db, t.orgId))}`.as("waiting"),
+				.where(dispatchable(db, w, t.orgId))}`.as("waiting"),
 			work_item_id: sql<string | null>`${db
 				.select({ id: w.id })
 				.from(w)
-				.where(dispatchable(db, t.orgId))
+				.where(dispatchable(db, w, t.orgId))
 				.orderBy(w.createdAt, w.id)
 				.limit(1)}`.as("work_item_id"),
 			last_admission_at: sql<string | null>`${lastAdmission(db, t.orgId)}`.as(
@@ -412,7 +438,7 @@ export async function listDispatcherHealthOrgs(
 					db
 						.select({ one: sql`1` })
 						.from(w)
-						.where(dispatchable(db, t.orgId)),
+						.where(dispatchable(db, w, t.orgId)),
 				),
 			),
 		)
@@ -425,7 +451,9 @@ export async function listDispatcherHealthOrgs(
 				? Number(r.stale_after)
 				: null,
 		alarmIntervalMinutes: resolveDispatcherHealthSettings({
-			alarmIntervalMinutes: r.alarm_interval ?? undefined,
+			// Postgres returns JSON numbers as numeric text.
+			alarmIntervalMinutes:
+				r.alarm_interval === null ? undefined : Number(r.alarm_interval),
 		}).alarmIntervalMinutes,
 		alarmEnabled: !(r.alarm_enabled === 0 || r.alarm_enabled === "false"),
 		dispatchableCount: Number(r.waiting),
@@ -451,6 +479,8 @@ export async function readDispatcherHealthPage(
 	environment: string,
 	scheduledTime: number,
 ) {
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
+	const w = workAlias(db);
 	const scheduleId = `dispatcher-health:${environment}`;
 	const [checkpoint] = await db
 		.select({ through: platformCronCheckpoints.through })
@@ -470,8 +500,8 @@ export async function readDispatcherHealthPage(
 			next: null,
 			scheduleId,
 		};
-	const o = alias(organizations, "o");
-	const alert = alias(workInteractions, "active_alert");
+	const o = alias(coreTable(db, d1Organizations), "o");
+	const alert = alias(coreTable(db, workInteractions), "active_alert");
 	const candidates = await db
 		.select({ id: o.id })
 		.from(o)
@@ -483,7 +513,7 @@ export async function readDispatcherHealthPage(
 						db
 							.select({ one: sql`1` })
 							.from(w)
-							.where(dispatchable(db, o.id)),
+							.where(dispatchable(db, w, o.id)),
 					),
 					exists(
 						db
@@ -494,7 +524,7 @@ export async function readDispatcherHealthPage(
 									eq(alert.orgId, o.id),
 									eq(alert.targetType, "user"),
 									eq(alert.status, "open"),
-									sql`json_extract(${alert.metadata}, '$.schema') = ${DISPATCHER_HEALTH_SCHEMA}`,
+									sql`${jsonRead(db, alert.metadata, ["schema"])} = ${DISPATCHER_HEALTH_SCHEMA}`,
 								),
 							),
 					),
@@ -581,6 +611,9 @@ export async function advanceDispatcherHealthPage(
 	},
 ) {
 	if (page.next === null) return;
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
+	// Epoch milliseconds exceed a Postgres integer.
+	const integer = coreStore(db) === "postgres" ? sql`bigint` : sql`integer`;
 	await db.batch([
 		db
 			.insert(platformCronCheckpoints)
@@ -590,7 +623,7 @@ export async function advanceDispatcherHealthPage(
 				set: { through: page.next },
 				setWhere:
 					page.previous === null
-						? sql`0`
+						? sql`FALSE`
 						: eq(platformCronCheckpoints.through, page.previous),
 			}),
 		...(page.cadenceChecks ?? []).map((check) =>
@@ -600,7 +633,7 @@ export async function advanceDispatcherHealthPage(
 				.onConflictDoUpdate({
 					target: platformCronCheckpoints.scheduleId,
 					set: { through: check.through },
-					setWhere: sql`cast(${platformCronCheckpoints.through} as integer) < ${Number(check.through)}`,
+					setWhere: sql`cast(${platformCronCheckpoints.through} as ${integer}) < ${Number(check.through)}`,
 				}),
 		),
 	]);

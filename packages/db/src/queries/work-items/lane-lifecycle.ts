@@ -1,12 +1,45 @@
 import { advancePlatformCronCheckpoint } from "../platform-cron-executions";
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	gt,
+	sql,
+	type SQL,
+	type SQLWrapper,
+} from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { anyIds } from "../../core-store/dialect";
-import { workAttempts, workEvents, workItems } from "../../schema/work-items";
-import { workInteractions } from "../../schema/work-factory";
-import { tedis } from "../../schema/tedis";
-import { externalAgentPrincipals } from "../../schema/external-agent-identity";
-import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
+import { coreTable } from "../../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
+import {
+	workAttempts as d1WorkAttempts,
+	workEvents as d1WorkEvents,
+	workItems as d1WorkItems,
+} from "../../schema/work-items";
+import { workInteractions as d1WorkInteractions } from "../../schema/work-factory";
+import { tedis as d1Tedis } from "../../schema/tedis";
+import { externalAgentPrincipals as d1ExternalAgentPrincipals } from "../../schema/external-agent-identity";
+import { platformCronCheckpoints as d1PlatformCronCheckpoints } from "../../schema/platform-cron-executions";
+
+/** Lane Attempts carry metadata.lane = true; SQLite reads JSON true as 1. */
+function isLane(db: object, metadata: SQLWrapper): SQL {
+	const lane = jsonRead(db, metadata, ["lane"], "boolean");
+	return coreStore(db) === "postgres" ? sql`${lane} IS TRUE` : sql`${lane} = 1`;
+}
+
+/** A comparable instant: julianday on D1, epoch seconds on Postgres. */
+function instant(db: object, value: SQLWrapper | string): SQL {
+	return coreStore(db) === "postgres"
+		? sql`extract(epoch FROM (${value})::timestamptz)`
+		: sql`julianday(${value})`;
+}
 
 export async function readLaneState(
 	db: DbQueryClient,
@@ -14,14 +47,16 @@ export async function readLaneState(
 	attemptId: string,
 	now: string,
 ) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
 	const [row] = await db
 		.select({
 			state: sql<
 				"ready" | "needs-human" | "blocked" | "stale" | "failed" | "done" | null
 			>`CASE
-		WHEN json_extract(${workAttempts.metadata}, '$.lane') IS NOT 1 THEN NULL
+		WHEN NOT coalesce(${isLane(db, workAttempts.metadata)}, FALSE) THEN NULL
 		WHEN ${workAttempts.outcome} IN ('failed','expired','cancelled') OR ${workAttempts.expiresAt} <= ${now} AND ${workAttempts.outcome} IS NULL THEN 'failed'
-		WHEN ${workAttempts.outcome} IS NULL AND julianday(${now}) >= (julianday(${workAttempts.heartbeatAt}) + julianday(${workAttempts.expiresAt})) / 2 THEN 'stale'
+		WHEN ${workAttempts.outcome} IS NULL AND ${instant(db, now)} >= (${instant(db, workAttempts.heartbeatAt)} + ${instant(db, workAttempts.expiresAt)}) / 2 THEN 'stale'
 		WHEN EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id=${workAttempts.orgId} AND i.work_item_id=${workAttempts.workItemId} AND i.status='open' AND i.target_type='user' AND i.kind IN ('question','input','handoff') AND (i.expires_at IS NULL OR i.expires_at>${now})) THEN 'needs-human'
 		WHEN EXISTS (SELECT 1 FROM agent_session_requests r JOIN external_agent_principals p ON p.organization_id=r.organization_id AND p.credential_binding_type='owner_user' AND p.credential_binding_id=r.user_id WHERE r.organization_id=${workAttempts.orgId} AND p.id=${workAttempts.executorId} AND r.harness || ':' || r.session_key=${workAttempts.externalSessionKey} AND r.project_id=${workItems.projectId} AND r.status_changed_at>=${workAttempts.startedAt} AND r.status='waiting_on_user') THEN 'blocked'
 		WHEN ${workAttempts.outcome}='succeeded' THEN 'done'
@@ -47,6 +82,8 @@ export async function recordStaleLanes(
 	now: string,
 	scope?: { orgId: string; ids: string[] },
 ) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workEvents = coreTable(db, d1WorkEvents);
 	const due = and(
 		scope
 			? and(
@@ -55,7 +92,7 @@ export async function recordStaleLanes(
 				)
 			: undefined,
 		eq(workAttempts.executorType, "external_agent"),
-		sql`json_extract(${workAttempts.metadata}, '$.lane') = 1`,
+		isLane(db, workAttempts.metadata),
 		sql`${workAttempts.outcome} IS NULL`,
 		// An Attempt without an outcome is in one of these states
 		// (chk_work_attempt_terminal_state), so this changes no result. It
@@ -63,8 +100,10 @@ export async function recordStaleLanes(
 		// lets the sweep read the few live Attempts instead of every Attempt
 		// ever made.
 		sql`${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')`,
-		sql`strftime('%Y-%m-%dT%H:%M:%fZ', (julianday(${workAttempts.heartbeatAt}) + julianday(${workAttempts.expiresAt})) / 2) <= ${now}`,
-		sql`NOT EXISTS (SELECT 1 FROM work_events e WHERE e.org_id = ${workAttempts.orgId} AND e.attempt_id = ${workAttempts.id} AND e.event_type = 'lane.stale' AND json_extract(e.payload, '$.heartbeatAt') = ${workAttempts.heartbeatAt})`,
+		coreStore(db) === "postgres"
+			? sql`(${instant(db, workAttempts.heartbeatAt)} + ${instant(db, workAttempts.expiresAt)}) / 2 <= ${instant(db, now)}`
+			: sql`strftime('%Y-%m-%dT%H:%M:%fZ', (julianday(${workAttempts.heartbeatAt}) + julianday(${workAttempts.expiresAt})) / 2) <= ${now}`,
+		sql`NOT EXISTS (SELECT 1 FROM work_events e WHERE e.org_id = ${workAttempts.orgId} AND e.attempt_id = ${workAttempts.id} AND e.event_type = 'lane.stale' AND ${jsonRead(db, sql`e.payload`, ["heartbeatAt"])} = ${workAttempts.heartbeatAt})`,
 	);
 	const candidates = await db
 		.select({
@@ -90,10 +129,10 @@ export async function recordStaleLanes(
 						eventType: sql<string>`'lane.stale'`.as("event_type"),
 						actorType: sql<string>`'system'`.as("actor_type"),
 						actorId: sql<string>`'tedix'`.as("actor_id"),
-						payload:
-							sql<string>`json_object('heartbeatAt', ${workAttempts.heartbeatAt})`.as(
-								"payload",
-							),
+						payload: (coreStore(db) === "postgres"
+							? sql<string>`jsonb_build_object('heartbeatAt', ${workAttempts.heartbeatAt})`
+							: sql<string>`json_object('heartbeatAt', ${workAttempts.heartbeatAt})`
+						).as("payload"),
 						occurredAt: sql<string>`${now}`.as("occurred_at"),
 					})
 					.from(workAttempts)
@@ -138,6 +177,13 @@ export async function notifyStoppedLanes(
 	now: string,
 	options: { wholeLedger?: boolean } = {},
 ) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workEvents = coreTable(db, d1WorkEvents);
+	const workItems = coreTable(db, d1WorkItems);
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const tedis = coreTable(db, d1Tedis);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
+	const platformCronCheckpoints = coreTable(db, d1PlatformCronCheckpoints);
 	const stoppedLaneEvent = sql`${workEvents.eventType} IN ('lane.stale', 'attempt.expired')`;
 	let examinedThrough = 0;
 	if (!options.wholeLedger) {
@@ -169,11 +215,11 @@ export async function notifyStoppedLanes(
 	const eligible = and(
 		stoppedLaneEvent,
 		sql`EXISTS (SELECT 1 FROM ${externalAgentPrincipals} p WHERE p.organization_id = ${workAttempts.orgId} AND p.id = ${workAttempts.executorId} AND p.status = 'active')`,
-		sql`json_extract(${workAttempts.metadata}, '$.lane') = 1`,
+		isLane(db, workAttempts.metadata),
 		sql`${workItems.disposition} NOT IN ('completed','cancelled')`,
 		sql`NOT EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id = ${workEvents.orgId} AND i.id = ${workEvents.id})`,
 		sql`NOT EXISTS (SELECT 1 FROM work_attempts a WHERE a.org_id = ${workAttempts.orgId} AND a.work_item_id = ${workAttempts.workItemId} AND a.attempt_number > ${workAttempts.attemptNumber})`,
-		sql`(${workEvents.eventType} = 'attempt.expired' OR (json_extract(${workEvents.payload}, '$.heartbeatAt') = ${workAttempts.heartbeatAt} AND ${workAttempts.outcome} IS NULL))`,
+		sql`(${workEvents.eventType} = 'attempt.expired' OR (${jsonRead(db, workEvents.payload, ["heartbeatAt"])} = ${workAttempts.heartbeatAt} AND ${workAttempts.outcome} IS NULL))`,
 	);
 	const rows = await db
 		.select({
@@ -256,7 +302,7 @@ export async function notifyStoppedLanes(
 							),
 						prompt: sql<string>`${prompt}`.as("prompt"),
 						metadata:
-							sql<string>`${JSON.stringify({ laneLifecycle, reason: "A stopped lane needs machine investigation, not human approval.", evidenceRefs: [`/work/items/${row.workItemId}`], notification: { state: "immediate" } })}`.as(
+							sql<string>`${jsonParameter(db, { laneLifecycle, reason: "A stopped lane needs machine investigation, not human approval.", evidenceRefs: [`/work/items/${row.workItemId}`], notification: { state: "immediate" } })}`.as(
 								"metadata",
 							),
 						dueAt:
@@ -316,7 +362,12 @@ export async function notifyStoppedLanes(
 				.update(workItems)
 				.set({
 					dispatchState: "held",
-					metadata: sql`json_set(${workItems.metadata}, '$.laneDispatch', json(${JSON.stringify(hold)}), '$.laneLifecycle', json(${JSON.stringify(laneLifecycle)}))`,
+					metadata: jsonWrite(
+						db,
+						jsonWrite(db, workItems.metadata, ["laneDispatch"], hold),
+						["laneLifecycle"],
+						laneLifecycle,
+					),
 				})
 				.where(
 					and(eq(workItems.orgId, row.orgId), eq(workItems.id, row.workItemId)),

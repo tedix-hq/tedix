@@ -5,11 +5,13 @@
  * that decision.
  */
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, getColumns, isNull, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead, jsonWrite } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkItem,
-	workItems,
+	workItems as d1WorkItems,
 	workItemStoredColumns,
 } from "../../schema/work-items";
 import { cancelWorkItem, lifecycleEventInsert } from "./crud";
@@ -20,15 +22,29 @@ import {
 } from "./factory-state";
 import { normalizeWorkItemRow } from "./normalization";
 
-const snoozedUntil = sql<
-	string | null
->`json_extract(${workItems.metadata}, '$.triageSnoozedUntil')`;
+function snoozedUntil(db: DbQueryClient) {
+	return jsonRead(db, coreTable(db, d1WorkItems).metadata, [
+		"triageSnoozedUntil",
+	]);
+}
+
+/** Stored columns of the selected store's table; generated columns stay out. */
+function storedColumns(db: DbQueryClient): typeof workItemStoredColumns {
+	const columns = getColumns(coreTable(db, d1WorkItems));
+	return Object.fromEntries(
+		Object.keys(workItemStoredColumns).map((key) => [
+			key,
+			columns[key as keyof typeof columns],
+		]),
+	) as typeof workItemStoredColumns;
+}
 
 /** Proposed work whose snooze, if any, has ended: what a triage queue shows. */
-export function inTriageQueue(now: string) {
+function inTriageQueue(db: DbQueryClient, now: string) {
+	const workItems = coreTable(db, d1WorkItems);
 	return and(
 		eq(workItems.disposition, "proposed"),
-		sql`(${snoozedUntil} IS NULL OR ${snoozedUntil} <= ${now})`,
+		sql`(${snoozedUntil(db)} IS NULL OR ${snoozedUntil(db)} <= ${now})`,
 	)!;
 }
 
@@ -124,15 +140,18 @@ export async function snoozeProposedWorkItem(
 	// Canonical UTC text, so the queue can compare wake times as strings.
 	const until = untilMs === null ? null : new Date(untilMs).toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
-	const metadata = sql`coalesce(${workItems.metadata}, '{}')`;
+	const workItems = coreTable(db, d1WorkItems);
+	const metadata = (
+		until
+			? jsonWrite(db, workItems.metadata, ["triageSnoozedUntil"], until)
+			: coreStore(db) === "postgres"
+				? sql`coalesce(${workItems.metadata}, '{}'::jsonb) - 'triageSnoozedUntil'`
+				: sql`json_remove(coalesce(${workItems.metadata}, '{}'), '$.triageSnoozedUntil')`
+	) as ReturnType<typeof sql<Record<string, JsonValue>>>;
 	const update = db
 		.update(workItems)
 		.set({
-			metadata: (until
-				? sql`json_set(${metadata}, '$.triageSnoozedUntil', ${until})`
-				: sql`json_remove(${metadata}, '$.triageSnoozedUntil')`) as ReturnType<
-				typeof sql<Record<string, JsonValue>>
-			>,
+			metadata,
 			updatedAt: at,
 			version: sql`${workItems.version} + 1`,
 		})
@@ -144,7 +163,7 @@ export async function snoozeProposedWorkItem(
 				eq(workItems.disposition, "proposed"),
 			),
 		)
-		.returning(workItemStoredColumns);
+		.returning(storedColumns(db));
 	const event = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -181,15 +200,16 @@ export async function listTriageQueue(
 ): Promise<{ data: WorkItem[]; total: number }> {
 	const limit = Math.min(Math.max(Math.trunc(params.limit ?? 50), 1), 100);
 	const offset = Math.max(Math.trunc(params.offset ?? 0), 0);
+	const workItems = coreTable(db, d1WorkItems);
 	const where = and(
 		eq(workItems.orgId, params.orgId),
 		params.projectId === null
 			? isNull(workItems.projectId)
 			: eq(workItems.projectId, params.projectId),
-		inTriageQueue(params.now),
+		inTriageQueue(db, params.now),
 	);
 	const rows = await db
-		.select(workItemStoredColumns)
+		.select(storedColumns(db))
 		.from(workItems)
 		.where(where)
 		.orderBy(
@@ -221,13 +241,16 @@ export async function countTriageQueues(
 	queues: { projectId: string | null; count: number }[];
 	snoozed: number;
 }> {
+	const workItems = coreTable(db, d1WorkItems);
 	const queues = await db
 		.select({
 			projectId: workItems.projectId,
 			count: sql<number>`count(*)`.as("waiting"),
 		})
 		.from(workItems)
-		.where(and(eq(workItems.orgId, params.orgId), inTriageQueue(params.now)))
+		.where(
+			and(eq(workItems.orgId, params.orgId), inTriageQueue(db, params.now)),
+		)
 		.groupBy(workItems.projectId);
 	const [snoozed] = await db
 		.select({ total: sql<number>`count(*)` })
@@ -236,7 +259,7 @@ export async function countTriageQueues(
 			and(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.disposition, "proposed"),
-				sql`${snoozedUntil} > ${params.now}`,
+				sql`${snoozedUntil(db)} > ${params.now}`,
 			),
 		);
 	return {

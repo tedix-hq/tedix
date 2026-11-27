@@ -14,9 +14,11 @@
 
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead } from "../../core-store/dialect";
 import {
 	workInteractionResponses,
-	workInteractions,
+	workInteractions as interactionsTable,
 } from "../../schema/work-factory";
 
 const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
@@ -84,6 +86,7 @@ export async function listReplyExamples(
 	);
 	if (limit === 0) return [];
 	const repository = p.repository ?? null;
+	const workInteractions = coreTable(db, interactionsTable);
 	const q = db
 		.select({
 			id: workInteractions.id,
@@ -102,37 +105,34 @@ export async function listReplyExamples(
 				eq(workInteractions.status, "resolved"),
 				eq(workInteractions.kind, "question"),
 				ne(workInteractions.id, p.excludeInteractionId),
-				sql`json_extract(${workInteractions.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+				sql`${jsonRead(db, workInteractions.metadata, ["schema"])} = ${DECISION_CAPTURE_SCHEMA}`,
 			),
 		)
 		.orderBy(desc(workInteractions.createdAt), desc(workInteractions.id))
 		.limit(REPLY_EXAMPLE_CANDIDATE_LIMIT)
 		.as("q");
-	const r = workInteractionResponses;
+	const r = coreTable(db, workInteractionResponses);
+	const source = jsonRead(db, r.metadata, ["source"]);
+	const draftOutcome = jsonRead(db, r.metadata, ["draftOutcome"]);
+	const questionRepository = jsonRead(db, q.metadata, ["repository"]);
 	const rows: ReplyExampleRow[] = await db
 		.select({
 			interaction_id: q.id,
 			created_at: q.createdAt,
-			repository: sql<
-				string | null
-			>`json_extract(${q.metadata}, '$.repository')`.as("repository"),
-			agent_tail:
-				sql<string>`substr(${q.prompt}, -${REPLY_EXAMPLE_AGENT_TAIL_CHARS})`.as(
-					"agent_tail",
-				),
+			repository: sql<string | null>`${questionRepository}`.as("repository"),
+			agent_tail: (coreStore(db) === "postgres"
+				? sql<string>`right(${q.prompt}, ${REPLY_EXAMPLE_AGENT_TAIL_CHARS})`
+				: sql<string>`substr(${q.prompt}, -${REPLY_EXAMPLE_AGENT_TAIL_CHARS})`
+			).as("agent_tail"),
 			reply_body:
 				sql<string>`substr(${r.body}, 1, ${REPLY_EXAMPLE_REPLY_CHARS})`.as(
 					"reply_body",
 				),
 			reply_class: sql<
 				string | null
-			>`json_extract(${r.metadata}, '$.replyClass')`.as("reply_class"),
-			draft_outcome: sql<
-				string | null
-			>`json_extract(${r.metadata}, '$.draftOutcome')`.as("draft_outcome"),
-			answer_source: sql<string>`json_extract(${r.metadata}, '$.source')`.as(
-				"answer_source",
-			),
+			>`${jsonRead(db, r.metadata, ["replyClass"])}`.as("reply_class"),
+			draft_outcome: sql<string | null>`${draftOutcome}`.as("draft_outcome"),
+			answer_source: sql<string>`${source}`.as("answer_source"),
 		})
 		.from(q)
 		.innerJoin(
@@ -147,16 +147,18 @@ export async function listReplyExamples(
 		)
 		.where(
 			and(
-				inArray(sql`json_extract(${r.metadata}, '$.source')`, [
-					...USER_ANSWER_SOURCES,
-				]),
-				sql`coalesce(json_extract(${r.metadata}, '$.draftOutcome'), '') <> 'auto-sent'`,
+				inArray(source, [...USER_ANSWER_SOURCES]),
+				sql`coalesce(${draftOutcome}, '') <> 'auto-sent'`,
 				sql`length(trim(${r.body})) > 0`,
 			),
 		)
 		.orderBy(
-			sql`CASE WHEN ${repository} IS NOT NULL AND json_extract(${q.metadata}, '$.repository') = ${repository} THEN 0 ELSE 1 END`,
-			sql`CASE WHEN json_extract(${r.metadata}, '$.draftOutcome') IN ('replaced', 'edited') THEN 0 ELSE 1 END`,
+			...(repository === null
+				? []
+				: [
+						sql`CASE WHEN ${questionRepository} = ${repository} THEN 0 ELSE 1 END`,
+					]),
+			sql`CASE WHEN ${draftOutcome} IN ('replaced', 'edited') THEN 0 ELSE 1 END`,
 			desc(q.createdAt),
 			desc(q.id),
 		)

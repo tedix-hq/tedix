@@ -1,21 +1,43 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import {
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
 import type { DeckCurationState } from "@tedix/api-contract/schemas/deck-curation";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { DbQueryClient } from "../../query-client";
 import {
-	workInteractionCardRevisions as revisions,
-	workInteractions,
+	workInteractionCardRevisions as revisionsTable,
+	workInteractions as interactionsTable,
 	workInteractionStoredColumns,
-	workInteractionResponses,
-	workInteractionCardPresentations,
+	workInteractionResponses as responsesTable,
+	workInteractionCardPresentations as presentationsTable,
 } from "../../schema/work-factory";
 import {
 	CARD_SECRET_MESSAGE,
 	containsCardSecret,
 } from "@tedix/api-contract/utils/card-secrets";
-import { learningInteractionEvents } from "../../schema/learning-feedback";
+import { learningInteractionEvents as learningEventsTable } from "../../schema/learning-feedback";
 import type { WorkProposal } from "@tedix/api-contract/schemas/work-interactions";
-import { workItems } from "../../schema/work-items";
+import { workItems as workItemsTable } from "../../schema/work-items";
+
+/** Stored (non-generated) interaction columns of the selected store's table. */
+function storedInteractionColumns(table: typeof interactionsTable) {
+	return Object.fromEntries(
+		Object.keys(workInteractionStoredColumns).map((key) => [
+			key,
+			table[key as keyof typeof workInteractionStoredColumns],
+		]),
+	) as typeof workInteractionStoredColumns;
+}
+
+/** A JSON parameter, or SQL NULL; INSERT ... SELECT casts it to the target column. */
+function jsonOrNull(db: object, value: unknown): SQL {
+	return value == null ? sql`${null}` : jsonParameter(db, value);
+}
 
 /** The training pair commits in the same D1 batch as its immutable revision. */
 export function buildCardRevisionLearningStatement(
@@ -23,8 +45,18 @@ export function buildCardRevisionLearningStatement(
 	orgId: string,
 	revisionId: string,
 ) {
+	const revisions = coreTable(db, revisionsTable);
+	const workInteractions = coreTable(db, interactionsTable);
+	const postgres = coreStore(db) === "postgres";
+	const before = sql`(SELECT body FROM work_interaction_card_revisions prior WHERE prior.org_id=${revisions.orgId} AND prior.request_id=${revisions.requestId} AND prior.revision=${revisions.revision}-1)`;
+	const keptHunkCount = postgres
+		? sql`CASE WHEN jsonb_typeof(${revisions.keptHunks})='array' THEN jsonb_array_length(${revisions.keptHunks}) ELSE 0 END`
+		: sql`coalesce(json_array_length(${revisions.keptHunks}),0)`;
+	const metadata = postgres
+		? sql`jsonb_build_object('schema','tedix.card-revision-pair.v1','answerSource','card-revision','decisionClass','card-copy','before',${before},'after',${revisions.body},'instruction',${revisions.instruction},'responseId',${revisions.responseId},'revision',${revisions.revision},'cause',${revisions.cause},'fromRevision',${revisions.revision}-1,'field',${revisions.field},'anchors',coalesce(${revisions.anchors},'[]'::jsonb),'summary',${revisions.summary},'keptHunks',coalesce(${revisions.keptHunks},'[]'::jsonb),'learningEventId',${revisions.learningEventId},'parentRevision',${revisions.parentRevision},'actorSessionId',${revisions.actorSessionId},'serverObserved',true)`
+		: sql`json_object('schema','tedix.card-revision-pair.v1','answerSource','card-revision','decisionClass','card-copy','before',${before},'after',${revisions.body},'instruction',${revisions.instruction},'responseId',${revisions.responseId},'revision',${revisions.revision},'cause',${revisions.cause},'fromRevision',${revisions.revision}-1,'field',${revisions.field},'anchors',json(coalesce(${revisions.anchors},'[]')),'summary',${revisions.summary},'keptHunks',json(coalesce(${revisions.keptHunks},'[]')),'learningEventId',${revisions.learningEventId},'parentRevision',${revisions.parentRevision},'actorSessionId',${revisions.actorSessionId},'serverObserved',json('true'))`;
 	return db
-		.insert(learningInteractionEvents)
+		.insert(coreTable(db, learningEventsTable))
 		.select(
 			db
 				.select({
@@ -45,7 +77,7 @@ export function buildCardRevisionLearningStatement(
 					signalClass: sql<"quality">`'quality'`.as("signal_class"),
 					eventKind: sql<
 						"edited" | "manually_replaced" | "undone"
-					>`CASE WHEN ${revisions.cause}='restore' THEN 'undone' WHEN ${revisions.cause}='human_edit' AND coalesce(json_array_length(${revisions.keptHunks}),0)=0 THEN 'manually_replaced' ELSE 'edited' END`.as(
+					>`CASE WHEN ${revisions.cause}='restore' THEN 'undone' WHEN ${revisions.cause}='human_edit' AND ${keptHunkCount}=0 THEN 'manually_replaced' ELSE 'edited' END`.as(
 						"event_kind",
 					),
 					scopeKind: sql<"personal">`'personal'`.as("scope_kind"),
@@ -56,10 +88,7 @@ export function buildCardRevisionLearningStatement(
 					surface: sql<string>`'decision_capture'`.as("surface"),
 					targetType: sql<string>`'work_interaction'`.as("target_type"),
 					targetId: revisions.requestId,
-					metadata:
-						sql`json_object('schema','tedix.card-revision-pair.v1','answerSource','card-revision','decisionClass','card-copy','before',(SELECT body FROM work_interaction_card_revisions prior WHERE prior.org_id=${revisions.orgId} AND prior.request_id=${revisions.requestId} AND prior.revision=${revisions.revision}-1),'after',${revisions.body},'instruction',${revisions.instruction},'responseId',${revisions.responseId},'revision',${revisions.revision},'cause',${revisions.cause},'fromRevision',${revisions.revision}-1,'field',${revisions.field},'anchors',json(coalesce(${revisions.anchors},'[]')),'summary',${revisions.summary},'keptHunks',json(coalesce(${revisions.keptHunks},'[]')),'learningEventId',${revisions.learningEventId},'parentRevision',${revisions.parentRevision},'actorSessionId',${revisions.actorSessionId},'serverObserved',json('true'))`.as(
-							"metadata",
-						),
+					metadata: metadata.as("metadata"),
 					occurredAt: sql<string>`${revisions.createdAt}`.as("occurred_at"),
 					createdAt: revisions.createdAt,
 				})
@@ -88,6 +117,7 @@ export async function listCardRevisions(
 	requestId: string,
 	beforeRevision?: number,
 ) {
+	const revisions = coreTable(db, revisionsTable);
 	return (
 		await db
 			.select()
@@ -112,6 +142,7 @@ export async function getCardRevision(
 	requestId: string,
 	revision: number,
 ) {
+	const revisions = coreTable(db, revisionsTable);
 	return (
 		(
 			await db
@@ -134,6 +165,7 @@ export async function latestCardChangeRequest(
 	orgId: string,
 	requestId: string,
 ) {
+	const workInteractionResponses = coreTable(db, responsesTable);
 	const [response] = await db
 		.select()
 		.from(workInteractionResponses)
@@ -141,7 +173,7 @@ export async function latestCardChangeRequest(
 			and(
 				eq(workInteractionResponses.orgId, orgId),
 				eq(workInteractionResponses.interactionId, requestId),
-				sql`json_extract(${workInteractionResponses.metadata}, '$.cardAction')='ask_changes'`,
+				sql`${jsonRead(db, workInteractionResponses.metadata, ["cardAction"])}='ask_changes'`,
 			),
 		)
 		.orderBy(
@@ -164,17 +196,17 @@ export async function appendCardRevision(
 		body: string;
 		proposal?: WorkProposal | null;
 		presentation?: DecisionCardPresentation;
-		cause: (typeof revisions.$inferInsert)["cause"];
+		cause: (typeof revisionsTable.$inferInsert)["cause"];
 		actorType: string;
 		actorId: string;
 		actorSessionId?: string;
 		instruction?: string;
 		responseId?: string;
-		field?: (typeof revisions.$inferInsert)["field"];
-		anchors?: (typeof revisions.$inferInsert)["anchors"];
-		anchorsResolved?: (typeof revisions.$inferInsert)["anchorsResolved"];
+		field?: (typeof revisionsTable.$inferInsert)["field"];
+		anchors?: (typeof revisionsTable.$inferInsert)["anchors"];
+		anchorsResolved?: (typeof revisionsTable.$inferInsert)["anchorsResolved"];
 		summary?: string;
-		keptHunks?: (typeof revisions.$inferInsert)["keptHunks"];
+		keptHunks?: (typeof revisionsTable.$inferInsert)["keptHunks"];
 		parentRevision?: number;
 		curation?: DeckCurationState;
 		expectedStatus?: "open" | "cancelled";
@@ -195,6 +227,9 @@ export async function appendCardRevision(
 		])
 	)
 		throw new Error(CARD_SECRET_MESSAGE);
+	const revisions = coreTable(db, revisionsTable);
+	const workInteractions = coreTable(db, interactionsTable);
+	const workInteractionCardPresentations = coreTable(db, presentationsTable);
 	const id = crypto.randomUUID();
 	const learningEventId = p.cause === "initial" ? null : crypto.randomUUID();
 	const insert = db
@@ -207,23 +242,18 @@ export async function appendCardRevision(
 					requestId: sql<string>`${workInteractions.id}`.as("request_id"),
 					revision: sql<number>`${p.expectedRevision + 1}`.as("revision"),
 					body: sql<string>`${p.body}`.as("body"),
-					proposal:
-						sql<WorkProposal | null>`${p.proposal ? JSON.stringify(p.proposal) : null}`.as(
-							"proposal",
-						),
+					proposal: sql<WorkProposal | null>`${jsonOrNull(db, p.proposal)}`.as(
+						"proposal",
+					),
 					field: sql<typeof p.field>`${p.field ?? "draft"}`.as("field"),
-					anchors: sql<
-						typeof p.anchors
-					>`${p.anchors ? JSON.stringify(p.anchors) : null}`.as("anchors"),
+					anchors: sql<typeof p.anchors>`${jsonOrNull(db, p.anchors)}`.as(
+						"anchors",
+					),
 					anchorsResolved: sql<
 						typeof p.anchorsResolved
-					>`${p.anchorsResolved ? JSON.stringify(p.anchorsResolved) : null}`.as(
-						"anchors_resolved",
-					),
+					>`${jsonOrNull(db, p.anchorsResolved)}`.as("anchors_resolved"),
 					summary: sql<string | null>`${p.summary ?? null}`.as("summary"),
-					keptHunks: sql<
-						typeof p.keptHunks
-					>`${p.keptHunks ? JSON.stringify(p.keptHunks) : null}`.as(
+					keptHunks: sql<typeof p.keptHunks>`${jsonOrNull(db, p.keptHunks)}`.as(
 						"kept_hunks",
 					),
 					learningEventId: sql<string | null>`${learningEventId}`.as(
@@ -280,7 +310,7 @@ export async function appendCardRevision(
 								),
 								requestVersion: workInteractions.version,
 								presentation:
-									sql<DecisionCardPresentation>`json(${JSON.stringify(p.presentation)})`.as(
+									sql<DecisionCardPresentation>`${jsonParameter(db, p.presentation)}`.as(
 										"presentation",
 									),
 								updatedAt: sql<string>`${new Date().toISOString()}`.as(
@@ -325,11 +355,17 @@ export async function appendCardRevision(
 									: null,
 						}
 					: {}),
-				metadata: p.curation
-					? sql`json_set(${p.proposal ? sql`json_set(${workInteractions.metadata}, '$.proposal', json(${JSON.stringify(p.proposal)}))` : workInteractions.metadata}, '$.cardContent', ${p.body}, '$.cardRevision', ${p.expectedRevision + 1}, '$.curation', json(${JSON.stringify(p.curation)}))`
-					: p.proposal
-						? sql`json_set(${workInteractions.metadata}, '$.cardContent', ${p.body}, '$.cardRevision', ${p.expectedRevision + 1}, '$.proposal', json(${JSON.stringify(p.proposal)}))`
-						: sql`json_set(${workInteractions.metadata}, '$.cardContent', ${p.body}, '$.cardRevision', ${p.expectedRevision + 1})`,
+				metadata: (
+					[
+						["cardContent", p.body],
+						["cardRevision", p.expectedRevision + 1],
+						...(p.proposal ? [["proposal", p.proposal]] : []),
+						...(p.curation ? [["curation", p.curation]] : []),
+					] as [string, unknown][]
+				).reduce<SQL>(
+					(document, [key, value]) => jsonWrite(db, document, [key], value),
+					sql`${workInteractions.metadata}`,
+				),
 				version: sql`${workInteractions.version}+1`,
 			})
 			.where(
@@ -352,6 +388,7 @@ export async function cardChangeHasRevision(
 	requestId: string,
 	responseId: string,
 ) {
+	const revisions = coreTable(db, revisionsTable);
 	const [row] = await db
 		.select({ id: revisions.id })
 		.from(revisions)
@@ -371,12 +408,14 @@ export async function listHandledInternalDecisionCards(
 	db: DbQueryClient,
 	p: { orgId: string; recipientId: string; projectId?: string; limit: number },
 ) {
+	const workInteractions = coreTable(db, interactionsTable);
+	const workItems = coreTable(db, workItemsTable);
 	const project = sql<
 		string | null
 	>`coalesce(${workInteractions.projectId}, (SELECT ${workItems.projectId} FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId}))`;
 	return db
 		.select({
-			...workInteractionStoredColumns,
+			...storedInteractionColumns(workInteractions),
 			projectId: project.as("project_id"),
 		})
 		.from(workInteractions)
@@ -387,8 +426,8 @@ export async function listHandledInternalDecisionCards(
 				eq(workInteractions.targetId, p.recipientId),
 				eq(workInteractions.status, "cancelled"),
 				p.projectId ? eq(project, p.projectId) : undefined,
-				sql`json_extract(${workInteractions.metadata}, '$.curation.internalTask.taskId') IS NOT NULL`,
-				sql`json_extract(${workInteractions.metadata}, '$.curation.revision') = json_extract(${workInteractions.metadata}, '$.cardRevision')`,
+				sql`${jsonRead(db, workInteractions.metadata, ["curation", "internalTask", "taskId"])} IS NOT NULL`,
+				sql`${jsonRead(db, workInteractions.metadata, ["curation", "revision"], "number")} = ${jsonRead(db, workInteractions.metadata, ["cardRevision"], "number")}`,
 			),
 		)
 		.orderBy(desc(workInteractions.cancelledAt), desc(workInteractions.id))

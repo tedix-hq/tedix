@@ -1,6 +1,8 @@
 import { and, eq, sql } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
-import { workEvents } from "../../schema/work-items";
+import { workEvents as d1WorkEvents } from "../../schema/work-items";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { withTransientD1ReadRetry } from "../../utils/d1-retry";
 
@@ -32,7 +34,7 @@ export async function recordDelegationFyi(
 ) {
 	const summary = `Delegated “${input.fyi.task.slice(0, 100)}” to ${input.fyi.tediName}: ${input.fyi.outcome}.`;
 	await db
-		.insert(workEvents)
+		.insert(coreTable(db, d1WorkEvents))
 		.values({
 			id: await delegationEventId(
 				JSON.stringify([
@@ -63,6 +65,7 @@ export async function readDelegationFyi(
 		childRunId?: string;
 	},
 ) {
+	const workEvents = coreTable(db, d1WorkEvents);
 	const [row] = await db
 		.select()
 		.from(workEvents)
@@ -76,7 +79,7 @@ export async function readDelegationFyi(
 				...(input.eventId ? [eq(workEvents.id, input.eventId)] : []),
 				...(input.childRunId
 					? [
-							sql`json_extract(${workEvents.payload}, '$.delegationFyi.childRunId') = ${input.childRunId}`,
+							sql`${jsonRead(db, workEvents.payload, ["delegationFyi", "childRunId"])} = ${input.childRunId}`,
 						]
 					: []),
 			),
@@ -106,7 +109,7 @@ export async function recordDelegationAutonomyFeedback(
 	)
 		throw new Error("Delegation FYI not found");
 	await db
-		.insert(workEvents)
+		.insert(coreTable(db, d1WorkEvents))
 		.values({
 			id: await delegationEventId(
 				JSON.stringify(["feedback", source!.id, input.userId]),
@@ -133,12 +136,13 @@ export async function readDelegationAutonomyLessons(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<string[]> {
+	const workEvents = coreTable(db, d1WorkEvents);
 	const rows = await withTransientD1ReadRetry(
 		"delegation-autonomy-lessons",
 		async () =>
 			await db
 				.selectDistinct({
-					classId: sql<string>`json_extract(${workEvents.payload}, '$.classId')`,
+					classId: sql<string>`${jsonRead(db, workEvents.payload, ["classId"])}`,
 				})
 				.from(workEvents)
 				.where(

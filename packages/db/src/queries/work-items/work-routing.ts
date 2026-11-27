@@ -6,15 +6,28 @@
  */
 
 import type { WorkStewardshipPolicy } from "@tedix/api-contract/schemas/work-stewardship";
-import { and, asc, eq, isNull, lte, ne, notExists, or, sql } from "drizzle-orm";
-import type { DbQueryClient } from "../../query-client";
-import { organizations } from "../../schema/organizations";
-import { projects } from "../../schema/projects";
-import { tedis } from "../../schema/tedis";
 import {
-	workAttempts,
-	workItemComments,
-	workItems,
+	and,
+	asc,
+	eq,
+	isNull,
+	lte,
+	ne,
+	notExists,
+	or,
+	sql,
+	type SQLWrapper,
+} from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { booleanValue, coreStore, jsonRead } from "../../core-store/dialect";
+import type { DbQueryClient } from "../../query-client";
+import { organizations as d1Organizations } from "../../schema/organizations";
+import { projects as d1Projects } from "../../schema/projects";
+import { tedis as d1Tedis } from "../../schema/tedis";
+import {
+	workAttempts as d1WorkAttempts,
+	workItemComments as d1WorkItemComments,
+	workItems as d1WorkItems,
 } from "../../schema/work-items";
 import { addWorkItemCommentIfAbsent } from "./comments";
 
@@ -26,24 +39,29 @@ export function workRoutingCommentId(workItemId: string): string {
 export async function listWorkRoutingOrgs(
 	db: DbQueryClient,
 ): Promise<Array<{ orgId: string; policy: unknown }>> {
+	const organizations = coreTable(db, d1Organizations);
+	const enabled = (path: string[]) =>
+		sql`${jsonRead(db, organizations.metadata, path, "boolean")} = ${booleanValue(db, true)}`;
 	const rows = await db
 		.select({
 			org_id: organizations.id,
-			policy: sql<
-				string | null
-			>`json_extract(${organizations.metadata}, '$.workStewardship')`,
+			// D1 returns JSON text; Postgres returns the parsed jsonb value.
+			policy: sql<unknown>`${jsonRead(db, organizations.metadata, ["workStewardship"], "json")}`,
 		})
 		.from(organizations)
 		.where(
 			and(
-				sql`json_extract(${organizations.metadata}, '$.workStewardship.enabled') = 1`,
-				sql`json_extract(${organizations.metadata}, '$.workStewardship.autoRoute.enabled') = 1`,
+				enabled(["workStewardship", "enabled"]),
+				enabled(["workStewardship", "autoRoute", "enabled"]),
 			),
 		)
 		.orderBy(asc(organizations.id));
 	return rows.map((row) => ({
 		orgId: row.org_id,
-		policy: row.policy ? JSON.parse(row.policy) : null,
+		policy:
+			typeof row.policy === "string"
+				? JSON.parse(row.policy)
+				: (row.policy ?? null),
 	}));
 }
 
@@ -77,6 +95,19 @@ export async function listRoutableWork(
 	},
 ): Promise<RoutableWorkItem[]> {
 	const { policy } = input;
+	const workItems = coreTable(db, d1WorkItems);
+	const projects = coreTable(db, d1Projects);
+	const tedis = coreTable(db, d1Tedis);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	const doneWhen = jsonRead(db, workItems.acceptanceContract, [
+		"doneLooksLike",
+	]);
+	// Policy maps are bound JSON objects keyed by the row's project or Work kind.
+	const steward = (map: Record<string, string>, key: SQLWrapper) =>
+		coreStore(db) === "postgres"
+			? sql`(${JSON.stringify(map)}::text::jsonb ->> ${key})`
+			: sql`json_extract(${JSON.stringify(map)}, '$."' || ${key} || '"')`;
 	const rows = await db
 		.select({
 			id: workItems.id,
@@ -85,10 +116,7 @@ export async function listRoutableWork(
 			work_kind: workItems.workKind,
 			project_id: workItems.projectId,
 			version: workItems.version,
-			done_when:
-				sql<string>`json_extract(${workItems.acceptanceContract}, '$.doneLooksLike')`.as(
-					"done_when",
-				),
+			done_when: sql<string>`${doneWhen}`.as("done_when"),
 			tedi_id: sql<string>`${tedis.id}`.as("tedi_id"),
 			tedi_slug: sql<string>`${tedis.slug}`.as("tedi_slug"),
 			tedi_name: sql<string>`${tedis.name}`.as("tedi_name"),
@@ -109,9 +137,9 @@ export async function listRoutableWork(
 				isNull(tedis.retiredAt),
 				sql`${tedis.id} = coalesce(
 					CASE WHEN ${workItems.stewardType} = 'tedi' THEN ${workItems.stewardId} END,
-					json_extract(${JSON.stringify(policy.projectStewards)}, '$."' || ${workItems.projectId} || '"'),
-					CASE WHEN ${policy.useProjectLead ? 1 : 0} = 1 THEN ${projects.leadTediId} END,
-					json_extract(${JSON.stringify(policy.workKindStewards)}, '$."' || ${workItems.workKind} || '"'),
+					${steward(policy.projectStewards, workItems.projectId)},
+					${policy.useProjectLead ? sql`${projects.leadTediId}` : sql`NULL`},
+					${steward(policy.workKindStewards, workItems.workKind)},
 					${policy.defaultTediId ?? null}
 				)`,
 			),
@@ -122,7 +150,7 @@ export async function listRoutableWork(
 				eq(workItems.disposition, "accepted"),
 				isNull(workItems.executorId),
 				ne(workItems.workKind, "coding"),
-				sql`trim(coalesce(json_extract(${workItems.acceptanceContract}, '$.doneLooksLike'), '')) <> ''`,
+				sql`trim(coalesce(${doneWhen}, '')) <> ''`,
 				or(isNull(workItems.startAt), lte(workItems.startAt, input.now)),
 				notExists(
 					db

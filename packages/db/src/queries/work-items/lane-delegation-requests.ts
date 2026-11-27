@@ -1,52 +1,97 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	getColumns,
+	sql,
+	type SQL,
+	type SQLWrapper,
+} from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
-	workInteractions,
+	workInteractions as d1WorkInteractions,
 	workInteractionStoredColumns,
 } from "../../schema/work-factory";
-import { workItemComments, workItems } from "../../schema/work-items";
+import {
+	workItemComments as d1WorkItemComments,
+	workItems as d1WorkItems,
+} from "../../schema/work-items";
 
 /** Metadata source of the request a lane raises when Work needs an owner's permission. */
 export const LANE_DELEGATION_SOURCE = "lane-dispatch-blocker";
 
-const laneRequest = sql`${workInteractions.source}=${LANE_DELEGATION_SOURCE}`;
+/** Null-safe equality: SQLite IS, Postgres IS NOT DISTINCT FROM. */
+function same(db: object, left: SQLWrapper, right: SQLWrapper): SQL {
+	return coreStore(db) === "postgres"
+		? sql`(${left} IS NOT DISTINCT FROM ${right})`
+		: sql`(${left} IS ${right})`;
+}
 
-/**
- * The ask is gone when its Work finished, its Work version moved on, or the
- * Work is no longer assigned to the lane that asked. Allow is fenced on the
- * same facts, so retiring such a card removes no authority.
- */
-const askMoved = sql`NOT EXISTS (SELECT 1 FROM ${workItems}
+function laneSql(db: DbQueryClient) {
+	const workInteractions = coreTable(db, d1WorkInteractions);
+	const workItems = coreTable(db, d1WorkItems);
+	const workItemComments = coreTable(db, d1WorkItemComments);
+	// Parenthesized: Postgres parses `'a' || x #>> path` as `('a' || x) #>> path`.
+	const blocker = (column: SQLWrapper, field: string, kind?: "number") =>
+		sql`(${jsonRead(db, column, ["laneBlocker", field], kind)})`;
+	const meta = workInteractions.metadata;
+	const older = sql`older.metadata`;
+	const newline = coreStore(db) === "postgres" ? sql`chr(10)` : sql`char(10)`;
+	const isCheck = (column: SQLWrapper) =>
+		sql`(coalesce(${blocker(column, "kind")}, '') = 'verification_check')`;
+	/**
+	 * The ask is gone when its Work finished, its Work version moved on, or the
+	 * Work is no longer assigned to the lane that asked. Allow is fenced on the
+	 * same facts, so retiring such a card removes no authority.
+	 */
+	const askMoved = sql`NOT EXISTS (SELECT 1 FROM ${workItems}
 	WHERE ${workItems.orgId}=${workInteractions.orgId}
 	AND ${workItems.id}=${workInteractions.workItemId}
 	AND ${workItems.disposition}='accepted'
-	AND ${workItems.version}=json_extract(${workInteractions.metadata},'$.laneBlocker.workVersion')
-	AND coalesce(${workItems.executorId},'')=coalesce(json_extract(${workInteractions.metadata},'$.laneBlocker.executor'),''))`;
-
-/** The owner already posted this version's delegation, for example by hand. */
-const delegated = sql`(json_extract(${workInteractions.metadata},'$.laneBlocker.kind') IS NOT 'verification_check') AND EXISTS (SELECT 1 FROM ${workItemComments}
+	AND ${workItems.version}=${blocker(meta, "workVersion", "number")}
+	AND coalesce(${workItems.executorId},'')=coalesce(${blocker(meta, "executor")},''))`;
+	/** The owner already posted this version's delegation, for example by hand. */
+	const delegated = sql`(NOT ${isCheck(meta)}) AND EXISTS (SELECT 1 FROM ${workItemComments}
 	JOIN ${workItems} ON ${workItems.orgId}=${workItemComments.orgId} AND ${workItems.id}=${workItemComments.workItemId}
 	WHERE ${workItemComments.orgId}=${workInteractions.orgId}
 	AND ${workItemComments.workItemId}=${workInteractions.workItemId}
 	AND ${workItemComments.authorType}='user'
 	AND ${workItemComments.authorId}=${workItems.accountableOwnerId}
-	AND (char(10) || ${workItemComments.body}) LIKE ('%' || char(10) || 'Delegation: ' || json_extract(${workInteractions.metadata},'$.laneBlocker.executor') || ' work-version=' || json_extract(${workInteractions.metadata},'$.laneBlocker.workVersion') || ' %'))`;
-
-/** An older card already asks, or was answered by, the same person about the same version. */
-const duplicate = sql`EXISTS (SELECT 1 FROM work_interactions older
+	AND (${newline} || ${workItemComments.body}) LIKE ('%' || ${newline} || 'Delegation: ' || ${blocker(meta, "executor")} || ' work-version=' || ${blocker(meta, "workVersion")} || ' %'))`;
+	/** An older card already asks, or was answered by, the same person about the same version. */
+	const duplicate = sql`EXISTS (SELECT 1 FROM work_interactions older
 	WHERE older.org_id=${workInteractions.orgId}
 	AND older.work_item_id=${workInteractions.workItemId}
 	AND older.status IN ('open','resolved')
 	AND older.source=${LANE_DELEGATION_SOURCE}
-	AND json_extract(older.metadata,'$.laneBlocker.workVersion') IS json_extract(${workInteractions.metadata},'$.laneBlocker.workVersion')
-	AND (json_extract(older.metadata,'$.laneBlocker.kind') IS 'verification_check') = (json_extract(${workInteractions.metadata},'$.laneBlocker.kind') IS 'verification_check')
-	AND older.target_type IS ${workInteractions.targetType}
-	AND older.target_id IS ${workInteractions.targetId}
+	AND ${same(db, blocker(older, "workVersion", "number"), blocker(meta, "workVersion", "number"))}
+	AND ${isCheck(older)} = ${isCheck(meta)}
+	AND ${same(db, sql`older.target_type`, workInteractions.targetType)}
+	AND ${same(db, sql`older.target_id`, workInteractions.targetId)}
 	AND (older.created_at < ${workInteractions.createdAt} OR (older.created_at = ${workInteractions.createdAt} AND older.id < ${workInteractions.id})))`;
+	return {
+		workInteractions,
+		blocker,
+		isCheck,
+		laneRequest: sql`${workInteractions.source}=${LANE_DELEGATION_SOURCE}`,
+		superseded: sql`(${askMoved} OR ${delegated} OR ${duplicate})`,
+		storedColumns: Object.fromEntries(
+			Object.keys(workInteractionStoredColumns).map((key) => [
+				key,
+				getColumns(workInteractions)[
+					key as keyof typeof workInteractionStoredColumns
+				],
+			]),
+		) as typeof workInteractionStoredColumns,
+	};
+}
 
-const superseded = sql`(${askMoved} OR ${delegated} OR ${duplicate})`;
-
-function retire(now: string) {
+function retire(
+	workInteractions: ReturnType<typeof laneSql>["workInteractions"],
+	now: string,
+) {
 	return {
 		status: "cancelled" as const,
 		cancelledAt: now,
@@ -73,6 +118,15 @@ export async function settleLaneDelegationRequests(
 		now: string;
 	},
 ) {
+	const {
+		workInteractions,
+		blocker,
+		isCheck,
+		laneRequest,
+		superseded,
+		storedColumns,
+	} = laneSql(db);
+	const meta = workInteractions.metadata;
 	const sameWork = and(
 		eq(workInteractions.orgId, p.orgId),
 		eq(workInteractions.workItemId, p.workItemId),
@@ -81,24 +135,24 @@ export async function settleLaneDelegationRequests(
 	const [retired, [existing]] = await db.batch([
 		db
 			.update(workInteractions)
-			.set(retire(p.now))
+			.set(retire(workInteractions, p.now))
 			.where(
 				and(
 					sameWork,
 					eq(workInteractions.status, "open"),
-					sql`(${superseded} OR json_extract(${workInteractions.metadata},'$.laneBlocker.workVersion') IS NOT ${p.workVersion})`,
+					sql`(${superseded} OR NOT ${same(db, blocker(meta, "workVersion", "number"), sql`${p.workVersion}`)})`,
 				),
 			)
 			.returning({ id: workInteractions.id }),
 		db
-			.select(workInteractionStoredColumns)
+			.select(storedColumns)
 			.from(workInteractions)
 			.where(
 				and(
 					sameWork,
 					sql`${workInteractions.status} IN ('open','resolved')`,
-					sql`json_extract(${workInteractions.metadata},'$.laneBlocker.workVersion')=${p.workVersion}`,
-					sql`(json_extract(${workInteractions.metadata},'$.laneBlocker.kind') IS 'verification_check') = ${p.verificationCheck ? 1 : 0}`,
+					sql`${blocker(meta, "workVersion", "number")}=${p.workVersion}`,
+					p.verificationCheck ? isCheck(meta) : sql`NOT ${isCheck(meta)}`,
 					sql`${workInteractions.targetType}=${p.targetType}`,
 					eq(workInteractions.targetId, p.targetId),
 				),
@@ -118,6 +172,7 @@ export async function retireStaleLaneDelegationRequests(
 	db: DbQueryClient,
 	p: { orgId?: string; now: string; limit?: number },
 ) {
+	const { workInteractions, laneRequest, superseded } = laneSql(db);
 	const scope = p.orgId ? eq(workInteractions.orgId, p.orgId) : undefined;
 	const stale = db
 		.select({ id: workInteractions.id })
@@ -128,7 +183,7 @@ export async function retireStaleLaneDelegationRequests(
 		.limit(Math.min(200, Math.max(1, p.limit ?? 100)));
 	const rows = await db
 		.update(workInteractions)
-		.set(retire(p.now))
+		.set(retire(workInteractions, p.now))
 		.where(
 			and(
 				scope,

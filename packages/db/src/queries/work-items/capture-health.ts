@@ -21,6 +21,8 @@ import {
 	type SQLWrapper,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../../core-store/client";
+import { jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
 	externalAgentPrincipals,
@@ -30,7 +32,7 @@ import { organizationMembers } from "../../schema/organization-members";
 import { learningInteractionEvents } from "../../schema/learning-feedback";
 import {
 	workInteractionReplyDrafts,
-	workInteractions,
+	workInteractions as d1WorkInteractions,
 } from "../../schema/work-factory";
 
 const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
@@ -66,10 +68,10 @@ function countQueries(
 	userId: SQLWrapper | string,
 	since: string,
 ) {
-	const t = alias(workInteractions, "t");
-	const d = alias(workInteractionReplyDrafts, "d");
-	const q = alias(workInteractions, "q");
-	const e = alias(learningInteractionEvents, "e");
+	const t = alias(coreTable(db, d1WorkInteractions), "t");
+	const d = alias(coreTable(db, workInteractionReplyDrafts), "d");
+	const q = alias(coreTable(db, d1WorkInteractions), "q");
+	const e = alias(coreTable(db, learningInteractionEvents), "e");
 	return {
 		turns: db
 			.select({ n: sql<number>`count(*)`.as("turns") })
@@ -80,7 +82,7 @@ function countQueries(
 					eq(t.targetType, "user"),
 					eq(t.targetId, userId),
 					gte(t.createdAt, since),
-					sql`json_extract(${t.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+					sql`${jsonRead(db, t.metadata, ["schema"])} = ${DECISION_CAPTURE_SCHEMA}`,
 				),
 			),
 		drafts: db
@@ -156,6 +158,7 @@ export async function listCaptureHealth(
 	db: DbQueryClient,
 	p: { since: string; activeSince: string; now: string },
 ): Promise<CaptureHealthRow[]> {
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const latest = db.$with("latest").as(
 		db
 			.select({
@@ -168,14 +171,14 @@ export async function listCaptureHealth(
 				and(
 					eq(workInteractions.targetType, "user"),
 					gte(workInteractions.createdAt, p.activeSince),
-					sql`json_extract(${workInteractions.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+					sql`${jsonRead(db, workInteractions.metadata, ["schema"])} = ${DECISION_CAPTURE_SCHEMA}`,
 				),
 			)
 			.groupBy(workInteractions.orgId, workInteractions.targetId),
 	);
-	const c = alias(workInteractions, "c");
-	const h = alias(workInteractions, "h");
-	const n = alias(workInteractions, "n");
+	const c = alias(coreTable(db, d1WorkInteractions), "c");
+	const h = alias(coreTable(db, d1WorkInteractions), "h");
+	const n = alias(coreTable(db, d1WorkInteractions), "n");
 	const queries = countQueries(db, latest.orgId, latest.userId, p.since);
 	const rows: HealthRow[] = await db
 		.with(latest)
@@ -197,11 +200,11 @@ export async function listCaptureHealth(
 							eq(h.orgId, latest.orgId),
 							or(
 								and(eq(h.targetType, "user"), eq(h.targetId, latest.userId)),
-								sql`json_extract(${h.metadata}, '$.captureUserId') = ${latest.userId}`,
+								sql`${jsonRead(db, h.metadata, ["captureUserId"])} = ${latest.userId}`,
 							),
 							eq(h.status, "open"),
 							or(isNull(h.expiresAt), gt(h.expiresAt, p.now)),
-							sql`json_extract(${h.metadata}, '$.schema') = ${CAPTURE_HEALTH_SCHEMA}`,
+							sql`${jsonRead(db, h.metadata, ["schema"])} = ${CAPTURE_HEALTH_SCHEMA}`,
 						),
 					),
 			)}`.as("alert_open"),
@@ -220,7 +223,7 @@ export async function listCaptureHealth(
 							eq(n.targetType, "user"),
 							eq(n.targetId, latest.userId),
 							eq(n.createdAt, latest.lastAt),
-							sql`json_extract(${n.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+							sql`${jsonRead(db, n.metadata, ["schema"])} = ${DECISION_CAPTURE_SCHEMA}`,
 						),
 					)
 					.orderBy(n.id)
@@ -244,10 +247,10 @@ export async function getCaptureHealthAgent(
 	db: DbQueryClient,
 	p: { orgId: string; userId: string; activeSince: string },
 ): Promise<{ id: string; sessionId: string } | null> {
-	const c = alias(workInteractions, "capture");
-	const a = externalAgentPrincipals;
-	const s = externalAgentSessions;
-	const m = organizationMembers;
+	const c = alias(coreTable(db, d1WorkInteractions), "capture");
+	const a = coreTable(db, externalAgentPrincipals);
+	const s = coreTable(db, externalAgentSessions);
+	const m = coreTable(db, organizationMembers);
 	const [agent] = await db
 		.select({ id: a.id, sessionId: s.externalSessionKey })
 		.from(c)
@@ -258,7 +261,7 @@ export async function getCaptureHealthAgent(
 				eq(s.status, "active"),
 				eq(
 					s.externalSessionKey,
-					sql`coalesce(${c.creatorExternalSessionKey}, json_extract(${c.metadata}, '$.agentSession'), json_extract(${c.metadata}, '$.sessionId'))`,
+					sql`coalesce(${c.creatorExternalSessionKey}, ${jsonRead(db, c.metadata, ["agentSession"])}, ${jsonRead(db, c.metadata, ["sessionId"])})`,
 				),
 				or(
 					sql`${c.creatorType} <> 'external_agent'`,
@@ -293,7 +296,7 @@ export async function getCaptureHealthAgent(
 				eq(c.targetType, "user"),
 				eq(c.targetId, p.userId),
 				gte(c.createdAt, p.activeSince),
-				sql`json_extract(${c.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+				sql`${jsonRead(db, c.metadata, ["schema"])} = ${DECISION_CAPTURE_SCHEMA}`,
 			),
 		)
 		.orderBy(desc(c.createdAt), desc(s.lastSeenAt), s.id)

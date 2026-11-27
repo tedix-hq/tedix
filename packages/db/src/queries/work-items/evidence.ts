@@ -15,14 +15,16 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
+import { jsonParameter, jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkActorType,
 	type WorkEvidence,
 	type WorkEvidenceDisposition,
-	workAttempts,
-	workEvidence,
-	workEvents,
+	workAttempts as d1WorkAttempts,
+	workEvidence as d1WorkEvidence,
+	workEvents as d1WorkEvents,
 } from "../../schema/work-items";
 import {
 	ACTIVE_ATTEMPT_STATES,
@@ -30,6 +32,14 @@ import {
 	type WorkActor,
 	WorkFactoryError,
 } from "./factory-state";
+
+function evidenceTables(db: DbQueryClient) {
+	return {
+		workAttempts: coreTable(db, d1WorkAttempts),
+		workEvidence: coreTable(db, d1WorkEvidence),
+		workEvents: coreTable(db, d1WorkEvents),
+	};
+}
 
 function evidenceEventInsert(
 	db: DbQueryClient,
@@ -43,6 +53,7 @@ function evidenceEventInsert(
 		payload: Record<string, JsonValue>;
 	},
 ) {
+	const { workEvidence, workEvents } = evidenceTables(db);
 	return db.insert(workEvents).select(
 		db
 			.select({
@@ -58,7 +69,7 @@ function evidenceEventInsert(
 				>`${params.actor.sessionId ?? null}`.as("actor_session_id"),
 				payload: sql<
 					Record<string, JsonValue>
-				>`${JSON.stringify(params.payload)}`.as("payload"),
+				>`${jsonParameter(db, params.payload)}`.as("payload"),
 				occurredAt: sql<string>`${params.occurredAt}`.as("occurred_at"),
 			})
 			.from(workEvidence)
@@ -102,6 +113,7 @@ export async function submitWorkItemEvidence(
 		metadata?: Record<string, JsonValue>;
 	},
 ): Promise<WorkEvidence> {
+	const { workAttempts, workEvidence } = evidenceTables(db);
 	if (
 		params.kind === "repository_candidate_publication" ||
 		params.claimKey.startsWith("repository_candidate_publication:")
@@ -181,7 +193,7 @@ export async function submitWorkItemEvidence(
 							version: sql<number>`1`.as("version"),
 							metadata: sql<
 								Record<string, JsonValue>
-							>`${JSON.stringify(params.metadata ?? {})}`.as("metadata"),
+							>`${jsonParameter(db, params.metadata ?? {})}`.as("metadata"),
 						})
 						.from(workAttempts)
 						.where(
@@ -243,6 +255,7 @@ export async function listWorkItemEvidence(
 	data: WorkEvidence[];
 	nextCursor: { submittedAt: string; id: string } | null;
 }> {
+	const { workEvidence } = evidenceTables(db);
 	const limit = Math.min(Math.max(1, Math.trunc(params.limit ?? 50)), 100);
 	const rows = await db
 		.select()
@@ -279,6 +292,7 @@ export async function getWorkItemEvidence(
 	db: DbQueryClient,
 	params: { orgId: string; workItemId: string; evidenceId: string },
 ): Promise<WorkEvidence | null> {
+	const { workEvidence } = evidenceTables(db);
 	const [row] = await db
 		.select()
 		.from(workEvidence)
@@ -307,6 +321,7 @@ export async function recordRepositoryCandidatePublicationObservation(
 		};
 	},
 ): Promise<WorkEvidence> {
+	const { workAttempts, workEvidence } = evidenceTables(db);
 	const p = params.preparation,
 		d = p.descriptor,
 		o = params.observation;
@@ -333,7 +348,7 @@ export async function recordRepositoryCandidatePublicationObservation(
 		eq(workAttempts.id, d.attemptId),
 		eq(workAttempts.orgId, d.organizationId),
 		eq(workAttempts.workItemId, d.workItemId),
-		sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication.preparation.preparationDigest')=${p.preparationDigest}`,
+		sql`${jsonRead(db, workAttempts.metadata, ["repositoryCandidatePublication", "preparation", "preparationDigest"])}=${p.preparationDigest}`,
 	);
 	const recordedPreparationExists = exists(
 		db
@@ -357,8 +372,8 @@ export async function recordRepositoryCandidatePublicationObservation(
 		eq(workEvidence.kind, "repository_candidate_publication"),
 		eq(workEvidence.submittedByType, "system"),
 		eq(workEvidence.submittedById, "repository-candidate-publication"),
-		sql`json_extract(${workEvidence.metadata},'$.originalAttemptId')=${d.attemptId}`,
-		sql`json_extract(${workEvidence.metadata},'$.preparationDigest')=${p.preparationDigest}`,
+		sql`${jsonRead(db, workEvidence.metadata, ["originalAttemptId"])}=${d.attemptId}`,
+		sql`${jsonRead(db, workEvidence.metadata, ["preparationDigest"])}=${p.preparationDigest}`,
 	);
 	// Normalize only this producer's legacy keys; immutable facts and their events remain intact.
 	await db
@@ -431,7 +446,7 @@ export async function recordRepositoryCandidatePublicationObservation(
 					version: sql<number>`1`.as("version"),
 					metadata: sql<
 						Record<string, JsonValue>
-					>`${JSON.stringify(metadata)}`.as("metadata"),
+					>`${jsonParameter(db, metadata)}`.as("metadata"),
 				})
 				.from(workAttempts)
 				.where(recordedPreparation),
@@ -467,9 +482,10 @@ export async function getRepositoryCandidatePublicationEffect(
 	db: DbQueryClient,
 	p: RepositoryCandidatePreparation,
 ): Promise<"acknowledged" | "observed" | null> {
+	const { workEvidence } = evidenceTables(db);
 	const rows = await db
 		.select({
-			rank: sql<number>`max(CASE json_extract(${workEvidence.metadata},'$.publication.effect') WHEN 'acknowledged' THEN 2 WHEN 'observed' THEN 1 ELSE 0 END)`.as(
+			rank: sql<number>`max(CASE ${jsonRead(db, workEvidence.metadata, ["publication", "effect"])} WHEN 'acknowledged' THEN 2 WHEN 'observed' THEN 1 ELSE 0 END)`.as(
 				"rank",
 			),
 		})
@@ -481,8 +497,8 @@ export async function getRepositoryCandidatePublicationEffect(
 				eq(workEvidence.kind, "repository_candidate_publication"),
 				eq(workEvidence.submittedByType, "system"),
 				eq(workEvidence.submittedById, "repository-candidate-publication"),
-				sql`json_extract(${workEvidence.metadata},'$.preparationDigest')=${p.preparationDigest}`,
-				sql`json_extract(${workEvidence.metadata},'$.publication.effect') IN ('acknowledged','observed')`,
+				sql`${jsonRead(db, workEvidence.metadata, ["preparationDigest"])}=${p.preparationDigest}`,
+				sql`${jsonRead(db, workEvidence.metadata, ["publication", "effect"])} IN ('acknowledged','observed')`,
 			),
 		);
 	return Number(rows[0]?.rank) === 2
