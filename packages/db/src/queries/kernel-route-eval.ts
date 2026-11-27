@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { coreTable } from "../core-store/client";
-import { anyIds, jsonRead } from "../core-store/dialect";
+import { anyIds, coreStore, jsonRead } from "../core-store/dialect";
 import {
 	kernelRuntimeEvents,
 	kernelRuntimeRuns,
@@ -22,6 +22,21 @@ import {
 } from "../schema/cognitive-runtime";
 import { harnessSubjectEvalResults } from "../schema/harness-versions";
 import { chunkForBoundParams } from "../utils/batch";
+/**
+ * D1 stores JSON as text, and one malformed row would fail the whole query
+ * under a bare json_extract, so D1 reads check json_valid first. Postgres
+ * jsonb is always valid.
+ */
+function validJsonRead(
+	db: object,
+	column: Parameters<typeof jsonRead>[1],
+	path: readonly string[],
+) {
+	const value = jsonRead(db, column, path);
+	return coreStore(db) === "d1"
+		? sql`CASE WHEN json_valid(${column}) THEN ${value} ELSE NULL END`
+		: value;
+}
 
 /** D1 caps bound parameters at 100 per statement; keep IN() lists ≤50. */
 const D1_IN_LIST_CHUNK = 50;
@@ -88,8 +103,8 @@ export async function listCorrectedKernelRunIds(
 	const table = coreTable(db, harnessSubjectEvalResults);
 	const ids = [...new Set(input.runIds)];
 	const metadata = table.metadata;
-	const runId = sql<string>`${jsonRead(db, metadata, ["runId"])}`;
-	const source = jsonRead(db, metadata, ["source"]);
+	const runId = sql<string>`${validJsonRead(db, metadata, ["runId"])}`;
+	const source = validJsonRead(db, metadata, ["source"]);
 	const rows = await db
 		.select({ runId })
 		.from(table)
@@ -156,7 +171,7 @@ export async function listKernelRouteCorrectionEvents(
 	},
 ) {
 	const table = coreTable(db, kernelRuntimeEvents);
-	const validAction = jsonRead(db, table.payload, ["action"]);
+	const validAction = validJsonRead(db, table.payload, ["action"]);
 	return db
 		.select({
 			id: table.id,
@@ -210,7 +225,7 @@ export async function listKernelEvalResultsForPriorRun(
 	input: { organizationId: string; runId: string },
 ) {
 	const table = coreTable(db, harnessSubjectEvalResults);
-	const runId = sql<string>`${jsonRead(db, table.metadata, ["runId"])}`;
+	const runId = sql<string>`${validJsonRead(db, table.metadata, ["runId"])}`;
 	return db
 		.select()
 		.from(table)
