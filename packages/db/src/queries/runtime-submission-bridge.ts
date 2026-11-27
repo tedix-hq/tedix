@@ -1,11 +1,13 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { tediRuntimeEvents } from "../schema/cognitive-runtime";
+import { coreTable } from "../core-store/client";
+import { tediRuntimeEvents as schemaTediRuntimeEvents } from "../schema/cognitive-runtime";
 
 export async function getTediSubmissionInputEvent(
 	db: DbClient,
 	input: { organizationId: string; tediId: string; runId: string },
 ) {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	const [row] = await db
 		.select({
 			conversationId: tediRuntimeEvents.conversationId,

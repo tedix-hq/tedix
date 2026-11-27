@@ -1,7 +1,11 @@
 import type { RuntimeEntitlementGrant } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { billingAccounts, billingPlanVersions } from "../schema/billing";
+import { coreTable } from "../core-store/client";
+import {
+	billingAccounts as schemaBillingAccounts,
+	billingPlanVersions as schemaBillingPlanVersions,
+} from "../schema/billing";
 
 export interface RuntimeEntitlementResult {
 	organizationId: string;
@@ -53,31 +57,27 @@ function runtimeMetadata(value: unknown): {
 	return { grants, source };
 }
 
-/**
- * The entitlement projection's columns, separated from the await so a caller
- * that needs this read inside a `db.batch()` composes the same statement rather
- * than restating it. Spend admission does exactly that.
- */
-export const runtimeEntitlementColumns = {
-	organizationId: billingAccounts.organizationId,
-	entitlementStatus: billingAccounts.status,
-	effectiveStartsAt: billingAccounts.periodStart,
-	effectiveEndsAt: billingAccounts.periodEnd,
-	entitlementVersion: billingAccounts.entitlementVersion,
-	entitlementMetadata: billingAccounts.metadata,
-	profileKey: billingPlanVersions.planKey,
-	profileName: billingPlanVersions.name,
-	includedMonthlyCredits:
-		sql<number>`COALESCE(${billingAccounts.includedCreditsOverride}, ${billingPlanVersions.includedMonthlyCredits})`.as(
-			"included_monthly_credits",
-		),
-	maxTedis: billingPlanVersions.maxTedis,
-	maxCronJobsPerTedi: billingPlanVersions.maxCronJobsPerTedi,
-	maxIterationsPerTask: billingPlanVersions.maxIterationsPerTask,
-} as const;
-
-/** The entitlement read as one composable statement. */
+/** The entitlement read as one composable statement for spend admission batches. */
 export function runtimeEntitlementQuery(db: DbClient, organizationId: string) {
+	const billingAccounts = coreTable(db, schemaBillingAccounts);
+	const billingPlanVersions = coreTable(db, schemaBillingPlanVersions);
+	const runtimeEntitlementColumns = {
+		organizationId: billingAccounts.organizationId,
+		entitlementStatus: billingAccounts.status,
+		effectiveStartsAt: billingAccounts.periodStart,
+		effectiveEndsAt: billingAccounts.periodEnd,
+		entitlementVersion: billingAccounts.entitlementVersion,
+		entitlementMetadata: billingAccounts.metadata,
+		profileKey: billingPlanVersions.planKey,
+		profileName: billingPlanVersions.name,
+		includedMonthlyCredits:
+			sql<number>`COALESCE(${billingAccounts.includedCreditsOverride}, ${billingPlanVersions.includedMonthlyCredits})`.as(
+				"included_monthly_credits",
+			),
+		maxTedis: billingPlanVersions.maxTedis,
+		maxCronJobsPerTedi: billingPlanVersions.maxCronJobsPerTedi,
+		maxIterationsPerTask: billingPlanVersions.maxIterationsPerTask,
+	} as const;
 	return db
 		.select(runtimeEntitlementColumns)
 		.from(billingAccounts)
