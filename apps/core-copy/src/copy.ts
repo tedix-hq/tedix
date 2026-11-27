@@ -290,11 +290,14 @@ export async function verifyTable(
 			pages: [receipt],
 		});
 	}
-	await ports.store.putTableProgress({
-		...progress,
-		status: "verified",
-		updatedAt: new Date().toISOString(),
-	});
+	// Only a finished table is "verified"; the cron skips verified tables,
+	// so checking a partial copy must not end it.
+	if (progress.state.done)
+		await ports.store.putTableProgress({
+			...progress,
+			status: "verified",
+			updatedAt: new Date().toISOString(),
+		});
 	return { table: tableName, verified: true, pages: progress.pages };
 }
 
