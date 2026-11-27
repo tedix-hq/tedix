@@ -3,6 +3,7 @@ import {
 	copyPages,
 	keysetSource,
 	verifyCopy,
+	type CopyReceipt,
 	type CopyState,
 	type CopyTable,
 	type PgQuery,
@@ -24,9 +25,20 @@ type Row = Record<string, unknown>;
 type Scalar = string | number | null;
 
 export const PAGE_SIZE = 500;
+/**
+ * Smaller pages for tables whose rows run to tens or hundreds of KB, so one
+ * page stays far below the Worker's memory and D1's response size.
+ */
+export const LARGE_ROW_PAGE_SIZES: Record<string, number> = {
+	os_output_revisions: 5,
+	agent_session_events: 50,
+	skill_runs: 50,
+	skill_run_artifacts: 100,
+};
 export const PAUSE_MS = 1000;
 /** Pages one cron tick may copy before yielding to the next schedule. */
-export const CRON_PAGE_BUDGET = 10;
+/** Pages per 5-minute tick: about 4 minutes of reads at one page a second. */
+export const CRON_PAGE_BUDGET = 200;
 
 export interface CopyPorts {
 	/** Read-only D1 access; every call is a SELECT the copy engine issues. */
@@ -147,7 +159,7 @@ export interface CopyResult {
 export async function copyTable(
 	ports: CopyPorts,
 	tableName: string,
-	options: { maxPages?: number } = {},
+	options: { maxPages?: number; pageSize?: number } = {},
 ): Promise<CopyResult> {
 	const entry = planTable(tableName);
 	if (!entry) throw new Error(`Unknown copy table: ${tableName}`);
@@ -155,6 +167,15 @@ export async function copyTable(
 	const { store } = ports;
 	const existing = await store.tableProgress(tableName);
 	let latest = existing?.state;
+	// Receipts kept inline by an earlier version stay in the state; new ones
+	// go to their own keys after them.
+	let count = existing?.pages ?? 0;
+	const pageSize =
+		existing?.pageSize ??
+		(existing?.state ? PAGE_SIZE : undefined) ??
+		options.pageSize ??
+		LARGE_ROW_PAGE_SIZES[tableName] ??
+		PAGE_SIZE;
 	const water =
 		latest !== undefined && existing?.highWater !== undefined
 			? existing.highWater
@@ -166,16 +187,34 @@ export async function copyTable(
 		highWater: water,
 	});
 	const now = () => new Date().toISOString();
+	let pending = false;
+	const onReceipt = async (receipt: CopyReceipt) => {
+		// Written at the next index; it only counts once the state is saved,
+		// so a failed save rewrites the same index on resume.
+		await store.putReceipt(tableName, count, receipt);
+		pending = true;
+	};
+	const progress = (
+		status: TableProgress["status"],
+		state: CopyState | undefined,
+		lastError?: string,
+	): TableProgress => ({
+		table: tableName,
+		status,
+		highWater: water,
+		pages: count,
+		pageSize,
+		state,
+		...(lastError ? { lastError } : {}),
+		updatedAt: now(),
+	});
 	const save = async (next: CopyState) => {
+		if (pending) {
+			count += 1;
+			pending = false;
+		}
 		latest = next;
-		await store.putTableProgress({
-			table: tableName,
-			status: "running",
-			highWater: water,
-			pages: next.pages.length,
-			state: next,
-			updatedAt: now(),
-		});
+		await store.putTableProgress(progress("running", next));
 	};
 	try {
 		const result = await copyPages({
@@ -184,58 +223,33 @@ export async function copyTable(
 			query: ports.query,
 			state: latest,
 			save,
-			pageSize: PAGE_SIZE,
+			onReceipt,
+			pageSize,
 			pauseMs: PAUSE_MS,
 			maxPages: options.maxPages,
 			wait: ports.wait ?? wait,
 		});
 		const status = result.done ? "done" : "running";
-		await store.putTableProgress({
-			table: tableName,
-			status,
-			highWater: water,
-			pages: result.pages.length,
-			state: result,
-			updatedAt: now(),
-		});
-		return {
-			table: tableName,
-			done: result.done,
-			pages: result.pages.length,
-			status,
-		};
+		await store.putTableProgress(progress(status, result));
+		return { table: tableName, done: result.done, pages: count, status };
 	} catch (error) {
 		const overloaded = isD1Overloaded(error);
 		const message = error instanceof Error ? error.message : String(error);
-		const pages = latest?.pages.length ?? 0;
-		await store.putTableProgress({
-			table: tableName,
-			status: overloaded ? "paused" : "error",
-			highWater: water,
-			pages,
-			state: latest,
-			lastError: message,
-			updatedAt: now(),
-		});
+		await store.putTableProgress(
+			progress(overloaded ? "paused" : "error", latest, message),
+		);
 		if (overloaded) {
 			await store.setRunState({
 				mode: "paused",
 				note: `D1 overloaded during ${tableName}; resume with POST /run`,
 				updatedAt: now(),
 			});
-			return {
-				table: tableName,
-				done: false,
-				pages,
-				status: "paused",
-				lastError: message,
-			};
 		}
 		return {
 			table: tableName,
 			done: false,
-			pages,
-			status: "error",
+			pages: count,
+			status: overloaded ? "paused" : "error",
 			lastError: message,
 		};
 	}
@@ -245,23 +259,34 @@ export async function copyTable(
 export async function verifyTable(
 	ports: CopyPorts,
 	tableName: string,
+	options: { fromPage?: number } = {},
 ): Promise<{ table: string; verified: boolean; pages: number }> {
 	const entry = planTable(tableName);
 	if (!entry) throw new Error(`Unknown copy table: ${tableName}`);
 	const progress = await ports.store.tableProgress(tableName);
 	if (!progress?.state)
 		throw new Error(`No checkpoint for ${tableName}; copy it first`);
-	await verifyCopy(asCopyTable(entry), ports.query, progress.state);
+	const table = asCopyTable(entry);
+	const inline = progress.state.pages;
+	if (inline.length) await verifyCopy(table, ports.query, progress.state);
+	for (
+		let index = options.fromPage ?? inline.length;
+		index < progress.pages;
+		index += 1
+	) {
+		const receipt = await ports.store.receipt(tableName, index);
+		if (!receipt) throw new Error(`Missing receipt ${index} for ${tableName}`);
+		await verifyCopy(table, ports.query, {
+			...progress.state,
+			pages: [receipt],
+		});
+	}
 	await ports.store.putTableProgress({
 		...progress,
 		status: "verified",
 		updatedAt: new Date().toISOString(),
 	});
-	return {
-		table: tableName,
-		verified: true,
-		pages: progress.state.pages.length,
-	};
+	return { table: tableName, verified: true, pages: progress.pages };
 }
 
 export interface StatusReport {

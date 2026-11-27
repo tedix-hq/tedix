@@ -1,5 +1,5 @@
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
-import type { CopyState } from "../../../scripts/db/core-copy.ts";
+import type { CopyReceipt, CopyState } from "../../../scripts/db/core-copy.ts";
 
 /** Minimal key-value surface so tests can run the whole Worker logic in bun. */
 export interface CheckpointStore {
@@ -53,6 +53,8 @@ export interface TableProgress {
 	/** rowid upper bound captured when the copy window opened. */
 	highWater?: number;
 	pages: number;
+	/** Rows per page; fixed for the table once its copy starts. */
+	pageSize?: number;
 	state?: CopyState;
 	lastError?: string;
 	updatedAt: string;
@@ -60,6 +62,9 @@ export interface TableProgress {
 
 const RUN_KEY = "core-copy:run";
 export const tableKey = (table: string) => `core-copy:table:${table}`;
+/** One key per page receipt, so no stored value grows with the table. */
+export const receiptKey = (table: string, index: number) =>
+	`core-copy:receipt:${table}:${index}`;
 
 export class ProgressStore {
 	constructor(private readonly kv: CheckpointStore) {}
@@ -78,5 +83,19 @@ export class ProgressStore {
 	}
 	async putTableProgress(progress: TableProgress): Promise<void> {
 		await this.kv.put(tableKey(progress.table), JSON.stringify(progress));
+	}
+	async receipt(
+		table: string,
+		index: number,
+	): Promise<CopyReceipt | undefined> {
+		const raw = await this.kv.get(receiptKey(table, index));
+		return raw ? (JSON.parse(raw) as CopyReceipt) : undefined;
+	}
+	async putReceipt(
+		table: string,
+		index: number,
+		receipt: CopyReceipt,
+	): Promise<void> {
+		await this.kv.put(receiptKey(table, index), JSON.stringify(receipt));
 	}
 }

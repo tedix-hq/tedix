@@ -36,6 +36,9 @@ export default defineConfig(({ mode }) => {
 			compatibilityFlags: ["nodejs_compat"],
 			// Admin calls reach the workers.dev address; every route but /healthz
 			// requires CORE_COPY_ADMIN_TOKEN.
+			// A long copy request hashes and serializes many pages; raise the CPU
+			// ceiling above the 30 s default (paid plans allow up to 5 minutes).
+			limits: { cpuMs: 300_000 },
 			workersDev: productionIngress.workersDev,
 			previewUrls: productionIngress.previewUrls,
 			// The cron only walks the plan while the run state says running.

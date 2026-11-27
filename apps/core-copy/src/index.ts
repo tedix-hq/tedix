@@ -86,7 +86,19 @@ export default {
 				);
 			const { ports, end } = portsFor(env);
 			try {
-				return Response.json(await copyTable(ports, table));
+				const positive = (name: string) => {
+					const raw = url.searchParams.get(name);
+					const value = raw === null ? undefined : Number(raw);
+					return value !== undefined && Number.isInteger(value) && value > 0
+						? value
+						: undefined;
+				};
+				return Response.json(
+					await copyTable(ports, table, {
+						maxPages: positive("maxPages"),
+						pageSize: positive("size"),
+					}),
+				);
 			} catch (error) {
 				return jsonError(error);
 			} finally {
@@ -104,7 +116,13 @@ export default {
 				);
 			const { ports, end } = portsFor(env);
 			try {
-				return Response.json(await verifyTable(ports, table));
+				const fromRaw = url.searchParams.get("fromPage");
+				const from = fromRaw === null ? Number.NaN : Number(fromRaw);
+				return Response.json(
+					await verifyTable(ports, table, {
+						fromPage: Number.isInteger(from) && from >= 0 ? from : undefined,
+					}),
+				);
 			} catch (error) {
 				return jsonError(error);
 			} finally {

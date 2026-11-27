@@ -233,6 +233,12 @@ export async function copyPages(options: {
 	pauseMs?: number;
 	/** Stop after this many pages and return the checkpointed state. */
 	maxPages?: number;
+	/**
+	 * Hand each page receipt to the caller instead of keeping it in the state.
+	 * The caller stores and verifies receipts; resume then skips the full
+	 * re-verify, which would otherwise grow with every copied page.
+	 */
+	onReceipt?: (receipt: CopyReceipt) => Promise<void>;
 	wait?: (ms: number) => Promise<unknown>;
 }) {
 	const { table, source, query, save } = options;
@@ -262,7 +268,8 @@ export async function copyPages(options: {
 	};
 	if (state.format !== "tedix-core-copy/v1" || state.plan !== plan)
 		throw new Error("Checkpoint belongs to a different copy plan");
-	if (options.state) await verifyCopy(table, query, state);
+	if (options.state && !options.onReceipt)
+		await verifyCopy(table, query, state);
 	let pages = 0;
 	let advancedSourceRowid = 0;
 	if (
@@ -304,10 +311,12 @@ export async function copyPages(options: {
 					advancedSourceRowid = pageMax;
 				}
 			}
+			const receipt = { keys, sha256: pageHash(rows) };
+			if (options.onReceipt) await options.onReceipt(receipt);
 			state = {
 				...state,
 				cursor: page.next,
-				pages: [...state.pages, { keys, sha256: pageHash(rows) }],
+				pages: options.onReceipt ? state.pages : [...state.pages, receipt],
 			};
 		}
 		// Save only after the target accepted and checked the whole page.
