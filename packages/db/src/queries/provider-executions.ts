@@ -12,9 +12,16 @@ import {
 import { nativeExecutionEligibilityPredicate } from "./billing/historical-exposure";
 import { and, eq, sql, SQL, Param } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { coreTable } from "../core-store/client";
+import {
+	anyIds,
+	coreStore,
+	jsonParameter,
+	type CoreStore,
+} from "../core-store/dialect";
 import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import {
-	providerExecutionAttempts,
+	providerExecutionAttempts as schemaProviderExecutionAttempts,
 	type NewProviderExecutionAttemptRow,
 	type ProviderExecutionAttemptRow,
 } from "../schema/provider-executions";
@@ -44,7 +51,7 @@ export function buildProviderExecutionInsertStatement(
 	// Managed credits are held by the organization wallet before this insert;
 	// the fence only proves the dispatch identity and policy guard.
 	return db.run(sql`${eligibility} INSERT INTO provider_execution_attempts (id, organization_id, tedi_id, source, run_id, work_item_id, trace_id, idempotency_key, settlement_mode, billing_reservation_id, provider, request_model, gateway_account_id, gateway_id, transport_kind, api_kind, provider_resource, provider_origin, deployment, deployment_scope, authorized_at, send_before, origin, origin_hash, policy, policy_hash)
- SELECT ${input.id}, ${input.organizationId}, ${input.tediId ?? null}, ${input.source}, ${input.runId ?? null}, ${input.workItemId ?? null}, ${input.traceId ?? null}, ${input.idempotencyKey}, ${input.settlementMode}, ${input.billingReservationId ?? null}, ${identity.provider}, ${identity.requestModel}, ${identity.gatewayAccountId}, ${identity.gatewayId}, ${identity.transportKind}, ${identity.apiKind}, ${identity.providerResource}, ${identity.providerOrigin}, ${identity.deployment}, ${input.deploymentScope}, ${input.authorizedAt}, ${input.sendBefore}, ${input.origin ? JSON.stringify(input.origin) : null}, ${input.originHash ?? null}, ${input.policy ? JSON.stringify(input.policy) : null}, ${input.policyHash ?? null}
+ SELECT ${input.id}, ${input.organizationId}, ${input.tediId ?? null}, ${input.source}, ${input.runId ?? null}, ${input.workItemId ?? null}, ${input.traceId ?? null}, ${input.idempotencyKey}, ${input.settlementMode}, ${input.billingReservationId ?? null}, ${identity.provider}, ${identity.requestModel}, ${identity.gatewayAccountId}, ${identity.gatewayId}, ${identity.transportKind}, ${identity.apiKind}, ${identity.providerResource}, ${identity.providerOrigin}, ${identity.deployment}, ${input.deploymentScope}, ${input.authorizedAt}, ${input.sendBefore}, ${input.origin ? jsonParameter(db, input.origin) : null}, ${input.originHash ?? null}, ${input.policy ? jsonParameter(db, input.policy) : null}, ${input.policyHash ?? null}
  WHERE ${predicate}`);
 }
 
@@ -54,6 +61,10 @@ export async function findProviderExecutionAdmission(
 	idempotencyKey: string,
 	guard?: ProviderExecutionAdmissionGuard,
 ) {
+	const providerExecutionAttempts = coreTable(
+		db,
+		schemaProviderExecutionAttempts,
+	);
 	const [row] = await db
 		.select()
 		.from(providerExecutionAttempts)
@@ -61,11 +72,22 @@ export async function findProviderExecutionAdmission(
 			and(
 				eq(providerExecutionAttempts.organizationId, organizationId),
 				eq(providerExecutionAttempts.idempotencyKey, idempotencyKey),
-				guard ? providerExecutionRetryPredicate(guard) : undefined,
+				guard ? providerExecutionRetryPredicate(guard, db) : undefined,
 			),
 		)
 		.limit(1);
 	return row ?? null;
+}
+
+/** Postgres jsonb does not keep key order, so stored JSON compares by content. */
+function canonicalJson(value: unknown): string {
+	return JSON.stringify(value, (_key, item: unknown) =>
+		item && typeof item === "object" && !Array.isArray(item)
+			? Object.fromEntries(
+					Object.entries(item).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+				)
+			: item,
+	);
 }
 
 export function assertProviderExecutionMatches(
@@ -88,7 +110,7 @@ export function assertProviderExecutionMatches(
 			throw new Error("Execution provenance conflict");
 	for (const key of ["origin", "policy"] as const)
 		if (
-			JSON.stringify(row[key] ?? null) !== JSON.stringify(expected[key] ?? null)
+			canonicalJson(row[key] ?? null) !== canonicalJson(expected[key] ?? null)
 		)
 			throw new Error("Execution provenance conflict");
 	if (
@@ -103,8 +125,8 @@ export function assertProviderExecutionMatches(
 	)
 		throw new Error("Execution original window conflict");
 	if (
-		JSON.stringify(readProviderExecutionIdentity(row)) !==
-		JSON.stringify(readProviderExecutionIdentity(expected))
+		canonicalJson(readProviderExecutionIdentity(row)) !==
+		canonicalJson(readProviderExecutionIdentity(expected))
 	)
 		throw new Error("Execution admission identity conflict");
 }
@@ -119,13 +141,15 @@ export async function getProviderExecutionsByIds(
 		getProviderExecutionsByIds(store, ids),
 	);
 	if (pages) return mergeLogStoreRows(pages);
+	const providerExecutionAttempts = coreTable(
+		db,
+		schemaProviderExecutionAttempts,
+	);
 	// Bind the bounded ingestion ID set as one value rather than one parameter per ID.
 	return db
 		.select()
 		.from(providerExecutionAttempts)
-		.where(
-			sql`${providerExecutionAttempts.id} IN (SELECT value FROM json_each(${JSON.stringify([...new Set(ids)])}))`,
-		);
+		.where(anyIds(db, providerExecutionAttempts.id, [...new Set(ids)]));
 }
 
 /** Private typed preparation; never serialized or supplied as arbitrary request SQL. */
@@ -134,7 +158,13 @@ export interface ProviderExecutionAdmissionGuard {
 }
 const guards = new WeakMap<
 	ProviderExecutionAdmissionGuard,
-	{ execution: NewProviderExecutionAttemptRow; pin: string; predicate: SQL }
+	{
+		execution: NewProviderExecutionAttemptRow;
+		pin: string;
+		predicate: SQL;
+		/** Unknown for kernel guards, which carry no store-specific predicate. */
+		store: CoreStore | null;
+	}
 >();
 export async function prepareProviderExecutionAdmission(
 	db: DbQueryClient,
@@ -198,7 +228,12 @@ export async function prepareProviderExecutionAdmission(
 	guards.set(guard, {
 		execution: snapshot,
 		pin: JSON.stringify(snapshot),
-		predicate: compactAdmissionPredicate(predicate),
+		// Postgres has no D1 parameter cap; keep the subquery shape compaction gives D1.
+		predicate:
+			coreStore(db) === "postgres"
+				? sql`(SELECT ${predicate})`
+				: compactAdmissionPredicate(predicate),
+		store: coreStore(db),
 	});
 	return { execution, guard };
 }
@@ -239,6 +274,7 @@ export async function prepareKernelAutoRoutingAdmission(
 		execution: snapshot,
 		pin: JSON.stringify(snapshot),
 		predicate: compactAdmissionPredicate(sql`1=1`),
+		store: null,
 	});
 	return { execution, guard };
 }
@@ -266,40 +302,54 @@ export function providerExecutionGuardPredicate(
 		throw new Error("Execution guard identity changed");
 	return facts.predicate;
 }
+/** Pass `db` where the caller has it; a kernel guard does not know its store. */
 export function providerExecutionRetryPredicate(
 	guard: ProviderExecutionAdmissionGuard,
+	db?: object,
 ): SQL {
-	const { execution: e, predicate } = guardFacts(guard);
+	const { execution: e, predicate, store } = guardFacts(guard);
+	const postgres = (db ? coreStore(db) : store) === "postgres";
+	// SQLite's `IS` takes any operand; Postgres needs IS NOT DISTINCT FROM.
+	const same = (column: string, value: string | null | undefined) =>
+		postgres
+			? sql`${sql.raw(column)} IS NOT DISTINCT FROM ${value ?? null}::text`
+			: sql`${sql.raw(column)} IS ${value ?? null}`;
 	const identity = balancedConjunction([
 		sql`organization_id=${e.organizationId}`,
 		sql`idempotency_key=${e.idempotencyKey}`,
-		sql`tedi_id IS ${e.tediId ?? null}`,
+		same("tedi_id", e.tediId),
 		sql`id=${e.id}`,
-		sql`billing_reservation_id IS ${e.billingReservationId ?? null}`,
+		same("billing_reservation_id", e.billingReservationId),
 		sql`source=${e.source}`,
-		sql`run_id IS ${e.runId ?? null}`,
-		sql`work_item_id IS ${e.workItemId ?? null}`,
-		sql`trace_id IS ${e.traceId ?? null}`,
+		same("run_id", e.runId),
+		same("work_item_id", e.workItemId),
+		same("trace_id", e.traceId),
 		sql`settlement_mode=${e.settlementMode}`,
 		e.originHash == null
 			? sql`origin_hash IS NULL`
 			: sql`origin_hash=${e.originHash}`,
 		e.origin == null
 			? sql`origin IS NULL`
-			: sql`json(origin)=json(${JSON.stringify(e.origin)})`,
-		sql`policy_hash IS ${e.policyHash ?? null}`,
-		sql`policy IS ${e.policy ? JSON.stringify(e.policy) : null}`,
+			: postgres
+				? sql`origin=${JSON.stringify(e.origin)}::text::jsonb`
+				: sql`json(origin)=json(${JSON.stringify(e.origin)})`,
+		same("policy_hash", e.policyHash),
+		e.policy == null
+			? sql`policy IS NULL`
+			: postgres
+				? sql`policy=${JSON.stringify(e.policy)}::text::jsonb`
+				: sql`policy IS ${JSON.stringify(e.policy)}`,
 		sql`authorized_at=${e.authorizedAt}`,
 		sql`send_before=${e.sendBefore}`,
 		sql`provider=${e.provider}`,
 		sql`request_model=${e.requestModel}`,
-		sql`gateway_account_id IS ${e.gatewayAccountId ?? null}`,
-		sql`gateway_id IS ${e.gatewayId ?? null}`,
+		same("gateway_account_id", e.gatewayAccountId),
+		same("gateway_id", e.gatewayId),
 		sql`transport_kind=${e.transportKind}`,
 		sql`api_kind=${e.apiKind}`,
-		sql`provider_resource IS ${e.providerResource ?? null}`,
-		sql`provider_origin IS ${e.providerOrigin ?? null}`,
-		sql`deployment IS ${e.deployment ?? null}`,
+		same("provider_resource", e.providerResource),
+		same("provider_origin", e.providerOrigin),
+		same("deployment", e.deployment),
 		sql`deployment_scope=${e.deploymentScope}`,
 	]);
 	// Materialize the original eligibility independently of the correlated receipt
@@ -345,5 +395,7 @@ export function compactAdmissionPredicate(predicate: SQL): SQL {
 			}),
 		);
 	const captured = visit(predicate);
+	// Without bound values the subquery reads nothing, which also keeps it valid on Postgres.
+	if (!values.length) return sql`(SELECT ${captured})`;
 	return sql`(SELECT ${captured} FROM json_each(${JSON.stringify([values])}) AS __provider_policy)`;
 }

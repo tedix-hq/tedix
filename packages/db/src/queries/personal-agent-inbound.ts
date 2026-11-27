@@ -6,10 +6,15 @@ import type {
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../core-store/client";
+import { booleanValue, jsonParameter, jsonRead } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
-import { projects } from "../schema/projects";
-import { userConfigs } from "../schema/user-configs";
-import { workEvents, workItems } from "../schema/work-items";
+import { projects as schemaProjects } from "../schema/projects";
+import { userConfigs as schemaUserConfigs } from "../schema/user-configs";
+import {
+	workEvents as schemaWorkEvents,
+	workItems as schemaWorkItems,
+} from "../schema/work-items";
 import { getWorkItemBySourceIntentId } from "./work-items/crud";
 
 export const PERSONAL_AGENT_NAMESPACE = "personal-agent-inbound.v1";
@@ -30,9 +35,10 @@ export async function capturePersonalAgentFinding(
 ) {
 	const { enrollment: e, finding: f, contribution: c } = input;
 	const id = crypto.randomUUID();
-	const provenance = JSON.stringify({ personalAgentContribution: c });
-	const cfg = alias(userConfigs, "cfg");
-	const p = alias(projects, "p");
+	const workItems = coreTable(db, schemaWorkItems);
+	const workEvents = coreTable(db, schemaWorkEvents);
+	const cfg = alias(coreTable(db, schemaUserConfigs), "cfg");
+	const p = alias(coreTable(db, schemaProjects), "p");
 	await db.batch([
 		db
 			.insert(workItems)
@@ -58,10 +64,14 @@ export async function capturePersonalAgentFinding(
 						sourceIntentId: sql<string>`${input.sourceIntentId}`.as(
 							"source_intent_id",
 						),
-						provenance: sql<Record<string, JsonValue>>`${provenance}`.as(
+						provenance: sql<
+							Record<string, JsonValue>
+						>`${jsonParameter(db, { personalAgentContribution: c })}`.as(
 							"provenance",
 						),
-						metadata: sql<Record<string, JsonValue>>`'{}'`.as("metadata"),
+						metadata: sql<
+							Record<string, JsonValue>
+						>`${jsonParameter(db, {})}`.as("metadata"),
 						createdAt: sql<string>`${c.capturedAt}`.as("created_at"),
 					})
 					.from(cfg)
@@ -72,7 +82,7 @@ export async function capturePersonalAgentFinding(
 							eq(cfg.namespace, PERSONAL_AGENT_NAMESPACE),
 							eq(cfg.key, personalAgentConfigKey(e.orgId, e.id)),
 							eq(cfg.revision, input.revision),
-							sql`json_extract(${cfg.value}, '$.active') = 1`,
+							sql`${jsonRead(db, cfg.value, ["active"], "boolean")} = ${booleanValue(db, true)}`,
 							eq(p.status, "active"),
 							isNotNull(p.objectiveId),
 						),
@@ -94,7 +104,7 @@ export async function capturePersonalAgentFinding(
 					actorId: sql<string>`${`personal-agent:${e.id}`}`.as("actor_id"),
 					payload: sql<
 						Record<string, JsonValue>
-					>`${JSON.stringify({ summary: f.title, personalAgentContribution: c })}`.as(
+					>`${jsonParameter(db, { summary: f.title, personalAgentContribution: c })}`.as(
 						"payload",
 					),
 					occurredAt: sql<string>`${c.capturedAt}`.as("occurred_at"),

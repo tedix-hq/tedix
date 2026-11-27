@@ -35,7 +35,8 @@ export async function getPortableTediControlBindings(
 				})
 				.from(runtimeProfiles)
 				.where(eq(runtimeProfiles.id, ids.runtimeProfileId))
-				.get()
+				.limit(1)
+				.then(([row]) => row)
 		: null;
 	const policyPack = ids.policyPackId
 		? await db
@@ -47,7 +48,8 @@ export async function getPortableTediControlBindings(
 				})
 				.from(policyPacks)
 				.where(eq(policyPacks.id, ids.policyPackId))
-				.get()
+				.limit(1)
+				.then(([row]) => row)
 		: null;
 	const workspaceTemplateSet = ids.workspaceTemplateSetId
 		? await db
@@ -59,7 +61,8 @@ export async function getPortableTediControlBindings(
 				})
 				.from(workspaceTemplateSets)
 				.where(eq(workspaceTemplateSets.id, ids.workspaceTemplateSetId))
-				.get()
+				.limit(1)
+				.then(([row]) => row)
 		: null;
 	return { runtimeProfile, policyPack, workspaceTemplateSet };
 }
@@ -103,9 +106,9 @@ export async function listPortableTediDomainsPage(
 			JOIN included child ON parent.id = child.parent_id
 			WHERE parent.organization_id = ${organizationId}
 		)
-		SELECT d.id AS id, d.organization_id AS organizationId,
-			d.name AS name, d.parent_id AS parentId,
-			d.description AS description, d.created_at AS createdAt
+		SELECT d.id AS id, d.organization_id AS "organizationId",
+			d.name AS name, d.parent_id AS "parentId",
+			d.description AS description, d.created_at AS "createdAt"
 		FROM memory_domains d
 		JOIN included ON included.id = d.id
 		WHERE d.organization_id = ${organizationId}

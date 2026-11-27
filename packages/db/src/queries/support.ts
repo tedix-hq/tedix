@@ -1,16 +1,18 @@
 import { and, asc, eq, exists, notInArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonParameter } from "../core-store/dialect";
 import {
-	supportConfiguration,
-	supportTickets,
+	supportConfiguration as schemaSupportConfiguration,
+	supportTickets as schemaSupportTickets,
 	type SupportTicketRow,
 } from "../schema/support";
-import { projects } from "../schema/projects";
+import { projects as schemaProjects } from "../schema/projects";
 import {
-	workItems,
+	workItems as schemaWorkItems,
 	workItemStoredColumns,
-	workEvents,
-	workItemComments,
+	workEvents as schemaWorkEvents,
+	workItemComments as schemaWorkItemComments,
 } from "../schema/work-items";
 import type { SupportConfiguration } from "@tedix/api-contract/schemas/support";
 import { workItemPurposeFor } from "./work-items/purpose";
@@ -18,12 +20,20 @@ import { resolveWorkItemSteward } from "./work-items/stewardship";
 
 export class SupportStateError extends Error {}
 
+/** A fresh admission spec revision, 32 lowercase hex characters on both stores. */
+function freshSpecRevision(db: DbQueryClient) {
+	return coreStore(db) === "postgres"
+		? sql`replace(gen_random_uuid()::text, '-', '')`
+		: sql`lower(hex(randomblob(16)))`;
+}
+
 async function supportWorkPurpose(
 	db: DbQueryClient,
 	orgId: string,
 	projectId: string,
 	now: string,
 ) {
+	const projects = coreTable(db, schemaProjects);
 	const [project] = await db
 		.select({ objectiveId: projects.objectiveId })
 		.from(projects)
@@ -47,6 +57,8 @@ export async function repairSupportWorkPurpose(
 	ticket: SupportTicketRow,
 	p: { sourceEventId: string; mirrorEventId: string; now: string },
 ) {
+	const workItems = coreTable(db, schemaWorkItems);
+	const workEvents = coreTable(db, schemaWorkEvents);
 	for (const target of [
 		{
 			orgId: ticket.orgId,
@@ -119,7 +131,7 @@ export async function repairSupportWorkPurpose(
 							actorType: sql<"system">`'system'`.as("actor_type"),
 							actorId: sql<string>`'support-intake'`.as("actor_id"),
 							actorSessionId: sql<null>`NULL`.as("actor_session_id"),
-							payload: sql`'{}'`.as("payload"),
+							payload: sql`${jsonParameter(db, {})}`.as("payload"),
 							occurredAt: sql<string>`${p.now}`.as("occurred_at"),
 						})
 						.from(workItems)
@@ -138,6 +150,7 @@ export async function repairSupportWorkPurpose(
 
 /** Installation singleton, read only by the reviewed support bridge handlers. */
 export async function getSupportConfiguration(db: DbQueryClient) {
+	const supportConfiguration = coreTable(db, schemaSupportConfiguration);
 	return (
 		(
 			await db
@@ -153,6 +166,7 @@ export async function putSupportConfiguration(
 	configuration: SupportConfiguration,
 	now: string,
 ) {
+	const supportConfiguration = coreTable(db, schemaSupportConfiguration);
 	await db
 		.insert(supportConfiguration)
 		.values({ id: "default", configuration, updatedAt: now })
@@ -171,6 +185,7 @@ export async function ensureSupportProject(
 		now: string;
 	},
 ) {
+	const projects = coreTable(db, schemaProjects);
 	await db
 		.insert(projects)
 		.values({
@@ -201,6 +216,7 @@ export async function getSupportTicket(
 	id: string,
 	reporterKey?: string,
 ) {
+	const supportTickets = coreTable(db, schemaSupportTickets);
 	return (
 		(
 			await db
@@ -225,6 +241,7 @@ export async function getStaffSupportTicket(
 	platformOrgId: string,
 	id: string,
 ) {
+	const supportTickets = coreTable(db, schemaSupportTickets);
 	return (
 		(
 			await db
@@ -250,6 +267,7 @@ export async function listSupportTickets(
 		limit: number;
 	},
 ) {
+	const supportTickets = coreTable(db, schemaSupportTickets);
 	return db
 		.select()
 		.from(supportTickets)
@@ -279,9 +297,11 @@ export async function listSupportTickets(
  */
 export async function createSupportTicket(
 	db: DbQueryClient,
-	ticket: typeof supportTickets.$inferInsert,
+	ticket: typeof schemaSupportTickets.$inferInsert,
 	owner: { type: "user" | "tedi"; id: string } | null,
 ) {
+	const supportTickets = coreTable(db, schemaSupportTickets);
+	const workItems = coreTable(db, schemaWorkItems);
 	const stewardship = await resolveWorkItemSteward(db, {
 		orgId: ticket.orgId,
 		projectId: ticket.projectId,
@@ -307,7 +327,7 @@ export async function createSupportTicket(
 				workKind: "operations",
 				disposition: owner ? "accepted" : "proposed",
 				riskLevel: "low",
-				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+				admissionSpecRevision: freshSpecRevision(db),
 				...purpose,
 				...stewardship,
 				accountableOwnerType: owner?.type,
@@ -332,6 +352,9 @@ export async function deliverSupportMirror(
 	ticket: SupportTicketRow,
 	p: { projectId: string; tediId: string; eventId: string; now: string },
 ) {
+	const supportTickets = coreTable(db, schemaSupportTickets);
+	const workItems = coreTable(db, schemaWorkItems);
+	const workEvents = coreTable(db, schemaWorkEvents);
 	const purpose = await supportWorkPurpose(
 		db,
 		ticket.platformOrgId,
@@ -353,7 +376,7 @@ export async function deliverSupportMirror(
 				workKind: "operations",
 				disposition: "accepted",
 				riskLevel: "low",
-				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+				admissionSpecRevision: freshSpecRevision(db),
 				...purpose,
 				accountableOwnerType: "tedi",
 				accountableOwnerId: p.tediId,
@@ -381,7 +404,7 @@ export async function deliverSupportMirror(
 					actorType: sql<"system">`'system'`.as("actor_type"),
 					actorId: sql<string>`'support-intake'`.as("actor_id"),
 					actorSessionId: sql<null>`NULL`.as("actor_session_id"),
-					payload: sql`'{}'`.as("payload"),
+					payload: sql`${jsonParameter(db, {})}`.as("payload"),
 					occurredAt: sql<string>`${p.now}`.as("occurred_at"),
 				})
 				.from(supportTickets)
@@ -408,6 +431,7 @@ export async function listPendingSupportMirrors(
 	db: DbQueryClient,
 	platformOrgId: string,
 ) {
+	const supportTickets = coreTable(db, schemaSupportTickets);
 	return db
 		.select()
 		.from(supportTickets)
@@ -451,6 +475,10 @@ export async function updateSupportTicket(
 		eventId: string;
 	},
 ) {
+	const supportTickets = coreTable(db, schemaSupportTickets);
+	const workItems = coreTable(db, schemaWorkItems);
+	const workEvents = coreTable(db, schemaWorkEvents);
+	const workItemComments = coreTable(db, schemaWorkItemComments);
 	if (old.updateKeys.includes(p.key)) return old;
 	if (old.updateKeys.length >= 200)
 		throw new SupportStateError(
@@ -460,7 +488,9 @@ export async function updateSupportTicket(
 		eq(supportTickets.orgId, old.orgId),
 		eq(supportTickets.id, old.id),
 		eq(supportTickets.version, old.version + 1),
-		sql`json_extract(${supportTickets.updateKeys}, '$[#-1]') = ${p.key}`,
+		coreStore(db) === "postgres"
+			? sql`${supportTickets.updateKeys} ->> -1 = ${p.key}`
+			: sql`json_extract(${supportTickets.updateKeys}, '$[#-1]') = ${p.key}`,
 		sql`NOT EXISTS (SELECT 1 FROM work_events WHERE id = ${p.eventId})`,
 	);
 	const workId = p.publicComment ? old.workItemId : old.mirrorWorkItemId;
@@ -532,7 +562,7 @@ export async function updateSupportTicket(
 						),
 						authorId: sql<string>`${p.actorId}`.as("author_id"),
 						body: sql<string>`${p.commentBody}`.as("body"),
-						metadata: sql`'{}'`.as("metadata"),
+						metadata: sql`${jsonParameter(db, {})}`.as("metadata"),
 						createdAt: sql<string>`${p.now}`.as("created_at"),
 					})
 					.from(supportTickets)
@@ -554,7 +584,7 @@ export async function updateSupportTicket(
 						actorType: sql<typeof p.actorType>`${p.actorType}`.as("actor_type"),
 						actorId: sql<string>`${p.actorId}`.as("actor_id"),
 						actorSessionId: sql<null>`NULL`.as("actor_session_id"),
-						payload: sql`'{}'`.as("payload"),
+						payload: sql`${jsonParameter(db, {})}`.as("payload"),
 						occurredAt: sql<string>`${p.now}`.as("occurred_at"),
 					})
 					.from(supportTickets)

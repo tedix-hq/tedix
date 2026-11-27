@@ -28,21 +28,23 @@ import {
 	type NewProject,
 	type Project,
 	type ProjectStatus,
-	projects,
+	projects as schemaProjects,
 } from "../schema/projects";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonParameter } from "../core-store/dialect";
 import {
 	anyWorkAgentSessionReport,
-	workAgentSessions,
+	workAgentSessions as schemaWorkAgentSessions,
 } from "../schema/work-agent-sessions";
-import { workProjectHealthJudgments } from "../schema/work-factory";
-import { tedis } from "../schema/tedis";
+import { workProjectHealthJudgments as schemaWorkProjectHealthJudgments } from "../schema/work-factory";
+import { tedis as schemaTedis } from "../schema/tedis";
 import { withTransientD1ReadRetry } from "../utils/d1-retry";
 import {
 	type WorkItemDisposition,
 	type WorkItemKind,
-	workAttempts,
-	workItems,
+	workAttempts as schemaWorkAttempts,
+	workItems as schemaWorkItems,
 } from "../schema/work-items";
 import {
 	computeWorkItemRollupTotals,
@@ -118,10 +120,22 @@ export interface ProjectRollup extends WorkItemRollupTotals {
  */
 const PROJECT_ROLLUP_ITEM_CAP = 2000;
 
+function projectTables(db: object) {
+	return {
+		projects: coreTable(db, schemaProjects),
+		workItems: coreTable(db, schemaWorkItems),
+		workAttempts: coreTable(db, schemaWorkAttempts),
+		workAgentSessions: coreTable(db, schemaWorkAgentSessions),
+		workProjectHealthJudgments: coreTable(db, schemaWorkProjectHealthJudgments),
+		tedis: coreTable(db, schemaTedis),
+	};
+}
+
 export async function createProject(
 	db: DbClient,
 	params: CreateProjectParams,
 ): Promise<Project> {
+	const { projects } = projectTables(db);
 	const values: NewProject = {
 		id: params.id,
 		orgId: params.orgId,
@@ -144,6 +158,7 @@ export async function getProjectById(
 	db: DbClient,
 	id: string,
 ): Promise<Project | undefined> {
+	const { projects } = projectTables(db);
 	const rows = await db.select().from(projects).where(eq(projects.id, id));
 	return rows[0];
 }
@@ -153,13 +168,16 @@ export async function listProjectsWithRecurringWork(
 	db: DbQueryClient,
 	limit = 500,
 ): Promise<Project[]> {
+	const { projects } = projectTables(db);
 	return db
 		.select()
 		.from(projects)
 		.where(
 			and(
 				isNull(projects.archivedAt),
-				sql`json_array_length(json_extract(${projects.metadata}, '$.recurringWork')) > 0`,
+				coreStore(db) === "postgres"
+					? sql`CASE WHEN jsonb_typeof(${projects.metadata} -> 'recurringWork') = 'array' THEN jsonb_array_length(${projects.metadata} -> 'recurringWork') ELSE 0 END > 0`
+					: sql`json_array_length(json_extract(${projects.metadata}, '$.recurringWork')) > 0`,
 			),
 		)
 		.orderBy(asc(projects.id))
@@ -171,6 +189,7 @@ export async function getProjectByKey(
 	orgId: string,
 	key: string,
 ): Promise<Project | undefined> {
+	const { projects } = projectTables(db);
 	const rows = await db
 		.select()
 		.from(projects)
@@ -182,6 +201,7 @@ export async function listProjects(
 	db: DbClient,
 	options: ListProjectsOptions,
 ): Promise<{ data: Project[]; total: number }> {
+	const { projects } = projectTables(db);
 	const { limit = 50, offset = 0 } = options;
 	const conditions = [eq(projects.orgId, options.orgId)];
 	if (options.excludeProjectId)
@@ -189,13 +209,20 @@ export async function listProjects(
 	if (options.status) conditions.push(eq(projects.status, options.status));
 	const search = options.search?.trim();
 	if (search) {
+		const postgres = coreStore(db) === "postgres";
+		const position = postgres ? sql`strpos` : sql`instr`;
+		const needle = postgres
+			? sql`lower(${search}::text)`
+			: sql`lower(${search})`;
 		conditions.push(
 			or(
-				sql`instr(lower(${projects.name}), lower(${search})) > 0`,
-				sql`instr(lower(${projects.key}), lower(${search})) > 0`,
-				sql`instr(lower(${projects.status}), lower(${search})) > 0`,
-				sql`instr(lower(${projects.ownerUserId}), lower(${search})) > 0`,
-				sql`instr(lower(${projects.leadTediId}), lower(${search})) > 0`,
+				...[
+					projects.name,
+					projects.key,
+					projects.status,
+					projects.ownerUserId,
+					projects.leadTediId,
+				].map((column) => sql`${position}(lower(${column}), ${needle}) > 0`),
 			)!,
 		);
 	}
@@ -216,6 +243,7 @@ export async function updateProject(
 	id: string,
 	params: UpdateProjectParams,
 ): Promise<Project | undefined> {
+	const { projects, workItems } = projectTables(db);
 	const existing = await getProjectById(db, id);
 	if (!existing) return undefined;
 	const objectiveChanges =
@@ -251,8 +279,13 @@ export async function updateProject(
 	if (params.objectiveId !== undefined) set.objectiveId = params.objectiveId;
 	if (params.targetDate !== undefined) set.targetDate = params.targetDate;
 	if (params.metadata !== undefined) {
-		const metadata = JSON.stringify(params.metadata);
-		set.metadata = sql`CASE WHEN json_type(${projects.metadata}, '$.repositoryObserver') IS NOT NULL
+		const metadata = jsonParameter(db, params.metadata);
+		set.metadata =
+			coreStore(db) === "postgres"
+				? sql`CASE WHEN (${projects.metadata} -> 'repositoryObserver') IS NOT NULL
+			THEN (${metadata} - 'repositoryObserver') || jsonb_build_object('repositoryObserver', ${projects.metadata} -> 'repositoryObserver')
+			ELSE ${metadata} - 'repositoryObserver' END`
+				: sql`CASE WHEN json_type(${projects.metadata}, '$.repositoryObserver') IS NOT NULL
 			THEN json_set(json_remove(json(${metadata}), '$.repositoryObserver'), '$.repositoryObserver', json_extract(${projects.metadata}, '$.repositoryObserver'))
 			ELSE json_remove(json(${metadata}), '$.repositoryObserver') END`;
 	}
@@ -320,6 +353,7 @@ export async function archiveProject(
 	id: string,
 	archivedAt: string,
 ): Promise<Project | undefined> {
+	const { projects } = projectTables(db);
 	const rows = await db
 		.update(projects)
 		.set({
@@ -337,6 +371,7 @@ export async function restoreProject(
 	db: DbClient,
 	params: { orgId: string; id: string; updatedAt: string },
 ): Promise<Project | undefined> {
+	const { projects } = projectTables(db);
 	const [row] = await db
 		.update(projects)
 		.set({
@@ -368,6 +403,7 @@ export async function getProjectRollup(
 	db: DbClient,
 	params: { orgId: string; projectId: string },
 ): Promise<ProjectRollup> {
+	const { workItems } = projectTables(db);
 	const rows = await db
 		.select({
 			id: workItems.id,
@@ -410,7 +446,9 @@ export interface ProjectPortfolioEntry {
 	byDisposition: Record<string, number>;
 	/** Oldest accepted top-level item, else the oldest proposed one. */
 	next: { id: string; title: string } | null;
-	health: (typeof workProjectHealthJudgments.$inferSelect)["status"] | null;
+	health:
+		| (typeof schemaWorkProjectHealthJudgments.$inferSelect)["status"]
+		| null;
 	/** Newest heartbeat from recent Attempts (since yesterday UTC), or session report. */
 	lastActivityAt: string | null;
 }
@@ -429,6 +467,14 @@ export async function listProjectPortfolio(
 		now?: Date;
 	},
 ): Promise<{ data: ProjectPortfolioEntry[] }> {
+	const {
+		projects,
+		workItems,
+		workAttempts,
+		workAgentSessions,
+		workProjectHealthJudgments,
+		tedis,
+	} = projectTables(db);
 	const since = new Date(
 		(params.now ?? new Date()).getTime() - 24 * 60 * 60 * 1000,
 	)
@@ -444,12 +490,15 @@ export async function listProjectPortfolio(
 	// Each project seeks its own next item, health and latest report from an
 	// index; grouping over the organization read every open item, judgment and
 	// session on every Activity open.
+	const postgres = coreStore(db) === "postgres";
 	const nextRow = alias(workItems, "next_row");
 	const judged = alias(workProjectHealthJudgments, "judged");
 	const report = alias(workAgentSessions, "report");
 	const next = sql<string | null>`(${db
 		.select({
-			value: sql`json_object('id', ${nextRow.id}, 'title', ${nextRow.title})`,
+			value: postgres
+				? sql`json_build_object('id', ${nextRow.id}, 'title', ${nextRow.title})::text`
+				: sql`json_object('id', ${nextRow.id}, 'title', ${nextRow.title})`,
 		})
 		.from(nextRow)
 		.where(
@@ -459,7 +508,9 @@ export async function listProjectPortfolio(
 				inArray(nextRow.disposition, ["accepted", "proposed"]),
 				// Unary plus: with production statistics the planner otherwise seeks
 				// every top-level item in the database through idx_work_items_parent.
-				sql`+${nextRow.parentWorkItemId} IS NULL`,
+				postgres
+					? sql`${nextRow.parentWorkItemId} IS NULL`
+					: sql`+${nextRow.parentWorkItemId} IS NULL`,
 			),
 		)
 		.orderBy(
@@ -484,7 +535,7 @@ export async function listProjectPortfolio(
 			and(
 				eq(report.organizationId, projects.orgId),
 				eq(report.projectId, projects.id),
-				anyWorkAgentSessionReport,
+				postgres ? sql`${report.lastEventAt} >= ''` : anyWorkAgentSessionReport,
 			),
 		)
 		.orderBy(desc(report.lastEventAt))
@@ -585,6 +636,7 @@ export async function getProjectByIdForOrganization(
 	orgId: string,
 	id: string,
 ): Promise<Project | undefined> {
+	const { projects } = projectTables(db);
 	return withTransientD1ReadRetry(
 		"projects.getProjectByIdForOrganization",
 		async () =>
@@ -603,6 +655,7 @@ export async function listActiveProjectsForOrganization(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<Project[]> {
+	const { projects } = projectTables(db);
 	return db
 		.select()
 		.from(projects)
@@ -627,6 +680,7 @@ export async function findRequestContextProjectId(
 		defaultProjectId?: string | null;
 	},
 ): Promise<string | null> {
+	const { projects } = projectTables(db);
 	const only = async (
 		condition?: ReturnType<typeof eq>,
 	): Promise<string | null> => {

@@ -1,31 +1,78 @@
-import { and, desc, eq, exists, isNull, sql } from "drizzle-orm";
-import type { DbQueryClient } from "../query-client";
 import {
-	agentSessionRequests,
+	and,
+	desc,
+	eq,
+	exists,
+	isNull,
+	sql,
+	type SQLWrapper,
+} from "drizzle-orm";
+import type { DbQueryClient } from "../query-client";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonParameter, jsonRead } from "../core-store/dialect";
+import {
+	agentSessionRequests as schemaAgentSessionRequests,
 	type AgentSessionRequestRow,
 } from "../schema/agent-session-requests";
-import { learningInteractionEvents } from "../schema/learning-feedback";
-import { tediObjectives } from "../schema/tedi-objectives";
-import { projects } from "../schema/projects";
-import { osWorkspaces, osWorkspaceProjects } from "../schema/os-workspaces";
-import { workspaceOutputIndex } from "../schema/workspace-feed";
-import { workEvents, workItems } from "../schema/work-items";
+import { learningInteractionEvents as schemaLearningInteractionEvents } from "../schema/learning-feedback";
+import { tediObjectives as schemaTediObjectives } from "../schema/tedi-objectives";
+import { projects as schemaProjects } from "../schema/projects";
+import {
+	osWorkspaces as schemaOsWorkspaces,
+	osWorkspaceProjects as schemaOsWorkspaceProjects,
+} from "../schema/os-workspaces";
+import { workspaceOutputIndex as schemaWorkspaceOutputIndex } from "../schema/workspace-feed";
+import {
+	workEvents as schemaWorkEvents,
+	workItems as schemaWorkItems,
+} from "../schema/work-items";
 import type { AgentSessionRequestOwner } from "./agent-session-requests";
 
 export const FILING_SURFACE = "request_filing";
+
+function filingTables(db: DbQueryClient) {
+	return {
+		agentSessionRequests: coreTable(db, schemaAgentSessionRequests),
+		learningInteractionEvents: coreTable(db, schemaLearningInteractionEvents),
+		tediObjectives: coreTable(db, schemaTediObjectives),
+		projects: coreTable(db, schemaProjects),
+		osWorkspaces: coreTable(db, schemaOsWorkspaces),
+		osWorkspaceProjects: coreTable(db, schemaOsWorkspaceProjects),
+		workspaceOutputIndex: coreTable(db, schemaWorkspaceOutputIndex),
+		workEvents: coreTable(db, schemaWorkEvents),
+		workItems: coreTable(db, schemaWorkItems),
+	};
+}
+
+/** Literal paths keep both stores' expression and partial indexes usable. */
+function ledgerOwner(db: DbQueryClient, metadata: SQLWrapper) {
+	return coreStore(db) === "postgres"
+		? sql`(${metadata} #>> '{ledgerOwnerId}')`
+		: jsonRead(db, metadata, ["ledgerOwnerId"]);
+}
+function metadataFlag(
+	db: DbQueryClient,
+	metadata: SQLWrapper,
+	key: "pending" | "actionable" | "autoCreated",
+) {
+	return coreStore(db) === "postgres"
+		? sql`${metadata} #> ${sql.raw(`'{${key}}'`)} = 'true'::jsonb`
+		: sql`${jsonRead(db, metadata, [key])} = 1`;
+}
 
 /** Private examples never cross either the organization or the ledger owner. */
 export async function listRequestFilings(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner & { learningOwnerId?: string },
 ) {
+	const { learningInteractionEvents } = filingTables(db);
 	return db
 		.select()
 		.from(learningInteractionEvents)
 		.where(
 			and(
 				eq(learningInteractionEvents.organizationId, owner.organizationId),
-				sql`json_extract(${learningInteractionEvents.metadata}, '$.ledgerOwnerId') = ${owner.userId}`,
+				sql`${ledgerOwner(db, learningInteractionEvents.metadata)} = ${owner.userId}`,
 				eq(learningInteractionEvents.surface, FILING_SURFACE),
 			),
 		)
@@ -40,6 +87,7 @@ export async function filingWorkspaceBriefs(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner & { learningOwnerId?: string },
 ) {
+	const { osWorkspaces, osWorkspaceProjects } = filingTables(db);
 	return db
 		.select({
 			id: osWorkspaces.id,
@@ -67,6 +115,7 @@ export async function filingWorkspaceBriefs(
 }
 
 export async function filingRecentWork(db: DbQueryClient, orgId: string) {
+	const { workItems } = filingTables(db);
 	return db
 		.select({
 			id: workItems.id,
@@ -99,6 +148,13 @@ export async function recordRequestFiling(
 		shareCorrection?: boolean;
 	},
 ) {
+	const {
+		agentSessionRequests,
+		learningInteractionEvents,
+		projects,
+		workEvents,
+		workItems,
+	} = filingTables(db);
 	const eventId = crypto.randomUUID();
 	const shared =
 		input.by === "correction" &&
@@ -143,6 +199,25 @@ export async function recordRequestFiling(
 		factoryProposal: input.factoryProposal ?? false,
 		workItemId: input.workItemId ?? null,
 	};
+	// The filing event inserted first in this batch commits the move. D1 reads
+	// that from changes(); Postgres checks for the event row this batch inserted.
+	const postgres = coreStore(db) === "postgres";
+	const filedHere = postgres
+		? exists(
+				db
+					.select({ id: learningInteractionEvents.id })
+					.from(learningInteractionEvents)
+					.where(
+						and(
+							eq(
+								learningInteractionEvents.organizationId,
+								input.organizationId,
+							),
+							eq(learningInteractionEvents.id, eventId),
+						),
+					),
+			)
+		: sql`changes() = 1`;
 	const moveProposal = [
 		db
 			.update(workItems)
@@ -155,15 +230,17 @@ export async function recordRequestFiling(
 					: null,
 				updatedAt: filingAt,
 				version: sql`${workItems.version} + 1`,
-				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+				admissionSpecRevision: postgres
+					? sql`replace(gen_random_uuid()::text, '-', '')`
+					: sql`lower(hex(randomblob(16)))`,
 			})
 			.where(
 				and(
 					eq(workItems.orgId, input.organizationId),
 					eq(workItems.sourceIntentId, `request-filing:${input.row.id}`),
 					eq(workItems.disposition, "proposed"),
-					sql`json_extract(${workItems.provenance}, '$.source') = 'request-ledger'`,
-					sql`changes() = 1`,
+					sql`${jsonRead(db, workItems.provenance, ["source"])} = 'request-ledger'`,
+					filedHere,
 				),
 			),
 		db.insert(workEvents).select(
@@ -177,7 +254,7 @@ export async function recordRequestFiling(
 					actorId: sql<string>`${input.userId}`.as("actor_id"),
 					payload: sql<
 						Record<string, string | null>
-					>`${JSON.stringify({ requestId: input.row.id, previousProjectId: input.row.projectId, projectId: input.projectId, by: input.by })}`.as(
+					>`${jsonParameter(db, { requestId: input.row.id, previousProjectId: input.row.projectId, projectId: input.projectId, by: input.by })}`.as(
 						"payload",
 					),
 					occurredAt: sql<string>`${filingAt}`.as("occurred_at"),
@@ -187,7 +264,10 @@ export async function recordRequestFiling(
 					and(
 						eq(workItems.orgId, input.organizationId),
 						eq(workItems.sourceIntentId, `request-filing:${input.row.id}`),
-						sql`changes() = 1`,
+						// The proposal update above changed this row.
+						postgres
+							? sql`${workItems}.xmin = pg_current_xact_id()::xid`
+							: sql`changes() = 1`,
 					),
 				),
 		),
@@ -225,7 +305,7 @@ export async function recordRequestFiling(
 						surface: sql<string>`${FILING_SURFACE}`.as("surface"),
 						targetType: sql<string>`'request'`.as("target_type"),
 						targetId: agentSessionRequests.id,
-						metadata: sql<typeof metadata>`${JSON.stringify(metadata)}`.as(
+						metadata: sql<typeof metadata>`${jsonParameter(db, metadata)}`.as(
 							"metadata",
 						),
 						occurredAt: sql<string>`${filingAt}`.as("occurred_at"),
@@ -238,7 +318,7 @@ export async function recordRequestFiling(
 		db
 			.update(agentSessionRequests)
 			.set({ projectId: input.projectId, updatedAt: filingAt })
-			.where(and(match, sql`changes() = 1`))
+			.where(and(match, filedHere))
 			.returning(),
 		...moveProposal,
 	]);
@@ -257,6 +337,7 @@ export async function ensureFilingProject(
 		now: string;
 	},
 ) {
+	const { projects } = filingTables(db);
 	await db
 		.insert(projects)
 		.values({
@@ -284,6 +365,7 @@ export async function emptyAutoCreatedProjects(
 	orgId: string,
 	now: string,
 ) {
+	const { projects } = filingTables(db);
 	const cutoff = new Date(Date.parse(now) - 14 * 86400000).toISOString();
 	return db
 		.select({ id: projects.id, name: projects.name })
@@ -292,7 +374,7 @@ export async function emptyAutoCreatedProjects(
 			and(
 				eq(projects.orgId, orgId),
 				eq(projects.status, "active"),
-				sql`json_extract(${projects.metadata}, '$.autoCreated') = 1`,
+				metadataFlag(db, projects.metadata, "autoCreated"),
 				sql`${projects.createdAt} <= ${cutoff}`,
 				sql`not exists (select 1 from agent_session_requests r where r.organization_id = ${orgId} and r.project_id = ${projects.id} and r.status not in ('done', 'cancelled'))`,
 				sql`not exists (select 1 from work_items w where w.org_id = ${orgId} and w.project_id = ${projects.id} and w.disposition not in ('completed', 'cancelled'))`,
@@ -306,6 +388,7 @@ export async function listUnfiledRequests(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner & { learningOwnerId?: string },
 ) {
+	const { agentSessionRequests } = filingTables(db);
 	return db
 		.select()
 		.from(agentSessionRequests)
@@ -317,7 +400,7 @@ export async function listUnfiledRequests(
 				sql`${agentSessionRequests.status} not in ('done', 'cancelled')`,
 				// The unary + keeps the owner term off the owner/occurred index so
 				// the probe seeks this one request's pending filing by issue key.
-				sql`not exists (select 1 from learning_interaction_events e where e.organization_id = ${owner.organizationId} and e.issue_key = 'request-filing:' || ${agentSessionRequests.id} and e.surface = ${FILING_SURFACE} and +json_extract(e.metadata, '$.ledgerOwnerId') = ${owner.userId} and json_extract(e.metadata, '$.pending') = 1 and e.occurred_at >= ${agentSessionRequests.updatedAt})`,
+				sql`not exists (select 1 from learning_interaction_events e where e.organization_id = ${owner.organizationId} and e.issue_key = 'request-filing:' || ${agentSessionRequests.id} and e.surface = ${FILING_SURFACE} and ${coreStore(db) === "postgres" ? ledgerOwner(db, sql`e.metadata`) : sql`+${ledgerOwner(db, sql`e.metadata`)}`} = ${owner.userId} and ${metadataFlag(db, sql`e.metadata`, "pending")} and e.occurred_at >= ${agentSessionRequests.updatedAt})`,
 			),
 		)
 		.orderBy(desc(agentSessionRequests.sourceAt))
@@ -330,12 +413,13 @@ export async function weeklyFilingDigest(
 	owner: AgentSessionRequestOwner & { learningOwnerId?: string },
 	now: string,
 ) {
+	const { learningInteractionEvents } = filingTables(db);
 	const since = new Date(Date.parse(now) - 7 * 86400000).toISOString();
 	const [counts] = await db
 		.select({
 			total: sql<number>`count(*)`.mapWith(Number),
 			corrected:
-				sql<number>`coalesce(sum(case when exists (select 1 from learning_interaction_events c where c.organization_id = ${owner.organizationId} and json_extract(c.metadata, '$.ledgerOwnerId') = ${owner.userId} and c.surface = ${FILING_SURFACE} and c.event_kind = 'edited' and c.target_id = "learning_interaction_events"."target_id" and c.occurred_at >= "learning_interaction_events"."occurred_at" and c.occurred_at <= ${now}) then 1 else 0 end), 0)`.mapWith(
+				sql<number>`coalesce(sum(case when exists (select 1 from learning_interaction_events c where c.organization_id = ${owner.organizationId} and ${ledgerOwner(db, sql`c.metadata`)} = ${owner.userId} and c.surface = ${FILING_SURFACE} and c.event_kind = 'edited' and c.target_id = "learning_interaction_events"."target_id" and c.occurred_at >= "learning_interaction_events"."occurred_at" and c.occurred_at <= ${now}) then 1 else 0 end), 0)`.mapWith(
 					Number,
 				),
 		})
@@ -343,7 +427,7 @@ export async function weeklyFilingDigest(
 		.where(
 			and(
 				eq(learningInteractionEvents.organizationId, owner.organizationId),
-				sql`json_extract(${learningInteractionEvents.metadata}, '$.ledgerOwnerId') = ${owner.userId}`,
+				sql`${ledgerOwner(db, learningInteractionEvents.metadata)} = ${owner.userId}`,
 				eq(learningInteractionEvents.surface, FILING_SURFACE),
 				eq(learningInteractionEvents.eventKind, "accepted"),
 				sql`${learningInteractionEvents.occurredAt} >= ${since}`,
@@ -366,6 +450,7 @@ export async function ensureFilingWorkspace(
 	project: { id: string; name: string; description: string | null },
 	now: string,
 ) {
+	const { osWorkspaces, osWorkspaceProjects } = filingTables(db);
 	const id = crypto.randomUUID();
 	await db
 		.insert(osWorkspaces)
@@ -421,6 +506,7 @@ export async function pendingFilingWork(
 	owner: AgentSessionRequestOwner & { learningOwnerId?: string },
 	minimumConfidence: number,
 ) {
+	const { agentSessionRequests, learningInteractionEvents } = filingTables(db);
 	return db
 		.select({
 			request: agentSessionRequests,
@@ -431,7 +517,7 @@ export async function pendingFilingWork(
 			learningInteractionEvents,
 			and(
 				eq(learningInteractionEvents.organizationId, owner.organizationId),
-				sql`json_extract(${learningInteractionEvents.metadata}, '$.ledgerOwnerId') = ${owner.userId}`,
+				sql`${ledgerOwner(db, learningInteractionEvents.metadata)} = ${owner.userId}`,
 				eq(learningInteractionEvents.targetId, agentSessionRequests.id),
 				eq(learningInteractionEvents.surface, FILING_SURFACE),
 				eq(learningInteractionEvents.eventKind, "accepted"),
@@ -443,9 +529,9 @@ export async function pendingFilingWork(
 				eq(agentSessionRequests.userId, owner.userId),
 				sql`${agentSessionRequests.projectId} is not null`,
 				sql`${agentSessionRequests.status} not in ('done', 'cancelled')`,
-				sql`json_extract(${learningInteractionEvents.metadata}, '$.actionable') = 1`,
-				sql`json_extract(${learningInteractionEvents.metadata}, '$.confidence') >= ${minimumConfidence}`,
-				sql`json_extract(${learningInteractionEvents.metadata}, '$.workItemId') is null`,
+				metadataFlag(db, learningInteractionEvents.metadata, "actionable"),
+				sql`${jsonRead(db, learningInteractionEvents.metadata, ["confidence"], "number")} >= ${minimumConfidence}`,
+				sql`${jsonRead(db, learningInteractionEvents.metadata, ["workItemId"])} is null`,
 				sql`not exists (select 1 from work_items w where w.org_id = ${owner.organizationId} and w.source_intent_id = 'request-filing:' || ${agentSessionRequests.id})`,
 			),
 		)
@@ -456,13 +542,14 @@ export async function pendingFilingLessons(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner & { learningOwnerId?: string },
 ) {
+	const { learningInteractionEvents } = filingTables(db);
 	return db
 		.select()
 		.from(learningInteractionEvents)
 		.where(
 			and(
 				eq(learningInteractionEvents.organizationId, owner.organizationId),
-				sql`json_extract(${learningInteractionEvents.metadata}, '$.ledgerOwnerId') = ${owner.userId}`,
+				sql`${ledgerOwner(db, learningInteractionEvents.metadata)} = ${owner.userId}`,
 				eq(learningInteractionEvents.surface, FILING_SURFACE),
 				eq(learningInteractionEvents.eventKind, "edited"),
 				sql`not exists (select 1 from learning_improvement_proposals p where p.organization_id = ${owner.organizationId} and p.client_proposal_id = 'filing:' || ${learningInteractionEvents.id})`,
@@ -476,6 +563,7 @@ export async function emptyAutoCreatedWorkspaces(
 	owner: AgentSessionRequestOwner & { learningOwnerId?: string },
 	now: string,
 ) {
+	const { osWorkspaces, workspaceOutputIndex } = filingTables(db);
 	const cutoff = new Date(Date.parse(now) - 14 * 86400000).toISOString();
 	return db
 		.select({ id: osWorkspaces.id, name: osWorkspaces.name })
@@ -499,6 +587,7 @@ export async function emptyAutoCreatedWorkspaces(
 }
 
 export async function filingObjectiveBriefs(db: DbQueryClient, orgId: string) {
+	const { tediObjectives } = filingTables(db);
 	return db
 		.select({
 			id: tediObjectives.id,
@@ -517,6 +606,7 @@ export async function listSharedFilingExamples(
 	db: DbQueryClient,
 	orgId: string,
 ) {
+	const { learningInteractionEvents } = filingTables(db);
 	return db
 		.select()
 		.from(learningInteractionEvents)
@@ -536,6 +626,7 @@ export async function countUnfiledRequests(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner,
 ) {
+	const { agentSessionRequests } = filingTables(db);
 	const [row] = await db
 		.select({ total: sql<number>`count(*)`.mapWith(Number) })
 		.from(agentSessionRequests)

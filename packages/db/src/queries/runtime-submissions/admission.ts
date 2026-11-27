@@ -8,8 +8,9 @@ import {
 	type RuntimeSubmission,
 	type RuntimeSubmissionSourceKind,
 	type RuntimeSubmissionSubjectKind,
-	runtimeSubmissions,
+	runtimeSubmissions as schemaRuntimeSubmissions,
 } from "../../schema/runtime-submissions";
+import { coreTable } from "../../core-store/client";
 import { getSubmissionById } from "./read-models";
 
 export interface AdmitSubmissionArgs {
@@ -43,6 +44,7 @@ export async function admitSubmission(
 	db: DbClient,
 	args: AdmitSubmissionArgs,
 ): Promise<RuntimeSubmission> {
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	const id = args.id ?? crypto.randomUUID();
 	const values: NewRuntimeSubmission = {
 		id,

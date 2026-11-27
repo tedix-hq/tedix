@@ -5,9 +5,10 @@ import type { DbClient } from "../../client";
 import {
 	type RuntimeSubmission,
 	type RuntimeSubmissionAttempt,
-	runtimeSubmissionAttempts,
-	runtimeSubmissions,
+	runtimeSubmissionAttempts as schemaRuntimeSubmissionAttempts,
+	runtimeSubmissions as schemaRuntimeSubmissions,
 } from "../../schema/runtime-submissions";
+import { coreTable } from "../../core-store/client";
 
 export type { RuntimeSubmission, RuntimeSubmissionAttempt };
 
@@ -16,6 +17,7 @@ export async function getSubmissionById(
 	id: string,
 	organizationId: string,
 ): Promise<RuntimeSubmission | undefined> {
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	const rows = await db
 		.select()
 		.from(runtimeSubmissions)
@@ -34,6 +36,7 @@ export async function listSubmissionsByRun(
 	organizationId: string,
 	runId: string,
 ): Promise<RuntimeSubmission[]> {
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	return db
 		.select()
 		.from(runtimeSubmissions)
@@ -50,6 +53,10 @@ export async function listAttemptsBySubmission(
 	db: DbClient,
 	submissionId: string,
 ): Promise<RuntimeSubmissionAttempt[]> {
+	const runtimeSubmissionAttempts = coreTable(
+		db,
+		schemaRuntimeSubmissionAttempts,
+	);
 	return db
 		.select()
 		.from(runtimeSubmissionAttempts)
@@ -68,6 +75,7 @@ export async function listStaleRunningSubmissions(
 	olderThanIso: string,
 	limit = 50,
 ): Promise<RuntimeSubmission[]> {
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	return db
 		.select()
 		.from(runtimeSubmissions)
@@ -95,6 +103,7 @@ export async function listPendingReservedSubmissions(
 	olderThanIso: string,
 	limit = 50,
 ): Promise<RuntimeSubmission[]> {
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	return db
 		.select()
 		.from(runtimeSubmissions)

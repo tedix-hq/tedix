@@ -7,9 +7,11 @@ import type { TediRuntimeBackend } from "../../schema/cognitive-runtime";
 import {
 	type RuntimeSubmission,
 	type RuntimeSubmissionAttempt,
-	runtimeSubmissionAttempts,
-	runtimeSubmissions,
+	runtimeSubmissionAttempts as schemaRuntimeSubmissionAttempts,
+	runtimeSubmissions as schemaRuntimeSubmissions,
 } from "../../schema/runtime-submissions";
+import { coreTable } from "../../core-store/client";
+import { submissionNow } from "./clock";
 import { toJsonRecord } from "../../utils/json";
 import { getSubmissionById } from "./read-models";
 import { isTerminalSubmissionStatus } from "./settlement";
@@ -57,6 +59,11 @@ export async function startAttempt(
 	db: DbClient,
 	args: StartAttemptArgs,
 ): Promise<StartAttemptResult> {
+	const runtimeSubmissionAttempts = coreTable(
+		db,
+		schemaRuntimeSubmissionAttempts,
+	);
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	const current = await getSubmissionById(
 		db,
 		args.submissionId,
@@ -93,7 +100,7 @@ export async function startAttempt(
 			...(attemptWon ? { currentAttemptId: attemptId } : {}),
 			attemptCount: attemptNo,
 			runtimeBackend: args.runtimeBackend ?? current.runtimeBackend ?? null,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			updatedAt: submissionNow(db),
 		})
 		.where(
 			and(
@@ -124,6 +131,11 @@ export function buildStartFirstAttemptStatements(
 	db: DbClient,
 	params: BuildStartFirstAttemptParams,
 ) {
+	const runtimeSubmissionAttempts = coreTable(
+		db,
+		schemaRuntimeSubmissionAttempts,
+	);
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	return [
 		db
 			.insert(runtimeSubmissionAttempts)
@@ -141,7 +153,7 @@ export function buildStartFirstAttemptStatements(
 				status: "running",
 				currentAttemptId: params.attemptId,
 				attemptCount: 1,
-				updatedAt: sql`(CURRENT_TIMESTAMP)`,
+				updatedAt: submissionNow(db),
 			})
 			.where(
 				and(
@@ -168,6 +180,11 @@ export async function reopenSubmissionForOperatorRestart(
 	db: DbClient,
 	args: ReopenSubmissionForRestartArgs,
 ): Promise<ReopenSubmissionForRestartResult> {
+	const runtimeSubmissionAttempts = coreTable(
+		db,
+		schemaRuntimeSubmissionAttempts,
+	);
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	const current = await getSubmissionById(
 		db,
 		args.submissionId,

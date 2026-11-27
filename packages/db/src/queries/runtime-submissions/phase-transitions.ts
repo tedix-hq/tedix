@@ -6,8 +6,10 @@ import {
 	RUNTIME_SUBMISSION_PHASE_VALUES,
 	type RuntimeSubmission,
 	type RuntimeSubmissionPhase,
-	runtimeSubmissions,
+	runtimeSubmissions as schemaRuntimeSubmissions,
 } from "../../schema/runtime-submissions";
+import { coreTable } from "../../core-store/client";
+import { submissionNow } from "./clock";
 import { getSubmissionById } from "./read-models";
 
 export type { RuntimeSubmissionPhase };
@@ -71,6 +73,7 @@ export async function advanceSubmissionPhase(
 	db: DbClient,
 	args: AdvanceSubmissionPhaseArgs,
 ): Promise<AdvanceSubmissionPhaseResult> {
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	const targetRank = submissionPhaseRank(args.phase);
 	// Strictly-lower phases the target is allowed to advance over. Empty for
 	// "admitted" (rank 0) → nothing to advance from, so the NULL branch alone
@@ -95,7 +98,7 @@ export async function advanceSubmissionPhase(
 		.update(runtimeSubmissions)
 		.set({
 			phase: args.phase,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			updatedAt: submissionNow(db),
 		})
 		.where(
 			and(
@@ -138,11 +141,12 @@ export async function stampInputApplied(
 	db: DbClient,
 	args: StampInputAppliedArgs,
 ): Promise<StampInputAppliedResult> {
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	const [updated] = await db
 		.update(runtimeSubmissions)
 		.set({
 			inputAppliedAt: args.appliedAtIso,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			updatedAt: submissionNow(db),
 		})
 		.where(
 			and(
@@ -186,6 +190,7 @@ export async function requestSubmissionAbort(
 	db: DbClient,
 	args: RequestSubmissionAbortArgs,
 ): Promise<RequestSubmissionAbortResult> {
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	// Pre-read to merge metadata without clobbering; the CAS below stays the
 	// idempotency authority (abort_requested_at IS NULL).
 	const current = await getSubmissionById(
@@ -204,7 +209,7 @@ export async function requestSubmissionAbort(
 						metadata: { ...current.metadata, abortReason: args.reason },
 					}
 				: {}),
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			updatedAt: submissionNow(db),
 		})
 		.where(
 			and(

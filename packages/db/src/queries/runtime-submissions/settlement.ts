@@ -5,9 +5,12 @@ import type { DbClient } from "../../client";
 import {
 	type RuntimeSubmission,
 	type RuntimeSubmissionStatus,
-	runtimeSubmissionAttempts,
-	runtimeSubmissions,
+	runtimeSubmissionAttempts as schemaRuntimeSubmissionAttempts,
+	runtimeSubmissions as schemaRuntimeSubmissions,
 } from "../../schema/runtime-submissions";
+import { coreTable } from "../../core-store/client";
+import { jsonRead } from "../../core-store/dialect";
+import { submissionNow } from "./clock";
 import { toJsonRecord } from "../../utils/json";
 import { getSubmissionById } from "./read-models";
 
@@ -81,6 +84,7 @@ export async function settleSubmission(
 	db: DbClient,
 	args: SettleSubmissionArgs,
 ): Promise<SettleSubmissionResult> {
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	// Pre-read once: lets us short-circuit already-terminal rows, merge metadata
 	// without clobbering, and recover an already-reserved row by re-driving Step B.
 	const current = await getSubmissionById(
@@ -140,12 +144,18 @@ export async function settleSubmission(
 		...current.metadata,
 		reservedOutcome: args.outcome,
 	});
+	const workflowEpoch = jsonRead(
+		db,
+		runtimeSubmissions.metadata,
+		["workflowExecutionEpoch"],
+		"number",
+	);
 	const [reserved] = await db
 		.update(runtimeSubmissions)
 		.set({
 			status: "reserved",
 			metadata: reservedMetadata,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			updatedAt: submissionNow(db),
 		})
 		.where(
 			and(
@@ -158,11 +168,8 @@ export async function settleSubmission(
 				expectedWorkflowExecutionEpoch === undefined
 					? undefined
 					: expectedWorkflowExecutionEpoch === 0
-						? or(
-								sql`json_extract(${runtimeSubmissions.metadata}, '$.workflowExecutionEpoch') IS NULL`,
-								sql`json_extract(${runtimeSubmissions.metadata}, '$.workflowExecutionEpoch') = 0`,
-							)
-						: sql`json_extract(${runtimeSubmissions.metadata}, '$.workflowExecutionEpoch') = ${expectedWorkflowExecutionEpoch}`,
+						? or(sql`${workflowEpoch} IS NULL`, sql`${workflowEpoch} = 0`)
+						: sql`${workflowEpoch} = ${expectedWorkflowExecutionEpoch}`,
 			),
 		)
 		.returning();
@@ -236,6 +243,11 @@ async function finalizeReservedSubmission(
 		error?: string | null;
 	},
 ): Promise<SettleSubmissionResult> {
+	const runtimeSubmissionAttempts = coreTable(
+		db,
+		schemaRuntimeSubmissionAttempts,
+	);
+	const runtimeSubmissions = coreTable(db, schemaRuntimeSubmissions);
 	const [submission] = await db
 		.update(runtimeSubmissions)
 		.set({
@@ -244,8 +256,8 @@ async function finalizeReservedSubmission(
 			// guard below (status = 'reserved') is the exactly-once witness and is
 			// unchanged; phase is purely a recovery/observability marker.
 			phase: "committed",
-			settledAt: sql`(CURRENT_TIMESTAMP)`,
-			updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			settledAt: submissionNow(db),
+			updatedAt: submissionNow(db),
 		})
 		.where(
 			and(
@@ -268,7 +280,7 @@ async function finalizeReservedSubmission(
 			.set({
 				status: args.outcome,
 				error: args.error ?? null,
-				completedAt: sql`(CURRENT_TIMESTAMP)`,
+				completedAt: submissionNow(db),
 			})
 			.where(
 				and(

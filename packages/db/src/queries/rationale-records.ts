@@ -9,13 +9,15 @@ import type { RationaleProofRefKind } from "@tedix/api-contract/constants/enums"
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray, like, ne, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { skillRunArtifacts } from "../schema/cognitive";
-import { tediRuntimeEvents } from "../schema/cognitive-runtime";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonRead } from "../core-store/dialect";
+import { skillRunArtifacts as schemaSkillRunArtifacts } from "../schema/cognitive";
+import { tediRuntimeEvents as schemaTediRuntimeEvents } from "../schema/cognitive-runtime";
 import {
 	type OutcomeStatus,
-	rationaleOrgCounts,
+	rationaleOrgCounts as schemaRationaleOrgCounts,
 	type TediRationaleRecord,
-	tediRationaleRecords,
+	tediRationaleRecords as schemaTediRationaleRecords,
 } from "../schema/rationale-records";
 import { toJsonRecord } from "../utils/json";
 
@@ -75,6 +77,7 @@ export async function countRationaleRunToolEvents(
 	db: DbClient,
 	access: { tediId: string; orgId: string; runId: string },
 ): Promise<number> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	const rows = await db
 		.select({ cnt: sql<number>`count(*)`.as("cnt") })
 		.from(tediRuntimeEvents)
@@ -278,6 +281,8 @@ export async function listRationaleRecords(
 	db: DbClient,
 	options: ListRationaleRecordsOptions,
 ): Promise<{ data: TediRationaleRecord[]; total: number }> {
+	const rationaleOrgCounts = coreTable(db, schemaRationaleOrgCounts);
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	const { orgId, limit = 50, offset = 0 } = options;
 
 	const conditions: ReturnType<typeof eq>[] = [];
@@ -306,7 +311,12 @@ export async function listRationaleRecords(
 			.orderBy(desc(tediRationaleRecords.createdAt))
 			.limit(limit)
 			.offset(offset),
-		orgId && !options.tediId && !options.category && !options.outcomeStatus
+		// D1 triggers maintain the org count table; Postgres has none, so it counts.
+		orgId &&
+		coreStore(db) === "d1" &&
+		!options.tediId &&
+		!options.category &&
+		!options.outcomeStatus
 			? db
 					.select({ total: rationaleOrgCounts.total })
 					.from(rationaleOrgCounts)
@@ -325,6 +335,7 @@ export async function getRationaleRecordById(
 	db: DbClient,
 	id: string,
 ): Promise<TediRationaleRecord | undefined> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	const results = await db
 		.select()
 		.from(tediRationaleRecords)
@@ -341,6 +352,7 @@ export async function getRationaleChain(
 	limit = 20,
 	orgId?: string,
 ): Promise<TediRationaleRecord[]> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	return db
 		.select()
 		.from(tediRationaleRecords)
@@ -367,6 +379,7 @@ export async function getRecentCompletedByCategory(
 	category: string,
 	limit = 5,
 ): Promise<TediRationaleRecord[]> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	return db
 		.select()
 		.from(tediRationaleRecords)
@@ -396,6 +409,7 @@ export async function detectApprovalFatigue(
 	totalInWindow: number;
 	fatigueDetected: boolean;
 }> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	const recent = await db
 		.select()
 		.from(tediRationaleRecords)
@@ -442,6 +456,7 @@ export async function getRecentFailedByCategory(
 	category: string,
 	limit = 5,
 ): Promise<TediRationaleRecord[]> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	return db
 		.select()
 		.from(tediRationaleRecords)
@@ -465,6 +480,7 @@ export async function getLastAttemptByAction(
 	tediId: string,
 	action: string,
 ): Promise<TediRationaleRecord | null> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	const results = await db
 		.select()
 		.from(tediRationaleRecords)
@@ -491,6 +507,7 @@ export async function createRationaleRecord(
 	db: DbClient,
 	data: CreateRationaleRecordParams,
 ): Promise<TediRationaleRecord> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	assertRationaleExecutionLinked(data);
 	const results = await db
 		.insert(tediRationaleRecords)
@@ -527,6 +544,7 @@ export async function createRationaleRecordIdempotent(
 	db: DbClient,
 	data: CreateRationaleRecordParams,
 ): Promise<{ record: TediRationaleRecord; created: boolean }> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	assertRationaleExecutionLinked(data);
 	const inserted = await db
 		.insert(tediRationaleRecords)
@@ -570,6 +588,7 @@ export async function updateRationaleEvidence(
 	id: string,
 	evidence: Record<string, JsonValue>,
 ): Promise<TediRationaleRecord | undefined> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	const results = await db
 		.update(tediRationaleRecords)
 		.set({ evidence })
@@ -586,6 +605,7 @@ export async function deleteRationaleRecord(
 	db: DbClient,
 	id: string,
 ): Promise<boolean> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	const results = await db
 		.delete(tediRationaleRecords)
 		.where(eq(tediRationaleRecords.id, id))
@@ -598,17 +618,23 @@ export async function closeStalePendingRationaleRecords(
 	db: DbClient,
 	days = 2,
 ): Promise<number> {
+	const postgres = coreStore(db) === "postgres";
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	const results = await db
 		.update(tediRationaleRecords)
 		.set({
 			outcomeStatus: "partial",
 			outcome: sql`coalesce(${tediRationaleRecords.outcome}, 'Auto-closed by stale-rationale sweep - pending >48h with no outcome signal')`,
-			completedAt: sql`coalesce(${tediRationaleRecords.completedAt}, CURRENT_TIMESTAMP)`,
+			completedAt: postgres
+				? sql`coalesce(${tediRationaleRecords.completedAt}, to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))`
+				: sql`coalesce(${tediRationaleRecords.completedAt}, CURRENT_TIMESTAMP)`,
 		})
 		.where(
 			and(
 				eq(tediRationaleRecords.outcomeStatus, "pending"),
-				sql`${tediRationaleRecords.createdAt} < datetime('now', ${`-${days} days`})`,
+				postgres
+					? sql`${tediRationaleRecords.createdAt} < to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC' - make_interval(days => ${days}::int), 'YYYY-MM-DD HH24:MI:SS')`
+					: sql`${tediRationaleRecords.createdAt} < datetime('now', ${`-${days} days`})`,
 			),
 		)
 		.returning({ id: tediRationaleRecords.id });
@@ -627,6 +653,7 @@ export async function completeRationaleRecord(
 	id: string,
 	params: CompleteRationaleRecordParams,
 ): Promise<TediRationaleRecord | undefined> {
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	const resolvedStatus = resolveOutcomeStatusForProof(
 		params.outcomeStatus,
 		params.proofRef,
@@ -670,6 +697,8 @@ export async function reconcileSkillWorkflowDispatchRationale(
 		completedAt?: string;
 	},
 ): Promise<number> {
+	const skillRunArtifacts = coreTable(db, schemaSkillRunArtifacts);
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
 	const terminal = skillWorkflowDispatchOutcome(input);
 	const callArtifacts = await db
 		.select({
@@ -699,7 +728,7 @@ export async function reconcileSkillWorkflowDispatchRationale(
 		.where(
 			and(
 				eq(tediRationaleRecords.runId, input.runId),
-				sql`json_extract(${tediRationaleRecords.evidence}, '$.kind') = 'skill_workflow_dispatch'`,
+				sql`${jsonRead(db, tediRationaleRecords.evidence, ["kind"])} = 'skill_workflow_dispatch'`,
 			),
 		)
 		.returning({ id: tediRationaleRecords.id });

@@ -20,12 +20,24 @@
  *   learning stage  →  process stage  →  outcome stage
  */
 
-import { and, eq, gte, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
-import { alias, unionAll } from "drizzle-orm/sqlite-core";
+import {
+	and,
+	eq,
+	gte,
+	isNotNull,
+	isNull,
+	ne,
+	or,
+	sql,
+	type SQLWrapper,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
-import { skillUsageEvents } from "../schema/cognitive";
-import { memoryFacts } from "../schema/memory-graph";
-import { tediRationaleRecords } from "../schema/rationale-records";
+import { coreTable } from "../core-store/client";
+import { coreStore } from "../core-store/dialect";
+import { skillUsageEvents as schemaSkillUsageEvents } from "../schema/cognitive";
+import { memoryFacts as schemaMemoryFacts } from "../schema/memory-graph";
+import { tediRationaleRecords as schemaTediRationaleRecords } from "../schema/rationale-records";
 import { skillReusePriorEventSql } from "./flywheel/compounding-signals";
 import type { FlywheelAccess } from "./flywheel/learning-curves";
 import { evidenceReferencesFactsSql } from "./flywheel/evidence-references-facts";
@@ -492,32 +504,48 @@ export async function getStrategyMapValidation(
 	);
 	const sinceIso = since.toISOString();
 
-	const usage = alias(skillUsageEvents, "usage");
+	const postgres = coreStore(db) === "postgres";
+	const memoryFacts = coreTable(db, schemaMemoryFacts);
+	const tediRationaleRecords = coreTable(db, schemaTediRationaleRecords);
+	const usage = alias(coreTable(db, schemaSkillUsageEvents), "usage");
+	/** UTC calendar day of an ISO timestamp. */
+	const day = (value: SQLWrapper) =>
+		postgres
+			? sql<string>`substr(${value}, 1, 10)`
+			: sql<string>`date(${value})`;
+	const citesFacts = postgres
+		? sql`CAST(${tediRationaleRecords.evidence} AS text) ~* '"(factIds?|fact_ids?|memoryFactIds?|memory_fact_ids?|retrievedFactIds?|retrieved_fact_ids?|retrievedFacts|retrieved_facts|usedFactIds|used_fact_ids|ignoredFactIds|ignored_fact_ids|notUsedFactIds|not_used_fact_ids|failedFactIds|failed_fact_ids)"'`
+		: evidenceReferencesFactsSql();
+	const linkedToolCalls = postgres
+		? sql`CASE WHEN jsonb_typeof(${tediRationaleRecords.toolCallRefs}) = 'array' THEN jsonb_array_length(${tediRationaleRecords.toolCallRefs}) ELSE 0 END > 0`
+		: sql`${tediRationaleRecords.toolCallRefs} IS NOT NULL AND json_valid(${tediRationaleRecords.toolCallRefs})
+							AND json_array_length(${tediRationaleRecords.toolCallRefs}) > 0`;
 	const factScope = and(
 		eq(memoryFacts.organizationId, access.orgId),
 		or(eq(memoryFacts.tediId, access.tediId), isNull(memoryFacts.tediId)),
 	);
 	const consolidatedAt = sql<string>`COALESCE(${memoryFacts.archivedAt}, ${memoryFacts.validTo})`;
-	const factEvents = unionAll(
-		db
-			.select({
-				day: sql<string>`date(${memoryFacts.createdAt})`.as("day"),
-				created: sql<number>`count(*)`.as("created"),
-				consolidated: sql<number>`0`.as("consolidated"),
-			})
-			.from(memoryFacts)
-			.where(and(factScope, gte(memoryFacts.createdAt, sinceIso)))
-			.groupBy(sql`date(${memoryFacts.createdAt})`),
-		db
-			.select({
-				day: sql<string>`date(${consolidatedAt})`.as("day"),
-				created: sql<number>`0`.as("created"),
-				consolidated: sql<number>`count(*)`.as("consolidated"),
-			})
-			.from(memoryFacts)
-			.where(and(factScope, gte(consolidatedAt, sinceIso)))
-			.groupBy(sql`date(${consolidatedAt})`),
-	).as("fact_events");
+	const factEvents = db
+		.select({
+			day: day(memoryFacts.createdAt).as("day"),
+			created: sql<number>`count(*)`.as("created"),
+			consolidated: sql<number>`0`.as("consolidated"),
+		})
+		.from(memoryFacts)
+		.where(and(factScope, gte(memoryFacts.createdAt, sinceIso)))
+		.groupBy(day(memoryFacts.createdAt))
+		.unionAll(
+			db
+				.select({
+					day: day(consolidatedAt).as("day"),
+					created: sql<number>`0`.as("created"),
+					consolidated: sql<number>`count(*)`.as("consolidated"),
+				})
+				.from(memoryFacts)
+				.where(and(factScope, gte(consolidatedAt, sinceIso)))
+				.groupBy(day(consolidatedAt)),
+		)
+		.as("fact_events");
 
 	const [
 		skillUsageDaily,
@@ -527,7 +555,7 @@ export async function getStrategyMapValidation(
 	] = await Promise.all([
 		db
 			.select({
-				day: sql<string>`date(${usage.createdAt})`.as("day"),
+				day: day(usage.createdAt).as("day"),
 				total: sql<number>`count(*)`.as("total"),
 				reused:
 					sql<number>`sum(CASE WHEN ${skillReusePriorEventSql(usage)} THEN 1 ELSE 0 END)`.as(
@@ -542,21 +570,19 @@ export async function getStrategyMapValidation(
 					gte(usage.createdAt, sinceIso),
 				),
 			)
-			.groupBy(sql`date(${usage.createdAt})`),
+			.groupBy(day(usage.createdAt)),
 		db
 			.select({
-				day: sql<string>`date(${tediRationaleRecords.createdAt})`.as("day"),
+				day: day(tediRationaleRecords.createdAt).as("day"),
 				decisions: sql<number>`count(*)`.as("decisions"),
 				linked:
 					sql<number>`sum(CASE WHEN ${tediRationaleRecords.runId} IS NOT NULL
 						OR ${tediRationaleRecords.workItemId} IS NOT NULL
-						OR (${tediRationaleRecords.toolCallRefs} IS NOT NULL AND json_valid(${tediRationaleRecords.toolCallRefs})
-							AND json_array_length(${tediRationaleRecords.toolCallRefs}) > 0)
+						OR (${linkedToolCalls})
 						THEN 1 ELSE 0 END)`.as("linked"),
-				cited:
-					sql<number>`sum(CASE WHEN ${evidenceReferencesFactsSql()} THEN 1 ELSE 0 END)`.as(
-						"cited",
-					),
+				cited: sql<number>`sum(CASE WHEN ${citesFacts} THEN 1 ELSE 0 END)`.as(
+					"cited",
+				),
 			})
 			.from(tediRationaleRecords)
 			.where(
@@ -566,10 +592,10 @@ export async function getStrategyMapValidation(
 					gte(tediRationaleRecords.createdAt, sinceIso),
 				),
 			)
-			.groupBy(sql`date(${tediRationaleRecords.createdAt})`),
+			.groupBy(day(tediRationaleRecords.createdAt)),
 		db
 			.select({
-				day: sql<string>`date(${tediRationaleRecords.completedAt})`.as("day"),
+				day: day(tediRationaleRecords.completedAt).as("day"),
 				completed: sql<number>`count(*)`.as("completed"),
 				successes:
 					sql<number>`sum(CASE WHEN ${tediRationaleRecords.outcomeStatus} = 'success' THEN 1 ELSE 0 END)`.as(
@@ -594,7 +620,7 @@ export async function getStrategyMapValidation(
 					gte(tediRationaleRecords.completedAt, sinceIso),
 				),
 			)
-			.groupBy(sql`date(${tediRationaleRecords.completedAt})`),
+			.groupBy(day(tediRationaleRecords.completedAt)),
 		db
 			.select({
 				day: factEvents.day,

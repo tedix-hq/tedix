@@ -187,7 +187,7 @@ async function listTediDependents(
 			.where(eq(organizations.id, orgId))
 			.limit(1),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(workItems)
 			.where(
 				and(
@@ -198,7 +198,7 @@ async function listTediDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(workItems)
 			.where(
 				and(
@@ -209,7 +209,7 @@ async function listTediDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(workItems)
 			.where(
 				and(
@@ -220,7 +220,7 @@ async function listTediDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(workAttempts)
 			.where(
 				and(
@@ -231,7 +231,7 @@ async function listTediDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(osGadgetExecutions)
 			.where(
 				and(
@@ -257,7 +257,7 @@ async function listTediDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(skillEntries)
 			.where(
 				and(
@@ -448,7 +448,7 @@ async function listProjectDependents(
 		sources,
 	] = await db.batch([
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(workItems)
 			.where(
 				and(
@@ -487,7 +487,7 @@ async function listProjectDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(workAgentSessions)
 			.where(
 				and(
@@ -510,7 +510,7 @@ async function listProjectDependents(
 			.where(eq(organizations.id, orgId))
 			.limit(1),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(workItemSources)
 			.where(
 				and(
@@ -731,7 +731,7 @@ async function listOutputDependents(
 	const [shares, openProposals, factoryProjects, reviewBatches] =
 		await db.batch([
 			db
-				.select({ count: sql<number>`count(*)` })
+				.select({ count: sql<number>`count(*)`.mapWith(Number) })
 				.from(osShareLinks)
 				.where(
 					and(
@@ -742,7 +742,7 @@ async function listOutputDependents(
 					),
 				),
 			db
-				.select({ count: sql<number>`count(*)` })
+				.select({ count: sql<number>`count(*)`.mapWith(Number) })
 				.from(osCollaborationProposals)
 				.where(
 					and(
@@ -770,7 +770,7 @@ async function listOutputDependents(
 					),
 				),
 			db
-				.select({ count: sql<number>`count(*)` })
+				.select({ count: sql<number>`count(*)`.mapWith(Number) })
 				.from(osReviewBatches)
 				.where(
 					and(
@@ -875,7 +875,7 @@ async function listWorkspaceDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(osShareLinks)
 			.where(
 				and(
@@ -886,7 +886,7 @@ async function listWorkspaceDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(osCollaborationProposals)
 			.where(
 				and(
@@ -896,7 +896,7 @@ async function listWorkspaceDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(osGadgets)
 			.where(
 				and(
@@ -907,7 +907,10 @@ async function listWorkspaceDependents(
 			),
 		db
 			.select({
-				count: sql<number>`count(distinct ${workspaceOutputIndex.outputId})`,
+				count:
+					sql<number>`count(distinct ${workspaceOutputIndex.outputId})`.mapWith(
+						Number,
+					),
 			})
 			.from(workspaceOutputIndex)
 			.where(
@@ -1012,7 +1015,7 @@ async function listGadgetDependents(
 	const osGadgetExecutions = coreTable(db, d1OsGadgetExecutions);
 	const [openProposals, shares, readGrants, liveExecutions] = await db.batch([
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(osCollaborationProposals)
 			.where(
 				and(
@@ -1023,7 +1026,7 @@ async function listGadgetDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(osShareLinks)
 			.where(
 				and(
@@ -1034,7 +1037,7 @@ async function listGadgetDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(osShareSkillReadGrants)
 			.where(
 				and(
@@ -1044,7 +1047,7 @@ async function listGadgetDependents(
 				),
 			),
 		db
-			.select({ count: sql<number>`count(*)` })
+			.select({ count: sql<number>`count(*)`.mapWith(Number) })
 			.from(osGadgetExecutions)
 			.where(
 				and(
