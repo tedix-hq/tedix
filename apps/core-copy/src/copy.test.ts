@@ -15,6 +15,7 @@ import {
 	type CopyPorts,
 } from "./copy.ts";
 import { coreCopyPlan, planTable } from "./plan.ts";
+import { replayChanges } from "./replay.ts";
 import { ProgressStore, type CheckpointStore } from "./store.ts";
 import {
 	buildCoreCopyPlan,
@@ -338,6 +339,79 @@ describe("core-copy worker", () => {
 				`SELECT count(*)::int AS n FROM organizations`,
 			);
 			expect((after.rows[0] as { n: number }).n).toBe(602);
+		} finally {
+			await engine.close();
+			sqlite.close();
+		}
+	});
+	test("rollback replay writes captured Postgres changes back into D1 in order", async () => {
+		const sqlite = seedSource(3);
+		const engine = new PGlite();
+		try {
+			await engine.exec(`CREATE TABLE cutover_changes (
+				id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+				table_name text NOT NULL, operation text NOT NULL,
+				row jsonb NOT NULL, changed_at timestamptz NOT NULL DEFAULT now())`);
+			const row = (id: string, name: string) =>
+				JSON.stringify({
+					id,
+					name,
+					slug: id,
+					type: "team",
+					descope_tenant_id: `t-${id}`,
+					logo_url: null,
+					description: "d",
+					apps_count: 1,
+					features: { plan: "pro" },
+					metadata: { source: "pg" },
+					created_at: "2026-11-27T18:00:00.000Z",
+					updated_at: "2026-11-27T18:00:00.000Z",
+				});
+			await engine.query(
+				`INSERT INTO cutover_changes (table_name, operation, row) VALUES
+				 ('organizations','INSERT',$1::text::jsonb),
+				 ('organizations','UPDATE',$2::text::jsonb),
+				 ('organizations','DELETE',$3::text::jsonb),
+				 ('not_a_core_table','INSERT','{"id":"x"}'::jsonb)`,
+				[
+					row("org-new", "New"),
+					row("org-1", "renamed on pg"),
+					row("org-2", "gone"),
+				],
+			);
+			const store = new ProgressStore(memoryStore());
+			const d1 = createD1Facade(sqlite);
+			const ports = {
+				query: pgliteQuery(engine),
+				store,
+				writeD1: async (
+					statements: { sql: string; params: (string | number | null)[] }[],
+				) => {
+					await d1.batch(
+						statements.map((s) => d1.prepare(s.sql).bind(...s.params)),
+					);
+				},
+			};
+			const dry = await replayChanges(ports, { dryRun: true });
+			expect(dry.applied).toBe(0);
+			expect(dry.sample?.length).toBe(3);
+			expect(
+				sqlite.prepare(`SELECT count(*) AS n FROM organizations`).get(),
+			).toEqual({ n: 3 });
+
+			const result = await replayChanges(ports);
+			expect(result).toMatchObject({ applied: 3, done: true, cursor: 4 });
+			expect(result.skipped).toEqual([{ table: "not_a_core_table", count: 1 }]);
+			const names = sqlite
+				.prepare(`SELECT id, name, features FROM organizations ORDER BY id`)
+				.all();
+			expect(names).toEqual([
+				{ id: "org-1", name: "renamed on pg", features: '{"plan":"pro"}' },
+				{ id: "org-3", name: "Org 3", features: '{"plan":"pro","seat":3}' },
+				{ id: "org-new", name: "New", features: '{"plan":"pro"}' },
+			]);
+			// Replaying again from the stored cursor does nothing.
+			expect((await replayChanges(ports)).applied).toBe(0);
 		} finally {
 			await engine.close();
 			sqlite.close();

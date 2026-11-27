@@ -15,6 +15,7 @@ import {
 } from "./copy.ts";
 import type { Env } from "./env.ts";
 import { coreCopyPlan, planTable } from "./plan.ts";
+import { replayChanges } from "./replay.ts";
 import { doCheckpointStore, ProgressStore } from "./store.ts";
 
 export { CheckpointDO } from "./checkpoint-do.ts";
@@ -196,6 +197,39 @@ export default {
 					},
 					{ status: 500 },
 				);
+			} finally {
+				await end();
+			}
+		}
+		if (url.pathname === "/replay" && request.method === "POST") {
+			// Rollback only: writes Postgres changes captured after the switch back
+			// into D1. ?dryRun=1 builds the statements without writing.
+			const denied = await requireAdmin(request, env);
+			if (denied) return denied;
+			const { ports, end } = portsFor(env);
+			try {
+				const limit = Number(url.searchParams.get("limit") ?? "200");
+				return Response.json(
+					await replayChanges(
+						{
+							query: ports.query,
+							store: ports.store,
+							writeD1: async (statements) => {
+								await env.DB.batch(
+									statements.map((s) =>
+										env.DB.prepare(s.sql).bind(...s.params),
+									),
+								);
+							},
+						},
+						{
+							limit: Number.isInteger(limit) ? limit : 200,
+							dryRun: url.searchParams.get("dryRun") === "1",
+						},
+					),
+				);
+			} catch (error) {
+				return jsonError(error);
 			} finally {
 				await end();
 			}

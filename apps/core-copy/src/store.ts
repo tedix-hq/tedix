@@ -74,6 +74,7 @@ export const receiptKey = (table: string, index: number) =>
 	`core-copy:receipt:${table}:${index}`;
 
 const DELTA_RUN_KEY = "core-copy:delta-run";
+const REPLAY_CURSOR_KEY = "core-copy:replay-cursor";
 const deltaKey = (table: string) => `core-copy:delta:${table}`;
 
 export interface DeltaRun {
@@ -151,6 +152,13 @@ export class ProgressStore {
 	async deltaProgress(table: string): Promise<DeltaProgress | undefined> {
 		const raw = await this.kv.get(deltaKey(table));
 		return raw ? (JSON.parse(raw) as DeltaProgress) : undefined;
+	}
+	/** Last cutover_changes id replayed into D1 on rollback. */
+	async replayCursor(): Promise<number> {
+		return Number((await this.kv.get(REPLAY_CURSOR_KEY)) || 0);
+	}
+	async setReplayCursor(id: number): Promise<void> {
+		await this.kv.put(REPLAY_CURSOR_KEY, String(id));
 	}
 	async clearDeltaProgress(table: string): Promise<void> {
 		await this.kv.put(deltaKey(table), "");
