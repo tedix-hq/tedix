@@ -6,6 +6,10 @@ import {
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import { WEB_SEARCH_TOOL_NAME } from "@tedix/api-contract/schemas/web-search";
 import type { ToolSet } from "ai";
+import {
+	POPPY_CALL_TOOL_NAME,
+	POPPY_DISCOVER_TOOL_NAME,
+} from "./poppy-agent-tools";
 
 const MCP_CALL_TOOL = "tedix_mcp_call_tool";
 const BROAD_CODE_TOOL = "tedix_mcp_code";
@@ -60,6 +64,10 @@ const SUPERVISED_DELEGATION_EXACT_TOOLS = new Set([
 	// Gated by organization, tedi and runtime-tool policy when built; the API
 	// re-checks that policy and records the cost.
 	WEB_SEARCH_TOOL_NAME,
+	// Built only when the tedi holds a Poppy signing key; each call is a
+	// signed-out request to the company endpoint its poppy.json lists.
+	POPPY_DISCOVER_TOOL_NAME,
+	POPPY_CALL_TOOL_NAME,
 ]);
 export type DelegationAuthorityMode = "shadow" | "enforce";
 
