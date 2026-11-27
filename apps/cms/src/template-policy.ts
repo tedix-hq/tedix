@@ -63,6 +63,9 @@ export const LOCKED_FILES = [
 	"src/lib/site-url.ts",
 	"src/lib/content-url.ts",
 	"src/lib/blog-pagination.ts",
+	"src/lib/theme-preference.ts",
+	"src/lib/authored-discovery.ts",
+	"src/lib/platform-branding.ts",
 	"src/lib/post-markdown.ts",
 	"src/lib/worker-loader-durable-objects.mjs",
 	"src/lib/worker-loader-do-sql-runtime.ts",
@@ -74,13 +77,8 @@ export const LOCKED_FILES = [
 const NATIVE_THEME_LOCKED_FILES = [
 	"src/components/ThemeInit.astro",
 	"src/components/ThemeControls.astro",
-	"src/lib/theme-preference.ts",
 ] as const;
-export const MARKETING_LOCKED_FILES = [
-	"src/lib/authored-discovery.ts",
-	"src/lib/platform-branding.ts",
-	...NATIVE_THEME_LOCKED_FILES,
-] as const;
+export const MARKETING_LOCKED_FILES = [...NATIVE_THEME_LOCKED_FILES] as const;
 export const TEDIX_LOCKED_FILES = [...NATIVE_THEME_LOCKED_FILES] as const;
 export const MARKETING_LOCKED_DIRS = [] as const;
 

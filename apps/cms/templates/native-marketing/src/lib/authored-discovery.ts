@@ -1,0 +1,1 @@
+../../../marketing/src/lib/authored-discovery.ts

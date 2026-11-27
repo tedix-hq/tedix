@@ -1,4 +1,23 @@
+import { execFile } from "node:child_process";
+import {
+	mkdtemp,
+	mkdir,
+	readFile,
+	readdir,
+	rm,
+	stat,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vite-plus/test";
+import type { CmsSandbox } from "../sandbox";
+import { CMS_TEMPLATE_SLUGS, lockedFilesForTemplate } from "../template-policy";
+import { TEMPLATE_SNAPSHOTS } from "../template-snapshot";
+import { resyncTemplate } from "./template-sync";
+import { isPathEditable } from "./constraints";
 import {
 	digestEditableThemeSource,
 	materializeEditableThemeSource,
@@ -320,3 +339,126 @@ describe("editable CMS source from an Artifacts commit", () => {
 		);
 	});
 });
+
+it(
+	"builds committed blank source importing every locked helper after resync",
+	{ timeout: 120_000 },
+	async () => {
+		const exec = promisify(execFile);
+		const directory = await mkdtemp(
+			fileURLToPath(new URL("../../.committed-build-", import.meta.url)),
+		);
+		const workspace = join(directory, "build");
+		const repository = join(directory, "source");
+		const write = async (path: string, content: string) => {
+			await mkdir(dirname(path), { recursive: true });
+			await writeFile(path, content);
+		};
+		const sandbox = {
+			async listFiles(path: string) {
+				const paths = await readdir(path, { recursive: true });
+				return await Promise.all(
+					paths.map(async (relativePath) => ({
+						type: (await stat(join(path, relativePath))).isFile()
+							? "file"
+							: "directory",
+						relativePath,
+					})),
+				);
+			},
+			async readFile(path: string) {
+				const content = await readFile(path, "utf8");
+				return { content, size: Buffer.byteLength(content) };
+			},
+			writeFile: write,
+			async mkdir(path: string) {
+				await mkdir(path, { recursive: true });
+			},
+			async exec(argv: [string, ...string[]]) {
+				return {
+					async output() {
+						const result = await exec(argv[0], argv.slice(1));
+						return { ...result, exitCode: 0 };
+					},
+				};
+			},
+		};
+		try {
+			const helpers = [
+				...new Set(CMS_TEMPLATE_SLUGS.flatMap(lockedFilesForTemplate)),
+			].filter((path) => path.startsWith("src/lib/"));
+			// Keep the namespaces live so the bundler must resolve every helper.
+			const imports = helpers.map(
+				(path, index) =>
+					`import * as helper${index} from ${JSON.stringify(`../${path.slice(4)}`)};`,
+			);
+			const page = `---\n${imports.join("\n")}\nconst helpers = [${helpers.map((_, index) => `helper${index}`).join(",")}];\n---\n<html><body>{helpers.map(helper => <p>{Object.keys(helper).join(",")}</p>)}</body></html>`;
+			for (const [path, content] of Object.entries(TEMPLATE_SNAPSHOTS.blank!)) {
+				if (isPathEditable(path, "blank"))
+					await write(join(repository, path), content);
+			}
+			await write(join(repository, "src/pages/index.astro"), page);
+			await write(join(repository, "src/theme-source.json"), '{"version":2}');
+			await exec("git", ["init", "-q", repository]);
+			await exec("git", ["-C", repository, "add", "."]);
+			await exec("git", [
+				"-C",
+				repository,
+				"-c",
+				"user.name=Fixture",
+				"-c",
+				"user.email=fixture@example.invalid",
+				"-c",
+				"commit.gpgsign=false",
+				"commit",
+				"-qm",
+				"Theme source",
+			]);
+			const { stdout } = await exec("git", [
+				"-C",
+				repository,
+				"rev-parse",
+				"HEAD",
+			]);
+			for (const [path, content] of Object.entries(TEMPLATE_SNAPSHOTS.blank!)) {
+				await write(join(workspace, path), content);
+			}
+			// Exercise the deploy's restore + locked resync, without helpers inherited from the starter.
+			await rm(join(workspace, "src/lib"), { recursive: true });
+			await materializeEditableThemeSource(sandbox, {
+				remote: repository,
+				token: "fixture-read-token",
+				commit: stdout.trim(),
+				templateSlug: "blank",
+				workspace,
+			});
+			await resyncTemplate(sandbox as unknown as CmsSandbox, {
+				scope: "locked",
+				templateSlug: "blank",
+				workspace,
+			});
+			for (const path of lockedFilesForTemplate("blank")) {
+				expect(await readFile(join(workspace, path), "utf8"), path).toBe(
+					TEMPLATE_SNAPSHOTS.blank![path],
+				);
+			}
+			expect(
+				await readFile(join(workspace, "src/pages/index.astro"), "utf8"),
+			).toBe(page);
+			await symlink(
+				fileURLToPath(
+					new URL("../../templates/blank/node_modules", import.meta.url),
+				),
+				join(workspace, "node_modules"),
+				"dir",
+			);
+			await exec("bun", ["run", "build"], {
+				cwd: workspace,
+				timeout: 90_000,
+				maxBuffer: 8 * 1024 * 1024,
+			});
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	},
+);

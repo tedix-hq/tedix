@@ -1,0 +1,1 @@
+../../../marketing/src/lib/platform-branding.ts
