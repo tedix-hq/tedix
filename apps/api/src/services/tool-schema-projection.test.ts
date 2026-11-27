@@ -26,6 +26,7 @@ import {
 	LIVENESS_REPORT_ENDPOINTS,
 	OS_TOOL_ID_OVERRIDES,
 	OS_KIND_OVERRIDES,
+	SITE_TOOL_ID_OVERRIDES,
 	SKILL_WORKFLOW_KIND_OVERRIDES,
 	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
 	WORK_HIERARCHY_KIND_OVERRIDES,
@@ -159,6 +160,27 @@ describe("generatedToolIdForEndpoint", () => {
 		],
 	])("%o → %s", (candidate, expected) => {
 		expect(generatedToolIdForEndpoint(candidate)).toBe(expected);
+	});
+});
+
+it("renames the admin Docs listing in place without changing its RPC target", async () => {
+	const candidate = resolveContractEndpoint("docs/listSites")!;
+	const original = await buildProjectedTool("app", candidate);
+	const existing = {
+		...original.tool,
+		id: "docs-listing-row",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		updatedAt: "2026-01-01T00:00:00.000Z",
+	};
+	const { tool } = await buildProjectedTool("app", candidate, existing, {
+		toolIdOverrides: SITE_TOOL_ID_OVERRIDES,
+		regenerateToolIds: true,
+	});
+	expect(tool).toMatchObject({
+		id: existing.id,
+		toolId: "list_managed_docs_sites",
+		enabled: true,
+		config: { transport: "rpc", endpoint: "docs/listSites" },
 	});
 });
 

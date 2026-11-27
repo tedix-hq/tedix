@@ -77,7 +77,8 @@ export const CATALOG_TOOL_ID_OVERRIDES: Record<string, string> = {
 };
 
 export const SITE_TOOL_ID_OVERRIDES: Record<string, string> = {
-	"docs/listSites": "list_docs_sites",
+	// The Docs MCP connector already owns docs.list_docs_sites in aggregates.
+	"docs/listSites": "list_managed_docs_sites",
 	"sites/list": "list_sites",
 	"sites/getRecoveryManifest": "get_site_recovery_manifest",
 	"sites/setLifecycle": "set_site_lifecycle",
