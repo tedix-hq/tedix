@@ -179,15 +179,23 @@ export async function readGenericTaskInputSnapshot(
 	d1: D1Database,
 	taskId: string,
 	orgId: string,
+	options: { preferReplica?: boolean } = { preferReplica: true },
 ): Promise<Record<string, unknown> | null> {
-	const db = createDbClient(d1);
+	// The routing row is written once at task creation, so a replica's copy is
+	// current. A replica that has not seen it yet falls back to the primary.
+	const db = options.preferReplica
+		? createDbSession(d1, null, "first-unconstrained").db
+		: createDbClient(d1);
 	const rows = await db
 		.select()
 		.from(mcpTasks)
 		.where(eq(mcpTasks.taskId, taskId))
 		.limit(1);
 	const row = rows[0];
-	if (!row || row.orgId !== orgId) return null;
+	if (!row || row.orgId !== orgId)
+		return options.preferReplica
+			? readGenericTaskInputSnapshot(d1, taskId, orgId, {})
+			: null;
 	const snapshot = row.inputRequests as Record<string, unknown> | null;
 	const input = snapshot?.input;
 	return typeof input === "object" && input !== null && !Array.isArray(input)

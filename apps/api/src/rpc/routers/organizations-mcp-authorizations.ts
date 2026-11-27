@@ -421,12 +421,18 @@ export const verifyHumanMcpGrantContract =
 	organizationsOs.verifyMultiOrgMcpGrant
 		.use(withServiceAuth)
 		.handler(async ({ input, context }) => {
-			// Inventory rows for clients the allowlist does not admit are written
-			// after the response; the decision never waits on them.
-			const options = { defer: context.waitUntil };
-			// A replica may still allow an installation just removed on the primary.
+			// A replica may still allow an installation just removed on the
+			// primary, so the primary answers first. The request's own session
+			// (replica-first for this path) is the fallback while the primary
+			// cannot answer. Inventory rows for clients the allowlist does not
+			// admit are written after the response; the decision never waits.
+			const d1 = isD1CoreStore(context.env);
+			const options = {
+				defer: context.waitUntil,
+				...(d1 ? { replicaDb: () => context.db } : {}),
+			};
 			const primary = {
-				db: isD1CoreStore(context.env)
+				db: d1
 					? createDbSession(context.env.DB, null, "first-primary").db
 					: coreDb(context.env),
 			};

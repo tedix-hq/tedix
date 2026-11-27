@@ -144,7 +144,25 @@ beforeEach(() => {
 	});
 });
 
-function fixture() {
+/** A primary that answers every query with D1's overload error. */
+const overloaded: D1Database = (() => {
+	const statement: D1PreparedStatement = new Proxy({} as D1PreparedStatement, {
+		get: (_, key) =>
+			key === "bind"
+				? () => statement
+				: async () => {
+						throw new Error("D1_ERROR: D1 DB is overloaded");
+					},
+	});
+	return {
+		prepare: () => statement,
+		batch: async () => {
+			throw new Error("D1_ERROR: D1 DB is overloaded");
+		},
+	} as unknown as D1Database;
+})();
+
+function fixture({ primaryDown = false } = {}) {
 	const views = [new DatabaseSync(":memory:"), new DatabaseSync(":memory:")];
 	onTestFinished(() => views.forEach((view) => view.close()));
 	for (const view of views) {
@@ -164,16 +182,17 @@ function fixture() {
 		INSERT INTO apps (id, organization_id, name, slug, metadata) VALUES ('resource-example', '00000000-0000-4000-8000-000000000001', 'Example', 'example-unified', '{"mcpConfig":{"multiOrgConsent":true,"descopeResourceId":"server-example","expectedAudience":"https://example.test/mcp","authMode":"authenticated","codeMode":true}}');`);
 	}
 	const [replica, primary] = views.map((view) => createD1Facade(view));
+	const writer = primaryDown ? overloaded : primary!;
 	const withSession = vi.fn((constraint: string) => {
-		let source = constraint === "first-primary" ? primary! : replica!;
+		let source = constraint === "first-primary" ? writer : replica!;
 		return {
 			prepare: (sql: string) => {
-				if (!/^\s*select\b/i.test(sql)) source = primary!;
+				if (!/^\s*select\b/i.test(sql)) source = writer;
 				return source.prepare(sql);
 			},
 			batch: (statements: D1PreparedStatement[]) => {
-				source = primary!;
-				return primary!.batch(statements);
+				source = writer;
+				return writer.batch(statements);
 			},
 			getBookmark: () => null,
 		};
@@ -383,6 +402,24 @@ describe("grant verification across D1 replica lag", () => {
 			allowed: false,
 		});
 		expect(withSession).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps an existing installation working on the replica while the primary is overloaded, without writing", async () => {
+		const { client, replica } = fixture({ primaryDown: true });
+		await replaceMcpConsentSelection(replica, selection);
+		// The touch and any pending activation would write to the primary and fail.
+		await expect(client.verify(input)).resolves.toMatchObject({
+			allowed: true,
+			reason: "active",
+		});
+	});
+
+	it("answers retryable unavailable, never a refusal, when only the replica can answer", async () => {
+		const { client } = fixture({ primaryDown: true });
+		await expect(client.verify(input)).resolves.toMatchObject({
+			allowed: false,
+			reason: "provider_unavailable",
+		});
 	});
 
 	it("answers a real missing grant negatively after only one primary retry", async () => {

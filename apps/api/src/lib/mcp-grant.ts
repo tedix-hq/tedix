@@ -529,7 +529,14 @@ export async function verifyHumanMcpGrant(
 	db: DbClient,
 	env: CloudflareEnv,
 	input: VerifyHumanMcpGrantInput,
-	options: { defer?: (promise: Promise<unknown>) => void } = {},
+	options: {
+		defer?: (promise: Promise<unknown>) => void;
+		/**
+		 * A replica-backed client, used only when the primary cannot answer the
+		 * ledger read. See `verifyHumanMcpGrantStages`.
+		 */
+		replicaDb?: () => DbClient;
+	} = {},
 ): Promise<HumanMcpGrantDecision> {
 	// Content-free stage timing: fixed names, durations and counts only. Spans
 	// carry the same values but are not queryable from Workers logs, and this
@@ -543,6 +550,7 @@ export async function verifyHumanMcpGrant(
 		last = now;
 	};
 	let decision: HumanMcpGrantDecision | undefined;
+	const route = { replica: false };
 	try {
 		decision = await verifyHumanMcpGrantStages(
 			db,
@@ -551,7 +559,13 @@ export async function verifyHumanMcpGrant(
 			mark,
 			started + PROVIDER_DEADLINE_MS,
 			options.defer,
+			options.replicaDb,
+			route,
 		);
+		// A replica may not have a consent made moments ago, so it can only
+		// confirm access. Any refusal stays a retryable "unavailable".
+		if (route.replica && !decision.allowed)
+			decision = deny("provider_unavailable");
 		return decision;
 	} finally {
 		console.log(
@@ -559,6 +573,7 @@ export async function verifyHumanMcpGrant(
 				_tr: "mcp_grant_timing",
 				total_ms: Date.now() - started,
 				...stages,
+				d1: route.replica ? "replica" : "primary",
 				organizations: input.selectedTenantIds.length,
 				outcome: decision?.allowed ? "allowed" : (decision?.reason ?? "error"),
 			}),
@@ -572,18 +587,36 @@ async function verifyHumanMcpGrantStages(
 	input: VerifyHumanMcpGrantInput,
 	mark: (stage: string) => void,
 	deadline: number,
-	defer?: (promise: Promise<unknown>) => void,
+	defer: ((promise: Promise<unknown>) => void) | undefined,
+	replicaDb: (() => DbClient) | undefined,
+	route: { replica: boolean },
 ): Promise<HumanMcpGrantDecision> {
 	if (!env.DESCOPE_MANAGEMENT_KEY) return deny("provider_unavailable");
-	const ledger = await readGrantState("snapshot", () =>
-		getMcpConsentVerificationState(db, {
-			descopeUserId: input.descopeUserId,
-			mcpServerId: input.mcpServerId,
-			clientId: input.clientId,
-			revision: input.consentRevision,
-			selectedTenantIds: input.selectedTenantIds,
-		}),
-	).catch(() => undefined);
+	const readLedger = (from: DbClient, label: string) =>
+		readGrantState(label, () =>
+			getMcpConsentVerificationState(from, {
+				descopeUserId: input.descopeUserId,
+				mcpServerId: input.mcpServerId,
+				clientId: input.clientId,
+				revision: input.consentRevision,
+				selectedTenantIds: input.selectedTenantIds,
+			}),
+		).catch(() => undefined);
+	// The primary answers first, so a revoke is seen on the next request.
+	// When the primary cannot answer at all, a replica (well under a second
+	// behind) keeps existing installations working instead of refusing every
+	// call. Only an allow can come from it, and it never writes: see
+	// `verifyHumanMcpGrant` and `judgeLedger`.
+	let ledger = await readLedger(db, "snapshot");
+	if (ledger === undefined && replicaDb) {
+		const replica = replicaDb();
+		ledger = await readLedger(replica, "snapshot_replica");
+		if (ledger !== undefined) {
+			db = replica;
+			route.replica = true;
+			mark("replica");
+		}
+	}
 	if (ledger === undefined) return deny("provider_unavailable");
 	if (!ledger) return deny("membership_missing");
 	const resource = ledger.resource;
@@ -660,6 +693,7 @@ async function verifyHumanMcpGrantStages(
 		ceiling,
 		mark,
 		defer,
+		route.replica,
 	);
 }
 
@@ -828,7 +862,8 @@ async function judgeLedger(
 	effectiveScopes: string[],
 	ceiling: readonly string[] | null,
 	mark: (stage: string) => void,
-	defer?: (promise: Promise<unknown>) => void,
+	defer: ((promise: Promise<unknown>) => void) | undefined,
+	fromReplica: boolean,
 ): Promise<HumanMcpGrantDecision> {
 	const key = {
 		descopeUserId: input.descopeUserId,
@@ -904,6 +939,8 @@ async function judgeLedger(
 	if (organizations.length === 0) {
 		return deny("membership_missing");
 	}
+	// Activating a new approval writes, and so needs the primary.
+	if (pending && fromReplica) return deny("provider_unavailable");
 	try {
 		if (pending) {
 			await promoteMcpConsentPending(db, {
@@ -920,7 +957,11 @@ async function judgeLedger(
 		if (
 			!matchesActive(
 				await readGrantState("finalize", () =>
-					finalizeMcpConsentGrant(db, grantKey, ledger.touchDue && !pending),
+					finalizeMcpConsentGrant(
+						db,
+						grantKey,
+						ledger.touchDue && !pending && !fromReplica,
+					),
 				),
 			)
 		) {
