@@ -1,5 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { fileURLToPath } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { coreTable } from "../core-store/client";
+import { organizations } from "../schema/organizations";
+import { createMigratedSqlite } from "../test/migrated-sqlite";
+import { createPGliteFacade } from "../test/pglite-facade";
 import { createDbClient, type DbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
@@ -645,3 +651,91 @@ describe("applyRoleTemplate", () => {
 		).rejects.toMatchObject({ reason: "template_not_found" });
 	});
 });
+
+for (const store of ["d1", "postgres"] as const) {
+	describe(`role template persistence (${store})`, () => {
+		let db: DbClient;
+		let close: () => void | Promise<void>;
+		beforeAll(async () => {
+			if (store === "d1") {
+				const sqlite = createMigratedSqlite();
+				db = createDbClient(createD1Facade(sqlite));
+				close = () => sqlite.close();
+			} else {
+				const fixture = await createPGliteFacade();
+				db = fixture.db;
+				close = fixture.close;
+				for (const migration of readMigrationFiles({
+					migrationsFolder: fileURLToPath(
+						new URL("../../drizzle-pg", import.meta.url),
+					),
+				}))
+					for (const ddl of migration.sql) await fixture.engine.exec(ddl);
+			}
+			await db.insert(coreTable(db, organizations)).values([
+				{ id: ORG, name: "Example", slug: "example" },
+				{ id: OTHER_ORG, name: "Other", slug: "other" },
+			]);
+		}, 30_000);
+		afterAll(async () => {
+			await close?.();
+		});
+
+		it("copies one platform snapshot, preserves tenant overrides and revives a seed", async () => {
+			const source = await upsertRoleTemplateSeed(db, EXAMPLE_ROLE_SEED, {
+				now: NOW,
+			});
+			const copy = await copyPlatformRoleTemplate(db, {
+				sourceId: source.id,
+				orgId: ORG,
+				now: NOW,
+			});
+			expect(copy).toMatchObject({
+				orgId: ORG,
+				standingObjectives: source.standingObjectives,
+				tags: source.tags,
+				metadata: source.metadata,
+			});
+			expect(
+				await getRoleTemplateByKey(db, { key: source.key, orgId: OTHER_ORG }),
+			).toBeUndefined();
+			expect(
+				await copyPlatformRoleTemplate(db, {
+					sourceId: copy!.id,
+					orgId: OTHER_ORG,
+				}),
+			).toBeUndefined();
+			await archiveRoleTemplate(db, copy!.id, NOW);
+			expect(
+				await copyPlatformRoleTemplate(db, { sourceId: source.id, orgId: ORG }),
+			).toBeUndefined();
+			const listed = await listRoleTemplates(db, { orgId: ORG, limit: 1 });
+			expect(listed).toMatchObject({ total: 1, data: [{ id: source.id }] });
+			expect(
+				(
+					await listRoleTemplates(db, {
+						orgId: ORG,
+						includeArchived: true,
+						limit: 1,
+						offset: 1,
+					})
+				).total,
+			).toBe(2);
+			const revived = await upsertRoleTemplateSeed(
+				db,
+				{ ...EXAMPLE_ROLE_SEED, metadata: { revision: 2 } },
+				{ orgId: ORG, now: NOW },
+			);
+			expect(revived).toMatchObject({
+				id: copy!.id,
+				archivedAt: null,
+				metadata: { revision: 2 },
+			});
+			expect(
+				(await listRoleTemplates(db, { orgId: OTHER_ORG })).data.map(
+					(row) => row.id,
+				),
+			).toEqual([source.id]);
+		});
+	});
+}

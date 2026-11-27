@@ -22,18 +22,19 @@
 
 import { DEFAULT_STANDING_OBJECTIVE_GATE_CONFIG } from "@tedix/api-contract/contracts/tedi-objectives";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
 import {
 	type NewRoleTemplate,
 	type RoleTemplate,
 	type RoleTemplateStandingObjective,
-	roleTemplates,
+	roleTemplates as schemaRoleTemplates,
 } from "../schema/role-templates";
 import {
 	MCP_CAPABILITY_PROFILE_VALUES,
 	type McpCapabilityProfile,
-	tedis,
+	tedis as schemaTedis,
 } from "../schema/tedis";
 import {
 	buildMissionObjectiveTitle,
@@ -103,6 +104,7 @@ export async function createRoleTemplate(
 	db: DbClient,
 	params: CreateRoleTemplateParams,
 ): Promise<RoleTemplate> {
+	const roleTemplates = coreTable(db, schemaRoleTemplates);
 	const values: NewRoleTemplate = {
 		id: params.id ?? crypto.randomUUID(),
 		orgId: params.orgId ?? null,
@@ -128,6 +130,7 @@ export async function copyPlatformRoleTemplate(
 	db: DbClient,
 	params: { sourceId: string; orgId: string; now?: string },
 ): Promise<RoleTemplate | undefined> {
+	const roleTemplates = coreTable(db, schemaRoleTemplates);
 	const id = crypto.randomUUID();
 	const now = params.now ?? new Date().toISOString();
 	const rows = await db
@@ -173,6 +176,7 @@ export async function getRoleTemplateByKey(
 	db: DbClient,
 	params: { key: string; orgId: string | null },
 ): Promise<RoleTemplate | undefined> {
+	const roleTemplates = coreTable(db, schemaRoleTemplates);
 	const ownerCondition =
 		params.orgId === null
 			? isNull(roleTemplates.orgId)
@@ -193,6 +197,7 @@ export async function listRoleTemplates(
 	db: DbClient,
 	options: ListRoleTemplatesOptions = {},
 ): Promise<{ data: RoleTemplate[]; total: number }> {
+	const roleTemplates = coreTable(db, schemaRoleTemplates);
 	const { limit = 50, offset = 0, includeArchived = false } = options;
 	const scopeCondition =
 		options.orgId != null
@@ -202,14 +207,17 @@ export async function listRoleTemplates(
 		? scopeCondition
 		: and(scopeCondition, isNull(roleTemplates.archivedAt));
 
-	const data = await db
-		.select()
-		.from(roleTemplates)
-		.where(whereClause)
-		.orderBy(asc(roleTemplates.key))
-		.limit(limit)
-		.offset(offset);
-	const total = await db.$count(roleTemplates, whereClause);
+	const [data, totals] = await db.batch([
+		db
+			.select()
+			.from(roleTemplates)
+			.where(whereClause)
+			.orderBy(asc(roleTemplates.key))
+			.limit(limit)
+			.offset(offset),
+		db.select({ total: count() }).from(roleTemplates).where(whereClause),
+	]);
+	const total = totals[0]?.total ?? 0;
 	return { data, total };
 }
 
@@ -219,6 +227,7 @@ export async function archiveRoleTemplate(
 	id: string,
 	archivedAt: string,
 ): Promise<RoleTemplate | undefined> {
+	const roleTemplates = coreTable(db, schemaRoleTemplates);
 	const rows = await db
 		.update(roleTemplates)
 		.set({ archivedAt, updatedAt: archivedAt })
@@ -297,6 +306,7 @@ export async function applyRoleTemplate(
 	db: DbClient,
 	params: ApplyRoleTemplateParams,
 ): Promise<ApplyRoleTemplateSummary> {
+	const tedis = coreTable(db, schemaTedis);
 	// 1. Load + cross-org guard the target tedi. A narrow core select (id/org/
 	// tags) — the write below reuses the canonical `updateTedi` writer.
 	const tediRows = await db
@@ -482,6 +492,7 @@ export async function upsertRoleTemplateSeed(
 	seed: RoleTemplateSeed,
 	options: { orgId?: string | null; now?: string } = {},
 ): Promise<RoleTemplate> {
+	const roleTemplates = coreTable(db, schemaRoleTemplates);
 	const orgId = options.orgId ?? null;
 	const now = options.now ?? new Date().toISOString();
 	const existing = await getRoleTemplateByKey(db, { key: seed.key, orgId });
