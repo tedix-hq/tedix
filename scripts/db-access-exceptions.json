@@ -79,13 +79,6 @@
 			"binding": "BrainAuditDeps.db D1 executor",
 			"reason": "The canonical memory audit composes parameterized tenant-scoped filters, grouped counts, and ordering dynamically, then executes through a deliberately narrow D1 reader."
 		},
-		"packages/db/src/queries/tedi-runtime-bootstrap.ts": {
-			"storagePlane": "platform-d1",
-			"disposition": "approved",
-			"owner": "packages/db:tedi-runtime-bootstrap-facade",
-			"binding": "RuntimeD1 db",
-			"reason": "This narrow typed facade is the sole platform-SQL owner for the certified tedi runtime, avoiding a second peer-specialized Drizzle instance in that Worker."
-		},
 		"packages/db/src/slow-query.ts": {
 			"storagePlane": "platform-d1",
 			"disposition": "approved",

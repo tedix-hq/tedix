@@ -17,7 +17,7 @@
 	"packages/db/src/queries/org-graph-health.ts": 1,
 	"packages/db/src/queries/portable-tedi/snapshot.ts": 1,
 	"packages/db/src/queries/provider-executions.ts": 2,
-	"packages/db/src/queries/tedi-runtime-bootstrap.ts": 17,
+	"packages/db/src/queries/tedi-runtime-bootstrap.ts": 16,
 	"packages/db/src/queries/tenant-tool-policy.ts": 1,
 	"packages/db/src/queries/work-items/agent-review-triage.ts": 1,
 	"packages/db/src/queries/work-items/commitment-changes.ts": 4,
