@@ -55,6 +55,8 @@ export interface TableProgress {
 	status: TableStatus;
 	/** rowid upper bound captured when the copy window opened. */
 	highWater?: number;
+	/** First rowid read when a hot window skips older rows. */
+	startRowid?: number;
 	pages: number;
 	/** Rows per page; fixed for the table once its copy starts. */
 	pageSize?: number;

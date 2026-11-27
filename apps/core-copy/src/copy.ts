@@ -130,6 +130,49 @@ function blankedRead(ports: CopyPorts, table: CoreCopyTable) {
 	};
 }
 
+/**
+ * Event tables copy only their last 90 days (Aaron, 27 Nov 2026). Older rows
+ * stay in D1 until a cold tier exists; nothing is dropped. The cutoff is a
+ * fixed date so a resume, the verify and the final delta read the same rows.
+ */
+export const HOT_WINDOW_FROM = "2026-08-29";
+export const HOT_WINDOW_TABLES: Record<string, string> = {
+	kernel_request_events: "created_at",
+	kernel_runtime_events: "created_at",
+	tedi_runtime_events: "created_at",
+	tedi_usage_events: "created_at",
+	widget_events: "created_at",
+};
+/** Rows before the first hot rowid that the window still reads. */
+const HOT_START_MARGIN = 5_000;
+
+/**
+ * Finds where the hot window starts with point reads by rowid, instead of a
+ * range scan over the time index. Assumes rows are mostly written in time
+ * order; the margin and the hot filter cover the stragglers.
+ */
+async function hotStartRowid(
+	ports: CopyPorts,
+	table: string,
+	column: string,
+	water: number,
+): Promise<number> {
+	let low = 0;
+	let high = water;
+	while (high - low > HOT_START_MARGIN) {
+		const mid = Math.floor((low + high) / 2);
+		await (ports.wait ?? wait)(PAUSE_MS);
+		const rows = await ports.readD1(
+			`SELECT ${quoteIdent(column)} AS t FROM ${quoteIdent(table)} WHERE rowid >= ? ORDER BY rowid LIMIT 1`,
+			[mid],
+		);
+		const time = rows[0]?.t;
+		if (typeof time === "string" && time < HOT_WINDOW_FROM) low = mid;
+		else high = mid;
+	}
+	return Math.max(0, low - HOT_START_MARGIN);
+}
+
 async function highWater(ports: CopyPorts, table: string): Promise<number> {
 	// Pace the window probe like every other D1 read.
 	await (ports.wait ?? wait)(PAUSE_MS);
@@ -193,11 +236,23 @@ export async function copyTable(
 		latest !== undefined && existing?.highWater !== undefined
 			? existing.highWater
 			: await highWater(ports, tableName);
+	const hotColumn = HOT_WINDOW_TABLES[tableName];
+	const startRowid = !hotColumn
+		? undefined
+		: latest !== undefined && existing?.startRowid !== undefined
+			? existing.startRowid
+			: await hotStartRowid(ports, tableName, hotColumn, water);
 	const source = keysetSource({
 		id: `core-copy/${tableName}`,
 		table: tableName,
 		read: blankedRead(ports, entry),
 		highWater: water,
+		...(hotColumn
+			? {
+					afterRowid: startRowid,
+					hot: { column: hotColumn, from: HOT_WINDOW_FROM },
+				}
+			: {}),
 	});
 	const now = () => new Date().toISOString();
 	let pending = false;
@@ -215,6 +270,7 @@ export async function copyTable(
 		table: tableName,
 		status,
 		highWater: water,
+		...(startRowid !== undefined ? { startRowid } : {}),
 		pages: count,
 		pageSize,
 		state,
