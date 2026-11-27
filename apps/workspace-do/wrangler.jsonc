@@ -26,6 +26,7 @@
 	},
 	"ai": { "binding": "AI", "remote": false },
 	"vars": {
+		"CORE_STORE": "d1",
 		"ENVIRONMENT": "development",
 		"GIT_SHA": "configured-via-private-overlay",
 		// Every workspace object is created in this jurisdiction. Empty = none (local dev).
@@ -118,6 +119,7 @@
 			"workers_dev": false,
 			"ai": { "binding": "AI" },
 			"vars": {
+				"CORE_STORE": "d1",
 				"ENVIRONMENT": "production",
 				"GIT_SHA": "configured-via-private-overlay",
 				"DO_JURISDICTION": "eu",
@@ -176,6 +178,12 @@
 					"binding": "SKILL_ARTIFACTS",
 					"bucket_name": "public-installation-bucket",
 					"jurisdiction": "eu",
+				},
+			],
+			"hyperdrive": [
+				{
+					"binding": "CORE_HYPERDRIVE",
+					"id": "00000000000000000000000000000000",
 				},
 			],
 			"d1_databases": [
