@@ -30,7 +30,12 @@ import {
 	updateKernelRuntimeEventMetadata,
 } from "./kernel-runtime-events";
 
-const at = "2026-11-20T12:00:00.000Z";
+// Relative to now: the D1 work_due backfill only queues runs from the last
+// seven days, so a fixed date made this test start failing a week later.
+const base = Math.floor(Date.now() / 3_600_000) * 3_600_000 - 3_600_000;
+const plus = (minutes: number) =>
+	new Date(base + minutes * 60_000).toISOString();
+const at = plus(0);
 const scope = { organizationId: "org" };
 const priorEvents = `
 	INSERT INTO tedi_runtime_events(id,organization_id,tedi_id,run_id,kind,runtime_backend,created_at)
@@ -132,7 +137,7 @@ for (const store of ["d1", "postgres"] as const)
 			).toEqual([]);
 			expect(
 				await db.select().from(due).where(eq(due.objectId, "backfill-pending")),
-			).toMatchObject([{ dueAt: "2026-11-20T12:12:00.000Z" }]);
+			).toMatchObject([{ dueAt: plus(12) }]);
 		});
 
 		it("composes cause-bound inserts, preserves JSON/nulls and fences replay across tenants", async () => {
@@ -260,7 +265,7 @@ for (const store of ["d1", "postgres"] as const)
 					runId: "set-b",
 					kind: "message.completed",
 					runtimeBackend: "custom",
-					createdAt: "2026-11-20T12:01:00.000Z",
+					createdAt: plus(1),
 				},
 				{
 					id: "set-foreign",
@@ -269,7 +274,7 @@ for (const store of ["d1", "postgres"] as const)
 					runId: "set-b",
 					kind: "message.completed",
 					runtimeBackend: "custom",
-					createdAt: "2026-11-20T12:02:00.000Z",
+					createdAt: plus(2),
 				},
 			]);
 			const ids = [
@@ -427,7 +432,7 @@ for (const store of ["d1", "postgres"] as const)
 			await db.insert(events).values(event("start", "terminal", "run.started"));
 			expect(
 				await db.select().from(due).where(eq(due.objectId, "start")),
-			).toMatchObject([{ dueAt: "2026-11-20T12:12:00.000Z" }]);
+			).toMatchObject([{ dueAt: plus(12) }]);
 			await db
 				.insert(events)
 				.values(event("terminal", "terminal", "run.completed"));
