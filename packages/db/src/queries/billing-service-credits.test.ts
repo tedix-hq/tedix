@@ -1,5 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { fileURLToPath } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { coreTable } from "../core-store/client";
+import type { DbClient } from "../client";
+import { organizations } from "../schema/organizations";
+import { createMigratedSqlite } from "../test/migrated-sqlite";
+import { createPGliteFacade } from "../test/pglite-facade";
 import { createDbClient } from "../client";
 import {
 	billingAccounts,
@@ -339,3 +346,144 @@ describe("managed service credits", () => {
 		});
 	});
 });
+
+for (const store of ["d1", "postgres"] as const)
+	describe(`service credits on ${store}`, () => {
+		let db: DbClient;
+		let close: () => void | Promise<void>;
+		beforeAll(async () => {
+			if (store === "postgres") {
+				const fixture = await createPGliteFacade();
+				db = fixture.db;
+				close = fixture.close;
+				for (const migration of readMigrationFiles({
+					migrationsFolder: fileURLToPath(
+						new URL("../../drizzle-pg", import.meta.url),
+					),
+				}))
+					for (const ddl of migration.sql) await fixture.engine.exec(ddl);
+			} else {
+				const sqlite = createMigratedSqlite();
+				db = createDbClient(createD1Facade(sqlite));
+				close = () => sqlite.close();
+			}
+			await db
+				.insert(coreTable(db, organizations))
+				.values({ id: "org-1", name: "Example", slug: "example" });
+			await db.insert(coreTable(db, billingPlanVersions)).values({
+				id: "parity-plan",
+				planKey: "growth",
+				version: 9001,
+				status: "active",
+				name: "Example",
+				includedMonthlyCredits: 10,
+				maxTedis: 5,
+				maxCronJobsPerTedi: 10,
+				maxIterationsPerTask: 16,
+				effectiveAt: NOW,
+				createdAt: NOW,
+			});
+			await db.insert(coreTable(db, billingAccounts)).values({
+				organizationId: "org-1",
+				planVersionId: "parity-plan",
+				status: "active",
+				billingMode: "stripe",
+				periodStart: PERIOD_START,
+				periodEnd: PERIOD_END,
+				createdAt: NOW,
+				updatedAt: NOW,
+			});
+			await db.insert(coreTable(db, billingServiceRateCards)).values({
+				id: "seo-rate",
+				serviceKey: "seo",
+				operationKey: "research_keywords",
+				version: 9001,
+				status: "active",
+				provider: "example",
+				providerEndpoint: "/keywords",
+				creditCost: 4,
+				customerValueMicros: 10000,
+				providerCostCeilingMicros: 30000,
+				effectiveAt: "2026-07-30T04:00:00+02:00",
+				createdAt: NOW,
+			});
+		}, 60000);
+		afterAll(async () => {
+			await close?.();
+		});
+
+		it("settles once, preserves JSON and tenant scope, and enforces provider spend and disabled controls", async () => {
+			const first = await reserve(db, {
+				tediId: null,
+				metadata: { nested: { enabled: true } },
+			});
+			expect(first).toMatchObject({
+				allowed: true,
+				reservation: { metadata: { nested: { enabled: true } } },
+			});
+			expect(await reserve(db, { id: "replay", tediId: null })).toMatchObject({
+				allowed: true,
+				replayed: true,
+			});
+			const receipt = {
+				id: "service-receipt",
+				reservationId: "reservation-1",
+				organizationId: "org-1",
+				providerUsageId: "service-provider-receipt",
+				provider: "example",
+				model: "keywords",
+				providerCostMicros: 20000,
+				providerCostQuality: "provider_reported" as const,
+				providerSucceeded: true,
+				occurredAt: NOW,
+				now: NOW,
+			};
+			await expect(
+				settleBillingServiceCreditUsage(db, {
+					...receipt,
+					organizationId: "other",
+				}),
+			).rejects.toThrow("not found");
+			expect(await settleBillingServiceCreditUsage(db, receipt)).toMatchObject({
+				status: "settled",
+			});
+			await settleBillingServiceCreditUsage(db, receipt);
+			expect(
+				await getBillingServiceCreditSnapshot(db, "org-1", "seo", NOW),
+			).toMatchObject({
+				usedCredits: 4,
+				reservedCredits: 0,
+				availableCredits: 6,
+				providerCostMicros: 20000,
+			});
+			await setBillingServiceCreditControls(db, {
+				organizationId: "org-1",
+				serviceKey: "seo",
+				enabled: true,
+				monthlyProviderCostLimitMicros: 40000,
+				updatedBy: "owner",
+				now: NOW,
+			});
+			expect(
+				await reserve(db, {
+					id: "blocked",
+					idempotencyKey: "blocked",
+					tediId: null,
+				}),
+			).toMatchObject({ allowed: false, code: "provider_cost_limit" });
+			await setBillingServiceCreditControls(db, {
+				organizationId: "org-1",
+				serviceKey: "seo",
+				enabled: false,
+				updatedBy: "owner",
+				now: NOW,
+			});
+			expect(
+				await reserve(db, {
+					id: "disabled",
+					idempotencyKey: "disabled",
+					tediId: null,
+				}),
+			).toMatchObject({ allowed: false, code: "service_disabled" });
+		});
+	});

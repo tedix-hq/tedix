@@ -24,16 +24,23 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
+import {
+	booleanValue,
+	jsonParameter,
+	jsonRead,
+	unixTime,
+} from "../core-store/dialect";
 import {
 	type BillingServiceCreditControl,
 	type BillingServiceCreditReservation,
 	type BillingServiceKey,
 	type BillingServiceOperationKey,
 	type BillingServiceRateCard,
-	billingProviderUsage,
-	billingServiceCreditControls,
-	billingServiceCreditReservations,
-	billingServiceRateCards,
+	billingProviderUsage as schemaBillingProviderUsage,
+	billingServiceCreditControls as schemaBillingServiceCreditControls,
+	billingServiceCreditReservations as schemaBillingServiceCreditReservations,
+	billingServiceRateCards as schemaBillingServiceRateCards,
 } from "../schema/billing";
 import {
 	type CreditRefusalCode,
@@ -89,10 +96,6 @@ export type BillingServiceCreditReservationDecision =
 			snapshot: BillingServiceCreditSnapshot | null;
 	  };
 
-const serviceHeld = alias(billingServiceCreditReservations, "service_held");
-const serviceUsage = alias(billingProviderUsage, "service_usage");
-const serviceControl = alias(billingServiceCreditControls, "service_control");
-
 /**
  * Over `pool`: this service's use, holds and controls in the pool's period.
  * `tediId` scopes the per-tedi figure.
@@ -102,6 +105,18 @@ function serviceCte(
 	pool: CreditPoolCte,
 	input: { serviceKey: BillingServiceKey; now: string; tediId: string | null },
 ) {
+	const serviceHeld = alias(
+		coreTable(db, schemaBillingServiceCreditReservations),
+		"service_held",
+	);
+	const serviceUsage = alias(
+		coreTable(db, schemaBillingProviderUsage),
+		"service_usage",
+	);
+	const serviceControl = alias(
+		coreTable(db, schemaBillingServiceCreditControls),
+		"service_control",
+	);
 	const live = and(
 		eq(serviceHeld.status, "reserved"),
 		gt(serviceHeld.expiresAt, input.now),
@@ -125,7 +140,7 @@ function serviceCte(
 			and(
 				sql`${serviceUsage.organizationId} = ${pool.organizationId}`,
 				eq(serviceUsage.usageKind, "seo_data"),
-				sql`json_extract(${serviceUsage.metadata}, '$.credentialMode') = 'managed'`,
+				sql`${jsonRead(db, serviceUsage.metadata, ["credentialMode"])} = 'managed'`,
 				sql`${serviceUsage.occurredAt} >= ${pool.periodStart}`,
 				sql`${serviceUsage.occurredAt} < ${pool.periodEnd}`,
 			),
@@ -133,9 +148,10 @@ function serviceCte(
 	return db.$with("service").as(
 		db
 			.select({
-				enabled: sql<number>`COALESCE(${serviceControl.enabled}, 1)`.as(
-					"enabled",
-				),
+				enabled:
+					sql<number>`COALESCE(${serviceControl.enabled}, ${booleanValue(db, true)})`.as(
+						"enabled",
+					),
 				monthlyCreditLimit: sql<
 					number | null
 				>`${serviceControl.monthlyCreditLimit}`.as("monthly_credit_limit"),
@@ -237,6 +253,7 @@ async function getActiveRateCard(
 	operationKey: BillingServiceOperationKey,
 	now: string,
 ): Promise<BillingServiceRateCard | null> {
+	const billingServiceRateCards = coreTable(db, schemaBillingServiceRateCards);
 	const [row] = await db
 		.select()
 		.from(billingServiceRateCards)
@@ -245,7 +262,7 @@ async function getActiveRateCard(
 				eq(billingServiceRateCards.serviceKey, serviceKey),
 				eq(billingServiceRateCards.operationKey, operationKey),
 				eq(billingServiceRateCards.status, "active"),
-				sql`datetime(${billingServiceRateCards.effectiveAt}) <= datetime(${now})`,
+				sql`${unixTime(db, billingServiceRateCards.effectiveAt)} <= ${unixTime(db, sql`${now}`)}`,
 			),
 		)
 		.orderBy(desc(billingServiceRateCards.version))
@@ -269,6 +286,10 @@ export async function reserveBillingServiceCredits(
 		now: string;
 	},
 ): Promise<BillingServiceCreditReservationDecision> {
+	const billingServiceCreditReservations = coreTable(
+		db,
+		schemaBillingServiceCreditReservations,
+	);
 	const tediId = input.tediId ?? null;
 	const snapshot = () =>
 		getBillingServiceCreditSnapshot(
@@ -384,9 +405,7 @@ export async function reserveBillingServiceCredits(
 					expiresAt: sql<string>`${input.expiresAt}`.as("expires_at"),
 					settledAt: sql<null>`NULL`.as("settled_at"),
 					releasedAt: sql<null>`NULL`.as("released_at"),
-					metadata: sql<string>`${JSON.stringify(input.metadata ?? {})}`.as(
-						"metadata",
-					),
+					metadata: jsonParameter(db, input.metadata ?? {}).as("metadata"),
 					createdAt: sql<string>`${input.now}`.as("created_at"),
 					updatedAt: sql<string>`${input.now}`.as("updated_at"),
 				})
@@ -395,10 +414,10 @@ export async function reserveBillingServiceCredits(
 				.where(
 					and(
 						creditAdmissionPredicate(capacity, { now: input.now, credits }),
-						sql`${service.enabled} = 1`,
+						sql`${service.enabled} = ${booleanValue(db, true)}`,
 						sql`(${service.monthlyCreditLimit} IS NULL
 							OR ${service.serviceUsed} + ${service.serviceReserved} + ${credits} <= ${service.monthlyCreditLimit})`,
-						sql`(${tediId} IS NULL OR ${service.perTediMonthlyLimit} IS NULL
+						sql`(CAST(${tediId} AS text) IS NULL OR ${service.perTediMonthlyLimit} IS NULL
 							OR ${service.serviceTediUsed} + ${credits} <= ${service.perTediMonthlyLimit})`,
 						sql`(${service.providerCostLimitMicros} IS NULL
 							OR ${service.providerCostMicros} + ${service.reservedProviderCostMicros} + ${rateCard.providerCostCeilingMicros} <= ${service.providerCostLimitMicros})`,
@@ -472,6 +491,10 @@ export async function releaseBillingServiceCreditReservation(
 		now: string;
 	},
 ): Promise<BillingServiceCreditReservation | null> {
+	const billingServiceCreditReservations = coreTable(
+		db,
+		schemaBillingServiceCreditReservations,
+	);
 	const [row] = await db
 		.update(billingServiceCreditReservations)
 		.set({
@@ -523,6 +546,11 @@ export async function settleBillingServiceCreditUsage(
 	db: DbClient,
 	input: SettleBillingServiceCreditUsageInput,
 ): Promise<BillingServiceCreditReservation> {
+	const billingServiceCreditReservations = coreTable(
+		db,
+		schemaBillingServiceCreditReservations,
+	);
+	const billingProviderUsage = coreTable(db, schemaBillingProviderUsage);
 	if (
 		!Number.isSafeInteger(input.providerCostMicros) ||
 		input.providerCostMicros < 0
@@ -677,6 +705,10 @@ export async function setBillingServiceCreditControls(
 		now: string;
 	},
 ): Promise<BillingServiceCreditControl> {
+	const billingServiceCreditControls = coreTable(
+		db,
+		schemaBillingServiceCreditControls,
+	);
 	for (const value of [
 		input.monthlyCreditLimit,
 		input.perTediMonthlyLimit,
