@@ -107,11 +107,17 @@ export async function readAgentScorecardHistory(
 						),
 					),
 					gte(
-						unixTime(db, jsonRead(db, sessions.telemetry, ["startedAt"])),
+						unixTime(
+							db,
+							sql`(${jsonRead(db, sessions.telemetry, ["startedAt"])})`,
+						),
 						unixTime(db, attempts.startedAt),
 					),
 					lte(
-						unixTime(db, jsonRead(db, sessions.telemetry, ["startedAt"])),
+						unixTime(
+							db,
+							sql`(${jsonRead(db, sessions.telemetry, ["startedAt"])})`,
+						),
 						unixTime(db, sql`coalesce(${attempts.finishedAt}, ${input.now})`),
 					),
 				),

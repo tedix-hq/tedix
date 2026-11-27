@@ -1,4 +1,5 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, getColumns, type Table } from "drizzle-orm";
+import { coreTable } from "../../core-store/client";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkActorType,
@@ -53,16 +54,29 @@ export class WorkFactoryError extends Error {
 	}
 }
 
+/** The stored columns named by `stored`, taken from the selected store's table. */
+export function selectedStoredColumns<T extends Table, S extends object>(
+	db: object,
+	table: T,
+	stored: S,
+): S {
+	const columns = getColumns(coreTable(db, table)) as Record<string, unknown>;
+	return Object.fromEntries(
+		Object.keys(stored).map((key) => [key, columns[key]]),
+	) as S;
+}
+
 export async function getScopedWorkItem(
 	db: DbQueryClient,
 	orgId: string,
 	workItemId: string,
 ): Promise<WorkItem> {
+	const items = coreTable(db, workItems);
 	const item = (
 		await db
-			.select(workItemStoredColumns)
-			.from(workItems)
-			.where(and(eq(workItems.orgId, orgId), eq(workItems.id, workItemId)))
+			.select(selectedStoredColumns(db, workItems, workItemStoredColumns))
+			.from(items)
+			.where(and(eq(items.orgId, orgId), eq(items.id, workItemId)))
 			.limit(1)
 	)[0];
 	if (!item) {

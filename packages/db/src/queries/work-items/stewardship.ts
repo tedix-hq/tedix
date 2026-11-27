@@ -1,10 +1,11 @@
 import { WorkStewardshipPolicySchema } from "@tedix/api-contract/schemas/work-stewardship";
 import { and, eq, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { organizations } from "../../schema/organizations";
-import { projects } from "../../schema/projects";
-import { tedis } from "../../schema/tedis";
-import { workItems } from "../../schema/work-items";
+import { coreTable } from "../../core-store/client";
+import { organizations as d1Organizations } from "../../schema/organizations";
+import { projects as d1Projects } from "../../schema/projects";
+import { tedis as d1Tedis } from "../../schema/tedis";
+import { workItems as d1WorkItems } from "../../schema/work-items";
 import type { CreateWorkItemParams } from "./crud";
 
 /** Defaults confer stewardship only; admission and acceptance remain separate. */
@@ -31,6 +32,9 @@ export async function resolveWorkItemSteward(
 		params.executorType === "human"
 	)
 		return {};
+	const organizations = coreTable(db, d1Organizations);
+	const projects = coreTable(db, d1Projects);
+	const tedis = coreTable(db, d1Tedis);
 	const [organization] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -89,6 +93,10 @@ export async function resolveDecisionSteward(
 		workItemId?: string | null;
 	},
 ): Promise<{ id: string; slug: string; name: string } | null> {
+	const organizations = coreTable(db, d1Organizations);
+	const projects = coreTable(db, d1Projects);
+	const tedis = coreTable(db, d1Tedis);
+	const workItems = coreTable(db, d1WorkItems);
 	const [organization] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)

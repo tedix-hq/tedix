@@ -157,9 +157,9 @@ async function loadRequirements(
 			poolVersion: workResourcePools.version,
 			capacity: workResourcePools.capacity,
 			reserved:
-				sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id=${p.orgId} AND r.pool_id="work_resource_pools"."id" AND r.state='active' AND r.expires_at>${p.at}),0)`.as(
-					"reserved",
-				),
+				sql<number>`COALESCE((SELECT SUM(r.quantity) FROM work_resource_reservations r WHERE r.org_id=${p.orgId} AND r.pool_id="work_resource_pools"."id" AND r.state='active' AND r.expires_at>${p.at}),0)`
+					.mapWith(Number)
+					.as("reserved"),
 		})
 		.from(workResourceRequirements)
 		.leftJoin(
@@ -203,9 +203,9 @@ async function loadApplicableEnvelopes(
 			limitMicros: workBudgetEnvelopes.limitMicros,
 			reservationMicros: workBudgetEnvelopes.reservationMicros,
 			committed:
-				sql<number>`COALESCE((SELECT SUM(CASE WHEN r.state='consumed' THEN COALESCE(r.consumed_micros,r.amount_micros) ELSE r.amount_micros END) FROM work_budget_reservations r WHERE r.org_id=${p.orgId} AND r.envelope_id="work_budget_envelopes"."id" AND (r.state='consumed' OR (r.state='active' AND r.expires_at>${p.at}))),0)`.as(
-					"committed",
-				),
+				sql<number>`COALESCE((SELECT SUM(CASE WHEN r.state='consumed' THEN COALESCE(r.consumed_micros,r.amount_micros) ELSE r.amount_micros END) FROM work_budget_reservations r WHERE r.org_id=${p.orgId} AND r.envelope_id="work_budget_envelopes"."id" AND (r.state='consumed' OR (r.state='active' AND r.expires_at>${p.at}))),0)`
+					.mapWith(Number)
+					.as("committed"),
 		})
 		.from(workBudgetEnvelopes)
 		.where(

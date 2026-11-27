@@ -1,10 +1,12 @@
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { organizationMembers as members } from "../../schema/organization-members";
+import { coreTable } from "../../core-store/client";
+import { organizationMembers } from "../../schema/organization-members";
 import {
-	workInteractions,
+	workInteractions as d1WorkInteractions,
 	workInteractionStoredColumns,
 } from "../../schema/work-factory";
+import { selectedStoredColumns } from "./factory-state";
 import { requireWorkItem, WorkControlError } from "./factory-validation";
 import { getWorkInteraction, type InteractionActor } from "./interactions";
 
@@ -74,6 +76,8 @@ export async function routeWorkOwnershipRequest(
 			"CONFLICT",
 			"Read the current request addressed to the Work steward",
 		);
+	const members = coreTable(db, organizationMembers);
+	const workInteractions = coreTable(db, d1WorkInteractions);
 	const [recipient] = await db
 		.select({ id: members.userId, name: members.name, role: members.role })
 		.from(members)
@@ -129,7 +133,13 @@ export async function routeWorkOwnershipRequest(
 				eq(workInteractions.targetId, req.targetId!),
 			),
 		)
-		.returning(workInteractionStoredColumns);
+		.returning(
+			selectedStoredColumns(
+				db,
+				d1WorkInteractions,
+				workInteractionStoredColumns,
+			),
+		);
 	if (!routed)
 		throw new WorkControlError(
 			"CONFLICT",

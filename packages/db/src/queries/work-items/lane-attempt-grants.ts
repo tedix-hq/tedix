@@ -47,7 +47,7 @@ export async function grantLaneAttempt(
 					actorId: sql<string>`${p.userId}`.as("actor_id"),
 					payload:
 						coreStore(db) === "postgres"
-							? sql<string>`jsonb_build_object('reason', ${p.reason}, 'workItemVersion', ${workItems.version})`.as(
+							? sql<string>`jsonb_build_object('reason', ${p.reason}::text, 'workItemVersion', ${workItems.version})`.as(
 									"payload",
 								)
 							: sql<string>`json_object('reason', ${p.reason}, 'workItemVersion', ${workItems.version})`.as(

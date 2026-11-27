@@ -1,8 +1,9 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
 import {
-	workProjectHealthJudgments,
+	workProjectHealthJudgments as d1WorkProjectHealthJudgments,
 	type WorkHealthStatus,
 	type WorkProjectHealthJudgment,
 } from "../../schema/work-factory";
@@ -52,7 +53,7 @@ export async function recordWorkProjectHealthJudgment(
 	}
 	return (
 		await db
-			.insert(workProjectHealthJudgments)
+			.insert(coreTable(db, d1WorkProjectHealthJudgments))
 			.values({
 				id: p.id,
 				orgId: p.orgId,
@@ -79,6 +80,10 @@ export async function listWorkProjectHealthJudgments(
 		beforeObservedAt?: string;
 	},
 ) {
+	const workProjectHealthJudgments = coreTable(
+		db,
+		d1WorkProjectHealthJudgments,
+	);
 	return db
 		.select()
 		.from(workProjectHealthJudgments)

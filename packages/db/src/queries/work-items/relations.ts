@@ -30,32 +30,28 @@ export async function addWorkItemRelation(
 	db: DbQueryClient,
 	params: AddWorkItemRelationParams,
 ): Promise<WorkItemRelation> {
+	const items = coreTable(db, workItems);
+	const relations = coreTable(db, workItemRelations);
 	if (params.fromWorkItemId === params.toWorkItemId)
 		throw new Error("A Work Item cannot relate to itself");
 	const endpoints = await db
-		.select({ id: workItems.id })
-		.from(workItems)
+		.select({ id: items.id })
+		.from(items)
 		.where(
-			and(
-				eq(workItems.orgId, params.orgId),
-				eq(workItems.id, params.fromWorkItemId),
-			),
+			and(eq(items.orgId, params.orgId), eq(items.id, params.fromWorkItemId)),
 		);
 	const target = await db
-		.select({ id: workItems.id })
-		.from(workItems)
+		.select({ id: items.id })
+		.from(items)
 		.where(
-			and(
-				eq(workItems.orgId, params.orgId),
-				eq(workItems.id, params.toWorkItemId),
-			),
+			and(eq(items.orgId, params.orgId), eq(items.id, params.toWorkItemId)),
 		)
 		.limit(1);
 	if (!endpoints[0] || !target[0])
 		throw new Error("Both relation endpoints must exist in the organization");
 	const relation = (
 		await db
-			.insert(workItemRelations)
+			.insert(relations)
 			.values({ ...params, metadata: params.metadata ?? {} })
 			.returning()
 	)[0]!;
@@ -74,22 +70,24 @@ export async function queryWorkItemBlockers(
 	workItemId: string,
 	orgId?: string,
 ): Promise<WorkItemDependencyRow[]> {
+	const items = coreTable(db, workItems);
+	const relations = coreTable(db, workItemRelations);
 	return db
 		.select({
-			id: workItems.id,
-			title: workItems.title,
-			disposition: workItems.disposition,
+			id: items.id,
+			title: items.title,
+			disposition: items.disposition,
 		})
-		.from(workItemRelations)
-		.innerJoin(workItems, eq(workItems.id, workItemRelations.fromWorkItemId))
+		.from(relations)
+		.innerJoin(items, eq(items.id, relations.fromWorkItemId))
 		.where(
 			and(
-				eq(workItemRelations.toWorkItemId, workItemId),
-				eq(workItemRelations.relationType, "blocks"),
-				orgId ? eq(workItemRelations.orgId, orgId) : undefined,
+				eq(relations.toWorkItemId, workItemId),
+				eq(relations.relationType, "blocks"),
+				orgId ? eq(relations.orgId, orgId) : undefined,
 			),
 		)
-		.orderBy(asc(workItems.createdAt));
+		.orderBy(asc(items.createdAt));
 }
 
 export async function findWorkItemsBlockedBy(
@@ -97,22 +95,24 @@ export async function findWorkItemsBlockedBy(
 	blockerWorkItemId: string,
 	orgId?: string,
 ): Promise<WorkItemDependencyRow[]> {
+	const items = coreTable(db, workItems);
+	const relations = coreTable(db, workItemRelations);
 	return db
 		.select({
-			id: workItems.id,
-			title: workItems.title,
-			disposition: workItems.disposition,
+			id: items.id,
+			title: items.title,
+			disposition: items.disposition,
 		})
-		.from(workItemRelations)
-		.innerJoin(workItems, eq(workItems.id, workItemRelations.toWorkItemId))
+		.from(relations)
+		.innerJoin(items, eq(items.id, relations.toWorkItemId))
 		.where(
 			and(
-				eq(workItemRelations.fromWorkItemId, blockerWorkItemId),
-				eq(workItemRelations.relationType, "blocks"),
-				orgId ? eq(workItemRelations.orgId, orgId) : undefined,
+				eq(relations.fromWorkItemId, blockerWorkItemId),
+				eq(relations.relationType, "blocks"),
+				orgId ? eq(relations.orgId, orgId) : undefined,
 			),
 		)
-		.orderBy(asc(workItems.createdAt));
+		.orderBy(asc(items.createdAt));
 }
 
 export interface WorkItemRelationRow {
@@ -130,18 +130,19 @@ export async function listWorkItemRelations(
 		limit?: number;
 	},
 ): Promise<WorkItemRelation[]> {
+	const relations = coreTable(db, workItemRelations);
 	return db
 		.select()
-		.from(workItemRelations)
+		.from(relations)
 		.where(
 			and(
-				eq(workItemRelations.orgId, params.orgId),
+				eq(relations.orgId, params.orgId),
 				params.workItemId
-					? eq(workItemRelations.fromWorkItemId, params.workItemId)
+					? eq(relations.fromWorkItemId, params.workItemId)
 					: undefined,
 			),
 		)
-		.orderBy(asc(workItemRelations.createdAt))
+		.orderBy(asc(relations.createdAt))
 		.limit(params.limit ?? 200);
 }
 

@@ -1,7 +1,12 @@
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { anyIds } from "../../core-store/dialect";
-import { workAttempts, workItems } from "../../schema/work-items";
+import { coreTable } from "../../core-store/client";
+import { anyIds, jsonRead, jsonType } from "../../core-store/dialect";
+import {
+	workAttempts as d1WorkAttempts,
+	workEvents as d1WorkEvents,
+	workItems as d1WorkItems,
+} from "../../schema/work-items";
 import { cancelWorkItem } from "./crud";
 import { WorkFactoryError } from "./factory-state";
 
@@ -50,6 +55,8 @@ export async function sweepStaleFailedDelegationWorkItems(
 		Date.parse(at) - STALE_FAILED_DELEGATION_AGE_MS,
 	).toISOString();
 	const limit = Math.min(Math.max(Math.trunc(options.limit ?? 100), 1), 100);
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	const candidates = await db
 		.select({ id: workItems.id, orgId: workItems.orgId })
 		.from(workItems)
@@ -62,7 +69,7 @@ export async function sweepStaleFailedDelegationWorkItems(
 						)
 					: undefined,
 				eq(workItems.disposition, "accepted"),
-				sql`json_extract(${workItems.provenance}, '$.source') = 'kernelRuntime.directDelegation'`,
+				sql`${jsonRead(db, workItems.provenance, ["source"])} = 'kernelRuntime.directDelegation'`,
 				sql`COALESCE(${workItems.updatedAt}, ${workItems.createdAt}) <= ${cutoff}`,
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${workItems.orgId} AND active_attempt.work_item_id = ${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying'))`,
 				sql`EXISTS (SELECT 1 FROM ${workAttempts} latest_attempt WHERE latest_attempt.org_id = ${workItems.orgId} AND latest_attempt.work_item_id = ${workItems.id} AND latest_attempt.runtime_state = 'failed' AND latest_attempt.finished_at <= ${cutoff} AND latest_attempt.attempt_number = (SELECT MAX(any_attempt.attempt_number) FROM ${workAttempts} any_attempt WHERE any_attempt.org_id = ${workItems.orgId} AND any_attempt.work_item_id = ${workItems.id}))`,
@@ -103,6 +110,9 @@ export async function sweepUncontractedChildWorkItems(
 	} = {},
 ): Promise<SweepStaleFailedDelegationsResult> {
 	const at = options.now ?? new Date().toISOString();
+	const workItems = coreTable(db, d1WorkItems);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workEvents = coreTable(db, d1WorkEvents);
 	const candidates = await db
 		.select({
 			id: workItems.id,
@@ -120,7 +130,7 @@ export async function sweepUncontractedChildWorkItems(
 					: undefined,
 				inArray(workItems.disposition, ["accepted", "proposed"]),
 				isNotNull(workItems.delegationRootId),
-				sql`NOT EXISTS (SELECT 1 FROM work_events allocation WHERE allocation.org_id=${workItems.orgId} AND allocation.work_item_id=${workItems.id} AND allocation.id=${workItems.id} AND json_type(allocation.payload, '$.taskContract')='object')`,
+				sql`NOT EXISTS (SELECT 1 FROM ${workEvents} allocation WHERE allocation.org_id=${workItems.orgId} AND allocation.work_item_id=${workItems.id} AND allocation.id=${workItems.id} AND ${jsonType(db, sql`allocation.payload`, ["taskContract"])}='object')`,
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id=${workItems.orgId} AND active_attempt.work_item_id=${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying'))`,
 			),
 		)

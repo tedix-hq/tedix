@@ -7,8 +7,9 @@
 
 import { and, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
-import { projects } from "../../schema/projects";
-import { tediObjectives } from "../../schema/tedi-objectives";
+import { coreTable } from "../../core-store/client";
+import { projects as d1Projects } from "../../schema/projects";
+import { tediObjectives as d1TediObjectives } from "../../schema/tedi-objectives";
 import {
 	type WorkItem,
 	type WorkItemClass,
@@ -45,6 +46,7 @@ export async function assertValidWorkItemProject(
 	db: DbClient,
 	params: { orgId: string; projectId: string },
 ): Promise<{ key: string; objectiveId: string | null }> {
+	const projects = coreTable(db, d1Projects);
 	const rows = await db
 		.select({
 			orgId: projects.orgId,
@@ -75,6 +77,7 @@ export async function requireOrgObjective(
 	db: DbClient,
 	params: { orgId: string; objectiveId: string },
 ): Promise<void> {
+	const tediObjectives = coreTable(db, d1TediObjectives);
 	const row = (
 		await db
 			.select({ orgId: tediObjectives.orgId })
@@ -275,6 +278,7 @@ export async function resolveWorkItemPurpose(
 					: `PURPOSE_CONFLICT: explicit objective ${objectiveId} cannot carry expiry ${params.purposeExceptionExpiresAt}. Omit --class and --expires for objective work.`,
 			);
 		}
+		const tediObjectives = coreTable(db, d1TediObjectives);
 		const rows = await db
 			.select({ orgId: tediObjectives.orgId, status: tediObjectives.status })
 			.from(tediObjectives)

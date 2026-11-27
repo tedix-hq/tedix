@@ -1584,7 +1584,7 @@ function supportDraftCandidateSource(db: DbQueryClient) {
 			and(
 				sql`${workInteractions.source} = 'night-source-adapter'`,
 				sql`${jsonRead(db, workInteractions.metadata, ["originalSource"])} = 'support-work-draft'`,
-				sql`${jsonRead(db, workInteractions.metadata, ["sourceKey"])} = 'support-draft:' || ${jsonRead(db, workInteractions.metadata, ["supportTicketId"])} || ':' || ${jsonRead(db, workInteractions.metadata, ["supportVersion"], "number")}`,
+				sql`${jsonRead(db, workInteractions.metadata, ["sourceKey"])} = 'support-draft:' || (${jsonRead(db, workInteractions.metadata, ["supportTicketId"])}) || ':' || (${jsonRead(db, workInteractions.metadata, ["supportVersion"], "number")})`,
 				sql`${jsonRead(db, workInteractions.metadata, ["decisionDeck", "classId"])} = 'support.reply'`,
 				sql`${jsonRead(db, workInteractions.metadata, ["decisionDeck", "kind"])} = 'outbound'`,
 			),
@@ -2150,7 +2150,7 @@ export async function sweepObsoleteWorkInteractions(
 			},
 			setWhere: previous
 				? eq(platformCronCheckpoints.through, previous.through)
-				: sql`0`,
+				: sql`FALSE`,
 		})
 		.returning({ id: platformCronCheckpoints.scheduleId });
 	const [claimed] = await db.batch([claim, ...statements]);

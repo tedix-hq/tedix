@@ -327,9 +327,9 @@ export async function listWorkBudgetEnvelopes(
 			updatedAt: workBudgetEnvelopes.updatedAt,
 			version: workBudgetEnvelopes.version,
 			committedMicros:
-				sql<number>`COALESCE((SELECT SUM(CASE WHEN r.state='consumed' THEN COALESCE(r.consumed_micros,r.amount_micros) ELSE r.amount_micros END) FROM work_budget_reservations r WHERE r.org_id="work_budget_envelopes"."org_id" AND r.envelope_id="work_budget_envelopes"."id" AND (r.state='consumed' OR (r.state='active' AND r.expires_at>${p.at}))),0)`.as(
-					"committed_micros",
-				),
+				sql<number>`COALESCE((SELECT SUM(CASE WHEN r.state='consumed' THEN COALESCE(r.consumed_micros,r.amount_micros) ELSE r.amount_micros END) FROM work_budget_reservations r WHERE r.org_id="work_budget_envelopes"."org_id" AND r.envelope_id="work_budget_envelopes"."id" AND (r.state='consumed' OR (r.state='active' AND r.expires_at>${p.at}))),0)`
+					.mapWith(Number)
+					.as("committed_micros"),
 		})
 		.from(workBudgetEnvelopes)
 		.where(

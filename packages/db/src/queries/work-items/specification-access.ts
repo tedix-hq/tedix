@@ -1,6 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { type WorkActorType, workEvents } from "../../schema/work-items";
+import { coreTable } from "../../core-store/client";
+import {
+	type WorkActorType,
+	workEvents as d1WorkEvents,
+} from "../../schema/work-items";
 
 /** Creation authority comes from the append-only server ledger, not provenance. */
 export async function workItemCreatedByActor(
@@ -11,6 +15,7 @@ export async function workItemCreatedByActor(
 		actor: { type: WorkActorType; id: string };
 	},
 ): Promise<boolean> {
+	const workEvents = coreTable(db, d1WorkEvents);
 	const rows = await db
 		.select({ id: workEvents.id })
 		.from(workEvents)

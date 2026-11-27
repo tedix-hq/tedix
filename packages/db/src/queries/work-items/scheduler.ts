@@ -493,9 +493,9 @@ export async function listReadyWork(
 				limitMicros: workBudgetEnvelopes.limitMicros,
 				reservationMicros: workBudgetEnvelopes.reservationMicros,
 				committed:
-					sql<number>`COALESCE((SELECT SUM(CASE WHEN r.state='consumed' THEN COALESCE(r.consumed_micros,r.amount_micros) ELSE r.amount_micros END) FROM work_budget_reservations r WHERE r.org_id=${p.orgId} AND r.envelope_id=${workBudgetEnvelopes.id} AND (r.state='consumed' OR (r.state='active' AND r.expires_at>${p.now}))),0)`.as(
-						"committed",
-					),
+					sql<number>`COALESCE((SELECT SUM(CASE WHEN r.state='consumed' THEN COALESCE(r.consumed_micros,r.amount_micros) ELSE r.amount_micros END) FROM work_budget_reservations r WHERE r.org_id=${p.orgId} AND r.envelope_id=${workBudgetEnvelopes.id} AND (r.state='consumed' OR (r.state='active' AND r.expires_at>${p.now}))),0)`
+						.mapWith(Number)
+						.as("committed"),
 			})
 			.from(workBudgetEnvelopes)
 			.where(
@@ -530,7 +530,7 @@ export async function listReadyWork(
 				db
 					.select({
 						workItemId: workEvidence.workItemId,
-						count: sql<number>`COUNT(*)`.as("count"),
+						count: sql<number>`COUNT(*)`.mapWith(Number).as("count"),
 					})
 					.from(workEvidence)
 					.where(

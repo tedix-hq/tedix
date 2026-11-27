@@ -1,14 +1,19 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { coreTable } from "../../core-store/client";
+import { selectedStoredColumns } from "./factory-state";
 import {
-	externalAgentPrincipals,
-	externalAgentSessions,
+	externalAgentPrincipals as d1ExternalAgentPrincipals,
+	externalAgentSessions as d1ExternalAgentSessions,
 } from "../../schema/external-agent-identity";
-import { organizationMembers } from "../../schema/organization-members";
-import { projects } from "../../schema/projects";
-import { tedis } from "../../schema/tedis";
-import { workItems, workItemStoredColumns } from "../../schema/work-items";
-import { workCases } from "../../schema/work-factory";
+import { organizationMembers as d1OrganizationMembers } from "../../schema/organization-members";
+import { projects as d1Projects } from "../../schema/projects";
+import { tedis as d1Tedis } from "../../schema/tedis";
+import {
+	workItems as d1WorkItems,
+	workItemStoredColumns,
+} from "../../schema/work-items";
+import { workCases as d1WorkCases } from "../../schema/work-factory";
 
 export class WorkControlError extends Error {
 	constructor(
@@ -35,6 +40,9 @@ export async function requireActivePrincipal(
 		id: string;
 	},
 ): Promise<void> {
+	const organizationMembers = coreTable(db, d1OrganizationMembers);
+	const tedis = coreTable(db, d1Tedis);
+	const externalAgentPrincipals = coreTable(db, d1ExternalAgentPrincipals);
 	let found = false;
 	if (params.type === "user") {
 		found = Boolean(
@@ -103,6 +111,7 @@ export async function requireExternalSession(
 		externalSessionKey: string;
 	},
 ): Promise<void> {
+	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const row = (
 		await db
 			.select({ id: externalAgentSessions.id })
@@ -133,9 +142,10 @@ export async function requireWorkItem(
 	orgId: string,
 	id: string,
 ) {
+	const workItems = coreTable(db, d1WorkItems);
 	const row = (
 		await db
-			.select(workItemStoredColumns)
+			.select(selectedStoredColumns(db, d1WorkItems, workItemStoredColumns))
 			.from(workItems)
 			.where(and(eq(workItems.orgId, orgId), eq(workItems.id, id)))
 			.limit(1)
@@ -150,6 +160,7 @@ export async function requireProject(
 	orgId: string,
 	id: string,
 ) {
+	const projects = coreTable(db, d1Projects);
 	const row = (
 		await db
 			.select()
@@ -167,6 +178,7 @@ export async function requireWorkCase(
 	orgId: string,
 	id: string,
 ) {
+	const workCases = coreTable(db, d1WorkCases);
 	const row = (
 		await db
 			.select()
