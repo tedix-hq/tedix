@@ -2,6 +2,7 @@ vi.mock("@tedix/db/queries/site-routing", () => ({
 	getSiteRoutingPolicy: vi.fn(async () => null),
 }));
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { env as workerEnv } from "cloudflare:workers";
 
 const mocks = vi.hoisted(() => ({
 	getSiteBySlug: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock("./public-proxy", async (importOriginal) => ({
 }));
 
 import cmsRuntime from "./index";
+import { PUBLISHED_FALLBACK_ADMIN_PATH } from "./published-fallback";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { pageCacheEntry, pageCacheKey } from "./tenant-page-cache";
 import {
@@ -419,5 +421,73 @@ describe("early public restore gate", () => {
 		);
 		expect(response.status).toBe(503);
 		expect(await response.text()).toContain("missing CF_ACCOUNT_ID");
+	});
+});
+
+describe("published outage fallback", () => {
+	it("serves the last good anonymous page when D1 routing fails, but never an invalidated page", async () => {
+		const slug = `fallback-${crypto.randomUUID()}`;
+		const request = new Request(`https://${slug}.cms.tedix.dev/`);
+		const env = {
+			DB_DO: (workerEnv as unknown as { DB_DO: DurableObjectNamespace }).DB_DO,
+			PLATFORM_DB: {},
+			ENVIRONMENT: "production",
+			CMS_INTERNAL_AUTH_TOKEN: "test-fallback-control",
+		} as never;
+		const tasks: Promise<unknown>[] = [];
+		const ctx = {
+			waitUntil: (task: Promise<unknown>) => tasks.push(task),
+		} as never;
+		mocks.getSiteBySlug.mockResolvedValue({
+			id: "fallback-site",
+			slug,
+			restoreEpoch: 0,
+		});
+		mocks.permit.mockResolvedValue({
+			admitted: true,
+			value: new Response("last published build", {
+				headers: {
+					"Content-Type": "text/html",
+					"Cache-Control": "public, max-age=0, must-revalidate",
+				},
+			}),
+		});
+		expect((await cmsRuntime.fetch(request, env, ctx)).status).toBe(200);
+		await Promise.all(tasks);
+		mocks.getSiteByAlias.mockRejectedValue(
+			new Error(`Failed query: ${"selected-column ".repeat(40)}`, {
+				cause: new Error("D1 DB is overloaded. Too many resources consumed"),
+			}),
+		);
+		const response = await cmsRuntime.fetch(request, env, ctx);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("X-Tedix-Page-Cache")).toBe("OUTAGE");
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
+		expect(await response.text()).toBe("last published build");
+		expect(mocks.permit).toHaveBeenCalledTimes(1);
+		const head = await cmsRuntime.fetch(
+			new Request(request, { method: "HEAD" }),
+			env,
+			ctx,
+		);
+		expect(head.status).toBe(200);
+		expect(head.body).toBeNull();
+		const control = (authorized: boolean) =>
+			cmsRuntime.fetch(
+				new Request(`https://cms.internal${PUBLISHED_FALLBACK_ADMIN_PATH}`, {
+					method: "POST",
+					headers: authorized
+						? { Authorization: "Bearer test-fallback-control" }
+						: {},
+					body: JSON.stringify({ slug, action: "block", token: "lifecycle" }),
+				}),
+				env,
+				ctx,
+			);
+		expect((await control(false)).status).toBe(401);
+		expect((await cmsRuntime.fetch(request, env, ctx)).status).toBe(200);
+		expect((await control(true)).status).toBe(200);
+		const unavailable = await cmsRuntime.fetch(request, env, ctx);
+		expect(unavailable.status).toBe(503);
 	});
 });

@@ -20,6 +20,7 @@ import {
 	withAuthorization,
 } from "../orpc";
 import { inspectCmsMediaResource } from "../../services/cms-media-resources";
+import { controlCmsPublishedFallback } from "../../services/cms-published-fallback";
 import {
 	inspectCmsProviderResources,
 	readCmsContentRows,
@@ -275,6 +276,12 @@ export const deprovisionSiteProcedure = authedSitesOs.deprovision
 					`Type ${site.slug} to confirm`,
 				);
 			try {
+				await controlCmsPublishedFallback(
+					context.env,
+					site.slug,
+					"block",
+					"deprovision",
+				);
 				receipt = await reserveCmsDeprovisionOperation(context.db, {
 					siteId: site.id,
 					organizationId,

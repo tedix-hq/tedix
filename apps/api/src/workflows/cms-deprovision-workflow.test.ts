@@ -7,6 +7,7 @@ vi.mock("cloudflare:workflows", () => ({
 
 const mocks = vi.hoisted(() => ({
 	createDb: vi.fn(),
+	fallbackControl: vi.fn(async () => "generation"),
 	getOperation: vi.fn(),
 	updateOperation: vi.fn(),
 	completeOperation: vi.fn(),
@@ -20,6 +21,9 @@ const mocks = vi.hoisted(() => ({
 	deleteHostname: vi.fn(),
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: mocks.createDb }));
+vi.mock("../services/cms-published-fallback", () => ({
+	controlCmsPublishedFallback: mocks.fallbackControl,
+}));
 vi.mock("@tedix/db/queries/cms-deprovision-operations", () => ({
 	getCmsDeprovisionOperation: mocks.getOperation,
 	updateCmsDeprovisionOperation: mocks.updateOperation,

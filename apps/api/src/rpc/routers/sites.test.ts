@@ -6,6 +6,7 @@ import { sitesContractRouter } from "./sites";
 
 const mocks = vi.hoisted(() => ({
 	listSiteVersionProjects: vi.fn(),
+	fallbackControl: vi.fn(async () => "generation"),
 	getCmsSiteByIdForOrganization: vi.fn(),
 	getCmsSiteById: vi.fn(),
 	loadEditorial: vi.fn(),
@@ -63,6 +64,9 @@ const mocks = vi.hoisted(() => ({
 	inspectLatestCmsRecoveryCapture: vi.fn(),
 	startCmsSiteRestore: vi.fn(),
 	getCmsSiteRestore: vi.fn(),
+}));
+vi.mock("../../services/cms-published-fallback", () => ({
+	controlCmsPublishedFallback: mocks.fallbackControl,
 }));
 vi.mock("../../services/cms-recovery-resources", () => ({
 	startCmsRecoveryCapture: mocks.startCmsRecoveryCapture,
@@ -363,6 +367,19 @@ describe("site lifecycle confirmation", () => {
 				confirmation: cmsSite.slug,
 			}),
 		).resolves.toMatchObject({ status: "paused", slug: cmsSite.slug });
+		expect(mocks.fallbackControl).toHaveBeenNthCalledWith(
+			1,
+			expect.anything(),
+			cmsSite.slug,
+			"block",
+			"lifecycle",
+		);
+		expect(mocks.fallbackControl.mock.invocationCallOrder[0]).toBeLessThan(
+			mocks.pauseCmsSiteUnlessRestoring.mock.invocationCallOrder[0]!,
+		);
+		expect(mocks.fallbackControl.mock.invocationCallOrder[1]).toBeGreaterThan(
+			mocks.pauseCmsSiteUnlessRestoring.mock.invocationCallOrder[0]!,
+		);
 		expect(mocks.pauseCmsSiteUnlessRestoring).toHaveBeenCalledWith(
 			expect.anything(),
 			{
@@ -371,6 +388,20 @@ describe("site lifecycle confirmation", () => {
 				authoringAppId: null,
 			},
 		);
+	});
+
+	it("does not pause when the fallback tombstone cannot be written", async () => {
+		mocks.fallbackControl.mockRejectedValueOnce(
+			new Error("coordinator unavailable"),
+		);
+		await expect(
+			client().setLifecycle({
+				siteId: cmsSite.id,
+				action: "archive",
+				confirmation: cmsSite.slug,
+			}),
+		).rejects.toThrow("coordinator unavailable");
+		expect(mocks.pauseCmsSiteUnlessRestoring).not.toHaveBeenCalled();
 	});
 
 	it("rejects archive when a restore closes the site before the conditional pause", async () => {

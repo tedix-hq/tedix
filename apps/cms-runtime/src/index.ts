@@ -1,4 +1,10 @@
 import { THEME_PREVIEW_PATH } from "@tedix/provisioning/cms-theme-candidate";
+import {
+	PUBLISHED_FALLBACK_ADMIN_PATH,
+	publishedFallback,
+	publishedFallbackSlug,
+	savePublishedPage,
+} from "./published-fallback";
 import { serveThemePreview, cleanupThemeCandidates } from "./theme-preview";
 import { themePreviewEntrypoint } from "./theme-preview-entrypoint";
 export {
@@ -2251,6 +2257,21 @@ function describePublicServeError(error: unknown): string {
 	return parts.join(" <- ").slice(0, 400);
 }
 
+function isCmsDatabaseUnavailable(error: unknown): boolean {
+	let current = error;
+	for (let depth = 0; current && depth < 4; depth++) {
+		if (current instanceof CmsRestoreFenceUnavailableError) return true;
+		if (
+			/\bD1\b|D1_ERROR|SQLITE|Requests queued for too long/i.test(
+				current instanceof Error ? current.message : String(current),
+			)
+		)
+			return true;
+		current = current instanceof Error ? current.cause : null;
+	}
+	return false;
+}
+
 export default {
 	async fetch(
 		request: Request,
@@ -2258,6 +2279,36 @@ export default {
 		ctx: ExecutionContext,
 	): Promise<Response> {
 		const url = new URL(request.url);
+		if (url.pathname === PUBLISHED_FALLBACK_ADMIN_PATH) {
+			if (
+				request.method !== "POST" ||
+				!(await verifyInternalCmsRequest(request, env))
+			)
+				return new Response("Unauthorized", { status: 401 });
+			const input = (await request.json()) as {
+				slug: string;
+				action: "ticket" | "block" | "unblock";
+				token: string;
+				generation?: string;
+			};
+			if (
+				!/^[a-z0-9][a-z0-9-]{0,62}$/.test(input.slug) ||
+				!["ticket", "block", "unblock"].includes(input.action) ||
+				!["lifecycle", "deprovision"].includes(input.token)
+			)
+				return new Response("Invalid fallback control", { status: 400 });
+			const result = await publishedFallback(env, input.slug).publishedFallback(
+				input.slug,
+				input.action === "ticket"
+					? { action: "ticket" }
+					: {
+							action: input.action,
+							token: input.token,
+							generation: input.generation,
+						},
+			);
+			return Response.json({ success: true, generation: result.generation });
+		}
 		if (url.pathname.startsWith(THEME_PREVIEW_PATH))
 			return serveThemePreview(request, env, (candidate, org, tenantRequest) =>
 				themePreviewEntrypoint(env, ctx, candidate, org).fetch(tenantRequest),
@@ -2277,8 +2328,15 @@ export default {
 					])
 				: undefined;
 		if (routeKey) {
-			const hit = await serveWarmMarketingPage(request, env, ctx, routeKey);
-			if (hit) return hit;
+			try {
+				const hit = await serveWarmMarketingPage(request, env, ctx, routeKey);
+				if (hit) return hit;
+			} catch (error) {
+				console.warn(
+					"[cms-runtime] warm page admission failed",
+					describePublicServeError(error),
+				);
+			}
 		}
 		try {
 			await sweepCmsRestorePermitLeases(createDbQueryClient(env.PLATFORM_DB));
@@ -2311,6 +2369,33 @@ export default {
 
 		// D1 routing and admission can be retried until the request is dispatched.
 		let dispatched = false;
+		const fallbackSlug = publishedFallbackSlug(request, env);
+		const fallback = fallbackSlug ? publishedFallback(env, fallbackSlug) : null;
+		const fallbackKey = JSON.stringify([
+			request.url,
+			request.headers.get("accept"),
+			request.headers.get("accept-language"),
+			request.headers.get("accept-encoding"),
+		]);
+		const ticket =
+			fallback && fallbackSlug
+				? await fallback
+						.publishedFallback(fallbackSlug, { action: "ticket" })
+						.catch(() => null)
+				: null;
+		const readFallback = async (): Promise<Response | null> => {
+			if (!fallback || !fallbackSlug) return null;
+			const saved = await fallback
+				.publishedFallback(fallbackSlug, { action: "read", key: fallbackKey })
+				.catch(() => null);
+			if (!saved?.page) return null;
+			const headers = new Headers(saved.page.headers);
+			headers.set("Cache-Control", "no-store");
+			headers.set("X-Tedix-Page-Cache", "OUTAGE");
+			return new Response(request.method === "HEAD" ? null : saved.page.body, {
+				headers,
+			});
+		};
 		const serve = async (): Promise<Response> => {
 			const expiresAt = Date.now() + MARKETING_ROUTE_TTL_MS;
 			const db = createDbQueryClient(env.PLATFORM_DB);
@@ -2422,9 +2507,46 @@ export default {
 		const replayable = request.method === "GET" || request.method === "HEAD";
 		for (let attempt = 1; ; attempt++) {
 			try {
-				return await serve();
+				const response = await serve();
+				if (
+					response.status === 503 &&
+					response.headers.get("X-Tedix-Cms-Unavailable") === "transient"
+				) {
+					const saved = await readFallback();
+					if (saved) {
+						void response.body?.cancel();
+						return saved;
+					}
+				}
+				if (
+					fallback &&
+					fallbackSlug &&
+					ticket?.generation &&
+					request.method === "GET"
+				) {
+					ctx.waitUntil(
+						savePublishedPage(response, (page) =>
+							fallback.publishedFallback(fallbackSlug, {
+								action: "save",
+								key: fallbackKey,
+								generation: ticket.generation!,
+								page,
+							}),
+						).catch((error) =>
+							console.error(
+								"[cms-runtime] published fallback save failed",
+								error,
+							),
+						),
+					);
+				}
+				return response;
 			} catch (error) {
 				const detail = describePublicServeError(error);
+				if (isCmsDatabaseUnavailable(error)) {
+					const saved = await readFallback();
+					if (saved) return saved;
+				}
 				if (replayable && !dispatched && attempt < PUBLIC_SERVE_ATTEMPTS) {
 					console.warn("[cms-runtime] public request failed; retrying", {
 						attempt,

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	restoreMedia: vi.fn(),
 	assertMedia: vi.fn(),
 	closeFence: vi.fn(),
+	fallback: vi.fn(async () => ({ generation: null })),
 	getFence: vi.fn(),
 	countPermits: vi.fn(),
 	countAdministrativePermits: vi.fn(),
@@ -393,6 +394,7 @@ describe("general CMS site restore", () => {
 					idFromName: (slug: string) => slug,
 					get: () => ({
 						closeCmsSiteRestoreFence: mocks.closeFence,
+						publishedFallback: mocks.fallback,
 						scheduleCmsSiteRestore: schedule,
 						restartCmsSiteRestore: restart,
 						captureRecoverySnapshot: async () => ({
@@ -436,6 +438,13 @@ describe("general CMS site restore", () => {
 				mode: "roundtrip",
 			});
 			expect(receipt.phase).toBe("released");
+			expect(mocks.fallback).toHaveBeenCalledWith(identity.slug, {
+				action: "unblock",
+				token: `restore:${identity.generation}`,
+			});
+			expect(mocks.releaseFence.mock.invocationCallOrder[0]).toBeLessThan(
+				mocks.fallback.mock.invocationCallOrder[0]!,
+			);
 			expect(schedule).toHaveBeenCalledTimes(2);
 			expect(restart).toHaveBeenCalledTimes(2);
 			expect(mocks.assertMedia).toHaveBeenCalledTimes(3);

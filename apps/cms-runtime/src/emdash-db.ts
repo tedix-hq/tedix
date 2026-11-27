@@ -4,6 +4,12 @@ import {
 	THEME_PREVIEW_DATABASE_NAME,
 } from "./theme-preview-sqlite";
 import { PublicRestorePermits } from "./public-restore-permits";
+import {
+	executePublishedFallback,
+	publishedFallback,
+	type PublishedFallbackCommand,
+	type PublishedFallbackResult,
+} from "./published-fallback";
 import { createHash } from "node:crypto";
 import { EmDashDB as EmdashSqlDB } from "@emdash-cms/cloudflare/db/do-sql";
 import {
@@ -215,6 +221,42 @@ export function digestCmsRecoverySqlite(
 /** Tenant data is the whole slug-named object. Delete its storage atomically
  * through the platform API; dropping tables individually violates foreign keys. */
 export class EmDashDB extends EmdashSqlDB {
+	async publishedFallback(
+		slug: string,
+		command: PublishedFallbackCommand,
+	): Promise<PublishedFallbackResult> {
+		if (
+			this.ctx.id.toString() !==
+			durableObjectIdFromName(
+				this.siteDrillEnv().DB_DO,
+				this.env,
+				`published-fallback:${slug}`,
+			).toString()
+		)
+			throw new Error("Published fallback object identity mismatch");
+		const primary = (
+			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDB }
+		).primary;
+		if (primary) return primary.publishedFallback(slug, command);
+		return this.ctx.storage.transactionSync(() =>
+			executePublishedFallback(this.ctx.storage.sql, command),
+		);
+	}
+
+	private async withPublishedFallbackInvalidation<T>(
+		slug: string,
+		run: () => Promise<T>,
+	): Promise<T> {
+		const token = crypto.randomUUID();
+		const fallback = publishedFallback(this.siteDrillEnv(), slug);
+		await fallback.publishedFallback(slug, { action: "block", token });
+		try {
+			return await run();
+		} finally {
+			await fallback.publishedFallback(slug, { action: "unblock", token });
+		}
+	}
+
 	async captureThemePreviewSnapshot(
 		identity: CmsRestoreFenceIdentity,
 	): Promise<DoQueryStatement[]> {
@@ -358,6 +400,21 @@ export class EmDashDB extends EmdashSqlDB {
 	}
 
 	private async withPageCacheInvalidation<
+		T extends DoQueryResult | DoQueryResult[],
+	>(
+		identity: CmsRestoreFenceIdentity,
+		statements: DoQueryStatement[],
+		run: () => Promise<T>,
+	): Promise<T> {
+		const execute = () => this.withPageCacheRevision(identity, statements, run);
+		return statements.some(
+			(statement) => this.pageCacheEffect(statement, undefined) === "content",
+		)
+			? this.withPublishedFallbackInvalidation(identity.slug, execute)
+			: execute();
+	}
+
+	private async withPageCacheRevision<
 		T extends DoQueryResult | DoQueryResult[],
 	>(
 		identity: CmsRestoreFenceIdentity,
@@ -524,7 +581,9 @@ export class EmDashDB extends EmdashSqlDB {
 				input,
 			);
 		return await this.withDatabasePermit(identity, () =>
-			super.executeCollectionDeletionGuard(input),
+			this.withPublishedFallbackInvalidation(identity.slug, () =>
+				super.executeCollectionDeletionGuard(input),
+			),
 		);
 	}
 
@@ -1160,6 +1219,13 @@ export class EmDashDB extends EmdashSqlDB {
 			return await this.closingRestore.result;
 		}
 		const result = (async () => {
+			await publishedFallback(
+				this.siteDrillEnv(),
+				input.slug,
+			).publishedFallback(input.slug, {
+				action: "block",
+				token: `restore:${input.generation}`,
+			});
 			await Promise.all([...this.activeWrites]);
 			return await closeCmsRestoreFence(
 				createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),

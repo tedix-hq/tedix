@@ -19,6 +19,7 @@ import {
 } from "@tedix/db/queries/cms-restore-fences";
 
 import { EmDashDB, type EmDashDBStub } from "./emdash-db";
+import { publishedFallback } from "./published-fallback";
 import { TenantEmDashDB, TenantR2, TenantSession } from "./index";
 import {
 	CmsRestoreFenceUnavailableError,
@@ -295,6 +296,89 @@ test("renews a live outer stream, then sweeps its abandoned pull without opening
 });
 
 describe("nested tenant storage restore permits", () => {
+	test.each(["restore", "unpublish"])(
+		"%s retires saved pages and rejects a delayed save from the old generation",
+		async (operation) => {
+			const identity = await site();
+			const fallback = publishedFallback(env as never, identity.slug);
+			const ticket = await fallback.publishedFallback(identity.slug, {
+				action: "ticket",
+			});
+			const save = {
+				action: "save" as const,
+				key: "/",
+				generation: ticket.generation!,
+				page: {
+					body: new TextEncoder().encode("published").buffer,
+					headers: [["content-type", "text/html"]] as [string, string][],
+				},
+			};
+			await fallback.publishedFallback(identity.slug, save);
+			expect(
+				(
+					await fallback.publishedFallback(identity.slug, {
+						action: "read",
+						key: "/",
+					})
+				).page,
+			).toBeDefined();
+			const coordinator = coordinators().get(
+				coordinators().idFromName(identity.slug),
+			) as unknown as EmDashDB;
+			if (operation === "restore") {
+				const fence = {
+					...identity,
+					generation: "fallback-test",
+					captureId: "capture",
+				};
+				expect(await coordinator.closeCmsSiteRestoreFence(fence)).toBe(true);
+				await fallback.publishedFallback(identity.slug, save);
+				expect(
+					(
+						await fallback.publishedFallback(identity.slug, {
+							action: "read",
+							key: "/",
+						})
+					).page,
+				).toBeUndefined();
+				expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
+				await fallback.publishedFallback(identity.slug, {
+					action: "unblock",
+					token: "restore:fallback-test",
+				});
+			} else {
+				await coordinator.queryWithRestorePermit(
+					identity,
+					"DELETE FROM content",
+				);
+			}
+			await fallback.publishedFallback(identity.slug, save);
+			expect(
+				(
+					await fallback.publishedFallback(identity.slug, {
+						action: "read",
+						key: "/",
+					})
+				).page,
+			).toBeUndefined();
+			const fresh = await fallback.publishedFallback(identity.slug, {
+				action: "ticket",
+			});
+			await fallback.publishedFallback(identity.slug, {
+				...save,
+				generation: fresh.generation!,
+			});
+			expect(
+				(
+					await fallback.publishedFallback(identity.slug, {
+						action: "read",
+						key: "/",
+					})
+				).page,
+			).toBeDefined();
+		},
+	);
+
 	test("epoch close waits for actual delayed writes, ignores orphan rows, and refuses later writes", async () => {
 		const identity = await site();
 		const coordinator = coordinators().get(

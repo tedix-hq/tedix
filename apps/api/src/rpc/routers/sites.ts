@@ -1,4 +1,5 @@
 import { auditActor, emitAuditEvent } from "../audit-helpers";
+import { controlCmsPublishedFallback } from "../../services/cms-published-fallback";
 import { loadUserTenantEditorialIdentity } from "@tedix/auth/descope";
 import { isUserToken } from "@tedix/auth/jwt";
 import { isPlatformPrincipal } from "@tedix/auth/types";
@@ -433,6 +434,12 @@ export const setLifecycleProcedure = authedSitesOs.setLifecycle
 			input.action === "archive" ? ("paused" as const) : ("active" as const);
 		if (owned.type === "cms") {
 			if (status === "active") {
+				const generation = await controlCmsPublishedFallback(
+					context.env,
+					owned.site.slug,
+					"ticket",
+					"lifecycle",
+				);
 				const restored = await restoreCmsSiteUnlessDeprovisioning(context.db, {
 					id: owned.site.id,
 					organizationId: owned.organization.id,
@@ -443,7 +450,21 @@ export const setLifecycleProcedure = authedSitesOs.setLifecycle
 						ErrorCodes.CONFLICT,
 						"CMS site is being deprovisioned or changed concurrently",
 					);
+				if (generation)
+					await controlCmsPublishedFallback(
+						context.env,
+						owned.site.slug,
+						"unblock",
+						"lifecycle",
+						generation,
+					);
 			} else {
+				await controlCmsPublishedFallback(
+					context.env,
+					owned.site.slug,
+					"block",
+					"lifecycle",
+				);
 				const paused = await pauseCmsSiteUnlessRestoring(context.db, {
 					id: owned.site.id,
 					organizationId: owned.organization.id,
@@ -454,6 +475,13 @@ export const setLifecycleProcedure = authedSitesOs.setLifecycle
 						ErrorCodes.CONFLICT,
 						"CMS site is being restored, deprovisioned, or changed concurrently",
 					);
+				// Retire any render admitted between the first block and the pause.
+				await controlCmsPublishedFallback(
+					context.env,
+					owned.site.slug,
+					"block",
+					"lifecycle",
+				);
 			}
 		} else {
 			const updated = await setDocsSiteStatus(context.db, {

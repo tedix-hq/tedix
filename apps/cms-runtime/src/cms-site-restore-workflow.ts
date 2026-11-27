@@ -1,4 +1,5 @@
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import { publishedFallback } from "./published-fallback";
 import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -573,6 +574,10 @@ export async function runCmsSiteRestore(
 			// A release-intent plus absent fence is the only safe signal after
 			// an unknown release response. Public writes may already have resumed.
 		}
+		await publishedFallback(env, identity.slug).publishedFallback(
+			identity.slug,
+			{ action: "unblock", token: `restore:${identity.generation}` },
+		);
 		await advance(env, identity, "release-intent", "released");
 	});
 	return {

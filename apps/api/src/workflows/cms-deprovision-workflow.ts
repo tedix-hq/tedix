@@ -4,6 +4,7 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
+import { controlCmsPublishedFallback } from "../services/cms-published-fallback";
 
 import { coreDb } from "@tedix/db/core-store/scope";
 import {
@@ -133,6 +134,12 @@ export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
 						throw new NonRetryableError(
 							"CMS deprovision site identity mismatch",
 						);
+					await controlCmsPublishedFallback(
+						this.env,
+						site.slug,
+						"block",
+						"deprovision",
+					);
 					await setCmsSiteStatus(db, siteId, "paused");
 					const apps = await getAppsByOrganization(db, organizationId);
 					const authoring = apps.find(
