@@ -620,9 +620,12 @@ export const CORE_COPY_PLAN: CoreCopyPlanEntry[] = [
 			"client_id": "value",
 			"revision": "value",
 			"app_id": "value",
+			"client_name": "value",
+			"device": "value",
 			"selected_tenant_ids": "json",
 			"approved_scopes": "json",
-			"created_at": "value"
+			"created_at": "value",
+			"last_used_at": "value"
 		}
 	},
 	{
@@ -638,6 +641,8 @@ export const CORE_COPY_PLAN: CoreCopyPlanEntry[] = [
 			"mcp_server_id": "value",
 			"client_id": "value",
 			"app_id": "value",
+			"client_name": "value",
+			"device": "value",
 			"revision": "value",
 			"expected_active_revision": "value",
 			"selected_tenant_ids": "json",
@@ -658,6 +663,8 @@ export const CORE_COPY_PLAN: CoreCopyPlanEntry[] = [
 			"mcp_server_id": "value",
 			"client_id": "value",
 			"app_id": "value",
+			"client_name": "value",
+			"device": "value",
 			"revision": "value",
 			"status": "value",
 			"selected_tenant_ids": "json",
