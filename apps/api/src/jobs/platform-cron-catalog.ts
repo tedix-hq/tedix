@@ -103,7 +103,6 @@ const everyTwoMinuteIds = [
 	"orphan-workflow-cleanup",
 	"kernel-request-reconcile",
 	"interaction-review-dispatch",
-	"dispatcher-health-alarm",
 ] as const;
 const everyTwoMinutes = everyTwoMinuteIds.map((id) => ({
 	id,
@@ -113,6 +112,11 @@ const everyTwoMinutes = everyTwoMinuteIds.map((id) => ({
 
 export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	...everyTwoMinutes,
+	{
+		id: "dispatcher-health-alarm",
+		cron: "*/15 * * * *",
+		intervalMinutes: 15,
+	},
 	{
 		id: "decision-outcome-labeller",
 		cron: MAINTENANCE_CRONS["decision-outcome-labeller"],

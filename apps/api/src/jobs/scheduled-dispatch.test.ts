@@ -274,7 +274,7 @@ it("dispatches the former 03:00 jobs and D1 retention only in their new slots", 
 	expect(catchup.paths).toEqual([]);
 });
 
-it("ingests gateway costs once on billing and never on the two-minute tick", async () => {
+it("runs billing and dispatcher health on fifteen-minute ticks only", async () => {
 	catchup.billing.mockReset().mockResolvedValue({ gatewayRowsIngested: 5 });
 	for (const cron of ["*/2 * * * *", "*/15 * * * *"]) {
 		catchup.paths.length = 0;
@@ -287,6 +287,9 @@ it("ingests gateway costs once on billing and never on the two-minute tick", asy
 			{ waitUntil: () => {} } as unknown as ExecutionContext,
 		);
 		expect(catchup.paths).not.toContain("gateway-cost-catchup");
+		expect(catchup.paths.includes("dispatcher-health-alarm")).toBe(
+			cron === "*/15 * * * *",
+		);
 		expect(catchup.billing).toHaveBeenCalledTimes(
 			cron.startsWith("*/15") ? 1 : 0,
 		);
@@ -503,7 +506,7 @@ it("runs support retries only on the quarter-hour tick without commercial work i
 		{ ...env, TEDI_SERVICE: undefined } as unknown as CloudflareEnv,
 		{ waitUntil: () => {} } as unknown as ExecutionContext,
 	);
-	expect(catchup.paths).toEqual([]);
+	expect(catchup.paths).toEqual(["dispatcher-health-alarm"]);
 });
 
 it("keeps repository maintenance running after a commitment failure", async () => {

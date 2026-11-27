@@ -184,7 +184,7 @@ const dispatchScheduled = async (
 			);
 		}
 
-		if (cron === "*/2 * * * *") {
+		if (cron === "*/15 * * * *") {
 			// No AI: raises one attention item per organization while Work waits and
 			// neither an Attempt admission nor a request-tracker action is recent.
 			const { runDispatcherHealthAlarm } =
