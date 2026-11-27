@@ -9,10 +9,14 @@ const gatewayMocks = vi.hoisted(() => ({
 	gateways: vi.fn(),
 	bundleSummary: vi.fn(),
 	write: vi.fn(),
+	appBySlug: vi.fn(),
+	update: vi.fn(),
+	purgeAggregate: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/apps", async (original) => ({
 	...(await original<Record<string, unknown>>()),
 	getAppsByOrganization: gatewayMocks.records,
+	getAppBySlug: gatewayMocks.appBySlug,
 }));
 vi.mock("@tedix/db/queries/organization-members", async (original) => ({
 	...(await original<Record<string, unknown>>()),
@@ -26,6 +30,17 @@ vi.mock("@tedix/db/queries/app-records", async (original) => ({
 	...(await original<Record<string, unknown>>()),
 	getAppById: gatewayMocks.appById,
 	setAppGatewayMembership: gatewayMocks.write,
+	updateApp: gatewayMocks.update,
+}));
+
+vi.mock("@tedix/db/queries/aggregate-app-links", async (original) => ({
+	...(await original<Record<string, unknown>>()),
+	getAggregateAppLinkTargets: vi.fn(async () => [
+		{ id: "cms-base", slug: "cms" },
+	]),
+}));
+vi.mock("../../lib/mcp-subscriptions", () => ({
+	purgeMcpAggregateCache: gatewayMocks.purgeAggregate,
 }));
 
 const APP_ID = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
@@ -206,6 +221,51 @@ describe("tenant gateway membership", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		expect(gatewayMocks.write).not.toHaveBeenCalled();
 	});
+	it("enables a CMS authoring proxy with its site routing label and prefix", async () => {
+		const proxy = {
+			id: APP_ID,
+			slug: "cms-acme",
+			organizationId: "org-1",
+			visibility: "private",
+			metadata: {
+				mcpConfig: {
+					authMode: "authenticated",
+					codeMode: true,
+					expectedAudience: "https://cms-acme.mcp.tedix.dev/mcp",
+					connectionLabel: "acme",
+					aggregateApps: [{ appId: "cms-base", slug: "cms" }],
+				},
+			},
+		};
+		gatewayMocks.records.mockResolvedValue([gateway, proxy]);
+		gatewayMocks.appBySlug.mockResolvedValue({
+			...gateway,
+			organizationId: "org-1",
+		});
+		await expect(
+			client().setGatewayMembership({ appId: APP_ID, enabled: true }),
+		).resolves.toEqual({ success: true });
+		expect(gatewayMocks.update).toHaveBeenCalledWith(
+			expect.anything(),
+			gatewayId,
+			expect.objectContaining({
+				metadata: expect.objectContaining({
+					mcpConfig: expect.objectContaining({
+						aggregateApps: [
+							{
+								appId: APP_ID,
+								slug: proxy.slug,
+								connectionLabel: "acme",
+								prefix: "cms_acme",
+							},
+						],
+					}),
+				}),
+			}),
+		);
+		expect(gatewayMocks.purgeAggregate).toHaveBeenCalled();
+	});
+
 	it("allows removal of a disabled app but rejects enabling it", async () => {
 		gatewayMocks.records.mockResolvedValue([
 			gateway,

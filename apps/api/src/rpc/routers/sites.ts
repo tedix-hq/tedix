@@ -57,6 +57,7 @@ import {
 	createCmsAuthoringApp,
 	getPlatformCmsApp,
 	isCmsAuthoringProxy,
+	linkCmsAuthoringGateway,
 	requireOwnedSite,
 } from "./sites-shared";
 import { moveCmsSiteProcedure } from "./sites-move";
@@ -244,6 +245,12 @@ export const createCmsSiteProcedure = authedSitesOs.createCms
 				);
 			}
 		}
+		await linkCmsAuthoringGateway(
+			context,
+			organizationId,
+			site.slug,
+			authoringApp,
+		);
 		const bundle = await getTenantBundleSummary(context.db, site.slug);
 		return {
 			siteId: site.id,

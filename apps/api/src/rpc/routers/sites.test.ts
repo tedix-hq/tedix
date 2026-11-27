@@ -18,6 +18,10 @@ const mocks = vi.hoisted(() => ({
 	activateCmsSiteAfterMedia: vi.fn(),
 	getAppBySlug: vi.fn(),
 	createApp: vi.fn(),
+	updateApp: vi.fn(),
+	getGateways: vi.fn(),
+	purgeDiscovery: vi.fn(),
+	purgeAggregate: vi.fn(),
 	updateCmsSiteDomain: vi.fn(),
 	listCmsSitesByOrganization: vi.fn(),
 	pauseCmsSiteUnlessRestoring: vi.fn(),
@@ -125,6 +129,16 @@ vi.mock("@tedix/db/queries/cms-sites", () => ({
 vi.mock("@tedix/db/queries/app-records", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/db/queries/app-records")>()),
 	createApp: mocks.createApp,
+	updateApp: mocks.updateApp,
+}));
+vi.mock("@tedix/db/queries/organization-members", () => ({
+	getOrganizationAggregatorGateways: mocks.getGateways,
+}));
+vi.mock("./app-discovery-cache", () => ({
+	purgeMcpDiscoveryCache: mocks.purgeDiscovery,
+}));
+vi.mock("../../lib/mcp-subscriptions", () => ({
+	purgeMcpAggregateCache: mocks.purgeAggregate,
 }));
 // The platform CMS app every authoring proxy links to by id.
 const CMS_APP = {
@@ -255,6 +269,7 @@ function client(
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.getGateways.mockResolvedValue(new Map());
 	mocks.getCmsSiteBySlug.mockReset();
 	mocks.getAppBySlug.mockReset();
 	mocks.registerCmsSiteIfAbsent.mockReset();
@@ -937,10 +952,28 @@ describe("CMS site creation", () => {
 		mocks.getCmsSiteBySlug
 			.mockResolvedValueOnce(null)
 			.mockResolvedValueOnce(site);
-		mocks.getAppBySlug
-			.mockResolvedValueOnce(null)
-			.mockResolvedValueOnce(authoringApp);
-		mocks.createApp.mockResolvedValue(authoringApp);
+		const gateway = {
+			id: "gateway",
+			slug: "acme-unified",
+			organizationId: organization.id,
+			metadata: {
+				mcpConfig: { aggregateApps: [{ slug: "existing", appId: "existing" }] },
+			},
+		};
+		mocks.getGateways.mockResolvedValue(
+			new Map([[organization.id, { slug: gateway.slug }]]),
+		);
+		let appCreated = false;
+		mocks.getAppBySlug.mockImplementation(async (_db, slug) =>
+			slug === gateway.slug ? gateway : appCreated ? authoringApp : null,
+		);
+		mocks.createApp.mockImplementation(async () => {
+			appCreated = true;
+			return authoringApp;
+		});
+		mocks.updateApp.mockImplementation(async (_db, _id, patch) => {
+			gateway.metadata = patch.metadata;
+		});
 		mocks.registerCmsSiteWithinQuota.mockResolvedValue({
 			...site,
 			status: "provisioning",
@@ -1002,6 +1035,19 @@ describe("CMS site creation", () => {
 		expect(retryMediaRequest.headers.get("X-Tedix-CMS-Media-Intent")).toBe(
 			"repair",
 		);
+		expect(gateway.metadata.mcpConfig.aggregateApps).toEqual([
+			{ slug: "existing", appId: "existing" },
+			{
+				slug: authoringApp.slug,
+				appId: authoringApp.id,
+				connectionLabel: input.slug,
+				prefix: "cms_acme_marketing",
+			},
+		]);
+		expect(mocks.purgeDiscovery).toHaveBeenCalledWith(env, gateway.id, [
+			gateway,
+		]);
+		expect(mocks.purgeAggregate).toHaveBeenCalledTimes(2);
 		expect(mocks.createApp).toHaveBeenCalledTimes(1);
 		expect(mocks.registerCmsSiteWithinQuota).toHaveBeenCalledTimes(1);
 	});

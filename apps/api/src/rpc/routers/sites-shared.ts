@@ -1,15 +1,23 @@
 import { implement } from "@orpc/server";
 import { sitesContract } from "@tedix/api-contract/contracts/sites";
 import { buildTedixMcpResourceUri } from "@tedix/auth/aih-audiences";
-import { createApp, getAppMetadataJson } from "@tedix/db/queries/app-records";
+import {
+	createApp,
+	getAppMetadataJson,
+	updateApp,
+} from "@tedix/db/queries/app-records";
 import {
 	aggregateAppEntryMatches,
 	aggregateAppLink,
 	getAggregateAppLinkTargets,
 } from "@tedix/db/queries/aggregate-app-links";
-import type { getAppBySlug } from "@tedix/db/queries/apps";
+import { getAppBySlug } from "@tedix/db/queries/apps";
 import { getCmsSiteByIdForOrganization } from "@tedix/db/queries/cms-sites";
 import { getDocsSiteById } from "@tedix/db/queries/docs-sites/sites";
+import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
+import { purgeMcpAggregateCache } from "../../lib/mcp-subscriptions";
+import { purgeMcpDiscoveryCache } from "./app-discovery-cache";
+import { mergeAppMetadataPatch } from "./app-metadata";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import type { AppMetadata } from "@tedix/db/schema/apps";
 import { requireOrgId } from "../org-scope";
@@ -97,6 +105,49 @@ export async function createCmsAuthoringApp(
 			} as AppMetadata,
 		})) ?? null
 	);
+}
+
+/** Keep the CMS site label on the gateway link so nested authoring calls route correctly. */
+export async function linkCmsAuthoringGateway(
+	context: BaseContext,
+	organizationId: string,
+	siteSlug: string,
+	app: { id: string; slug: string },
+) {
+	const gatewaySlug = (
+		await getOrganizationAggregatorGateways(context.db, [organizationId])
+	).get(organizationId)?.slug;
+	const found = gatewaySlug
+		? await getAppBySlug(context.db, gatewaySlug)
+		: null;
+	const gateway = found?.organizationId === organizationId ? found : null;
+	if (gateway) {
+		const link = aggregateAppLink(app);
+		const entries = aggregateEntries(gateway);
+		const same = entries.filter(
+			(entry) =>
+				aggregateAppEntryMatches(entry, link) || entry.slug === link.slug,
+		);
+		const kept = same.find((entry) => entry.prefix) ?? same[0];
+		await updateApp(context.db, gateway.id, {
+			metadata: mergeAppMetadataPatch(getAppMetadataJson(gateway), {
+				mcpConfig: {
+					aggregateApps: [
+						...entries.filter((entry) => !same.includes(entry)),
+						{
+							...kept,
+							...link,
+							connectionLabel: siteSlug,
+							prefix: kept?.prefix || `cms_${siteSlug.replaceAll("-", "_")}`,
+						},
+					],
+				},
+			}),
+		});
+		await purgeMcpDiscoveryCache(context.env, gateway.id, [gateway]);
+	}
+	await purgeMcpAggregateCache(context.env, "cms-authoring-gateway-linked");
+	return gateway;
 }
 
 export async function requireCmsSite(context: BaseContext, siteId: string) {

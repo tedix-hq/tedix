@@ -1,10 +1,5 @@
 import { isPlatformPrincipal } from "@tedix/auth/types";
-import {
-	deleteApp,
-	getAppMetadataJson,
-	updateApp,
-} from "@tedix/db/queries/app-records";
-import { aggregateAppLink } from "@tedix/db/queries/aggregate-app-links";
+import { deleteApp } from "@tedix/db/queries/app-records";
 import { getAppBySlug } from "@tedix/db/queries/apps";
 import {
 	getCmsSiteByIdForOrganization,
@@ -12,24 +7,20 @@ import {
 	moveCmsSiteToOrganization,
 	setCmsSiteAuthoringApp,
 } from "@tedix/db/queries/cms-sites";
-import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
 import {
 	getOrganizationById,
 	getOrganizationFeatures,
 } from "@tedix/db/queries/organizations";
 import { DEFAULT_ORGANIZATION_FEATURES_BY_PLAN } from "@tedix/db/schema/organizations";
-import { purgeMcpAggregateCache } from "../../lib/mcp-subscriptions";
 import { auditActor, emitAuditEvent } from "../audit-helpers";
 import { requireOrgId } from "../org-scope";
-import { mergeAppMetadataPatch } from "./app-metadata";
 import { createError, ErrorCodes, withAuthorization } from "../orpc";
-import { purgeMcpDiscoveryCache } from "./app-discovery-cache";
 import {
-	aggregateEntries,
 	authedSitesOs,
 	createCmsAuthoringApp,
 	getPlatformCmsApp,
 	isCmsAuthoringProxy,
+	linkCmsAuthoringGateway,
 } from "./sites-shared";
 
 /**
@@ -139,35 +130,12 @@ export const moveCmsSiteProcedure = authedSitesOs.moveCms
 				"CMS site changed during the move",
 			);
 
-		// The target gateway keeps one entry for the site. An entry it already
-		// had (it may name the deleted app) keeps its prefix and takes the new id.
-		const gatewaySlug = (
-			await getOrganizationAggregatorGateways(db, [targetId])
-		).get(targetId)?.slug;
-		const found = gatewaySlug ? await getAppBySlug(db, gatewaySlug) : null;
-		const gateway = found?.organizationId === targetId ? found : null;
-		if (gateway) {
-			const link = aggregateAppLink(app);
-			const entries = aggregateEntries(gateway);
-			const same = entries.filter((entry) => entry.slug === link.slug);
-			const kept = same.find((entry) => entry.prefix) ??
-				same[0] ?? { prefix: `cms_${site.slug.replaceAll("-", "_")}` };
-			await updateApp(db, gateway.id, {
-				metadata: mergeAppMetadataPatch(getAppMetadataJson(gateway), {
-					mcpConfig: {
-						aggregateApps: [
-							...entries.filter((entry) => entry.slug !== link.slug),
-							// Without the label the gateway cannot tell the CMS which site.
-							{ connectionLabel: site.slug, ...kept, ...link },
-						],
-					},
-				}),
-			});
-			await purgeMcpDiscoveryCache(context.env, gateway.id, [gateway]);
-		}
-
-		// Gateway tool lists are cached durably and nothing else refreshes them.
-		await purgeMcpAggregateCache(context.env, "cms-site-moved");
+		const gateway = await linkCmsAuthoringGateway(
+			context,
+			targetId,
+			site.slug,
+			app,
+		);
 
 		const actor = auditActor(context);
 		for (const organizationId of [sourceId, targetId])

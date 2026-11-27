@@ -80,6 +80,12 @@ import {
 	userHoldsPermission,
 } from "../orpc";
 import { mergeAppMetadataPatch, normalizeAppMetadata } from "./app-metadata";
+import {
+	getPlatformCmsApp,
+	isCmsAuthoringProxy,
+	linkCmsAuthoringGateway,
+} from "./sites-shared";
+import { purgeMcpAggregateCache } from "../../lib/mcp-subscriptions";
 import { purgeMcpDiscoveryCache } from "./app-discovery-cache";
 import {
 	backfillAggregateAppIdsProcedure,
@@ -767,14 +773,20 @@ async function gatewayMembershipContext(
 		);
 	};
 	const createsCycle = gateway && reachesGateway(app.slug);
+	const label = getAppMetadataJson(app)?.mcpConfig?.connectionLabel;
+	const cmsSiteSlug =
+		typeof label === "string" &&
+		isCmsAuthoringProxy(app, orgId, label, await getPlatformCmsApp(db))
+			? label
+			: null;
 	const unavailableReason = !gateway
 		? "This organization has no unified gateway yet."
 		: app.id === gateway.id
 			? "This app is the unified gateway. Manage availability from an installed app."
 			: createsCycle
 				? "This app already references the gateway. Remove that reference first."
-				: !app.catalogAppId || !app.sourceAppId
-					? "Gateway availability is managed here for installed catalog apps."
+				: (!app.catalogAppId || !app.sourceAppId) && !cmsSiteSlug
+					? "Gateway availability is managed here for installed catalog apps and CMS authoring apps."
 					: app.visibility === "disabled"
 						? "Enable this app before adding it to the gateway."
 						: null;
@@ -784,7 +796,7 @@ async function gatewayMembershipContext(
 		members.some((entry) =>
 			aggregateAppEntryMatches(entry, { appId: app.id, slug: app.slug }),
 		);
-	return { app, gateway, enabled, unavailableReason };
+	return { app, gateway, enabled, unavailableReason, cmsSiteSlug };
 }
 
 export const getGatewayMembership = authedAppsOs.getGatewayMembership
@@ -864,6 +876,7 @@ export const setGatewayMembership = authedAppsOs.setGatewayMembership
 					ErrorCodes.BAD_REQUEST,
 					state.unavailableReason ?? "Gateway is unavailable",
 				);
+
 			const changed = await setAppGatewayMembership(
 				context.db,
 				orgId,
@@ -876,9 +889,24 @@ export const setGatewayMembership = authedAppsOs.setGatewayMembership
 					ErrorCodes.CONFLICT,
 					"Gateway changed. Refresh and try again.",
 				);
+			if (input.enabled && state.cmsSiteSlug) {
+				const gateway = await linkCmsAuthoringGateway(
+					context,
+					orgId,
+					state.cmsSiteSlug,
+					state.app,
+				);
+				if (!gateway)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"Gateway changed. Refresh and try again.",
+					);
+				return { success: true };
+			}
 			await purgeMcpDiscoveryCache(context.env, state.gateway.id, [
 				state.gateway,
 			]);
+			await purgeMcpAggregateCache(context.env, "gateway-membership-changed");
 			return { success: true };
 		},
 	);
