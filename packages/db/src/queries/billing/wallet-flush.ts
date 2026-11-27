@@ -1,12 +1,14 @@
-/** Posts a wallet's aggregated charges to the D1 credit pool. */
+/** Posts a wallet's aggregated charges to the credit pool. */
 
 import {
 	DYNAMIC_WORKER_COST_USD_MICROS,
 	DYNAMIC_WORKER_PROVIDER,
 } from "@tedix/api-contract/utils/credit-pricing";
+import { sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { buildCreditConsumptionStatements } from "./credit-pool";
-import { recordBillingProviderUsage } from "./provider-usage";
+import { coreTable } from "../../core-store/client";
+import { billingProviderUsage } from "../../schema/billing";
 
 export interface WalletFlushGroup {
 	/** Stable within one flush: (kind, period, tedi, member). */
@@ -24,7 +26,7 @@ export interface WalletFlushGroup {
 }
 
 /**
- * One consumption per group in one batch, then provider usage per load
+ * One batch records consumption per group and provider usage per load
  * identity for the daily Cloudflare reconciliation. Every source ref derives
  * from the flush id, so a retried flush records nothing twice.
  */
@@ -47,34 +49,56 @@ export async function postWalletFlush(
 			userId: group.userId,
 			periodStart: group.periodStart,
 			periodEnd: group.periodEnd,
-			credits: group.credits,
+			credits: sql<number>`CAST(${group.credits} AS BIGINT)`,
 			now: input.now,
 		}),
 	);
-	if (statements.length > 0)
-		await db.batch(statements as unknown as Parameters<typeof db.batch>[0]);
+	const providerStatements = [];
+	const usage = coreTable(db, billingProviderUsage);
 	for (const group of input.groups) {
 		for (const [identity, quantity] of [
 			["anonymous", group.anonymousLoads],
 			["named", group.namedLoads],
 		] as const) {
 			if (quantity === 0) continue;
-			await recordBillingProviderUsage(db, {
-				id: crypto.randomUUID(),
-				organizationId: input.organizationId,
-				tediId: group.tediId,
-				providerUsageId: `wallet:${input.flushId}:${group.key}:${identity}`,
-				provider: DYNAMIC_WORKER_PROVIDER,
-				model: "dynamic-worker",
-				usageKind: "other",
-				unit: "units",
-				quantity,
-				providerCostMicros: quantity * DYNAMIC_WORKER_COST_USD_MICROS,
-				providerCostQuality: "estimated",
-				occurredAt: group.firstAt,
-				now: input.now,
-				metadata: { surface: "gateway_model_code", identity, runs: group.runs },
-			});
+			const providerCostMicros = quantity * DYNAMIC_WORKER_COST_USD_MICROS;
+			if (
+				!Number.isSafeInteger(quantity) ||
+				quantity < 0 ||
+				!Number.isSafeInteger(providerCostMicros) ||
+				providerCostMicros < 0
+			)
+				throw new Error(
+					"Provider usage requires positive integer quantity and non-negative integer cost micros",
+				);
+			providerStatements.push(
+				db
+					.insert(usage)
+					.values({
+						id: crypto.randomUUID(),
+						organizationId: input.organizationId,
+						tediId: group.tediId,
+						providerUsageId: `wallet:${input.flushId}:${group.key}:${identity}`,
+						provider: DYNAMIC_WORKER_PROVIDER,
+						model: "dynamic-worker",
+						usageKind: "other",
+						unit: "units",
+						quantity,
+						providerCostMicros,
+						providerCostQuality: "estimated",
+						occurredAt: group.firstAt,
+						createdAt: input.now,
+						metadata: {
+							surface: "gateway_model_code",
+							identity,
+							runs: group.runs,
+						},
+					})
+					.onConflictDoNothing(),
+			);
 		}
 	}
+	const batch = [...statements, ...providerStatements];
+	if (batch.length > 0)
+		await db.batch(batch as unknown as Parameters<typeof db.batch>[0]);
 }
