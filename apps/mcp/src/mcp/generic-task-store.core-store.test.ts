@@ -1,9 +1,10 @@
+import { AsyncResource } from "node:async_hooks";
 import { fileURLToPath, URL } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import { coreTable, type CoreStoreEnv } from "@tedix/db/core-store/client";
-import { withCoreStore } from "@tedix/db/core-store/scope";
+import { coreDb, withCoreStore } from "@tedix/db/core-store/scope";
 import { mcpTasks } from "@tedix/db/schema/mcp-tasks";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
@@ -68,7 +69,7 @@ for (const store of ["d1", "postgres"] as const) {
 			await close?.();
 		});
 
-		it("creates, dispatches and polls a task through the selected store", async () => {
+		it("creates, dispatches in detached steps and polls through the selected store", async () => {
 			const taskId = `generic-${crypto.randomUUID()}`;
 			const fetch = vi.fn(
 				async () =>
@@ -112,12 +113,22 @@ for (const store of ["d1", "postgres"] as const) {
 				{ waitUntil: () => {} } as never,
 				workflowEnv,
 			);
+			// Workflow step callbacks enter without the run() async context.
+			const stepContext = new AsyncResource("workflow-step");
 			await workflow.run(
 				{ payload: { taskId } } as never,
 				{
-					do: async (_name: string, fn: () => Promise<unknown>) => fn(),
+					do: async (_name: string, fn: () => Promise<unknown>) =>
+						stepContext.runInAsyncScope(() => {
+							if (store === "postgres")
+								expect(() => coreDb(env)).toThrow(
+									"requires a withCoreStore scope",
+								);
+							return fn();
+						}),
 				} as never,
 			);
+			stepContext.emitDestroy();
 			expect(fetch).toHaveBeenCalledOnce();
 			await withCoreStore(env, async () => {
 				expect(
