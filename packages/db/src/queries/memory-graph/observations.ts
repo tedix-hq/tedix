@@ -1,3 +1,12 @@
+import { coreTable } from "../../core-store/client";
+import {
+	coreStore,
+	anyIds,
+	jsonRead,
+	jsonType,
+	jsonParameter,
+	booleanValue,
+} from "../../core-store/dialect";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
@@ -7,7 +16,7 @@ import {
 import { prefixedColumns } from "../../utils/select";
 import type { DbQueryClient } from "../../query-client";
 import {
-	memoryFacts,
+	memoryFacts as d1MemoryFacts,
 	type MemoryFact,
 	type NewMemoryFact,
 } from "../../schema/memory-graph";
@@ -15,9 +24,6 @@ import { findCitationDependents } from "./fact-citations";
 
 const MAX_SOURCES = 50;
 const MAX_TARGETS = 10;
-// Lifecycle indexes can make D1 scan the active corpus even for two source IDs.
-const factsById = sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`;
-const derivedFacts = sql`${memoryFacts} INDEXED BY idx_memory_facts_source`;
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 export function readConsolidation(fact: { metadata: MemoryFact["metadata"] }) {
 	const result = MemoryConsolidationSchema.safeParse(
@@ -32,36 +38,59 @@ interface Target {
 	visibility: MemoryFact["visibility"];
 	memoryScope: MemoryFact["memoryScope"];
 }
-const observationTopic = sql<
-	string | null
->`CASE WHEN json_type(${memoryFacts.metadata}, '$.observationTopic') = 'text'
-	THEN nullif(trim(json_extract(${memoryFacts.metadata}, '$.observationTopic')), '') ELSE NULL END`;
-const entityKey = sql<string>`coalesce((SELECT 'entity:' || r.entity_id
+function observationSql(db: DbQueryClient) {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	// Lifecycle indexes can make D1 scan the active corpus even for two source IDs.
+	const factsById =
+		coreStore(db) === "postgres"
+			? sql`${memoryFacts}`
+			: sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`;
+	const derivedFacts =
+		coreStore(db) === "postgres"
+			? sql`${memoryFacts}`
+			: sql`${memoryFacts} INDEXED BY idx_memory_facts_source`;
+	const observationTopic = sql<
+		string | null
+	>`CASE WHEN ${jsonType(db, memoryFacts.metadata, ["observationTopic"])}  = 'string'
+	THEN nullif(trim(${jsonRead(db, memoryFacts.metadata, ["observationTopic"])}), '') ELSE NULL END`;
+	const entityKey = sql<string>`coalesce((SELECT 'entity:' || r.entity_id
 	FROM memory_entity_resolutions r JOIN memory_entity_mentions m ON m.id = r.mention_id AND m.organization_id = memory_facts.organization_id
 	JOIN memory_entities e ON e.id = r.entity_id AND e.organization_id = memory_facts.organization_id AND e.status = 'active'
 	WHERE r.organization_id = memory_facts.organization_id AND r.status = 'active' AND r.valid_to IS NULL
 	AND m.source_fact_id = memory_facts.id ORDER BY r.entity_id LIMIT 1), ${observationTopic}, memory_facts.topic_key)`;
-// Source topic keys are state/supersession identities. An explicit observation
-// topic groups independent sources without making them supersede one another.
-const clusterTopic = sql<string | null>`CASE WHEN ${entityKey} LIKE 'entity:%'
+	// Source topic keys are state/supersession identities. An explicit observation
+	// topic groups independent sources without making them supersede one another.
+	const clusterTopic = sql<string | null>`CASE WHEN ${entityKey} LIKE 'entity:%'
 	THEN ${observationTopic}
 	ELSE coalesce(${observationTopic}, ${memoryFacts.topicKey}) END`;
-function sourceTopic(topicKey: string | null | undefined) {
+	return {
+		memoryFacts,
+		factsById,
+		derivedFacts,
+		observationTopic,
+		entityKey,
+		clusterTopic,
+	};
+}
+function sourceTopic(db: DbQueryClient, topicKey: string | null | undefined) {
+	const { memoryFacts, observationTopic } = observationSql(db);
 	return topicKey
 		? sql`(${memoryFacts.topicKey} = ${topicKey} OR ${observationTopic} = ${topicKey})`
 		: undefined;
 }
-function scope(orgId: string, target: Target) {
+function scope(db: DbQueryClient, orgId: string, target: Target) {
+	const { memoryFacts } = observationSql(db);
 	return and(
 		eq(memoryFacts.organizationId, orgId),
 		target.tediId
 			? eq(memoryFacts.tediId, target.tediId)
 			: isNull(memoryFacts.tediId),
-		sql`${memoryFacts.visibility} IS ${target.visibility}`,
-		sql`${memoryFacts.memoryScope} IS ${target.memoryScope}`,
+		sql`${memoryFacts.visibility} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${target.visibility}`,
+		sql`${memoryFacts.memoryScope} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${target.memoryScope}`,
 	);
 }
-function rawSources(orgId: string) {
+function rawSources(db: DbQueryClient, orgId: string) {
+	const { memoryFacts } = observationSql(db);
 	return and(
 		eq(memoryFacts.organizationId, orgId),
 		isNull(memoryFacts.validTo),
@@ -70,11 +99,11 @@ function rawSources(orgId: string) {
 		sql`coalesce(${memoryFacts.reviewStatus}, '') NOT IN ('rejected', 'restricted', 'stale', 'superseded')`,
 		sql`coalesce(${memoryFacts.usePolicy}, '') != 'do_not_inject_automatically'`,
 		sql`coalesce(${memoryFacts.memoryScope}, '') != 'graph'`,
-		sql`json_extract(${memoryFacts.metadata}, '$.consolidation') IS NULL`,
+		sql`${jsonRead(db, memoryFacts.metadata, ["consolidation"])} IS NULL`,
 		// Personal decision rules retain their own evidence and owner boundary.
-		sql`json_extract(${memoryFacts.metadata}, '$.learningFeed') IS NULL`,
-		sql`(${memoryFacts.validFrom} IS NULL OR datetime(${memoryFacts.validFrom}) <= datetime('now'))`,
-		sql`(json_extract(${memoryFacts.metadata}, '$.expiresAt') IS NULL OR datetime(json_extract(${memoryFacts.metadata}, '$.expiresAt')) > datetime('now'))`,
+		sql`${jsonRead(db, memoryFacts.metadata, ["learningFeed"])} IS NULL`,
+		sql`(${memoryFacts.validFrom} IS NULL OR ${coreStore(db) === "postgres" ? sql`${memoryFacts.validFrom}::timestamptz <= CURRENT_TIMESTAMP` : sql`datetime(${memoryFacts.validFrom}) <= datetime('now')`})`,
+		sql`(${jsonRead(db, memoryFacts.metadata, ["expiresAt"])} IS NULL OR ${coreStore(db) === "postgres" ? sql`CASE WHEN pg_input_is_valid(${jsonRead(db, memoryFacts.metadata, ["expiresAt"])}, 'timestamp with time zone') THEN (${jsonRead(db, memoryFacts.metadata, ["expiresAt"])})::timestamptz > CURRENT_TIMESTAMP ELSE false END` : sql`datetime(${jsonRead(db, memoryFacts.metadata, ["expiresAt"])}) > datetime('now')`})`,
 		sql`NOT EXISTS (SELECT 1 FROM memory_edges edge JOIN memory_facts replacement ON replacement.id = edge.source_fact_id
 		WHERE edge.target_fact_id = ${memoryFacts.id} AND edge.relation_type = 'supersedes'
 		AND replacement.organization_id = ${orgId})`,
@@ -101,6 +130,7 @@ async function readHead(
 	tenantScope: TenantScope,
 	id: string,
 ) {
+	const { memoryFacts } = observationSql(db);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const [row] = await db
 		.select()
@@ -127,6 +157,7 @@ async function persist(
 		changedSourceIds?: string[];
 	} = {},
 ): Promise<MemoryFact | undefined> {
+	const { memoryFacts } = observationSql(db);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const id = await headId(orgId, target, kind);
 	const old = await readHead(db, tenantScope, id);
@@ -270,7 +301,7 @@ async function persist(
 					and(
 						eq(memoryFacts.organizationId, orgId),
 						eq(memoryFacts.id, id),
-						sql`${memoryFacts.metadata} IS ${JSON.stringify(old.metadata)}`,
+						sql`${memoryFacts.metadata} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${jsonParameter(db, old.metadata)}`,
 					),
 				),
 		]);
@@ -286,17 +317,19 @@ async function refreshTarget(
 	target: Target,
 	changedSourceIds: string[] = [],
 ) {
+	const { memoryFacts, factsById, entityKey, clusterTopic } =
+		observationSql(db);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	let sources = await db
 		.select()
 		.from(memoryFacts)
 		.where(
 			and(
-				scope(orgId, target),
-				sourceTopic(target.topicKey),
-				rawSources(orgId),
+				scope(db, orgId, target),
+				sourceTopic(db, target.topicKey),
+				rawSources(db, orgId),
 				sql`${entityKey} = ${target.entityKey}`,
-				sql`${clusterTopic} IS ${target.topicKey}`,
+				sql`${clusterTopic} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${target.topicKey}`,
 			),
 		)
 		.orderBy(asc(memoryFacts.id))
@@ -310,11 +343,11 @@ async function refreshTarget(
 			.from(factsById)
 			.where(
 				and(
-					rawSources(orgId),
-					scope(orgId, target),
+					rawSources(db, orgId),
+					scope(db, orgId, target),
 					sql`${memoryFacts.id} IN (
-			SELECT edge.target_fact_id FROM memory_edges edge WHERE edge.relation_type = 'contradicts' AND edge.source_fact_id IN (SELECT value FROM json_each(${JSON.stringify(clusterIds)}))
-			UNION SELECT edge.source_fact_id FROM memory_edges edge WHERE edge.relation_type = 'contradicts' AND edge.target_fact_id IN (SELECT value FROM json_each(${JSON.stringify(clusterIds)})))`,
+			SELECT edge.target_fact_id FROM memory_edges edge WHERE edge.relation_type = 'contradicts' AND ${anyIds(db, sql`edge.source_fact_id`, clusterIds)}
+			UNION SELECT edge.source_fact_id FROM memory_edges edge WHERE edge.relation_type = 'contradicts' AND ${anyIds(db, sql`edge.target_fact_id`, clusterIds)})`,
 				),
 			)
 			.orderBy(asc(memoryFacts.id))
@@ -342,7 +375,7 @@ async function refreshTarget(
 				.select({ id: sql<string>`edge.id` })
 				.from(sql`memory_edges edge`)
 				.where(
-					sql`edge.relation_type = 'contradicts' AND edge.source_fact_id IN (SELECT value FROM json_each(${JSON.stringify(ids)})) AND edge.target_fact_id IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
+					sql`edge.relation_type = 'contradicts' AND ${anyIds(db, sql`edge.source_fact_id`, ids)} AND ${anyIds(db, sql`edge.target_fact_id`, ids)}`,
 				)
 				.limit(1)
 		: [];
@@ -378,17 +411,18 @@ async function refreshSummary(
 	target: Target,
 	changedSourceIds: string[],
 ) {
+	const { memoryFacts, factsById, derivedFacts } = observationSql(db);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const observations = await db
 		.select(prefixedColumns(memoryFacts, "fact"))
 		.from(derivedFacts)
 		.where(
 			and(
-				scope(orgId, target),
+				scope(db, orgId, target),
 				eq(memoryFacts.source, "consolidation://observation"),
-				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.kind') = 'observation'`,
-				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
-				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.entityKey') = ${target.entityKey}`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "kind"])} = 'observation'`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "isHistory"], "boolean")} = ${booleanValue(db, false)}`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "entityKey"])} = ${target.entityKey}`,
 			),
 		)
 		.orderBy(asc(memoryFacts.id))
@@ -416,7 +450,9 @@ async function refreshSummary(
 		? await db
 				.select(prefixedColumns(memoryFacts, "fact"))
 				.from(factsById)
-				.where(and(rawSources(orgId), inArray(memoryFacts.id, sourceIds)))
+				.where(
+					and(rawSources(db, orgId), anyIds(db, memoryFacts.id, sourceIds)),
+				)
 				.orderBy(asc(memoryFacts.id))
 		: [];
 	await persist(
@@ -438,6 +474,8 @@ export async function consolidateMemory(
 	tenantScope: TenantScope,
 	options: { tediId?: string; topicKey?: string; limit?: number } = {},
 ) {
+	const { memoryFacts, derivedFacts, entityKey, clusterTopic } =
+		observationSql(db);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const limit = Math.min(
 		MAX_TARGETS,
@@ -451,10 +489,10 @@ export async function consolidateMemory(
 				eq(memoryFacts.organizationId, orgId),
 				eq(memoryFacts.source, "consolidation://observation"),
 				options.tediId ? eq(memoryFacts.tediId, options.tediId) : undefined,
-				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.kind') = 'observation'`,
-				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "kind"])} = 'observation'`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "isHistory"], "boolean")} = ${booleanValue(db, false)}`,
 				options.topicKey
-					? sql`json_extract(${memoryFacts.metadata}, '$.consolidation.topicKey') = ${options.topicKey}`
+					? sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "topicKey"])} = ${options.topicKey}`
 					: undefined,
 			),
 		)
@@ -471,26 +509,30 @@ export async function consolidateMemory(
 		.from(memoryFacts)
 		.where(
 			and(
-				sourceTopic(options.topicKey),
-				rawSources(orgId),
+				sourceTopic(db, options.topicKey),
+				rawSources(db, orgId),
 				options.tediId ? eq(memoryFacts.tediId, options.tediId) : undefined,
 				options.topicKey
-					? sql`${clusterTopic} IS ${options.topicKey}`
+					? sql`${clusterTopic} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${options.topicKey}`
 					: undefined,
 				sql`${entityKey} IS NOT NULL`,
 				sql`NOT EXISTS (SELECT 1 FROM memory_facts head WHERE head.organization_id = ${orgId}
 				AND head.source = 'consolidation://observation' AND head.valid_to IS NULL AND head.archived_at IS NULL
-				AND json_extract(head.metadata, '$.consolidation.entityKey') = ${entityKey}
-				AND json_extract(head.metadata, '$.consolidation.topicKey') IS ${clusterTopic}
-				AND head.tedi_id IS memory_facts.tedi_id AND head.visibility IS memory_facts.visibility AND head.memory_scope IS memory_facts.memory_scope)`,
+				AND ${jsonRead(db, sql`head.metadata`, ["consolidation", "entityKey"])} = ${entityKey}
+				AND ${jsonRead(db, sql`head.metadata`, ["consolidation", "topicKey"])} ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${clusterTopic}
+				AND head.tedi_id ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} memory_facts.tedi_id AND head.visibility ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} memory_facts.visibility AND head.memory_scope ${coreStore(db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} memory_facts.memory_scope)`,
 			),
 		)
 		.groupBy(
-			entityKey,
-			clusterTopic,
-			memoryFacts.tediId,
-			memoryFacts.visibility,
-			memoryFacts.memoryScope,
+			...(coreStore(db) === "postgres"
+				? [sql`1`, sql`2`, sql`3`, sql`4`, sql`5`]
+				: [
+						entityKey,
+						clusterTopic,
+						memoryFacts.tediId,
+						memoryFacts.visibility,
+						memoryFacts.memoryScope,
+					]),
 		)
 		.having(sql`count(*) >= 2`)
 		.orderBy(desc(sql`max(${memoryFacts.updatedAt})`))
@@ -543,14 +585,13 @@ export async function refreshConsolidatedForFact(
 	tenantScope: TenantScope,
 	factId: string,
 ) {
+	const { memoryFacts, factsById } = observationSql(db);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const { id, metadata, tediId, visibility, memoryScope } = prefixedColumns(
 		memoryFacts,
 		"fact",
 	);
-	const dependentIds = JSON.stringify(
-		await findCitationDependents(db, tenantScope, [factId]),
-	);
+	const dependentIds = await findCitationDependents(db, tenantScope, [factId]);
 	let cursor = "";
 	while (true) {
 		const rows = await db
@@ -561,9 +602,9 @@ export async function refreshConsolidatedForFact(
 					eq(memoryFacts.organizationId, orgId),
 					eq(memoryFacts.source, "consolidation://observation"),
 					sql`${memoryFacts.id} > ${cursor}`,
-					sql`json_extract(${memoryFacts.metadata}, '$.consolidation.kind') = 'observation'`,
-					sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
-					sql`${memoryFacts.id} IN (SELECT value FROM json_each(${dependentIds}))`,
+					sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "kind"])} = 'observation'`,
+					sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "isHistory"], "boolean")} = ${booleanValue(db, false)}`,
+					anyIds(db, memoryFacts.id, dependentIds),
 				),
 			)
 			.orderBy(asc(memoryFacts.id))
@@ -592,6 +633,7 @@ export async function filterConsolidatedEvidence<
 	rows: T[],
 	prefer = true,
 ): Promise<T[]> {
+	const { memoryFacts, factsById } = observationSql(db);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const derived = rows.filter(
 		(row) => row.metadata?.consolidation !== undefined,
@@ -605,19 +647,10 @@ export async function filterConsolidatedEvidence<
 			),
 		),
 	];
-	const sources: MemoryFact[] = [];
-	for (let i = 0; i < sourceIds.length; i += 50)
-		sources.push(
-			...(await db
-				.select(prefixedColumns(memoryFacts, "fact"))
-				.from(factsById)
-				.where(
-					and(
-						rawSources(orgId),
-						inArray(memoryFacts.id, sourceIds.slice(i, i + 50)),
-					),
-				)),
-		);
+	const sources = await db
+		.select(prefixedColumns(memoryFacts, "fact"))
+		.from(factsById)
+		.where(and(rawSources(db, orgId), anyIds(db, memoryFacts.id, sourceIds)));
 	const live = new Map(sources.map((source) => [source.id, source]));
 	const hashes = new Map(
 		await Promise.all(
@@ -632,30 +665,34 @@ export async function filterConsolidatedEvidence<
 		),
 	];
 	const liveObservations = new Set<string>();
-	for (let i = 0; i < observationIds.length; i += 50) {
+	{
 		const heads = await db
 			.select(prefixedColumns(memoryFacts, "fact"))
 			.from(factsById)
 			.where(
 				and(
 					eq(memoryFacts.organizationId, orgId),
-					inArray(memoryFacts.id, observationIds.slice(i, i + 50)),
+					anyIds(db, memoryFacts.id, observationIds),
 					isNull(memoryFacts.validTo),
 					isNull(memoryFacts.archivedAt),
-					sql`json_extract(${memoryFacts.metadata}, '$.consolidation.state') = 'live'`,
-					sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
+					sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "state"])} = 'live'`,
+					sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "isHistory"], "boolean")} = ${booleanValue(db, false)}`,
 				),
 			);
 		for (const head of heads) liveObservations.add(head.id);
 	}
 	// A newly written conflict must hold cached claims even before its refresh finishes.
 	const conflicted = new Set<string>();
-	for (let i = 0; i < sourceIds.length; i += 50) {
-		const ids = sourceIds.slice(i, i + 50);
+	{
+		const ids = sourceIds;
 		const conflicts = await db
 			.select({ id: sql<string>`f.id` })
-			.from(sql`memory_facts f INDEXED BY sqlite_autoindex_memory_facts_1`)
-			.where(sql`f.organization_id = ${orgId} AND f.id IN (SELECT value FROM json_each(${JSON.stringify(ids)})) AND EXISTS (
+			.from(
+				coreStore(db) === "postgres"
+					? sql`memory_facts f`
+					: sql`memory_facts f INDEXED BY sqlite_autoindex_memory_facts_1`,
+			)
+			.where(sql`f.organization_id = ${orgId} AND ${anyIds(db, sql`f.id`, ids)} AND EXISTS (
 			SELECT 1 FROM memory_edges edge JOIN memory_facts other ON other.id = CASE WHEN edge.source_fact_id = f.id THEN edge.target_fact_id ELSE edge.source_fact_id END
 			WHERE edge.relation_type = 'contradicts' AND (edge.source_fact_id = f.id OR edge.target_fact_id = f.id)
 			AND other.organization_id = ${orgId} AND other.valid_to IS NULL AND other.archived_at IS NULL)`);
@@ -723,6 +760,7 @@ export async function listMemoryObservations(
 		includeHistory?: boolean;
 	} = {},
 ) {
+	const { memoryFacts, derivedFacts } = observationSql(db);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select(prefixedColumns(memoryFacts, "fact"))
@@ -738,16 +776,16 @@ export async function listMemoryObservations(
 					? sql`(${memoryFacts.tediId} = ${options.tediId} OR ${memoryFacts.tediId} IS NULL)`
 					: isNull(memoryFacts.tediId),
 				sql`(${memoryFacts.visibility} IN ('org','shared') OR ${memoryFacts.tediId} = ${options.tediId ?? ""})`,
-				sql`json_extract(${memoryFacts.metadata}, '$.consolidation') IS NOT NULL`,
+				sql`${jsonRead(db, memoryFacts.metadata, ["consolidation"])} IS NOT NULL`,
 				options.includeHistory
 					? undefined
 					: and(
 							isNull(memoryFacts.validTo),
 							isNull(memoryFacts.archivedAt),
-							sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
+							sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "isHistory"], "boolean")} = ${booleanValue(db, false)}`,
 						),
 				options.topicKey
-					? sql`json_extract(${memoryFacts.metadata}, '$.consolidation.topicKey') = ${options.topicKey} OR (${memoryFacts.source} = 'consolidation://standing_summary' AND json_extract(${memoryFacts.metadata}, '$.consolidation.entityKey') = ${options.topicKey})`
+					? sql`${jsonRead(db, memoryFacts.metadata, ["consolidation", "topicKey"])} = ${options.topicKey} OR (${memoryFacts.source} = 'consolidation://standing_summary' AND ${jsonRead(db, memoryFacts.metadata, ["consolidation", "entityKey"])} = ${options.topicKey})`
 					: undefined,
 			),
 		)
@@ -762,6 +800,7 @@ export async function preferConsolidatedFacts(
 	facts: MemoryFact[],
 	tediId?: string,
 ) {
+	const { memoryFacts, factsById } = observationSql(db);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (!facts.length) return facts;
 	// Runs on every Home turn: at most one legacy page per source until the
@@ -778,7 +817,7 @@ export async function preferConsolidatedFacts(
 		.where(
 			and(
 				eq(memoryFacts.organizationId, orgId),
-				sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
+				anyIds(db, memoryFacts.id, ids),
 				inArray(memoryFacts.source, [
 					"consolidation://observation",
 					"consolidation://standing_summary",

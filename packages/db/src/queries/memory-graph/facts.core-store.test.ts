@@ -1,3 +1,46 @@
+import { eq } from "drizzle-orm";
+import { memoryFactCitations } from "../../schema/memory-fact-citations";
+import { readMarks } from "../../schema-pg/core";
+import { pgTableDdl } from "../../test/pg-schema-ddl";
+import { OrganizationMemoryAdapter } from "./memory-adapter";
+import {
+	decayConfidence,
+	archiveLowConfidence,
+	invalidateFact,
+	promoteFromProbation,
+	expireProbation,
+	resetCollapsedConfidence,
+} from "./fact-lifecycle";
+import { getMemoryHealthFindings } from "./health-findings";
+import { getTopPlatformFacts } from "./platform-facts";
+import {
+	createEdge,
+	getEdgesForFacts,
+	getRelatedFactsForFacts,
+	countEdgesForFact,
+} from "./edges";
+import {
+	consolidateMemory,
+	listMemoryObservations,
+	readConsolidation,
+} from "./observations";
+import {
+	fallbackRecall,
+	lexicalRecall,
+	graphRecall,
+	temporalRecall,
+	hydrateRecall,
+	recordRecallAccess,
+	backfillFactSearch,
+} from "./hybrid-recall";
+import { memoryEdges, type NewMemoryFact } from "../../schema/memory-graph";
+import {
+	memoryEntities,
+	memoryEntityMentions,
+	memoryEntityResolutions,
+	memoryEntityResolutionDecisions,
+	memoryEntityResolutionHeads,
+} from "../../schema/memory-entities";
 import {
 	listApprovedAgentLessons,
 	listCorrectedAgentLessons,
@@ -69,7 +112,7 @@ for (const store of ["d1", "postgres"] as const)
 		let close: () => void | Promise<void>;
 		beforeAll(async () => {
 			const parents =
-				"INSERT INTO organizations(id,name,slug) VALUES ('org','Org','org'),('other','Other','other'),('citations','Citations','citations')";
+				"INSERT INTO organizations(id,name,slug) VALUES ('org','Org','org'),('other','Other','other'),('citations','Citations','citations'),('ports','Ports','ports')";
 			if (store === "d1") {
 				const sqlite = createMigratedSqlite();
 				sqlite.exec(parents);
@@ -86,6 +129,11 @@ for (const store of ["d1", "postgres"] as const)
 				}))
 					for (const ddl of migration.sql) await fixture.engine.exec(ddl);
 				await fixture.engine.exec(parents);
+				// The migration chain lacks read_marks; use native DDL for query parity.
+				for (const ddl of pgTableDdl(readMarks))
+					await fixture.engine.exec(
+						ddl.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS "),
+					);
 			}
 			await db.insert(coreTable(db, tedis)).values({
 				id: "tedi",
@@ -96,6 +144,337 @@ for (const store of ["d1", "postgres"] as const)
 		});
 		afterAll(async () => {
 			await close?.();
+		});
+		it("preserves adapter CAS, consolidation history, lifecycle writes and edge set reads", async () => {
+			const scope = { organizationId: "ports" };
+			const memory = new OrganizationMemoryAdapter(db, scope);
+			const provenance = {
+				actor: { id: "fixture", kind: "agent" as const },
+				source: { surface: "fixture" },
+			};
+			await memory.write({
+				key: "adapter-port",
+				value: "original",
+				provenance,
+				review: "approved",
+			});
+			await memory.write({ key: "adapter-port", value: "updated", provenance });
+			expect(
+				(await memory.history("adapter-port")).map((r) => r.value),
+			).toEqual(["original", "updated"]);
+			expect((await memory.list("adapter-")).map((r) => r.key)).toEqual([
+				"adapter-port",
+			]);
+			for (const id of ["source-a", "source-b"])
+				await createFact(db, {
+					id,
+					...scope,
+					content: `Evidence ${id}`,
+					factType: "technical",
+					confidence: 0.8,
+					topicKey: "port-topic",
+					status: "active",
+					visibility: "org",
+					memoryScope: "org",
+					validFrom: null,
+				});
+			expect(
+				await consolidateMemory(db, scope, { topicKey: "port-topic" }),
+			).toMatchObject({ observations: 1, overflow: 0 });
+			let observations = await listMemoryObservations(db, scope);
+			expect(observations).toHaveLength(2);
+			expect(
+				readConsolidation(observations[0]!)?.evidence.sources,
+			).toHaveLength(2);
+			for (const observation of observations) {
+				const citations = coreTable(db, memoryFactCitations);
+				expect(
+					(
+						await db
+							.select({ id: citations.citedFactId })
+							.from(citations)
+							.where(eq(citations.consolidatedFactId, observation.id))
+					)
+						.map((r) => r.id)
+						.sort(),
+				).toEqual(["source-a", "source-b"]);
+			}
+
+			const top = await getTopPlatformFacts(db, scope);
+			expect(top.length).toBeGreaterThan(0);
+			await invalidateFact(db, scope, "source-a", "withdrawn");
+			observations = await listMemoryObservations(db, scope, {
+				includeHistory: true,
+			});
+			expect(observations.some((r) => readConsolidation(r)?.isHistory)).toBe(
+				true,
+			);
+			expect(
+				(await getFactById(db, scope, "source-a"))?.metadata,
+			).toMatchObject({ invalidationReason: "withdrawn" });
+			await createEdge(db, scope, {
+				id: "port-edge",
+				sourceFactId: "source-a",
+				targetFactId: "source-b",
+				relationType: "related_to",
+			});
+			const ids = [
+				"source-a",
+				...Array.from({ length: 120 }, (_, i) => `missing-${i}`),
+			];
+			expect((await getEdgesForFacts(db, scope, ids)).map((r) => r.id)).toEqual(
+				["port-edge"],
+			);
+			expect(
+				await getEdgesForFacts(db, { organizationId: "other" }, ids),
+			).toEqual([]);
+			expect(await countEdgesForFact(db, scope, "source-a")).toBe(1);
+			expect(
+				(await getRelatedFactsForFacts(db, scope, ids))
+					.get("source-a")
+					?.map((r) => r.id),
+			).toEqual(["source-b"]);
+			const old = "2024-01-01T00:00:00.000Z";
+			await createFact(db, {
+				id: "decay-port",
+				...scope,
+				status: "probation",
+				content: "Decay",
+				factType: "technical",
+				createdAt: old,
+				updatedAt: old,
+				validFrom: null,
+				confidence: 0.8,
+			});
+			expect(
+				await decayConfidence(db, scope, 0.99, 0.1, {
+					factIds: ["decay-port"],
+				}),
+			).toBe(1);
+			expect(
+				(await getFactById(db, scope, "decay-port"))?.confidence,
+			).toBeLessThan(0.8);
+			await recordFactAccess(db, scope, "decay-port");
+			expect(await promoteFromProbation(db, scope)).toBeGreaterThanOrEqual(1);
+			await updateFact(db, scope, "decay-port", { confidence: 0.05 });
+			expect(
+				await resetCollapsedConfidence(db, scope, 0.8, ["decay-port"]),
+			).toBe(1);
+			expect(
+				await archiveLowConfidence(db, scope, 0.9, { factIds: ["decay-port"] }),
+			).toMatchObject({ count: 1, archivedIds: ["decay-port"] });
+			await createFact(db, {
+				id: "expire-port",
+				...scope,
+				status: "probation",
+				content: "Expire",
+				factType: "technical",
+				createdAt: old,
+				updatedAt: old,
+			});
+			expect((await expireProbation(db, scope)).expiredIds).toContain(
+				"expire-port",
+			);
+			expect((await getMemoryHealthFindings(db, scope)).findings).toHaveLength(
+				5,
+			);
+		});
+
+		it("recalls current facts across lexical, graph and date paths without exposing held or foreign rows", async () => {
+			const scope = {
+				organizationId: "org",
+				now: "2026-11-26T12:00:00.000Z",
+				factTypes: ["technical"],
+			};
+			const recallRows: (Pick<NewMemoryFact, "id" | "content"> &
+				Partial<NewMemoryFact>)[] = [
+				{
+					id: "recall-old",
+					content: "Neptune original",
+					createdAt: "2026-11-24T01:00:00.000Z",
+				},
+				{
+					id: "recall-current",
+					content: "Neptune updated",
+					createdAt: "2026-11-26T01:00:00.000Z",
+				},
+				{
+					id: "recall-held",
+					content: "Neptune held",
+					metadata: { learningFeed: { evidence: { state: "held" } } },
+				},
+				{
+					id: "recall-private",
+					content: "Neptune private",
+					visibility: "private" as const,
+					tediId: "tedi",
+				},
+				{
+					id: "recall-expired",
+					content: "Neptune expired",
+					metadata: { expiresAt: "2026-11-25T00:00:00Z" },
+				},
+				{
+					id: "recall-malformed",
+					content: "Neptune malformed",
+					metadata: { expiresAt: "invalid" },
+				},
+				{
+					id: "recall-foreign",
+					content: "Neptune foreign",
+					organizationId: "other",
+				},
+			];
+			for (const row of recallRows)
+				await createFact(db, {
+					organizationId: "org",
+					factType: "technical",
+					confidence: 0.9,
+					visibility: "org",
+					validFrom: null,
+					...row,
+				});
+			await db.insert(coreTable(db, memoryEdges)).values({
+				id: "recall-replacement",
+				sourceFactId: "recall-current",
+				targetFactId: "recall-old",
+				relationType: "supersedes",
+			});
+			await db.insert(coreTable(db, memoryEntities)).values({
+				id: "recall-entity",
+				organizationId: "org",
+				displayName: "Ocean",
+				normalizedName: "ocean",
+				entityType: "concept",
+			});
+			await db.insert(coreTable(db, memoryEntityMentions)).values({
+				id: "recall-mention",
+				organizationId: "org",
+				sourceFactId: "recall-current",
+				surfaceForm: "Ocean",
+				normalizedForm: "ocean",
+				occurrenceKey: "recall-mention",
+				proposedType: "concept",
+				extractor: "fixture",
+				extractorVersion: "1",
+				confidence: 0.9,
+			});
+			await db.insert(coreTable(db, memoryEntityResolutionDecisions)).values({
+				id: "recall-decision",
+				organizationId: "org",
+				clientProposalKey: "recall-decision",
+				operation: "link_mention",
+				mentionId: "recall-mention",
+				targetEntityId: "recall-entity",
+				status: "accepted",
+				confidence: 0.9,
+				rationale: "fixture",
+				proposedByType: "system",
+				proposedById: "fixture",
+				reviewedByType: "system",
+				reviewedById: "reviewer",
+				reviewedAt: "2026-11-26",
+				appliedAt: "2026-11-26",
+				expectedMentionVersion: 0,
+				expectedEntityVersion: 0,
+				inverse: { entityId: null, resolutionId: null, confidence: null },
+			});
+			await db.insert(coreTable(db, memoryEntityResolutionHeads)).values({
+				mentionId: "recall-mention",
+				organizationId: "org",
+				currentResolutionId: "recall-resolution",
+				currentEntityId: "recall-entity",
+				lastDecisionId: "recall-decision",
+			});
+			await db.insert(coreTable(db, memoryEntityResolutions)).values({
+				id: "recall-resolution",
+				organizationId: "org",
+				mentionId: "recall-mention",
+				entityId: "recall-entity",
+				status: "active",
+				decisionId: "recall-decision",
+				resolutionKind: "linked",
+				confidence: 0.9,
+				validFrom: "2026-11-26",
+			});
+			await expect(
+				db
+					.update(coreTable(db, memoryEntityMentions))
+					.set({ surfaceForm: "changed" })
+					.where(eq(coreTable(db, memoryEntityMentions).id, "recall-mention")),
+			).rejects.toThrow();
+			await expect(
+				db
+					.delete(coreTable(db, memoryEntityResolutions))
+					.where(
+						eq(coreTable(db, memoryEntityResolutions).id, "recall-resolution"),
+					),
+			).rejects.toThrow();
+			await expect(
+				db
+					.update(coreTable(db, memoryEntityResolutionDecisions))
+					.set({ rationale: "changed" })
+					.where(
+						eq(
+							coreTable(db, memoryEntityResolutionDecisions).id,
+							"recall-decision",
+						),
+					),
+			).rejects.toThrow();
+
+			const recallIds = (rows: { factId: string }[]) =>
+				rows.map((r) => r.factId).filter((id) => id.startsWith("recall-"));
+			expect(
+				(await fallbackRecall(db, scope))
+					.map((r) => r.id)
+					.filter((id) => id.startsWith("recall-")),
+			).toEqual(["recall-current"]);
+			expect(recallIds(await lexicalRecall(db, scope, "Neptune"))).toEqual([
+				"recall-current",
+			]);
+			expect(recallIds(await lexicalRecall(db, scope, "Ocean"))).toEqual([
+				"recall-current",
+			]);
+			expect(recallIds(await graphRecall(db, scope, "ocean"))).toEqual([
+				"recall-current",
+			]);
+			expect(recallIds(await temporalRecall(db, scope, "2026-11-26"))).toEqual([
+				"recall-current",
+			]);
+			const hydrated = await hydrateRecall(db, scope, [
+				"recall-current",
+				"recall-old",
+				"recall-foreign",
+				"recall-held",
+				"recall-private",
+			]);
+			expect(hydrated).toHaveLength(1);
+			expect(hydrated[0]).toMatchObject({
+				id: "recall-current",
+				replacesFactIds: ["recall-old"],
+				metadata: null,
+			});
+			expect(
+				(
+					await hydrateRecall(db, { ...scope, tediId: "tedi" }, [
+						"recall-private",
+					])
+				).map((r) => r.id),
+			).toEqual(["recall-private"]);
+			await recordRecallAccess(db, scope, [
+				"recall-current",
+				"recall-current",
+				"recall-foreign",
+			]);
+			await recordRecallAccess(db, scope, ["recall-current"]);
+			expect(
+				(await getFactById(db, scope, "recall-current"))?.accessCount,
+			).toBe(1);
+			expect(
+				(await getFactById(db, { organizationId: "other" }, "recall-foreign"))
+					?.accessCount,
+			).toBe(0);
+			expect(await backfillFactSearch(db, scope)).toBeGreaterThanOrEqual(0);
 		});
 		it("preserves tenant isolation, JSON rows and bounded confidence updates for large ID sets", async () => {
 			const scope = { organizationId: "org" };

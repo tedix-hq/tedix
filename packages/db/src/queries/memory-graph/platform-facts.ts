@@ -1,3 +1,5 @@
+import { coreTable } from "../../core-store/client";
+import { prefixedColumns } from "../../utils/select";
 /**
  * Memory Graph Query Helpers
  * CRUD operations for the knowledge graph — facts, edges, and domains.
@@ -11,8 +13,8 @@ import { and, desc, eq, isNull, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type MemoryFact,
-	memoryDomains,
-	memoryFacts,
+	memoryDomains as d1MemoryDomains,
+	memoryFacts as d1MemoryFacts,
 } from "../../schema/memory-graph";
 
 export async function getTopPlatformFacts(
@@ -20,6 +22,8 @@ export async function getTopPlatformFacts(
 	tenantScope: TenantScope,
 	options?: { tediId?: string; limit?: number },
 ): Promise<Array<{ fact: MemoryFact; domainName: string | null }>> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const memoryDomains = coreTable(db, d1MemoryDomains);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const limit = options?.limit ?? 30;
 
@@ -51,7 +55,7 @@ export async function getTopPlatformFacts(
 		}
 		return db
 			.select({
-				fact: memoryFacts,
+				fact: prefixedColumns(memoryFacts, "fact"),
 				domainName: memoryDomains.name,
 			})
 			.from(memoryFacts)
@@ -77,7 +81,8 @@ export async function getTopPlatformFacts(
 	const domains = new Map(
 		rows.map((row) => [row.fact.domainId, row.domainName]),
 	);
-	return facts
-		.slice(0, limit)
-		.map((fact) => ({ fact, domainName: domains.get(fact.domainId) ?? null }));
+	return facts.slice(0, limit).map((fact) => ({
+		fact,
+		domainName: (fact.domainId ? domains.get(fact.domainId) : null) ?? null,
+	}));
 }

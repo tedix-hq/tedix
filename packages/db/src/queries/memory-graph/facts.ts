@@ -18,7 +18,10 @@ import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { coreTable } from "../../core-store/client";
 import { anyIds, coreStore } from "../../core-store/dialect";
-import { recordOwnerInstructionEdges } from "../decision-graph-writers";
+import {
+	recordOwnerInstructionEdges,
+	recordOwnerInstructionEdgesForFacts,
+} from "../decision-graph-writers";
 import {
 	type FactPriority,
 	type FactVisibility,
@@ -189,22 +192,22 @@ export async function createFacts(
 		throw new Error("Memory facts must belong to the tenant scope");
 	}
 	if (facts.length === 0) return [];
-	const created: MemoryFact[] = [];
-	// Small chunks keep each statement under D1's bound-parameter limit.
 	const chunkSize = coreStore(db) === "postgres" ? facts.length : 5;
-	for (let i = 0; i < facts.length; i += chunkSize) {
-		const rows = await db
-			.insert(memoryFacts)
-			.values(facts.slice(i, i + chunkSize))
-			.returning();
-		created.push(...rows);
-	}
+	const writes = [];
+	for (let i = 0; i < facts.length; i += chunkSize)
+		writes.push(
+			db
+				.insert(memoryFacts)
+				.values(facts.slice(i, i + chunkSize))
+				.returning(),
+		);
+	const created = (await db.batch(batchNonEmpty(writes))).flat();
 	if (created.length !== facts.length) {
 		throw new Error(
 			`Failed to create facts: expected ${facts.length}, inserted ${created.length}`,
 		);
 	}
-	for (const fact of created) await recordOwnerInstructionEdges(db, fact);
+	await recordOwnerInstructionEdgesForFacts(db, organizationId, created);
 	return created;
 }
 

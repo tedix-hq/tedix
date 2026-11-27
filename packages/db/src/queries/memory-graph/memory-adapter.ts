@@ -1,3 +1,5 @@
+import { coreTable } from "../../core-store/client";
+import { coreStore, jsonParameter } from "../../core-store/dialect";
 import { recordOwnerInstructionEdges } from "../decision-graph-writers";
 import { refreshConsolidatedForFact } from "./observations";
 import { hashValue } from "@tedix/agent-governance/hash";
@@ -15,7 +17,7 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { prefixedColumns } from "../../utils/select";
 import {
-	memoryFacts,
+	memoryFacts as d1MemoryFacts,
 	type MemoryFact,
 	type NewMemoryFact,
 } from "../../schema/memory-graph";
@@ -85,8 +87,6 @@ const factStatus = {
 } as const;
 const contentFor = (value: unknown): string =>
 	typeof value === "string" ? value : JSON.stringify(value);
-const byId = sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`;
-const bySource = sql`${memoryFacts} INDEXED BY idx_memory_facts_org_source_id`;
 
 /** Organization store only. Workspace and personal owners use separate stores.
  * History stays in metadata so no extra rows enter existing recall or graph edges.
@@ -103,9 +103,14 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 		this.organizationId = normalizeTenantScope(scope).organizationId;
 	}
 	private async fact(key: string): Promise<MemoryFact | undefined> {
+		const memoryFacts = coreTable(this.db, d1MemoryFacts);
 		const [fact] = await this.db
 			.select(prefixedColumns(memoryFacts, "fact"))
-			.from(byId)
+			.from(
+				coreStore(this.db) === "postgres"
+					? sql`${memoryFacts}`
+					: sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`,
+			)
 			.where(
 				and(
 					eq(memoryFacts.id, key),
@@ -165,6 +170,7 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 		revisions: MemoryRevision[],
 		updates: Partial<MemoryFact> = {},
 	): Promise<void> {
+		const memoryFacts = coreTable(this.db, d1MemoryFacts);
 		// Preserve competing content, metadata and review edits with a CAS.
 		// Conflicts are surfaced to the caller.
 		const [saved] = await this.db
@@ -182,10 +188,10 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 				and(
 					eq(memoryFacts.id, fact.id),
 					eq(memoryFacts.organizationId, this.organizationId),
-					sql`${memoryFacts.content} IS ${fact.content}`,
-					sql`${memoryFacts.reviewStatus} IS ${fact.reviewStatus}`,
-					sql`${memoryFacts.metadata} IS ${fact.metadata === null ? null : JSON.stringify(fact.metadata)}`,
-					sql`${memoryFacts.updatedAt} IS ${fact.updatedAt}`,
+					sql`${memoryFacts.content} ${coreStore(this.db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${fact.content}`,
+					sql`${memoryFacts.reviewStatus} ${coreStore(this.db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${fact.reviewStatus}`,
+					sql`${memoryFacts.metadata} ${coreStore(this.db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${fact.metadata === null ? null : jsonParameter(this.db, fact.metadata)}`,
+					sql`${memoryFacts.updatedAt} ${coreStore(this.db) === "postgres" ? sql`IS NOT DISTINCT FROM` : sql`IS`} ${fact.updatedAt}`,
 				),
 			)
 			.returning({ id: memoryFacts.id });
@@ -197,6 +203,7 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 		factReview?: { fact: MemoryFact; updates: FactMutationUpdates },
 		create?: NewMemoryFact,
 	): Promise<MemoryRevision> {
+		const memoryFacts = coreTable(this.db, d1MemoryFacts);
 		if (!input.key.trim()) throw new Error("Memory key must be nonempty");
 		const snapshot = JSON.parse(JSON.stringify(input)) as MemoryWriteInput;
 		if (!("value" in snapshot)) throw new Error("Memory value must be JSON");
@@ -329,6 +336,7 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 		return fact ? this.revisions(fact) : [];
 	}
 	async list(prefix = ""): Promise<MemoryEntry[]> {
+		const memoryFacts = coreTable(this.db, d1MemoryFacts);
 		const entries: MemoryEntry[] = [];
 		// The contract returns all matching keys. Enumerate with bounded index
 		// seeks, including NULL sources separately to retain tuple ordering.
@@ -337,7 +345,11 @@ export class OrganizationMemoryAdapter implements MemoryAdapter {
 			while (true) {
 				const page: MemoryFact[] = await this.db
 					.select(prefixedColumns(memoryFacts, "fact"))
-					.from(bySource)
+					.from(
+						coreStore(this.db) === "postgres"
+							? sql`${memoryFacts}`
+							: sql`${memoryFacts} INDEXED BY idx_memory_facts_org_source_id`,
+					)
 					.where(
 						and(
 							eq(memoryFacts.organizationId, this.organizationId),

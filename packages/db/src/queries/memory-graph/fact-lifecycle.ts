@@ -1,9 +1,15 @@
+import { coreTable } from "../../core-store/client";
+import {
+	coreStore,
+	anyIds,
+	jsonRead,
+	jsonWrite,
+} from "../../core-store/dialect";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { refreshConsolidatedForFact } from "./observations";
 import { and, asc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import type { DbClient } from "../../client";
-import { memoryFacts } from "../../schema/memory-graph";
-import { getAffectedRows } from "../../utils/d1-result";
+import { memoryFacts as d1MemoryFacts } from "../../schema/memory-graph";
 import type { FactChangeRecorder } from "./memory-adapter";
 import { freshReadMarkExists } from "../read-marks";
 
@@ -17,6 +23,7 @@ async function cappedLifecycleFactIds(
 	conditions: SQL<unknown>[],
 	recordChange: FactChangeRecorder | undefined,
 ): Promise<string[] | null> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	if (!recordChange?.reserve) return null;
 	const remaining = recordChange.remaining
 		? await recordChange.remaining(organizationId)
@@ -41,6 +48,7 @@ export async function decayConfidence(
 	minConfidence: number = 0.1,
 	options?: { tediId?: string; domainId?: string; factIds?: string[] },
 ): Promise<number> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (options?.factIds?.length === 0) return 0;
 	// Usage-reinforced decay: facts with high usage decay slower, unused facts decay faster.
@@ -83,47 +91,23 @@ export async function decayConfidence(
 	}
 
 	if (options?.factIds)
-		baseConditions.push(
-			sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(options.factIds)}))`,
-		);
+		baseConditions.push(anyIds(db, memoryFacts.id, options.factIds));
 
 	// Usage boost = clamp(0.3, usageCount/max(1,accessCount), 2.0)
-	const usageBoostSql = sql`MIN(2.0, MAX(0.3, CAST(COALESCE(${memoryFacts.usageCount}, 0) AS REAL) / MAX(1, COALESCE(${memoryFacts.accessCount}, 1))))`;
+	const min = coreStore(db) === "postgres" ? sql`least` : sql`min`;
+	const max = coreStore(db) === "postgres" ? sql`greatest` : sql`max`;
+	const usageBoostSql = sql`${min}(2.0, ${max}(0.3, CAST(COALESCE(${memoryFacts.usageCount}, 0) AS REAL) / ${max}(1, COALESCE(${memoryFacts.accessCount}, 1))))`;
 
-	// Non-core facts: usage-reinforced decay
-	const nonCoreConditions = [
-		...baseConditions,
-		sql`COALESCE(${memoryFacts.priority}, 'active') != 'core'`,
-	];
-
-	// effective_decay = 1 - (1 - decayFactor) / usageBoost
-	const decayLoss = 1 - decayFactor; // e.g. 0.005 for 0.995
-
-	const nonCoreResult = await db
+	const loss = sql`CASE WHEN ${memoryFacts.priority} = 'core' THEN ${(1 - decayFactor) / 10} ELSE ${1 - decayFactor} END`;
+	const rows = await db
 		.update(memoryFacts)
 		.set({
-			confidence: sql`MAX(${minConfidence}, ${memoryFacts.confidence} * (1.0 - ${decayLoss} / ${usageBoostSql}))`,
+			confidence: sql`${max}(${minConfidence}, ${memoryFacts.confidence} * (1.0 - ${coreStore(db) === "postgres" ? sql`(${loss})::double precision` : loss} / ${usageBoostSql}))`,
 			updatedAt: now.toISOString(),
 		})
-		.where(and(...nonCoreConditions));
-
-	// Core facts: 10x slower decay, also usage-reinforced
-	const coreDecayFactor = 1 - (1 - decayFactor) / 10;
-	const coreConditions = [...baseConditions, eq(memoryFacts.priority, "core")];
-
-	const coreDecayLoss = 1 - coreDecayFactor;
-
-	const coreResult = await db
-		.update(memoryFacts)
-		.set({
-			confidence: sql`MAX(${minConfidence}, ${memoryFacts.confidence} * (1.0 - ${coreDecayLoss} / ${usageBoostSql}))`,
-			updatedAt: now.toISOString(),
-		})
-		.where(and(...coreConditions));
-
-	const nonCoreRows = getAffectedRows(nonCoreResult);
-	const coreRows = getAffectedRows(coreResult);
-	return nonCoreRows + coreRows;
+		.where(and(...baseConditions))
+		.returning({ id: memoryFacts.id });
+	return rows.length;
 }
 
 export async function archiveLowConfidence(
@@ -133,6 +117,7 @@ export async function archiveLowConfidence(
 	options?: { tediId?: string; domainId?: string; factIds?: string[] },
 	recordChange?: FactChangeRecorder,
 ): Promise<{ count: number; archivedIds: string[] }> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (options?.factIds?.length === 0) return { count: 0, archivedIds: [] };
 	const conditions = [
@@ -141,9 +126,7 @@ export async function archiveLowConfidence(
 		sql`${memoryFacts.confidence} < ${threshold}`,
 	];
 	if (options?.factIds)
-		conditions.push(
-			sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(options.factIds)}))`,
-		);
+		conditions.push(anyIds(db, memoryFacts.id, options.factIds));
 
 	if (options?.tediId) {
 		conditions.push(eq(memoryFacts.tediId, options.tediId));
@@ -171,12 +154,7 @@ export async function archiveLowConfidence(
 		const rows = await db
 			.update(memoryFacts)
 			.set({ archivedAt, updatedAt: archivedAt })
-			.where(
-				and(
-					...conditions,
-					sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(cappedIds)}))`,
-				),
-			)
+			.where(and(...conditions, anyIds(db, memoryFacts.id, cappedIds)))
 			.returning();
 		for (const fact of rows) await recordChange?.(fact);
 		return { count: rows.length, archivedIds: rows.map((row) => row.id) };
@@ -205,6 +183,7 @@ export async function invalidateFact(
 	reason?: string,
 	recordChange?: FactChangeRecorder,
 ): Promise<void> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	if (
 		recordChange?.reserve &&
@@ -219,7 +198,7 @@ export async function invalidateFact(
 			validTo: now,
 			updatedAt: now,
 			metadata: reason
-				? sql`json_set(COALESCE(${memoryFacts.metadata}, '{}'), '$.invalidationReason', ${reason})`
+				? jsonWrite(db, memoryFacts.metadata, ["invalidationReason"], reason)
 				: undefined,
 		})
 		.where(
@@ -251,6 +230,7 @@ export async function promoteFromProbation(
 	minAccessCount: number = 1,
 	recordChange?: FactChangeRecorder,
 ): Promise<number> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions: SQL<unknown>[] = [
 		eq(memoryFacts.organizationId, orgId),
@@ -262,7 +242,9 @@ export async function promoteFromProbation(
 		// promotion like any other fact; only an observation the evidence
 		// check found unsupported stays probationary. Malformed metadata
 		// cannot prove it passed, so it also stays.
-		sql`CASE WHEN COALESCE(${memoryFacts.source}, '') LIKE 'observation://%'
+		coreStore(db) === "postgres"
+			? sql`(COALESCE(${memoryFacts.source}, '') NOT LIKE 'observation://%' OR coalesce(${jsonRead(db, memoryFacts.metadata, ["memoryQuality", "verdict"])}, '') NOT IN ('unsupported', 'transient_or_unsupported'))`
+			: sql`CASE WHEN COALESCE(${memoryFacts.source}, '') LIKE 'observation://%'
 			THEN CASE WHEN json_valid(COALESCE(${memoryFacts.metadata}, '{}'))
 				THEN COALESCE(json_extract(COALESCE(${memoryFacts.metadata}, '{}'), '$.memoryQuality.verdict'), '')
 					NOT IN ('unsupported', 'transient_or_unsupported')
@@ -281,12 +263,7 @@ export async function promoteFromProbation(
 		const rows = await db
 			.update(memoryFacts)
 			.set({ status: "active", updatedAt })
-			.where(
-				and(
-					...conditions,
-					sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(cappedIds)}))`,
-				),
-			)
+			.where(and(...conditions, anyIds(db, memoryFacts.id, cappedIds)))
 			.returning();
 		for (const fact of rows) await recordChange?.(fact);
 		return rows.length;
@@ -295,7 +272,8 @@ export async function promoteFromProbation(
 		.update(memoryFacts)
 		.set({ status: "active", updatedAt })
 		.where(and(...conditions));
-	if (!recordChange) return getAffectedRows(await mutation);
+	if (!recordChange)
+		return (await mutation.returning({ id: memoryFacts.id })).length;
 	const rows = await mutation.returning();
 	for (const fact of rows) await recordChange(fact);
 	return rows.length;
@@ -310,6 +288,7 @@ export async function expireProbation(
 	maxAgeDays: number = 7,
 	recordChange?: FactChangeRecorder,
 ): Promise<{ count: number; expiredIds: string[] }> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const cutoff = new Date(
 		Date.now() - maxAgeDays * 24 * 60 * 60 * 1000,
@@ -347,12 +326,7 @@ export async function expireProbation(
 		const rows = await db
 			.update(memoryFacts)
 			.set({ archivedAt: expiredAt, updatedAt: expiredAt })
-			.where(
-				and(
-					...conditions,
-					sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(cappedIds)}))`,
-				),
-			)
+			.where(and(...conditions, anyIds(db, memoryFacts.id, cappedIds)))
 			.returning();
 		for (const fact of rows) await recordChange?.(fact);
 		return { count: rows.length, expiredIds: rows.map((row) => row.id) };
@@ -376,12 +350,11 @@ export async function resetCollapsedConfidence(
 	resetTo: number = 0.8,
 	factIds?: string[],
 ): Promise<number> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (factIds?.length === 0) return 0;
 	const selection =
-		factIds === undefined
-			? undefined
-			: sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(factIds)}))`;
+		factIds === undefined ? undefined : anyIds(db, memoryFacts.id, factIds);
 	// Detect collapse: if average confidence of non-archived facts is < 0.1, reset all to resetTo
 	const avgResult = await db
 		.select({ avg: sql<number>`AVG(${memoryFacts.confidence})` })
@@ -416,9 +389,10 @@ export async function resetCollapsedConfidence(
 				isNull(memoryFacts.archivedAt),
 				selection,
 			),
-		);
+		)
+		.returning({ id: memoryFacts.id });
 
-	return getAffectedRows(result);
+	return result.length;
 }
 
 // ============================================================================

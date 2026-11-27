@@ -10,16 +10,22 @@ import {
 	sql,
 	type SQL,
 } from "drizzle-orm";
-import { alias, union } from "drizzle-orm/sqlite-core";
+import {
+	alias as sqliteAlias,
+	union as sqliteUnion,
+} from "drizzle-orm/sqlite-core";
+import { alias as pgAlias, union as pgUnion } from "drizzle-orm/pg-core";
+import { coreTable } from "../../core-store/client";
+import { coreStore, anyIds, jsonRead } from "../../core-store/dialect";
 import type { DbQueryClient } from "../../query-client";
 import {
-	memoryEntities,
-	memoryEntityMentions,
-	memoryEntityResolutions,
+	memoryEntities as d1MemoryEntities,
+	memoryEntityMentions as d1MemoryEntityMentions,
+	memoryEntityResolutions as d1MemoryEntityResolutions,
 } from "../../schema/memory-entities";
 import {
-	memoryEdges,
-	memoryFacts,
+	memoryEdges as d1MemoryEdges,
+	memoryFacts as d1MemoryFacts,
 	type MemoryFact,
 } from "../../schema/memory-graph";
 import { prefixedColumns } from "../../utils/select";
@@ -50,16 +56,30 @@ export function recallTerms(query: string): string[] {
 		.slice(0, 24);
 }
 
+function recallTime(db: object, value: SQL): SQL {
+	return coreStore(db) === "postgres"
+		? sql`CASE WHEN pg_input_is_valid((${value})::text, 'timestamp with time zone') THEN (${value})::timestamptz END`
+		: sql`datetime(${value})`;
+}
+
+function factLookup(db: object): SQL {
+	const facts = coreTable(db, d1MemoryFacts);
+	return coreStore(db) === "postgres"
+		? sql`${facts}`
+		: sql`${facts} INDEXED BY sqlite_autoindex_memory_facts_1`;
+}
+
 /** Applied before each arm's LIMIT, and again when hydrating external IDs. */
-function eligible(scope: RecallScope): SQL {
+function eligible(db: DbQueryClient, scope: RecallScope): SQL {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const now = scope.now ?? new Date().toISOString();
 	const f = memoryFacts;
 	return and(
 		eq(f.organizationId, scope.organizationId),
 		sql`${f.archivedAt} IS NULL`,
-		sql`coalesce(json_extract(${f.metadata}, '$.learningFeed.evidence.state'), '') != 'held'`,
-		sql`(${f.validTo} IS NULL OR datetime(${f.validTo}) > datetime(${now}))`,
-		sql`(${f.validFrom} IS NULL OR datetime(${f.validFrom}) <= datetime(${now}))`,
+		sql`coalesce(${jsonRead(db, f.metadata, ["learningFeed", "evidence", "state"])}, '') != 'held'`,
+		sql`(${f.validTo} IS NULL OR ${recallTime(db, sql`${f.validTo}`)} > ${recallTime(db, sql`${now}`)})`,
+		sql`(${f.validFrom} IS NULL OR ${recallTime(db, sql`${f.validFrom}`)} <= ${recallTime(db, sql`${now}`)})`,
 		sql`coalesce(${f.reviewStatus}, '') NOT IN ('restricted','rejected','superseded','stale','disputed')`,
 		sql`(${f.visibility} IN ('org','shared') OR (${f.visibility} = 'private' AND ${f.tediId} = ${scope.tediId ?? ""}))`,
 		sql`${f.confidence} >= ${scope.minConfidence ?? 0.3}`,
@@ -67,30 +87,34 @@ function eligible(scope: RecallScope): SQL {
 			? undefined
 			: sql`coalesce(${f.memoryScope}, '') != 'graph' AND coalesce(${f.usePolicy}, '') != 'do_not_inject_automatically'`,
 		scope.domainIds?.length
-			? sql`${f.domainId} IN (SELECT value FROM json_each(${JSON.stringify(scope.domainIds)}))`
+			? anyIds(db, f.domainId, scope.domainIds)
 			: undefined,
 		scope.factTypes?.length
-			? sql`${f.factType} IN (SELECT value FROM json_each(${JSON.stringify(scope.factTypes)}))`
+			? anyIds(db, f.factType, scope.factTypes)
 			: undefined,
-		sql`(json_extract(${f.metadata}, '$.expiresAt') IS NULL OR datetime(json_extract(${f.metadata}, '$.expiresAt')) > datetime(${now}))`,
+		sql`(${jsonRead(db, f.metadata, ["expiresAt"])} IS NULL OR ${recallTime(db, jsonRead(db, f.metadata, ["expiresAt"]))} > ${recallTime(db, sql`${now}`)})`,
 		// Edge direction is newer/source -> older/target for supersedes. For a
 		// contradiction either direction is allowed; actual validity time wins.
 		// NOT INDEXED preserves rowid seeks from the incident-edge list; otherwise
 		// selective relation estimates can make SQLite walk the type index instead.
 		sql`NOT EXISTS (
-			SELECT 1 FROM memory_edges e NOT INDEXED CROSS JOIN memory_facts newer INDEXED BY sqlite_autoindex_memory_facts_1
-			WHERE e.rowid IN (
+			SELECT 1 FROM ${coreStore(db) === "postgres" ? sql`memory_edges e CROSS JOIN memory_facts newer` : sql`memory_edges e NOT INDEXED CROSS JOIN memory_facts newer INDEXED BY sqlite_autoindex_memory_facts_1`}
+			WHERE ${
+				coreStore(db) === "postgres"
+					? sql`(e.source_fact_id = ${f.id} OR e.target_fact_id = ${f.id})`
+					: sql`e.rowid IN (
 				SELECT rowid FROM memory_edges INDEXED BY sqlite_autoindex_memory_edges_2 WHERE source_fact_id = ${f.id}
 				UNION SELECT rowid FROM memory_edges INDEXED BY idx_memory_edges_target WHERE target_fact_id = ${f.id}
-			)
+			)`
+			}
 			AND newer.organization_id = ${scope.organizationId}
 			AND newer.id = CASE WHEN e.target_fact_id = ${f.id} THEN e.source_fact_id ELSE e.target_fact_id END
 			AND ((e.relation_type = 'supersedes' AND e.target_fact_id = ${f.id})
 			OR (e.relation_type = 'contradicts'
-			AND newer.archived_at IS NULL AND (newer.valid_to IS NULL OR datetime(newer.valid_to) > datetime(${now}))
+			AND newer.archived_at IS NULL AND (newer.valid_to IS NULL OR ${recallTime(db, sql`newer.valid_to`)} > ${recallTime(db, sql`${now}`)})
 			AND NOT EXISTS (SELECT 1 FROM memory_edges replacement WHERE replacement.relation_type = 'supersedes' AND replacement.source_fact_id = ${f.id} AND replacement.target_fact_id = newer.id)
-			AND (datetime(coalesce(newer.valid_from,newer.created_at)) > datetime(coalesce(${f.validFrom},${f.createdAt}))
-			OR (datetime(coalesce(newer.valid_from,newer.created_at)) = datetime(coalesce(${f.validFrom},${f.createdAt})) AND newer.id > ${f.id}))))
+			AND (${recallTime(db, sql`coalesce(newer.valid_from,newer.created_at)`)} > ${recallTime(db, sql`coalesce(${f.validFrom},${f.createdAt})`)}
+			OR (${recallTime(db, sql`coalesce(newer.valid_from,newer.created_at)`)} = ${recallTime(db, sql`coalesce(${f.validFrom},${f.createdAt})`)} AND newer.id > ${f.id}))))
 		)`,
 	)!;
 }
@@ -144,11 +168,29 @@ export async function lexicalRecall(
 	scope: RecallScope,
 	query: string,
 ): Promise<RecallCandidate[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	scope = { ...scope, ...normalizeTenantScope(scope) };
 	// Explicit historical clocks need the full index: recall projection expiry
 	// follows wall time. Graph-anchor searches also keep their complete corpus.
 	const fullIndex = Boolean(scope.includeGraphAnchors || scope.now);
 	const parsed = recallTerms(query);
+	if (coreStore(db) === "postgres") {
+		if (!parsed.length) return [];
+		const vector = sql`to_tsvector('simple', coalesce(${memoryFacts.summary}, '') || E'\\n' || ${memoryFacts.content}) || setweight(to_tsvector('simple', coalesce((
+			SELECT string_agg(ent.display_name, ' ') FROM memory_entity_mentions m
+			JOIN memory_entity_resolutions r ON r.mention_id = m.id AND r.organization_id = ${memoryFacts.organizationId} AND r.status = 'active' AND r.valid_to IS NULL
+			JOIN memory_entities ent ON ent.id = r.entity_id AND ent.organization_id = ${memoryFacts.organizationId} AND ent.status = 'active'
+			WHERE m.source_fact_id = ${memoryFacts.id} AND m.organization_id = ${memoryFacts.organizationId}
+		), '')), 'A')`;
+		const match = sql`to_tsquery('simple', ${parsed.map((term) => "'" + term.replaceAll("'", "''") + "'").join(" | ")})`;
+		const score = sql<number>`ts_rank(${vector}, ${match})`;
+		return db
+			.select({ factId: memoryFacts.id, score: score.as("lexical_score") })
+			.from(memoryFacts)
+			.where(and(eligible(db, scope), sql`${vector} @@ ${match}`))
+			.orderBy(desc(score), memoryFacts.id)
+			.limit(40);
+	}
 	const terms = fullIndex ? parsed : await selectLexicalTerms(db, parsed);
 	if (!terms.length) return [];
 	const match = terms.map((term) => `"${term}"`).join(" OR ");
@@ -168,7 +210,7 @@ export async function lexicalRecall(
 			.crossJoin(sql`${memoryFacts} NOT INDEXED`)
 			.where(
 				and(
-					eligible(scope),
+					eligible(db, scope),
 					sql`${memoryFacts}.rowid = ${index}.rowid`,
 					sql`${index} MATCH ${match}`,
 					sql`${index}.organization_id = ${scope.organizationId}`,
@@ -185,16 +227,25 @@ export async function graphRecall(
 	scope: RecallScope,
 	query: string,
 ): Promise<RecallCandidate[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const terms = recallTerms(query);
 	if (!terms.length) return [];
 	// Resolve entities from the query, then traverse one fact edge from their
 	// accepted mentions. Every hop independently fences organization ownership.
-	const ent = memoryEntities;
-	const r = memoryEntityResolutions;
-	const m = memoryEntityMentions;
+	const ent = coreTable(db, d1MemoryEntities);
+	const r = coreTable(db, d1MemoryEntityResolutions);
+	const m = coreTable(db, d1MemoryEntityMentions);
+	const alias =
+		coreStore(db) === "postgres"
+			? (pgAlias as unknown as typeof sqliteAlias)
+			: sqliteAlias;
+	const union =
+		coreStore(db) === "postgres"
+			? (pgUnion as unknown as typeof sqliteUnion)
+			: sqliteUnion;
 	const seed = alias(memoryFacts, "seed");
-	const e = alias(memoryEdges, "e");
+	const e = alias(coreTable(db, d1MemoryEdges), "e");
 	// Status literals stay inline so the partial active-resolution index applies.
 	const seeds = db.$with("seeds").as(
 		db
@@ -233,7 +284,7 @@ export async function graphRecall(
 							.where(
 								and(
 									eq(memoryFacts.id, seed.id),
-									eligible({
+									eligible(db, {
 										...scope,
 										domainIds: undefined,
 										factTypes: undefined,
@@ -243,7 +294,9 @@ export async function graphRecall(
 								),
 							),
 					),
-					sql`instr(${` ${terms.join(" ")} `}, ' ' || ${ent.normalizedName} || ' ') > 0`,
+					coreStore(db) === "postgres"
+						? sql`strpos(${` ${terms.join(" ")} `}, ' ' || ${ent.normalizedName} || ' ') > 0`
+						: sql`instr(${` ${terms.join(" ")} `}, ' ' || ${ent.normalizedName} || ' ') > 0`,
 				),
 			)
 			.limit(40),
@@ -270,9 +323,9 @@ export async function graphRecall(
 				factId: sql<string>`${memoryFacts.id}`.as("graph_fact_id"),
 				score: sql<number>`${memoryFacts.confidence}`.as("graph_score"),
 			})
-			.from(sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`)
+			.from(factLookup(db))
 			// bound-params: matched is a subquery, not a bound list.
-			.where(and(eligible(scope), inArray(memoryFacts.id, matched)))
+			.where(and(eligible(db, scope), inArray(memoryFacts.id, matched)))
 			.orderBy(desc(memoryFacts.confidence), memoryFacts.id)
 			.limit(40)
 	);
@@ -404,28 +457,35 @@ export async function temporalRecall(
 	scope: RecallScope,
 	query: string,
 ): Promise<RecallCandidate[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const window = recallWindow(query, new Date(scope.now ?? Date.now()));
 	if (!window) return [];
 	const time = sql`coalesce(${memoryFacts.validFrom}, ${memoryFacts.createdAt})`;
-	const decay = sql<number>`1.0 / (1.0 + max(0, julianday(${scope.now ?? new Date().toISOString()}) - julianday(${time})))`;
+	const now = scope.now ?? new Date().toISOString();
+	const decay =
+		coreStore(db) === "postgres"
+			? sql<number>`1.0 / (1.0 + greatest(0, extract(epoch FROM (${recallTime(db, sql`${now}`)} - ${recallTime(db, time)})) / 86400.0))`.mapWith(
+					Number,
+				)
+			: sql<number>`1.0 / (1.0 + max(0, julianday(${now}) - julianday(${time})))`;
 	return db
 		.select({
 			factId: sql<string>`${memoryFacts.id}`.as("temporal_fact_id"),
 			score: decay.as("temporal_score"),
 		})
-		.from(sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`)
+		.from(factLookup(db))
 		.where(
 			and(
-				eligible(scope),
+				eligible(db, scope),
 				// Separate time ranges let SQLite use each tenant/time index before
 				// evaluating lifecycle predicates on just the matching fact IDs.
 				sql`${memoryFacts.id} IN (
 				SELECT id FROM memory_facts WHERE organization_id = ${scope.organizationId}
-				AND datetime(coalesce(valid_from, created_at)) >= datetime(${window.from})
-				AND datetime(coalesce(valid_from, created_at)) < datetime(${window.to})
+				AND ${recallTime(db, sql`coalesce(valid_from, created_at)`)} >= ${recallTime(db, sql`${window.from}`)}
+				AND ${recallTime(db, sql`coalesce(valid_from, created_at)`)} < ${recallTime(db, sql`${window.to}`)}
 				UNION SELECT id FROM memory_facts WHERE organization_id = ${scope.organizationId}
-				AND datetime(valid_to) >= datetime(${window.from}) AND datetime(valid_to) < datetime(${window.to})
+				AND ${recallTime(db, sql`valid_to`)} >= ${recallTime(db, sql`${window.from}`)} AND ${recallTime(db, sql`valid_to`)} < ${recallTime(db, sql`${window.to}`)}
 				)`,
 			),
 		)
@@ -438,43 +498,40 @@ export async function hydrateRecall(
 	scope: RecallScope,
 	ids: string[],
 ): Promise<Array<MemoryFact & { replacesFactIds: string[] }>> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	scope = { ...scope, ...normalizeTenantScope(scope) };
 	if (!ids.length) return [];
 	const rows = await db
 		.select({
 			...prefixedColumns(memoryFacts, "fact"),
 			replacesFactIds: sql<string>`(
-			SELECT coalesce(json_group_array(older.id), '[]') FROM memory_edges edge
+			SELECT coalesce(${coreStore(db) === "postgres" ? sql`json_agg(older.id)::text` : sql`json_group_array(older.id)`}, '[]') FROM memory_edges edge
 			JOIN memory_facts older ON older.organization_id = ${scope.organizationId}
 		AND older.id = CASE WHEN edge.source_fact_id = memory_facts.id THEN edge.target_fact_id ELSE edge.source_fact_id END
 			WHERE (older.visibility IN ('org','shared') OR (older.visibility = 'private' AND older.tedi_id = ${scope.tediId ?? ""}))
 			AND ((edge.relation_type = 'supersedes' AND edge.source_fact_id = memory_facts.id)
 			OR (edge.relation_type = 'contradicts' AND (edge.source_fact_id = memory_facts.id OR edge.target_fact_id = memory_facts.id)
-			AND (datetime(coalesce(older.valid_from,older.created_at)), older.id) < (datetime(coalesce(memory_facts.valid_from,memory_facts.created_at)), memory_facts.id)))
+			AND (${recallTime(db, sql`coalesce(older.valid_from,older.created_at)`)}, older.id) < (${recallTime(db, sql`coalesce(memory_facts.valid_from,memory_facts.created_at)`)}, memory_facts.id)))
 		)`
 				.mapWith((value: string) => JSON.parse(value) as string[])
 				.as("replaces_fact_ids"),
 		})
 		// D1 otherwise chooses archived_at and scans the whole active corpus
 		// even for one ID. Keep ownership/lifecycle predicates on a PK lookup.
-		.from(sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`)
-		.where(
-			and(
-				eligible(scope),
-				sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
-			),
-		);
+		.from(factLookup(db))
+		.where(and(eligible(db, scope), anyIds(db, memoryFacts.id, ids)));
 	return filterEvidenceBackedLessons(db, scope, rows);
 }
 export async function fallbackRecall(
 	db: DbQueryClient,
 	scope: RecallScope,
 ): Promise<MemoryFact[]> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const rows = await db
 		.select()
 		.from(memoryFacts)
-		.where(eligible(scope))
+		.where(eligible(db, scope))
 		.orderBy(desc(memoryFacts.confidence), desc(memoryFacts.createdAt))
 		.limit(100);
 	return filterEvidenceBackedLessons(db, scope, rows);
@@ -491,6 +548,7 @@ export async function recordRecallAccess(
 	ids: string[],
 	recordAccess = true,
 ): Promise<void> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (!recordAccess || !ids.length) return;
 	const now = new Date();
@@ -506,8 +564,10 @@ export async function recordRecallAccess(
 		// (67k rows per recall on 7 Nov) instead of looking each id up by key.
 		.where(
 			and(
-				sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify([...new Set(ids)].slice(0, 100))}))`,
-				sql`+${memoryFacts.organizationId} = ${orgId}`,
+				anyIds(db, memoryFacts.id, [...new Set(ids)].slice(0, 100)),
+				coreStore(db) === "postgres"
+					? eq(memoryFacts.organizationId, orgId)
+					: sql`+${memoryFacts.organizationId} = ${orgId}`,
 				or(
 					isNull(memoryFacts.lastAccessedAt),
 					sql`${memoryFacts.lastAccessedAt} <= ${cutoff}`,
@@ -523,6 +583,8 @@ export async function backfillFactSearch(
 	limit = 500,
 ): Promise<number> {
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
+	// Postgres searches source rows directly and has no FTS5 projection to repair.
+	if (coreStore(db) === "postgres") return 0;
 	// Stays raw: FTS5 shadow tables and changes() reads have no Drizzle builder.
 	const results = await db.batch([
 		db.run(sql`INSERT OR REPLACE INTO memory_fact_fts(rowid, fact_id, organization_id, text, entity_names)

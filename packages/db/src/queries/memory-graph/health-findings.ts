@@ -1,3 +1,4 @@
+import { coreTable } from "../../core-store/client";
 /**
  * Memory health findings: plain-English, bounded checks over one
  * organization's facts and edges. Every statement is org-scoped, ends in a
@@ -12,7 +13,10 @@ import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 
 import { aliasedTable, and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
-import { memoryEdges, memoryFacts } from "../../schema/memory-graph";
+import {
+	memoryEdges as d1MemoryEdges,
+	memoryFacts as d1MemoryFacts,
+} from "../../schema/memory-graph";
 import { freshReadMarkExists, unusedReportNote } from "../read-marks";
 
 /** Counts stop here; callers show "N+" when `capped`. */
@@ -68,22 +72,6 @@ export interface MemoryHealthFindingsOptions {
 	staleDays?: number;
 }
 
-const sampleColumns = {
-	factId: memoryFacts.id,
-	tediId: memoryFacts.tediId,
-	text: sql<string>`substr(${memoryFacts.content}, 1, ${TEXT_LIMIT})`.as(
-		"sample_text",
-	),
-	confidence: memoryFacts.confidence,
-	source: memoryFacts.source,
-	sourceUrl: memoryFacts.sourceUrl,
-	sourceSessionId: memoryFacts.sourceSessionId,
-	reviewStatus: memoryFacts.reviewStatus,
-	createdAt: memoryFacts.createdAt,
-	lastVerifiedAt: memoryFacts.lastVerifiedAt,
-	lastAccessedAt: memoryFacts.lastAccessedAt,
-};
-
 type SampleRow = Omit<MemoryFindingSample, "detail">;
 
 function toSample(row: SampleRow, detail: string): MemoryFindingSample {
@@ -122,6 +110,23 @@ export async function getMemoryHealthFindings(
 	tenantScope: TenantScope,
 	options: MemoryHealthFindingsOptions = {},
 ): Promise<MemoryHealthFindingsResult> {
+	const memoryFacts = coreTable(db, d1MemoryFacts);
+	const memoryEdges = coreTable(db, d1MemoryEdges);
+	const sampleColumns = {
+		factId: memoryFacts.id,
+		tediId: memoryFacts.tediId,
+		text: sql<string>`substr(${memoryFacts.content}, 1, ${TEXT_LIMIT})`.as(
+			"sample_text",
+		),
+		confidence: memoryFacts.confidence,
+		source: memoryFacts.source,
+		sourceUrl: memoryFacts.sourceUrl,
+		sourceSessionId: memoryFacts.sourceSessionId,
+		reviewStatus: memoryFacts.reviewStatus,
+		createdAt: memoryFacts.createdAt,
+		lastVerifiedAt: memoryFacts.lastVerifiedAt,
+		lastAccessedAt: memoryFacts.lastAccessedAt,
+	};
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const now = options.now ?? new Date();
 	const unusedDays = options.unusedDays ?? 60;
@@ -201,7 +206,7 @@ export async function getMemoryHealthFindings(
 			.limit(capPlusOne)
 			.as(name);
 	const countFrom = <T extends ReturnType<typeof cappedFactIds>>(sub: T) =>
-		db.select({ n: sql<number>`count(*)` }).from(sub);
+		db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(sub);
 
 	const duplicateKeys = db
 		.select({ pick: memoryFacts.topicKey })
@@ -211,6 +216,18 @@ export async function getMemoryHealthFindings(
 		.having(sql`count(*) > 1`)
 		.limit(capPlusOne)
 		.as("dup_keys");
+	const duplicateSamples = db
+		.select({
+			id: sql<string>`min(${memoryFacts.id})`.as("sample_id"),
+			copies: sql<number>`count(*)`.mapWith(Number).as("copies"),
+		})
+		.from(memoryFacts)
+		.where(duplicateGroups)
+		.groupBy(memoryFacts.topicKey)
+		.having(sql`count(*) > 1`)
+		.limit(FINDING_SAMPLE_LIMIT)
+		.as("duplicate_samples");
+
 	const contradictionEdges = db
 		.select({ pick: memoryEdges.id })
 		.from(memoryEdges)
@@ -261,18 +278,17 @@ export async function getMemoryHealthFindings(
 			.where(staleButUsed)
 			.orderBy(desc(memoryFacts.lastAccessedAt))
 			.limit(FINDING_SAMPLE_LIMIT),
-		db.select({ n: sql<number>`count(*)` }).from(duplicateKeys),
+		db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(duplicateKeys),
 		db
 			.select({
 				...sampleColumns,
-				copies: sql<number>`count(*)`.as("copies"),
+				copies: duplicateSamples.copies,
 			})
 			.from(memoryFacts)
-			.where(duplicateGroups)
-			.groupBy(memoryFacts.topicKey)
-			.having(sql`count(*) > 1`)
-			.limit(FINDING_SAMPLE_LIMIT),
-		db.select({ n: sql<number>`count(*)` }).from(contradictionEdges),
+			.innerJoin(duplicateSamples, eq(duplicateSamples.id, memoryFacts.id)),
+		db
+			.select({ n: sql<number>`count(*)`.mapWith(Number) })
+			.from(contradictionEdges),
 		db
 			.select({
 				...sampleColumns,
@@ -285,7 +301,7 @@ export async function getMemoryHealthFindings(
 			.innerJoin(other, eq(memoryEdges.targetFactId, other.id))
 			.where(contradictionJoin)
 			.limit(FINDING_SAMPLE_LIMIT),
-		db.select({ n: sql<number>`count(*)` }).from(orphanIds),
+		db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(orphanIds),
 		db
 			.select(sampleColumns)
 			.from(memoryFacts)

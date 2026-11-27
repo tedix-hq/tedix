@@ -330,6 +330,7 @@ describe.each([false, true])(
 			f.warn.mockClear();
 			await createFacts(f.db, { organizationId: "org" }, [
 				{ ...fact, id: "bulk-lesson", reviewStatus: "confirmed" },
+				{ ...fact, id: "bulk-peer", reviewStatus: "confirmed" },
 			]);
 			if (broken)
 				expect(f.warn).toHaveBeenCalledWith(
@@ -340,6 +341,7 @@ describe.each([false, true])(
 				expect(f.edges()).toEqual(
 					expect.arrayContaining([
 						expect.objectContaining({ from_id: "work", to_id: "bulk-lesson" }),
+						expect.objectContaining({ from_id: "work", to_id: "bulk-peer" }),
 					]),
 				);
 		});

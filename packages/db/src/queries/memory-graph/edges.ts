@@ -1,11 +1,13 @@
+import { coreTable } from "../../core-store/client";
+import { anyIds } from "../../core-store/dialect";
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { refreshConsolidatedForFact } from "./observations";
-import { eq, inArray, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type MemoryEdge,
 	type MemoryFact,
-	memoryEdges,
+	memoryEdges as d1MemoryEdges,
 	type NewMemoryEdge,
 	type RelationType,
 } from "../../schema/memory-graph";
@@ -18,6 +20,7 @@ export async function createEdge(
 	tenantScope: TenantScope,
 	edge: NewMemoryEdge,
 ): Promise<MemoryEdge> {
+	const memoryEdges = coreTable(db, d1MemoryEdges);
 	tenantScope = normalizeTenantScope(tenantScope);
 	const [created] = await db.insert(memoryEdges).values(edge).returning();
 	if (!created) throw new Error(`Failed to create edge: ${edge.id}`);
@@ -41,44 +44,26 @@ export async function createEdge(
 	return created;
 }
 
-/**
- * Batched both-direction edge read for a SET of facts — one chunked inArray
- * query per ~80 ids instead of two queries per fact. Exists because the
- * nightly graph reconcile called {@link getEdgesForFact} per fact: at ~15k
- * active facts that is ~30k sequential D1 queries in ONE workflow step, which
- * sails past the Workers subrequest cap and kills the whole reflection run.
- * Edges are deduped by
- * (source, target, relationType).
- */
 export async function getEdgesForFacts(
 	db: DbClient,
 	tenantScope: TenantScope,
 	factIds: string[],
 ): Promise<MemoryEdge[]> {
+	const memoryEdges = coreTable(db, d1MemoryEdges);
 	tenantScope = normalizeTenantScope(tenantScope);
 	if (factIds.length === 0) return [];
-	const CHUNK = 80; // D1 bound-parameter cap headroom (~100)
-	const edges: MemoryEdge[] = [];
-	const seen = new Set<string>();
-	for (let i = 0; i < factIds.length; i += CHUNK) {
-		const batch = factIds.slice(i, i + CHUNK);
-		const rows = await db
-			.select()
-			.from(memoryEdges)
-			.where(
+	return db
+		.select()
+		.from(memoryEdges)
+		.where(
+			and(
+				sql`EXISTS (SELECT 1 FROM memory_facts owned WHERE owned.id = ${memoryEdges.sourceFactId} AND owned.organization_id = ${tenantScope.organizationId})`,
 				or(
-					inArray(memoryEdges.sourceFactId, batch),
-					inArray(memoryEdges.targetFactId, batch),
+					anyIds(db, memoryEdges.sourceFactId, factIds),
+					anyIds(db, memoryEdges.targetFactId, factIds),
 				),
-			);
-		for (const row of rows) {
-			const key = `${row.sourceFactId}:${row.targetFactId}:${row.relationType}`;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			edges.push(row);
-		}
-	}
-	return edges;
+			),
+		);
 }
 
 export async function getEdgesForFact(
@@ -88,24 +73,16 @@ export async function getEdgesForFact(
 	direction: "outgoing" | "incoming" | "both" = "both",
 ): Promise<MemoryEdge[]> {
 	tenantScope = normalizeTenantScope(tenantScope);
-	if (direction === "outgoing") {
-		return db
-			.select()
-			.from(memoryEdges)
-			.where(eq(memoryEdges.sourceFactId, factId));
-	}
-	if (direction === "incoming") {
-		return db
-			.select()
-			.from(memoryEdges)
-			.where(eq(memoryEdges.targetFactId, factId));
-	}
-	// Both directions
-	const [outgoing, incoming] = await Promise.all([
-		db.select().from(memoryEdges).where(eq(memoryEdges.sourceFactId, factId)),
-		db.select().from(memoryEdges).where(eq(memoryEdges.targetFactId, factId)),
-	]);
-	return [...outgoing, ...incoming];
+	const edges = await getEdgesForFacts(db, tenantScope, [factId]);
+	if (direction === "outgoing")
+		return edges.filter((edge) => edge.sourceFactId === factId);
+	if (direction === "incoming")
+		return edges.filter((edge) => edge.targetFactId === factId);
+	// A self-edge participates once in each direction, matching the count contract.
+	return [
+		...edges.filter((edge) => edge.sourceFactId === factId),
+		...edges.filter((edge) => edge.targetFactId === factId),
+	];
 }
 
 export async function countEdgesForFact(
@@ -113,12 +90,26 @@ export async function countEdgesForFact(
 	tenantScope: TenantScope,
 	factId: string,
 ): Promise<number> {
+	const memoryEdges = coreTable(db, d1MemoryEdges);
 	tenantScope = normalizeTenantScope(tenantScope);
-	const [outgoing, incoming] = await Promise.all([
-		db.$count(memoryEdges, eq(memoryEdges.sourceFactId, factId)),
-		db.$count(memoryEdges, eq(memoryEdges.targetFactId, factId)),
-	]);
-	return outgoing + incoming;
+	const [row] = await db
+		.select({
+			total:
+				sql<number>`coalesce(sum(CASE WHEN ${memoryEdges.sourceFactId} = ${factId} THEN 1 ELSE 0 END + CASE WHEN ${memoryEdges.targetFactId} = ${factId} THEN 1 ELSE 0 END), 0)`.mapWith(
+					Number,
+				),
+		})
+		.from(memoryEdges)
+		.where(
+			and(
+				sql`EXISTS (SELECT 1 FROM memory_facts owned WHERE owned.id = ${memoryEdges.sourceFactId} AND owned.organization_id = ${tenantScope.organizationId})`,
+				or(
+					eq(memoryEdges.sourceFactId, factId),
+					eq(memoryEdges.targetFactId, factId),
+				),
+			),
+		);
+	return row?.total ?? 0;
 }
 
 export async function getRelatedFactsForFacts(
@@ -134,26 +125,9 @@ export async function getRelatedFactsForFacts(
 	);
 	if (uniqueFactIds.length === 0) return new Map();
 
-	const CHUNK = 80; // D1 bound-parameter cap headroom (~100)
-	const outgoing: MemoryEdge[] = [];
-	const incoming: MemoryEdge[] = [];
-	for (let i = 0; i < uniqueFactIds.length; i += CHUNK) {
-		const batch = uniqueFactIds.slice(i, i + CHUNK);
-		const [outRows, inRows] = await Promise.all([
-			db
-				.select()
-				.from(memoryEdges)
-				.where(inArray(memoryEdges.sourceFactId, batch)),
-			db
-				.select()
-				.from(memoryEdges)
-				.where(inArray(memoryEdges.targetFactId, batch)),
-		]);
-		outgoing.push(...outRows);
-		incoming.push(...inRows);
-	}
+	const edges = await getEdgesForFacts(db, tenantScope, uniqueFactIds);
 
-	for (const edge of [...outgoing, ...incoming]) {
+	for (const edge of edges) {
 		if (relationType && edge.relationType !== relationType) continue;
 		relatedByFactId.get(edge.sourceFactId)?.add(edge.targetFactId);
 		relatedByFactId.get(edge.targetFactId)?.add(edge.sourceFactId);

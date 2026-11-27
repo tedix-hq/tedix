@@ -479,37 +479,51 @@ export async function recordOwnerInstructionEdges(
 	db: DbQueryClient,
 	fact: MemoryFact,
 ) {
-	if (
-		fact.reviewStatus !== "confirmed" ||
-		fact.archivedAt ||
-		fact.validTo ||
-		!["decision", "preference"].includes(fact.factType)
-	)
-		return;
+	return recordOwnerInstructionEdgesForFacts(db, fact.organizationId, [fact]);
+}
+
+export async function recordOwnerInstructionEdgesForFacts(
+	db: DbQueryClient,
+	organizationId: string,
+	facts: readonly MemoryFact[],
+) {
+	const eligible = facts.filter(
+		(fact) =>
+			fact.organizationId === organizationId &&
+			fact.reviewStatus === "confirmed" &&
+			!fact.archivedAt &&
+			!fact.validTo &&
+			["decision", "preference"].includes(fact.factType),
+	);
+	if (!eligible.length) return;
 	try {
-		const feed = record(fact.metadata?.learningFeed);
-		const evidence = record(feed.evidence);
-		const ids = [
-			...new Set([
-				...strings(feed.evidenceEventIds),
-				...(Array.isArray(evidence.sources)
-					? evidence.sources.flatMap((s) => strings(record(s).id))
-					: []),
-			]),
-		].slice(0, 50);
-		const subjects = new Map<string, DecisionGraphNode>();
-		let occurredAt = fact.createdAt ?? undefined;
-		let referencedSubjects = 0;
 		const items = coreTable(db, workItems);
 		const interactions = coreTable(db, workInteractions);
 		const learningEvents = coreTable(db, learningInteractionEvents);
 		const comments = coreTable(db, workItemComments);
-		const candidates: DecisionGraphNode[] = [];
-		const addWork = (id: string) => candidates.push({ kind: "work_item", id });
-		const addCard = (id: string) => candidates.push({ kind: "deck_card", id });
-		if (ids.length) {
-			const events = await db
+		const inputs = eligible.map((fact) => {
+			const feed = record(fact.metadata?.learningFeed);
+			const evidence = record(feed.evidence);
+			const ids = [
+				...new Set([
+					...strings(feed.evidenceEventIds),
+					...(Array.isArray(evidence.sources)
+						? evidence.sources.flatMap((s) => strings(record(s).id))
+						: []),
+				]),
+			].slice(0, 50);
+			return {
+				fact,
+				feed,
+				ids: new Set(ids),
+				commentId: fact.source?.match(/^work-comment:([^:]+)$/)?.[1],
+			};
+		});
+		const [events, sourceComments] = await db.batch([
+			db
 				.select({
+					id: learningEvents.id,
+					actorId: learningEvents.actorId,
 					targetId: learningEvents.targetId,
 					targetType: learningEvents.targetType,
 					metadata: learningEvents.metadata,
@@ -518,17 +532,51 @@ export async function recordOwnerInstructionEdges(
 				.from(learningEvents)
 				.where(
 					and(
-						eq(learningEvents.organizationId, fact.organizationId),
+						eq(learningEvents.organizationId, organizationId),
 						eq(learningEvents.actorType, "user"),
-						typeof feed.ownerUserId === "string"
-							? eq(learningEvents.actorId, feed.ownerUserId)
-							: undefined,
-						anyIds(db, learningEvents.id, ids),
+						anyIds(db, learningEvents.id, [
+							...new Set(inputs.flatMap((input) => [...input.ids])),
+						]),
 					),
 				)
-				.orderBy(learningEvents.occurredAt, learningEvents.id)
-				.limit(50);
+				.orderBy(learningEvents.occurredAt, learningEvents.id),
+			db
+				.select({
+					id: comments.id,
+					workItemId: comments.workItemId,
+					createdAt: comments.createdAt,
+				})
+				.from(comments)
+				.where(
+					and(
+						eq(comments.orgId, organizationId),
+						eq(comments.authorType, "user"),
+						anyIds(
+							db,
+							comments.id,
+							inputs.flatMap((input) => input.commentId ?? []),
+						),
+					),
+				),
+		]);
+		const commentsById = new Map(
+			sourceComments.map((comment) => [comment.id, comment]),
+		);
+		const captures = inputs.map(({ fact, feed, ids, commentId }) => {
+			let occurredAt = fact.createdAt ?? undefined;
+			let referencedSubjects = 0;
+			const candidates: DecisionGraphNode[] = [];
+			const addWork = (id: string) =>
+				candidates.push({ kind: "work_item", id });
+			const addCard = (id: string) =>
+				candidates.push({ kind: "deck_card", id });
 			for (const event of events) {
+				if (
+					!ids.has(event.id) ||
+					(typeof feed.ownerUserId === "string" &&
+						event.actorId !== feed.ownerUserId)
+				)
+					continue;
 				occurredAt = event.occurredAt;
 				if (event.targetId && event.targetType === "work_interaction")
 					addCard(event.targetId);
@@ -536,8 +584,7 @@ export async function recordOwnerInstructionEdges(
 					addWork(event.targetId);
 				const context = record(event.metadata?.decisionContext);
 				if (typeof context.workItemId === "string") addWork(context.workItemId);
-				// Chat imports retain the user's quote. Only explicit record links
-				// identify covered subjects; prose and model-generated titles do not.
+				// Only explicit links in a user's quote identify covered subjects.
 				const answer =
 					typeof event.metadata?.answer === "string"
 						? event.metadata.answer.slice(0, 20000)
@@ -551,40 +598,26 @@ export async function recordOwnerInstructionEdges(
 					else addCard(match[2]!);
 				}
 			}
-		}
-		const commentId = fact.source?.match(/^work-comment:([^:]+)$/)?.[1];
-		if (commentId) {
-			const [comment] = await db
-				.select({
-					workItemId: comments.workItemId,
-					createdAt: comments.createdAt,
-				})
-				.from(comments)
-				.where(
-					and(
-						eq(comments.orgId, fact.organizationId),
-						eq(comments.id, commentId),
-						eq(comments.authorType, "user"),
-					),
-				)
-				.limit(1);
+			const comment = commentId ? commentsById.get(commentId) : undefined;
 			if (comment) {
 				addWork(comment.workItemId);
 				occurredAt = comment.createdAt;
 			}
-		}
+			return { fact, candidates, occurredAt };
+		});
+		const candidates = captures.flatMap((capture) => capture.candidates);
 		const cards = await db
 			.select({ id: interactions.id, workItemId: interactions.workItemId })
 			.from(interactions)
 			.where(
 				and(
-					eq(interactions.orgId, fact.organizationId),
+					eq(interactions.orgId, organizationId),
 					eq(interactions.targetType, "user"),
-					anyIds(
-						db,
-						interactions.id,
-						candidates.filter((c) => c.kind === "deck_card").map((c) => c.id),
-					),
+					anyIds(db, interactions.id, [
+						...new Set(
+							candidates.filter((c) => c.kind === "deck_card").map((c) => c.id),
+						),
+					]),
 				),
 			);
 		const cardsById = new Map(cards.map((card) => [card.id, card]));
@@ -593,46 +626,48 @@ export async function recordOwnerInstructionEdges(
 			.from(items)
 			.where(
 				and(
-					eq(items.orgId, fact.organizationId),
+					eq(items.orgId, organizationId),
 					anyIds(db, items.id, [
 						...new Set([
 							...candidates
 								.filter((c) => c.kind === "work_item")
 								.map((c) => c.id),
-							...cards.flatMap((c) => (c.workItemId ? [c.workItemId] : [])),
+							...cards.flatMap((card) => card.workItemId ?? []),
 						]),
 					]),
 				),
 			);
 		const validWorkIds = new Set(works.map((work) => work.id));
-		for (const candidate of candidates) {
-			if (candidate.kind === "work_item") {
-				if (validWorkIds.has(candidate.id))
-					subjects.set(`work:${candidate.id}`, candidate);
-			} else {
-				const card = cardsById.get(candidate.id);
-				if (!card) continue;
-				subjects.set(`card:${candidate.id}`, candidate);
-				if (card.workItemId && validWorkIds.has(card.workItemId))
-					subjects.set(`work:${card.workItemId}`, {
-						kind: "work_item",
-						id: card.workItemId,
-					});
-			}
-		}
-		await writeDecisionEdgesBestEffort(
-			db,
-			fact.organizationId,
-			[...subjects.values()].map((from) => ({
-				kind: "decided_by",
-				from,
-				to: { kind: "owner_instruction", id: fact.id },
-				source: "owner_instruction_capture",
-				evidenceRef: `memory-fact:${fact.id}`,
-				note: label(fact.content),
-				occurredAt,
-			})),
+		const edges: DecisionEdgeInput[] = captures.flatMap(
+			({ fact, candidates, occurredAt }) => {
+				const subjects = new Map<string, DecisionGraphNode>();
+				for (const candidate of candidates) {
+					if (candidate.kind === "work_item") {
+						if (validWorkIds.has(candidate.id))
+							subjects.set(`work:${candidate.id}`, candidate);
+					} else {
+						const card = cardsById.get(candidate.id);
+						if (!card) continue;
+						subjects.set(`card:${candidate.id}`, candidate);
+						if (card.workItemId && validWorkIds.has(card.workItemId))
+							subjects.set(`work:${card.workItemId}`, {
+								kind: "work_item",
+								id: card.workItemId,
+							});
+					}
+				}
+				return [...subjects.values()].map((from) => ({
+					kind: "decided_by",
+					from,
+					to: { kind: "owner_instruction", id: fact.id },
+					source: "owner_instruction_capture",
+					evidenceRef: `memory-fact:${fact.id}`,
+					note: label(fact.content),
+					occurredAt,
+				}));
+			},
 		);
+		await writeDecisionEdgesBestEffort(db, organizationId, edges);
 	} catch {
 		skipped("owner_instruction_capture");
 	}
