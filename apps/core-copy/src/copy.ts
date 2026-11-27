@@ -34,6 +34,8 @@ export const LARGE_ROW_PAGE_SIZES: Record<string, number> = {
 	agent_session_events: 50,
 	skill_runs: 50,
 	skill_run_artifacts: 100,
+	// A 500-row page came to about 145 MB.
+	os_gadget_code_blobs: 10,
 };
 export const PAUSE_MS = 250;
 /** Pages one cron tick may copy before yielding to the next schedule. */
@@ -226,12 +228,11 @@ export async function copyTable(
 	// Receipts kept inline by an earlier version stay in the state; new ones
 	// go to their own keys after them.
 	let count = existing?.pages ?? 0;
-	const pageSize =
-		existing?.pageSize ??
-		(existing?.state ? PAGE_SIZE : undefined) ??
-		options.pageSize ??
-		LARGE_ROW_PAGE_SIZES[tableName] ??
-		PAGE_SIZE;
+	// Fixed once pages exist; a table that failed before its first page can
+	// still pick up a new size.
+	const pageSize = existing?.state
+		? (existing.pageSize ?? PAGE_SIZE)
+		: (options.pageSize ?? LARGE_ROW_PAGE_SIZES[tableName] ?? PAGE_SIZE);
 	const water =
 		latest !== undefined && existing?.highWater !== undefined
 			? existing.highWater
