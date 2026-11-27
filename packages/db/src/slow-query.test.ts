@@ -217,7 +217,7 @@ describe("per-request D1 ledger", () => {
 				"ok",
 				"org-fictional",
 			],
-			doubles: [1, 30, 500, 3, 1],
+			doubles: [1, 30, 500, 3, 1, 0],
 		});
 		const failure = new Error("private-failure");
 		await expect(
@@ -253,7 +253,7 @@ describe("per-request D1 ledger", () => {
 				.length,
 		).toBe(95);
 		expect(writeDataPoint.mock.calls.at(-1)![0].doubles).toEqual([
-			0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0,
 		]);
 		await withD1Ledger("outer", () => withD1Ledger("job", async () => {}), {
 			analytics,

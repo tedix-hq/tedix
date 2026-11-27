@@ -83,7 +83,10 @@ function normalize(table: CopyTable, row: Row, fromPg = false): Row {
 				return [column, copiedRowid(column, value)];
 			}
 			let value = row[column];
-			if (value === undefined) throw new Error(`Missing column ${column}`);
+			if (value === undefined)
+				throw new Error(
+					`Missing column ${column}; source row has ${Object.keys(row).join(",")}`,
+				);
 			if (value !== null) {
 				if (kind === "json" && !fromPg && typeof value === "string")
 					value = JSON.parse(value);

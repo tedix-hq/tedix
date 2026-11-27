@@ -16,6 +16,8 @@ const requestLogger = createLogger<{
 	rowsReturned: number;
 	maxInFlight: number;
 	overloaded: number;
+	servedByReplica: number;
+	servedRegions: string;
 	topShapes: string;
 	topReadShapes: string;
 }>({ component: "db.request" });
@@ -45,6 +47,10 @@ type Ledger = {
 	inFlight: number;
 	maxInFlight: number;
 	overloaded: number;
+	/** Statements a D1 read replica answered, from `meta.served_by_primary`. */
+	servedByReplica: number;
+	/** Regions that answered, from `meta.served_by_region`. */
+	servedRegions: Set<string>;
 	shapes: Map<
 		string,
 		{ n: number; wallMs: number; rowsReturned: number; rowsRead: number }
@@ -88,6 +94,8 @@ export async function withD1Ledger<T>(
 		inFlight: 0,
 		maxInFlight: 0,
 		overloaded: 0,
+		servedByReplica: 0,
+		servedRegions: new Set(),
 		shapes: new Map(),
 		reads: new Map(),
 	};
@@ -131,6 +139,7 @@ export async function withD1Ledger<T>(
 						ledger.rowsRead,
 						ledger.rowsWritten,
 						ledger.maxInFlight,
+						ledger.servedByReplica,
 					],
 				});
 			} catch {
@@ -155,6 +164,8 @@ export async function withD1Ledger<T>(
 				rowsReturned: ledger.rowsReturned,
 				maxInFlight: ledger.maxInFlight,
 				overloaded: ledger.overloaded,
+				servedByReplica: ledger.servedByReplica,
+				servedRegions: [...ledger.servedRegions].join(","),
 				topReadShapes: [...ledger.shapes]
 					.sort((a, b) => b[1].rowsRead - a[1].rowsRead)
 					.slice(0, 3)
@@ -244,6 +255,12 @@ function tally(
 	ledger.rowsRead += result?.meta?.rows_read ?? 0;
 	ledger.rowsWritten += result?.meta?.rows_written ?? 0;
 	ledger.rowsReturned += returned;
+	const served = result?.meta as
+		| { served_by_primary?: boolean; served_by_region?: string }
+		| undefined;
+	if (served?.served_by_primary === false) ledger.servedByReplica += 1;
+	if (served?.served_by_region)
+		ledger.servedRegions.add(served.served_by_region);
 	if (error instanceof Error && /overloaded/i.test(error.message))
 		ledger.overloaded += 1;
 	const shape = sql.replace(SQL_TOKENS, (token) =>
