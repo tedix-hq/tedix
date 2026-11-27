@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
-import { kernelRuntimeEvents } from "../schema/cognitive-runtime";
+import { coreTable } from "../core-store/client";
+import { kernelRuntimeEvents as d1KernelRuntimeEvents } from "../schema/cognitive-runtime";
 import { chunkForBoundParams } from "../utils/batch";
 import { readLogStores } from "../utils/log-store";
 
@@ -19,6 +20,7 @@ export async function listWithdrawnSteeringMessageIds(
 		messageIds: string[];
 	},
 ): Promise<string[]> {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
 	if (!input.messageIds.length) return [];
 	const pages = await readLogStores(db, (store) =>
 		listWithdrawnSteeringMessageIds(store, input),

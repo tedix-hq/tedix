@@ -1,10 +1,12 @@
 import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
+import { jsonRead } from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
 import { auditReadTable, readAuditStores } from "./audit-delivery";
-import { kernelWakeQueue } from "../schema/cognitive-runtime";
+import { kernelWakeQueue as d1KernelWakeQueue } from "../schema/cognitive-runtime";
 import { mergeLogStoreRows } from "../utils/log-store";
-import { workstationLeases } from "../schema/workstations";
+import { workstationLeases as d1WorkstationLeases } from "../schema/workstations";
 
 export async function listHomeRunAuditReferences(
 	db: DbQueryClient,
@@ -36,7 +38,7 @@ export async function listHomeRunAuditReferences(
 	return db
 		.select({
 			id: auditEvents.id,
-			traceId: sql<string>`json_extract(${auditEvents.metadata}, '$.traceId')`,
+			traceId: sql<string>`${jsonRead(db, auditEvents.metadata, ["traceId"])}`,
 		})
 		.from(auditEvents)
 		.where(
@@ -44,7 +46,7 @@ export async function listHomeRunAuditReferences(
 				eq(auditEvents.organizationId, input.organizationId),
 				gte(auditEvents.timestamp, input.from),
 				lte(auditEvents.timestamp, input.to),
-				sql`json_extract(${auditEvents.metadata}, '$.traceId') IN (${sql.join(
+				sql`${jsonRead(db, auditEvents.metadata, ["traceId"])} IN (${sql.join(
 					input.childRunIds.map((id) => sql`${id}`),
 					sql`, `,
 				)})`,
@@ -57,6 +59,7 @@ export async function listHomeRunWakeReceipts(
 	db: DbClient,
 	input: { organizationId: string; childRunIds: string[]; limit: number },
 ) {
+	const kernelWakeQueue = coreTable(db, d1KernelWakeQueue);
 	if (input.childRunIds.length === 0) return [];
 	return db
 		.select()
@@ -77,6 +80,7 @@ export async function listHomeRunWorkstationReferences(
 	db: DbClient,
 	input: { organizationId: string; kernelRunId: string; limit: number },
 ) {
+	const workstationLeases = coreTable(db, d1WorkstationLeases);
 	return db
 		.select({
 			id: workstationLeases.id,

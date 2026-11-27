@@ -2,15 +2,17 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
-import { policyPacks } from "../schema/control-plane";
-import { type Tedi, tedis } from "../schema/tedis";
-import { workItemComments } from "../schema/work-items";
+import { coreTable } from "../core-store/client";
+import { policyPacks as d1PolicyPacks } from "../schema/control-plane";
+import { type Tedi, tedis as d1Tedis } from "../schema/tedis";
+import { workItemComments as d1WorkItemComments } from "../schema/work-items";
 
 /** Organization authority must never fall back to a platform default. */
 export async function getActiveOrganizationPolicyPack(
 	db: DbQueryClient,
 	organizationId: string,
 ) {
+	const policyPacks = coreTable(db, d1PolicyPacks);
 	return (
 		await db
 			.select()
@@ -30,6 +32,7 @@ export async function getActivePolicyPackDefinition(
 	db: DbClient,
 	organizationId: string,
 ): Promise<Record<string, unknown> | null | undefined> {
+	const policyPacks = coreTable(db, d1PolicyPacks);
 	const [organizationRow] = await db
 		.select({
 			definition: policyPacks.definition,
@@ -99,6 +102,7 @@ export async function getOrganizationTedi(
 	db: DbClient,
 	input: { id: string; organizationId: string },
 ): Promise<Tedi | undefined> {
+	const tedis = coreTable(db, d1Tedis);
 	const [row] = await db
 		.select()
 		.from(tedis)
@@ -114,8 +118,9 @@ export async function getOrganizationTedi(
 
 export async function insertWorkItemCommentIfAbsent(
 	db: DbClient,
-	input: typeof workItemComments.$inferInsert,
+	input: typeof d1WorkItemComments.$inferInsert,
 ): Promise<boolean> {
+	const workItemComments = coreTable(db, d1WorkItemComments);
 	const rows = await db
 		.insert(workItemComments)
 		.values(input)

@@ -1,19 +1,31 @@
 import type { KernelRequestSnapshot } from "@tedix/api-contract/schemas/kernel-request";
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { agentSessionRequests } from "../schema/agent-session-requests";
+import { agentSessionRequests as d1AgentSessionRequests } from "../schema/agent-session-requests";
 import type { WorkAgentSessionHarness } from "../schema/work-agent-sessions";
 import {
-	kernelRuntimeEvents,
-	kernelRuntimeRuns,
+	kernelRuntimeEvents as d1KernelRuntimeEvents,
+	kernelRuntimeRuns as d1KernelRuntimeRuns,
 } from "../schema/cognitive-runtime";
 import type { DbQueryClient } from "../query-client";
+import {
+	anyIds,
+	coreStore,
+	jsonParameter,
+	jsonRead,
+	jsonType,
+	jsonWrite,
+} from "../core-store/dialect";
+import { coreTable } from "../core-store/client";
 import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import { prefixedColumns } from "../utils/select";
-import { workAttempts, workItems } from "../schema/work-items";
 import {
-	kernelRequests,
-	kernelRequestEvents,
+	workAttempts as d1WorkAttempts,
+	workItems as d1WorkItems,
+} from "../schema/work-items";
+import {
+	kernelRequests as d1KernelRequests,
+	kernelRequestEvents as d1KernelRequestEvents,
 	type KernelRequestRow,
 } from "../schema/kernel-requests";
 
@@ -22,12 +34,14 @@ export interface KernelRequestScope {
 	ownerUserId: string;
 	id: string;
 }
-const scoped = (s: KernelRequestScope) =>
-	and(
-		eq(kernelRequests.organizationId, s.organizationId),
-		eq(kernelRequests.ownerUserId, s.ownerUserId),
-		eq(kernelRequests.id, s.id),
+function scoped(db: DbQueryClient, s: KernelRequestScope) {
+	const table = coreTable(db, d1KernelRequests);
+	return and(
+		eq(table.organizationId, s.organizationId),
+		eq(table.ownerUserId, s.ownerUserId),
+		eq(table.id, s.id),
 	);
+}
 
 function requireNextAction(row: {
 	snapshot: KernelRequestSnapshot;
@@ -52,16 +66,19 @@ export async function getKernelRequest(
 	db: DbQueryClient,
 	scope: KernelRequestScope,
 ) {
+	const kernelRequests = coreTable(db, d1KernelRequests);
 	return (
-		await db.select().from(kernelRequests).where(scoped(scope)).limit(1)
+		await db.select().from(kernelRequests).where(scoped(db, scope)).limit(1)
 	)[0];
 }
 
 /** Caller authorizes the source and supplies its durable id before recording intake. */
 export async function receiveKernelRequest(
 	db: DbQueryClient,
-	row: typeof kernelRequests.$inferInsert,
+	row: typeof d1KernelRequests.$inferInsert,
 ) {
+	const kernelRequests = coreTable(db, d1KernelRequests);
+	const kernelRequestEvents = coreTable(db, d1KernelRequestEvents);
 	requireNextAction(row);
 	await db.batch([
 		db.insert(kernelRequests).values(row).onConflictDoNothing(),
@@ -80,7 +97,10 @@ export async function receiveKernelRequest(
 					})
 					.from(kernelRequests)
 					.where(
-						and(scoped(row), eq(kernelRequests.lastEventId, row.lastEventId)),
+						and(
+							scoped(db, row),
+							eq(kernelRequests.lastEventId, row.lastEventId),
+						),
 					),
 			)
 			.onConflictDoNothing({
@@ -113,7 +133,7 @@ export interface TransitionKernelRequestParams extends KernelRequestScope {
 	now: string;
 }
 
-/** CAS and append are one D1 transaction. Losing writers cannot append an event. */
+/** CAS and append are one atomic batch. Losing writers cannot append an event. */
 export async function transitionKernelRequest(
 	db: DbQueryClient,
 	p: TransitionKernelRequestParams,
@@ -141,6 +161,8 @@ function buildKernelRequestTransitionStatements(
 	db: DbQueryClient,
 	p: TransitionKernelRequestParams,
 ) {
+	const kernelRequests = coreTable(db, d1KernelRequests);
+	const kernelRequestEvents = coreTable(db, d1KernelRequestEvents);
 	requireNextAction(p);
 	const version = p.expectedVersion + 1;
 	return [
@@ -155,7 +177,7 @@ function buildKernelRequestTransitionStatements(
 				lastEventId: p.eventId,
 				updatedAt: p.now,
 			})
-			.where(and(scoped(p), eq(kernelRequests.version, p.expectedVersion)))
+			.where(and(scoped(db, p), eq(kernelRequests.version, p.expectedVersion)))
 			.returning(),
 		db
 			.insert(kernelRequestEvents)
@@ -173,7 +195,7 @@ function buildKernelRequestTransitionStatements(
 					.from(kernelRequests)
 					.where(
 						and(
-							scoped(p),
+							scoped(db, p),
 							eq(kernelRequests.version, version),
 							eq(kernelRequests.lastEventId, p.eventId),
 						),
@@ -190,6 +212,7 @@ export async function listDueKernelRequests(
 	db: DbQueryClient,
 	p: { organizationId: string; now: string; limit: number },
 ) {
+	const kernelRequests = coreTable(db, d1KernelRequests);
 	return db
 		.select()
 		.from(kernelRequests)
@@ -208,6 +231,10 @@ export async function listDueKernelRequestsWithHomeRuns(
 	db: DbQueryClient,
 	p: { organizationId: string; now: string; limit: number },
 ) {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
+	const workAttempts = coreTable(db, d1WorkAttempts);
+	const workItems = coreTable(db, d1WorkItems);
+	const kernelRequests = coreTable(db, d1KernelRequests);
 	const work = prefixedColumns(workItems, "home_work");
 	const attempt = prefixedColumns(workAttempts, "home_attempt");
 	const rows = await db
@@ -240,7 +267,7 @@ export async function listDueKernelRequestsWithHomeRuns(
 				eq(workItems.orgId, kernelRequests.organizationId),
 				eq(
 					workItems.id,
-					sql`coalesce(json_extract(${kernelRuntimeRuns.metadata}, '$.workItemId'), json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId'))`,
+					sql`coalesce(${jsonRead(db, kernelRuntimeRuns.metadata, ["workItemId"])}, ${jsonRead(db, kernelRuntimeRuns.runtimeMetadata, ["workItemId"])})`,
 				),
 			),
 		)
@@ -282,8 +309,9 @@ export async function listKernelRequestEvents(
 	db: DbQueryClient,
 	s: KernelRequestScope,
 ) {
-	const read = (store: DbQueryClient) =>
-		store
+	const read = (store: DbQueryClient) => {
+		const kernelRequestEvents = coreTable(store, d1KernelRequestEvents);
+		return store
 			.select()
 			.from(kernelRequestEvents)
 			.where(
@@ -295,6 +323,7 @@ export async function listKernelRequestEvents(
 			)
 			.orderBy(asc(kernelRequestEvents.version))
 			.limit(100);
+	};
 	const pages = await readLogStores(db, read);
 	if (!pages) return read(db);
 	return mergeLogStoreRows(pages, {
@@ -308,11 +337,16 @@ export async function listDueKernelRequestOrganizations(
 	db: DbQueryClient,
 	now: string,
 ) {
+	const kernelRequests = coreTable(db, d1KernelRequests);
 	return (
 		db
 			.select({ organizationId: sql<string>`${kernelRequests.organizationId}` })
 			// GROUP BY otherwise favors a full scan of the tenant-leading index.
-			.from(sql`${kernelRequests} INDEXED BY kernel_requests_global_due_idx`)
+			.from(
+				coreStore(db) === "postgres"
+					? kernelRequests
+					: sql`${kernelRequests} INDEXED BY kernel_requests_global_due_idx`,
+			)
 			.where(lte(kernelRequests.nextDueAt, now))
 			.groupBy(kernelRequests.organizationId)
 			.orderBy(
@@ -333,22 +367,23 @@ export async function wakeRepositoryKernelRequests(
 		now: string;
 	},
 ) {
+	const kernelRequests = coreTable(db, d1KernelRequests);
 	// Only scheduling metadata changes: events are hints, never acceptance evidence.
-	return db
+	const statement = db
 		.update(kernelRequests)
 		.set({ nextDueAt: p.now })
 		.where(
 			and(
 				eq(kernelRequests.organizationId, p.organizationId),
 				sql`${kernelRequests.nextDueAt} > ${p.now}`,
-				sql`(${p.workAttempts ? 1 : 0} = 1 and ${kernelRequests.sourceKind} = 'work_attempt' or exists (
-			select 1 from json_each(${kernelRequests.snapshot}, '$.checks') as c
-			where json_extract(c.value, '$.kind') = 'repository_delivery'
-			and json_extract(c.value, '$.targetId') in (select value from json_each(${JSON.stringify(p.targetIds)}))
-		))`,
+				sql`(${p.workAttempts ? 1 : 0} = 1 and ${kernelRequests.sourceKind} = 'work_attempt' or ${
+					coreStore(db) === "postgres"
+						? sql`exists (select 1 from jsonb_array_elements(${jsonRead(db, kernelRequests.snapshot, ["checks"], "json")}) as c(value) where c.value->>'kind' = 'repository_delivery' and ${anyIds(db, sql`c.value->>'targetId'`, p.targetIds)})`
+						: sql`exists (select 1 from json_each(${kernelRequests.snapshot}, '$.checks') as c where json_extract(c.value, '$.kind') = 'repository_delivery' and ${anyIds(db, sql`json_extract(c.value, '$.targetId')`, p.targetIds)})`
+				})`,
 			),
-		)
-		.run();
+		);
+	return db.run(statement.getSQL());
 }
 
 /** Atomically fence source publication against cancellation, rebriefing and successor Attempts. */
@@ -367,6 +402,8 @@ export async function publishKernelRequestReport(
 		now: string;
 	},
 ) {
+	const kernelRuntimeEvents = coreTable(db, d1KernelRuntimeEvents);
+	const kernelRequests = coreTable(db, d1KernelRequests);
 	await db
 		.insert(kernelRuntimeEvents)
 		.select(
@@ -380,20 +417,18 @@ export async function publishKernelRequestReport(
 					),
 					runId: sql<string>`${p.runId}`.as("run_id"),
 					messageId: sql<string>`${p.messageId}`.as("message_id"),
-					payload: sql<
-						Record<string, JsonValue>
-					>`${JSON.stringify(p.payload)}`.as("payload"),
+					payload: jsonParameter(db, p.payload).as("payload"),
 					runtimeBackend: sql<"custom">`'custom'`.as("runtime_backend"),
 					createdAt: sql<string>`${p.now}`.as("created_at"),
 				})
 				.from(kernelRequests)
 				.where(
 					and(
-						scoped(p),
+						scoped(db, p),
 						eq(kernelRequests.version, p.expectedVersion),
-						sql`json_extract(${kernelRequests.snapshot}, '$.acceptanceKey') = ${p.acceptanceKey}`,
-						sql`json_extract(${kernelRequests.snapshot}, '$.delivery.intentId') = ${p.intentId}`,
-						sql`json_extract(${kernelRequests.snapshot}, '$.delivery.status') = 'pending'`,
+						sql`${jsonRead(db, kernelRequests.snapshot, ["acceptanceKey"])} = ${p.acceptanceKey}`,
+						sql`${jsonRead(db, kernelRequests.snapshot, ["delivery", "intentId"])} = ${p.intentId}`,
+						sql`${jsonRead(db, kernelRequests.snapshot, ["delivery", "status"])} = 'pending'`,
 						sql`EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id=${p.organizationId} AND m.descope_user_id=${p.ownerUserId} AND m.status='active')`,
 						sql`(NOT EXISTS (SELECT 1 FROM kernel_conversation_grants g WHERE g.organization_id=${p.organizationId} AND g.conversation_id=${p.conversationId}) OR EXISTS (SELECT 1 FROM kernel_conversation_grants g WHERE g.organization_id=${p.organizationId} AND g.conversation_id=${p.conversationId} AND g.grantee_descope_user_id=${p.ownerUserId}))`,
 						sql`EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${p.organizationId} AND w.id=${p.workItemId} AND w.disposition != 'cancelled')`,
@@ -412,7 +447,7 @@ export async function publishKernelRequestReport(
 					eq(kernelRuntimeEvents.organizationId, p.organizationId),
 					eq(kernelRuntimeEvents.conversationId, p.conversationId),
 					eq(kernelRuntimeEvents.runId, p.runId),
-					sql`json_extract(${kernelRuntimeEvents.payload}, '$.metadata.requestId') = ${p.id}`,
+					sql`${jsonRead(db, kernelRuntimeEvents.payload, ["metadata", "requestId"])} = ${p.id}`,
 				),
 			)
 			.limit(1)
@@ -425,6 +460,7 @@ export async function getHomeKernelRequest(
 	organizationId: string,
 	runId: string,
 ) {
+	const kernelRequests = coreTable(db, d1KernelRequests);
 	return (
 		await db
 			.select()
@@ -446,10 +482,21 @@ export async function projectKernelRequestOnHomeRun(
 	db: DbQueryClient,
 	row: KernelRequestRow,
 ) {
+	const kernelRuntimeRuns = coreTable(db, d1KernelRuntimeRuns);
 	await db
 		.update(kernelRuntimeRuns)
 		.set({
-			metadata: sql`json_set(coalesce(${kernelRuntimeRuns.metadata}, '{}'), '$.kernelRequestAcceptance', json(${JSON.stringify(row.snapshot)}), '$.kernelRequestId', ${row.id})`,
+			metadata: jsonWrite(
+				db,
+				jsonWrite(
+					db,
+					kernelRuntimeRuns.metadata,
+					["kernelRequestAcceptance"],
+					row.snapshot,
+				),
+				["kernelRequestId"],
+				row.id,
+			),
 		})
 		.where(
 			and(
@@ -470,6 +517,7 @@ export async function listLocalRequestsForKernelCapture(
 		sourceAt: string;
 	},
 ) {
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
 	return db
 		.select()
 		.from(agentSessionRequests)
@@ -500,6 +548,7 @@ export async function publishLocalKernelRequestReport(
 		now: string;
 	},
 ) {
+	const agentSessionRequests = coreTable(db, d1AgentSessionRequests);
 	const rows = await db
 		.update(agentSessionRequests)
 		.set({
@@ -514,7 +563,7 @@ export async function publishLocalKernelRequestReport(
 				eq(agentSessionRequests.userId, p.ownerUserId),
 				eq(agentSessionRequests.id, p.sourceId),
 				sql`${agentSessionRequests.status} != 'cancelled'`,
-				sql`EXISTS (SELECT 1 FROM kernel_requests r WHERE r.organization_id=${p.organizationId} AND r.owner_user_id=${p.ownerUserId} AND r.id=${p.id} AND r.source_kind='agent_session_request' AND r.source_id=${p.sourceId} AND r.version=${p.expectedVersion} AND json_extract(r.snapshot,'$.acceptanceKey')=${p.acceptanceKey} AND json_extract(r.snapshot,'$.delivery.intentId')=${p.intentId} AND json_extract(r.snapshot,'$.delivery.status')='pending')`,
+				sql`EXISTS (SELECT 1 FROM kernel_requests r WHERE r.organization_id=${p.organizationId} AND r.owner_user_id=${p.ownerUserId} AND r.id=${p.id} AND r.source_kind='agent_session_request' AND r.source_id=${p.sourceId} AND r.version=${p.expectedVersion} AND ${jsonRead(db, sql`r.snapshot`, ["acceptanceKey"])}=${p.acceptanceKey} AND ${jsonRead(db, sql`r.snapshot`, ["delivery", "intentId"])}=${p.intentId} AND ${jsonRead(db, sql`r.snapshot`, ["delivery", "status"])}='pending')`,
 				sql`EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id=${p.organizationId} AND m.descope_user_id=${p.ownerUserId} AND m.status='active')`,
 				sql`EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${p.organizationId} AND w.id=${p.workItemId} AND w.disposition != 'cancelled')`,
 				sql`EXISTS (SELECT 1 FROM work_attempts a WHERE a.org_id=${p.organizationId} AND a.work_item_id=${p.workItemId} AND a.id=${p.attemptId} AND a.outcome='succeeded' AND NOT EXISTS (SELECT 1 FROM work_attempts n WHERE n.org_id=a.org_id AND n.work_item_id=a.work_item_id AND n.attempt_number > a.attempt_number))`,
@@ -532,11 +581,12 @@ export const DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS = 6 * 3_600_000;
  * tracker once. `since` bounds the scan on `idx_work_attempt_expiry` (a settled
  * Attempt keeps its last lease expiry).
  */
-function uncapturedDispatcherAttempts(since: string) {
+function uncapturedDispatcherAttempts(db: DbQueryClient, since: string) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	return and(
 		inArray(workAttempts.runtimeState, ["finished", "failed", "expired"]),
 		gte(workAttempts.expiresAt, since),
-		sql`json_extract(${workAttempts.metadata}, '$.dispatchVersion') IS NOT NULL`,
+		sql`${jsonRead(db, workAttempts.metadata, ["dispatchVersion"])} IS NOT NULL`,
 		sql`NOT EXISTS (SELECT 1 FROM kernel_requests r WHERE r.organization_id = ${workAttempts.orgId} AND r.owner_user_id = ${workAttempts.executorId} AND r.source_kind = 'work_attempt' AND r.source_id = ${workAttempts.id})`,
 	);
 }
@@ -550,6 +600,7 @@ export async function listUncapturedDispatcherAttempts(
 		workItemIds?: string[];
 	},
 ) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	if (p.workItemIds && p.workItemIds.length > 50)
 		throw new Error("Dispatcher verification cohort is limited to 50 Work IDs");
 	return db
@@ -562,7 +613,7 @@ export async function listUncapturedDispatcherAttempts(
 					? // bound-params: cohort length is checked at this query boundary, maximum 50.
 						inArray(workAttempts.workItemId, p.workItemIds)
 					: undefined,
-				uncapturedDispatcherAttempts(p.since),
+				uncapturedDispatcherAttempts(db, p.since),
 			),
 		)
 		.orderBy(asc(workAttempts.expiresAt), asc(workAttempts.id))
@@ -578,17 +629,18 @@ export async function listDispatcherAttemptCaptureOrganizations(
 	db: DbQueryClient,
 	since: string,
 ) {
+	const workAttempts = coreTable(db, d1WorkAttempts);
 	return db
 		.select({ organizationId: workAttempts.orgId })
 		.from(workAttempts)
 		.where(
 			and(
-				uncapturedDispatcherAttempts(since),
-				sql`(SELECT json_extract(p.definition, '$.kernelRequestCoordinator.enabled') = 1
-					AND json_type(p.definition, '$.kernelRequestCoordinator.workAttemptDelivery') = 'object'
+				uncapturedDispatcherAttempts(db, since),
+				sql`(SELECT ${jsonRead(db, sql`p.definition`, ["kernelRequestCoordinator", "enabled"], "boolean")} = ${coreStore(db) === "postgres" ? sql`true` : sql`1`}
+					AND ${jsonType(db, sql`p.definition`, ["kernelRequestCoordinator", "workAttemptDelivery"])} = 'object'
 					FROM policy_packs p
 					WHERE p.organization_id = ${workAttempts.orgId} AND p.status = 'active'
-					ORDER BY p.version DESC LIMIT 1) = 1`,
+					ORDER BY p.version DESC LIMIT 1) = ${coreStore(db) === "postgres" ? sql`true` : sql`1`}`,
 			),
 		)
 		.groupBy(workAttempts.orgId)
