@@ -18,7 +18,6 @@ import {
 interface PluginHostEnv {
 	LOADER: WorkerLoader;
 	DB_DO: DurableObjectNamespace;
-	PLATFORM_DB: D1Database;
 }
 
 export interface TenantPluginScope {

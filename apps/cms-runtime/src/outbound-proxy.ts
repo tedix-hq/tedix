@@ -1,5 +1,6 @@
 import { isMarketingHost, marketingResponse } from "./marketing";
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { withCmsCoreStore } from "./core-store";
 import type { Env } from "./env";
 import { withSharedCmsRestorePermit } from "./tenant-restore-fence";
 import {
@@ -42,8 +43,15 @@ export class CmsOutboundProxy extends WorkerEntrypoint<
 	CmsOutboundProxyProps
 > {
 	async fetch(request: Request): Promise<Response> {
-		return withSharedCmsRestorePermit(this.env, this.ctx.props, () =>
-			this.fetchPermitted(request),
+		// The marketing host reads the core store, so this RPC entrypoint needs
+		// its own scope like every other Worker entrypoint.
+		return withCmsCoreStore(
+			this.env,
+			() =>
+				withSharedCmsRestorePermit(this.env, this.ctx.props, () =>
+					this.fetchPermitted(request),
+				),
+			(promise) => this.ctx.waitUntil(promise),
 		);
 	}
 
