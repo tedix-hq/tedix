@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.30 (2026-11-27)
+
+### Patch Changes
+
+- `tedix poppy call --surface mcp` now reaches MCP servers that require clients to accept both JSON and streamed replies, instead of failing with HTTP 406.
+- Includes everything listed under 0.37.29, which was tagged but never published because two CLI tests still treated Cursor as an unknown agent.
+
 ## 0.37.29 (2026-11-27)
 
 ### Patch Changes
