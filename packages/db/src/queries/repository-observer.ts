@@ -594,12 +594,20 @@ export async function settleRecoveredRepositoryCiObservations(
 	);
 	return db.batch([
 		// Active attempts keep their lifecycle, but their late reports cannot reopen alerts.
+		// Stamp each alert once: readers only test presence, and re-stamping
+		// every recovered alert on each green run held the D1 writer for
+		// about a second per run.
 		db
 			.update(workItems)
 			.set({
 				metadata: jsonWrite(db, workItems.metadata, ["ciRecoveredAt"], p.now),
 			})
-			.where(scope),
+			.where(
+				and(
+					scope,
+					sql`${jsonRead(db, workItems.metadata, ["ciRecoveredAt"])} IS NULL`,
+				),
+			),
 		db
 			.update(workItems)
 			.set(settlementValues(db, p.now, "no action needed: ci_green recovery"))
