@@ -284,6 +284,45 @@ describe("owner skill starts", () => {
 	});
 });
 describe("owner gateway approvals", () => {
+	it("requires one visible enrollment decision and consumes it on the identical CLI retry", async () => {
+		const enrollment = {
+			...input,
+			directUserCall: true,
+			toolId: "external__create_external_agent_principal",
+			target: {
+				transport: "rpc",
+				endpoint: "externalAgentIdentity/createPrincipal",
+			},
+			args: {
+				organizationId: "org-1",
+				key: "local-runner",
+				credentialBindingType: "aih_m2m",
+			},
+		};
+		const first = await client().requestOwnerToolApproval(enrollment);
+		expect(first).toMatchObject({ approved: false, status: "pending" });
+		const row = mocks.create.mock.calls[0]![1];
+		expect(row.orgId).toBe("org-1");
+		mocks.pending.mockResolvedValue(row);
+		expect(await client().requestOwnerToolApproval(enrollment)).toMatchObject({
+			approvalRequestId: first.approvalRequestId,
+			status: "pending",
+		});
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "user:owner-1",
+		});
+		expect(
+			await client().requestOwnerToolApproval({
+				...enrollment,
+				approvalRequestId: first.approvalRequestId,
+			}),
+		).toMatchObject({ approved: true });
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		expect(mocks.consume).toHaveBeenCalledTimes(1);
+	});
+
 	it("creates an audited pending request in the existing OS queue", async () => {
 		const result = await client().requestOwnerToolApproval(input);
 		expect(result).toMatchObject({ approved: false, status: "pending" });

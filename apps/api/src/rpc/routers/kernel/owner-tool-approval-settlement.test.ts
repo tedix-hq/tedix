@@ -131,6 +131,27 @@ beforeEach(() => {
 afterEach(() => setOwnerToolExecutorForTest(null));
 
 describe("owner tool approval settlement", () => {
+	it("leaves an approved enrollment for the CLI to receive its one-time credential", async () => {
+		const row = approval({
+			payload: {
+				...payload,
+				target: {
+					transport: "rpc",
+					endpoint: "externalAgentIdentity/createPrincipal",
+				},
+			},
+		});
+		expect(
+			await settleOwnerToolCallApproval(context, {
+				approval: row,
+				status: "approved",
+			}),
+		).toBe("not_applicable");
+		expect(mocks.claim).not.toHaveBeenCalled();
+		expect(mocks.executor).not.toHaveBeenCalled();
+		expect(mocks.record).not.toHaveBeenCalled();
+	});
+
 	it.each([
 		{ sub: "owner-1", scopes: [], allowed: false },
 		{ sub: "other-owner", scopes: ["connections.execute"], allowed: false },

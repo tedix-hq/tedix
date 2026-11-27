@@ -29,6 +29,7 @@ import { baseErrorConstructors } from "@tedix/api-contract/errors";
  */
 
 import {
+	isExternalAgentEnrollment,
 	isRequesterOnlyOwnerToolFailure,
 	isRetryableOwnerToolExecution,
 	isStaleOwnerToolRun,
@@ -744,6 +745,8 @@ export async function settleOwnerToolCallApproval(
 	if (input.approval.actionType !== "mcp.tool_call") return "not_applicable";
 	const payload = parseOwnerToolCallPayload(input.approval.payload);
 	if (!payload || input.status !== "approved") return "not_applicable";
+	// The CLI resumes this approval and receives its one-time credential.
+	if (isExternalAgentEnrollment(payload.target)) return "not_applicable";
 	if (payload.execution)
 		return payload.execution.status === "executed"
 			? "succeeded"

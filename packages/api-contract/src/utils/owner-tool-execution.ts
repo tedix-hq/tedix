@@ -6,6 +6,16 @@
  */
 import { isRecord } from "./is-record";
 
+/** Enrollment returns a credential once, directly to the enrolling client. */
+export function isExternalAgentEnrollment(
+	target: { transport?: unknown; endpoint?: unknown } | null | undefined,
+): boolean {
+	return (
+		target?.transport === "rpc" &&
+		target.endpoint === "externalAgentIdentity/createPrincipal"
+	);
+}
+
 export interface OwnerToolExecutionRecord {
 	status: "queued" | "running" | "executed" | "failed";
 	nextAttemptAt?: string;

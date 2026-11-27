@@ -61,6 +61,41 @@ const descope = tool({
 const skill = tool({ transport: "rpc", endpoint: "skills/runWorkflow" });
 
 describe("effect-based gateway approval", () => {
+	it("parks enrollment in the target org without an interactive approval round", async () => {
+		const ctx = context();
+		ctx.app!.organizationId = "org-2";
+		vi.mocked(
+			ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+		).mockResolvedValue({ requireExplicitApprovalPolicy: false });
+		const enrollment = tool({
+			transport: "rpc",
+			endpoint: "externalAgentIdentity/createPrincipal",
+		});
+		enrollment.toolId = "external__create_external_agent_principal";
+		enrollment.annotations = { readOnlyHint: false, destructiveHint: false };
+		const args = { organizationId: "org-2", key: "local-runner" };
+		const result = await requireDestructiveToolApproval(
+			ctx,
+			enrollment,
+			enrollment.annotations,
+			{ args, extra },
+		);
+		expect(result?.isError).toBe(true);
+		expect(callToolResultText(result!)).toContain("Human approval required");
+		expect(
+			ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
+		).toHaveBeenCalledWith(
+			expect.objectContaining({
+				organizationId: "org-2",
+				args,
+				target: expect.objectContaining({
+					endpoint: "externalAgentIdentity/createPrincipal",
+				}),
+			}),
+		);
+		expect(ctx.server.server.elicitInput).not.toHaveBeenCalled();
+	});
+
 	it("projects Gmail drafts as bounded writes in discovery and scopes", () => {
 		expect(resolveWireAnnotations(gmail)).toMatchObject({
 			destructiveHint: false,

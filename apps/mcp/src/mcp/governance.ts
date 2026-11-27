@@ -1,4 +1,5 @@
 import { getApiClient } from "../lib/api-client";
+import { isExternalAgentEnrollment } from "@tedix/api-contract/utils/owner-tool-execution";
 import { getInternalApiClient } from "@tedix/api-client/internal";
 import { hasScope } from "@tedix/mcp-shared/auth/scopes";
 import { resolveFreshExternalAgentAihAuthority } from "../auth-helpers";
@@ -1990,6 +1991,7 @@ export async function requireDestructiveToolApproval(
 	const configuredApproval = readApprovalPolicy(agent, tool);
 	const workflowCaller = agent.callerIdentity;
 	const humanBoundary =
+		isExternalAgentEnrollment(tool.config) ||
 		annotations?.destructiveHint === true ||
 		(!reviewedEffect &&
 			!certificationStart &&

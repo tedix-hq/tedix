@@ -152,6 +152,7 @@ import {
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { requireOrgId } from "../org-scope";
+import { isExternalAgentEnrollment } from "@tedix/api-contract/utils/owner-tool-execution";
 import { isActiveOwnerOrAdmin } from "../org-membership";
 import { mayDecideWorkspaceConnection } from "../../services/os-app-connection";
 import {
@@ -1786,6 +1787,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 
 			if (
 				input.directUserCall &&
+				!isExternalAgentEnrollment(input.target) &&
 				!input.requestingAgent &&
 				!input.approvalRequestId &&
 				!egress
@@ -2105,7 +2107,9 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					actionType: "mcp.tool_call",
 					description: egress
 						? `Fetch ${egress.url} once for this turn. This run read sensitive data at ${egress.latchedAt}. The sensitive-data lock stays on; other egress remains blocked.`
-						: `${title}. In ${app} for ${requestedFor} (${organizationName}). ${input.target.requiredRole === "owner" ? "Only an owner can run this tool. " : input.target.requiredRole === "admin_or_owner" ? "Only an owner or admin can run this tool. " : ""}Nothing has run yet; approving runs this exact call once.`,
+						: isExternalAgentEnrollment(input.target)
+							? `Enroll this runner in ${organizationName} for ${requestedFor}. After approval, run the same tedix agent start command again to finish enrollment on that machine.`
+							: `${title}. In ${app} for ${requestedFor} (${organizationName}). ${input.target.requiredRole === "owner" ? "Only an owner can run this tool. " : input.target.requiredRole === "admin_or_owner" ? "Only an owner or admin can run this tool. " : ""}Nothing has run yet; approving runs this exact call once.`,
 					payload: {
 						kind: "mcp_tool_call",
 						...(input.userId
