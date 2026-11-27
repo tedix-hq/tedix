@@ -58,8 +58,9 @@ import {
 	type WorkflowStep,
 } from "cloudflare:workers";
 
+import { coreTable } from "@tedix/db/core-store/client";
 import { coreDb } from "@tedix/db/core-store/scope";
-import { mcpTasks } from "@tedix/db/schema/mcp-tasks";
+import { mcpTasks as taskTable } from "@tedix/db/schema/mcp-tasks";
 import { toJsonRecord, toJsonValue } from "@tedix/db/utils/json";
 import { eq } from "drizzle-orm";
 import { callApiRpc } from "../lib/rpc";
@@ -274,6 +275,7 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 	): Promise<void> {
 		const { taskId } = event.payload;
 		const db = coreDb(this.env);
+		const mcpTasks = coreTable(db, taskTable);
 
 		// Step 1 — load the task lifecycle scalars (Serializable across the step
 		// boundary). The exec-config + caller snapshots (JSON objects) are re-read
@@ -489,7 +491,7 @@ export class GenericTasksWorkflow extends WorkflowEntrypoint<
 		appId: string,
 	): Promise<void> {
 		try {
-			const state = await getGenericTaskState(this.env.DB, taskId, orgId);
+			const state = await getGenericTaskState(this.env, taskId, orgId);
 			await publishMcpTaskNotification({
 				env: this.env,
 				appId,

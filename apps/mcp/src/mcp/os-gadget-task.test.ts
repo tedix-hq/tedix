@@ -388,7 +388,7 @@ describe("aggregate tasks/get — os-gadget routing", () => {
 			executionId: EXECUTION_ID,
 		});
 		expect(store.readGenericTaskInputSnapshot).toHaveBeenCalledWith(
-			ENV.DB,
+			ENV,
 			TASK_ID,
 			"org_1",
 		);

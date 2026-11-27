@@ -41,7 +41,13 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
 	...(await importOriginal<typeof import("drizzle-orm")>()),
 	eq: (_col: unknown, value: unknown) => (r: Row) => r.taskId === value,
 }));
-vi.mock("@tedix/db/client", () => ({ createDbClient: () => fakeDb() }));
+vi.mock("@tedix/db/core-store/scope", () => ({
+	coreDb: () => fakeDb(),
+	withCoreStore: (_env: unknown, fn: () => unknown) => fn(),
+}));
+vi.mock("@tedix/db/core-store/client", () => ({
+	coreTable: (_db: unknown, table: unknown) => table,
+}));
 vi.mock("@tedix/db/schema/mcp-tasks", () => ({
 	mcpTasks: {
 		taskId: "task_id",

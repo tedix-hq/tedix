@@ -1273,7 +1273,7 @@ export class ToolHandler {
 				orgId
 			) {
 				const linked = await linkOsGadgetTask({
-					db: ctx.env.DB,
+					env: ctx.env,
 					appId: ctx.app?.id ?? ctx.appId,
 					organizationId: orgId,
 					toolId: ctx.toolId,

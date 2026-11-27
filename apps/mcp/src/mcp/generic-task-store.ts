@@ -10,8 +10,13 @@
  * run ids or namespaced `tedi:<id>:<runId>` ids.
  */
 
-import { createDbClient, createDbSession } from "@tedix/db/client";
-import { mcpTasks, type NewMcpTask } from "@tedix/db/schema/mcp-tasks";
+import { createDbSession } from "@tedix/db/client";
+import { coreTable, type CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
+import {
+	mcpTasks as taskTable,
+	type NewMcpTask,
+} from "@tedix/db/schema/mcp-tasks";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
 	McpTaskError,
@@ -79,7 +84,7 @@ export interface CapturedCaller {
 }
 
 export interface CreateGenericTaskInput {
-	db: D1Database;
+	env: CoreStoreEnv;
 	taskId: string;
 	orgId: string;
 	appId: string;
@@ -118,7 +123,8 @@ function buildInputRequests(
 export async function createGenericTask(
 	input: CreateGenericTaskInput,
 ): Promise<void> {
-	const db = createDbClient(input.db);
+	const db = coreDb(input.env);
+	const mcpTasks = coreTable(db, taskTable);
 	const now = new Date();
 	const ttlMs = input.ttlMs ?? GENERIC_TASK_TTL_MS;
 	const row: NewMcpTask = {
@@ -155,12 +161,13 @@ export async function createGenericTask(
  * writer and operators can correlate a task to its driving instance.
  */
 export async function setGenericTaskWorkflowId(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	taskId: string,
 	orgId: string,
 	workflowId: string,
 ): Promise<void> {
-	const db = createDbClient(d1);
+	const db = coreDb(env);
+	const mcpTasks = coreTable(db, taskTable);
 	await db
 		.update(mcpTasks)
 		.set({ workflowId, updatedAt: new Date().toISOString() })
@@ -176,16 +183,18 @@ export async function setGenericTaskWorkflowId(
  * project as null — the caller owns the not-found mapping.
  */
 export async function readGenericTaskInputSnapshot(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	taskId: string,
 	orgId: string,
 	options: { preferReplica?: boolean } = { preferReplica: true },
 ): Promise<Record<string, unknown> | null> {
 	// The routing row is written once at task creation, so a replica's copy is
 	// current. A replica that has not seen it yet falls back to the primary.
-	const db = options.preferReplica
-		? createDbSession(d1, null, "first-unconstrained").db
-		: createDbClient(d1);
+	const db =
+		options.preferReplica && isD1CoreStore(env)
+			? createDbSession(env.DB!, null, "first-unconstrained").db
+			: coreDb(env);
+	const mcpTasks = coreTable(db, taskTable);
 	const rows = await db
 		.select()
 		.from(mcpTasks)
@@ -194,7 +203,7 @@ export async function readGenericTaskInputSnapshot(
 	const row = rows[0];
 	if (!row || row.orgId !== orgId)
 		return options.preferReplica
-			? readGenericTaskInputSnapshot(d1, taskId, orgId, {})
+			? readGenericTaskInputSnapshot(env, taskId, orgId, {})
 			: null;
 	const snapshot = row.inputRequests as Record<string, unknown> | null;
 	const input = snapshot?.input;
@@ -215,7 +224,7 @@ function isExpired(expiresAt: string | null, status: McpTaskStatus): boolean {
  * a different org (or an unknown id) projects as not-found (`-32602`).
  */
 export async function getGenericTaskState(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	taskId: string,
 	orgId: string,
 	subjectUserId?: string,
@@ -225,9 +234,11 @@ export async function getGenericTaskState(
 	// stalls. A replica that has not seen the row yet falls back to the
 	// primary before answering not-found; the expiry write below always goes
 	// to the primary through the session.
-	const db = options.preferReplica
-		? createDbSession(d1, null, "first-unconstrained").db
-		: createDbClient(d1);
+	const db =
+		options.preferReplica && isD1CoreStore(env)
+			? createDbSession(env.DB!, null, "first-unconstrained").db
+			: coreDb(env);
+	const mcpTasks = coreTable(db, taskTable);
 	const rows = await db
 		.select()
 		.from(mcpTasks)
@@ -240,7 +251,7 @@ export async function getGenericTaskState(
 		(row.subjectUserId !== null && row.subjectUserId !== subjectUserId)
 	) {
 		if (options.preferReplica)
-			return getGenericTaskState(d1, taskId, orgId, subjectUserId);
+			return getGenericTaskState(env, taskId, orgId, subjectUserId);
 		throw McpTaskError.notFound(taskId);
 	}
 
@@ -306,12 +317,13 @@ export async function getGenericTaskState(
  * terminal result so a late-landing execution still loses to the cancel.
  */
 export async function cancelGenericTask(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	taskId: string,
 	orgId: string,
 	subjectUserId?: string,
 ): Promise<McpTaskState> {
-	const db = createDbClient(d1);
+	const db = coreDb(env);
+	const mcpTasks = coreTable(db, taskTable);
 	const rows = await db
 		.select()
 		.from(mcpTasks)
@@ -340,7 +352,7 @@ export async function cancelGenericTask(
 		.set({ status: "cancelled", cancelRequestedAt: now, updatedAt: now })
 		.where(eq(mcpTasks.taskId, taskId));
 
-	return getGenericTaskState(d1, taskId, orgId, subjectUserId);
+	return getGenericTaskState(env, taskId, orgId, subjectUserId);
 }
 
 /**
@@ -349,13 +361,14 @@ export async function cancelGenericTask(
  * resume. Unknown/foreign tasks → not-found.
  */
 export async function updateGenericTaskInput(
-	d1: D1Database,
+	env: CoreStoreEnv,
 	taskId: string,
 	orgId: string,
 	inputResponses: Record<string, unknown>,
 	subjectUserId?: string,
 ): Promise<void> {
-	const db = createDbClient(d1);
+	const db = coreDb(env);
+	const mcpTasks = coreTable(db, taskTable);
 	const rows = await db
 		.select()
 		.from(mcpTasks)

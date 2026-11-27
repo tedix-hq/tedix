@@ -98,7 +98,7 @@ export function readDispatchedOsGadgetExecution(
 }
 
 export interface LinkOsGadgetTaskInput {
-	db: D1Database;
+	env: CloudflareEnv;
 	appId: string;
 	organizationId: string;
 	/** Serving tool id, recorded on the routing row for operator correlation. */
@@ -140,7 +140,7 @@ export async function linkOsGadgetTask(
 	const taskId = `${OS_GADGET_TASK_PREFIX}${dispatched.executionId}`;
 	try {
 		await createGenericTask({
-			db: input.db,
+			env: input.env,
 			taskId,
 			orgId: input.organizationId,
 			appId: input.appId,
@@ -282,7 +282,7 @@ export async function getOsGadgetTaskState(
 	input: GetOsGadgetTaskStateInput,
 ): Promise<McpTaskState> {
 	const routing = await readGenericTaskInputSnapshot(
-		input.env.DB,
+		input.env,
 		input.taskId,
 		input.organizationId,
 	);

@@ -749,7 +749,7 @@ async function executeWithHandler(
 					}
 				: { authType: "service" as const, organizationId: genericTaskOrgId };
 			await createGenericTask({
-				db: agent.env.DB,
+				env: agent.env,
 				taskId,
 				orgId: genericTaskOrgId,
 				appId: agent.appId,
@@ -781,7 +781,7 @@ async function executeWithHandler(
 				// populates the indexed `mcp_tasks.workflow_id` column for
 				// task↔instance correlation.
 				await setGenericTaskWorkflowId(
-					agent.env.DB,
+					agent.env,
 					taskId,
 					genericTaskOrgId,
 					instance.id,

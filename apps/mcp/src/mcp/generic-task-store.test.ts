@@ -52,7 +52,14 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("@tedix/db/client", () => ({
-	createDbClient: () => fakeDb(),
+	createDbSession: () => ({ db: fakeDb() }),
+}));
+vi.mock("@tedix/db/core-store/scope", () => ({
+	coreDb: () => fakeDb(),
+	isD1CoreStore: () => true,
+}));
+vi.mock("@tedix/db/core-store/client", () => ({
+	coreTable: (_db: unknown, table: unknown) => table,
 }));
 
 vi.mock("@tedix/db/schema/mcp-tasks", () => ({
@@ -71,7 +78,7 @@ import {
 	updateGenericTaskInput,
 } from "./generic-task-store";
 
-const D1 = {} as unknown as D1Database;
+const ENV = { DB: {} as D1Database };
 const ORG = "org-1";
 
 beforeEach(() => {
@@ -90,14 +97,14 @@ describe("generic task store", () => {
 	it("creates a working task and projects it to McpTaskState", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
 			toolName: "do_thing",
 			inputArgs: { a: 1 },
 		});
-		const state = await getGenericTaskState(D1, taskId, ORG);
+		const state = await getGenericTaskState(ENV, taskId, ORG);
 		expect(state.status).toBe("working");
 		expect(state.taskId).toBe(taskId);
 		expect(typeof state.pollIntervalMs).toBe("number");
@@ -107,19 +114,19 @@ describe("generic task store", () => {
 	it("returns -32602 for an unknown id and for a foreign org", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
 			toolName: "do_thing",
 		});
 		await expect(
-			getGenericTaskState(D1, "generic-missing", ORG),
+			getGenericTaskState(ENV, "generic-missing", ORG),
 		).rejects.toMatchObject({
 			code: -32_602,
 		});
 		await expect(
-			getGenericTaskState(D1, taskId, "other-org"),
+			getGenericTaskState(ENV, taskId, "other-org"),
 		).rejects.toMatchObject({
 			code: -32_602,
 		});
@@ -128,7 +135,7 @@ describe("generic task store", () => {
 	it("hides a user-owned task from another user in the same org", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
@@ -139,16 +146,16 @@ describe("generic task store", () => {
 			"user-a",
 		);
 		await expect(
-			getGenericTaskState(D1, taskId, ORG, "user-b"),
+			getGenericTaskState(ENV, taskId, ORG, "user-b"),
 		).rejects.toMatchObject({ code: -32_602 });
 		await expect(
-			cancelGenericTask(D1, taskId, ORG, "user-b"),
+			cancelGenericTask(ENV, taskId, ORG, "user-b"),
 		).rejects.toMatchObject({ code: -32_602 });
 		await expect(
-			updateGenericTaskInput(D1, taskId, ORG, {}, "user-b"),
+			updateGenericTaskInput(ENV, taskId, ORG, {}, "user-b"),
 		).rejects.toMatchObject({ code: -32_602 });
 		await expect(
-			getGenericTaskState(D1, taskId, ORG, "user-a"),
+			getGenericTaskState(ENV, taskId, ORG, "user-a"),
 		).resolves.toMatchObject({
 			taskId,
 		});
@@ -157,16 +164,16 @@ describe("generic task store", () => {
 	it("cancel marks the task cancelled and is idempotently terminal", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
 			toolName: "do_thing",
 		});
-		const state = await cancelGenericTask(D1, taskId, ORG);
+		const state = await cancelGenericTask(ENV, taskId, ORG);
 		expect(state.status).toBe("cancelled");
 		// Cancelling again on a terminal task errors.
-		await expect(cancelGenericTask(D1, taskId, ORG)).rejects.toMatchObject({
+		await expect(cancelGenericTask(ENV, taskId, ORG)).rejects.toMatchObject({
 			code: -32_000,
 		});
 	});
@@ -174,13 +181,13 @@ describe("generic task store", () => {
 	it("update stores input responses (MRTR)", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
 			toolName: "do_thing",
 		});
-		await updateGenericTaskInput(D1, taskId, ORG, { answer: "yes" });
+		await updateGenericTaskInput(ENV, taskId, ORG, { answer: "yes" });
 		const row = rows.find((r) => r.taskId === taskId);
 		expect(row?.inputResponses).toMatchObject({ answer: "yes" });
 	});
@@ -188,7 +195,7 @@ describe("generic task store", () => {
 	it("snapshots the exec-config alongside the input for the workflow", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
@@ -210,7 +217,7 @@ describe("generic task store", () => {
 	it("persists the caller identity-references block into inputRequests", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
@@ -242,7 +249,7 @@ describe("generic task store", () => {
 	it("NEVER persists a token/bearer or scopes/credentialMode in the caller block", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
@@ -290,7 +297,7 @@ describe("generic task store", () => {
 	it("omits the caller block entirely when no caller is captured", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
@@ -304,7 +311,7 @@ describe("generic task store", () => {
 	it("projects an expired working task as failed", async () => {
 		const taskId = newGenericTaskId();
 		await createGenericTask({
-			db: D1,
+			env: ENV,
 			taskId,
 			orgId: ORG,
 			appId: "app-1",
@@ -314,7 +321,7 @@ describe("generic task store", () => {
 		// Force expiry.
 		const row = rows.find((r) => r.taskId === taskId);
 		if (row) row.expiresAt = new Date(Date.now() - 1000).toISOString();
-		const state = await getGenericTaskState(D1, taskId, ORG);
+		const state = await getGenericTaskState(ENV, taskId, ORG);
 		expect(state.status).toBe("failed");
 		expect(state.error?.code).toBe(-32_603);
 	});

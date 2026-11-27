@@ -446,7 +446,7 @@ export function buildAggregateTaskHandlers(
 		async get({ taskId }) {
 			if (isGenericTaskId(taskId)) {
 				return getGenericTaskState(
-					env.DB,
+					env,
 					taskId,
 					organizationId,
 					input.callerIdentity?.userId,
@@ -506,7 +506,7 @@ export function buildAggregateTaskHandlers(
 			const { taskId } = updateInput;
 			if (isGenericTaskId(taskId)) {
 				await updateGenericTaskInput(
-					env.DB,
+					env,
 					taskId,
 					organizationId,
 					updateInput.inputResponses,
@@ -518,7 +518,7 @@ export function buildAggregateTaskHandlers(
 						appId,
 						organizationId,
 						state: await getGenericTaskState(
-							env.DB,
+							env,
 							taskId,
 							organizationId,
 							input.callerIdentity?.userId,
@@ -564,7 +564,7 @@ export function buildAggregateTaskHandlers(
 		async cancel({ taskId }) {
 			if (isGenericTaskId(taskId)) {
 				const state = await cancelGenericTask(
-					env.DB,
+					env,
 					taskId,
 					organizationId,
 					input.callerIdentity?.userId,

@@ -376,7 +376,7 @@ describe("aggregate task handlers — generic-<uuid> routing", () => {
 
 		expect(state.status).toBe("working");
 		expect(genericStore.getGenericTaskState).toHaveBeenCalledWith(
-			ENV.DB,
+			ENV,
 			"generic-abc",
 			"org-1",
 			undefined,
@@ -408,13 +408,13 @@ describe("aggregate task handlers — generic-<uuid> routing", () => {
 		});
 
 		expect(genericStore.cancelGenericTask).toHaveBeenCalledWith(
-			ENV.DB,
+			ENV,
 			"generic-abc",
 			"org-1",
 			undefined,
 		);
 		expect(genericStore.updateGenericTaskInput).toHaveBeenCalledWith(
-			ENV.DB,
+			ENV,
 			"generic-abc",
 			"org-1",
 			{ ok: true },
