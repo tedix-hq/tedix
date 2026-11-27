@@ -3,6 +3,7 @@ import { PrincipalIdentityConflictError as IdentityConflictError } from "../util
 export const PrincipalIdentityConflictError = IdentityConflictError;
 export type PrincipalIdentityConflictError = IdentityConflictError;
 import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { jsonRead } from "../core-store/dialect";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-settings";
 import type { DbQueryClient } from "../query-client";
@@ -182,7 +183,7 @@ export async function resolveUserTenantIdentityContext(
 			and(
 				// bound-params: SQL subquery with six fixed bindings, not a caller-supplied list.
 				inArray(organizations.id, candidateOrganizations),
-				sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+				sql`${jsonRead(db, organizations.metadata, ["retiredAt"])} IS NULL`,
 			),
 		)
 		.orderBy(

@@ -122,8 +122,11 @@ export function createCoreStore(env: CoreStoreEnv): {
 	if (!env.CORE_HYPERDRIVE)
 		throw new Error("CORE_STORE=postgres requires CORE_HYPERDRIVE");
 	// Per request. Hyperdrive owns pooling. Use Cloudflare's recommended per-request connection limit.
+	// Unnamed statements: Hyperdrive reuses pooled server connections across
+	// clients, so postgres.js named prepared statements collided ("prepared
+	// statement already exists") under production load.
 	const sql = postgres(env.CORE_HYPERDRIVE.connectionString, {
-		prepare: true,
+		prepare: false,
 		fetch_types: false,
 		max: 5,
 	});
@@ -135,7 +138,7 @@ export function createCoreStore(env: CoreStoreEnv): {
 			const query = sql.unsafe(
 				statement.sql,
 				statement.params as postgres.ParameterOrJSON<never>[],
-				{ prepare: true },
+				{ prepare: false },
 			);
 			query.values();
 			return query;

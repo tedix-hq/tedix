@@ -1,5 +1,7 @@
 import { and, eq, exists, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { coreTable } from "../../core-store/client";
+import { jsonRead } from "../../core-store/dialect";
 import {
 	COMMITMENT_REMINDER_CLOSING_EVENTS,
 	COMMITMENT_REMINDER_SOURCE,
@@ -17,8 +19,8 @@ export async function routeEngineeringCommitmentReminders(
 	db: DbQueryClient,
 	limit = 100,
 ) {
-	const w = alias(workItems, "w");
-	const t = alias(tedis, "t");
+	const w = alias(coreTable(db, workItems), "w");
+	const t = alias(coreTable(db, tedis), "t");
 	const rows = await db
 		.select({
 			id: workInteractions.id,
@@ -52,8 +54,8 @@ export async function routeEngineeringCommitmentReminders(
 				eq(workInteractions.status, "open"),
 				eq(workInteractions.targetType, "user"),
 				eq(workInteractions.kind, "question"),
-				sql`json_extract(${workInteractions.metadata}, '$.decisionDeck') IS NULL`,
-				sql`json_extract(${workInteractions.metadata}, '$.approvalOperation') IS NULL`,
+				sql`${jsonRead(db, workInteractions.metadata, ["decisionDeck"])} IS NULL`,
+				sql`${jsonRead(db, workInteractions.metadata, ["approvalOperation"])} IS NULL`,
 			),
 		)
 		.limit(Math.max(1, Math.min(200, limit)));
@@ -127,8 +129,8 @@ export async function closeSettledCommitmentReminders(
 	db: DbQueryClient,
 	p: { now: string; limit?: number },
 ): Promise<string[]> {
-	const w = alias(workItems, "w");
-	const e = alias(workEvents, "e");
+	const w = alias(coreTable(db, workItems), "w");
+	const e = alias(coreTable(db, workEvents), "e");
 	const due = db
 		.select({ id: workInteractions.id })
 		.from(workInteractions)
