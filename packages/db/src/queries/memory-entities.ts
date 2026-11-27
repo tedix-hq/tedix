@@ -1,6 +1,8 @@
+import { coreTable } from "../core-store/client";
+import { anyIds } from "../core-store/dialect";
 import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, exists, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, exists, gte, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type MemoryEntity,
@@ -10,14 +12,14 @@ import {
 	type MemoryEntityResolutionDecision,
 	type MemoryEntityResolutionInverse,
 	type MemoryEntityType,
-	memoryEntities,
-	memoryEntityAliases,
-	memoryEntityMentions,
-	memoryEntityResolutionDecisions,
-	memoryEntityResolutionHeads,
-	memoryEntityResolutions,
+	memoryEntities as memoryEntitiesTable,
+	memoryEntityAliases as memoryEntityAliasesTable,
+	memoryEntityMentions as memoryEntityMentionsTable,
+	memoryEntityResolutionDecisions as memoryEntityResolutionDecisionsTable,
+	memoryEntityResolutionHeads as memoryEntityResolutionHeadsTable,
+	memoryEntityResolutions as memoryEntityResolutionsTable,
 } from "../schema/memory-entities";
-import { memoryFacts } from "../schema/memory-graph";
+import { memoryFacts as memoryFactsTable } from "../schema/memory-graph";
 
 export type MemoryEntityGovernanceErrorReason =
 	| "entity_inactive"
@@ -81,6 +83,7 @@ export async function createMemoryEntity(
 		now: string;
 	} & TenantScope,
 ): Promise<MemoryEntity> {
+	const memoryEntities = coreTable(db, memoryEntitiesTable);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const normalizedName =
 		input.normalizedName ?? normalizeMemoryEntitySurface(input.displayName);
@@ -128,6 +131,7 @@ export async function getMemoryEntity(
 	db: DbClient,
 	input: { organizationId: string; entityId: string } & TenantScope,
 ): Promise<MemoryEntity | null> {
+	const memoryEntities = coreTable(db, memoryEntitiesTable);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select()
@@ -150,7 +154,7 @@ export interface MemoryEntityCandidate {
 
 /**
  * Exact, normalized candidate lookup only. Fuzzy/semantic candidate generation
- * belongs in the retrieval layer; this bounded D1 read is the deterministic
+ * belongs in the retrieval layer; this bounded read is the deterministic
  * canonical-name and confirmed-alias fence used by resolution tooling.
  */
 export async function listMemoryEntityCandidates(
@@ -162,6 +166,8 @@ export async function listMemoryEntityCandidates(
 		limit?: number;
 	} & TenantScope,
 ): Promise<MemoryEntityCandidate[]> {
+	const memoryEntities = coreTable(db, memoryEntitiesTable);
+	const memoryEntityAliases = coreTable(db, memoryEntityAliasesTable);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const normalized = normalizeMemoryEntitySurface(input.surface);
 	const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 25)));
@@ -217,7 +223,7 @@ export async function listMemoryEntityCandidates(
 			.where(
 				and(
 					eq(memoryEntities.organizationId, input.organizationId),
-					inArray(memoryEntities.id, aliasEntityIds),
+					anyIds(db, memoryEntities.id, aliasEntityIds),
 					eq(memoryEntities.status, "active"),
 					entityTypeCondition,
 				),
@@ -289,6 +295,7 @@ async function getMentionByOccurrence(
 	tenantScope: TenantScope,
 	occurrenceKey: string,
 ): Promise<MemoryEntityMention | null> {
+	const memoryEntityMentions = coreTable(db, memoryEntityMentionsTable);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const [row] = await db
 		.select()
@@ -332,6 +339,12 @@ export async function recordMemoryEntityMention(
 		createdAt: string;
 	} & TenantScope,
 ): Promise<MemoryEntityMention> {
+	const memoryEntityMentions = coreTable(db, memoryEntityMentionsTable);
+	const memoryEntityResolutionHeads = coreTable(
+		db,
+		memoryEntityResolutionHeadsTable,
+	);
+	const memoryFacts = coreTable(db, memoryFactsTable);
 	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.sourceFactId) {
 		const [sourceFact] = await db
@@ -424,6 +437,11 @@ async function getMentionAndHead(
 	tenantScope: TenantScope,
 	mentionId: string,
 ) {
+	const memoryEntityMentions = coreTable(db, memoryEntityMentionsTable);
+	const memoryEntityResolutionHeads = coreTable(
+		db,
+		memoryEntityResolutionHeadsTable,
+	);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const [mention] = await db
 		.select()
@@ -459,7 +477,7 @@ export async function getMemoryEntityMentionState(
 	input: { organizationId: string; mentionId: string } & TenantScope,
 ): Promise<{
 	mention: MemoryEntityMention;
-	head: typeof memoryEntityResolutionHeads.$inferSelect;
+	head: typeof memoryEntityResolutionHeadsTable.$inferSelect;
 	currentResolution: MemoryEntityResolution | null;
 } | null> {
 	input = { ...input, ...normalizeTenantScope(input) };
@@ -490,6 +508,7 @@ async function requireActiveEntity(
 	tenantScope: TenantScope,
 	entityId: string,
 ): Promise<MemoryEntity> {
+	const memoryEntities = coreTable(db, memoryEntitiesTable);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const [entity] = await db
 		.select()
@@ -521,6 +540,7 @@ async function getResolutionById(
 	tenantScope: TenantScope,
 	resolutionId: string | null,
 ): Promise<MemoryEntityResolution | null> {
+	const memoryEntityResolutions = coreTable(db, memoryEntityResolutionsTable);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	if (!resolutionId) return null;
 	const [row] = await db
@@ -565,6 +585,10 @@ async function readExistingProposal(
 	tenantScope: TenantScope,
 	clientProposalKey: string,
 ): Promise<MemoryEntityResolutionDecision | null> {
+	const memoryEntityResolutionDecisions = coreTable(
+		db,
+		memoryEntityResolutionDecisionsTable,
+	);
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const [row] = await db
 		.select()
@@ -598,6 +622,10 @@ export async function proposeMemoryEntityResolution(
 		proposedAt: string;
 	} & TenantScope,
 ): Promise<MemoryEntityResolutionDecision> {
+	const memoryEntityResolutionDecisions = coreTable(
+		db,
+		memoryEntityResolutionDecisionsTable,
+	);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const { head } = await getMentionAndHead(db, input, input.mentionId);
 	const target = await requireActiveEntity(db, input, input.targetEntityId);
@@ -683,6 +711,10 @@ export async function proposeMemoryEntityResolutionRollback(
 		proposedAt: string;
 	} & TenantScope,
 ): Promise<MemoryEntityResolutionDecision> {
+	const memoryEntityResolutionDecisions = coreTable(
+		db,
+		memoryEntityResolutionDecisionsTable,
+	);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [original] = await db
 		.select()
@@ -792,6 +824,10 @@ export async function getMemoryEntityResolutionDecision(
 	db: DbClient,
 	input: { organizationId: string; decisionId: string } & TenantScope,
 ): Promise<MemoryEntityResolutionDecision | null> {
+	const memoryEntityResolutionDecisions = coreTable(
+		db,
+		memoryEntityResolutionDecisionsTable,
+	);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select()
@@ -822,6 +858,15 @@ export async function reviewMemoryEntityResolutionProposal(
 		reviewedAt: string;
 	} & TenantScope,
 ): Promise<ReviewMemoryEntityResolutionResult> {
+	const memoryEntityResolutionDecisions = coreTable(
+		db,
+		memoryEntityResolutionDecisionsTable,
+	);
+	const memoryEntityResolutionHeads = coreTable(
+		db,
+		memoryEntityResolutionHeadsTable,
+	);
+	const memoryEntityResolutions = coreTable(db, memoryEntityResolutionsTable);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [decision] = await db
 		.select()
@@ -1035,7 +1080,7 @@ export async function reviewMemoryEntityResolutionProposal(
 				})
 				.returning(),
 		] as const;
-		// Migration-owned triggers append projection events in the same D1
+		// Migration-owned triggers append projection events in the same database
 		// transaction as these canonical writes. Keeping the outbox at the
 		// database boundary also covers callers that bypass this query module.
 		const batchResults = await db.batch(coreWrites);
@@ -1091,6 +1136,7 @@ export async function getCurrentMemoryEntityResolution(
 	db: DbClient,
 	input: { organizationId: string; mentionId: string } & TenantScope,
 ): Promise<MemoryEntityResolution | null> {
+	const memoryEntityResolutions = coreTable(db, memoryEntityResolutionsTable);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select()
@@ -1114,6 +1160,10 @@ export async function listMemoryEntityResolutionDecisions(
 		limit?: number;
 	} & TenantScope,
 ): Promise<MemoryEntityResolutionDecision[]> {
+	const memoryEntityResolutionDecisions = coreTable(
+		db,
+		memoryEntityResolutionDecisionsTable,
+	);
 	input = { ...input, ...normalizeTenantScope(input) };
 	return db
 		.select()
@@ -1136,6 +1186,8 @@ export async function listRecentPeopleFacts(
 	db: DbClient,
 	input: { organizationId: string; since: string } & TenantScope,
 ) {
+	const memoryEntityMentions = coreTable(db, memoryEntityMentionsTable);
+	const memoryFacts = coreTable(db, memoryFactsTable);
 	input = { ...input, ...normalizeTenantScope(input) };
 	const candidates = await db
 		.select()
@@ -1157,7 +1209,8 @@ export async function listRecentPeopleFacts(
 				eq(memoryEntityMentions.organizationId, input.organizationId),
 				eq(memoryEntityMentions.proposedType, "person"),
 				// bound-params: candidates comes from the indexed LIMIT 50 above.
-				inArray(
+				anyIds(
+					db,
 					memoryEntityMentions.sourceFactId,
 					candidates.map((fact) => fact.id),
 				),
