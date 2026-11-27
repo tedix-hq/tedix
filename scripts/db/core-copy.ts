@@ -81,6 +81,21 @@ function copiedRowid(column: string, value: unknown) {
 	return numeric;
 }
 
+/**
+ * Postgres text and jsonb cannot hold U+0000, which some D1 rows contain.
+ * It is dropped before hashing, so the page check compares like with like.
+ */
+function withoutNul(value: unknown): unknown {
+	if (typeof value === "string")
+		return value.includes("\u0000") ? value.replaceAll("\u0000", "") : value;
+	if (Array.isArray(value)) return value.map(withoutNul);
+	if (value && typeof value === "object")
+		return Object.fromEntries(
+			Object.entries(value).map(([k, v]) => [withoutNul(k), withoutNul(v)]),
+		);
+	return value;
+}
+
 function normalize(table: CopyTable, row: Row, fromPg = false): Row {
 	return Object.fromEntries(
 		Object.entries(table.columns).map(([column, kind]) => {
@@ -109,7 +124,7 @@ function normalize(table: CopyTable, row: Row, fromPg = false): Row {
 					value = new Date(milliseconds).toISOString();
 				}
 			}
-			return [column, value];
+			return [column, fromPg ? value : withoutNul(value)];
 		}),
 	);
 }
