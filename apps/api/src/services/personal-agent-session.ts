@@ -52,6 +52,65 @@ async function fetchIdentityDocument(
 	return doc ? Response.json(doc) : new Response("Not found", { status: 404 });
 }
 
+function jwtSegment(token: string, index: number): Record<string, unknown> {
+	try {
+		const segment = token.split(".")[index] ?? "";
+		const json = atob(segment.replace(/-/g, "+").replace(/_/g, "/"));
+		const value: unknown = JSON.parse(json);
+		return value && typeof value === "object"
+			? (value as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * A refused Session names only public claim fields next to what this door
+ * expected, so an operator can tell a wrong audience, URL, clock or issuer
+ * apart. The token, signatures and keys are never logged.
+ */
+function logRefusal(
+	status: string,
+	input: z.infer<typeof PersonalAgentSessionRequestSchema>,
+	domain: string,
+	stage: "proof" | "continuity" = "proof",
+) {
+	const token = input.sessionToken ?? "";
+	const header = jwtSegment(token, 0);
+	const claims = jwtSegment(token, 1);
+	const target = new URL(input.url);
+	target.search = "";
+	target.hash = "";
+	const str = (value: unknown) =>
+		typeof value === "string" ? value.slice(0, 300) : null;
+	console.log(
+		JSON.stringify({
+			_tr: "personal_agent_session_refused",
+			status,
+			stage,
+			organizationId: input.organizationId,
+			hasToken: token.length > 0,
+			version: input.version,
+			typ: str(header.typ),
+			alg: str(header.alg),
+			hasDelegation: typeof header.poppy_dlg === "string",
+			iss: str(claims.iss),
+			aud: str(claims.aud),
+			expectedAud: `https://${domain.toLowerCase()}`,
+			htu: str(claims.htu),
+			expectedHtu: target.href,
+			htm: str(claims.htm),
+			expectedHtm: input.method,
+			iatSkewSeconds:
+				typeof claims.iat === "number"
+					? Math.round(Date.now() / 1000 - claims.iat)
+					: null,
+			hasAth: claims.ath !== undefined,
+		}),
+	);
+}
+
 const verify = createPersonalAgentSessionVerifier({
 	fetchFn: fetchIdentityDocument,
 });
@@ -120,15 +179,20 @@ export async function verifySignedOutPersonalAgentSession(
 			...session,
 			now,
 		});
-		if (status !== "started" && status !== "accepted") return { status };
+		if (status !== "started" && status !== "accepted") {
+			logRefusal(status, input, config.data.domain, "continuity");
+			return { status };
+		}
 		return {
 			status: "accepted" as const,
 			identity: session,
 			...(status === "started" ? { sessionCreated: true } : {}),
 		};
 	} catch (error) {
-		if (error instanceof PersonalAgentSessionFailure)
+		if (error instanceof PersonalAgentSessionFailure) {
+			logRefusal(error.code, input, config.data.domain);
 			return { status: error.code };
+		}
 		// DB and service failures must remain retryable upstream failures, not a
 		// claim that a valid agent's cryptographic proof was wrong.
 		throw error;
