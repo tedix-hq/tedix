@@ -174,7 +174,7 @@ async function writePage(table: CopyTable, query: PgQuery, rows: Row[]) {
 		.join(", ");
 	const override = table.sourceRowid ? " OVERRIDING SYSTEM VALUE" : "";
 	const result = await query(
-		`INSERT INTO ${quote(table.table)} AS target (${columns})${override} SELECT ${columns} FROM jsonb_populate_recordset(NULL::${quote(table.table)}, $1::jsonb) ON CONFLICT (${table.keys.map(quote).join(", ")}) DO UPDATE SET ${set} RETURNING to_jsonb(target) AS copied_row`,
+		`INSERT INTO ${quote(table.table)} AS target (${columns})${override} SELECT ${columns} FROM jsonb_populate_recordset(NULL::${quote(table.table)}, $1::text::jsonb) ON CONFLICT (${table.keys.map(quote).join(", ")}) DO UPDATE SET ${set} RETURNING to_jsonb(target) AS copied_row`,
 		[JSON.stringify(rows)],
 	);
 	if (pageHash(returnedRows(table, result.rows)) !== pageHash(rows))
@@ -192,7 +192,7 @@ export async function verifyCopy(
 		throw new Error("Verification table differs from checkpoint");
 	for (const page of state.pages) {
 		const result = await query(
-			`SELECT to_jsonb(target) AS copied_row FROM ${quote(table.table)} AS target JOIN jsonb_populate_recordset(NULL::${quote(table.table)}, $1::jsonb) AS expected ON ${table.keys.map((c) => `target.${quote(c)} = expected.${quote(c)}`).join(" AND ")}`,
+			`SELECT to_jsonb(target) AS copied_row FROM ${quote(table.table)} AS target JOIN jsonb_populate_recordset(NULL::${quote(table.table)}, $1::text::jsonb) AS expected ON ${table.keys.map((c) => `target.${quote(c)} = expected.${quote(c)}`).join(" AND ")}`,
 			[JSON.stringify(page.keys)],
 		);
 		if (pageHash(returnedRows(table, result.rows)) !== page.sha256)
@@ -218,7 +218,7 @@ export async function restoreDocsReleaseMarkers(
 			ORDER BY release.created_at DESC, release.release_order DESC
 			LIMIT 1
 		)
-		WHERE site.id IN (SELECT jsonb_array_elements_text($1::jsonb))`,
+		WHERE site.id IN (SELECT jsonb_array_elements_text($1::text::jsonb))`,
 		[JSON.stringify(siteIds)],
 	);
 }
