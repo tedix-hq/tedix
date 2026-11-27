@@ -47,7 +47,7 @@ const eligibility = readOs.eligibility
 	.handler(async ({ input, context }) => {
 		const orgId = context.organizationId;
 		const result = await checkAppEligibilityById(
-			context.env.DB,
+			context.db,
 			input.appId,
 			orgId,
 			getDescopeGatingEnv(context),
@@ -64,7 +64,7 @@ const installedEligibility = readOs.installedEligibility
 	.handler(async ({ context }) => {
 		const orgId = context.organizationId;
 		const results = await checkInstalledAppsEligibility(
-			context.env.DB,
+			context.db,
 			orgId,
 			getDescopeGatingEnv(context),
 			context.user?.sub,
@@ -88,7 +88,7 @@ const runtimeToolsProc = readOs.runtimeTools
 		);
 		if (!tedi) return [];
 		return getRuntimeTools(
-			context.env.DB,
+			context.db,
 			input.tediId,
 			orgId,
 			{
@@ -105,7 +105,7 @@ const installCheck = readOs.installCheck
 	.handler(async ({ input, context }) => {
 		const orgId = context.organizationId;
 		const result = await checkInstallEligibility(
-			context.env.DB,
+			context.db,
 			input.appId,
 			orgId,
 			getDescopeGatingEnv(context),

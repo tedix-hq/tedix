@@ -89,7 +89,7 @@ export interface KernelEnv {
 	MCP_URL?: string;
 	PLATFORM_SERVICE_TOKEN?: string;
 	DB?: D1Database;
-	CORE_STORE?: "d1" | "postgres";
+	CORE_STORE?: string;
 	AGENT_MEMORY?: AgentMemoryNamespace;
 	AZURE_OPENAI_RESOURCE?: string;
 	AZURE_OPENAI_BASE_URL?: string;
