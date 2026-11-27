@@ -3029,9 +3029,13 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			if (!organizationId || !tediId) {
 				return { ok: false, error: "identity_not_resolved" };
 			}
-			return await auditMemoryGraph(
-				{ db: this.env.DB, organizationId, tediId },
-				input,
+			const { withCoreStore, coreQueryDb } =
+				await import("@tedix/db/core-store/scope");
+			return await withCoreStore(this.env, () =>
+				auditMemoryGraph(
+					{ db: coreQueryDb(this.env), organizationId, tediId },
+					input,
+				),
 			);
 		} catch (err) {
 			console.warn("[brain_audit] unexpected error", {
