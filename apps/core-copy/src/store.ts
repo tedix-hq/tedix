@@ -152,6 +152,9 @@ export class ProgressStore {
 		const raw = await this.kv.get(deltaKey(table));
 		return raw ? (JSON.parse(raw) as DeltaProgress) : undefined;
 	}
+	async clearDeltaProgress(table: string): Promise<void> {
+		await this.kv.put(deltaKey(table), "");
+	}
 	async putDeltaProgress(progress: DeltaProgress): Promise<void> {
 		await this.kv.put(deltaKey(progress.table), JSON.stringify(progress));
 	}

@@ -310,6 +310,34 @@ describe("core-copy worker", () => {
 				`SELECT count(*)::int AS n FROM organizations`,
 			);
 			expect((all.rows[0] as { n: number }).n).toBe(601);
+
+			// After the switch: the product changes org-7 in Postgres, D1 still
+			// gets a late row, and a second insert-only delta adds only that row.
+			await engine.query(
+				`UPDATE organizations SET name = 'changed in postgres' WHERE id = 'org-7'`,
+			);
+			sqlite.exec(
+				`UPDATE organizations SET name = 'stale d1', updated_at = '2026-11-27T14:00:00.000Z' WHERE id = 'org-7'`,
+			);
+			sqlite.exec(
+				`INSERT INTO organizations VALUES ('org-late','Late','org-late','team','t-late',NULL,'d',1,'{}','{}','2026-11-27T14:00:00.000Z','2026-11-27T14:00:00.000Z')`,
+			);
+			await store.setInsertOnly("all");
+			await startDelta(ports, {
+				since: "2026-11-27T05:00:00.000Z",
+				recentSince: "2026-11-20T00:00:00.000Z",
+			});
+			expect((await deltaTable(ports, "organizations")).status).toBe("done");
+			const kept = await engine.query(
+				`SELECT name FROM organizations WHERE id = 'org-7'`,
+			);
+			expect((kept.rows[0] as { name: string }).name).toBe(
+				"changed in postgres",
+			);
+			const after = await engine.query(
+				`SELECT count(*)::int AS n FROM organizations`,
+			);
+			expect((after.rows[0] as { n: number }).n).toBe(602);
 		} finally {
 			await engine.close();
 			sqlite.close();

@@ -729,6 +729,9 @@ export async function deltaTable(
 					await store.putDeltaProgress(progress);
 				},
 				onReceipt: async () => undefined,
+				// The second delta, after the switch, must not overwrite rows the
+				// product already changed in Postgres.
+				insertOnly: await store.insertOnly(tableName),
 				pageSize,
 				pauseMs: 0,
 				maxPages: Number.isFinite(budget) ? budget : undefined,
@@ -767,6 +770,10 @@ export async function startDelta(
 	ports: CopyPorts,
 	run: { since: string; recentSince: string },
 ): Promise<void> {
+	// Each delta run starts every table afresh: a second run (after the
+	// switch) copies what D1 received since the first.
+	for (const entry of coreCopyPlan())
+		await ports.store.clearDeltaProgress(entry.table);
 	await ports.store.setDeltaRun({
 		...run,
 		startedAt: new Date().toISOString(),
