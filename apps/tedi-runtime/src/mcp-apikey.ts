@@ -8,9 +8,8 @@
  * shared middleware invokes this with the raw `X-API-Key` header value and
  * expects an `McpAuthContext` on success or `null` on any failure.
  *
- * The package-owned runtime bootstrap facade keeps SQL out of this Worker
- * without importing Drizzle's peer-specialized runtime graph. Parsing and
- * hashing remain local to avoid importing schema modules for this hot path.
+ * The package-owned runtime bootstrap queries use the selected core store.
+ * Parsing and hashing remain local to this hot path.
  */
 import { isIPv6 } from "node:net";
 import { logTediMcpFailure } from "./mcp-failure-log";
@@ -100,13 +99,12 @@ function parseIpAllowlist(raw: string | null): string[] | null {
 /**
  * Build an `apiKeyValidator` closure for `createMcpAuthMiddleware`.
  *
- * @param db - The isolate `DB` (D1) binding — used via the raw prepared-
- *   statement API (NOT Drizzle; see the file header note).
+ * @param db - The scoped core query client.
  * @param tedi - Resolved tedi (for the org-match check).
  * @param request - The inbound request (for IP allowlist + usage telemetry).
  */
 export function createIsolateApiKeyValidator(
-	db: D1Database,
+	db: Parameters<typeof findTediRuntimeApiKeyByHash>[0],
 	tedi: ApiKeyValidatorTedi,
 	request: Request,
 ): (key: string) => Promise<McpAuthContext | null> {

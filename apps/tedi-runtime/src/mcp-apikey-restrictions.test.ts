@@ -1,3 +1,5 @@
+import { type SQL } from "drizzle-orm";
+import { SQLiteDialect } from "drizzle-orm/sqlite-core";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import type { TediRuntimeApiKeyRow } from "@tedix/db/queries/tedi-runtime-bootstrap";
@@ -32,21 +34,19 @@ async function validate({
 	const reads: unknown[][] = [];
 	let usageWrites = 0;
 	const db = {
-		prepare: (sql: string) => ({
-			bind: (...values: unknown[]) => ({
-				first: async () => {
-					assert.match(sql, /FROM api_keys/);
-					reads.push(values);
-					return apiKey && { ...apiKey, ipAllowlist };
-				},
-				run: async () => {
-					assert.match(sql, /UPDATE api_keys/);
-					assert.equal(values[2], row.id);
-					usageWrites++;
-				},
-			}),
-		}),
-	} as unknown as D1Database;
+		get: async (query: SQL) => {
+			const { sql, params } = new SQLiteDialect().sqlToQuery(query);
+			assert.match(sql, /FROM "api_keys"/);
+			reads.push(params);
+			return apiKey && { ...apiKey, ipAllowlist };
+		},
+		run: async (query: SQL) => {
+			const { sql, params } = new SQLiteDialect().sqlToQuery(query);
+			assert.match(sql, /UPDATE "api_keys"/);
+			assert.equal(params[2], row.id);
+			usageWrites++;
+		},
+	} as unknown as Parameters<typeof createIsolateApiKeyValidator>[0];
 	const headers = new Headers();
 	if (clientIp !== null) headers.set("CF-Connecting-IP", clientIp);
 	if (forwardedIp !== undefined) headers.set("X-Forwarded-For", forwardedIp);

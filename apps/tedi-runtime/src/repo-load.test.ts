@@ -1,3 +1,6 @@
+import { type SQL } from "drizzle-orm";
+import { SQLiteDialect } from "drizzle-orm/sqlite-core";
+import type { DbQueryClient } from "@tedix/db/query-client";
 /**
  * Offline unit tests for the repo_load tool helpers.
  *
@@ -53,35 +56,24 @@ const TEST_TEDI_ID = "tedi-00000000-0000-0000-0000-000000000001";
 const TEST_PAT = "ghp_test_pat_never_surfaced_in_output";
 const REPO_URL = "https://github.com/acme/platform";
 
-/** Minimal stub D1 that returns fixed rows per query prefix. */
-type D1Row = Record<string, string | null>;
+/** Fixed persistence rows for repository orchestration checks. */
+type PersistenceRow = Record<string, string | null>;
 function makeDb(
-	repoConfigRow: D1Row | null,
-	secretRow: D1Row | null,
-): {
-	prepare(sql: string): {
-		bind(...args: unknown[]): { first<T>(): Promise<T | null> };
-	};
-} {
+	repoConfigRow: PersistenceRow | null,
+	secretRow: PersistenceRow | null,
+): DbQueryClient {
 	return {
-		prepare(sql: string) {
-			return {
-				bind(..._args: unknown[]) {
-					return {
-						async first<T>(): Promise<T | null> {
-							if (sql.includes("repo_config")) {
-								return repoConfigRow as unknown as T | null;
-							}
-							if (sql.includes("tedi_secrets")) {
-								return secretRow as unknown as T | null;
-							}
-							return null;
-						},
-					};
-				},
-			};
+		async get<T>(query: SQL) {
+			const { sql } = new SQLiteDialect().sqlToQuery(query);
+			return (
+				sql.includes("repo_config")
+					? repoConfigRow
+					: sql.includes("tedi_secrets")
+						? secretRow
+						: null
+			) as T | null;
 		},
-	};
+	} as unknown as DbQueryClient;
 }
 
 /** Build deps for happy-path runRepoLoad tests. */
@@ -1200,18 +1192,10 @@ console.log(
 {
 	// A DB that throws on every query
 	const throwingDb = {
-		prepare(_sql: string) {
-			return {
-				bind(..._args: unknown[]) {
-					return {
-						async first<T>(): Promise<T | null> {
-							throw new Error("D1 connection refused");
-						},
-					};
-				},
-			};
+		get: async () => {
+			throw new Error("D1 connection refused");
 		},
-	};
+	} as unknown as DbQueryClient;
 	const deps = {
 		db: throwingDb,
 		masterKey: TEST_MASTER_KEY,

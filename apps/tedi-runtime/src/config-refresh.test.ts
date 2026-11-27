@@ -88,7 +88,7 @@ const cache = new RuntimeConfigCache(async () => {
 	calls++;
 	return { definition: { workItemConcurrency: value } } as never;
 });
-const db = {} as D1Database;
+const db = {} as Parameters<RuntimeConfigCache["getMaxConcurrentWorkItems"]>[0];
 assert.equal(await cache.getMaxConcurrentWorkItems(db, "tedi"), 3);
 value = 7;
 assert.equal(await cache.getMaxConcurrentWorkItems(db, "tedi"), 3);

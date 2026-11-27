@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { RuntimeConfigCache } from "./runtime-config-cache";
 
-const db = {} as D1Database;
+const db = {} as Parameters<RuntimeConfigCache["getMaxConcurrentWorkItems"]>[0];
 type Policy = Awaited<
 	ReturnType<
 		typeof import("@tedix/db/queries/tedi-runtime-bootstrap").getTediRuntimePolicy

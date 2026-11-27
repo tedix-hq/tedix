@@ -1,5 +1,6 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { setD1LedgerOrganization, withD1Ledger } from "@tedix/db/slow-query";
-import { readReplicaFirst } from "@tedix/db/client";
+import { readRuntimeReplicaFirst } from "./runtime-core-store";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
@@ -392,7 +393,7 @@ async function markIsolateGenerationReady(
 		bodyGenerationTokenExpiresAt: string | null;
 	} | null;
 	try {
-		row = await getTediRuntimeBodyGeneration(env.DB, tedi.id);
+		row = await getTediRuntimeBodyGeneration(coreQueryDb(env), tedi.id);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (/no such column|no column named/i.test(message)) return "missing";
@@ -409,7 +410,7 @@ async function markIsolateGenerationReady(
 
 	const now = new Date().toISOString();
 	try {
-		await markTediRuntimeBodyGenerationReady(env.DB, {
+		await markTediRuntimeBodyGenerationReady(coreQueryDb(env), {
 			tediId: tedi.id,
 			generationId,
 			externalId: tedi.isolateAgentId,
@@ -427,7 +428,7 @@ async function resolveTedi(
 	env: Cloudflare.Env,
 	slug: string,
 ): Promise<ResolvedTedi | null> {
-	const tedi = await readReplicaFirst(env.DB, (db) =>
+	const tedi = await readRuntimeReplicaFirst(env, (db) =>
 		getTediRuntimeRouteBySlug(db, slug),
 	);
 	if (!tedi) return null;
@@ -511,15 +512,12 @@ async function authenticateMcp(
 		extractTenantId: getTenantId as unknown as JwtTenantExtractor,
 		allowTediJwt: true,
 		// sk_* API keys (X-API-Key header). The middleware calls this validator
-		// before the Bearer/JWT branch; it closes over the raw D1 binding, the
+		// before the Bearer/JWT branch; it closes over the core query client, the
 		// resolved tedi (for the org-match guard), and the inbound request (for
 		// IP allowlist + usage telemetry). Returns a populated McpAuthContext on
-		// success, null on any failure → the middleware emits a 401. The
-		// validator uses the raw D1 prepared-statement API (NOT Drizzle) to
-		// avoid loading a second drizzle-orm instance into this Worker's type
-		// graph — the same hazard documented above `resolveTedi`.
+		// success, null on any failure → the middleware emits a 401.
 		apiKeyValidator: createIsolateApiKeyValidator(
-			env.DB,
+			coreQueryDb(env),
 			{ orgId: tedi.orgId },
 			request,
 		),

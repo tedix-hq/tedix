@@ -170,7 +170,7 @@ describe("email() entrypoint", () => {
 
 		// One bounded D1 lookup resolves dispatch eligibility and the DO name.
 		expect(mocks.getTediEmailIngressRouteBySlug).toHaveBeenCalledWith(
-			env.DB,
+			expect.objectContaining({ $client: env.DB }),
 			"cto",
 		);
 

@@ -91,14 +91,10 @@ try {
 	assert.match(JSON.stringify(allowedBody), /available/);
 
 	const failingDb = {
-		prepare: () => ({
-			bind: () => ({
-				first: async () => {
-					throw thrown;
-				},
-			}),
-		}),
-	} as unknown as D1Database;
+		get: async () => {
+			throw thrown;
+		},
+	} as unknown as Parameters<typeof createIsolateApiKeyValidator>[0];
 	const request = new Request("https://cto.tedi.tedix.dev/mcp", {
 		headers: { "CF-Connecting-IP": "203.0.113.9" },
 	});
@@ -112,22 +108,17 @@ try {
 	);
 
 	const usageDb = {
-		prepare: (query: string) => ({
-			bind: () => ({
-				first: async () => ({
-					id: "api-key-private-id",
-					organizationId: "organization-1",
-					status: "active",
-					expiresAt: null,
-					ipAllowlist: null,
-				}),
-				run: async () => {
-					assert.match(query, /UPDATE api_keys/);
-					throw thrown;
-				},
-			}),
+		get: async () => ({
+			id: "api-key-private-id",
+			organizationId: "organization-1",
+			status: "active",
+			expiresAt: null,
+			ipAllowlist: null,
 		}),
-	} as unknown as D1Database;
+		run: async () => {
+			throw thrown;
+		},
+	} as unknown as Parameters<typeof createIsolateApiKeyValidator>[0];
 	const auth = await createIsolateApiKeyValidator(
 		usageDb,
 		{ orgId: "organization-1" },

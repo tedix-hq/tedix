@@ -1,7 +1,9 @@
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { tool, type ToolSet } from "ai";
 import * as z from "zod";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
-import { loadRepoAuth, type RepoLoadDeps } from "./repo-load";
+import { loadRepoAuth } from "./repo-load";
 
 const CODE_HOST_API = "https://api.github.com";
 const API_VERSION = "2022-11-28";
@@ -706,7 +708,7 @@ export function repositoryReadTools(input: {
  * repository address in its settings and its read access token.
  */
 export function tediRepositoryReadTools(
-	env: { DB: RepoLoadDeps["db"] },
+	env: CoreStoreEnv,
 	tediId: string | null | undefined,
 ) {
 	return repositoryReadTools({
@@ -714,7 +716,7 @@ export function tediRepositoryReadTools(
 			tediId
 				? loadRepoAuth(
 						{
-							db: env.DB,
+							db: coreQueryDb(env),
 							masterKey: (env as { SECRETS_MASTER_KEY?: string })
 								.SECRETS_MASTER_KEY,
 						},

@@ -1,3 +1,5 @@
+import { type SQL } from "drizzle-orm";
+import { SQLiteDialect } from "drizzle-orm/sqlite-core";
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import {
@@ -89,25 +91,18 @@ function fixture() {
 	let pending = false;
 	let reads = 0;
 	let dbError: Error | undefined;
-	const db: ResolveInput["db"] = {
-		prepare(query) {
-			return {
-				bind(...values) {
-					return {
-						async first<T>() {
-							reads++;
-							if (dbError) throw dbError;
-							// Snapshot before pausing: local changes must fence an already-read row.
-							const row = sqlite.query(query).all(...values)[0] ?? null;
-							entered.resolve();
-							if (pending) await release.promise;
-							return row as T | null;
-						},
-					};
-				},
-			};
+	const db = {
+		async get<T>(statement: SQL) {
+			reads++;
+			if (dbError) throw dbError;
+			const { sql, params } = new SQLiteDialect().sqlToQuery(statement);
+			// Snapshot before pausing: local changes must fence an already-read row.
+			const row = sqlite.query(sql).all(...params)[0] ?? null;
+			entered.resolve();
+			if (pending) await release.promise;
+			return row as T | null;
 		},
-	};
+	} as unknown as ResolveInput["db"];
 	const input: ResolveInput = {
 		db,
 		capture,
@@ -475,19 +470,15 @@ await check(
 	"reject a query-boundary row with a mismatched effective name",
 	async (f) => {
 		f.input.db = {
-			prepare: () => ({
-				bind: () => ({
-					first: async <T>() =>
-						({
-							id: identity.tediId,
-							orgId: identity.orgId,
-							slug: identity.slug,
-							isolateAgentId: "other-parent",
-							runtimeKind: "agent",
-						}) as T,
-				}),
-			}),
-		};
+			get: async <T>() =>
+				({
+					id: identity.tediId,
+					orgId: identity.orgId,
+					slug: identity.slug,
+					isolateAgentId: "other-parent",
+					runtimeKind: "agent",
+				}) as T,
+		} as unknown as ResolveInput["db"];
 		assert.equal(await resolveRuntimeParentIdentity(f.input), null);
 	},
 );

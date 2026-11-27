@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { readEvaluationInstructions } from "./evaluation-context";
 import {
@@ -498,7 +499,7 @@ export const runtimeRepository = {
 			if (!tediId) return { ok: false, error: "identity_not_resolved" };
 			return await runRepoClone(
 				{
-					db: this.env.DB,
+					db: coreQueryDb(this.env),
 					masterKey: (this.env as { SECRETS_MASTER_KEY?: string })
 						.SECRETS_MASTER_KEY,
 					clone: (options) => computer.git.clone(options),
@@ -586,7 +587,7 @@ export const runtimeRepository = {
 			const paths = Array.isArray(input.paths) ? (input.paths as string[]) : [];
 			return await runRepoLoad(
 				{
-					db: this.env.DB,
+					db: coreQueryDb(this.env),
 					masterKey: (this.env as { SECRETS_MASTER_KEY?: string })
 						.SECRETS_MASTER_KEY,
 					writeFile: (path: string, content: string) =>
@@ -649,7 +650,10 @@ export const runtimeRepository = {
 			// Load repo_config
 			let repoConfig: string | null = null;
 			try {
-				repoConfig = await getTediRuntimeRepoConfig(this.env.DB, tediId);
+				repoConfig = await getTediRuntimeRepoConfig(
+					coreQueryDb(this.env),
+					tediId,
+				);
 			} catch {
 				return { ok: false, error: "repo_config_read_failed" };
 			}
@@ -695,7 +699,7 @@ export const runtimeRepository = {
 						"Refresh the configured repository clone before proposing; an unpinned file fallback cannot publish.",
 				};
 			const encryptedPat = await getTediRuntimeEncryptedSecret(
-				this.env.DB,
+				coreQueryDb(this.env),
 				tediId,
 				"GITHUB_PAT",
 			);
@@ -1062,7 +1066,7 @@ export const runtimeRepository = {
 		const store = new RepoCommitStore(this.getSqlRunner());
 		const masterKey = (this.env as { SECRETS_MASTER_KEY?: string })
 			.SECRETS_MASTER_KEY;
-		const db = this.env.DB;
+		const db = coreQueryDb(this.env);
 
 		await drainRepoCommits({
 			store,

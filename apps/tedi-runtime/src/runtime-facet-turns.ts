@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import {
 	assertOriginalExecutionRestriction,
 	resolveTurnExecutionRestriction,
@@ -1347,7 +1348,7 @@ export const runtimeFacetTurns = {
 			}),
 			...createPoppyAgentAiTools({
 				enabled: this.state.poppyAgentEnabled,
-				db: this.env.DB,
+				db: coreQueryDb(this.env),
 				masterKey: this.env.SECRETS_MASTER_KEY,
 				apiBaseUrl: this.env.API_URL,
 				tediId: this.state.tediId,

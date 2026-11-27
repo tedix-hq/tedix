@@ -15,7 +15,7 @@ export class RuntimeConfigCache {
 	}
 
 	async getMaxConcurrentWorkItems(
-		db: D1Database,
+		db: Parameters<typeof getTediRuntimePolicy>[0],
 		tediId: string | null | undefined,
 	): Promise<number> {
 		if (this.workItemConcurrency !== null) return this.workItemConcurrency;

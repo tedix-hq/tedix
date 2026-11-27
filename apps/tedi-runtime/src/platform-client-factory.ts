@@ -12,7 +12,9 @@
  * Durable Object so the JWT survives between turns.
  */
 
-import { readReplicaFirst } from "@tedix/db/client";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
+
+import { readRuntimeReplicaFirst } from "./runtime-core-store";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import {
@@ -201,7 +203,7 @@ async function readEncryptedTediSecret(
 	name: string,
 ): Promise<string> {
 	const encryptedValue = await getTediRuntimeEncryptedSecret(
-		env.DB,
+		coreQueryDb(env),
 		tediId,
 		name,
 	);
@@ -278,7 +280,7 @@ async function ensureScopedAccessKey(
 	);
 
 	try {
-		const identity = await readReplicaFirst(env.DB, (db) =>
+		const identity = await readRuntimeReplicaFirst(env, (db) =>
 			resolveTediRuntimeIdentity(db, tediId, true),
 		);
 		if (identity?.id !== tediId || !identity.orgId) {

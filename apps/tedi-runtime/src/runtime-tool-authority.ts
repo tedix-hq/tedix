@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { type ProxyToolOutput } from "@cloudflare/codemode";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
@@ -700,7 +701,7 @@ export const runtimeToolAuthority = {
 		if (parked.length === 0) return;
 
 		const sessionGate = new CmSessionGate(this.ctx.storage);
-		const db = this.env.DB;
+		const db = coreQueryDb(this.env);
 
 		for (const row of parked) {
 			const approvalRequestId = row.approval_request_id;
@@ -981,7 +982,10 @@ export const runtimeToolAuthority = {
 		await this.ensureIdentity();
 		const tediId = identityValue(this.state.tediId);
 		if (!tediId) throw new Error("Tedi identity is unavailable");
-		const row = await getTediRuntimeApproval(this.env.DB, approvalRequestId);
+		const row = await getTediRuntimeApproval(
+			coreQueryDb(this.env),
+			approvalRequestId,
+		);
 		if (!row || row.tediId !== tediId) {
 			throw new Error("Browser takeover approval was not found for this tedi");
 		}
@@ -1059,7 +1063,7 @@ export const runtimeToolAuthority = {
 		const logins = browserLogins(this);
 		if (!gate) return logins.ensure();
 		const row = await getTediRuntimeApproval(
-			this.env.DB,
+			coreQueryDb(this.env),
 			gate.approvalRequestId,
 		);
 		const tediId = identityValue(this.state.tediId);
@@ -1205,7 +1209,7 @@ export const runtimeToolAuthority = {
 			}),
 			...createPoppyAgentAiTools({
 				enabled: this.state.poppyAgentEnabled,
-				db: this.env.DB,
+				db: coreQueryDb(this.env),
 				masterKey: this.env.SECRETS_MASTER_KEY,
 				apiBaseUrl: this.env.API_URL,
 				tediId: this.state.tediId,

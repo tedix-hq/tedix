@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { durableObjectIdFromName } from "@tedix/worker-kit/durable-objects";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { serializeException } from "@tedix/worker-kit/logger";
@@ -369,7 +370,7 @@ export const runtimeParentTurns = {
 	},
 	getMaxConcurrentWorkItems(this: RuntimeParentTurnsHost): Promise<number> {
 		return this.runtimeConfigCache.getMaxConcurrentWorkItems(
-			this.env.DB,
+			coreQueryDb(this.env),
 			identityValue(this.state.tediId),
 		);
 	},
@@ -411,7 +412,7 @@ export const runtimeParentTurns = {
 		slug: string;
 	} | null> {
 		return resolveRuntimeParentIdentity({
-			db: this.env.DB,
+			db: coreQueryDb(this.env),
 			physicalIdForName: (name) =>
 				durableObjectIdFromName(this.env.TEDI_AGENT, this.env, name).toString(),
 			capture: () =>
@@ -436,7 +437,7 @@ export const runtimeParentTurns = {
 		const key = identityValue(tediId);
 		if (!key) return null;
 		try {
-			const channels = await getTediRuntimeChannels(this.env.DB, key);
+			const channels = await getTediRuntimeChannels(coreQueryDb(this.env), key);
 			if (!channels) return null;
 			const parsed =
 				typeof channels === "string" ? JSON.parse(channels) : channels;
@@ -448,7 +449,7 @@ export const runtimeParentTurns = {
 			// from the channels column. A missing secret leaves the config
 			// tokenless, so selection falls back to the Worker-wide token.
 			const encrypted = await getTediRuntimeEncryptedSecret(
-				this.env.DB,
+				coreQueryDb(this.env),
 				key,
 				"TELEGRAM_BOT_TOKEN",
 			);
@@ -491,7 +492,7 @@ export const runtimeParentTurns = {
 		const key = identityValue(tediId);
 		if (!key) return failClosed;
 		try {
-			const row = await getTediRuntimeGovernance(this.env.DB, key);
+			const row = await getTediRuntimeGovernance(coreQueryDb(this.env), key);
 			const decode = (value: unknown): unknown =>
 				typeof value === "string" ? JSON.parse(value) : value;
 			const organizationMetadata = decode(row?.organizationMetadata) as {

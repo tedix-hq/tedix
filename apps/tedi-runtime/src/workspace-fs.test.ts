@@ -1,3 +1,6 @@
+import { type SQL } from "drizzle-orm";
+import { SQLiteDialect } from "drizzle-orm/sqlite-core";
+import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	boundGitCliOutput,
 	GIT_CLI_ALLOWED_SUBCOMMANDS,
@@ -547,22 +550,20 @@ assert.equal(smallOut.outputTruncated, undefined);
 const cloneCalls: Array<Record<string, unknown>> = [];
 const cloneDeps = {
 	db: {
-		prepare: (sql: string) => ({
-			bind: () => ({
-				first: async <T>(): Promise<T | null> => {
-					if (sql.includes("repo_config")) {
-						return {
+		get: async <T>(query: SQL): Promise<T | null> => {
+			const { sql } = new SQLiteDialect().sqlToQuery(query);
+			return (
+				sql.includes("repo_config")
+					? {
 							repo_config: JSON.stringify({
 								repoUrl: "https://github.com/tedix-hq/tedix",
 								branch: "main",
 							}),
-						} as unknown as T;
-					}
-					return { encrypted_value: "enc" } as unknown as T;
-				},
-			}),
-		}),
-	},
+						}
+					: { encrypted_value: "enc" }
+			) as T;
+		},
+	} as unknown as DbQueryClient,
 	masterKey: undefined, // no PAT decryptable → no_github_pat path
 	clone: async (options: Record<string, unknown>) => {
 		cloneCalls.push(options);
@@ -583,24 +584,22 @@ const TOKEN = "ghp_secrettoken123";
 const encryptedPat = await encryptTediSecret(MASTER_KEY, TEDI_ID, TOKEN);
 
 /** Mock db serving repo_config + a REAL encrypted GITHUB_PAT. */
-function authedDb() {
+function authedDb(): DbQueryClient {
 	return {
-		prepare: (sql: string) => ({
-			bind: () => ({
-				first: async <T>(): Promise<T | null> => {
-					if (sql.includes("repo_config")) {
-						return {
+		get: async <T>(query: SQL): Promise<T | null> => {
+			const { sql } = new SQLiteDialect().sqlToQuery(query);
+			return (
+				sql.includes("repo_config")
+					? {
 							repo_config: JSON.stringify({
 								repoUrl: "https://github.com/tedix-hq/tedix",
 								branch: "main",
 							}),
-						} as unknown as T;
-					}
-					return { encrypted_value: encryptedPat } as unknown as T;
-				},
-			}),
-		}),
-	};
+						}
+					: { encrypted_value: encryptedPat }
+			) as T;
+		},
+	} as unknown as DbQueryClient;
 }
 
 /**

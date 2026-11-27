@@ -136,12 +136,7 @@ function selectionTooLargeResult(
 
 /** Minimal dependencies required by runRepoLoad. */
 export interface RepoLoadDeps {
-	/** D1 database binding with a prepared-statement read chain. */
-	db: {
-		prepare(sql: string): {
-			bind(...args: unknown[]): { first<T>(): Promise<T | null> };
-		};
-	};
+	db: Parameters<typeof getTediRuntimeRepoConfig>[0];
 	/** Base64-encoded SECRETS_MASTER_KEY, or undefined when not bound. */
 	masterKey: string | undefined;
 	/** Workspace: write a file by path with string content. */

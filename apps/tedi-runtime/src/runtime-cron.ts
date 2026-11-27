@@ -1,5 +1,6 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
-import { readReplicaFirst } from "@tedix/db/client";
+import { readRuntimeReplicaFirst } from "./runtime-core-store";
 import { serializeException } from "@tedix/worker-kit/logger";
 import type { ChatTurnParams } from "./chat-turn-input";
 import { buildCronGovernanceAnalyticsDataPoint } from "@tedix/api-contract/schemas/mcp-analytics";
@@ -218,7 +219,7 @@ export async function loadPolicyPackCronTemplates(
 	| { ok: false; templates: CronTemplateLike[]; error: string }
 > {
 	try {
-		const row = await getTediRuntimePolicy(host.env.DB, tediId);
+		const row = await getTediRuntimePolicy(coreQueryDb(host.env), tediId);
 		const def = row?.definition
 			? ((typeof row.definition === "string"
 					? JSON.parse(row.definition)
@@ -296,7 +297,7 @@ export async function cronProtectionError(
 	if (!tediId) return null;
 	let protectedNames: string[];
 	try {
-		const row = await getTediRuntimePolicy(host.env.DB, tediId);
+		const row = await getTediRuntimePolicy(coreQueryDb(host.env), tediId);
 		const def = row?.definition
 			? ((typeof row.definition === "string"
 					? JSON.parse(row.definition)
@@ -672,7 +673,7 @@ export async function isOrphanedIsolateForCron(
 ): Promise<boolean> {
 	const tediId = host.identityValue(host.state.tediId);
 	if (!tediId) throw new Error("Canonical runtime identity is missing");
-	const row = await readReplicaFirst(host.env.DB, (db) =>
+	const row = await readRuntimeReplicaFirst(host.env, (db) =>
 		getTediRuntimeCanonicalIsolateId(db, tediId),
 	);
 	// A retired tedi keeps its row, but nothing should wake it: five retired

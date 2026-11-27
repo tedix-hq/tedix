@@ -1,3 +1,5 @@
+import { type SQL } from "drizzle-orm";
+import { SQLiteDialect } from "drizzle-orm/sqlite-core";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { encryptTediSecret } from "@tedix/db/utils/secrets-encryption";
 import {
@@ -29,22 +31,22 @@ async function repoDeps(
 		masterKey: MASTER_KEY,
 		writeFile,
 		db: {
-			prepare: (sql: string) => ({
-				bind: () => ({
-					first: async <T>() =>
-						(sql.includes("repo_config")
-							? {
-									repo_config: JSON.stringify({
-										repoUrl: "https://github.com/example/monorepo",
-										branch: "main",
-									}),
-								}
-							: sql.includes("tedi_secrets")
-								? { encrypted_value: encrypted }
-								: null) as T | null,
-				}),
-			}),
-		},
+			get: async <T>(query: SQL) => {
+				const { sql } = new SQLiteDialect().sqlToQuery(query);
+				return (
+					sql.includes("repo_config")
+						? {
+								repo_config: JSON.stringify({
+									repoUrl: "https://github.com/example/monorepo",
+									branch: "main",
+								}),
+							}
+						: sql.includes("tedi_secrets")
+							? { encrypted_value: encrypted }
+							: null
+				) as T | null;
+			},
+		} as unknown as RepoLoadDeps["db"],
 	};
 }
 

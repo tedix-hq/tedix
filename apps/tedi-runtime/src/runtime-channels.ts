@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
 import { deriveIdempotencyKey } from "@tedix/tedi-session/session-repo";
 import type { AgentEmail } from "agents/email";
@@ -493,7 +494,7 @@ export const runtimeChannels = {
 				}),
 				...createPoppyAgentAiTools({
 					enabled: this.state.poppyAgentEnabled,
-					db: this.env.DB,
+					db: coreQueryDb(this.env),
 					masterKey: this.env.SECRETS_MASTER_KEY,
 					apiBaseUrl: this.env.API_URL,
 					tediId: this.state.tediId,
@@ -705,7 +706,7 @@ export const runtimeChannels = {
 								}),
 								...createPoppyAgentAiTools({
 									enabled: this.state.poppyAgentEnabled,
-									db: this.env.DB,
+									db: coreQueryDb(this.env),
 									masterKey: this.env.SECRETS_MASTER_KEY,
 									apiBaseUrl: this.env.API_URL,
 									tediId: this.state.tediId,

@@ -37,7 +37,7 @@ export async function edgeFetch(
 		prepare: () => ({
 			bind: () => ({
 				first: async () => EDGE_TEDI,
-				all: async () => ({ results: [] }),
+				all: async () => ({ results: [EDGE_TEDI] }),
 				run: async () => ({ success: true }),
 			}),
 		}),
