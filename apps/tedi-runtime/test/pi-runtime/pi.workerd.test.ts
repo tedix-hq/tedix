@@ -21,6 +21,7 @@ const fixture = (name: string) =>
 async function inspect(agent: Awaited<ReturnType<typeof fixture>>) {
 	return JSON.parse(await agent.inspectFixture()) as {
 		stats: ConversationStats;
+		settingsErrors: string[];
 	};
 }
 async function waitForApproval(agent: Awaited<ReturnType<typeof fixture>>) {
@@ -40,6 +41,7 @@ describe("Production ConversationFacet on native Pi", () => {
 		});
 		expect(result.result.assistantText).toContain("owned answer");
 		expect((await inspect(agent)).stats.requests).toBe(1);
+		expect((await inspect(agent)).settingsErrors).toEqual([]);
 	});
 	it("resumes a due native sleeper while another task is still running", async () => {
 		const agent = await fixture(crypto.randomUUID());

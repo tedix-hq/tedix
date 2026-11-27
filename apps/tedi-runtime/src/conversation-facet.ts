@@ -1411,10 +1411,16 @@ export class ConversationFacet extends PiAgent<
 			steeringMode: "all" as const,
 			// 2s, 4s, 8s: spans a short D1 or service-binding outage.
 			retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000 },
-			compaction: {
-				...conversationCompactionSettings(this.selectedPiModel().contextWindow),
-				...(this.state.executionRestriction ? { enabled: false } : {}),
-			},
+			// Native Pi reads settings while opening an empty facet, before a turn
+			// loads its catalog. Compaction cannot infer until that turn is configured.
+			compaction: this.state.modelCatalog
+				? {
+						...conversationCompactionSettings(
+							this.selectedPiModel().contextWindow,
+						),
+						...(this.state.executionRestriction ? { enabled: false } : {}),
+					}
+				: { enabled: false },
 		};
 	}
 	private readonly approvalSinks = new Set<

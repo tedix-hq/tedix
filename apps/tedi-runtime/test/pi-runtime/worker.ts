@@ -337,6 +337,7 @@ const SettingsProbeTask = defineTask<
 	},
 });
 export class PiConversationFixture extends ProductionConversationFacet {
+	private readonly settingsErrors: string[] = [];
 	private wakeProbeGate: Promise<void> = Promise.resolve();
 	private releaseWakeProbeGate?: () => void;
 	private wakeProbeIds?: { active: TaskId<null>; sleeping: TaskId<null> };
@@ -562,6 +563,14 @@ export class PiConversationFixture extends ProductionConversationFacet {
 				return { ok: true };
 			},
 		};
+	}
+	protected override piSettings() {
+		try {
+			return super.piSettings();
+		} catch (error) {
+			this.settingsErrors.push(String(error));
+			throw error;
+		}
 	}
 	protected selectModelForTurn() {
 		// Preserve production rejection before turn configuration loads the catalog.
@@ -1139,6 +1148,7 @@ export class PiConversationFixture extends ProductionConversationFacet {
 	async inspectFixture() {
 		return JSON.stringify({
 			stats: await this.stats(),
+			settingsErrors: this.settingsErrors,
 			state: this.state,
 			pending:
 				(await this.ctx.storage.get("pi-facet-pending-submission")) ?? null,
