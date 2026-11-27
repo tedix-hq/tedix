@@ -442,7 +442,7 @@ const audit = authed.audit
 		}
 		return auditMemoryGraph(
 			{
-				db: context.env.DB,
+				db: context.db,
 				organizationId: orgId,
 				tediId,
 			},

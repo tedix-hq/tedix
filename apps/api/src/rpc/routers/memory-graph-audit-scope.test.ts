@@ -1,4 +1,12 @@
 import { createRouterClient } from "@orpc/server";
+import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { createDbClient } from "@tedix/db/client";
+import { memoryFacts } from "@tedix/db/schema/memory-graph";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { createPGliteFacade } from "@tedix/db/test/pglite-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
 	beforeAll,
 	beforeEach,
@@ -25,7 +33,11 @@ vi.mock("@tedix/db/queries/memory-audit", async (original) => ({
 	auditMemoryGraph: mocks.auditMemoryGraph,
 }));
 
-async function audit(scope: "self" | "all", inherited = false) {
+async function audit(
+	scope: "self" | "all",
+	inherited = false,
+	overrides: Partial<BaseContext> = {},
+) {
 	const { memoryGraphContractRouter } = await import("./memory-graph");
 	const context = {
 		authType: "user",
@@ -45,6 +57,7 @@ async function audit(scope: "self" | "all", inherited = false) {
 			roles: [],
 			sub: "user-1",
 		},
+		...overrides,
 	} as unknown as BaseContext;
 	return createRouterClient(memoryGraphContractRouter, { context }).audit({
 		...(inherited ? {} : { tediId: TEDI }),
@@ -102,6 +115,71 @@ describe("memory audit target ownership", () => {
 					limit: 6,
 				}),
 			);
+		},
+	);
+	it.each(["d1", "postgres"] as const)(
+		"audits the selected %s store without reading the legacy D1 binding",
+		async (dialect) => {
+			const sqlite =
+				dialect === "d1" ? new DatabaseSync(":memory:") : undefined;
+			const pg =
+				dialect === "postgres" ? await createPGliteFacade() : undefined;
+			try {
+				if (sqlite) {
+					sqlite.exec("PRAGMA foreign_keys = OFF");
+					sqlite.exec(schemaDdl(memoryFacts));
+				}
+				if (pg) {
+					for (const migration of readMigrationFiles({
+						migrationsFolder: fileURLToPath(
+							new URL("../../../../../packages/db/drizzle-pg", import.meta.url),
+						),
+					}))
+						for (const ddl of migration.sql) await pg.engine.exec(ddl);
+					await pg.engine.exec(`
+						INSERT INTO organizations (id, name, slug) VALUES
+						('${ORG}', 'Fictional', 'fictional'),
+						('${OTHER_ORG}', 'Other', 'other');
+					`);
+				}
+				const db = pg?.db ?? createDbClient(createD1Facade(sqlite!));
+				await db.insert(memoryFacts).values(
+					[ORG, OTHER_ORG].map((organizationId) => ({
+						id: `fact-${organizationId}`,
+						organizationId,
+						content: "Saved audit evidence",
+						factType: "knowledge" as const,
+						sourceSessionId: "exact-chat-run",
+						metadata: { producer: "audit-regression" },
+					})),
+				);
+				const real = await vi.importActual<
+					typeof import("@tedix/db/queries/memory-audit")
+				>("@tedix/db/queries/memory-audit");
+				mocks.auditMemoryGraph.mockImplementation(real.auditMemoryGraph);
+				mocks.getTediById.mockResolvedValue({ id: TEDI, organizationId: ORG });
+				const legacyRead = vi.fn(() => {
+					throw new Error("Unexpected legacy D1 audit read");
+				});
+				await expect(
+					audit("all", false, {
+						db,
+						env: {
+							CORE_STORE: dialect,
+							DB: { prepare: legacyRead },
+						} as unknown as CloudflareEnv,
+					}),
+				).resolves.toMatchObject({
+					ok: true,
+					counts: { total: 1, byProducer: { "audit-regression": 1 } },
+					facts: [{ id: `fact-${ORG}`, producer: "audit-regression" }],
+				});
+				expect(legacyRead).not.toHaveBeenCalled();
+			} finally {
+				sqlite?.close();
+				await pg?.close();
+				mocks.auditMemoryGraph.mockReset();
+			}
 		},
 	);
 });
