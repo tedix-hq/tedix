@@ -1,4 +1,5 @@
-import { createDbClient } from "@tedix/db/client";
+import type { DbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getOrganizationBySlug } from "@tedix/db/queries/organizations";
 import { listToolInvocationLabelsForOrganization } from "@tedix/db/queries/tools";
 import { resolveWidgetCatalog } from "@tedix/widget-i18n/catalogs";
@@ -94,7 +95,7 @@ export interface WidgetBrandingCache {
  */
 export async function handleWidgetBranding(
 	slug: string,
-	database: D1Database | undefined,
+	database: DbClient | D1Database | undefined,
 	localeHint?: string | undefined,
 	cache?: WidgetBrandingCache | undefined,
 ): Promise<Response> {
@@ -114,7 +115,7 @@ export async function handleWidgetBranding(
 
 async function buildWidgetBranding(
 	slug: string,
-	database: D1Database | undefined,
+	database: DbClient | D1Database | undefined,
 	localeHint?: string | undefined,
 ): Promise<Response> {
 	const tenant = String(slug || "").toLowerCase();
@@ -126,7 +127,7 @@ async function buildWidgetBranding(
 			{ headers: brandingHeaders() },
 		);
 	}
-	const client = createDbClient(database);
+	const client = "prepare" in database ? coreDb({ DB: database }) : database;
 	const organization = await getOrganizationBySlug(client, tenant);
 	const published = organization?.metadata?.tediWidget as
 		| Record<string, unknown>
@@ -172,7 +173,7 @@ async function buildWidgetBranding(
  * assistant's name, and it has to be in the browser before the first turn ends.
  */
 async function publishedToolLabels(
-	client: ReturnType<typeof createDbClient>,
+	client: DbClient,
 	organizationId: string,
 ): Promise<Record<string, { invoking?: string; invoked?: string }>> {
 	const labels: Record<string, { invoking?: string; invoked?: string }> = {};

@@ -1,3 +1,5 @@
+import * as coreStoreScope from "@tedix/db/core-store/scope";
+import type { DbClient } from "@tedix/db/client";
 import { providerDeploymentScope } from "@tedix/api-contract/schemas/provider-execution";
 import {
 	afterEach,
@@ -94,6 +96,25 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("provider execution admission", () => {
+	it("checks residency on the selected Postgres store when no D1 binding exists", async () => {
+		const selected = {} as DbClient;
+		vi.spyOn(coreStoreScope, "coreDb").mockReturnValue(selected);
+		await expect(
+			authorizeRuntimeInference({
+				plane: "organization_kernel",
+				db: {} as DbClient,
+				env: {
+					CORE_STORE: "postgres",
+					TEDIX_BILLING_SETTLEMENT_MODE: "external",
+				},
+				request: request("external"),
+				nowMs: now,
+			}),
+		).resolves.toMatchObject({ allowed: true });
+		expect(authorizeDataResidency).toHaveBeenCalledWith(
+			expect.objectContaining({ db: selected }),
+		);
+	});
 	it("returns the governed Azure rate for the admitted identity and input band", async () => {
 		mocks.rate.mockResolvedValueOnce({
 			status: "resolved",

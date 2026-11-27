@@ -5,7 +5,9 @@ import {
 import { PersonalAgentDiscoveryConfigSchema } from "@tedix/api-contract/schemas/organization";
 import type { PersonalAgentSessionRequestSchema } from "@tedix/api-contract/schemas/personal-agent-session";
 import type * as z from "zod";
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import type { DbClient } from "@tedix/db/client";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
 import {
 	getOrganizationById,
@@ -17,10 +19,8 @@ import {
 } from "@tedix/db/queries/personal-agent-sessions";
 import { loadPoppyAgentPublicDocument } from "./poppy-agent-identity";
 
-type IdentityHostEnv = Pick<
-	CloudflareEnv,
-	"API_URL" | "SECRETS_MASTER_KEY" | "DB"
->;
+type IdentityHostEnv = Pick<CloudflareEnv, "API_URL" | "SECRETS_MASTER_KEY"> &
+	CoreStoreEnv;
 
 /** Rate bucket shared by every unidentified visitor of one organization. */
 const UNIDENTIFIED_RATE_BUCKET = "poppy:unidentified";
@@ -41,7 +41,7 @@ function loadOwnIdentityDocument(env: IdentityHostEnv) {
 		if (!match) return null;
 		return loadPoppyAgentPublicDocument(
 			env,
-			createDbClient(env.DB),
+			coreDb(env),
 			match[1]!,
 			match[2] as "client" | "jwks",
 		);

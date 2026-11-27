@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import type { DbClient } from "@tedix/db/client";
 
 const getOrganizationBySlug = vi.fn();
-vi.mock("@tedix/db/client", () => ({ createDbClient: (db: unknown) => db }));
 vi.mock("@tedix/db/queries/organizations", () => ({
 	getOrganizationBySlug: (...args: unknown[]) => getOrganizationBySlug(...args),
 }));
@@ -13,7 +13,7 @@ vi.mock("@tedix/db/queries/tools", () => ({
 
 const { handleWidgetBranding } = await import("./widget-branding");
 
-const database = {} as D1Database;
+const database = {} as DbClient;
 
 const published = {
 	version: 1,
@@ -61,6 +61,7 @@ describe("handleWidgetBranding", () => {
 			await handleWidgetBranding("acme", database)
 		).json()) as { branding: Record<string, unknown>; version: number };
 
+		expect(getOrganizationBySlug).toHaveBeenCalledWith(database, "acme");
 		expect(body.branding.title).toBe("Karbot");
 		expect(body.branding.launcherIconUrl).toBe(
 			"https://www.acme.example/logo.png",

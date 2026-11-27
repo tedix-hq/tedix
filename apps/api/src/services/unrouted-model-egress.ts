@@ -1,7 +1,6 @@
-import {
-	createDbQueryClient,
-	type DbQueryClient,
-} from "@tedix/db/query-client";
+import type { DbQueryClient } from "@tedix/db/query-client";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { getOrganizationResidencyPolicy } from "@tedix/db/queries/data-residency";
 import { DataResidencyError } from "./data-residency";
 
@@ -21,7 +20,7 @@ export async function requireUnrestrictedModelEgress(
 	let policy;
 	try {
 		policy = await getOrganizationResidencyPolicy(
-			binding ? createDbQueryClient(binding) : db,
+			binding ? coreQueryDb({ DB: binding }) : db,
 			organizationId,
 		);
 	} catch {
@@ -39,9 +38,8 @@ export async function requireUnrestrictedModelEgress(
 
 /** Bind legacy model helpers to their actual organization without changing shared Worker env. */
 export function organizationModelEnv<
-	T extends {
+	T extends CoreStoreEnv & {
 		AI?: unknown;
-		DB?: D1Database;
 		AI_GATEWAY_ACCOUNT_ID?: string;
 		TEDIX_BILLING_SETTLEMENT_MODE?: string;
 	},
@@ -56,10 +54,9 @@ export function organizationModelEnv<
 ): T {
 	const check = () =>
 		requireUnrestrictedModelEgress(
-			db,
+			env.CORE_STORE || "DB" in env ? coreQueryDb(env) : db,
 			organizationId,
 			"This auxiliary model feature",
-			env.DB,
 		);
 	const scoped = { ...env };
 	checks.set(scoped, check);

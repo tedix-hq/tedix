@@ -1,3 +1,4 @@
+import { coreQueryDb } from "@tedix/db/core-store/scope";
 import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
 import { getManagementClient } from "@tedix/auth/client";
 import {
@@ -342,10 +343,9 @@ export async function readWorkspaceDrivePdf(
 			"PDF text conversion is unavailable",
 		);
 	await requireUnrestrictedModelEgress(
-		context.db,
+		coreQueryDb(context.env),
 		input.resource.organizationId,
 		"PDF model conversion",
-		context.env.DB,
 	);
 	const converted = await ai.toMarkdown({
 		name: metadata.name,

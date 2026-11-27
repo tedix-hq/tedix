@@ -1,9 +1,10 @@
-import { createDbClient, type DbClient } from "@tedix/db/client";
+import type { DbClient } from "@tedix/db/client";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import { coreDb, isD1CoreStore } from "@tedix/db/core-store/scope";
 
 export type FleetAuthorityMode = "disabled" | "co-located";
 
-export interface FleetAuthorityEnv {
-	DB?: D1Database;
+export interface FleetAuthorityEnv extends CoreStoreEnv {
 	TEDIX_FLEET_AUTHORITY_MODE?: string;
 }
 
@@ -44,7 +45,7 @@ export function resolveFleetAuthorityBinding(
 			"Fleet authority is disabled for this installation",
 		);
 	}
-	if (!env.DB) {
+	if (!isD1CoreStore(env) || !env.DB) {
 		throw new FleetAuthorityUnavailableError(
 			"missing-binding",
 			"Co-located fleet authority requires DB",
@@ -54,11 +55,25 @@ export function resolveFleetAuthorityBinding(
 }
 
 export function resolveFleetAuthorityDb(env: FleetAuthorityEnv): DbClient {
-	return createDbClient(resolveFleetAuthorityBinding(env));
+	assertFleetAuthorityAvailable(env);
+	return coreDb(env);
 }
 
 export function assertFleetAuthorityAvailable(env: FleetAuthorityEnv): void {
-	resolveFleetAuthorityBinding(env);
+	if (resolveFleetAuthorityMode(env) === "disabled")
+		throw new FleetAuthorityUnavailableError(
+			"disabled",
+			"Fleet authority is disabled for this installation",
+		);
+	if (isD1CoreStore(env)) {
+		resolveFleetAuthorityBinding(env);
+		return;
+	}
+	if (env.CORE_STORE !== "postgres" || !env.CORE_HYPERDRIVE)
+		throw new FleetAuthorityUnavailableError(
+			"missing-binding",
+			"Co-located fleet authority requires CORE_HYPERDRIVE for Postgres",
+		);
 }
 
 export function fleetAuthorityIsEnabled(env: FleetAuthorityEnv): boolean {

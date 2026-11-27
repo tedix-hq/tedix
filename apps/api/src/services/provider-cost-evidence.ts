@@ -73,7 +73,6 @@ import {
 	providerCostEvidenceDigest,
 	type RecordProviderCostEvidenceInput,
 } from "@tedix/api-contract/schemas/provider-cost-evidence";
-import { createDbClient } from "@tedix/db/client";
 import {
 	getProviderCostEvidenceApproval,
 	getProviderCostEvidenceAuthorityBundle,
@@ -87,7 +86,7 @@ import {
 	type NewProviderCostEvidenceRow,
 } from "@tedix/db/queries/billing/provider-cost-evidence";
 import type { BaseContext } from "../rpc/orpc";
-import { resolveFleetAuthorityBinding } from "../lib/fleet-authority";
+import { resolveFleetAuthorityDb } from "../lib/fleet-authority";
 import { verifiedExternalAgent } from "../rpc/routers/work-items-principal";
 
 const finiteFuture = (value: string | null | undefined, now: number) =>
@@ -95,7 +94,7 @@ const finiteFuture = (value: string | null | undefined, now: number) =>
 	Number.isFinite(Date.parse(value)) &&
 	Date.parse(value) > now;
 
-/** Authority verification and atomic INSERT share one explicit co-located D1. */
+/** Authority verification and atomic INSERT share the selected co-located store. */
 export async function recordProviderCostEvidence(
 	context: BaseContext,
 	supplied: RecordProviderCostEvidenceInput,
@@ -110,7 +109,7 @@ export async function recordProviderCostEvidence(
 		if (Date.now() - started >= 30_000)
 			refuse("Evidence request deadline exceeded");
 	};
-	const db = createDbClient(resolveFleetAuthorityBinding(context.env));
+	const db = resolveFleetAuthorityDb(context.env);
 	const organizationId = context.organizationId;
 	if (!organizationId)
 		throw new ORPCError("FORBIDDEN", {

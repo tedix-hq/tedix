@@ -8,6 +8,17 @@ import { expect, it, vi } from "vite-plus/test";
 import { createContext } from "../rpc/context";
 import { invalidateIdentityCache } from "./identity-cache-invalidation";
 import { reserveVoiceUsage } from "./voice-billing";
+import {
+	resolveFleetAuthorityDb,
+	resolveFleetAuthorityBinding,
+} from "../lib/fleet-authority";
+import {
+	organizationModelEnv,
+	requireUnrestrictedModelEgress,
+} from "./unrouted-model-egress";
+import * as residency from "@tedix/db/queries/data-residency";
+import * as gatingQueries from "@tedix/db/queries/app-gating";
+import { checkAppEligibilityById } from "../lib/app-gating";
 
 vi.mock("@tedix/db/core-store/client", async (original) => ({
 	...(await original<typeof import("@tedix/db/core-store/client")>()),
@@ -15,7 +26,7 @@ vi.mock("@tedix/db/core-store/client", async (original) => ({
 }));
 
 it.each(["d1", "postgres"] as const)(
-	"uses the selected %s store for RPC reads and logout invalidation",
+	"uses the selected %s store for fleet access, model policy reads and logout invalidation",
 	async (dialect) => {
 		const ddl =
 			"CREATE TABLE auth_context_cache_state (id integer PRIMARY KEY, version text NOT NULL); INSERT INTO auth_context_cache_state VALUES (1, 'before')";
@@ -28,7 +39,13 @@ it.each(["d1", "postgres"] as const)(
 		if (pg) vi.mocked(createCoreStore).mockReturnValue({ db: pg.db, close });
 		const env = {
 			CORE_STORE: dialect,
-			DB: d1,
+			DB: d1 ?? {
+				prepare() {
+					throw new Error("D1 must not be queried");
+				},
+			},
+			CORE_HYPERDRIVE: { connectionString: "postgres://unused" },
+			TEDIX_FLEET_AUTHORITY_MODE: "co-located",
 			ENVIRONMENT: "production",
 		} as CloudflareEnv;
 		try {
@@ -40,6 +57,67 @@ it.each(["d1", "postgres"] as const)(
 					env,
 				);
 				expect(await readAuthContextCacheVersion(context.db)).toBe("before");
+				expect(
+					await readAuthContextCacheVersion(resolveFleetAuthorityDb(env)),
+				).toBe("before");
+				if (pg) expect(() => resolveFleetAuthorityBinding(env)).toThrow();
+				const gating = vi
+					.spyOn(gatingQueries, "getAppGatingMetadata")
+					.mockImplementation(async (db) => {
+						expect(await readAuthContextCacheVersion(db)).toBe("before");
+						return undefined;
+					});
+				const tools = vi
+					.spyOn(gatingQueries, "getEnabledToolIdsForApp")
+					.mockResolvedValue(["example-tool"]);
+				try {
+					await expect(
+						checkAppEligibilityById(env.DB, "app-example", "org-example"),
+					).resolves.toMatchObject({
+						eligible: true,
+						availableTools: ["example-tool"],
+					});
+				} finally {
+					gating.mockRestore();
+					tools.mockRestore();
+				}
+				const policy = vi
+					.spyOn(residency, "getOrganizationResidencyPolicy")
+					.mockImplementation(async (db) => {
+						expect(await readAuthContextCacheVersion(db as never)).toBe(
+							"before",
+						);
+						return {
+							organizationId: "org-example",
+							mode: "eu",
+							revision: 1,
+							updatedAt: "2026-11-27T00:00:00Z",
+							updatedBy: "user-example",
+						};
+					});
+				try {
+					const send = vi.fn();
+					const scoped = organizationModelEnv(
+						{ ...env, AI: { run: send } },
+						{} as never,
+						"org-example",
+					);
+					await expect(scoped.AI.run()).rejects.toThrow(
+						"EU_PROVIDER_ROUTE_REQUIRED",
+					);
+					// Callers still passing a raw D1 binding must use the scoped Postgres client.
+					await expect(
+						requireUnrestrictedModelEgress(
+							{} as never,
+							"org-example",
+							"PDF conversion",
+							env.DB,
+						),
+					).rejects.toThrow("EU_PROVIDER_ROUTE_REQUIRED");
+					expect(send).not.toHaveBeenCalled();
+				} finally {
+					policy.mockRestore();
+				}
 				const response = await invalidateIdentityCache(
 					new Request("https://api.example.test/logout", { method: "POST" }),
 					env,

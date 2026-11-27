@@ -1,3 +1,4 @@
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
 import { coreDb } from "@tedix/db/core-store/scope";
 import { withTransientD1ReadRetry } from "@tedix/db/utils/d1-retry";
 import {
@@ -42,12 +43,12 @@ export async function authorizeRuntimeInference(
 	input: {
 		db: DbClient;
 		env:
-			| CloudflareEnv
+			| (CloudflareEnv & CoreStoreEnv)
 			| ({
 					TEDIX_BILLING_SETTLEMENT_MODE?: string;
 					SECRETS_MASTER_KEY?: string;
-					DB?: D1Database;
-			  } & AiGatewayTransportEnv);
+			  } & AiGatewayTransportEnv &
+					CoreStoreEnv);
 	} & (
 		| { plane: "remote_runtime"; request: AuthorizeRuntimeInferenceInput }
 		| {
@@ -132,8 +133,9 @@ export async function authorizeRuntimeInference(
 			context.selectedGeneration = origin.selected.generation;
 		}
 		enterPhase("residency_and_replay_reads");
-		// The raw binding reads the primary rather than a caller-supplied request bookmark.
-		const residencyDb = input.env.DB ? coreDb(input.env) : input.db;
+		// Read the selected store without a caller-supplied D1 bookmark.
+		const residencyDb =
+			input.env.CORE_STORE || "DB" in input.env ? coreDb(input.env) : input.db;
 		// Residency and grant failures take precedence over a parallel replay-read failure.
 		const existingRead = withTransientD1ReadRetry(
 			"inference_admission_replay",

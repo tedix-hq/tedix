@@ -17,7 +17,7 @@ const resource = {
 	providerResourceId: "drive-file-1",
 	connectionScope: "tenant",
 } as OsWorkspaceResourceRow;
-const context = { env: {} } as BaseContext;
+const context = { env: { DB: {} as D1Database } } as BaseContext;
 const pdfBytes = new TextEncoder().encode("%PDF-1.7\ntest");
 
 function providerFetch(metadataMime = "application/pdf") {

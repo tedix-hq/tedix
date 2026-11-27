@@ -33,7 +33,8 @@ import {
 } from "@tedix/auth/connections";
 import { getOperableApps } from "@tedix/auth/fga";
 import type { DescopeEnv } from "@tedix/auth/types";
-import { createDbClient } from "@tedix/db/client";
+import type { DbClient } from "@tedix/db/client";
+import { coreDb } from "@tedix/db/core-store/scope";
 import {
 	getAppGatingMetadata,
 	getAppsWithGatingByIds,
@@ -166,12 +167,12 @@ async function resolveDescopeConnectors(
  * Fetches org plan, active Descope connections, features, and installed tools.
  */
 export async function buildOrgState(
-	db: D1Database,
+	db: D1Database | DbClient,
 	orgId: string,
 	env?: GatingDescopeEnv,
 	descopeUserId?: string,
 ): Promise<OrgState> {
-	const drizzle = createDbClient(db);
+	const drizzle = "prepare" in db ? coreDb({ DB: db }) : db;
 
 	const [orgResult, entitlement] = await Promise.all([
 		getOrgForGating(drizzle, orgId),
@@ -430,13 +431,13 @@ export function getEligibilityBadge(
  * Fetches app gating metadata from D1 and org state, then runs check.
  */
 export async function checkAppEligibilityById(
-	db: D1Database,
+	db: D1Database | DbClient,
 	appId: string,
 	orgId: string,
 	env?: GatingDescopeEnv,
 	descopeUserId?: string,
 ): Promise<EligibilityResult> {
-	const drizzle = createDbClient(db);
+	const drizzle = "prepare" in db ? coreDb({ DB: db }) : db;
 
 	// Fetch app's gating metadata from the gating_metadata JSON column
 	const app = await getAppGatingMetadata(drizzle, appId);
@@ -500,14 +501,14 @@ export async function checkAppEligibilityById(
  * Used by tedi on session start.
  */
 export async function checkInstalledAppsEligibility(
-	db: D1Database,
+	db: D1Database | DbClient,
 	orgId: string,
 	env?: GatingDescopeEnv,
 	descopeUserId?: string,
 ): Promise<
 	Array<{ appId: string; appName: string; result: EligibilityResult }>
 > {
-	const drizzle = createDbClient(db);
+	const drizzle = "prepare" in db ? coreDb({ DB: db }) : db;
 	const orgState = await buildOrgState(db, orgId, env, descopeUserId);
 
 	// Fetch all apps for org with gating metadata
@@ -596,7 +597,7 @@ export async function checkInstalledAppsEligibility(
  * Returns flat list of tools with availability status.
  */
 export async function getRuntimeTools(
-	db: D1Database,
+	db: D1Database | DbClient,
 	_tediId: string,
 	orgId: string,
 	env?: {
@@ -606,7 +607,7 @@ export async function getRuntimeTools(
 	},
 	descopeUserId?: string,
 ): Promise<RuntimeToolInfo[]> {
-	const drizzle = createDbClient(db);
+	const drizzle = "prepare" in db ? coreDb({ DB: db }) : db;
 	const orgState = await buildOrgState(db, orgId, env, descopeUserId);
 
 	// Get apps assigned to this tedi via FGA
@@ -716,7 +717,7 @@ export async function getRuntimeTools(
  * Returns eligibility result plus actionable steps.
  */
 export async function checkInstallEligibility(
-	db: D1Database,
+	db: D1Database | DbClient,
 	appId: string,
 	orgId: string,
 	env?: GatingDescopeEnv,

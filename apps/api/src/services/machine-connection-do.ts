@@ -81,19 +81,21 @@ export class MachineConnectionDO extends DurableObject<CloudflareEnv> {
 		identity: MachineConnectionIdentity,
 		results?: Outcome[],
 	): Promise<void> {
-		const [{ createDbClient }, { runMachineClaimRound }] = await Promise.all([
-			import("@tedix/db/client"),
-			import("./machine-claim-round"),
-		]);
-		const calls: PushedMachineToolCall[] = await runMachineClaimRound(
-			createDbClient(this.#bindings.DB),
-			{
-				orgId: identity.orgId,
-				machineName: identity.machineName,
-				reporterId: identity.reporterId,
-				limit: 10,
-				results,
-			},
+		const [{ coreDb, withCoreStore }, { runMachineClaimRound }] =
+			await Promise.all([
+				import("@tedix/db/core-store/scope"),
+				import("./machine-claim-round"),
+			]);
+		const calls: PushedMachineToolCall[] = await withCoreStore(
+			this.#bindings,
+			() =>
+				runMachineClaimRound(coreDb(this.#bindings), {
+					orgId: identity.orgId,
+					machineName: identity.machineName,
+					reporterId: identity.reporterId,
+					limit: 10,
+					results,
+				}),
 		);
 		for (const call of calls) socket.send(JSON.stringify(call));
 	}
