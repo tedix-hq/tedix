@@ -513,17 +513,20 @@ export async function deriveWorkItemsReadiness(
 			coreStore(db) === "postgres" ? sql`jsonb_build_object` : sql`json_object`;
 		const jsonArray =
 			coreStore(db) === "postgres" ? sql`jsonb_agg` : sql`json_group_array`;
+		// Postgres aggregates no rows to NULL, and Drizzle skips mapWith for NULL.
+		const emptyArray =
+			coreStore(db) === "postgres" ? sql`'[]'::jsonb` : sql`'[]'`;
 		const rows = await db
 			.with(approvalRows, historyRows)
 			.select({
 				...workItemSelection(db),
 				approvalReceipts: sql<WorkAdmissionApprovalReceipt[]>`${sql`(
-						SELECT ${jsonArray}(${jsonObject}(
+						SELECT coalesce(${jsonArray}(${jsonObject}(
 							'workItemId', ${approvalRows.workItemId},
 							'workItemVersion', ${approvalRows.workItemVersion},
 							'authorityKey', ${approvalRows.authorityKey},
 							'action', ${approvalRows.action}
-						)) FROM ${approvalRows}
+						)), ${emptyArray}) FROM ${approvalRows}
 						WHERE ${approvalRows.workItemId}=${workItems.id} AND ${approvalRows.rank}<=1000
 					)`}`
 					.mapWith(
@@ -532,12 +535,12 @@ export async function deriveWorkItemsReadiness(
 					)
 					.as("approval_receipts"),
 				history: sql<ReadinessCapacity["history"]>`${sql`(
-						SELECT ${jsonArray}(${jsonObject}(
+						SELECT coalesce(${jsonArray}(${jsonObject}(
 							'id', h.id, 'workItemId', h.work_item_id, 'rank', h.attempt_history_rank,
 							'outcome', h.outcome, 'metadata', h.metadata,
 							'startedAt', h.started_at, 'finishedAt', h.finished_at,
 							'workItemVersion', h.work_item_version
-						)) FROM (SELECT * FROM ${historyRows}
+						)), ${emptyArray}) FROM (SELECT * FROM ${historyRows}
 							WHERE ${historyRows.workItemId}=${workItems.id}
 							ORDER BY ${historyRows.rank}) h
 					)`}`

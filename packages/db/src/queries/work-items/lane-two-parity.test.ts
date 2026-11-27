@@ -300,6 +300,23 @@ for (const store of ["d1", "postgres"] as const)
 				evaluation: "failed",
 				detail: "Active attempt attempt",
 			});
+			// Postgres aggregates an empty Attempt history to NULL, not [].
+			await db.insert(coreTable(db, workItems)).values({
+				id: "unstarted",
+				orgId: "orchard",
+				projectId: "trees",
+				title: "Plant",
+				disposition: "accepted",
+				admissionSpecRevision: "spec-unstarted",
+				createdAt: at,
+			});
+			expect(
+				await deriveWorkItemReadiness(db, {
+					orgId: "orchard",
+					workItemId: "unstarted",
+					derivedAt: at,
+				}),
+			).toMatchObject({ workItemId: "unstarted" });
 			const holders = await listLiveWorkAttemptHolders(db, {
 				orgId: "orchard",
 			});
