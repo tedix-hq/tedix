@@ -109,19 +109,23 @@ async function serveFetch(
 			timestamp: new Date().toISOString(),
 		});
 	}
-	const [{ default: handlers }, { withD1Ledger }, { withCoreStore }] =
-		await Promise.all([
-			loadApp(),
-			import("@tedix/db/slow-query"),
-			import("@tedix/db/core-store/scope"),
-		]);
+	const [
+		{ default: handlers },
+		{ withD1Ledger },
+		{ withCoreStore, trackCoreStoreWork, TRACKED_CLOSE_DELAY_MS },
+	] = await Promise.all([
+		loadApp(),
+		import("@tedix/db/slow-query"),
+		import("@tedix/db/core-store/scope"),
+	]);
 	return withD1Ledger(
 		`${request.method} ${new URL(request.url).pathname}`,
 		() =>
 			withCoreStore(
 				env,
-				() => handlers.fetch(request, env, ctx),
+				() => handlers.fetch(request, env, tracked(ctx, trackCoreStoreWork)),
 				(promise) => ctx.waitUntil(promise),
+				TRACKED_CLOSE_DELAY_MS,
 			),
 		{
 			maxInFlight: 6,
@@ -419,20 +423,25 @@ async function runScheduled(
 	env: CloudflareEnv,
 	ctx: ExecutionContext,
 ): Promise<void> {
-	const [{ default: handlers }, { withD1Ledger }, { withCoreStore }] =
-		await Promise.all([
-			loadApp(),
-			import("@tedix/db/slow-query"),
-			import("@tedix/db/core-store/scope"),
-		]);
+	const [
+		{ default: handlers },
+		{ withD1Ledger },
+		{ withCoreStore, trackCoreStoreWork, TRACKED_CLOSE_DELAY_MS },
+	] = await Promise.all([
+		loadApp(),
+		import("@tedix/db/slow-query"),
+		import("@tedix/db/core-store/scope"),
+	]);
 	// D1 allows six simultaneous connections; all job clients share this budget.
 	await withD1Ledger(
 		`cron ${controller.cron}`,
 		() =>
 			withCoreStore(
 				env,
-				() => handlers.scheduled(controller, env, ctx),
+				() =>
+					handlers.scheduled(controller, env, tracked(ctx, trackCoreStoreWork)),
 				(promise) => ctx.waitUntil(promise),
+				TRACKED_CLOSE_DELAY_MS,
 			),
 		{
 			maxInFlight: 6,
@@ -447,19 +456,23 @@ async function runQueue(
 	env: CloudflareEnv,
 	ctx: { waitUntil: (p: Promise<unknown>) => void },
 ): Promise<void> {
-	const [{ default: handlers }, { withD1Ledger }, { withCoreStore }] =
-		await Promise.all([
-			loadApp(),
-			import("@tedix/db/slow-query"),
-			import("@tedix/db/core-store/scope"),
-		]);
+	const [
+		{ default: handlers },
+		{ withD1Ledger },
+		{ withCoreStore, trackCoreStoreWork, TRACKED_CLOSE_DELAY_MS },
+	] = await Promise.all([
+		loadApp(),
+		import("@tedix/db/slow-query"),
+		import("@tedix/db/core-store/scope"),
+	]);
 	await withD1Ledger(
 		`queue ${batch.queue}`,
 		() =>
 			withCoreStore(
 				env,
-				() => handlers.queue(batch, env, ctx),
+				() => handlers.queue(batch, env, tracked(ctx, trackCoreStoreWork)),
 				(promise) => ctx.waitUntil(promise),
+				TRACKED_CLOSE_DELAY_MS,
 			),
 		{
 			maxInFlight: 6,
@@ -657,4 +670,26 @@ export class McpToolTestWorkflow extends LazyWorkflow {
 		const m = await import("./workflows/tool-test-workflow");
 		return m.McpToolTestWorkflow as unknown as WorkflowImplClass;
 	}
+}
+
+/**
+ * The same execution context, with waitUntil work also registered on the
+ * request's core-store scope so its Postgres client stays open until that
+ * work settles.
+ */
+function tracked<C extends { waitUntil(promise: Promise<unknown>): void }>(
+	ctx: C,
+	track: (promise: Promise<unknown>) => void,
+): C {
+	return new Proxy(ctx, {
+		get(target, key) {
+			if (key === "waitUntil")
+				return (promise: Promise<unknown>) => {
+					track(promise);
+					target.waitUntil(promise);
+				};
+			const value = Reflect.get(target, key, target);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
 }

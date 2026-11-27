@@ -31,6 +31,17 @@ import {
 export interface CoreStoreScope {
 	db: DbClient;
 	close(): Promise<void>;
+	/** Background work (waitUntil) that may still query this client. */
+	background?: Promise<unknown>[];
+}
+
+/**
+ * Register background work started inside a Postgres scope, so the scope's
+ * client closes once it settles instead of after a fixed delay. A no-op on D1
+ * and outside a scope.
+ */
+export function trackCoreStoreWork(promise: Promise<unknown>): void {
+	storage.getStore()?.background?.push(promise);
 }
 
 const storage = new AsyncLocalStorage<CoreStoreScope>();
@@ -49,31 +60,53 @@ export async function withCoreStore<T>(
 	env: CoreStoreEnv,
 	fn: () => T | Promise<T>,
 	schedule?: (promise: Promise<unknown>) => void,
+	/** Grace after tracked work; callers that track all waitUntil work pass less. */
+	graceMs = UNTRACKED_CLOSE_DELAY_MS,
 ): Promise<T> {
 	if (isD1CoreStore(env)) return withAuditDelivery(env, fn);
 	const store = createCoreStore(env);
 	// Audit and telemetry history stays in the LOGS_DB partitions.
 	configureLogStore(store.db, env, [], postgresClientView(store.db));
+	const background: Promise<unknown>[] = [];
 	try {
-		return await storage.run({ db: store.db, close: store.close }, fn);
+		return await storage.run(
+			{ db: store.db, close: store.close, background },
+			fn,
+		);
 	} finally {
 		if (schedule) {
-			// Background work started in fn (waitUntil) can still query after
-			// fn settles, so the client stays open briefly, then closes. Every
-			// request opens its own client, so a long grace kept hundreds of
-			// clients alive per isolate under production load and ran tedix-api
-			// out of memory; background queries that outlive it fail loudly.
+			// Each open client holds ~190 KB, so a fixed linger multiplied by
+			// the request rate ran tedix-api isolates out of memory. Close once
+			// the tracked background work settles (it may register more while
+			// it runs), after a short grace for work started without tracking.
 			schedule(
-				new Promise((resolve) =>
-					setTimeout(resolve, SCHEDULED_CLOSE_DELAY_MS),
-				).then(() => store.close()),
+				(async () => {
+					const deadline = Date.now() + BACKGROUND_CLOSE_LIMIT_MS;
+					let settled = -1;
+					while (settled !== background.length && Date.now() < deadline) {
+						settled = background.length;
+						await Promise.race([
+							Promise.allSettled(background),
+							sleep(Math.max(0, deadline - Date.now())),
+						]);
+					}
+					await sleep(graceMs);
+				})().finally(() => store.close()),
 			);
 		} else await store.close();
 	}
 }
 
-/** Short: each scope's client lives this long after its request settles. */
-export const SCHEDULED_CLOSE_DELAY_MS = 3_000;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Longest a scope's client waits for its tracked background work. */
+export const BACKGROUND_CLOSE_LIMIT_MS = 30_000;
+
+/** Grace for callers whose waitUntil work is not tracked (Durable Objects, workflows). */
+export const UNTRACKED_CLOSE_DELAY_MS = 3_000;
+
+/** Grace for entrypoints that track every waitUntil promise. */
+export const TRACKED_CLOSE_DELAY_MS = 250;
 
 /** The scoped core client, or a fresh D1 client outside a Postgres scope. */
 export function coreDb(env: CoreStoreEnv): DbClient {
