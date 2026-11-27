@@ -1,4 +1,4 @@
-import { withCoreStore } from "@tedix/db/core-store/scope";
+import { coreQueryDb, withCoreStore } from "@tedix/db/core-store/scope";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { dailyLogHasWork } from "./runtime-memory-effects";
 import { readOwnedRuntimeWorkflow } from "./runtime-workflow-diagnostic";
@@ -239,6 +239,7 @@ import { DoBrowserBudgetStore } from "./browser-budget-store-do";
 import { createTediBrowser, type TediBrowserSession } from "./browser-session";
 import { persistentBrowserEgress } from "./browser-egress-policy";
 import { ChatStreamHub, type FrameSink } from "./chat-stream-hub";
+import { createPoppyAgentAiTools } from "./poppy-agent-tools";
 import { PoppyRuntime } from "./poppy-runtime";
 import { type InboundEmailTrust } from "./email-turn-tools";
 import {
@@ -2590,6 +2591,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			ensureIdentity: (hints) => parent.ensureIdentity(hints),
 			getPlatformClient: () => parent.getPlatformClient(),
 			getMcpRuntime: () => parent.getMcpRuntime(),
+			getPoppyAgentTools: () =>
+				createPoppyAgentAiTools({
+					enabled: parent.state.poppyAgentEnabled,
+					db: coreQueryDb(parent.env),
+					masterKey: parent.env.SECRETS_MASTER_KEY,
+					apiBaseUrl: parent.env.API_URL,
+					tediId: parent.state.tediId,
+					slug: parent.state.slug,
+				}),
 			dispatchTurnMemoryEffects: (input) =>
 				parent.dispatchTurnMemoryEffects(input),
 		};

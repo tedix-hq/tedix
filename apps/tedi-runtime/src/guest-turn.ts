@@ -13,7 +13,9 @@
  * Left out: free-form Code Mode programs, the tedi's files, browser, web
  * search, mail, schedules, memory tools and delegation, and anything that
  * reaches a person's machine or starts agent runs (the workspace service has
- * its own tools for those).
+ * its own tools for those). The exception is the tedi's hosted Poppy identity:
+ * when it holds the signing key, `poppy_discover` and `poppy_call` run through
+ * the same signed-out client as the tedi's own turns.
  */
 import {
 	GUEST_READ_SKILL_TOOL,
@@ -29,11 +31,18 @@ import {
 } from "@tedix/api-contract/schemas/tedi-guest-turn";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { scrubText } from "@tedix/context-core/trace-safety";
+import type { ToolSet } from "ai";
+import * as z from "zod";
 import type { PlatformClient } from "./brain/platform-client";
 import type { BridgeTurnInput, RecentTurn } from "./bridge-turn-input";
 import { discoveryRows } from "./delegation-preflight";
 import type { AgentMcpRuntime } from "./mcp-client-runtime";
 import type { ObserverToolExecutionEvidence } from "./observer-execution-evidence";
+import {
+	POPPY_AGENT_TOOL_CATALOG,
+	POPPY_CALL_TOOL_NAME,
+	POPPY_DISCOVER_TOOL_NAME,
+} from "./poppy-agent-tools";
 import { createSkillReadTool } from "./skill-read";
 
 export interface GuestTurnHost {
@@ -43,6 +52,7 @@ export interface GuestTurnHost {
 		"listSkillsForTedi" | "getSkillForMcp"
 	> | null>;
 	getMcpRuntime(): Promise<Pick<AgentMcpRuntime, "executeTool"> | null>;
+	getPoppyAgentTools(): ToolSet;
 	dispatchTurnMemoryEffects(
 		input: Pick<BridgeTurnInput, "runId" | "executionEvidence"> & {
 			user: RecentTurn;
@@ -60,8 +70,10 @@ const NOT_THE_OWNER =
 const SHARED_WORKSPACE =
 	"This tedi's connected accounts are only used in a chat private to you.";
 const CALLABLE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+const POPPY_NAMESPACE = "poppy";
 const MAX_SKILLS = 50;
 const MAX_NAMESPACES = 60;
+const MAX_SEARCH_TOOLS = 10;
 
 /** Why this sender gets none of the tedi's own skills or tools, or null. */
 export function guestToolsRefusal(scope: GuestTurnScope): string | null {
@@ -143,6 +155,33 @@ function toolRow(row: unknown, withSchema: boolean): GuestToolRow[] {
 	];
 }
 
+function poppyToolRows(
+	tools: ToolSet,
+	input: { query?: string; describe?: string },
+	withSchema: boolean,
+): GuestToolRow[] {
+	const available = new Set(Object.keys(tools));
+	const query = input.query?.toLowerCase();
+	return POPPY_AGENT_TOOL_CATALOG.filter((entry) =>
+		available.has(entry.name),
+	).flatMap((entry) => {
+		const row: GuestToolRow = {
+			name: entry.name,
+			description: oneLine(entry.description),
+			...(withSchema
+				? { inputSchema: z.toJSONSchema(entry.inputSchema, { io: "input" }) }
+				: {}),
+		};
+		if (input.describe) return entry.name === input.describe ? [row] : [];
+		if (
+			query &&
+			!`${entry.name} ${entry.description}`.toLowerCase().includes(query)
+		)
+			return [];
+		return [row];
+	});
+}
+
 /** `{ namespace: toolCount }`, possibly wrapped or sent as JSON text. */
 function namespaceCounts(
 	value: unknown,
@@ -185,38 +224,46 @@ export async function guestToolCatalog(
 		tediId: input.tediId,
 		orgId: input.organizationId,
 	});
+	const poppyTools = this.getPoppyAgentTools();
 	const search = input.describe ?? input.query;
 	if (search) {
+		const poppyRows = poppyToolRows(poppyTools, input, Boolean(input.describe));
 		// Connected tools run on the tedi's own accounts: private chats only.
-		if (input.othersCanOpen) return { ...empty, refusal: SHARED_WORKSPACE };
+		// The hosted Poppy identity is the tedi's own and stays available.
+		if (input.othersCanOpen)
+			return { ...empty, tools: poppyRows, refusal: SHARED_WORKSPACE };
 		try {
 			const mcp = await this.getMcpRuntime();
-			if (!mcp) return empty;
-			const rows =
-				discoveryRows(
-					await mcp.executeTool(
-						"tedix_mcp_search_tools",
-						{
-							query: search,
-							limit: 10,
-							includeParameters: Boolean(input.describe),
-						},
-						{ binding: null, resultAudience: "machine" },
-					),
-				) ?? [];
-			const tools = rows.flatMap((row) =>
+			const rows = mcp
+				? (discoveryRows(
+						await mcp.executeTool(
+							"tedix_mcp_search_tools",
+							{
+								query: search,
+								limit: MAX_SEARCH_TOOLS,
+								includeParameters: Boolean(input.describe),
+							},
+							{ binding: null, resultAudience: "machine" },
+						),
+					) ?? [])
+				: [];
+			const connected = rows.flatMap((row) =>
 				toolRow(row, Boolean(input.describe)),
 			);
+			const tools = input.describe
+				? connected.filter((tool) => tool.name === input.describe)
+				: connected;
 			return {
 				...empty,
-				tools: input.describe
-					? tools.filter((tool) => tool.name === input.describe)
-					: tools,
+				tools: [...poppyRows, ...tools].slice(0, MAX_SEARCH_TOOLS),
 			};
 		} catch (error) {
-			return { ...empty, refusal: errorText(error) };
+			return { ...empty, tools: poppyRows, refusal: errorText(error) };
 		}
 	}
+	const poppyCount = POPPY_AGENT_TOOL_CATALOG.filter(
+		(entry) => poppyTools[entry.name],
+	).length;
 	const [skills, namespaces] = await Promise.all([
 		this.getPlatformClient()
 			.then((platform) => platform?.listSkillsForTedi({ limit: MAX_SKILLS }))
@@ -249,7 +296,10 @@ export async function guestToolCatalog(
 	]);
 	return {
 		skills,
-		namespaces,
+		namespaces: [
+			...(poppyCount ? [{ name: POPPY_NAMESPACE, tools: poppyCount }] : []),
+			...namespaces,
+		],
 		tools: [],
 		...(input.othersCanOpen ? { refusal: SHARED_WORKSPACE } : {}),
 	};
@@ -301,6 +351,32 @@ export async function guestToolRun(
 				context: {},
 				messages: [],
 				toolCallId: `guest:${input.conversationId}`,
+			});
+			return done({ status: "ok", result });
+		}
+		if (
+			input.tool === POPPY_DISCOVER_TOOL_NAME ||
+			input.tool === POPPY_CALL_TOOL_NAME
+		) {
+			const entry = POPPY_AGENT_TOOL_CATALOG.find(
+				(candidate) => candidate.name === input.tool,
+			);
+			const execute = this.getPoppyAgentTools()[input.tool]?.execute;
+			if (!entry || !execute)
+				return done({
+					status: "refused",
+					reason: "This tedi's Poppy identity is not available.",
+				});
+			const args = entry.inputSchema.safeParse(input.args);
+			if (!args.success)
+				return done({
+					status: "refused",
+					reason: `${input.tool} arguments do not match its input schema.`,
+				});
+			const result = await execute(args.data as never, {
+				context: {},
+				messages: [],
+				toolCallId: `guest:${input.conversationId}:${input.tool}`,
 			});
 			return done({ status: "ok", result });
 		}

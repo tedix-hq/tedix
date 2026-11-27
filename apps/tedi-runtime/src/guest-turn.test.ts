@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import type { GuestTurnLearnInput } from "@tedix/api-contract/schemas/tedi-guest-turn";
+import type { PersonalAgentClient } from "@tedix/auth/personal-agent-client";
 import {
 	guestToolCatalog,
 	guestToolRun,
 	guestTurnLearn,
 	type GuestTurnHost,
 } from "./guest-turn";
+import {
+	createPoppyAgentAiTools,
+	POPPY_CALL_TOOL_NAME,
+	POPPY_DISCOVER_TOOL_NAME,
+} from "./poppy-agent-tools";
 
 const learned: string[] = [];
 let toolCalls = 0;
@@ -19,6 +25,7 @@ const host: GuestTurnHost = {
 		toolCalls++;
 		return null;
 	},
+	getPoppyAgentTools: () => ({}),
 	dispatchTurnMemoryEffects: async (input) => {
 		learned.push(input.runId);
 	},
@@ -74,3 +81,92 @@ for (const refused of [
 ])
 	assert.equal((await guestToolRun.call(host, refused)).status, "refused");
 assert.equal(toolCalls, 0);
+
+// Without the tedi's Poppy identity the same names stay unavailable.
+assert.deepEqual(
+	(await guestToolCatalog.call(host, { ...turn, query: "poppy" })).tools,
+	[],
+);
+assert.equal(
+	(
+		await guestToolRun.call(host, {
+			...turn,
+			tool: POPPY_DISCOVER_TOOL_NAME,
+			args: { company: "company.example" },
+		})
+	).status,
+	"refused",
+);
+
+// A tedi with its Poppy signing key lists and runs the same two tools a Home
+// turn gets; the guest path validates arguments before the signed call.
+const poppyClient = {
+	discoverCompany: async () => ({
+		protocolVersion: "1.0",
+		audience: "https://company.example",
+		mcpUrl: "https://company.example/mcp",
+		agentUrl: "https://company.example/poppy",
+		tasksUrl: "https://company.example/tasks",
+	}),
+	call: async () =>
+		new Response(JSON.stringify({ reply: "seller reply" }), {
+			status: 200,
+			headers: { "content-type": "application/json" },
+		}),
+} as unknown as PersonalAgentClient;
+const poppyHost: GuestTurnHost = {
+	...host,
+	getPoppyAgentTools: () =>
+		createPoppyAgentAiTools({
+			enabled: true,
+			db: {} as never,
+			masterKey: undefined,
+			apiBaseUrl: "https://api.tedix.test",
+			tediId: "tedi-1",
+			slug: "amber-otter",
+			loadClient: async () => poppyClient,
+		}),
+};
+
+const poppyCatalog = await guestToolCatalog.call(poppyHost, {
+	...turn,
+	query: "poppy",
+});
+assert.deepEqual(
+	poppyCatalog.tools.map((tool) => tool.name),
+	[POPPY_DISCOVER_TOOL_NAME, POPPY_CALL_TOOL_NAME],
+);
+const described = await guestToolCatalog.call(poppyHost, {
+	...turn,
+	describe: POPPY_CALL_TOOL_NAME,
+});
+assert.equal(described.tools[0]?.name, POPPY_CALL_TOOL_NAME);
+assert.equal(typeof described.tools[0]?.inputSchema, "object");
+const namespaces = await guestToolCatalog.call(poppyHost, turn);
+assert.deepEqual(namespaces.namespaces, [{ name: "poppy", tools: 2 }]);
+
+const poppyRun = await guestToolRun.call(poppyHost, {
+	...turn,
+	tool: POPPY_CALL_TOOL_NAME,
+	args: {
+		company: "company.example",
+		surface: "conversations",
+		text: "find widgets on example-shop",
+	},
+});
+assert.equal(poppyRun.status, "ok");
+if (poppyRun.status === "ok") {
+	const result = poppyRun.result as { status: number; body: string };
+	assert.equal(result.status, 200);
+	assert.ok(result.body.includes("seller reply"));
+}
+assert.equal(
+	(
+		await guestToolRun.call(poppyHost, {
+			...turn,
+			tool: POPPY_DISCOVER_TOOL_NAME,
+			args: {},
+		})
+	).status,
+	"refused",
+);
