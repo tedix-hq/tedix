@@ -1,6 +1,6 @@
-import { anyIds } from "../../core-store/dialect";
+import { anyIds, coreStore } from "../../core-store/dialect";
 import { coreTable } from "../../core-store/client";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -80,6 +80,7 @@ export async function listExternalAgentSessionHarnessesByIds(
 ): Promise<ListExternalAgentSessionHarnessesResult[]> {
 	const externalAgentSessions = coreTable(db, d1ExternalAgentSessions);
 	const ids = [...new Set(params.sessionIds)];
+	if (!ids.length) return [];
 	return db
 		.select({
 			id: externalAgentSessions.id,
@@ -89,7 +90,12 @@ export async function listExternalAgentSessionHarnessesByIds(
 		.from(externalAgentSessions)
 		.where(
 			and(
-				eq(externalAgentSessions.organizationId, params.organizationId),
+				// D1's planner prefers an organization index over the primary key
+				// for `id IN json_each(...)` and reads every session of the
+				// organization; the unary plus keeps it on the primary key.
+				coreStore(db) === "d1"
+					? sql`+${externalAgentSessions.organizationId} = ${params.organizationId}`
+					: eq(externalAgentSessions.organizationId, params.organizationId),
 				anyIds(db, externalAgentSessions.id, ids),
 			),
 		);
