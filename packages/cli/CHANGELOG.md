@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.37.29 (2026-11-27)
+
+### Patch Changes
+
+- `tedix auth app-sign-in` signs the Tedix Mac app in with the command-line tool's own login, so one browser sign-in covers both.
+- Cursor joins the connected agents: `tedix setup agents --cursor` writes the Tedix MCP server and lifecycle hooks into `~/.cursor`, so a Cursor session gets the Tedix tools, session context and status reporting, and `tedix lane serve --executor cursor` can run Work on it.
+- Fair test routing: the lane router's new `explorationShare` setting (default 15%, 0 turns it off) sends a stable share of comparable low and medium risk tasks to a different eligible agent than the top pick, recorded as an exploration choice in the routing receipt and the task note, so every agent is measured on the same kinds of work. High and critical risk work and tasks pinned to one agent never explore.
+
 ## 0.37.28 (2026-11-26)
 
 ### Patch Changes
