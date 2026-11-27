@@ -4,6 +4,7 @@ import {
 	executionSettings,
 } from "./lane-execution-settings";
 import * as z from "zod";
+import { createHash } from "node:crypto";
 import { laneLimitsSchema } from "./lane-limits";
 import { DecisionModelSchema } from "@tedix/api-contract/schemas/jev";
 import { existsSync, readFileSync } from "node:fs";
@@ -83,6 +84,13 @@ export const routingPolicySchema = z.strictObject({
 	 * decide. Default 0.35; four tools at random would be 0.25 each.
 	 */
 	clefMinConfidence: z.number().min(0).max(1).optional(),
+	/**
+	 * Share of comparable low and medium risk tasks sent to a different
+	 * eligible agent than the rules' top pick, so every agent is measured on
+	 * the same kinds of work. Default 0.15; 0 turns exploration off. Never
+	 * applies to high or critical risk work or items pinned to one agent.
+	 */
+	explorationShare: z.number().min(0).max(1).optional(),
 	opencodeModel: z
 		.string()
 		.regex(/^[^/\s]+\/[^\s]+$/)
@@ -204,6 +212,11 @@ export function describeRoutingPolicy(policy: RoutingPolicy): string[] {
 			);
 		}
 	}
+	const share = policy.explorationShare ?? 0.15;
+	if (share > 0)
+		lines.push(
+			`A fair-test share of ${Math.round(share * 100)}% of low and medium risk tasks goes to a different eligible agent; each choice is recorded.`,
+		);
 	if (Object.values(policy.budgetFiles).some((files) => files.length > 0))
 		lines.push(
 			`An agent counts as out of budget at ${policy.nearLimitPercent}% or less of its allowance left.`,
@@ -588,12 +601,26 @@ export function statedResetAt(
 	}
 }
 
+/** A stable 0..1 bucket for one Work item, so every runner agrees on the draw. */
+export function explorationBucket(id: string, salt: string): number {
+	const digest = createHash("sha256").update(`${salt}:${id}`).digest();
+	return digest.readUInt32BE(0) / 0x1_0000_0000;
+}
+
 export function routeLocalWork(
-	work: { executor: string; tags?: string[]; size?: string; risk?: string },
+	work: {
+		executor: string;
+		tags?: string[];
+		size?: string;
+		risk?: string;
+		/** Work item id; makes the fair-test draw stable across runners. */
+		id?: string;
+	},
 	policy: RoutingPolicy,
 	available: Record<LocalExecutor, ExecutorAvailability>,
 	budgets: ExecutorBudgets,
 	now = Date.now(),
+	options?: { explore?: boolean },
 ) {
 	const rule = ruleFor(work, policy);
 	const routes =
@@ -614,6 +641,11 @@ export function routeLocalWork(
 	let capacityPaused = false;
 	let preflightPaused = false;
 	const rejected: string[] = [];
+	const candidates: {
+		route: (typeof routes)[number];
+		skipped: string[];
+		model: string | undefined;
+	}[] = [];
 	for (const route of routes) {
 		const budget = budgets[route.executor];
 		const fresh =
@@ -651,11 +683,9 @@ export function routeLocalWork(
 			);
 			continue;
 		}
-		return {
-			...route,
-			...executionSettings(route.executor, route),
-			/** Earlier tools in the rule that could not take it, and why. */
-			skipped: rejected,
+		candidates.push({
+			route,
+			skipped: [...rejected],
 			model:
 				route.executor === "tedi"
 					? policy.tedi
@@ -664,17 +694,57 @@ export function routeLocalWork(
 							route.model ??
 							rule.routes.find((r) => r.executor === "opencode")?.model)
 						: route.model,
-			rule: rule.name,
-		};
+		});
 	}
-	const message =
-		`No eligible local executor for ${rule.name}` +
-		(rejected.length ? ` (${rejected.join("; ")})` : "") +
-		"; assignments and capability requirements retained";
-	if (preflightPaused) throw new LocalExecutorPreflightError(message);
-	throw capacityPaused
-		? new LocalExecutorCapacityError(message)
-		: new Error(message);
+	if (!candidates.length) {
+		const message =
+			`No eligible local executor for ${rule.name}` +
+			(rejected.length ? ` (${rejected.join("; ")})` : "") +
+			"; assignments and capability requirements retained";
+		if (preflightPaused) throw new LocalExecutorPreflightError(message);
+		throw capacityPaused
+			? new LocalExecutorCapacityError(message)
+			: new Error(message);
+	}
+	// Fair test routing: a configurable share of comparable low and medium
+	// risk tasks goes to a different eligible agent than the rules' top pick,
+	// recorded as an exploration choice. The draw is a stable hash of the Work
+	// id so every runner on the Mac agrees on it. Never on high or critical
+	// risk, and never when the task names or pins one agent.
+	const share = policy.explorationShare ?? 0.15;
+	const explorable =
+		options?.explore !== false &&
+		work.executor === "any-local" &&
+		(work.risk === "low" || work.risk === "medium") &&
+		candidates.length > 1 &&
+		share > 0 &&
+		!!work.id;
+	const explored = explorable && explorationBucket(work.id!, "explore") < share;
+	const pick = explored
+		? candidates[
+				1 +
+					Math.floor(
+						explorationBucket(work.id!, "pick") * (candidates.length - 1),
+					)
+			]!
+		: candidates[0]!;
+	const { route, skipped, model } = pick;
+	return {
+		...route,
+		...executionSettings(route.executor, route),
+		/** Earlier tools in the rule that could not take it, and why. */
+		skipped,
+		model,
+		rule: rule.name,
+		...(explored
+			? {
+					exploration: {
+						share,
+						topPick: candidates[0]!.route.executor,
+					},
+				}
+			: {}),
+	};
 }
 export function isMissingNativeState(error: unknown) {
 	return /(?:session|thread|rollout).*(?:not found|missing|does not exist|archived)|no (?:session|thread|rollout).*found/i.test(

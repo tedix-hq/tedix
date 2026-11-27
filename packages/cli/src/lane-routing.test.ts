@@ -375,6 +375,83 @@ describe("local capability routing", () => {
 		).toBe("codex");
 	});
 });
+describe("fair test routing", () => {
+	const share = (value: number) => {
+		const policy = structuredClone(testRoutingPolicy);
+		policy.explorationShare = value;
+		return policy;
+	};
+	it("sends a deterministic share of comparable work to another eligible agent, recorded", () => {
+		const policy = share(1);
+		const first = routeLocalWork(
+			{ executor: "any-local", id: "work-a", risk: "low" },
+			policy,
+			available,
+			{},
+		);
+		expect(first.executor).not.toBe("codex");
+		expect(first.exploration).toEqual({ share: 1, topPick: "codex" });
+		expect(
+			routeLocalWork(
+				{ executor: "any-local", id: "work-a", risk: "low" },
+				policy,
+				available,
+				{},
+			).executor,
+		).toBe(first.executor);
+		const explored = Array.from({ length: 40 }, (_, index) =>
+			routeLocalWork(
+				{ executor: "any-local", id: `probe-${index}`, risk: "medium" },
+				share(0.15),
+				available,
+				{},
+			),
+		).filter((route) => route.exploration);
+		expect(explored.length).toBeGreaterThan(0);
+		expect(explored.length).toBeLessThan(40);
+		for (const route of explored) {
+			expect(route.executor).not.toBe(route.exploration!.topPick);
+			expect(route.exploration!.share).toBe(0.15);
+		}
+	});
+	it("never explores high or critical risk, pinned agents, missing ids, or a zero share", () => {
+		const policy = share(1);
+		for (const risk of ["high", "critical"] as const)
+			expect(
+				routeLocalWork(
+					{ executor: "any-local", id: "work-b", risk },
+					policy,
+					available,
+					{},
+				).exploration,
+			).toBeUndefined();
+		expect(
+			routeLocalWork(
+				{ executor: "any-local", risk: "low" },
+				policy,
+				available,
+				{},
+			).exploration,
+		).toBeUndefined();
+		expect(
+			routeLocalWork(
+				{ executor: "codex", id: "work-b", risk: "low" },
+				policy,
+				available,
+				{},
+			).exploration,
+		).toBeUndefined();
+		expect(
+			routeLocalWork(
+				{ executor: "any-local", id: "work-b", risk: "low" },
+				share(0),
+				available,
+				{},
+			).exploration,
+		).toBeUndefined();
+	});
+});
+
 describe("budget observations", () => {
 	it("projects Codex windows conservatively without carrying arbitrary fields", () => {
 		const snapshot = parseBudgetSignal(
@@ -525,6 +602,7 @@ describe("routing description", () => {
 			rule.routes = [{ executor: "codex" }, { executor: "claude-code" }];
 		expect(describeRoutingPolicy(policy)).toEqual([
 			"Right now every task goes to Codex, then Claude Code.",
+			"A fair-test share of 15% of low and medium risk tasks goes to a different eligible agent; each choice is recorded.",
 		]);
 	});
 	it("lists one plain line per kind of task only when rules differ", () => {
@@ -533,6 +611,7 @@ describe("routing description", () => {
 			"Large or risky tasks go to Codex, then Claude Code, then OpenCode.",
 			"Small routine tasks go to OpenCode, then Claude Code, then Codex, then Devin.",
 			"Everything else goes to Codex, then Claude Code, then OpenCode, then Devin.",
+			"A fair-test share of 15% of low and medium risk tasks goes to a different eligible agent; each choice is recorded.",
 		]);
 	});
 	it("names no tags, rule names, model ids or budget without a budget file", () => {
@@ -564,7 +643,10 @@ describe("routing description", () => {
 				],
 				budgetFiles: {},
 			}),
-		).toEqual(["Right now no agent takes tasks."]);
+		).toEqual([
+			"Right now no agent takes tasks.",
+			"A fair-test share of 15% of low and medium risk tasks goes to a different eligible agent; each choice is recorded.",
+		]);
 	});
 });
 describe("resume recovery before admission", () => {

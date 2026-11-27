@@ -97,6 +97,7 @@ import {
 	ruleFor,
 	clefDecides,
 	executorBackoff,
+	explorationBucket,
 	resumeThenFresh,
 	isMissingNativeState,
 	LocalExecutorCapacityError,
@@ -395,13 +396,17 @@ export function routingPickNote(selection: {
 	executor: string;
 	rule: string;
 	skipped?: string[];
+	exploration?: { share: number; topPick: string };
 }): string {
 	const name = AGENT_NAMES[selection.executor] ?? selection.executor;
 	const skipped = (selection.skipped ?? []).map((line) => {
 		const executor = line.slice(0, line.indexOf(":"));
 		return unavailableDetail(executor, new Error(line));
 	});
-	return `Taken by ${name} under the “${selection.rule}” routing rule.${skipped.length ? ` Skipped: ${skipped.join("; ")}.` : ""} The task names no tool, so the rules chose; set a tool on the task to keep it on that one.`;
+	const exploration = selection.exploration
+		? ` This is a fair-test exploration pick (${Math.round(selection.exploration.share * 100)}% share): the rules' top pick was ${AGENT_NAMES[selection.exploration.topPick] ?? selection.exploration.topPick}, recorded so every agent is measured on the same kinds of work.`
+		: "";
+	return `Taken by ${name} under the “${selection.rule}” routing rule.${skipped.length ? ` Skipped: ${skipped.join("; ")}.` : ""} The task names no tool, so the rules chose; set a tool on the task to keep it on that one.${exploration}`;
 }
 
 /** Why a tool cannot take Work, in plain words, from its routing refusal. */
@@ -6092,11 +6097,13 @@ export class LaneDispatcher {
 		item: DispatchItem,
 		executor = String(assignedExecutor(item)),
 		policy = this.policy,
+		options?: { explore?: boolean },
 	) {
 		const metadata = item.metadata ?? {};
 		return routeLocalWork(
 			{
 				executor,
+				id: item.id,
 				tags: Array.isArray(metadata.tags)
 					? metadata.tags.filter(
 							(tag): tag is string => typeof tag === "string",
@@ -6108,6 +6115,9 @@ export class LaneDispatcher {
 			policy,
 			this.availability,
 			this.budgets,
+			Date.now(),
+			// Fair-test exploration never applies to Work pinned to one agent.
+			{ explore: options?.explore !== false && !keepsItsTool(item) },
 		);
 	}
 	private tediStatus() {
@@ -6282,6 +6292,10 @@ export class LaneDispatcher {
 			...answer,
 			offered,
 			minimumConfidence: this.policy.clefMinConfidence ?? 0.35,
+			exploration: null as {
+				share: number;
+				topPick: string;
+			} | null,
 		};
 		// How likely the model rates its own pick among the offered tools; its
 		// separate confidence figure stays near 0.1 even for clear picks.
@@ -6319,8 +6333,31 @@ export class LaneDispatcher {
 			remember();
 			return false;
 		}
+		// Fair test routing, same as the rules path: a configurable share of
+		// comparable low and medium risk Work goes to another eligible tool
+		// than the decision model's pick, recorded on the choice. Never on
+		// high or critical risk, and never on Work pinned to one agent.
+		const share = this.policy.explorationShare ?? 0.15;
+		const alternatives = offered.filter(
+			(executor) => executor !== answer.executor,
+		);
+		const explores =
+			from === "any-local" &&
+			(item.riskLevel === "low" || item.riskLevel === "medium") &&
+			alternatives.length > 0 &&
+			share > 0 &&
+			explorationBucket(item.id, "explore") < share;
+		const target = explores
+			? alternatives[
+					Math.floor(explorationBucket(item.id, "pick") * alternatives.length)
+				]!
+			: answer.executor;
+		choice.exploration = explores ? { share, topPick: answer.executor } : null;
+		const explorationNote = explores
+			? ` Fair-test exploration (${Math.round(share * 100)}% share): ${AGENT_NAMES[target] ?? target} takes it instead of ${name}, recorded so every agent is measured on the same kinds of work.`
+			: "";
 		// Persist before reassignment: the receiving runner reads this same choice.
-		await comment(`${detail}. ${receiptLine}`);
+		await comment(`${detail}.${explorationNote} ${receiptLine}`);
 		remember();
 		try {
 			await this.call([
@@ -6329,18 +6366,22 @@ export class LaneDispatcher {
 				item.id,
 				"--input",
 				JSON.stringify({
-					executorReference: workExecutorReference(answer.executor),
+					executorReference: workExecutorReference(target),
 					expectedWorkItemVersion: item.version,
 					idleReassignment: {
 						fromExecutor: from,
 						unavailableSince: new Date(now).toISOString(),
 						minimumIdleMinutes: 1,
 						reason: "chosen",
-						detail: `${detail}. ${receiptLine}`,
+						detail: `${detail}.${explorationNote} ${receiptLine}`,
 					},
 				}),
 			]);
-			this.log("tool-choice", item.id, `${detail}; moved from ${from}`);
+			this.log(
+				"tool-choice",
+				item.id,
+				`${detail}${explores ? `; exploration pick ${target}` : ""}; moved from ${from}`,
+			);
 			return true;
 		} catch (error) {
 			const body = `${detail}, but the move was refused (${String(error).slice(0, 160)}), so the task stays with ${fromName}.`;
@@ -6460,6 +6501,8 @@ export class LaneDispatcher {
 				item,
 				"any-local",
 				withoutExecutor(this.policy, from as LocalExecutor),
+				// Failover takes the next eligible tool, never an exploration draw.
+				{ explore: false },
 			).executor;
 		} catch (error) {
 			this.log(
@@ -6706,6 +6749,9 @@ export class LaneDispatcher {
 				skipped: selection.skipped,
 				executor,
 				configuredModel: selection.model ?? null,
+				...(selection.exploration
+					? { exploration: selection.exploration }
+					: {}),
 				clef: runnerChoice(detail.comments ?? [], item.version),
 			};
 			// Work that names no tool records which one the rules picked, and why.
