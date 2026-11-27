@@ -17,6 +17,26 @@ const resolvedApp = {
 } as ResolvedApp;
 const env = { API_SERVICE: {} } as CloudflareEnv;
 
+it("records runtime skill tool names without a stored app tool row", async () => {
+	const request = new Request("https://store.example/mcp", {
+		method: "POST",
+		body: JSON.stringify({
+			method: "tools/call",
+			params: { name: "list_skills" },
+		}),
+	});
+	await startPoppyDoorRequest({ request, resolvedApp, env }).record(
+		Response.json({ result: { content: [] } }),
+	);
+	expect(record).toHaveBeenCalledWith(
+		expect.objectContaining({
+			method: "tools/call",
+			tool: "list_skills",
+			outcome: "success",
+		}),
+	);
+});
+
 it("keeps only verified client_id and known operations, including MCP errors in JSON and SSE", async () => {
 	for (const sse of [false, true]) {
 		const request = new Request(

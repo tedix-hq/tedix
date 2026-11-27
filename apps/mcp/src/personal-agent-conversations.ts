@@ -6,6 +6,7 @@ export async function handlePersonalAgentConversations(input: {
 	appId: string;
 	organizationId: string;
 	env: CloudflareEnv;
+	onVerifiedClientId?: (clientId: string) => void;
 }) {
 	const { request, appId, organizationId, env } = input;
 	const headers = { "Cache-Control": "private, no-store" };
@@ -71,6 +72,7 @@ export async function handlePersonalAgentConversations(input: {
 			version: version && version.length <= 32 ? version : null,
 			...(body !== undefined ? { body } : {}),
 		});
+		if (result.identity) input.onVerifiedClientId?.(result.identity.clientId);
 		return Response.json(result.body, {
 			status: result.httpStatus,
 			headers: {

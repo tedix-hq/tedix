@@ -59,8 +59,17 @@ export function startPoppyDoorRequest(input: {
 }): PoppyDoorTraffic {
 	const { request, resolvedApp, env } = input;
 	const time = new Date().toISOString();
+	const path = new URL(request.url).pathname;
+	const mcp = path === "/mcp";
+	// Normalize conversation paths without retaining their identifiers or query.
+	const route = path.match(
+		/^\/mcp\/(poppy\/(?:tasks|feedback|conversations))(?:\/[^/]+\/(events|messages|handoff(?:\/cancel)?|close))?$/,
+	);
+	const interfaceMethod = route
+		? `${route[1]}${route[2] ? `/${route[2]}` : ""}`
+		: "unknown";
 	const operation =
-		request.method === "POST"
+		mcp && request.method === "POST"
 			? envelope(request.clone())
 			: Promise.resolve(null);
 	let client_id = "unidentified";
@@ -71,13 +80,17 @@ export function startPoppyDoorRequest(input: {
 		async record(response) {
 			// GET may be an indefinite event stream. Its HTTP result is the outcome.
 			const reply =
-				request.method === "POST"
+				!mcp || request.method === "POST"
 					? envelope(response.clone())
 					: Promise.resolve(null);
 			try {
 				const [call, result] = await Promise.all([operation, reply]);
 				const parsedMethod = PoppyDoorRequestSchema.shape.method.safeParse(
-					call?.method ?? request.headers.get("Mcp-Method") ?? request.method,
+					mcp
+						? (call?.method ??
+								request.headers.get("Mcp-Method") ??
+								request.method)
+						: interfaceMethod,
 				);
 				const method = parsedMethod.success ? parsedMethod.data : "unknown";
 				const requestedTool = isRecord(call?.params)
@@ -86,7 +99,10 @@ export function startPoppyDoorRequest(input: {
 				const tool =
 					method === "tools/call"
 						? (resolvedApp.tools.find((row) => row.toolId === requestedTool)
-								?.toolId ?? null)
+								?.toolId ??
+							(requestedTool === "list_skills" || requestedTool === "read_skill"
+								? requestedTool
+								: null))
 						: null;
 				const parsedRefusal = PoppyDoorRequestSchema.shape.refused.safeParse(
 					result?.error,
@@ -107,7 +123,8 @@ export function startPoppyDoorRequest(input: {
 						? "error"
 						: response.status === 202
 							? "accepted"
-							: request.method !== "POST" ||
+							: !mcp ||
+								  request.method !== "POST" ||
 								  response.status === 204 ||
 								  (result && "result" in result)
 								? "success"

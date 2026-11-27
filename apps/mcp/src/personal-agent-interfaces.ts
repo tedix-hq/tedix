@@ -7,6 +7,7 @@ export async function handlePersonalAgentInterfaces(input: {
 	appId: string;
 	organizationId: string;
 	env: CloudflareEnv;
+	onVerifiedClientId?: (clientId: string) => void;
 }): Promise<Response> {
 	const { request, appId, organizationId, env } = input;
 	const url = new URL(request.url);
@@ -69,6 +70,7 @@ export async function handlePersonalAgentInterfaces(input: {
 		version: version && version.length <= 32 ? version : null,
 		...(report ? { report } : {}),
 	});
+	if (result.identity) input.onVerifiedClientId?.(result.identity.clientId);
 	if (result.status !== "accepted") {
 		const status =
 			result.status === "not_configured"

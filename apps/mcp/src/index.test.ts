@@ -125,6 +125,125 @@ it("records identified, unidentified and refused Poppy door requests", async () 
 		dispatch.mockRestore();
 	}
 });
+it.each([
+	["conversations", "POST", "poppy/conversations", 201],
+	[
+		"conversations/private-conversation/events?cursor=private-cursor",
+		"GET",
+		"poppy/conversations/events",
+		200,
+	],
+	["tasks", "GET", "poppy/tasks", 200],
+] as const)(
+	"records verified and refused Poppy %s traffic without content",
+	async (path, method, operation, successStatus) => {
+		const config = { mcpConfig: { authMode: "public" as const } };
+		resolveGateway.mockResolvedValue({
+			app: {
+				id: "fixture-door",
+				slug: "fixture",
+				organizationId: "fixture-org",
+				metadata: config,
+			},
+			metadata: config,
+			tools: [],
+		});
+		for (const refused of [false, true]) {
+			const recorded: unknown[] = [];
+			const pending: Promise<unknown>[] = [];
+			const fetch = vi.fn(async (request: Request) => {
+				if (request.url.includes("audit/recordPoppyDoorRequest")) {
+					expect(request.headers.get("X-Tedix-Org-Id")).toBe("fixture-org");
+					recorded.push(((await request.json()) as { json: unknown }).json);
+					return Response.json({ json: { success: true } });
+				}
+				if (request.url.includes("osTenant/personalAgentConversation"))
+					return Response.json({
+						json: {
+							httpStatus: refused ? 400 : successStatus,
+							...(refused
+								? {}
+								: {
+										identity: {
+											clientId: "https://buyer.example/agent.json",
+											sessionId: "private-session",
+										},
+									}),
+							body: refused
+								? { error: "invalid_session" }
+								: {
+										conversation_id: "private-conversation",
+										events: [{ text: "private-message" }],
+									},
+						},
+					});
+				if (request.url.includes("osTenant/personalAgentInterfaces"))
+					return Response.json({
+						json: refused
+							? { status: "invalid_session" }
+							: {
+									status: "accepted",
+									identity: {
+										clientId: "https://buyer.example/agent.json",
+										sessionId: "private-session",
+									},
+								},
+					});
+				if (request.url.includes("apps/getBySlugWithTools"))
+					return Response.json({
+						json: {
+							app: {
+								id: "fixture-door",
+								slug: "fixture",
+								organizationId: "fixture-org",
+								metadata: config,
+							},
+							tools: [],
+						},
+					});
+				return Response.json({ json: { success: true } });
+			});
+			const response = await worker.fetch(
+				new Request(`https://fixture.mcp.tedix.dev/mcp/poppy/${path}`, {
+					method,
+					headers: {
+						"Content-Type": "application/json",
+						"Poppy-Session": "private-token",
+						"Poppy-Version": "1.0",
+					},
+					...(method === "POST"
+						? { body: JSON.stringify({ message: { text: "private-message" } }) }
+						: {}),
+				}),
+				createEnv({
+					ENVIRONMENT: "production",
+					MCP_URL: "https://mcp.tedix.dev",
+					API_SERVICE: { fetch },
+				}),
+				{
+					waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+				} as unknown as ExecutionContext,
+			);
+			await Promise.all(pending);
+			expect(response.status).toBe(refused ? 400 : successStatus);
+			expect(recorded).toEqual([
+				expect.objectContaining({
+					appId: "fixture-door",
+					client_id: refused
+						? "unidentified"
+						: "https://buyer.example/agent.json",
+					method: operation,
+					tool: null,
+					refused: refused ? "invalid_session" : null,
+					outcome: refused ? "refused" : "success",
+					httpStatus: refused ? 400 : successStatus,
+				}),
+			]);
+			expect(JSON.stringify(recorded)).not.toContain("private-");
+		}
+	},
+);
+
 vi.mock("./resolution", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./resolution")>()),
 	resolveAppFromHostname: resolveGateway,

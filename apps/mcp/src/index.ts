@@ -1507,7 +1507,10 @@ const worker = {
 			const { app } = resolvedApp;
 			if (app.organizationId) setD1LedgerOrganization(app.organizationId);
 			if (
-				url.pathname === "/mcp" &&
+				(url.pathname === "/mcp" ||
+					/^\/mcp\/poppy\/(tasks|feedback|conversations(?:\/.*)?)$/.test(
+						url.pathname,
+					)) &&
 				!hasAnyAuth &&
 				app.organizationId &&
 				app.metadata?.mcpConfig?.authMode === "public"
@@ -1571,6 +1574,7 @@ const worker = {
 					appId: app.id,
 					organizationId: app.organizationId,
 					env,
+					onVerifiedClientId: (clientId) => traffic.door?.identify(clientId),
 				});
 			}
 
