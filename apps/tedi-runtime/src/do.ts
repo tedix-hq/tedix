@@ -1460,14 +1460,18 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			listArtifactFilesTool: (...args) => parent.listArtifactFilesTool(...args),
 			readArtifactFileTool: (...args) => parent.readArtifactFileTool(...args),
 			readOwnedRuntimeWorkflow: (runId) =>
-				readOwnedRuntimeWorkflow({
-					runId,
-					tediId: parent.state.tediId,
-					orgId: parent.state.orgId,
-					agentName: parent.name,
-					env: parent.env,
-					storage: parent.ctx.storage,
-				}),
+				import("@tedix/db/core-store/scope").then(({ withCoreStore }) =>
+					withCoreStore(parent.env, () =>
+						readOwnedRuntimeWorkflow({
+							runId,
+							tediId: parent.state.tediId,
+							orgId: parent.state.orgId,
+							agentName: parent.name,
+							env: parent.env,
+							storage: parent.ctx.storage,
+						}),
+					),
+				),
 			writeArtifactFileTool: (...args) => parent.writeArtifactFileTool(...args),
 			workstationAiTool: (...args) => parent.workstationAiTool(...args),
 			drainPendingCodemodeExecutions: (...args) =>

@@ -200,13 +200,16 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 	}
 	/** The signed revision's stored code, refused unless it hashes to the session's digest. */
 	async #revisionFiles(session: VerifiedSession) {
-		const { coreDb } = await import("@tedix/db/core-store/scope");
+		const { coreDb, withCoreStore } =
+			await import("@tedix/db/core-store/scope");
 		const { getOsGadgetCode } =
 			await import("@tedix/db/queries/os-workspaces/gadgets");
-		const row = await getOsGadgetCode(coreDb(this.env), {
-			organizationId: session.organizationId,
-			revisionId: session.revisionId,
-		});
+		const row = await withCoreStore(this.env, () =>
+			getOsGadgetCode(coreDb(this.env), {
+				organizationId: session.organizationId,
+				revisionId: session.revisionId,
+			}),
+		);
 		if (!row || row.gadgetId !== session.gadgetId)
 			throw new Error("App code does not match the signed revision");
 		return signedFiles(JSON.parse(row.files), session);

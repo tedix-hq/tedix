@@ -121,11 +121,14 @@ export async function admitEvaluation(input: {
 	if (!workflowRunId || epoch === null || !/^\d+$/.test(epoch))
 		throw new Error("Evaluation requires authenticated workflow provenance");
 	const { getSkillRun } = await import("@tedix/db/queries/skill-runs");
-	const run = await getSkillRun(
-		(await import("@tedix/db/core-store/scope")).coreDb(input.env),
-		workflowRunId,
-		input.orgId,
-		input.env.ENVIRONMENT === "production" ? "production" : "development",
+	const { coreDb, withCoreStore } = await import("@tedix/db/core-store/scope");
+	const run = await withCoreStore(input.env, () =>
+		getSkillRun(
+			coreDb(input.env),
+			workflowRunId,
+			input.orgId,
+			input.env.ENVIRONMENT === "production" ? "production" : "development",
+		),
 	);
 	const admission = authorizeEvaluation({
 		...input,
@@ -272,18 +275,22 @@ export async function assertEvaluationWork(
 		"workItemId" | "workAttemptId" | "workExternalSessionKey"
 	>,
 ): Promise<void> {
-	const db = (await import("@tedix/db/core-store/scope")).coreDb(env);
-	const { getWorkItemById } = await import("@tedix/db/queries/work-items/crud");
-	const work = await getWorkItemById(db, admission.workItemId, orgId);
-	if (work?.disposition !== "accepted")
-		throw new Error("Evaluation Work is not accepted");
-	const { getAuthoritativeWorkItemAttempt } =
-		await import("@tedix/db/queries/work-items/attempts");
-	await getAuthoritativeWorkItemAttempt(db, {
-		orgId,
-		workItemId: admission.workItemId,
-		attemptId: admission.workAttemptId,
-		externalSessionKey: admission.workExternalSessionKey,
+	const { coreDb, withCoreStore } = await import("@tedix/db/core-store/scope");
+	return withCoreStore(env, async () => {
+		const db = coreDb(env);
+		const { getWorkItemById } =
+			await import("@tedix/db/queries/work-items/crud");
+		const work = await getWorkItemById(db, admission.workItemId, orgId);
+		if (work?.disposition !== "accepted")
+			throw new Error("Evaluation Work is not accepted");
+		const { getAuthoritativeWorkItemAttempt } =
+			await import("@tedix/db/queries/work-items/attempts");
+		await getAuthoritativeWorkItemAttempt(db, {
+			orgId,
+			workItemId: admission.workItemId,
+			attemptId: admission.workAttemptId,
+			externalSessionKey: admission.workExternalSessionKey,
+		});
 	});
 }
 
@@ -296,11 +303,14 @@ export async function assertEvaluationAuthority(
 		Partial<Pick<EvaluationAdmission, "agents" | "agentsProof">>,
 ) {
 	const { getSkillRun } = await import("@tedix/db/queries/skill-runs");
-	const run = await getSkillRun(
-		(await import("@tedix/db/core-store/scope")).coreDb(env),
-		admission.workflowRunId,
-		orgId,
-		env.ENVIRONMENT === "production" ? "production" : "development",
+	const { coreDb, withCoreStore } = await import("@tedix/db/core-store/scope");
+	const run = await withCoreStore(env, () =>
+		getSkillRun(
+			coreDb(env),
+			admission.workflowRunId,
+			orgId,
+			env.ENVIRONMENT === "production" ? "production" : "development",
+		),
 	);
 	const current = authorizeEvaluation({
 		request: {

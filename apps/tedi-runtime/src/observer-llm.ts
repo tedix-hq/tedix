@@ -94,7 +94,9 @@ export async function observerCompletion(
 	const catalog =
 		opts.modelCatalog ??
 		(hasCoreStore
-			? await getModelCatalogConfig(scope.coreDb(opts.env))
+			? await scope.withCoreStore(opts.env, () =>
+					getModelCatalogConfig(scope.coreDb(opts.env)),
+				)
 			: undefined);
 	const ref =
 		opts.modelRef ??

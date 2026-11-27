@@ -196,8 +196,11 @@ export class SynthesisSessionFacet extends PiAgent<
 		const modelCatalog =
 			this.state.runId === input.runId && this.state.modelCatalog
 				? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
-				: await getModelCatalogConfig(
-						(await import("@tedix/db/core-store/scope")).coreDb(this.env),
+				: await import("@tedix/db/core-store/scope").then(
+						({ withCoreStore, coreDb }) =>
+							withCoreStore(this.env, () =>
+								getModelCatalogConfig(coreDb(this.env)),
+							),
 					);
 		const selected = await this.prepareFacetRuntimeAdmission({
 			runId: input.runId,
