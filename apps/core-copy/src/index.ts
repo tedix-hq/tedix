@@ -138,6 +138,60 @@ export default {
 				await end();
 			}
 		}
+		if (url.pathname === "/bench" && request.method === "POST") {
+			// Read-only latency probe for the switch decision: typical product
+			// reads against the Postgres copy through Hyperdrive, timed one by
+			// one. Run many of these at once from outside to load-test.
+			const denied = await requireAdmin(request, env);
+			if (denied) return denied;
+			const { query, end } = hyperdriveQuery(env.HYPERDRIVE.connectionString);
+			const timings: Record<string, number> = {};
+			const time = async <T>(label: string, run: () => Promise<T>) => {
+				const started = performance.now();
+				const value = await run();
+				timings[label] = Math.round(performance.now() - started);
+				return value;
+			};
+			try {
+				const orgs = await time("connect_and_orgs", () =>
+					query(`SELECT id FROM organizations ORDER BY id LIMIT 20`, []),
+				);
+				const org = String(
+					orgs.rows[Math.floor(Math.random() * orgs.rows.length)]?.id ?? "",
+				);
+				await time("org_by_pk", () =>
+					query(`SELECT * FROM organizations WHERE id = $1`, [org]),
+				);
+				const items = await time("work_items_recent", () =>
+					query(
+						`SELECT id, title, disposition FROM work_items WHERE org_id = $1 ORDER BY created_at DESC LIMIT 50`,
+						[org],
+					),
+				);
+				const item = String(items.rows[0]?.id ?? "");
+				await time("work_item_by_pk", () =>
+					query(`SELECT * FROM work_items WHERE id = $1`, [item]),
+				);
+				await time("apps_by_org", () =>
+					query(
+						`SELECT id, slug FROM apps WHERE organization_id = $1 LIMIT 50`,
+						[org],
+					),
+				);
+				return Response.json({ ok: true, timings });
+			} catch (error) {
+				return Response.json(
+					{
+						ok: false,
+						timings,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					{ status: 500 },
+				);
+			} finally {
+				await end();
+			}
+		}
 		if (url.pathname === "/insert-only") {
 			const denied = await requireAdmin(request, env);
 			if (denied) return denied;
