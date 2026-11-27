@@ -5,13 +5,14 @@
 
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { coreTable } from "../core-store/client";
 import {
 	type TediMemoryAuthorType,
 	type TediMemoryDocumentKind,
 	type TediMemoryDocumentRow,
-	tediMemoryDocuments,
+	tediMemoryDocuments as schemaTediMemoryDocuments,
 } from "../schema/tedi-memory";
-import { tedis } from "../schema/tedis";
+import { tedis as schemaTedis } from "../schema/tedis";
 
 /** The name the core document is stored under. */
 export const TEDI_CORE_MEMORY_NAME = "core";
@@ -23,7 +24,8 @@ export interface TediMemoryDocumentParams {
 	name: string;
 }
 
-function documentScope(params: TediMemoryDocumentParams) {
+function documentScope(db: DbQueryClient, params: TediMemoryDocumentParams) {
+	const tediMemoryDocuments = coreTable(db, schemaTediMemoryDocuments);
 	return and(
 		eq(tediMemoryDocuments.organizationId, params.organizationId),
 		eq(tediMemoryDocuments.tediId, params.tediId),
@@ -37,10 +39,11 @@ export async function getCurrentTediMemoryDocument(
 	db: DbQueryClient,
 	params: TediMemoryDocumentParams,
 ): Promise<TediMemoryDocumentRow | null> {
+	const tediMemoryDocuments = coreTable(db, schemaTediMemoryDocuments);
 	const [row] = await db
 		.select()
 		.from(tediMemoryDocuments)
-		.where(documentScope(params))
+		.where(documentScope(db, params))
 		.orderBy(desc(tediMemoryDocuments.version))
 		.limit(1);
 	return row ?? null;
@@ -50,12 +53,13 @@ export async function getTediMemoryDocumentVersion(
 	db: DbQueryClient,
 	params: TediMemoryDocumentParams & { version: number },
 ): Promise<TediMemoryDocumentRow | null> {
+	const tediMemoryDocuments = coreTable(db, schemaTediMemoryDocuments);
 	const [row] = await db
 		.select()
 		.from(tediMemoryDocuments)
 		.where(
 			and(
-				documentScope(params),
+				documentScope(db, params),
 				eq(tediMemoryDocuments.version, params.version),
 			),
 		)
@@ -68,10 +72,11 @@ export async function listTediMemoryDocumentVersions(
 	db: DbQueryClient,
 	params: TediMemoryDocumentParams & { limit: number },
 ): Promise<TediMemoryDocumentRow[]> {
+	const tediMemoryDocuments = coreTable(db, schemaTediMemoryDocuments);
 	return db
 		.select()
 		.from(tediMemoryDocuments)
-		.where(documentScope(params))
+		.where(documentScope(db, params))
 		.orderBy(desc(tediMemoryDocuments.version))
 		.limit(params.limit);
 }
@@ -103,6 +108,7 @@ export async function appendTediMemoryDocumentVersion(
 	db: DbQueryClient,
 	params: AppendTediMemoryVersionParams,
 ): Promise<boolean> {
+	const tediMemoryDocuments = coreTable(db, schemaTediMemoryDocuments);
 	const version = params.baseVersion + 1;
 	const [inserted] = await db.batch([
 		db
@@ -131,7 +137,7 @@ export async function appendTediMemoryDocumentVersion(
 			.delete(tediMemoryDocuments)
 			.where(
 				and(
-					documentScope(params),
+					documentScope(db, params),
 					lte(tediMemoryDocuments.version, version - params.keepVersions),
 				),
 			),
@@ -152,6 +158,7 @@ export async function listCurrentTediMemoryNotes(
 	db: DbQueryClient,
 	params: { organizationId: string; tediId: string },
 ): Promise<TediMemoryNoteSummary[]> {
+	const tediMemoryDocuments = coreTable(db, schemaTediMemoryDocuments);
 	const rows = await db
 		.select({
 			name: tediMemoryDocuments.name,
@@ -193,6 +200,7 @@ export async function listRecentlyActiveTedis(
 	db: DbQueryClient,
 	params: { since: string; limit: number },
 ) {
+	const tedis = coreTable(db, schemaTedis);
 	return db
 		.select({
 			orgId: tedis.organizationId,

@@ -1,9 +1,11 @@
 import { and, desc, eq, type SQL, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
-import { tediRuntimeEvents } from "../schema/cognitive-runtime";
-import { tediSessionStates } from "../schema/tedi-sessions";
+import { coreTable } from "../core-store/client";
+import { coreStore, jsonRead } from "../core-store/dialect";
+import { tediRuntimeEvents as schemaTediRuntimeEvents } from "../schema/cognitive-runtime";
+import { tediSessionStates as schemaTediSessionStates } from "../schema/tedi-sessions";
 
-export type TediSessionState = typeof tediSessionStates.$inferSelect;
+export type TediSessionState = typeof schemaTediSessionStates.$inferSelect;
 
 export async function getTediSessionState(
 	db: DbClient,
@@ -14,6 +16,7 @@ export async function getTediSessionState(
 		sessionKey: string;
 	},
 ): Promise<TediSessionState | null> {
+	const tediSessionStates = coreTable(db, schemaTediSessionStates);
 	const [row] = await db
 		.select()
 		.from(tediSessionStates)
@@ -53,6 +56,7 @@ export async function upsertTediSessionState(
 		lastSeenAt?: number | null;
 	},
 ): Promise<TediSessionState | null> {
+	const tediSessionStates = coreTable(db, schemaTediSessionStates);
 	const now = new Date().toISOString();
 	const hasTitle = input.title !== undefined;
 	const normalizedDerivedTitle = derivedTitle(input.derivedTitle);
@@ -115,6 +119,7 @@ export async function listTediSessionStates(
 	db: DbClient,
 	input: { organizationId: string; tediId: string; userId: string },
 ): Promise<TediSessionState[]> {
+	const tediSessionStates = coreTable(db, schemaTediSessionStates);
 	return db
 		.select()
 		.from(tediSessionStates)
@@ -126,7 +131,7 @@ export async function listTediSessionStates(
 			),
 		)
 		.orderBy(
-			desc(tediSessionStates.pinnedAt),
+			sql`${tediSessionStates.pinnedAt} DESC NULLS LAST`,
 			desc(tediSessionStates.updatedAt),
 		);
 }
@@ -135,6 +140,7 @@ export async function listTediConversationActivity(
 	db: DbClient,
 	input: { organizationId: string; tediId: string },
 ): Promise<Array<{ id: string; lastActivityIso: string | null }>> {
+	const tediRuntimeEvents = coreTable(db, schemaTediRuntimeEvents);
 	const rows = await db
 		.select({
 			conversationId: tediRuntimeEvents.conversationId,
@@ -165,34 +171,50 @@ export async function bulkSoftDeleteTediSessionStates(
 		sessionKeys: string[];
 	},
 ): Promise<number> {
+	const tediSessionStates = coreTable(db, schemaTediSessionStates);
 	const now = new Date().toISOString();
-	let deleted = 0;
-	for (let index = 0; index < input.sessionKeys.length; index += 10) {
-		const chunk = input.sessionKeys.slice(index, index + 10);
-		await db
-			.insert(tediSessionStates)
-			.values(
-				chunk.map((sessionKey) => ({
-					id: crypto.randomUUID(),
-					organizationId: input.organizationId,
-					tediId: input.tediId,
-					userId: input.userId,
-					sessionKey,
-					deletedAt: now,
-					createdAt: now,
-					updatedAt: now,
-				})),
-			)
-			.onConflictDoUpdate({
-				target: [
-					tediSessionStates.organizationId,
-					tediSessionStates.tediId,
-					tediSessionStates.userId,
-					tediSessionStates.sessionKey,
-				],
-				set: { deletedAt: now, pinnedAt: null, updatedAt: now },
-			});
-		deleted += chunk.length;
-	}
-	return deleted;
+	const keys = [...new Set(input.sessionKeys)];
+	if (!keys.length) return 0;
+	const entries = JSON.stringify(
+		keys.map((sessionKey) => ({ id: crypto.randomUUID(), sessionKey })),
+	);
+	const source =
+		coreStore(db) === "postgres"
+			? sql`jsonb_array_elements(${entries}::jsonb) AS entry(value)`
+			: sql`json_each(${entries}) AS entry`;
+	await db
+		.insert(tediSessionStates)
+		.select(
+			db
+				.select({
+					id: sql<string>`${jsonRead(db, sql`entry.value`, ["id"])}`.as("id"),
+					organizationId: sql<string>`${input.organizationId}`.as(
+						"organization_id",
+					),
+					tediId: sql<string>`${input.tediId}`.as("tedi_id"),
+					userId: sql<string>`${input.userId}`.as("user_id"),
+					sessionKey:
+						sql<string>`${jsonRead(db, sql`entry.value`, ["sessionKey"])}`.as(
+							"session_key",
+						),
+					title: sql<string | null>`null`.as("title"),
+					pinnedAt: sql<string | null>`null`.as("pinned_at"),
+					deletedAt: sql<string>`${now}`.as("deleted_at"),
+					lastSeenAt: sql<number | null>`null`.as("last_seen_at"),
+					createdAt: sql<string>`${now}`.as("created_at"),
+					updatedAt: sql<string>`${now}`.as("updated_at"),
+				})
+				.from(source)
+				.where(sql`true`),
+		)
+		.onConflictDoUpdate({
+			target: [
+				tediSessionStates.organizationId,
+				tediSessionStates.tediId,
+				tediSessionStates.userId,
+				tediSessionStates.sessionKey,
+			],
+			set: { deletedAt: now, pinnedAt: null, updatedAt: now },
+		});
+	return input.sessionKeys.length;
 }
