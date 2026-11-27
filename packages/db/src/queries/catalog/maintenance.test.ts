@@ -5,42 +5,12 @@ import { createD1Facade } from "../../test/d1-facade";
 import {
 	deleteOldCatalogChanges,
 	deleteOldCronExecutions,
+	deleteOldRuntimeSubmissions,
 } from "./maintenance";
-
-/**
- * Batched runtime-event retention against a REAL in-memory SQLite engine via
- * the production `createDbClient` path (flywheel-cron-darkness.test.ts pattern).
- *
- * Contract under test (P0 — 317d72f0):
- * - only rows with `created_at < now - days` are deleted; newer rows survive;
- * - the `DELETE ... WHERE id IN (SELECT id ... LIMIT n)` idiom drains a backlog
- *   across multiple batches and returns the true total deleted;
- * - pruning `kernel_runtime_events` never touches the durable
- *   `kernel_conversations` sidebar projection.
- */
 
 function realDb(): { db: DbClient; sqlite: DatabaseSync } {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
-		CREATE TABLE tedi_runtime_events (
-			id TEXT PRIMARY KEY NOT NULL,
-			organization_id TEXT NOT NULL,
-			tedi_id TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		);
-		CREATE TABLE kernel_runtime_events (
-			id TEXT PRIMARY KEY NOT NULL,
-			organization_id TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			conversation_id TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		);
-		CREATE TABLE kernel_conversations (
-			id TEXT PRIMARY KEY NOT NULL,
-			organization_id TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		);
 		CREATE TABLE tedi_cron_executions (
 			id TEXT PRIMARY KEY NOT NULL,
 			created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
@@ -57,6 +27,55 @@ function realDb(): { db: DbClient; sqlite: DatabaseSync } {
 
 const OLD = "2020-01-01T00:00:00.000Z"; // far older than any 90d cutoff
 const NEW = new Date().toISOString(); // within the 90d window
+
+it("keeps unfinished and recently finished submissions with their attempts", async () => {
+	const { db, sqlite } = realDb();
+	sqlite.exec(`
+		PRAGMA foreign_keys = ON;
+		CREATE TABLE runtime_submissions (
+			id TEXT PRIMARY KEY, status TEXT NOT NULL,
+			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+		);
+		CREATE TABLE runtime_submission_attempts (
+			id TEXT PRIMARY KEY,
+			submission_id TEXT NOT NULL REFERENCES runtime_submissions(id) ON DELETE CASCADE
+		);
+	`);
+	const insert = sqlite.prepare(
+		"INSERT INTO runtime_submissions VALUES (?, ?, '2020-01-01 00:00:00', ?)",
+	);
+	for (const status of [
+		"admitted",
+		"running",
+		"reserved",
+		"settled",
+		"failed",
+		"canceled",
+	]) {
+		insert.run(status, status, "2020-01-01 00:00:00");
+	}
+	insert.run(
+		"recently-finished",
+		"settled",
+		NEW.replace("T", " ").slice(0, 19),
+	);
+	sqlite.exec(`
+		INSERT INTO runtime_submission_attempts
+		SELECT id, id FROM runtime_submissions;
+	`);
+
+	expect(await deleteOldRuntimeSubmissions(db, 90)).toBe(3);
+	const expected = ["admitted", "recently-finished", "reserved", "running"];
+	for (const table of ["runtime_submissions", "runtime_submission_attempts"]) {
+		expect(
+			sqlite
+				.prepare(`SELECT id FROM ${table} ORDER BY id`)
+				.all()
+				.map((row) => row.id),
+		).toEqual(expected);
+	}
+	sqlite.close();
+});
 
 describe("deleteOldCronExecutions (space-format datetime cutoff)", () => {
 	// tedi_cron_executions.created_at is left on the CURRENT_TIMESTAMP default

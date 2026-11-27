@@ -3,7 +3,7 @@
  * Drizzle ORM queries for cron-triggered retention cleanup.
  */
 
-import { lt, type SQL, sql } from "drizzle-orm";
+import { and, inArray, lt, type SQL, sql } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
@@ -72,13 +72,14 @@ async function deleteOldRowsBatched(
 	cutoff: SQL | string,
 	batchSize = 5_000,
 	maxBatches = 40,
+	eligible?: SQL,
 ): Promise<number> {
 	let deleted = 0;
 	for (let i = 0; i < maxBatches; i++) {
 		const result = await db
 			.delete(table)
 			.where(
-				sql`${idColumn} in (select ${idColumn} from ${table} where ${tsColumn} < ${cutoff} limit ${batchSize})`,
+				sql`${idColumn} in (select ${idColumn} from ${table} where ${and(lt(tsColumn, cutoff), eligible)} limit ${batchSize})`,
 			);
 		const rows = getAffectedRows(result);
 		deleted += rows;
@@ -205,10 +206,9 @@ export function deleteOldCronExecutions(db: DbClient, days = 90) {
 }
 
 /**
- * runtime_submissions. 90d — recovery/reserved-sweep only reads recent
- * non-terminal rows (keyed off updated_at within minutes). Child
- * runtime_submission_attempts cascade-delete via the submission_id FK
- * (onDelete:"cascade"; D1 enforces FKs), so no separate attempts sweep.
+ * Keep unfinished submissions for recovery, regardless of creation age.
+ * Finished submissions stay for 90 days after their last update; attempts
+ * leave through the submission_id cascade only when their parent is eligible.
  */
 export function deleteOldRuntimeSubmissions(db: DbClient, days = 90) {
 	return deleteOldRowsBatched(
@@ -217,6 +217,12 @@ export function deleteOldRuntimeSubmissions(db: DbClient, days = 90) {
 		runtimeSubmissions.id,
 		runtimeSubmissions.createdAt,
 		dtCutoff(db, days),
+		5_000,
+		40,
+		and(
+			inArray(runtimeSubmissions.status, ["settled", "failed", "canceled"]),
+			lt(runtimeSubmissions.updatedAt, dtCutoff(db, days)),
+		),
 	);
 }
 
