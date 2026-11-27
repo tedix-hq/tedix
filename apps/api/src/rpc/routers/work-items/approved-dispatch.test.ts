@@ -5,6 +5,7 @@ import { createDbQueryClient } from "@tedix/db/query-client";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { deriveWorkItemReadiness } from "@tedix/db/queries/work-items/readiness";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { organizations } from "@tedix/db/schema/organizations";
 import { policyPacks } from "@tedix/db/schema/control-plane";
 import {
 	workApprovalProposals,
@@ -56,6 +57,7 @@ it.each([
 			sqlite.exec("PRAGMA foreign_keys=OFF");
 			sqlite.exec(
 				schemaDdl(
+					organizations,
 					organizationMembers,
 					policyPacks,
 					workItems,
@@ -71,6 +73,9 @@ it.each([
 					workAdmissions,
 				),
 			);
+			sqlite
+				.prepare("INSERT INTO organizations(id,name,slug) VALUES(?,?,?)")
+				.run(ORG, "Fictional organization", "fictional");
 			sqlite
 				.prepare(
 					"INSERT INTO work_items(id,org_id,title,disposition,risk_level,work_class,purpose_exception_expires_at,admission_spec_revision,created_at,metadata,executor_type,executor_id,dispatch_state) VALUES(?,?,?,'accepted','high','maintenance','2099-01-01T00:00:00.000Z','reviewed','2026-10-20T00:00:00.000Z',?,'external_agent','codex','held')",
