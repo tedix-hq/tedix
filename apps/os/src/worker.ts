@@ -1243,6 +1243,11 @@ export async function handleOsRequest(
 		const desktopSignIn = await handleDesktopSignIn(request, env);
 		if (desktopSignIn) return withSecurityHeaders(desktopSignIn);
 	}
+	// authz: public — desktop app sign-in from the command-line tool's login: the API checks that bearer token before it makes a code.
+	if (url.pathname === "/auth/desktop/cli-sign-in") {
+		const { handleDesktopCliSignIn } = await import("./auth/desktop-sign-in");
+		return withSecurityHeaders(await handleDesktopCliSignIn(request, env));
+	}
 	const brokerResponse = await handleOsSessionBroker(
 		request,
 		env,

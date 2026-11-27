@@ -278,6 +278,16 @@ export async function main() {
 			);
 			return;
 		}
+		const [authCommand, ...authArgs] = (options.prompt ?? "")
+			.trim()
+			.split(/\s+/);
+		if (authCommand === "app-sign-in") {
+			const { appSignIn } = await import("./app-sign-in");
+			process.stdout.write(
+				`${await appSignIn(resolveWorkspaceName(options), authArgs)}\n`,
+			);
+			return;
+		}
 		if ((options.prompt ?? "status").trim() !== "status") {
 			throw new Error(
 				`Unknown auth command "${options.prompt}". Usage: tedix auth status`,

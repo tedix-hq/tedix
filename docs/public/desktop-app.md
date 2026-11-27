@@ -48,7 +48,9 @@ the links above; allowing it does not mean Apple has checked it for malware.
    and does not allow this, ask its administrator.
 4. In Tedix, choose **Try a demo** to explore a sample on your Mac, or
    **Sign in** to use your Tedix account. Finish signing in in your browser
-   and return to Tedix.
+   and return to Tedix. This one sign-in covers the app and the `tedix`
+   command-line tool on this Mac. If it ever ends, Settings → This Mac shows
+   **Sign in again**.
 5. Tedix lists the apps it found on your Mac. Add Tedix to the ones you use,
    or choose **Open Tedix**. Tedix opens a sign-in page when an app needs
    one. If you install or open an app now, Tedix finds it when you come back.

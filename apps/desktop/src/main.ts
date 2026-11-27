@@ -58,6 +58,7 @@ import { startExitGuard } from "./quit-guard";
 import { readRunners, setRunnerField } from "./runners-file";
 import {
 	type AppSignIn,
+	appSignInCode,
 	onSetupChange,
 	readAgentStatus,
 	refreshSetup,
@@ -859,8 +860,37 @@ async function readAppSignIn(): Promise<void> {
  * sign-in is waiting reuses its key, so every open browser tab still works.
  */
 async function signInWithBrowser(): Promise<void> {
+	const pending = await prepareSignIn();
+	const page = new URL("/auth/desktop/sign-in", pending.origin);
+	page.searchParams.set("key", pending.publicKey);
+	await shell.openExternal(page.href);
+	void readAppSignIn();
+}
+
+/**
+ * Sign in: one sign-in covers this app and its command-line tool. The
+ * command-line tool signs in through the browser if it is not signed in yet;
+ * this app then signs in with that same login, so the person signs in and
+ * consents once. If that does not work, the browser sign-in still does.
+ */
+async function signIn(): Promise<void> {
+	const pending = await prepareSignIn();
+	let code: string;
+	try {
+		code = await appSignInCode(pending.origin ?? osOrigin(), pending.publicKey);
+	} catch (error) {
+		log(`sign-in: command-line login not used (${(error as Error).message})`);
+		if (setupState().signedIn) return signInWithBrowser();
+		return;
+	}
+	log("sign-in: signed in with the command-line tool's login");
+	await finishBrowserSignIn(code);
+}
+
+/** The key this app's sign-in is sealed to, reused while one is waiting. */
+async function prepareSignIn(): Promise<BrowserSignIn> {
 	let pending = pendingBrowserSignIn();
-	log(`sign-in: opening the browser (${pending ? "same" : "new"} request)`);
+	log(`sign-in: started (${pending ? "same" : "new"} request)`);
 	if (!pending) {
 		const pair = await crypto.subtle.generateKey(ECDH, true, ["deriveBits"]);
 		pending = {
@@ -877,10 +907,7 @@ async function signInWithBrowser(): Promise<void> {
 		viewing && isOsHost(viewing.host) ? viewing.origin : osOrigin();
 	pending.expires = Date.now() + SIGN_IN_WAIT_MS;
 	writeFileSync(browserSignInFile(), JSON.stringify(pending), { mode: 0o600 });
-	const page = new URL("/auth/desktop/sign-in", pending.origin);
-	page.searchParams.set("key", pending.publicKey);
-	await shell.openExternal(page.href);
-	void readAppSignIn();
+	return pending;
 }
 
 /** Says why the sign-in did not finish and offers to start it again. */
@@ -1356,7 +1383,7 @@ function createMainWindow(): void {
 	// Editors and other sites belong in the browser, outside the OS view.
 	view.webContents.setWindowOpenHandler(({ url }) => {
 		if (url.startsWith("tedix:")) openAppLink(url);
-		else if (refusesAppWindows(url)) void signInWithBrowser();
+		else if (refusesAppWindows(url)) void signIn();
 		else if (isOsPage(url)) void view.webContents.loadURL(url);
 		else if (/^https?:/.test(url)) void shell.openExternal(url);
 		return { action: "deny" };
@@ -1384,7 +1411,7 @@ function createMainWindow(): void {
 		event.preventDefault();
 		// The page's own buttons for this app, such as Set up this Mac.
 		if (url.startsWith("tedix:")) openAppLink(url);
-		else if (refusesAppWindows(url)) void signInWithBrowser();
+		else if (refusesAppWindows(url)) void signIn();
 		else if (/^https?:/.test(url)) void shell.openExternal(url);
 	};
 	view.webContents.on("will-navigate", leaveForBrowser);
@@ -2353,7 +2380,7 @@ else if (process.argv.includes("--local-model")) {
 				},
 				appSignIn: () => {
 					log("sign-in: chosen in Set up this Mac or Settings");
-					return signInWithBrowser();
+					return signIn();
 				},
 				openSignIn: (url) => shell.openExternal(url),
 				// Called once an agent was switched on for tasks.

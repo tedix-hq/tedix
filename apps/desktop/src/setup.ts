@@ -1609,6 +1609,35 @@ async function signInOnMac(
 	return "This Mac is authorized.";
 }
 
+/**
+ * One sign-in for this Mac: signs the command-line tool in through the
+ * browser when it is not (the only browser step, with its one consent), then
+ * asks it for a one-time code that signs this app in with that same login,
+ * sealed to `key`. The app never sees the login itself.
+ */
+export async function appSignInCode(
+	origin: string,
+	key: string,
+): Promise<string> {
+	await readSignIn();
+	if (!signedIn) {
+		await step("sign-in", (say) => signInOnMac("sign-in", say));
+		await refreshSetup(false);
+	}
+	if (!signedIn) throw new Error("the command-line tool is not signed in");
+	const result = await tedix(
+		["-w", "connect", "auth", "--", "app-sign-in", origin, key],
+		{ timeoutMs: 60_000 },
+	);
+	const code = result.output
+		.split("\n")
+		.map((line) => line.trim())
+		.findLast((line) => /^[A-Za-z0-9_-]{78,}$/.test(line));
+	if (!result.ok || !code)
+		throw new Error(lastLine(safe(result.output)) || "no code");
+	return code;
+}
+
 const ACTIONS = [
 	"check",
 	"manage-cli",

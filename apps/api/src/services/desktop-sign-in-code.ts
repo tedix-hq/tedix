@@ -3,15 +3,45 @@ import {
 	DESKTOP_SIGN_IN_KEY_PATTERN,
 	sealDesktopSignInCode,
 } from "@tedix/auth/desktop-sign-in-code";
-import { validateToken } from "@tedix/auth/jwt";
+import {
+	decodeTokenUnsafe,
+	isOAuthClientToken,
+	validateToken,
+} from "@tedix/auth/jwt";
+import { TEDIX_CLI_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
 import { z } from "zod";
 
-const inputSchema = z
-	.object({
-		session: z.string().min(1).max(16_384),
-		key: z.string().regex(DESKTOP_SIGN_IN_KEY_PATTERN),
-	})
-	.strict();
+const inputSchema = z.union([
+	z
+		.object({
+			session: z.string().min(1).max(16_384),
+			key: z.string().regex(DESKTOP_SIGN_IN_KEY_PATTERN),
+		})
+		.strict(),
+	z
+		.object({
+			cliToken: z.string().min(1).max(16_384),
+			key: z.string().regex(DESKTOP_SIGN_IN_KEY_PATTERN),
+		})
+		.strict(),
+]);
+
+/**
+ * The Tedix command-line tool's own login token: issued by a Descope app
+ * (`/v1/apps/` issuer) to the Tedix CLI client, and at most an hour old.
+ * The desktop app signs in with the login the command-line tool already has,
+ * so the person consents once (RFC 8252 §8.6: the consent was given to this
+ * client; nothing here skips one).
+ */
+export function isFreshCliToken(token: string): boolean {
+	const claims = decodeTokenUnsafe(token);
+	const issuedAt = typeof claims?.iat === "number" ? claims.iat : 0;
+	return (
+		claims?.azp === TEDIX_CLI_OAUTH_CLIENT_ID &&
+		isOAuthClientToken(claims) &&
+		Date.now() / 1000 - issuedAt < 60 * 60
+	);
+}
 
 /** How long the desktop app has to use the code after the browser makes it. */
 const CODE_LIFETIME_SECONDS = 120;
@@ -44,11 +74,17 @@ export async function desktopSignInCode(
 	if (!parsed.success) return new Response(null, { status: 400, headers });
 	if (!env.DESCOPE_PROJECT_ID || !env.DESCOPE_MANAGEMENT_KEY)
 		return new Response(null, { status: 503, headers });
-	const payload = await validateToken(parsed.data.session, {
+	const input = parsed.data;
+	const cli = "cliToken" in input;
+	const token = cli ? input.cliToken : input.session;
+	if (cli && !isFreshCliToken(token))
+		return new Response(null, { status: 401, headers });
+	const payload = await validateToken(token, {
 		baseUrl: env.DESCOPE_BASE_URL,
 		projectId: env.DESCOPE_PROJECT_ID,
+		...(cli ? { audience: TEDIX_CLI_OAUTH_CLIENT_ID } : {}),
 		auditClaims: {
-			surface: "api:desktop-sign-in",
+			surface: cli ? "api:desktop-cli-sign-in" : "api:desktop-sign-in",
 			expected: [env.DESCOPE_PROJECT_ID],
 		},
 	}).catch(() => undefined);
@@ -66,7 +102,7 @@ export async function desktopSignInCode(
 	if (!link.ok || !link.data?.token)
 		return new Response(null, { status: 503, headers });
 	return Response.json(
-		{ code: await sealDesktopSignInCode(parsed.data.key, link.data.token) },
+		{ code: await sealDesktopSignInCode(input.key, link.data.token) },
 		{ headers },
 	);
 }

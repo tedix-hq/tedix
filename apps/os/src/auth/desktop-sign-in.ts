@@ -57,6 +57,66 @@ ${body}
 	);
 }
 
+/** Asks the API for a desktop sign-in code; the API checks the credential. */
+async function requestCode(
+	api: FetcherLike,
+	body: Record<string, string>,
+): Promise<string | undefined> {
+	const response = await serviceBindingFetch(api)(
+		"https://api/__internal/desktop-sign-in-code",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+			signal: AbortSignal.timeout(10_000),
+		},
+	).catch(() => null);
+	const code = response?.ok
+		? ((await response.json().catch(() => null)) as { code?: unknown } | null)
+				?.code
+		: undefined;
+	return typeof code === "string" && /^[A-Za-z0-9_-]+$/.test(code)
+		? code
+		: undefined;
+}
+
+/**
+ * The desktop app signs in with the login its command-line tool already has,
+ * so the person signs in and consents once. `tedix auth app-sign-in` posts its
+ * own token as the bearer with the key the app made; the answer is a one-time
+ * code only that app can read, the same as the browser sign-in below.
+ */
+export async function handleDesktopCliSignIn(
+	request: Request,
+	env: { API_SERVICE?: FetcherLike },
+): Promise<Response> {
+	if (request.method !== "POST")
+		return new Response("Method Not Allowed\n", {
+			status: 405,
+			headers: { Allow: "POST", "Cache-Control": "no-store" },
+		});
+	const cliToken = /^Bearer (\S+)$/.exec(
+		request.headers.get("Authorization") ?? "",
+	)?.[1];
+	const key = (
+		(await request.json().catch(() => null)) as {
+			key?: unknown;
+		} | null
+	)?.key;
+	if (
+		!cliToken ||
+		typeof key !== "string" ||
+		!DESKTOP_SIGN_IN_KEY_PATTERN.test(key)
+	)
+		return json({ error: "This sign-in request is incomplete." }, 400);
+	if (!env.API_SERVICE)
+		return json({ error: "Sign-in is not available right now." }, 503);
+	const code = await requestCode(env.API_SERVICE, { cliToken, key });
+	return code
+		? json({ code })
+		: json({ error: "Sign in on this Mac again, then retry." }, 401);
+}
+
 /**
  * The browser side of desktop app sign-in. Google and Apple refuse to sign
  * people in inside an app window, so the desktop app opens this page in the
@@ -124,21 +184,8 @@ export async function handleDesktopSignIn(
 	if (posting) {
 		if (!session || !payload?.sub)
 			return json({ error: "Sign in to Tedix OS again, then retry." }, 401);
-		const response = await serviceBindingFetch(env.API_SERVICE)(
-			"https://api/__internal/desktop-sign-in-code",
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ session, key }),
-				signal: AbortSignal.timeout(10_000),
-			},
-		).catch(() => null);
-		const code = response?.ok
-			? ((await response.json().catch(() => null)) as { code?: unknown } | null)
-					?.code
-			: undefined;
-		if (typeof code !== "string" || !/^[A-Za-z0-9_-]+$/.test(code))
-			return json({ error: "We could not prepare the sign-in." }, 503);
+		const code = await requestCode(env.API_SERVICE, { session, key });
+		if (!code) return json({ error: "We could not prepare the sign-in." }, 503);
 		return json({ code });
 	}
 	// Not signed in in this browser yet: sign in the usual way, then return.

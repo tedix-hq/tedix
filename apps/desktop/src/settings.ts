@@ -719,52 +719,66 @@ function mac(now: PanelState): Group[] {
 				sub: "To let it, sign in and switch an agent on under Agents.",
 				words: "pause resume restart tasks",
 			}
-		: {
-				title: now.app.paused
-					? "Tasks are paused"
-					: stopped
-						? "Tasks are not running"
-						: starting
-							? "Starting tasks…"
-							: runs
-								? `${runs} ${runs === 1 ? "task" : "tasks"} running`
-								: "Ready for tasks",
-				tone: stopped ? "warn" : undefined,
-				// Tedix keeps the Mac awake, but on battery macOS still sleeps
-				// when the lid closes and running tasks wait until it opens.
-				sub:
-					now.app.onBattery && !now.app.paused && !stopped
-						? "On battery, tasks pause when you close the lid. Plug this Mac in to keep them running."
-						: undefined,
-				control: [
-					starting
-						? undefined
-						: now.app.paused
-							? button(
-									"Resume",
-									"plain",
-									() => tedixShell.action("restart"),
-									now.busy,
-									{ pending: "Resuming…", key: "runners" },
-								)
-							: stopped
+		: !now.setup.signedIn
+			? {
+					// Renewal runs by itself; this shows only when it could not.
+					title: "Sign in again to keep running tasks",
+					sub: "This Mac's Tedix sign-in ended. Tasks wait until you sign in again in your browser.",
+					tone: "warn",
+					control: [
+						button("Sign in again", "plain", () => act("sign-in"), now.busy, {
+							pending: "Signing in…",
+							key: "sign-in",
+						}),
+					],
+					words: "sign in again expired renew tasks",
+				}
+			: {
+					title: now.app.paused
+						? "Tasks are paused"
+						: stopped
+							? "Tasks are not running"
+							: starting
+								? "Starting tasks…"
+								: runs
+									? `${runs} ${runs === 1 ? "task" : "tasks"} running`
+									: "Ready for tasks",
+					tone: stopped ? "warn" : undefined,
+					// Tedix keeps the Mac awake, but on battery macOS still sleeps
+					// when the lid closes and running tasks wait until it opens.
+					sub:
+						now.app.onBattery && !now.app.paused && !stopped
+							? "On battery, tasks pause when you close the lid. Plug this Mac in to keep them running."
+							: undefined,
+					control: [
+						starting
+							? undefined
+							: now.app.paused
 								? button(
-										"Restart",
+										"Resume",
 										"plain",
 										() => tedixShell.action("restart"),
 										now.busy,
-										{ pending: "Restarting…", key: "runners" },
+										{ pending: "Resuming…", key: "runners" },
 									)
-								: button(
-										"Pause",
-										"plain",
-										() => tedixShell.action("pause"),
-										now.busy,
-										{ pending: "Pausing…", key: "runners" },
-									),
-				],
-				words: "pause resume restart tasks",
-			};
+								: stopped
+									? button(
+											"Restart",
+											"plain",
+											() => tedixShell.action("restart"),
+											now.busy,
+											{ pending: "Restarting…", key: "runners" },
+										)
+									: button(
+											"Pause",
+											"plain",
+											() => tedixShell.action("pause"),
+											now.busy,
+											{ pending: "Pausing…", key: "runners" },
+										),
+					],
+					words: "pause resume restart tasks",
+				};
 	return [
 		{
 			items: [
