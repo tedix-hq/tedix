@@ -72,7 +72,9 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 		step: WorkflowStep,
 	) {
 		step = withCoreStoreSteps(this.env, step);
-		const db = coreDb(this.env);
+		// Opened inside each step: step callbacks run without run()'s scope, and
+		// withCoreStoreSteps gives each one its own core client.
+		const db = () => coreDb(this.env);
 		if (event.payload.kind === "publish_tool_metadata") {
 			const expected = event.payload.expectedMigration;
 			// apply:false is a compatibility fence: an older deployed workflow can
@@ -94,11 +96,15 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 				async () => {
 					const { reconcileToolMetadataPublication } =
 						await import("../services/tool-metadata-publication");
-					const result = await reconcileToolMetadataPublication(db, this.env, {
-						changed: false,
-						reconcileRelease: true,
-						expectedMigration: expected,
-					});
+					const result = await reconcileToolMetadataPublication(
+						db(),
+						this.env,
+						{
+							changed: false,
+							reconcileRelease: true,
+							expectedMigration: expected,
+						},
+					);
 					return { publicationProtocol: 1, schemaWrites: 0, ...result };
 				},
 			);
@@ -130,9 +136,9 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 				} = await import("../services/tool-schema-sync");
 				if (mode === "projection" && apply && payload.incremental !== false) {
 					const plan = await planIncrementalToolSchemaSyncProjection(
-						db,
+						db(),
 						payload,
-						await resolveTedixAdminAppId(db),
+						await resolveTedixAdminAppId(db()),
 					);
 					return JSON.stringify({
 						appId: plan.appId,
@@ -145,7 +151,7 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 				if (mode === "projection") {
 					const plan = planToolSchemaSyncProjection(
 						payload,
-						await resolveTedixAdminAppId(db),
+						await resolveTedixAdminAppId(db()),
 					);
 					return JSON.stringify({
 						appId: plan.appId,
@@ -153,7 +159,7 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 						toolIds: plan.toolIds,
 					} satisfies FrozenPlan);
 				}
-				const plan = await planToolSchemaSyncRows(db, payload);
+				const plan = await planToolSchemaSyncRows(db(), payload);
 				return JSON.stringify({
 					appId: plan.appId,
 					keys: plan.toolIds,
@@ -218,7 +224,7 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 								};
 					// Deliberately no `env`: the tools/list_changed broadcast fires once,
 					// after every batch succeeds, not once per batch.
-					const result = await runToolSchemaSync(db, options);
+					const result = await runToolSchemaSync(db(), options);
 					return JSON.stringify(toBatchReport(result));
 				},
 			);
@@ -253,7 +259,7 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 						await import("../services/gateway-tool-contract-snapshot");
 					try {
 						return await snapshotOrganizationGatewayToolContracts(
-							db,
+							db(),
 							this.env.R2_BUCKET,
 						);
 					} catch (error) {
@@ -288,7 +294,7 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 				async () => {
 					const { reconcileToolMetadataPublication } =
 						await import("../services/tool-metadata-publication");
-					return reconcileToolMetadataPublication(db, this.env, {
+					return reconcileToolMetadataPublication(db(), this.env, {
 						changed: changed > 0,
 						reconcileRelease,
 					});
