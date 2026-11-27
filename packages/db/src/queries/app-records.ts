@@ -527,30 +527,9 @@ export async function getAppByIdWithToolsForOrganization(
 	};
 }
 
-/**
- * Collapse CONCURRENT identical app-surface reads onto one in-flight promise.
- *
- * This is a memory fix, not a latency one. `getAppBySlugWithTools` hydrates every
- * enabled tool for an app, and an aggregate gateway app is not small: hundreds
- * of tools and hundreds of KiB of raw input_schema, which becomes many times
- * that as parsed objects plus DTOs plus the serialized oRPC
- * response. One such request is affordable; several at once in the same isolate
- * are not.
- *
- * They do arrive at once, and an `exceededMemory` kill restarts the isolate, so
- * the next request pays a cold start and the MCP gateway's `resolve_app` times
- * out with a 503.
- *
- * Deliberately NOT a cache: there is no TTL and nothing is retained past
- * settlement, so this cannot serve a stale tool surface. It only guarantees that
- * callers who ask for the identical surface *while a read is already running*
- * share that read instead of duplicating it. Rejections are shared too, and the
- * entry is always cleared, so a failure never pins a bad promise.
- */
-const appSurfaceInFlight = new Map<string, Promise<unknown>>();
-
+/** Groups tool reads that share one selection in the batched surface load. */
 function appSurfaceKey(slug: string, options?: ToolSelectionOptions): string {
-	// Sorted so two callers asking for the same set in a different order share.
+	// Sorted so two requests for the same set in a different order share a group.
 	const toolIds = [...(options?.toolIds ?? [])].sort().join(",");
 	const prefixes = [...(options?.endpointPrefixes ?? [])].sort().join(",");
 	return `${slug}\0${toolIds}\0${prefixes}\0${options?.projection ?? "definition"}`;
@@ -560,24 +539,7 @@ function appSurfaceKey(slug: string, options?: ToolSelectionOptions): string {
  * Get app by slug with enabled tools (and tool type metadata)
  * Used by MCP to load tools quickly in one pass.
  */
-export async function getAppBySlugWithTools(
-	db: DbClient,
-	slug: string,
-	options?: ToolSelectionOptions,
-) {
-	const key = appSurfaceKey(slug, options);
-	const inFlight = appSurfaceInFlight.get(key);
-	if (inFlight) {
-		return inFlight as ReturnType<typeof loadAppBySlugWithTools>;
-	}
-	const pending = loadAppBySlugWithTools(db, slug, options).finally(() => {
-		appSurfaceInFlight.delete(key);
-	});
-	appSurfaceInFlight.set(key, pending);
-	return pending;
-}
-
-function loadAppBySlugWithTools(
+export function getAppBySlugWithTools(
 	db: DbClient,
 	slug: string,
 	options?: ToolSelectionOptions,
@@ -737,7 +699,7 @@ export async function isAggregateSourceAllowed(
 
 /** Result element of {@link getAppsBySlugsWithTools}; `null` = slug not found. */
 type LoadedAppSurface = NonNullable<
-	Awaited<ReturnType<typeof loadAppBySlugWithTools>>
+	Awaited<ReturnType<typeof getAppBySlugWithTools>>
 >;
 export type AppSurfaceResult =
 	| (Omit<LoadedAppSurface, "tools"> & {
