@@ -6,7 +6,7 @@ import {
 	getLogStores,
 	type DbClient,
 } from "../client";
-import { coreTable } from "../core-store/client";
+import { coreTable, postgresClientView } from "../core-store/client";
 import { anyIds, coreStore } from "../core-store/dialect";
 import { auditDeliveryOutbox, auditEvents } from "../schema/audit-events";
 import { chunkForBoundParams } from "../utils/batch";
@@ -28,7 +28,7 @@ export function auditWriteTable(db: object): typeof auditEvents {
 
 export function auditReadTable(db: object): typeof auditEvents {
 	return pending.has(db)
-		? (auditDeliveryOutbox as unknown as typeof auditEvents)
+		? (coreTable(db, auditDeliveryOutbox) as unknown as typeof auditEvents)
 		: coreTable(db, auditEvents);
 }
 
@@ -80,6 +80,12 @@ export async function readAuditStores<T>(
 		pending.add(outbox);
 		// Read pending first: delivery may remove it after writing the projection.
 		queued = [await read(outbox)];
+	} else if (coreStore(db) === "postgres") {
+		// Rows still queued at the switch were copied into the Postgres outbox.
+		const outbox = postgresClientView(db as DbClient);
+		reading.add(outbox);
+		pending.add(outbox);
+		queued = [await read(outbox)];
 	}
 	const pages = await readLogStores(
 		db,
@@ -91,7 +97,10 @@ export async function readAuditStores<T>(
 	);
 	if (!queued.length) return pages;
 	if (pages) return [...pages, ...queued];
-	const main = createDbClient((db as DbClient).$client);
+	const main =
+		coreStore(db) === "postgres"
+			? postgresClientView(db as DbClient)
+			: createDbClient((db as DbClient).$client);
 	reading.add(main);
 	return [await read(main), ...queued];
 }
