@@ -1,5 +1,25 @@
+import type { DbClient } from "@tedix/db/client";
+import {
+	backfillSkillRunArtifactSha256,
+	compareAndSetSkillRunPendingReceipt,
+	findAcceptedSkillRunRestartReceipt,
+	getSkillRunArtifactContentAndSha256,
+	getSkillRunRestartRetirementEvidence,
+	hasSkillRunSuccessArtifact,
+	insertSkillRunEpochOutcomeFence,
+	insertSkillRunEpochStartedFence,
+	insertSkillRunRestartReceipt,
+	isSkillRunWorkflowRetired,
+	listSkillRunSuccessArtifacts,
+	retireUnstartedSkillRunRestart,
+} from "@tedix/db/queries/skill-runtime-fences";
+import { getRuntimeArtifactInlineContent } from "@tedix/db/queries/skill-runtime-store";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { skillRuntimeDb } from "./db";
 import { encodeWorkflowArtifactPathSegment } from "./workflow-path";
+
+/** A raw binding resolves to the request's selected core store. */
+type WorkflowFenceDb = D1Database | DbClient;
 
 export type WorkflowRestartStepType = "do" | "sleep" | "waitForEvent";
 
@@ -116,32 +136,10 @@ function epochOutcomePaths(executionEpoch: number): [string, string] {
  * claims and every static-factory entry.
  */
 export async function isWorkflowInstanceRetired(
-	db: D1Database,
+	db: WorkflowFenceDb,
 	runId: string,
 ): Promise<boolean> {
-	const row = await db
-		.prepare(
-			`SELECT 1 AS present
-			 WHERE EXISTS (
-			   SELECT 1 FROM skill_runs
-			    WHERE id = ?1
-			      AND (workflow_retired_at IS NOT NULL
-			           OR COALESCE(error, '') = 'REVOKED'
-			           OR COALESCE(error, '') GLOB 'REVOKED:*')
-			 ) OR EXISTS (
-			   SELECT 1 FROM skill_run_artifacts
-			    WHERE run_id = ?1
-			      AND path LIKE 'controls/restarts/%'
-			      AND CASE WHEN json_valid(content_inline)
-			        THEN json_extract(content_inline, '$.status') END = 'rejected'
-			      AND CASE WHEN json_valid(content_inline)
-			        THEN json_extract(content_inline, '$.resolution.action') END = 'operator_abort'
-			 )
-			 LIMIT 1`,
-		)
-		.bind(runId)
-		.first<{ present: number }>();
-	return row?.present === 1;
+	return isSkillRunWorkflowRetired(skillRuntimeDb(db), runId);
 }
 
 /**
@@ -183,28 +181,18 @@ export function workflowRestartBarrierState(input: {
  * idempotent replay repairs any interruption between the two writes.
  */
 async function backfillWorkflowArtifactSha256(
-	db: D1Database,
+	db: DbClient,
 	runId: string,
 	path: string,
 ): Promise<void> {
-	const row = await db
-		.prepare(
-			`SELECT content_inline, sha256 FROM skill_run_artifacts
-			 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-		)
-		.bind(runId, path)
-		.first<{ content_inline: string | null; sha256: string | null }>();
+	const row = await getSkillRunArtifactContentAndSha256(db, runId, path);
 	if (row?.content_inline == null || row.sha256 != null) return;
-	const sha256 = await sha256Hex(row.content_inline);
-	await db
-		.prepare(
-			`UPDATE skill_run_artifacts
-			 SET sha256 = ?4
-			 WHERE run_id = ?1 AND path = ?2
-			   AND content_inline = ?3 AND sha256 IS NULL`,
-		)
-		.bind(runId, path, row.content_inline, sha256)
-		.run();
+	await backfillSkillRunArtifactSha256(db, {
+		runId,
+		path,
+		content: row.content_inline,
+		sha256: await sha256Hex(row.content_inline),
+	});
 }
 
 /** Fingerprint a serializable Workflow result without persisting its content. */
@@ -234,91 +222,59 @@ export async function fingerprintWorkflowError(
  * even loader/validation failures have an epoch fence.
  */
 export async function recordWorkflowExecutionEpochStarted(input: {
-	db: D1Database;
+	db: WorkflowFenceDb;
 	runId: string;
 	executionEpoch: number;
 }): Promise<void> {
+	const db = skillRuntimeDb(input.db);
 	const path = epochStartPath(input.executionEpoch);
 	const startedAt = new Date().toISOString();
 	const content = JSON.stringify({
 		executionEpoch: input.executionEpoch,
 		startedAt,
 	});
-	const inserted = await input.db
-		.prepare(
-			`INSERT INTO skill_run_artifacts (
-			   id, run_id, path, mime_type, size_bytes, content_inline,
-			   attempt, outcome, created_at
-			 )
-			 SELECT ?1, ?2, ?3, 'application/json', ?4, ?5, 1, 'success', ?6
-			 WHERE EXISTS (
-			   SELECT 1 FROM skill_runs
-			    WHERE id = ?2
-			      AND workflow_retired_at IS NULL
-			      AND COALESCE(error, '') <> 'REVOKED'
-			      AND COALESCE(error, '') NOT GLOB 'REVOKED:*'
-			 )
-			   AND NOT EXISTS (
-			   SELECT 1 FROM skill_run_artifacts
-			    WHERE run_id = ?2
-			      AND path LIKE 'controls/restarts/%'
-			      AND CASE WHEN json_valid(content_inline)
-			        THEN json_extract(content_inline, '$.status') END = 'rejected'
-			      AND CASE WHEN json_valid(content_inline)
-			        THEN json_extract(content_inline, '$.resolution.action') END = 'operator_abort'
-			 )
-			 ON CONFLICT(run_id, path) DO NOTHING`,
-		)
-		.bind(
-			crypto.randomUUID(),
-			input.runId,
-			path,
-			new TextEncoder().encode(content).byteLength,
-			content,
-			startedAt,
-		)
-		.run();
+	const inserted = await insertSkillRunEpochStartedFence(db, {
+		id: crypto.randomUUID(),
+		runId: input.runId,
+		path,
+		content,
+		createdAt: startedAt,
+	});
 	// Hash after the fence lands, never before. This insert is the epoch fence
 	// that restart-safety races against (start must beat a concurrent abort), so
 	// it has to be the first thing this function does to the DB — awaiting a
 	// digest first widens that race window and lets an abort win. The digest is
 	// evidence integrity, not a fence, so it patches the row afterwards.
-	if (
-		(inserted.meta.changes ?? 0) === 0 &&
-		(await isWorkflowInstanceRetired(input.db, input.runId))
-	) {
+	if (!inserted && (await isSkillRunWorkflowRetired(db, input.runId))) {
 		throw new Error(
 			`WORKFLOW_INSTANCE_RETIRED: run ${input.runId} cannot enter execution epoch ${input.executionEpoch}`,
 		);
 	}
-	await backfillWorkflowArtifactSha256(input.db, input.runId, path);
+	await backfillWorkflowArtifactSha256(db, input.runId, path);
 }
 
 /** Durable proof that the new epoch entered the static workflow factory. */
 export async function hasWorkflowExecutionEpochStarted(
-	db: D1Database,
+	db: WorkflowFenceDb,
 	runId: string,
 	executionEpoch: number,
 ): Promise<boolean> {
-	const row = await db
-		.prepare(
-			`SELECT 1 AS present FROM skill_run_artifacts
-			 WHERE run_id = ?1 AND path = ?2 AND outcome = 'success'
-			 LIMIT 1`,
-		)
-		.bind(runId, epochStartPath(executionEpoch))
-		.first<{ present: number }>();
-	return row?.present === 1;
+	return hasSkillRunSuccessArtifact(
+		skillRuntimeDb(db),
+		runId,
+		epochStartPath(executionEpoch),
+	);
 }
 
 /** Record a factory-level failure before the dynamic tenant module can run. */
 export async function recordWorkflowExecutionEpochOutcome(input: {
-	db: D1Database;
+	db: WorkflowFenceDb;
 	runId: string;
 	executionEpoch: number;
 	outcome: Exclude<WorkflowExecutionEpochOutcome, null>;
 	terminalFingerprint?: string | null;
 }): Promise<void> {
+	const db = skillRuntimeDb(input.db);
 	const path = `epochs/${input.executionEpoch}/${input.outcome}.json`;
 	const recordedAt = new Date().toISOString();
 	const content = JSON.stringify({
@@ -327,45 +283,22 @@ export async function recordWorkflowExecutionEpochOutcome(input: {
 		terminalFingerprint: input.terminalFingerprint ?? null,
 		recordedAt,
 	});
-	const inserted = await input.db
-		.prepare(
-			`INSERT INTO skill_run_artifacts (
-			   id, run_id, path, mime_type, size_bytes, content_inline,
-			   attempt, outcome, created_at
-			 )
-			 SELECT ?1, ?2, ?3, 'application/json', ?4, ?5, 1, 'success', ?6
-			 WHERE EXISTS (
-			   SELECT 1 FROM skill_runs
-			    WHERE id = ?2
-			      AND workflow_retired_at IS NULL
-			      AND COALESCE(error, '') <> 'REVOKED'
-			      AND COALESCE(error, '') NOT GLOB 'REVOKED:*'
-			 )
-			   AND NOT EXISTS (
-			   SELECT 1 FROM skill_run_artifacts
-			    WHERE run_id = ?2 AND path IN (?7, ?8)
-			 )
-			 ON CONFLICT(run_id, path) DO NOTHING`,
-		)
-		.bind(
-			crypto.randomUUID(),
-			input.runId,
-			path,
-			new TextEncoder().encode(content).byteLength,
-			content,
-			recordedAt,
-			`epochs/${input.executionEpoch}/completed.json`,
-			`epochs/${input.executionEpoch}/failed.json`,
-		)
-		.run();
-	if ((inserted.meta.changes ?? 0) === 0) {
-		if (await isWorkflowInstanceRetired(input.db, input.runId)) {
+	const inserted = await insertSkillRunEpochOutcomeFence(db, {
+		id: crypto.randomUUID(),
+		runId: input.runId,
+		path,
+		content,
+		createdAt: recordedAt,
+		outcomePaths: epochOutcomePaths(input.executionEpoch),
+	});
+	if (!inserted) {
+		if (await isSkillRunWorkflowRetired(db, input.runId)) {
 			throw new Error(
 				`WORKFLOW_INSTANCE_RETIRED: run ${input.runId} cannot record execution epoch ${input.executionEpoch} outcome`,
 			);
 		}
 		const existing = await getWorkflowExecutionEpochOutcome(
-			input.db,
+			db,
 			input.runId,
 			input.executionEpoch,
 		);
@@ -378,30 +311,21 @@ export async function recordWorkflowExecutionEpochOutcome(input: {
 			);
 		}
 	}
-	await backfillWorkflowArtifactSha256(input.db, input.runId, path);
+	await backfillWorkflowArtifactSha256(db, input.runId, path);
 }
 
 /** Read terminal proof emitted by the exact execution epoch. */
 export async function getWorkflowExecutionEpochOutcome(
-	db: D1Database,
+	db: WorkflowFenceDb,
 	runId: string,
 	executionEpoch: number,
 ): Promise<WorkflowExecutionEpochOutcomeEvidence | null> {
-	const rows = await db
-		.prepare(
-			`SELECT path, content_inline FROM skill_run_artifacts
-			 WHERE run_id = ?1
-			   AND path IN (?2, ?3)
-			   AND outcome = 'success'
-			 LIMIT 2`,
-		)
-		.bind(
-			runId,
-			`epochs/${executionEpoch}/completed.json`,
-			`epochs/${executionEpoch}/failed.json`,
-		)
-		.all<{ path: string; content_inline: string | null }>();
-	for (const row of rows.results ?? []) {
+	const rows = await listSkillRunSuccessArtifacts(
+		skillRuntimeDb(db),
+		runId,
+		epochOutcomePaths(executionEpoch),
+	);
+	for (const row of rows) {
 		const outcome = row.path.endsWith("/completed.json")
 			? "completed"
 			: row.path.endsWith("/failed.json")
@@ -449,7 +373,7 @@ function requestMatches(
  * the engine; the route separately checks engine status and epoch-start proof.
  */
 export async function abortAmbiguousWorkflowRestart(input: {
-	db: D1Database;
+	db: WorkflowFenceDb;
 	runId: string;
 	restartId: string;
 	executionEpoch: number;
@@ -457,14 +381,9 @@ export async function abortAmbiguousWorkflowRestart(input: {
 	reason: string;
 	dedupeOnly?: boolean;
 }): Promise<{ deduplicated: boolean }> {
+	const db = skillRuntimeDb(input.db);
 	const path = restartPath(input.restartId);
-	const row = await input.db
-		.prepare(
-			`SELECT content_inline FROM skill_run_artifacts
-			 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-		)
-		.bind(input.runId, path)
-		.first<{ content_inline: string | null }>();
+	const row = await getRuntimeArtifactInlineContent(db, input.runId, path);
 	const prior = parseReceipt(row?.content_inline);
 	if (
 		!prior ||
@@ -517,38 +436,25 @@ export async function abortAmbiguousWorkflowRestart(input: {
 	};
 	const content = JSON.stringify(rejected);
 	const [completedPath, failedPath] = epochOutcomePaths(input.executionEpoch);
-	const updated = await input.db
-		.prepare(
-			`UPDATE skill_run_artifacts
-			 SET content_inline = ?3, size_bytes = ?4, outcome = 'failure'
-			 WHERE run_id = ?1 AND path = ?2 AND content_inline = ?5
-			   AND outcome = 'pending'
-			   AND NOT EXISTS (
-			     SELECT 1 FROM skill_run_artifacts
-			      WHERE run_id = ?1
-			        AND path IN (?6, ?7, ?8)
-			        AND outcome = 'success'
-			   )`,
-		)
-		.bind(
-			input.runId,
-			path,
-			content,
-			new TextEncoder().encode(content).byteLength,
-			row?.content_inline,
+	// parseReceipt accepted the row above, so its content is non-null.
+	const updated = await compareAndSetSkillRunPendingReceipt(db, {
+		runId: input.runId,
+		path,
+		content,
+		expectedContent: row!.content_inline!,
+		outcome: "failure",
+		absentSuccessPaths: [
 			epochStartPath(input.executionEpoch),
 			completedPath,
 			failedPath,
-		)
-		.run();
-	if ((updated.meta.changes ?? 0) !== 1) {
-		const racedRow = await input.db
-			.prepare(
-				`SELECT content_inline FROM skill_run_artifacts
-				 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-			)
-			.bind(input.runId, path)
-			.first<{ content_inline: string | null }>();
+		],
+	});
+	if (!updated) {
+		const racedRow = await getRuntimeArtifactInlineContent(
+			db,
+			input.runId,
+			path,
+		);
 		const raced = parseReceipt(racedRow?.content_inline);
 		if (
 			raced?.restartId === input.restartId &&
@@ -600,7 +506,7 @@ function parseReceipt(
 
 /** Bind the next epoch to the pending receipt before reserving the run row. */
 export async function bindWorkflowRestartExecutionEpoch(input: {
-	db: D1Database;
+	db: WorkflowFenceDb;
 	runId: string;
 	path: string;
 	pendingContent: string;
@@ -617,22 +523,16 @@ export async function bindWorkflowRestartExecutionEpoch(input: {
 		executionEpoch: input.executionEpoch,
 		updatedAt: new Date().toISOString(),
 	} satisfies WorkflowRestartReceipt);
-	const updated = await input.db
-		.prepare(
-			`UPDATE skill_run_artifacts
-			 SET content_inline = ?3, size_bytes = ?4
-			 WHERE run_id = ?1 AND path = ?2
-			   AND content_inline = ?5 AND outcome = 'pending'`,
-		)
-		.bind(
-			input.runId,
-			input.path,
+	const updated = await compareAndSetSkillRunPendingReceipt(
+		skillRuntimeDb(input.db),
+		{
+			runId: input.runId,
+			path: input.path,
 			content,
-			new TextEncoder().encode(content).byteLength,
-			input.pendingContent,
-		)
-		.run();
-	if ((updated.meta?.changes ?? 0) === 1) return content;
+			expectedContent: input.pendingContent,
+		},
+	);
+	if (updated) return content;
 	throw new WorkflowRestartConflictError(
 		"workflow restart receipt changed before its execution epoch could be bound",
 		"pending",
@@ -640,20 +540,18 @@ export async function bindWorkflowRestartExecutionEpoch(input: {
 }
 
 async function findWorkflowRestartReceipt(input: {
-	db: D1Database;
+	db: DbClient;
 	runId: string;
 	executionEpoch: number;
 	restartCommandId?: string | null;
 }): Promise<LocatedWorkflowRestartReceipt | null> {
 	if (input.restartCommandId) {
 		const path = restartPath(input.restartCommandId);
-		const row = await input.db
-			.prepare(
-				`SELECT content_inline FROM skill_run_artifacts
-				 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-			)
-			.bind(input.runId, path)
-			.first<{ content_inline: string | null }>();
+		const row = await getRuntimeArtifactInlineContent(
+			input.db,
+			input.runId,
+			path,
+		);
 		const receipt = parseReceipt(row?.content_inline);
 		if (
 			!receipt ||
@@ -666,18 +564,11 @@ async function findWorkflowRestartReceipt(input: {
 		return { path, content: row.content_inline, receipt };
 	}
 
-	const row = await input.db
-		.prepare(
-			`SELECT path, content_inline FROM skill_run_artifacts
-			 WHERE run_id = ?1
-			   AND path LIKE 'controls/restarts/%'
-			   AND outcome = 'success'
-			   AND json_extract(content_inline, '$.status') = 'accepted'
-			   AND json_extract(content_inline, '$.executionEpoch') = ?2
-			 LIMIT 1`,
-		)
-		.bind(input.runId, input.executionEpoch)
-		.first<{ path: string; content_inline: string | null }>();
+	const row = await findAcceptedSkillRunRestartReceipt(
+		input.db,
+		input.runId,
+		input.executionEpoch,
+	);
 	const receipt = parseReceipt(row?.content_inline);
 	return row?.content_inline && receipt?.status === "accepted"
 		? { path: row.path, content: row.content_inline, receipt }
@@ -690,13 +581,14 @@ async function findWorkflowRestartReceipt(input: {
  * the exact run-reserved pending/unknown command to accepted.
  */
 export async function resolveAcceptedWorkflowRestart(input: {
-	db: D1Database;
+	db: WorkflowFenceDb;
 	runId: string;
 	executionEpoch: number;
 	restartCommandId?: string | null;
 	executionEpochStarted: boolean;
 }): Promise<WorkflowRestartReceipt | null> {
-	const located = await findWorkflowRestartReceipt(input);
+	const lookup = { ...input, db: skillRuntimeDb(input.db) };
+	const located = await findWorkflowRestartReceipt(lookup);
 	if (!located) return null;
 	if (located.receipt.status === "accepted") return located.receipt;
 	if (
@@ -715,25 +607,16 @@ export async function resolveAcceptedWorkflowRestart(input: {
 		updatedAt: new Date().toISOString(),
 	};
 	const content = JSON.stringify(accepted);
-	const updated = await input.db
-		.prepare(
-			`UPDATE skill_run_artifacts
-			 SET content_inline = ?3, size_bytes = ?4, outcome = 'success'
-			 WHERE run_id = ?1 AND path = ?2
-			   AND content_inline = ?5
-			   AND outcome = 'pending'`,
-		)
-		.bind(
-			input.runId,
-			located.path,
-			content,
-			new TextEncoder().encode(content).byteLength,
-			located.content,
-		)
-		.run();
-	if ((updated.meta?.changes ?? 0) === 1) return accepted;
+	const updated = await compareAndSetSkillRunPendingReceipt(lookup.db, {
+		runId: input.runId,
+		path: located.path,
+		content,
+		expectedContent: located.content,
+		outcome: "success",
+	});
+	if (updated) return accepted;
 
-	const raced = await findWorkflowRestartReceipt(input);
+	const raced = await findWorkflowRestartReceipt(lookup);
 	return raced?.receipt.status === "accepted" ? raced.receipt : null;
 }
 
@@ -744,7 +627,7 @@ export async function resolveAcceptedWorkflowRestart(input: {
  * guessed or retried.
  */
 export async function claimWorkflowRestart(input: {
-	db: D1Database;
+	db: WorkflowFenceDb;
 	runId: string;
 	restartId: string;
 	from?: WorkflowRestartFrom | null;
@@ -760,58 +643,25 @@ export async function claimWorkflowRestart(input: {
 		updatedAt: new Date().toISOString(),
 	};
 	const content = JSON.stringify(receipt);
-	const result = await input.db
-		.prepare(
-			`INSERT INTO skill_run_artifacts (
-			   id, run_id, path, mime_type, size_bytes, content_inline,
-			   attempt, outcome, created_at
-			 )
-			 SELECT ?1, ?2, ?3, 'application/json', ?4, ?5, 1, 'pending', ?6
-			 WHERE EXISTS (
-			   SELECT 1 FROM skill_runs
-			    WHERE id = ?2
-			      AND restart_requested_at IS NULL
-			      AND workflow_retired_at IS NULL
-			      AND COALESCE(error, '') <> 'REVOKED'
-			      AND COALESCE(error, '') NOT GLOB 'REVOKED:*'
-			 )
-			   AND NOT EXISTS (
-			     SELECT 1 FROM skill_run_artifacts
-			      WHERE run_id = ?2
-			        AND path LIKE 'controls/restarts/%'
-			        AND CASE WHEN json_valid(content_inline)
-			          THEN json_extract(content_inline, '$.status') END = 'rejected'
-			        AND CASE WHEN json_valid(content_inline)
-			          THEN json_extract(content_inline, '$.resolution.action') END = 'operator_abort'
-			   )
-			 ON CONFLICT(run_id, path) DO NOTHING`,
-		)
-		.bind(
-			crypto.randomUUID(),
-			input.runId,
-			path,
-			new TextEncoder().encode(content).byteLength,
-			content,
-			receipt.updatedAt,
-		)
-		.run();
-	if ((result.meta?.changes ?? 0) > 0) {
+	const db = skillRuntimeDb(input.db);
+	const inserted = await insertSkillRunRestartReceipt(db, {
+		id: crypto.randomUUID(),
+		runId: input.runId,
+		path,
+		content,
+		createdAt: receipt.updatedAt,
+	});
+	if (inserted) {
 		return { deduplicated: false, path, receipt, pendingContent: content };
 	}
-	if (await isWorkflowInstanceRetired(input.db, input.runId)) {
+	if (await isSkillRunWorkflowRetired(db, input.runId)) {
 		throw new WorkflowRestartConflictError(
 			"this Workflow instance is permanently retired; start a new run with a new runId/idempotencyKey instead of restarting it",
 			"rejected",
 		);
 	}
 
-	const existing = await input.db
-		.prepare(
-			`SELECT content_inline FROM skill_run_artifacts
-			 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-		)
-		.bind(input.runId, path)
-		.first<{ content_inline: string | null }>();
+	const existing = await getRuntimeArtifactInlineContent(db, input.runId, path);
 	const prior = parseReceipt(existing?.content_inline);
 	if (!prior || prior.restartId !== input.restartId) {
 		throw new WorkflowRestartConflictError(
@@ -849,7 +699,7 @@ export async function claimWorkflowRestart(input: {
 
 /** Persist the definitive or ambiguous outcome of one reserved restart. */
 export async function finalizeWorkflowRestart(input: {
-	db: D1Database;
+	db: WorkflowFenceDb;
 	runId: string;
 	path: string;
 	restartId: string;
@@ -873,30 +723,20 @@ export async function finalizeWorkflowRestart(input: {
 			: input.result.status === "rejected"
 				? "failure"
 				: "pending";
-	const updated = await input.db
-		.prepare(
-			`UPDATE skill_run_artifacts
-			 SET content_inline = ?3, size_bytes = ?4, outcome = ?5
-			 WHERE run_id = ?1 AND path = ?2
-			   AND content_inline = ?6 AND outcome = 'pending'`,
-		)
-		.bind(
+	const db = skillRuntimeDb(input.db);
+	const updated = await compareAndSetSkillRunPendingReceipt(db, {
+		runId: input.runId,
+		path: input.path,
+		content,
+		expectedContent: input.pendingContent,
+		outcome,
+	});
+	if (!updated) {
+		const existing = await getRuntimeArtifactInlineContent(
+			db,
 			input.runId,
 			input.path,
-			content,
-			new TextEncoder().encode(content).byteLength,
-			outcome,
-			input.pendingContent,
-		)
-		.run();
-	if ((updated.meta?.changes ?? 0) !== 1) {
-		const existing = await input.db
-			.prepare(
-				`SELECT content_inline FROM skill_run_artifacts
-				 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-			)
-			.bind(input.runId, input.path)
-			.first<{ content_inline: string | null }>();
+		);
 		const prior = parseReceipt(existing?.content_inline);
 		if (
 			prior?.restartId === input.restartId &&
@@ -927,7 +767,7 @@ interface UnstartedRestartRetirement {
 
 /** Retire before submission repair; the original accepted command stays immutable. */
 export async function retireUnstartedWorkflowRestart(input: {
-	db: D1Database;
+	db: WorkflowFenceDb;
 	runId: string;
 	organizationId: string;
 	runtimeEnvironment: string;
@@ -939,26 +779,15 @@ export async function retireUnstartedWorkflowRestart(input: {
 }): Promise<{ deduplicated: boolean; receipt: UnstartedRestartRetirement }> {
 	const path = `controls/restart-retirements/${encodeWorkflowArtifactPathSegment(input.restartId)}.json`;
 	const request = { from: normalizeFrom(input.from) };
+	const db = skillRuntimeDb(input.db);
 	const readRetirement = async () => {
-		const row = await input.db
-			.prepare(
-				`SELECT a.content_inline, r.workflow_retired_at
-			 FROM skill_run_artifacts a JOIN skill_runs r ON r.id = a.run_id
-			 WHERE a.run_id = ?1 AND a.path = ?2
-			   AND r.organization_id = ?3 AND r.runtime_environment = ?4
-			   AND r.execution_epoch = ?5 LIMIT 1`,
-			)
-			.bind(
-				input.runId,
-				path,
-				input.organizationId,
-				input.runtimeEnvironment,
-				input.executionEpoch,
-			)
-			.first<{
-				content_inline: string | null;
-				workflow_retired_at: string | null;
-			}>();
+		const row = await getSkillRunRestartRetirementEvidence(db, {
+			runId: input.runId,
+			path,
+			organizationId: input.organizationId,
+			runtimeEnvironment: input.runtimeEnvironment,
+			executionEpoch: input.executionEpoch,
+		});
 		if (!row) return null;
 		let receipt: UnstartedRestartRetirement;
 		try {
@@ -995,7 +824,7 @@ export async function retireUnstartedWorkflowRestart(input: {
 		);
 	}
 	const accepted = await findWorkflowRestartReceipt({
-		db: input.db,
+		db,
 		runId: input.runId,
 		executionEpoch: input.executionEpoch,
 		restartCommandId: input.restartId,
@@ -1025,56 +854,30 @@ export async function retireUnstartedWorkflowRestart(input: {
 		},
 	};
 	const content = JSON.stringify(receipt);
-	// This batch and the factory's epoch-start INSERT arbitrate on the same D1.
-	// Any marker, including malformed/pending evidence, prevents absence claims.
-	const [retired, recorded] = await input.db.batch([
-		input.db
-			.prepare(`UPDATE skill_runs SET workflow_retired_at = ?6
-		 WHERE id = ?1 AND organization_id = ?2 AND runtime_environment = ?3
-		   AND execution_epoch = ?4 AND restart_command_id = ?5
-		   AND restart_requested_at IS NOT NULL AND workflow_retired_at IS NULL
-		   AND COALESCE(error, '') <> 'REVOKED' AND COALESCE(error, '') NOT GLOB 'REVOKED:*'
-		   AND EXISTS (SELECT 1 FROM skill_run_artifacts WHERE run_id = ?1
-		     AND path = ?7 AND content_inline = ?8 AND outcome = 'success')
-		   AND NOT EXISTS (SELECT 1 FROM skill_run_artifacts WHERE run_id = ?1
-		     AND path IN (?9, ?10, ?11, ?12)) RETURNING id AS retired_run_id`)
-			.bind(
-				input.runId,
-				input.organizationId,
-				input.runtimeEnvironment,
-				input.executionEpoch,
-				input.restartId,
-				retiredAt,
-				accepted.path,
-				accepted.content,
-				epochStartPath(input.executionEpoch),
-				...epochOutcomePaths(input.executionEpoch),
-				path,
-			),
-		input.db
-			.prepare(`INSERT INTO skill_run_artifacts
-		 (id, run_id, path, mime_type, size_bytes, content_inline, sha256, attempt, outcome, created_at)
-		 SELECT ?1, ?2, ?3, 'application/json', ?4, ?5, ?6, 1, 'success', ?7
-		 WHERE changes() = 1 AND EXISTS (SELECT 1 FROM skill_runs WHERE id = ?2 AND organization_id = ?8
-		   AND runtime_environment = ?9 AND execution_epoch = ?10 AND restart_command_id = ?11
-		   AND workflow_retired_at = ?7)
-		 ON CONFLICT(run_id, path) DO NOTHING RETURNING id AS retirement_artifact_id`)
-			.bind(
-				crypto.randomUUID(),
-				input.runId,
-				path,
-				new TextEncoder().encode(content).byteLength,
-				content,
-				await sha256Hex(content),
-				retiredAt,
-				input.organizationId,
-				input.runtimeEnvironment,
-				input.executionEpoch,
-				input.restartId,
-			),
-	]);
-	if (retired?.results?.length === 1 && recorded?.results?.length === 1)
-		return { deduplicated: false, receipt };
+	// This atomic unit and the factory's epoch-start INSERT arbitrate on the
+	// same store. Any marker, including malformed/pending evidence, prevents
+	// absence claims.
+	const { retired, recorded } = await retireUnstartedSkillRunRestart(db, {
+		runId: input.runId,
+		organizationId: input.organizationId,
+		runtimeEnvironment: input.runtimeEnvironment,
+		executionEpoch: input.executionEpoch,
+		restartId: input.restartId,
+		retiredAt,
+		acceptedPath: accepted.path,
+		acceptedContent: accepted.content,
+		epochPaths: [
+			epochStartPath(input.executionEpoch),
+			...epochOutcomePaths(input.executionEpoch),
+		],
+		evidence: {
+			id: crypto.randomUUID(),
+			path,
+			content,
+			sha256: await sha256Hex(content),
+		},
+	});
+	if (retired && recorded) return { deduplicated: false, receipt };
 	const raced = await readRetirement();
 	if (raced) return { deduplicated: true, receipt: raced };
 	throw new WorkflowRestartConflictError(

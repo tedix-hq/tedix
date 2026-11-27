@@ -37,20 +37,6 @@
 			"binding": "env.DB D1Database",
 			"reason": "The paced cutover copy Worker is the reviewed storage owner for raw keyset D1 reads: it pages every core table with pacing, overload backoff and checkpoints that no @tedix/db/queries module expresses, and it never writes to D1."
 		},
-		"apps/skill-runtime/src/workflow-approval.ts": {
-			"storagePlane": "runtime-enforcement-d1",
-			"disposition": "approved",
-			"owner": "apps/skill-runtime:workflow-approval-fence",
-			"binding": "D1Database input.db",
-			"reason": "The runtime reserves and settles approval receipts in skill_run_artifacts before emitting Cloudflare Workflow events, preventing duplicate human decisions on retry."
-		},
-		"apps/skill-runtime/src/workflow-restart.ts": {
-			"storagePlane": "runtime-enforcement-d1",
-			"disposition": "approved",
-			"owner": "apps/skill-runtime:workflow-restart-fence",
-			"binding": "D1Database db",
-			"reason": "The runtime owns restart receipts, epoch barriers, and terminal outcome fences across skill_runs and sealed skill_run_artifacts so replay remains idempotent."
-		},
 		"packages/db/src/client.ts": {
 			"storagePlane": "platform-d1",
 			"disposition": "approved",

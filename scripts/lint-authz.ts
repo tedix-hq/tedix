@@ -640,17 +640,6 @@ export const REVIEWED_NON_TENANT_HANDLERS: Record<string, string> = {
 		"Service-binding-only provisioning path resolves the tedi selected by the trusted control-plane caller.",
 	"tenant-membership.ts::removeTenantMembershipContract":
 		"Platform-admin-only cross-organization membership removal intentionally resolves any Descope tenant.",
-	...Object.fromEntries(
-		[
-			"workflow-restart.ts::backfillWorkflowArtifactSha256",
-			"workflow-restart.ts::getWorkflowExecutionEpochOutcome",
-			"workflow-restart.ts::hasWorkflowExecutionEpochStarted",
-			"workflow-restart.ts::isWorkflowInstanceRetired",
-		].map((key) => [
-			`apps/skill-runtime/src/${key}`,
-			"skill-runtime is internal-only (isAuthenticated: apps/api service binding or PLATFORM_SERVICE_TOKEN). It addresses runs by the server-minted run id that apps/api resolved from an organization-scoped skill_runs read before calling; its own workflows reuse the id they were created with.",
-		]),
-	),
 };
 
 /** A direct caller-supplied id accessor: `input.id` / `input.memberId`. */

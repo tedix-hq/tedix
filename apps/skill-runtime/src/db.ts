@@ -9,7 +9,7 @@ import type { OsDerivedAccessEnvelope } from "@tedix/api-contract/schemas/os-wor
  */
 
 import type { DbClient } from "@tedix/db/client";
-import { coreDb } from "@tedix/db/core-store/scope";
+import { coreDb, scopedCoreQueryDb } from "@tedix/db/core-store/scope";
 import * as runtimeStore from "@tedix/db/queries/skill-runtime-store";
 
 import {
@@ -29,8 +29,12 @@ import { recordSkillRunOutcome } from "@tedix/db/queries/skill-usage";
 import { logRuntimeFailure } from "./control-log";
 import { isWorkflowRetirementError } from "./workflow-retirement";
 
-/** Preserve binding callers while selecting the request's core store. */
+/** Preserve binding callers while selecting the request's core store.
+ * Inside a Postgres scope the scoped client wins, so a D1 binding or client
+ * can never silently read D1 there. */
 export function skillRuntimeDb(db: D1Database | DbClient): DbClient {
+	const scoped = scopedCoreQueryDb();
+	if (scoped) return scoped as unknown as DbClient;
 	return "prepare" in db ? coreDb({ DB: db }) : db;
 }
 

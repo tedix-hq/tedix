@@ -60,6 +60,8 @@ import {
 	veoBackgroundRequest,
 } from "./vertex-product-keyframes";
 import type { SkillRuntimeEnv } from "./env";
+import type { CoreStoreEnv } from "@tedix/db/core-store/client";
+import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	isVertexHost,
 	isVertexInferenceCall,
@@ -290,8 +292,13 @@ export class OutboundProxy extends WorkerEntrypoint<
 		}
 	}
 
-	private vertexLedgerDb(): D1Database | null {
-		return (this.env as { DB?: D1Database }).DB ?? null;
+	/** The selected core store; null only for a D1 store with no binding. */
+	private async vertexLedgerDb(): Promise<DbQueryClient | null> {
+		const env = this.env as CoreStoreEnv;
+		const { coreQueryDb, isD1CoreStore } =
+			await import("@tedix/db/core-store/scope");
+		if (isD1CoreStore(env) && !env.DB) return null;
+		return coreQueryDb(env);
 	}
 
 	/**
@@ -300,9 +307,9 @@ export class OutboundProxy extends WorkerEntrypoint<
 	 * budget read — the request-size cap and ledger writes still apply.
 	 */
 	private async assertVertexDailyBudget(surface: string): Promise<void> {
-		const d1 = this.vertexLedgerDb();
-		if (!d1) return;
-		const totals = await getProviderSpendWindowTotals(d1, {
+		const db = await this.vertexLedgerDb();
+		if (!db) return;
+		const totals = await getProviderSpendWindowTotals(db, {
 			provider: VERTEX_PROVIDER,
 			since: utcDayStartIso(),
 		});
@@ -327,10 +334,10 @@ export class OutboundProxy extends WorkerEntrypoint<
 			"orgId" | "tediId" | "runId" | "workItemId"
 		>,
 	): void {
-		const d1 = this.vertexLedgerDb();
-		if (!d1) return;
 		const props = this.ctx.props ?? {};
 		const write = (async () => {
+			const db = await this.vertexLedgerDb();
+			if (!db) return;
 			let priced: { costUsd: number; rateVersionId: string } | null = null;
 			let costReason = input.costReason ?? null;
 			const tokens = input.tokens;
@@ -340,7 +347,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 				typeof tokens?.outputTokens === "number"
 			) {
 				const resolved = await resolveDirectProviderUsagePrice(
-					d1,
+					db,
 					{
 						provider: VERTEX_PROVIDER,
 						modelId: input.model,
@@ -362,7 +369,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 				}
 				costReason = resolved.reason;
 			}
-			await insertCallCosts(d1, [
+			await insertCallCosts(db, [
 				buildVertexCallCostRow({
 					...input,
 					orgId: props.organizationId ?? null,

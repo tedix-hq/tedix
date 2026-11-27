@@ -1,6 +1,6 @@
 import { createD1Facade } from "@tedix/db/test/d1-facade";
-import { tableDdl } from "@tedix/db/test/schema-ddl";
-import { skillRuns } from "@tedix/db/schema/cognitive";
+import { schemaDdl, tableDdl } from "@tedix/db/test/schema-ddl";
+import { skillRunArtifacts, skillRuns } from "@tedix/db/schema/cognitive";
 import { loadPinnedFactoryContext } from "../src/factory-context";
 import { Database } from "bun:sqlite";
 import "./runner-shims.test";
@@ -112,117 +112,56 @@ assert.equal(isWorkflowRetirementError("REVOKED: privacy cleanup"), true);
 assert.equal(isWorkflowRetirementError("REVOKED_TOKEN_REFRESH_FAILED"), false);
 assert.equal(isWorkflowRetirementError("revoked: tenant failure"), false);
 
+/** Receipt fences against a real D1 facade holding one active run. */
 function createRestartReceiptDb() {
-	const rows = new Map<string, { contentInline: string; outcome: string }>();
+	const sqlite = new Database(":memory:");
+	sqlite.exec("PRAGMA foreign_keys = OFF");
+	sqlite.exec(schemaDdl(skillRuns, skillRunArtifacts));
+	sqlite
+		.prepare(
+			`INSERT INTO skill_runs (id, organization_id, skill_id, tedi_id, workflow_instance_id, status, runtime_environment)
+			 VALUES ('00000000-0000-4000-8000-000000000001', 'org', 'skill', 'tedi', 'instance', 'running', 'production')`,
+		)
+		.run();
 	let beforeNextUpdate: (() => void) | null = null;
+	const rows = {
+		get(rowKey: string) {
+			const row = sqlite
+				.prepare(
+					"SELECT content_inline AS contentInline, outcome FROM skill_run_artifacts WHERE run_id || ':' || path = ?",
+				)
+				.get(rowKey) as { contentInline: string; outcome: string } | null;
+			return row ?? undefined;
+		},
+		set(rowKey: string, row: { contentInline: string; outcome: string }) {
+			sqlite
+				.prepare(
+					"UPDATE skill_run_artifacts SET content_inline = ?, outcome = ? WHERE run_id || ':' || path = ?",
+				)
+				.run(row.contentInline, row.outcome, rowKey);
+		},
+		get size() {
+			return (
+				sqlite
+					.prepare("SELECT COUNT(*) AS count FROM skill_run_artifacts")
+					.get() as { count: number }
+			).count;
+		},
+	};
 	return {
+		sqlite,
 		rows,
 		beforeNextUpdate(callback: () => void) {
 			beforeNextUpdate = callback;
 		},
-		db: {
-			prepare(sql: string) {
-				let values: unknown[] = [];
-				const statement = {
-					bind(...nextValues: unknown[]) {
-						values = nextValues;
-						return statement;
-					},
-					async run() {
-						if (sql.includes("INSERT INTO skill_run_artifacts")) {
-							const key = `${String(values[1])}:${String(values[2])}`;
-							if (rows.has(key)) return { meta: { changes: 0 } };
-							const prefix = `${String(values[1])}:`;
-							const operatorAborted = Array.from(rows).some(
-								([existingKey, row]) => {
-									if (!existingKey.startsWith(prefix)) return false;
-									const parsed = JSON.parse(row.contentInline) as {
-										status?: string;
-										resolution?: { action?: string };
-									};
-									return (
-										parsed.status === "rejected" &&
-										parsed.resolution?.action === "operator_abort"
-									);
-								},
-							);
-							if (operatorAborted) return { meta: { changes: 0 } };
-							rows.set(key, {
-								contentInline: String(values[4]),
-								outcome: "pending",
-							});
-							return { meta: { changes: 1 } };
-						}
-						if (sql.includes("UPDATE skill_run_artifacts")) {
-							const callback = beforeNextUpdate;
-							beforeNextUpdate = null;
-							callback?.();
-							const key = `${String(values[0])}:${String(values[1])}`;
-							const existing = rows.get(key);
-							const promotion = sql.includes(
-								"SET content_inline = ?3, size_bytes = ?4, outcome = 'success'",
-							);
-							const abort = sql.includes(
-								"SET content_inline = ?3, size_bytes = ?4, outcome = 'failure'",
-							);
-							const epochBinding =
-								!promotion &&
-								!abort &&
-								!sql.includes("size_bytes = ?4, outcome = ?5");
-							const expectedContent = String(
-								values[epochBinding || promotion || abort ? 4 : 5],
-							);
-							if (
-								existing?.outcome !== "pending" ||
-								existing.contentInline !== expectedContent
-							) {
-								return { meta: { changes: 0 } };
-							}
-							rows.set(key, {
-								contentInline: String(values[2]),
-								outcome: epochBinding
-									? existing.outcome
-									: promotion
-										? "success"
-										: abort
-											? "failure"
-											: String(values[4]),
-							});
-							return { meta: { changes: 1 } };
-						}
-						throw new Error(`unexpected D1 run: ${sql}`);
-					},
-					async first() {
-						if (sql.includes("SELECT workflow_retired_at")) {
-							return { workflow_retired_at: null, error: null };
-						}
-						if (sql.includes("SELECT 1 AS present")) {
-							const prefix = `${String(values[0])}:`;
-							for (const [key, row] of rows) {
-								if (!key.startsWith(prefix)) continue;
-								const parsed = JSON.parse(row.contentInline) as {
-									status?: string;
-									resolution?: { action?: string };
-								};
-								if (
-									parsed.status === "rejected" &&
-									parsed.resolution?.action === "operator_abort"
-								) {
-									return { present: 1 };
-								}
-							}
-							return null;
-						}
-						if (!sql.includes("SELECT content_inline")) {
-							throw new Error(`unexpected D1 first: ${sql}`);
-						}
-						const row = rows.get(`${String(values[0])}:${String(values[1])}`);
-						return row ? { content_inline: row.contentInline } : null;
-					},
-				};
-				return statement;
+		db: createD1Facade(sqlite, {
+			onPrepare(query) {
+				if (!/^\s*UPDATE\s+"?skill_run_artifacts/i.test(query)) return;
+				const callback = beforeNextUpdate;
+				beforeNextUpdate = null;
+				callback?.();
 			},
-		} as unknown as D1Database,
+		}),
 	};
 }
 
@@ -3792,6 +3731,7 @@ const duplicateApproval = await claimWorkflowApprovalDecision({
 	payload: { score: 1, reviewer: "operator" },
 });
 assert.equal(duplicateApproval.deduplicated, true);
+approvalStore.sqlite.exec("UPDATE skill_runs SET execution_epoch = 1");
 const nextEpochApproval = await claimWorkflowApprovalDecision({
 	db: approvalStore.db,
 	runId: "00000000-0000-4000-8000-000000000001",

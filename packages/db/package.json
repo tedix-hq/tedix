@@ -208,6 +208,7 @@
 		"./queries/trajectory-mining": "./src/queries/trajectory-mining.ts",
 		"./queries/skill-runs": "./src/queries/skill-runs.ts",
 		"./queries/skill-runtime-store": "./src/queries/skill-runtime-store.ts",
+		"./queries/skill-runtime-fences": "./src/queries/skill-runtime-fences.ts",
 		"./queries/sensitive-data-latch": "./src/queries/sensitive-data-latch.ts",
 		"./queries/skill-usage": "./src/queries/skill-usage.ts",
 		"./queries/skill-retrieval-utility": "./src/queries/skill-retrieval-utility.ts",

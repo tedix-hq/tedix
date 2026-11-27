@@ -15,7 +15,7 @@ import { createDbClient, type DbClient } from "@tedix/db/client";
 import { coreTable } from "@tedix/db/core-store/client";
 import * as coreStoreClient from "@tedix/db/core-store/client";
 import { coreDb, withCoreStore } from "@tedix/db/core-store/scope";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { apps } from "@tedix/db/schema/apps";
 import { tedis } from "@tedix/db/schema/tedis";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -50,6 +50,24 @@ import {
 	touchSkillRunReconciled,
 	updateSkillRunAfterControl,
 } from "../src/db";
+import {
+	claimWorkflowApprovalDecision,
+	finalizeWorkflowApprovalDecision,
+} from "../src/workflow-approval";
+import {
+	abortAmbiguousWorkflowRestart,
+	bindWorkflowRestartExecutionEpoch,
+	claimWorkflowRestart,
+	finalizeWorkflowRestart,
+	getWorkflowExecutionEpochOutcome,
+	hasWorkflowExecutionEpochStarted,
+	isWorkflowInstanceRetired,
+	recordWorkflowExecutionEpochOutcome,
+	recordWorkflowExecutionEpochStarted,
+	resolveAcceptedWorkflowRestart,
+	retireUnstartedWorkflowRestart,
+} from "../src/workflow-restart";
+import { encodeWorkflowArtifactPathSegment } from "../src/workflow-path";
 
 let workflowFactory: (input: {
 	env: unknown;
@@ -469,6 +487,445 @@ for (const store of ["d1", "postgres"] as const) {
 			expect(
 				await resolveSkillWorkflowMcpGateway(db, "other", "tedi"),
 			).toBeNull();
+		});
+
+		const seedRun = (
+			id: string,
+			patch: Partial<typeof skillRuns.$inferInsert> = {},
+		) =>
+			db.insert(coreTable(db, skillRuns)).values({
+				id,
+				organizationId: "org",
+				skillId: "skill",
+				tediId: "tedi",
+				workflowInstanceId: id,
+				runtimeEnvironment: "development",
+				status: "running",
+				...patch,
+			});
+		const setRun = (
+			id: string,
+			patch: Partial<typeof skillRuns.$inferInsert>,
+		) => {
+			const runs = coreTable(db, skillRuns);
+			return db.update(runs).set(patch).where(eq(runs.id, id));
+		};
+		const artifactRow = async (runId: string, path: string) => {
+			const t = coreTable(db, skillRunArtifacts);
+			const [row] = await db
+				.select({
+					outcome: t.outcome,
+					sha256: t.sha256,
+					content: t.contentInline,
+				})
+				.from(t)
+				.where(and(eq(t.runId, runId), eq(t.path, path)));
+			return row ?? null;
+		};
+
+		test("fences epoch start and outcome until the run is retired", async () => {
+			await seedRun("epoch-run");
+			await recordWorkflowExecutionEpochStarted({
+				db,
+				runId: "epoch-run",
+				executionEpoch: 0,
+			});
+			await recordWorkflowExecutionEpochStarted({
+				db,
+				runId: "epoch-run",
+				executionEpoch: 0,
+			});
+			expect(await hasWorkflowExecutionEpochStarted(db, "epoch-run", 0)).toBe(
+				true,
+			);
+			expect(await hasWorkflowExecutionEpochStarted(db, "epoch-run", 1)).toBe(
+				false,
+			);
+			expect(
+				(await artifactRow("epoch-run", "epochs/0/started.json"))?.sha256,
+			).toMatch(/^[0-9a-f]{64}$/);
+
+			const outcome = { db, runId: "epoch-run", executionEpoch: 0 } as const;
+			await recordWorkflowExecutionEpochOutcome({
+				...outcome,
+				outcome: "completed",
+				terminalFingerprint: "out",
+			});
+			await recordWorkflowExecutionEpochOutcome({
+				...outcome,
+				outcome: "completed",
+				terminalFingerprint: "out",
+			});
+			await expect(
+				recordWorkflowExecutionEpochOutcome({
+					...outcome,
+					outcome: "completed",
+					terminalFingerprint: "other",
+				}),
+			).rejects.toThrow("WORKFLOW_EPOCH_OUTCOME_CONFLICT");
+			await expect(
+				recordWorkflowExecutionEpochOutcome({
+					...outcome,
+					outcome: "failed",
+					terminalFingerprint: "out",
+				}),
+			).rejects.toThrow("WORKFLOW_EPOCH_OUTCOME_CONFLICT");
+			expect(
+				await getWorkflowExecutionEpochOutcome(db, "epoch-run", 0),
+			).toEqual({
+				outcome: "completed",
+				terminalFingerprint: "out",
+			});
+			expect(
+				await getWorkflowExecutionEpochOutcome(db, "epoch-run", 1),
+			).toBeNull();
+
+			// Only the exact legacy markers retire; near misses stay enterable.
+			for (const error of [
+				"REVOKED_TOKEN_REFRESH_FAILED",
+				"revoked: lower case",
+			]) {
+				await setRun("epoch-run", { error });
+				expect(await isWorkflowInstanceRetired(db, "epoch-run")).toBe(false);
+			}
+			for (const error of ["REVOKED", "REVOKED: privacy cleanup"]) {
+				await setRun("epoch-run", { error });
+				expect(await isWorkflowInstanceRetired(db, "epoch-run")).toBe(true);
+				await expect(
+					recordWorkflowExecutionEpochStarted({
+						db,
+						runId: "epoch-run",
+						executionEpoch: 1,
+					}),
+				).rejects.toThrow("WORKFLOW_INSTANCE_RETIRED");
+				await expect(
+					recordWorkflowExecutionEpochOutcome({
+						...outcome,
+						executionEpoch: 1,
+						outcome: "failed",
+					}),
+				).rejects.toThrow("WORKFLOW_INSTANCE_RETIRED");
+				await expect(
+					claimWorkflowRestart({ db, runId: "epoch-run", restartId: "late" }),
+				).rejects.toThrow(/permanently retired/);
+			}
+			await setRun("epoch-run", {
+				error: null,
+				workflowRetiredAt: "2026-11-27T00:00:00.000Z",
+			});
+			expect(await isWorkflowInstanceRetired(db, "epoch-run")).toBe(true);
+			expect(await hasWorkflowExecutionEpochStarted(db, "epoch-run", 1)).toBe(
+				false,
+			);
+		});
+
+		test("reserves, accepts and operator-aborts restart receipts", async () => {
+			await seedRun("restart-run");
+			// Non-JSON restart content is ignored by the JSON-guarded retirement read.
+			await insertSkillRunArtifactOnce(db, {
+				id: "malformed",
+				runId: "restart-run",
+				path: "controls/restarts/malformed.json",
+				mimeType: "application/json",
+				sizeBytes: 3,
+				contentInline: "not json",
+				contentR2Key: null,
+				sha256: null,
+				attempt: 1,
+				outcome: "pending",
+			});
+			expect(await isWorkflowInstanceRetired(db, "restart-run")).toBe(false);
+			const request = {
+				db,
+				runId: "restart-run",
+				restartId: "operator/restart 1",
+				from: { name: "publish", count: 2, type: "do" as const },
+			};
+			const claim = await claimWorkflowRestart(request);
+			expect(claim.deduplicated).toBe(false);
+			if (claim.deduplicated) throw new Error("expected a fresh claim");
+			await expect(claimWorkflowRestart(request)).rejects.toThrow(
+				/ambiguous or in-flight/,
+			);
+			const bound = await bindWorkflowRestartExecutionEpoch({
+				db,
+				runId: "restart-run",
+				path: claim.path,
+				pendingContent: claim.pendingContent,
+				executionEpoch: 1,
+			});
+			await expect(
+				bindWorkflowRestartExecutionEpoch({
+					db,
+					runId: "restart-run",
+					path: claim.path,
+					pendingContent: claim.pendingContent,
+					executionEpoch: 1,
+				}),
+			).rejects.toThrow(/changed before its execution epoch/);
+			await finalizeWorkflowRestart({
+				...request,
+				path: claim.path,
+				pendingContent: bound,
+				result: { status: "accepted", executionEpoch: 1 },
+			});
+			expect((await artifactRow("restart-run", claim.path))?.outcome).toBe(
+				"success",
+			);
+			expect(
+				await resolveAcceptedWorkflowRestart({
+					db,
+					runId: "restart-run",
+					executionEpoch: 1,
+					executionEpochStarted: false,
+				}),
+			).toMatchObject({ status: "accepted", executionEpoch: 1 });
+			expect(
+				await resolveAcceptedWorkflowRestart({
+					db,
+					runId: "restart-run",
+					executionEpoch: 2,
+					executionEpochStarted: false,
+				}),
+			).toBeNull();
+			expect((await claimWorkflowRestart(request)).deduplicated).toBe(true);
+
+			// An unknown delivery whose epoch never started is operator-aborted,
+			// which permanently retires the instance.
+			await seedRun("abort-run");
+			const abort = { db, runId: "abort-run", restartId: "abort" };
+			const abortClaim = await claimWorkflowRestart(abort);
+			if (abortClaim.deduplicated) throw new Error("expected a fresh claim");
+			const abortBound = await bindWorkflowRestartExecutionEpoch({
+				db,
+				runId: "abort-run",
+				path: abortClaim.path,
+				pendingContent: abortClaim.pendingContent,
+				executionEpoch: 1,
+			});
+			await finalizeWorkflowRestart({
+				...abort,
+				path: abortClaim.path,
+				pendingContent: abortBound,
+				result: { status: "unknown", executionEpoch: 1 },
+			});
+			expect(
+				await abortAmbiguousWorkflowRestart({
+					...abort,
+					executionEpoch: 1,
+					reason: "verified",
+				}),
+			).toEqual({ deduplicated: false });
+			expect((await artifactRow("abort-run", abortClaim.path))?.outcome).toBe(
+				"failure",
+			);
+			expect(
+				await abortAmbiguousWorkflowRestart({
+					...abort,
+					executionEpoch: 1,
+					reason: "verified",
+					dedupeOnly: true,
+				}),
+			).toEqual({ deduplicated: true });
+			expect(await isWorkflowInstanceRetired(db, "abort-run")).toBe(true);
+			await expect(
+				recordWorkflowExecutionEpochStarted({
+					db,
+					runId: "abort-run",
+					executionEpoch: 1,
+				}),
+			).rejects.toThrow("WORKFLOW_INSTANCE_RETIRED");
+			await expect(
+				claimWorkflowRestart({ ...abort, restartId: "next" }),
+			).rejects.toThrow(/permanently retired/);
+
+			// Epoch start evidence blocks an abort of the same reserved epoch.
+			await seedRun("started-run");
+			const started = { db, runId: "started-run", restartId: "started" };
+			const startedClaim = await claimWorkflowRestart(started);
+			if (startedClaim.deduplicated) throw new Error("expected a fresh claim");
+			await bindWorkflowRestartExecutionEpoch({
+				db,
+				runId: "started-run",
+				path: startedClaim.path,
+				pendingContent: startedClaim.pendingContent,
+				executionEpoch: 1,
+			});
+			await recordWorkflowExecutionEpochStarted({
+				db,
+				runId: "started-run",
+				executionEpoch: 1,
+			});
+			await expect(
+				abortAmbiguousWorkflowRestart({
+					...started,
+					executionEpoch: 1,
+					reason: "too late",
+				}),
+			).rejects.toThrow(/receipt changed/);
+			expect(await isWorkflowInstanceRetired(db, "started-run")).toBe(false);
+		});
+
+		test("retires an unstarted accepted restart atomically", async () => {
+			await seedRun("retire-run", {
+				executionEpoch: 1,
+				restartRequestedAt: "2026-11-27T00:00:00.000Z",
+				restartCommandId: "restart-1",
+				status: "queued",
+			});
+			const accepted = JSON.stringify({
+				restartId: "restart-1",
+				request: { from: null },
+				status: "accepted",
+				executionEpoch: 1,
+				updatedAt: "2026-11-27T00:00:00.000Z",
+			});
+			await insertSkillRunArtifactOnce(db, {
+				id: "retire-accepted",
+				runId: "retire-run",
+				path: `controls/restarts/${encodeWorkflowArtifactPathSegment("restart-1")}.json`,
+				mimeType: "application/json",
+				sizeBytes: accepted.length,
+				contentInline: accepted,
+				contentR2Key: null,
+				sha256: null,
+				attempt: 1,
+				outcome: "success",
+			});
+			const input = {
+				db,
+				runId: "retire-run",
+				organizationId: "org",
+				runtimeEnvironment: "development",
+				restartId: "restart-1",
+				executionEpoch: 1,
+				reason: "Retire only.",
+				engine: { status: "errored", observedAt: "2026-11-27T00:01:00.000Z" },
+			};
+			await expect(
+				retireUnstartedWorkflowRestart({ ...input, organizationId: "other" }),
+			).rejects.toThrow(/no retirement was claimed/);
+			const first = await retireUnstartedWorkflowRestart(input);
+			expect(first.deduplicated).toBe(false);
+			expect(await isWorkflowInstanceRetired(db, "retire-run")).toBe(true);
+			expect(
+				(
+					await artifactRow(
+						"retire-run",
+						`controls/restart-retirements/${encodeWorkflowArtifactPathSegment("restart-1")}.json`,
+					)
+				)?.sha256,
+			).toMatch(/^[0-9a-f]{64}$/);
+			expect(
+				(await retireUnstartedWorkflowRestart({ ...input, engine: null }))
+					.deduplicated,
+			).toBe(true);
+			await expect(
+				recordWorkflowExecutionEpochStarted({
+					db,
+					runId: "retire-run",
+					executionEpoch: 1,
+				}),
+			).rejects.toThrow("WORKFLOW_INSTANCE_RETIRED");
+
+			// Start evidence wins the race: no tombstone and no evidence row.
+			await seedRun("raced-run", {
+				executionEpoch: 1,
+				restartRequestedAt: "2026-11-27T00:00:00.000Z",
+				restartCommandId: "restart-1",
+				status: "queued",
+			});
+			await insertSkillRunArtifactOnce(db, {
+				id: "raced-accepted",
+				runId: "raced-run",
+				path: `controls/restarts/${encodeWorkflowArtifactPathSegment("restart-1")}.json`,
+				mimeType: "application/json",
+				sizeBytes: accepted.length,
+				contentInline: accepted,
+				contentR2Key: null,
+				sha256: null,
+				attempt: 1,
+				outcome: "success",
+			});
+			await recordWorkflowExecutionEpochStarted({
+				db,
+				runId: "raced-run",
+				executionEpoch: 1,
+			});
+			await expect(
+				retireUnstartedWorkflowRestart({ ...input, runId: "raced-run" }),
+			).rejects.toThrow(/no retirement was claimed/);
+			expect(await isWorkflowInstanceRetired(db, "raced-run")).toBe(false);
+			expect(
+				await artifactRow(
+					"raced-run",
+					`controls/restart-retirements/${encodeWorkflowArtifactPathSegment("restart-1")}.json`,
+				),
+			).toBeNull();
+		});
+
+		test("reserves and settles one approval decision per active epoch", async () => {
+			await seedRun("approval-run");
+			const decision = {
+				db,
+				runId: "approval-run",
+				executionEpoch: 0,
+				approvalId: "approval 1",
+				decision: "approved" as const,
+				reason: "verified",
+				payload: { reviewer: "operator" },
+			};
+			const claim = await claimWorkflowApprovalDecision(decision);
+			expect(claim.deduplicated).toBe(false);
+			await expect(
+				claimWorkflowApprovalDecision({ ...decision, reason: "different" }),
+			).rejects.toThrow(/different decision/);
+			await expect(claimWorkflowApprovalDecision(decision)).rejects.toThrow(
+				/ambiguous or in-flight/,
+			);
+			await expect(
+				claimWorkflowApprovalDecision({ ...decision, executionEpoch: 1 }),
+			).rejects.toThrow(/execution epoch is not active/);
+			const settle = {
+				db,
+				runId: "approval-run",
+				path: claim.path,
+				executionEpoch: 0,
+				approvalId: "approval 1",
+				decision: "approved" as const,
+				requestDigest: claim.requestDigest,
+				pendingContent: claim.pendingContent!,
+				delivered: true,
+			};
+			await finalizeWorkflowApprovalDecision(settle);
+			await finalizeWorkflowApprovalDecision(settle);
+			expect((await artifactRow("approval-run", claim.path))?.outcome).toBe(
+				"success",
+			);
+			await expect(
+				finalizeWorkflowApprovalDecision({ ...settle, delivered: false }),
+			).rejects.toThrow(/receipt changed/);
+			expect((await claimWorkflowApprovalDecision(decision)).deduplicated).toBe(
+				true,
+			);
+
+			await setRun("approval-run", { status: "completed" });
+			await expect(
+				claimWorkflowApprovalDecision({
+					...decision,
+					approvalId: "approval 2",
+				}),
+			).rejects.toThrow(/execution epoch is not active/);
+			await setRun("approval-run", {
+				status: "running",
+				error: "REVOKED: cleanup",
+			});
+			await expect(
+				claimWorkflowApprovalDecision({
+					...decision,
+					approvalId: "approval 3",
+				}),
+			).rejects.toThrow(/permanently retired/);
 		});
 	});
 }

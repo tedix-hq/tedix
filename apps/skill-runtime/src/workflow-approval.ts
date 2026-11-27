@@ -1,5 +1,15 @@
 /** Cloudflare Agents' canonical human-in-the-loop event contract. */
+import type { DbClient } from "@tedix/db/client";
+import {
+	compareAndSetSkillRunPendingReceipt,
+	insertSkillRunApprovalReceipt,
+} from "@tedix/db/queries/skill-runtime-fences";
+import {
+	getRuntimeArtifactInlineContent,
+	getSkillRunRow,
+} from "@tedix/db/queries/skill-runtime-store";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { skillRuntimeDb } from "./db";
 import { encodeWorkflowArtifactPathSegment } from "./workflow-path";
 import { isWorkflowRetirementError } from "./workflow-retirement";
 
@@ -63,7 +73,7 @@ async function approvalRequestDigest(input: {
 /** Reserve one approval decision before sendEvent so caller retries cannot
  * enqueue the same generic `approval` event twice. */
 export async function claimWorkflowApprovalDecision(input: {
-	db: D1Database;
+	db: D1Database | DbClient;
 	runId: string;
 	executionEpoch: number;
 	approvalId: string;
@@ -87,36 +97,16 @@ export async function claimWorkflowApprovalDecision(input: {
 		updatedAt: new Date().toISOString(),
 	};
 	const content = JSON.stringify(receipt);
-	const result = await input.db
-		.prepare(
-			`INSERT INTO skill_run_artifacts (
-			   id, run_id, path, mime_type, size_bytes, content_inline,
-			   attempt, outcome, created_at
-			 )
-			 SELECT ?1, ?2, ?3, 'application/json', ?4, ?5, 1, 'pending', ?6
-			 WHERE EXISTS (
-			   SELECT 1 FROM skill_runs
-			    WHERE id = ?2
-			      AND execution_epoch = ?7
-			      AND restart_requested_at IS NULL
-			      AND workflow_retired_at IS NULL
-			      AND COALESCE(error, '') <> 'REVOKED'
-			      AND COALESCE(error, '') NOT GLOB 'REVOKED:*'
-			      AND status NOT IN ('completed','failed','canceled')
-			 )
-			 ON CONFLICT(run_id, path) DO NOTHING`,
-		)
-		.bind(
-			crypto.randomUUID(),
-			input.runId,
-			path,
-			new TextEncoder().encode(content).byteLength,
-			content,
-			receipt.updatedAt,
-			input.executionEpoch,
-		)
-		.run();
-	if ((result.meta?.changes ?? 0) > 0) {
+	const db = skillRuntimeDb(input.db);
+	const inserted = await insertSkillRunApprovalReceipt(db, {
+		id: crypto.randomUUID(),
+		runId: input.runId,
+		path,
+		content,
+		createdAt: receipt.updatedAt,
+		executionEpoch: input.executionEpoch,
+	});
+	if (inserted) {
 		return {
 			deduplicated: false,
 			path,
@@ -124,20 +114,8 @@ export async function claimWorkflowApprovalDecision(input: {
 			pendingContent: content,
 		};
 	}
-	const existing = await input.db
-		.prepare(
-			`SELECT content_inline FROM skill_run_artifacts
-			 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-		)
-		.bind(input.runId, path)
-		.first<{ content_inline: string | null }>();
-	const runState = await input.db
-		.prepare(
-			`SELECT workflow_retired_at, error FROM skill_runs
-			 WHERE id = ?1 LIMIT 1`,
-		)
-		.bind(input.runId)
-		.first<{ workflow_retired_at: string | null; error: string | null }>();
+	const existing = await getRuntimeArtifactInlineContent(db, input.runId, path);
+	const runState = await getSkillRunRow(db, input.runId);
 	if (
 		runState?.workflow_retired_at != null ||
 		isWorkflowRetirementError(runState?.error)
@@ -176,7 +154,7 @@ export async function claimWorkflowApprovalDecision(input: {
 }
 
 export async function finalizeWorkflowApprovalDecision(input: {
-	db: D1Database;
+	db: D1Database | DbClient;
 	runId: string;
 	path: string;
 	executionEpoch: number;
@@ -195,30 +173,20 @@ export async function finalizeWorkflowApprovalDecision(input: {
 		updatedAt: new Date().toISOString(),
 	};
 	const content = JSON.stringify(receipt);
-	const result = await input.db
-		.prepare(
-			`UPDATE skill_run_artifacts
-			 SET content_inline = ?3, size_bytes = ?4, outcome = ?5
-			 WHERE run_id = ?1 AND path = ?2
-			   AND content_inline = ?6 AND outcome = 'pending'`,
-		)
-		.bind(
+	const db = skillRuntimeDb(input.db);
+	const updated = await compareAndSetSkillRunPendingReceipt(db, {
+		runId: input.runId,
+		path: input.path,
+		content,
+		expectedContent: input.pendingContent,
+		outcome: input.delivered ? "success" : "pending",
+	});
+	if (!updated) {
+		const existing = await getRuntimeArtifactInlineContent(
+			db,
 			input.runId,
 			input.path,
-			content,
-			new TextEncoder().encode(content).byteLength,
-			input.delivered ? "success" : "pending",
-			input.pendingContent,
-		)
-		.run();
-	if ((result.meta?.changes ?? 0) !== 1) {
-		const existing = await input.db
-			.prepare(
-				`SELECT content_inline FROM skill_run_artifacts
-				 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-			)
-			.bind(input.runId, input.path)
-			.first<{ content_inline: string | null }>();
+		);
 		let prior: WorkflowApprovalReceipt | null = null;
 		try {
 			prior = existing?.content_inline
