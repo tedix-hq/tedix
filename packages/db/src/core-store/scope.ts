@@ -53,8 +53,10 @@ export async function withCoreStore<T>(
 	} finally {
 		if (schedule) {
 			// Background work started in fn (waitUntil) can still query after
-			// fn settles, so the client stays open for most of the 30 s the
-			// runtime grants waitUntil work, then closes.
+			// fn settles, so the client stays open briefly, then closes. Every
+			// request opens its own client, so a long grace kept hundreds of
+			// clients alive per isolate under production load and ran tedix-api
+			// out of memory; background queries that outlive it fail loudly.
 			schedule(
 				new Promise((resolve) =>
 					setTimeout(resolve, SCHEDULED_CLOSE_DELAY_MS),
@@ -64,8 +66,8 @@ export async function withCoreStore<T>(
 	}
 }
 
-/** Kept under the runtime's 30 s waitUntil limit, so the close still runs. */
-export const SCHEDULED_CLOSE_DELAY_MS = 25_000;
+/** Short: each scope's client lives this long after its request settles. */
+export const SCHEDULED_CLOSE_DELAY_MS = 3_000;
 
 /** The scoped core client, or a fresh D1 client outside a Postgres scope. */
 export function coreDb(env: CoreStoreEnv): DbClient {
