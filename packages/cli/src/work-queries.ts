@@ -481,7 +481,7 @@ const CREATE_WORK_KINDS = new Set([
 	"incident",
 	"other",
 ]);
-const CREATE_PRIORITIES = new Set(["critical", "high", "medium", "low"]);
+const CREATE_PRIORITIES = new Set(["urgent", "high", "normal", "low"]);
 
 /**
  * `--expires` accepts a relative duration (`45m`, `72h`, `7d`, `2w`) or an
@@ -559,7 +559,7 @@ export async function workCreate(
 	}
 	if (priority && !CREATE_PRIORITIES.has(priority)) {
 		throw new Error(
-			`--priority must be one of critical|high|medium|low, got "${priority}"`,
+			`--priority must be one of low|normal|high|urgent, got "${priority}"`,
 		);
 	}
 

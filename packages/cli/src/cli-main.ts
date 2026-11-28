@@ -98,6 +98,8 @@ import {
 import { CLI_VERSION, looksLikeUuid, type CliOptions } from "./shared";
 import { runSkillCommand } from "./skill";
 import { buildStatusReport, renderStatusReport } from "./status";
+import { callConfiguredNativeTool } from "./work-native";
+import { ListWorkCliProjectionResultSchema } from "@tedix/api-contract/schemas/work-items";
 import {
 	readDutyStatuses,
 	type SupervisorDutyStatus,
@@ -1098,12 +1100,27 @@ export async function main() {
 			// Compact operator dashboard for the current conversation: in-flight
 			// runs, pending approvals, recent delegations — one read instead of
 			// stitching runs/messages/child-tree by hand.
-			const [runSet, childTree] = await Promise.allSettled([
+			const [runSet, childTree, queue] = await Promise.allSettled([
 				client.readHomeRunSet({
 					conversationId: options.conversationId,
 					limit: options.limit ?? 20,
 				}),
 				client.readChildRunTree({ conversationId: options.conversationId }),
+				callConfiguredNativeTool(
+					{
+						client,
+						workspace: organizationContext.workspace,
+						mcpUrl: options.url,
+						bootstrapCache: fileNativeBootstrapCache(),
+						nativeCacheScope: JSON.stringify([
+							organizationContext.workspace,
+							auth.source,
+						]),
+						signal: commandAbort.signal,
+					},
+					"work.list_work_item_cli_rows",
+					{ disposition: "accepted", limit: 10 },
+				).then((value) => ListWorkCliProjectionResultSchema.parse(value)),
 			]);
 			const report = buildStatusReport({
 				conversationId: options.conversationId,
@@ -1123,6 +1140,17 @@ export async function main() {
 						: null,
 				].filter((v): v is string => v !== null),
 			});
+			if (queue.status === "fulfilled")
+				report.workQueue = queue.value.data.map(({ id, title, priority }) => ({
+					id,
+					title,
+					priority,
+				}));
+			else
+				report.errors = [
+					...(report.errors ?? []),
+					`Work queue: ${errorText(queue.reason)}`,
+				];
 			if (report.errors?.length) process.exitCode = 2;
 			console.log(renderStatusReport(report, { json: options.json }));
 			return;

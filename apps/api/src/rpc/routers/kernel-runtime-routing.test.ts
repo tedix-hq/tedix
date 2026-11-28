@@ -331,7 +331,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 				workKind: "coding",
 				accountableOwnerType: "tedi",
 				accountableOwnerId: "tedi-cto-agent",
-				priority: "medium",
+				priority: "normal",
 				workClass: "maintenance",
 				// Mock-db data only: createKernelRuntimeDb does not evaluate the
 				// activePurposeContext expiry filter (probed with a past date), so
@@ -397,7 +397,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 				title: "Already assigned task",
 				disposition: "accepted",
 				workKind: "coding",
-				priority: "medium",
+				priority: "normal",
 				accountableOwnerType: "tedi",
 				accountableOwnerId: "tedi-cpo",
 				workClass: "maintenance",
@@ -443,7 +443,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 				workKind: "coding",
 				accountableOwnerType: "tedi",
 				accountableOwnerId: "tedi-cto-agent",
-				priority: "medium",
+				priority: "normal",
 				workClass: "maintenance",
 				// Mock-db data only: createKernelRuntimeDb does not evaluate the
 				// activePurposeContext expiry filter (probed with a past date), so

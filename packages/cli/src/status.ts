@@ -19,6 +19,7 @@ import type { SupervisorDutyStatus } from "./supervise-duty-status";
  * rather than a throw (fail-soft, with a console.error diagnostic).
  */
 export interface StatusReport {
+	workQueue?: Array<{ id: string; title: string; priority: string }>;
 	errors?: string[];
 	runnerProblems?: Array<{ id: string; executor: string; reason: string }>;
 	conversationId: string;
@@ -327,6 +328,11 @@ export function renderStatusReport(
 		}
 	}
 
+	if (report.workQueue) {
+		lines.push("accepted Work (up to 10):");
+		for (const item of report.workQueue)
+			lines.push(`  ${item.id}  ${item.priority}  ${item.title}`);
+	}
 	lines.push("pending approvals:");
 	if (report.pendingApprovals.length === 0) {
 		lines.push(

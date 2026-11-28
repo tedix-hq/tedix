@@ -113,7 +113,7 @@ export function projectEmbeddedCustomerWorkItem(item: RawEmbeddedWorkItem) {
 				? item.accountableOwnerId
 				: null,
 		stewardId: typeof item.stewardId === "string" ? item.stewardId : null,
-		priority: typeof item.priority === "string" ? item.priority : "medium",
+		priority: typeof item.priority === "string" ? item.priority : "normal",
 		updatedAt:
 			typeof item.updatedAt === "string"
 				? item.updatedAt

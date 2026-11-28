@@ -1190,7 +1190,7 @@ describe("Read-only operations entry", () => {
 						disposition: "accepted",
 						workKind: "coding",
 						riskLevel: "low",
-						priority: "medium",
+						priority: "normal",
 						projectId: null,
 						accountableOwnerType: "user",
 						accountableOwnerId: "sample-owner",

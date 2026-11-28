@@ -54,7 +54,7 @@ describe("renderWorkItemsTable", () => {
 		workKind: "coding",
 		disposition: "accepted",
 		riskLevel: "medium",
-		priority: "medium",
+		priority: "normal",
 		title: "Give work list the executor and live-attempt state it omits",
 	};
 

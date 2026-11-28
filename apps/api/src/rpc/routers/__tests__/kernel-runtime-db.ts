@@ -534,7 +534,7 @@ export function normalizeWorkItemInsert(input: WorkItemInsert): WorkItemRow {
 		requiredAuthorities: input.requiredAuthorities ?? [],
 		resourceScopes: input.resourceScopes ?? [],
 		budgetLimitMicros: input.budgetLimitMicros ?? null,
-		priority: input.priority ?? "medium",
+		priority: input.priority ?? "normal",
 		accountableOwnerType: input.accountableOwnerType ?? null,
 		accountableOwnerId: input.accountableOwnerId ?? null,
 		stewardType: input.stewardType ?? null,

@@ -213,7 +213,7 @@ export async function listTriageQueue(
 		.from(workItems)
 		.where(where)
 		.orderBy(
-			sql`CASE ${workItems.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`,
+			sql`CASE ${workItems.priority} WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END`,
 			asc(workItems.createdAt),
 			asc(workItems.id),
 		)

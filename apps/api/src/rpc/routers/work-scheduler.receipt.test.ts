@@ -9,7 +9,7 @@ function candidate(index: number): ReadyWorkCandidate {
 			id: `00000000-0000-4000-8000-00000000${String(index).padStart(4, "0")}`,
 			title: `Complete example account authentication ${index}`,
 			workKind: "operations",
-			priority: "medium",
+			priority: "normal",
 			riskLevel: "medium",
 			projectId: null,
 			parentWorkItemId: null,

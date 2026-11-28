@@ -14,9 +14,9 @@ const NOW_MS = Date.parse(NOW);
 const DAY_MS = 86_400_000;
 
 const priorityScore = {
-	critical: 100,
+	urgent: 100,
 	high: 70,
-	medium: 40,
+	normal: 40,
 	low: 10,
 } as const;
 const riskPenalty = { low: 0, medium: 5, high: 15, critical: 30 } as const;
@@ -139,7 +139,7 @@ describe("rank composition", () => {
 		// medium/medium, deadline 2026-05-31, created the same day, no project,
 		// no dependencies: without decay this ranked first.
 		const stale = rankScore({
-			priority: "medium",
+			priority: "normal",
 			riskLevel: "medium",
 			deadline: "2026-05-31 15:42 UTC",
 			dueDate: "2026-05-31 15:42 UTC",
@@ -158,13 +158,13 @@ describe("rank composition", () => {
 
 	it("keeps a genuinely just-missed deadline ahead of the same work on time", () => {
 		const justOverdue = rankScore({
-			priority: "medium",
+			priority: "normal",
 			riskLevel: "medium",
 			deadline: "2026-08-24T12:00:00.000Z",
 			createdAt: "2026-08-18T12:00:00.000Z",
 		});
 		const dueLater = rankScore({
-			priority: "medium",
+			priority: "normal",
 			riskLevel: "medium",
 			deadline: "2026-09-10T12:00:00.000Z",
 			createdAt: "2026-08-18T12:00:00.000Z",

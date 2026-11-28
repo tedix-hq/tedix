@@ -594,7 +594,7 @@ describe("requestReplyDraft board context", () => {
 		const f = fixture();
 		await f.configure();
 		const insertItem = f.sqlite.prepare(
-			"INSERT INTO work_items (id,org_id,project_id,title,disposition,priority,created_at) VALUES (?,?,?,?,?,?,?)",
+			"INSERT INTO work_items (id,org_id,project_id,title,disposition,priority_level,created_at) VALUES (?,?,?,?,?,?,?)",
 		);
 		for (let index = 0; index < 12; index++) {
 			insertItem.run(

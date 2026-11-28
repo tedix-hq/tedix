@@ -456,7 +456,7 @@ export async function createDelegationWorkItem(
 		title: delegationWorkItemTitle(input.content, input.title),
 		description: input.content.trim() || undefined,
 		workKind: "operations",
-		priority: "medium",
+		priority: "normal",
 		projectId: projectId ?? undefined,
 		accountableOwnerType: "tedi",
 		accountableOwnerId: input.assigneeTediId,

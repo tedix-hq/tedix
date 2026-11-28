@@ -217,7 +217,11 @@ export function DispatcherLaneHealth({
 	);
 }
 
-function WorkLink({ work }: { work: { id: string; title?: string } }) {
+function WorkLink({
+	work,
+}: {
+	work: { id: string; title?: string; priority?: string };
+}) {
 	return (
 		<Link
 			href={`/work/items/${work.id}`}
@@ -227,6 +231,7 @@ function WorkLink({ work }: { work: { id: string; title?: string } }) {
 		>
 			<Text as="span" truncate>
 				{work.title ?? "Open task"}
+				{work.priority ? ` · ${work.priority}` : ""}
 			</Text>
 		</Link>
 	);

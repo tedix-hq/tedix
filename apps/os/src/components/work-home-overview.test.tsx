@@ -83,7 +83,7 @@ it("shows stuck reasons and this week's work with record links", () => {
 				{
 					id: "due-work",
 					title: "Send the renewal notice",
-					priority: "medium",
+					priority: "normal",
 					deadline: null,
 					dueDate: "2026-11-18T12:00:00.000Z",
 				},

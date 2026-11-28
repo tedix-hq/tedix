@@ -51,7 +51,7 @@ export const WorkSchedulerReadyItemSchema = z.strictObject({
 		"incident",
 		"other",
 	]),
-	priority: z.enum(["critical", "high", "medium", "low"]),
+	priority: z.enum(["urgent", "high", "normal", "low"]),
 	riskLevel: z.enum(["low", "medium", "high", "critical"]),
 	projectId: z
 		.string()

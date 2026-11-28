@@ -1,3 +1,4 @@
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { LoadingArea } from "@/components/loading-area";
 import {
 	WorkPageHeader,
@@ -188,6 +189,7 @@ export function WorkItemReadOnlyLedgers({
 	evidenceRetrying?: boolean;
 	evidenceControls?: ReactNode;
 	events: Array<{
+		payload?: Record<string, unknown>;
 		id: string;
 		eventType: string;
 		actorType: string;
@@ -356,6 +358,14 @@ export function WorkItemReadOnlyLedgers({
 								<Text weight="medium">
 									{sentenceCase(event.eventType.replaceAll(".", "_"))}
 								</Text>
+								{event.payload &&
+								isRecord(event.payload.priority) &&
+								typeof event.payload.priority.to === "string" ? (
+									<Text>
+										Priority: {String(event.payload.priority.from ?? "unset")} →{" "}
+										{event.payload.priority.to}
+									</Text>
+								) : null}
 								<Text role="label" tone="secondary">
 									<span
 										title={workPrincipalTooltip(

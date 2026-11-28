@@ -103,7 +103,7 @@ function fakeData(): WorkspaceDataPort {
 			title: input.title,
 			disposition: "proposed",
 			workKind: input.workKind ?? "other",
-			priority: input.priority ?? "medium",
+			priority: input.priority ?? "normal",
 			projectId: input.projectId ?? "p",
 			updatedAt: input.actorId,
 		}),

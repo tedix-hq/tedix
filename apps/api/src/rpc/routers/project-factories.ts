@@ -219,7 +219,7 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 				title: params.title,
 				description: params.description,
 				workKind: "operations",
-				priority: "medium",
+				priority: "normal",
 				accountableOwnerType: "tedi",
 				accountableOwnerId: params.ownerTediId,
 				objectiveId: params.objectiveId,

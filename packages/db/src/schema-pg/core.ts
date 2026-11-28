@@ -13299,7 +13299,8 @@ export const workItems = pgTable(
 		admissionSpecRevision: text("admission_spec_revision")
 			.notNull()
 			.default("legacy"),
-		priority: text("priority").notNull().default("medium"),
+		legacyPriority: text("priority").notNull().default("medium"),
+		priority: text("priority_level").notNull().default("normal"),
 		accountableOwnerType: text("accountable_owner_type"),
 		accountableOwnerId: text("accountable_owner_id"),
 		stewardType: text("steward_type"),

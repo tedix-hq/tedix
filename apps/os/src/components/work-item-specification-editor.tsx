@@ -83,9 +83,9 @@ export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
 						value={priority}
 						items={{
 							low: "Low",
-							medium: "Medium",
+							normal: "Normal",
 							high: "High",
-							critical: "Critical",
+							urgent: "Urgent",
 						}}
 						onValueChange={(value) => {
 							if (value) setPriority(value);
@@ -99,7 +99,7 @@ export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							{(["low", "medium", "high", "critical"] as const).map((value) => (
+							{(["low", "normal", "high", "urgent"] as const).map((value) => (
 								<SelectItem key={value} value={value}>
 									{sentenceCase(value)}
 								</SelectItem>

@@ -120,7 +120,7 @@ const WRITE_STEP = { retries: { limit: 1, delay: "5 seconds" }, timeout: "2 minu
 const TURN_STEP = { retries: { limit: 1, delay: "10 seconds" }, timeout: "240 seconds" };
 const MARKER = "FACTORY_REPORT";
 const REPLY_POLLS = 20;
-const PRIORITIES = ["low", "medium", "high"];
+const PRIORITIES = ["low", "normal", "high", "urgent"];
 const SHEET_COLUMNS = ${JSON.stringify(FACTORY_SHEET_COLUMNS)};
 
 function rowsOf(value) {
@@ -303,7 +303,7 @@ function prompt(cycleKey, open, FACTORY) {
 				]
 			: []),
 		"Reply with a short summary, then end with the marker line followed by one JSON object with keys",
-		'"summary" (string) and "proposals" (array of objects with "title", "description" and "priority": low, medium or high).',
+		'"summary" (string) and "proposals" (array of objects with "title", "description" and "priority": low, normal, high or urgent).',
 		\`The marker line is: \${MARKER}\`,
 	].join("\\n");
 }
@@ -413,7 +413,7 @@ export default {
 						description: String(proposal.description ?? "").slice(0, 4000),
 						projectId: boundFactory.projectId,
 						objectiveId: boundFactory.objectiveId,
-						priority: PRIORITIES.includes(proposal.priority) ? proposal.priority : "medium",
+						priority: PRIORITIES.includes(proposal.priority) ? proposal.priority : "normal",
 						accountableOwnerType: "tedi",
 						accountableOwnerId: boundFactory.ownerTediId,
 						sourceIntentId: intent,

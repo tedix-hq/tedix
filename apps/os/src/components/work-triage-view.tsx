@@ -78,9 +78,9 @@ const EXIT_LABELS: Record<TriageExit, string> = {
 	snooze: "Snooze",
 };
 const PRIORITY_LABELS: Record<WorkItem["priority"], string> = {
-	critical: "Critical",
+	urgent: "Urgent",
 	high: "High",
-	medium: "Medium",
+	normal: "Normal",
 	low: "Low",
 };
 export const SNOOZE_DAYS = {

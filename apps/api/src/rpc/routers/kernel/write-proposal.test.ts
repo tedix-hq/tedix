@@ -1350,7 +1350,7 @@ describe("canonical Work creation purpose", () => {
 		expect(stored).toEqual({
 			title: "Live work reads",
 			projectId: "project-1",
-			priority: "medium",
+			priority: "normal",
 			requiredCapabilities: [],
 		});
 		// The gateway's native validation leaves the stored call unchanged.

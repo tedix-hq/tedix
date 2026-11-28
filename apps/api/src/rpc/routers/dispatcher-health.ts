@@ -144,13 +144,25 @@ const listProcedure = os.list
 			const current = activity.current.flatMap((ref) => {
 				const row = work.get(ref.id);
 				return row?.disposition === "accepted"
-					? [{ ...ref, title: row.title.slice(0, 200) || undefined }]
+					? [
+							{
+								...ref,
+								priority: row.priority,
+								title: row.title.slice(0, 200) || undefined,
+							},
+						]
 					: [];
 			});
 			const waiting = activity.waiting.flatMap((ref) => {
 				const row = work.get(ref.id);
 				return row?.disposition === "accepted"
-					? [{ ...ref, title: row.title.slice(0, 200) || undefined }]
+					? [
+							{
+								...ref,
+								priority: row.priority,
+								title: row.title.slice(0, 200) || undefined,
+							},
+						]
 					: [];
 			});
 			const completed =

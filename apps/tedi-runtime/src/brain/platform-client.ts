@@ -428,7 +428,7 @@ export interface PlatformClient {
 		description?: string;
 		workKind?: WorkItem["workKind"];
 		riskLevel?: WorkItem["riskLevel"];
-		priority?: "critical" | "high" | "medium" | "low";
+		priority?: WorkItem["priority"];
 		objectiveId?: string;
 		workClass?: "objective" | "maintenance" | "incident" | "hygiene";
 		purposeExceptionExpiresAt?: string;
@@ -996,7 +996,7 @@ export class HttpPlatformClient implements PlatformClient {
 		description?: string;
 		workKind?: WorkItem["workKind"];
 		riskLevel?: WorkItem["riskLevel"];
-		priority?: "critical" | "high" | "medium" | "low";
+		priority?: WorkItem["priority"];
 		objectiveId?: string;
 		workClass?: "objective" | "maintenance" | "incident" | "hygiene";
 		purposeExceptionExpiresAt?: string;
@@ -1022,7 +1022,7 @@ export class HttpPlatformClient implements PlatformClient {
 			description: params.description,
 			workKind: params.workKind ?? "other",
 			riskLevel: params.riskLevel ?? "medium",
-			priority: params.priority ?? "medium",
+			priority: params.priority ?? "normal",
 			accountableOwnerType: "tedi",
 			accountableOwnerId: this.tediId,
 			stewardType: "tedi",

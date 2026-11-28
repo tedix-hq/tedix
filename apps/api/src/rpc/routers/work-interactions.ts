@@ -721,7 +721,7 @@ async function materializeWorkProposal(
 				{
 					...item,
 					workKind: "other",
-					priority: "medium",
+					priority: "normal",
 					projectId: proposal.projectId,
 					parentWorkItemId,
 					// Unfiled roots need a bounded purpose; children inherit theirs.

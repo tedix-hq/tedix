@@ -19,7 +19,7 @@ export function workMapFixture(now = new Date()): WorkMap {
 		id,
 		title,
 		disposition,
-		priority: "medium" as const,
+		priority: "normal" as const,
 		parentId: "epic-eu",
 		projectId: "project-eu",
 		objectiveId: "goal-eu",

@@ -254,7 +254,7 @@ export async function createWorkItem(
 			requiredCapabilities: params.requiredCapabilities ?? [],
 			requiredAuthorities: params.requiredAuthorities ?? [],
 			admissionSpecRevision: crypto.randomUUID(),
-			priority: params.priority ?? "medium",
+			priority: params.priority ?? "normal",
 			provenance: params.provenance ?? {},
 			metadata: params.metadata ?? {},
 		})
@@ -271,7 +271,10 @@ export async function createWorkItem(
 						actorType: createdBy.type,
 						actorId: createdBy.id,
 						actorSessionId: createdBy.sessionId,
-						payload: { workItemVersion: 1 },
+						payload: {
+							workItemVersion: 1,
+							priority: { from: null, to: params.priority ?? "normal" },
+						},
 						occurredAt: params.createdAt,
 					}),
 				])
@@ -628,7 +631,7 @@ export async function listWorkItemsPage(
 			: undefined,
 		options.mattersThrough
 			? or(
-					inArray(storeWorkItems.priority, ["critical", "high"]),
+					inArray(storeWorkItems.priority, ["urgent", "high"]),
 					and(
 						isNotNull(storeWorkItems.deadline),
 						lte(storeWorkItems.deadline, options.mattersThrough),
@@ -647,19 +650,21 @@ export async function listWorkItemsPage(
 			: undefined,
 	];
 	const where = and(eq(storeWorkItems.orgId, options.orgId), ...filters);
-	// Runners take a run a person started in chat first, through a tedi or
-	// in a workspace, then the most important ready task: priority, then the
-	// nearest due date (undated last), then the oldest.
+	// Priority precedes the existing source, due-date and age ordering.
 	const listOrder = options.dispatchReadyOnly
 		? [
+				sql`CASE ${storeWorkItems.priority} WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END`,
 				sql`coalesce(${jsonRead(db, storeWorkItems.metadata, ["source"])}, '') NOT IN ('tedi.start_agent_run', 'os.workspace.start_run')`,
-				sql`CASE ${storeWorkItems.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`,
 				sql`${storeWorkItems.dueDate} IS NULL`,
 				asc(storeWorkItems.dueDate),
 				asc(storeWorkItems.createdAt),
 				asc(storeWorkItems.id),
 			]
-		: [desc(storeWorkItems.createdAt), desc(storeWorkItems.id)];
+		: [
+				sql`CASE ${storeWorkItems.priority} WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END`,
+				desc(storeWorkItems.createdAt),
+				desc(storeWorkItems.id),
+			];
 	const rows = await db
 		.select(workItemSelection(db))
 		.from(storeWorkItems)
@@ -787,6 +792,7 @@ export async function acceptWorkItem(
 		orgId: string;
 		workItemId: string;
 		acceptanceContract: WorkItemAcceptanceContract;
+		priority?: WorkItemPriority;
 		actor: WorkActor;
 		acceptedAt?: string;
 		/**
@@ -833,6 +839,7 @@ export async function acceptWorkItem(
 		.update(storeWorkItems)
 		.set({
 			disposition: "accepted",
+			priority: params.priority,
 			dispatchState: dispatch ? "ready" : undefined,
 			...(purposeExceptionExpiresAt ? { purposeExceptionExpiresAt } : {}),
 			...(dispatch
@@ -869,7 +876,11 @@ export async function acceptWorkItem(
 		eventType: "work.accepted",
 		actor: params.actor,
 		occurredAt: acceptedAt,
-		payload: {},
+		payload: {
+			...(params.priority !== undefined && params.priority !== prior.priority
+				? { priority: { from: prior.priority, to: params.priority } }
+				: {}),
+		},
 	});
 	const [acceptedRows] = await db.batch([
 		acceptMutation,
@@ -1391,6 +1402,16 @@ export async function updateWorkItemSpecification(
 	const storeWorkItems = coreTable(db, workItems);
 	const updatedAt = params.updatedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	const priorityOnly =
+		params.priority !== undefined &&
+		params.executorReference === undefined &&
+		params.laneDispatch === undefined &&
+		APPROVED_SPECIFICATION_FIELDS.every(
+			(field) =>
+				field === "priority" ||
+				params[field] === undefined ||
+				JSON.stringify(params[field]) === JSON.stringify(prior[field]),
+		);
 	const requestedExecutor = params.executorReference;
 	const requestedDispatch =
 		params.laneDispatch ??
@@ -1401,14 +1422,13 @@ export async function updateWorkItemSpecification(
 						: ("held" as const),
 				}
 			: undefined);
-	// A runner's hold names its reason and lasts until the Work is revised:
-	// any other specification update makes the Work ready again.
+	// Changing queue priority does not release a runner hold.
 	const priorDispatch = prior.metadata?.laneDispatch as
 		| LaneDispatchPlan
 		| undefined;
 	const laneDispatch =
 		requestedDispatch ??
-		(prior.dispatchState === "held" && priorDispatch?.reason
+		(!priorityOnly && prior.dispatchState === "held" && priorDispatch?.reason
 			? { state: "ready" as const }
 			: undefined);
 	const dispatch =
@@ -1418,7 +1438,8 @@ export async function updateWorkItemSpecification(
 			? { from: prior.projectId, to: params.projectId }
 			: null;
 	const receiptId = crypto.randomUUID();
-	const planningOnly = isPlanningOnlyUpdate(prior, params);
+
+	const planningOnly = priorityOnly || isPlanningOnlyUpdate(prior, params);
 	const [approvalScope] = planningOnly
 		? await db
 				.select({
@@ -1532,6 +1553,9 @@ export async function updateWorkItemSpecification(
 			ownerStarted:
 				dispatch && Boolean(requestedExecutor || params.laneDispatch),
 			...(projectMove ? { projectMove } : {}),
+			...(params.priority !== undefined && params.priority !== prior.priority
+				? { priority: { from: prior.priority, to: params.priority } }
+				: {}),
 			...(planningOnly
 				? {
 						planningApproval: {
@@ -1547,15 +1571,17 @@ export async function updateWorkItemSpecification(
 	const [updatedRows] = await db.batch([
 		updateMutation,
 		updateEvent,
-		...ownerWorkApprovalStatements(
-			db,
-			{
-				...prior,
-				version: prior.version + 1,
-				riskLevel: params.riskLevel ?? prior.riskLevel,
-			},
-			updatedAt,
-		),
+		...(priorityOnly
+			? []
+			: ownerWorkApprovalStatements(
+					db,
+					{
+						...prior,
+						version: prior.version + 1,
+						riskLevel: params.riskLevel ?? prior.riskLevel,
+					},
+					updatedAt,
+				)),
 		...(dispatch
 			? [
 					dispatchReceiptInsert(

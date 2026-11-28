@@ -18,7 +18,7 @@ CREATE TABLE work_items (
  disposition TEXT NOT NULL DEFAULT 'proposed', work_kind TEXT NOT NULL DEFAULT 'other',
  risk_level TEXT NOT NULL DEFAULT 'medium', acceptance_contract TEXT,
  required_capabilities TEXT NOT NULL DEFAULT '[]', required_authorities TEXT NOT NULL DEFAULT '[]',
- admission_spec_revision TEXT NOT NULL DEFAULT 'legacy', priority TEXT NOT NULL DEFAULT 'medium',
+ admission_spec_revision TEXT NOT NULL DEFAULT 'legacy', priority TEXT NOT NULL DEFAULT 'medium', priority_level TEXT NOT NULL DEFAULT 'normal',
  accountable_owner_type TEXT, accountable_owner_id TEXT, steward_type TEXT, steward_id TEXT,
  reviewer_type TEXT, reviewer_id TEXT, reviewer_lease_expires_at TEXT,
  objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT,
@@ -66,7 +66,7 @@ function insert(row: {
 	sqlite
 		.prepare(
 			`INSERT INTO work_items
-			 (id,org_id,title,disposition,work_kind,work_class,objective_id,project_id,accountable_owner_type,accountable_owner_id,priority,due_date,deadline,created_at)
+			 (id,org_id,title,disposition,work_kind,work_class,objective_id,project_id,accountable_owner_type,accountable_owner_id,priority_level,due_date,deadline,created_at)
 			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		)
 		.run(
@@ -80,7 +80,7 @@ function insert(row: {
 			row.projectId ?? null,
 			row.accountableOwnerId ? "tedi" : null,
 			row.accountableOwnerId ?? null,
-			row.priority ?? "medium",
+			row.priority ?? "normal",
 			row.dueDate ?? null,
 			row.deadline ?? null,
 			row.createdAt ?? "2026-08-20T00:00:00.000Z",
@@ -726,7 +726,7 @@ it("selects high-priority and due Work before paging", async () => {
 		disposition: "accepted",
 		deadline: "2026-12-01T12:00:00.000Z",
 	});
-	insert({ id: idFor(5), disposition: "completed", priority: "critical" });
+	insert({ id: idFor(5), disposition: "completed", priority: "urgent" });
 
 	const page = await listWorkItemsPage(db, {
 		orgId: ORG,

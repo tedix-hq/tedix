@@ -47,7 +47,7 @@ CREATE TABLE work_items (
  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT,
  disposition TEXT NOT NULL DEFAULT 'proposed', work_kind TEXT NOT NULL DEFAULT 'other', risk_level TEXT NOT NULL DEFAULT 'medium', acceptance_contract TEXT,
  required_capabilities TEXT NOT NULL DEFAULT '[]', required_authorities TEXT NOT NULL DEFAULT '[]', resource_scopes TEXT NOT NULL DEFAULT '[]', budget_limit_micros INTEGER,
- priority TEXT NOT NULL DEFAULT 'medium', accountable_owner_type TEXT, accountable_owner_id TEXT, steward_type TEXT, steward_id TEXT, reviewer_type TEXT, reviewer_id TEXT, reviewer_lease_expires_at TEXT,
+ priority TEXT NOT NULL DEFAULT 'medium', priority_level TEXT NOT NULL DEFAULT 'normal', accountable_owner_type TEXT, accountable_owner_id TEXT, steward_type TEXT, steward_id TEXT, reviewer_type TEXT, reviewer_id TEXT, reviewer_lease_expires_at TEXT,
  objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT, parent_work_item_id TEXT,
  executor_type TEXT, executor_id TEXT, dispatch_state TEXT, delegation_depth INTEGER, max_attempts INTEGER, root_work_item_id TEXT, root_goal TEXT, budget_share_micros INTEGER,
  source_session_key TEXT, source_intent_id TEXT,
@@ -125,7 +125,7 @@ function seed(row: {
 }) {
 	sqlite
 		.prepare(
-			`INSERT INTO work_items (id,org_id,title,disposition,work_kind,risk_level,required_capabilities,required_authorities,resource_scopes,priority,work_class,objective_id,project_id,provenance,metadata,created_at,version) VALUES (?,?,?,?,?,'medium','[]','[]','[]','medium',?,?,?,'{}','{}',?,1)`,
+			`INSERT INTO work_items (id,org_id,title,disposition,work_kind,risk_level,required_capabilities,required_authorities,resource_scopes,priority_level,work_class,objective_id,project_id,provenance,metadata,created_at,version) VALUES (?,?,?,?,?,'medium','[]','[]','[]','normal',?,?,?,'{}','{}',?,1)`,
 		)
 		.run(
 			row.id,
@@ -723,12 +723,14 @@ describe("Work Item router canonical specification reads and writes", () => {
 		});
 		const accepted = await client("owner").accept({
 			id: created.id,
+			priority: "urgent",
 			acceptanceContract: {
 				version: 1,
 				doneLooksLike: "The report is published and linked from the board.",
 			},
 		});
 		expect(accepted.disposition).toBe("accepted");
+		expect(accepted.priority).toBe("urgent");
 		const empty = await client().create({ ...fileable(), title: "Empty" });
 		await expect(
 			client("owner").accept({

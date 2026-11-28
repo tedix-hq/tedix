@@ -15,7 +15,7 @@ const item = (
 	id,
 	title: `Item ${id}`,
 	disposition: "accepted" as const,
-	priority: "medium" as const,
+	priority: "normal" as const,
 	projectId: null,
 	parentWorkItemId: null,
 	accountableOwnerType: null,
@@ -35,7 +35,7 @@ describe("All work list", () => {
 			item("high-undated", { priority: "high" }),
 			item("high-late", { priority: "high", dueDate: "2026-12-01" }),
 			item("high-soon", { priority: "high", deadline: "2026-11-20" }),
-			item("critical", { priority: "critical" }),
+			item("critical", { priority: "urgent" }),
 			item("medium", {}),
 		]);
 		expect(sorted.map((row) => row.id)).toEqual([
@@ -85,7 +85,7 @@ describe("All work list", () => {
 					item("cedar", {
 						title: "Publish the cedar report",
 						disposition: "proposed",
-						priority: "critical",
+						priority: "urgent",
 						projectId: "project-pine",
 						accountableOwnerType: "user",
 						accountableOwnerId: "user-1",
@@ -108,7 +108,7 @@ describe("All work list", () => {
 			"Pine launch",
 			"Robin Example",
 			"Claude Code",
-			"Critical",
+			"Urgent",
 			"Fri 20 Nov",
 			"Cancelled",
 			"No project",

@@ -204,7 +204,7 @@ describe("agent runs through the tedi runtime service binding", () => {
 				description: "The date filter drops the last day.",
 				workKind: "coding",
 				riskLevel: "medium",
-				priority: "medium",
+				priority: "normal",
 				accountableOwnerType: "tedi",
 				accountableOwnerId: STARTER_TEDI_ID,
 				stewardType: "tedi",

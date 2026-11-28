@@ -185,7 +185,7 @@ export default {
 						title: proposal.title.trim().slice(0, 300),
 						description: String(proposal.description ?? "").slice(0, 4000),
 						projectId,
-						priority: ["low", "medium", "high"].includes(proposal.priority) ? proposal.priority : "medium",
+						priority: ["low", "normal", "high", "urgent"].includes(proposal.priority) ? proposal.priority : "normal",
 						accountableOwnerType: "tedi",
 						accountableOwnerId: LANE.ownerTediId,
 						sourceIntentId,

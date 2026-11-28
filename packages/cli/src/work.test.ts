@@ -421,7 +421,7 @@ function makeContext(
 					workKind: "coding",
 					disposition: "proposed",
 					riskLevel: "low",
-					priority: "medium",
+					priority: "normal",
 					projectId: null,
 					createdAt: "2026-10-07T12:00:00Z",
 					...(args.view === "board" ? { activeAttempt: null } : {}),
@@ -1747,7 +1747,7 @@ describe("canonical list pagination and output", () => {
 		workKind: "coding",
 		disposition: "accepted",
 		riskLevel: "medium",
-		priority: "medium",
+		priority: "normal",
 		title: `Item ${index}`,
 	});
 
@@ -2236,7 +2236,7 @@ describe("canonical create validation", () => {
 			{ objective: "not-a-uuid" },
 			{ objective: OBJECTIVE, project: "legacy-project-key" },
 			{ objective: OBJECTIVE, kind: "epic" },
-			{ objective: OBJECTIVE, priority: "urgent" },
+			{ objective: OBJECTIVE, priority: "invalid" },
 			{ workClass: "objective", expires: "72h" },
 		]) {
 			const fixture = makeContext(work);
@@ -4467,6 +4467,7 @@ describe("native dispatcher coverage", () => {
 			{ args?: string; work?: WorkOptions; expected?: number }
 		> = {
 			checkpoint: { args: "" },
+			priority: { args: `${ITEM} urgent` },
 			"agent-turn-triage": {
 				args: "",
 				work: { input: JSON.stringify({ text: "Fictional turn" }) },

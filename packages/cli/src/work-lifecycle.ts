@@ -1,5 +1,6 @@
 import {
 	WorkAttemptSettlementSchema,
+	WorkItemPrioritySchema,
 	workExecutorReference,
 } from "@tedix/api-contract/schemas/work-items";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -398,6 +399,10 @@ export async function workAccept(
 ): Promise<number> {
 	if (!id) throw new Error("work accept requires a work item id");
 	mutationCallable(ctx.work.as?.trim(), "work.accept_work_item");
+	const priority =
+		ctx.work.priority === undefined
+			? undefined
+			: WorkItemPrioritySchema.parse(ctx.work.priority);
 	const executor = workExecutorArg(ctx.work.executor);
 	const acceptanceContract = {
 		...buildAcceptanceContract(ctx.work.doneWhen),
@@ -428,6 +433,7 @@ export async function workAccept(
 	const call = await boardCall(ctx, "work.accept_work_item", {
 		id,
 		acceptanceContract,
+		...(priority ? { priority } : {}),
 	});
 	if (call.error)
 		return fail(
@@ -823,6 +829,33 @@ export async function workNotBefore(
 				? `${green("Set", ctx.color)} ${id} to start no earlier than ${startAt}. Runners are not handed it before then.`
 				: `${green("Cleared", ctx.color)} the start date of ${id}.`,
 		),
+	);
+}
+
+export async function workPriority(
+	ctx: WorkContext,
+	id: string,
+	level: string,
+): Promise<number> {
+	if (!id || !level)
+		throw new Error(
+			"work priority requires a work item id and low|normal|high|urgent",
+		);
+	const priority = WorkItemPrioritySchema.parse(level);
+	mutationCallable(ctx.work.as?.trim(), "work.update_work_item_specification");
+	id = await resolveWorkItemId(ctx, id);
+	const call = await boardCall(ctx, "work.update_work_item_specification", {
+		id,
+		priority,
+	});
+	if (call.error)
+		return fail(
+			ctx,
+			call.error,
+			`Could not set priority for ${id}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
+		);
+	return ok(ctx, call.value, () =>
+		console.log(`${green("Set", ctx.color)} ${id} priority to ${priority}.`),
 	);
 }
 

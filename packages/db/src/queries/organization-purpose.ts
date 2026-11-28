@@ -36,7 +36,7 @@ export interface OwnerAttentionItem {
 	title: string;
 	kind: OwnerAttentionKind;
 	reason: string;
-	priority: "critical" | "high" | "medium" | "low";
+	priority: "urgent" | "high" | "normal" | "low";
 	objectiveId: string | null;
 	projectId: string | null;
 	updatedAt: string;
@@ -192,7 +192,7 @@ export async function createPurposeCharterRevision(
 	return created[0]!;
 }
 
-const PRIORITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 } as const;
+const PRIORITY_RANK = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
 
 function attentionRow(
 	row: WorkItem,

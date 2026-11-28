@@ -721,7 +721,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 						(row.metadata?.needsProject === true &&
 							!LOCAL_PROJECT_MOVES.has(row.id))) &&
 					(input?.mattersThrough === undefined ||
-						row.priority === "critical" ||
+						row.priority === "urgent" ||
 						row.priority === "high" ||
 						([row.deadline, row.dueDate] as (string | null)[]).some(
 							(due) => due != null && due <= input.mattersThrough!,

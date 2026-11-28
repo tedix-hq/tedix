@@ -1064,7 +1064,7 @@ export const WorkFactoryItemSummarySchema = z
 		disposition: WorkItemDispositionSchema,
 		workKind: WorkItemKindSchema,
 		riskLevel: WorkItemRiskLevelSchema,
-		priority: z.enum(["critical", "high", "medium", "low"]),
+		priority: z.enum(["urgent", "high", "normal", "low"]),
 		projectId: z
 			.uuid()
 			.nullable()
@@ -1228,7 +1228,7 @@ export const ListWorkRecoveryProjectionInputSchema =
 			"Optional risk filter for recovery triage.",
 		),
 		priority: z
-			.enum(["critical", "high", "medium", "low"])
+			.enum(["urgent", "high", "normal", "low"])
 			.optional()
 			.describe("Optional priority filter for recovery triage."),
 		signal: WorkRecoverySignalSchema.optional().describe(
@@ -1260,9 +1260,9 @@ export type WorkItemAggregateDisposition = z.infer<
 >;
 
 export const WorkItemPrioritySchema = z.enum([
-	"critical",
+	"urgent",
 	"high",
-	"medium",
+	"normal",
 	"low",
 ]);
 export type WorkItemPriority = z.infer<typeof WorkItemPrioritySchema>;
@@ -2044,7 +2044,7 @@ export const CreateWorkItemInputSchema = z
 		accountableOwnerId: z.string().max(300).optional(),
 		stewardType: WorkItemOwnerTypeSchema.optional(),
 		stewardId: z.string().max(300).optional(),
-		priority: WorkItemPrioritySchema.default("medium"),
+		priority: WorkItemPrioritySchema.default("normal"),
 		objectiveId: z
 			.uuid()
 			.optional()

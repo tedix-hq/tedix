@@ -1154,6 +1154,7 @@ export const workItemsContract = oc
 				z.object({
 					id: z.uuid(),
 					acceptanceContract: WorkItemAcceptanceContractSchema,
+					priority: WorkItemPrioritySchema.optional(),
 				}),
 			)
 			.output(WorkItemSchema),

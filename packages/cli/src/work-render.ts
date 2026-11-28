@@ -104,7 +104,7 @@ export function renderWorkItemsTable(
 	if (items.length === 0) return dim("No work items.", color);
 	const lines = [
 		dim(
-			`${"ID".padEnd(8)}  ${"KIND".padEnd(13)}  ${"DISPOSITION".padEnd(11)}  ${"RISK".padEnd(8)}  ${"HOLDER".padEnd(22)}  TITLE`,
+			`${"ID".padEnd(8)}  ${"KIND".padEnd(13)}  ${"DISPOSITION".padEnd(11)}  ${"RISK".padEnd(8)}  ${"PRIORITY".padEnd(8)}  ${"HOLDER".padEnd(22)}  TITLE`,
 			color,
 		),
 	];
@@ -118,12 +118,12 @@ export function renderWorkItemsTable(
 			11,
 		);
 		const risk = String(item.riskLevel ?? "—").padEnd(8);
-		// PRI was the least useful column here — every row in practice reads
-		// "medium" — and "who is holding this right now" is the question a
-		// second agent actually arrives with. Priority is still in --json.
+		const priority = String(item.priority ?? "—").padEnd(8);
 		const holder = padEnd(workItemHolderLabel(item.activeAttempt), 22);
 		const title = truncate(String(item.title ?? ""), 44);
-		lines.push(`${id}  ${kind}  ${disposition}  ${risk}  ${holder}  ${title}`);
+		lines.push(
+			`${id}  ${kind}  ${disposition}  ${risk}  ${priority}  ${holder}  ${title}`,
+		);
 	}
 	return lines.join("\n");
 }

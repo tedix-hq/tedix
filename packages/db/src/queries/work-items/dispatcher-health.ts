@@ -74,7 +74,7 @@ export async function listDispatcherWorkReferences(
 	const unique = [...new Set(ids)];
 	const rows: Pick<
 		typeof workItems.$inferSelect,
-		"id" | "title" | "disposition" | "completedAt"
+		"id" | "title" | "priority" | "disposition" | "completedAt"
 	>[] = [];
 	for (let offset = 0; offset < unique.length; offset += 50) {
 		rows.push(
@@ -82,6 +82,7 @@ export async function listDispatcherWorkReferences(
 				.select({
 					id: w.id,
 					title: w.title,
+					priority: w.priority,
 					disposition: w.disposition,
 					completedAt: w.completedAt,
 				})

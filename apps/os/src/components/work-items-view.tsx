@@ -67,9 +67,9 @@ type WorkItemRow = Pick<
 >;
 
 const PRIORITY_LABELS: Record<WorkItem["priority"], string> = {
-	critical: "Critical",
+	urgent: "Urgent",
 	high: "High",
-	medium: "Medium",
+	normal: "Normal",
 	low: "Low",
 };
 const PRIORITY_ORDER = Object.keys(PRIORITY_LABELS);
@@ -77,7 +77,7 @@ const ALL = "all";
 
 const due = (item: WorkItemRow) => item.deadline || item.dueDate;
 
-/** Critical first; within one priority the nearest due date, undated last. */
+/** Urgent first; within one priority the nearest due date, undated last. */
 export function sortWorkItems<T extends WorkItemRow>(items: readonly T[]): T[] {
 	return [...items].sort(
 		(a, b) =>

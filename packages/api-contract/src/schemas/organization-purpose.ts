@@ -46,7 +46,7 @@ export const OwnerAttentionItemSchema = z.object({
 	title: z.string(),
 	kind: z.enum(["decision", "exception", "outcome"]),
 	reason: z.string(),
-	priority: z.enum(["critical", "high", "medium", "low"]),
+	priority: z.enum(["urgent", "high", "normal", "low"]),
 	objectiveId: z.uuid().nullable(),
 	projectId: z.string().nullable(),
 	updatedAt: z.string(),

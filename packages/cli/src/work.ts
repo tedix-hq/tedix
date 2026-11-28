@@ -58,6 +58,7 @@ import {
 	workParent,
 	workUnrelate,
 	workNotBefore,
+	workPriority,
 } from "./work-lifecycle";
 import {
 	workComment,
@@ -104,7 +105,7 @@ export interface WorkOptions {
 	owner?: string;
 	/** `create`: adapter-neutral work kind. */
 	kind?: string;
-	/** `create`: --priority critical|high|medium|low. */
+	/** `create` / `accept`: --priority low|normal|high|urgent. */
 	priority?: string;
 	/** `create`: --objective <objectiveId> — the normal purpose path. */
 	objective?: string;
@@ -237,7 +238,8 @@ Usage: tedix work <verb> [args] [options]
 Lifecycle:
   create "<title>" --kind <kind> (--parent <id> | --project <id> | --objective <id> | --class <class> --expires <duration>)
               [--project <id>] [--desc|--description <text>] [--owner tedi:<id>] [--executor <exec>]
-  accept <id> --done-when "<what done looks like>" [--executor <exec>] [--owner <type>:<id>]
+  accept <id> --done-when "<what done looks like>" [--executor <exec>] [--owner <type>:<id>] [--priority low|normal|high|urgent]
+  priority <id> <low|normal|high|urgent>
   readiness <id>
   start <id> [--lane] [--worktree [--worktree-root <path>]]
   handoff <id> --host codex|claude [--to codex:<chat-id>] [--launch]
@@ -387,6 +389,7 @@ const VERBS: Record<string, VerbHandler> = {
 	parent: (ctx, id, text) => workParent(ctx, id, text),
 	unrelate: (ctx, id, text) => workUnrelate(ctx, id, text),
 	"not-before": (ctx, id, text) => workNotBefore(ctx, id, text),
+	priority: (ctx, id, text) => workPriority(ctx, id, text),
 	delegate: (ctx, id, text) => workDelegate(ctx, text ? `${id} ${text}` : id),
 	context: (ctx, id) => workContext(ctx, id),
 	evidence: (ctx, id) => workEvidence(ctx, id),

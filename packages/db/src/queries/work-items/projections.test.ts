@@ -12,7 +12,7 @@ CREATE TABLE work_items (
  disposition TEXT NOT NULL, work_kind TEXT NOT NULL, risk_level TEXT NOT NULL,
  acceptance_contract TEXT, required_capabilities TEXT NOT NULL DEFAULT '[]',
  required_authorities TEXT NOT NULL DEFAULT '[]', admission_spec_revision TEXT NOT NULL DEFAULT 'test-revision',
- priority TEXT NOT NULL, accountable_owner_type TEXT,
+ priority TEXT NOT NULL DEFAULT 'medium', priority_level TEXT NOT NULL, accountable_owner_type TEXT,
  accountable_owner_id TEXT, project_id TEXT, executor_type TEXT, executor_id TEXT,
  dispatch_state TEXT, created_at TEXT NOT NULL, updated_at TEXT,
  metadata TEXT NOT NULL DEFAULT '{}'
@@ -141,7 +141,7 @@ function seedItem(
 		.prepare(
 			`INSERT INTO work_items
 			(id,org_id,title,disposition,work_kind,risk_level,required_capabilities,
-			required_authorities,priority,accountable_owner_type,
+			required_authorities,priority_level,accountable_owner_type,
 			accountable_owner_id,project_id,created_at)
 			VALUES (?,?,?,'accepted','coding','medium',?,'[]','high','team','platform',?,?)`,
 		)

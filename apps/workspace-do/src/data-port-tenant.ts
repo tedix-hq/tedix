@@ -1801,7 +1801,7 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 		const workKind = input.workKind ?? "other";
 		if (!(WORK_ITEM_KIND_VALUES as readonly string[]).includes(workKind))
 			throw new Error(`Unknown Work kind ${workKind}`);
-		const priority = input.priority ?? "medium";
+		const priority = input.priority ?? "normal";
 		if (!(WORK_ITEM_PRIORITY_VALUES as readonly string[]).includes(priority))
 			throw new Error(`Unknown Work priority ${priority}`);
 		const project = await this.#workProject(input.projectId);

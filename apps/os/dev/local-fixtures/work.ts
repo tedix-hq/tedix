@@ -33,7 +33,7 @@ const workItem = (
 		| "cancelled"
 		| "stale",
 	assigneeTediId: string | null,
-	priority: "critical" | "high" | "medium" | "low",
+	priority: "urgent" | "high" | "normal" | "low",
 	createdAt: string,
 	projectKey = "OPS",
 ) => ({
@@ -58,7 +58,7 @@ const workItem = (
 				? ("legal" as const)
 				: ("communication" as const),
 	riskLevel:
-		priority === "critical"
+		priority === "urgent"
 			? ("critical" as const)
 			: priority === "high"
 				? ("high" as const)
@@ -133,7 +133,7 @@ export const WORK_ITEMS = [
 		"Draft goodwill-credit policy for delayed orders",
 		"blocked",
 		TEDI_JUNO,
-		"medium",
+		"normal",
 		T4,
 	),
 	workItem(
@@ -150,7 +150,7 @@ export const WORK_ITEMS = [
 		"Publish week-32 revenue summary",
 		"done",
 		TEDI_MILES,
-		"medium",
+		"normal",
 		T1,
 	),
 	workItem(
@@ -158,7 +158,7 @@ export const WORK_ITEMS = [
 		"Review the dunning-recovery email copy",
 		"in_review",
 		TEDI_JUNO,
-		"medium",
+		"normal",
 		T5,
 		"GROWTH",
 	),
@@ -167,7 +167,7 @@ export const WORK_ITEMS = [
 		"Backfill wholesale order attribution",
 		"todo",
 		TEDI_MILES,
-		"critical",
+		"urgent",
 		T2,
 	),
 	workItem(7, "Ship the churn dashboard widget", "todo", TEDI_NOVA, "high", T3),
@@ -186,7 +186,7 @@ export const WORK_ITEMS = [
 		"Send the bakery pilot proposal",
 		"todo",
 		TEDI_NOVA,
-		"medium",
+		"normal",
 		T4,
 		"PILOT",
 	),
@@ -204,7 +204,7 @@ export const WORK_ITEMS = [
 		"Plan the next makers meetup",
 		"in_progress",
 		TEDI_NOVA,
-		"medium",
+		"normal",
 		T5,
 		"GUILD",
 	),
@@ -215,7 +215,7 @@ export const WORK_ITEMS = [
 			"Compare courier quotes for the spring fair",
 			"in_progress",
 			TEDI_JUNO,
-			"medium",
+			"normal",
 			T5,
 		),
 		projectId: null,
@@ -590,7 +590,7 @@ export const OWNER_BRIEF = {
 			title: "Draft goodwill-credit policy for delayed orders",
 			kind: "decision" as const,
 			reason: "Blocked on an owner policy call: credit ceiling per order.",
-			priority: "medium" as const,
+			priority: "normal" as const,
 			objectiveId: null,
 			projectId: fid("76", 1),
 			updatedAt: T4,
@@ -603,7 +603,7 @@ export const OWNER_BRIEF = {
 			title: "Backfill wholesale order attribution",
 			kind: "exception" as const,
 			reason: "Critical work with no linked objective for 6 days.",
-			priority: "critical" as const,
+			priority: "urgent" as const,
 			objectiveId: null,
 			projectId: fid("76", 1),
 			updatedAt: T2,
@@ -616,7 +616,7 @@ export const OWNER_BRIEF = {
 			title: "Publish week-32 revenue summary",
 			kind: "outcome" as const,
 			reason: "Completed against the revenue-visibility objective.",
-			priority: "medium" as const,
+			priority: "normal" as const,
 			objectiveId: null,
 			projectId: fid("76", 1),
 			updatedAt: T4,

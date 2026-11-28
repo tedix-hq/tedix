@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	coreQueryDb,
-	SCHEDULED_CLOSE_DELAY_MS,
+	UNTRACKED_CLOSE_DELAY_MS,
 } from "@tedix/db/core-store/scope";
 import { tediDo } from "../test/tedi-do";
 
@@ -9,7 +9,7 @@ import { tediDo } from "../test/tedi-do";
 // remain the DB session's integration check; postgres.js opens lazily here.
 const originalSetTimeout = globalThis.setTimeout;
 globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
-	if (args[1] === SCHEDULED_CLOSE_DELAY_MS) args[1] = 0;
+	if (args[1] === UNTRACKED_CLOSE_DELAY_MS) args[1] = 0;
 	return originalSetTimeout(...args);
 }) as typeof setTimeout;
 

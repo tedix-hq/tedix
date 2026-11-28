@@ -52,7 +52,7 @@ CREATE TABLE work_items (
 	admission_spec_revision TEXT NOT NULL DEFAULT 'initial',
 	resource_scopes TEXT NOT NULL DEFAULT '[]',
 	budget_limit_micros INTEGER,
-	priority TEXT NOT NULL DEFAULT 'medium',
+	priority TEXT NOT NULL DEFAULT 'medium', priority_level TEXT NOT NULL DEFAULT 'normal',
 	accountable_owner_type TEXT,
 	accountable_owner_id TEXT,
 	steward_type TEXT,

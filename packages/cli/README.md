@@ -536,6 +536,27 @@ counts are subsets, and context tiers apply per request. Estimates use rates
 at report time and never rewrite historical billing. Failed final uploads keep
 a private receipt for idempotent replay under the same lane identity.
 
+### Work priority
+
+Work has four priority levels: `low`, `normal` (the default), `high` and `urgent`.
+Set one when creating or accepting Work, or change it later:
+
+```sh
+tedix -w connect work create "Repair the import" --kind coding --project <project-id> --priority high
+tedix -w connect work accept <work-id> --done-when "The import succeeds" --priority urgent
+tedix -w connect work priority <work-id> normal
+```
+
+The existing Work permissions apply. In Tedix OS, edit Priority in the Work
+specification. MCP callers pass `priority` to `create_work_items`,
+`accept_work_item` or `update_work_item_specification` in the discovered namespace.
+Changes record the actor and previous and new values in Work history.
+
+Ready queues and execution waves put higher priority first, then use their
+existing ordering within that level. Priority changes preserve dispatch holds
+and do not supply admission, budget or risk approval. `work list`, `status`
+and runner health show priority alongside the queued Work.
+
 ### Local Work dispatcher
 
 `tedix lane serve --executor codex --rules <skill-uuid> --project <project-uuid> --repo <checkout>`

@@ -14,6 +14,7 @@ import {
 	createWorkItem,
 	acceptWorkItem,
 	updateWorkItemSpecification,
+	listWorkItemsPage,
 } from "./crud";
 import {
 	deriveWorkItemReadiness,
@@ -1510,7 +1511,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		seedTedi(sqlite);
 		sqlite.exec(`
 			INSERT INTO projects(id,org_id,key,name,created_at) VALUES('night-project','org','NIGHT','Example night','2026-08-20T00:00:00.000Z');
-			UPDATE work_items SET disposition='accepted',priority='critical' WHERE id='work';
+			UPDATE work_items SET disposition='accepted',priority_level='urgent' WHERE id='work';
 			INSERT INTO work_items(id,org_id,title,disposition,project_id,work_class,purpose_exception_expires_at,admission_spec_revision,created_at)
 			VALUES('night-work','org','Night Work','accepted','night-project','hygiene','${LIVE_PURPOSE_EXCEPTION}','night-revision','2026-08-20T00:00:00.000Z');
 		`);
@@ -2031,7 +2032,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		seedCore(sqlite);
 		seedTedi(sqlite);
 		sqlite.exec(
-			`UPDATE work_items SET disposition='accepted',priority='critical' WHERE id='work'; INSERT INTO work_items(id,org_id,title,disposition,priority,deadline,work_class,purpose_exception_expires_at,admission_spec_revision,created_at) VALUES('dated','org','Dated','accepted','low','2026-08-21T00:00:00.000Z','hygiene','${LIVE_PURPOSE_EXCEPTION}','dated-revision','2026-08-20T00:00:00.000Z'),('high','org','High','accepted','high',NULL,'hygiene','${LIVE_PURPOSE_EXCEPTION}','high-revision','2026-08-20T00:00:00.000Z'); INSERT INTO work_budget_envelopes(id,org_id,scope_type,scope_id,limit_micros,reservation_micros,currency,created_at) VALUES('cheap','org','work_item','work',2000000,1000000,'USD','2026-08-20T00:00:00.000Z'),('expensive','org','work_item','high',3000000,2000000,'USD','2026-08-20T00:00:00.000Z')`,
+			`UPDATE work_items SET disposition='accepted',priority_level='urgent' WHERE id='work'; INSERT INTO work_items(id,org_id,title,disposition,priority_level,deadline,work_class,purpose_exception_expires_at,admission_spec_revision,created_at) VALUES('dated','org','Dated','accepted','low','2026-08-21T00:00:00.000Z','hygiene','${LIVE_PURPOSE_EXCEPTION}','dated-revision','2026-08-20T00:00:00.000Z'),('high','org','High','accepted','high',NULL,'hygiene','${LIVE_PURPOSE_EXCEPTION}','high-revision','2026-08-20T00:00:00.000Z'); INSERT INTO work_budget_envelopes(id,org_id,scope_type,scope_id,limit_micros,reservation_micros,currency,created_at) VALUES('cheap','org','work_item','work',2000000,1000000,'USD','2026-08-20T00:00:00.000Z'),('expensive','org','work_item','high',3000000,2000000,'USD','2026-08-20T00:00:00.000Z')`,
 		);
 		const db = createDbQueryClient(createD1Facade(sqlite));
 		const bounded = await listReadyWork(db, {
@@ -2042,7 +2043,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 			candidateLimit: 1,
 			limit: 1,
 		});
-		expect(bounded.data[0]?.workItem.id).toBe("dated");
+		expect(bounded.data[0]?.workItem.id).toBe("work");
 		sqlite.exec("UPDATE work_items SET deadline=NULL WHERE id='dated'");
 		const ranked = await listReadyWork(db, {
 			orgId: "org",
@@ -3169,4 +3170,71 @@ it("human release migration preserves reservations, Attempt links and guards", (
 			"UPDATE work_admissions SET executor_id='other' WHERE id='admission'",
 		),
 	).toThrow("immutable");
+});
+
+it("urgent priority preserves a dispatch hold and cannot satisfy admission approval", async () => {
+	const sqlite = migrated();
+	try {
+		seedCore(sqlite);
+		seedTedi(sqlite);
+		sqlite.exec(
+			`UPDATE work_items SET disposition='accepted', executor_type='external_agent', executor_id='codex', dispatch_state='held', metadata='{"laneDispatch":{"reason":"review_required"}}', required_authorities='["human:consent"]', admission_spec_revision='priority-test', version=2 WHERE id='work'`,
+		);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const now = "2026-08-20T01:00:00.000Z";
+		const item = await updateWorkItemSpecification(db, {
+			orgId: "org",
+			workItemId: "work",
+			actor: { type: "user", id: "user" },
+			priority: "urgent",
+			updatedAt: now,
+		});
+		expect(item.dispatchState).toBe("held");
+		expect(item.metadata?.laneDispatch).toEqual({ reason: "review_required" });
+		expect(
+			(
+				await listWorkItemsPage(db, {
+					orgId: "org",
+					disposition: "accepted",
+					dispatchReadyOnly: true,
+					now,
+				})
+			).data,
+		).toEqual([]);
+		expect(
+			(
+				await listReadyWork(db, {
+					orgId: "org",
+					executorType: "tedi",
+					executorId: "tedi",
+					now,
+				})
+			).data,
+		).toEqual([]);
+		const admission = await evaluateAndRecordWorkAdmission(db, {
+			id: "urgent-admission",
+			orgId: "org",
+			workItemId: item.id,
+			expectedWorkItemVersion: item.version,
+			expectedAdmissionSpecRevision: item.admissionSpecRevision,
+			executorType: "tedi",
+			executorId: "tedi",
+			leaseTtlMs: 60_000,
+			now,
+		});
+		expect(admission.rejectionCode).toBe("approval_blocked");
+		const event = sqlite
+			.prepare(
+				"SELECT actor_type, actor_id, payload FROM work_events WHERE work_item_id='work' AND event_type='work.specification_updated'",
+			)
+			.get()!;
+		expect(event.actor_type).toBe("user");
+		expect(event.actor_id).toBe("user");
+		expect(JSON.parse(String(event.payload)).priority).toEqual({
+			from: "normal",
+			to: "urgent",
+		});
+	} finally {
+		sqlite.close();
+	}
 });

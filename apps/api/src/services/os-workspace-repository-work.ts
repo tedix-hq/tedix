@@ -300,7 +300,7 @@ export async function prepareWorkspaceRepositoryWork(
 				description: params.input.task,
 				workKind: "coding",
 				riskLevel: "medium",
-				priority: "medium",
+				priority: "normal",
 				requiredCapabilities: [
 					...WORKSPACE_REPOSITORY_EXECUTION_REQUIREMENT.requiredCapabilities,
 				],

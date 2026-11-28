@@ -760,7 +760,11 @@ export async function listWorkItemReadinessProjection(
 					: undefined,
 			),
 		)
-		.orderBy(desc(workItems.createdAt), desc(workItems.id))
+		.orderBy(
+			sql`CASE ${workItems.priority} WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END`,
+			desc(workItems.createdAt),
+			desc(workItems.id),
+		)
 		.limit(limit + 1);
 	const hasMore = rows.length > limit;
 	const items = rows.slice(0, limit).map(normalizeWorkItemRow);

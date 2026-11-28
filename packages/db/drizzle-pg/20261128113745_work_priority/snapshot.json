@@ -1,0 +1,37 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "39c993e7-9181-4706-b896-352926671189",
+	"prevIds": ["df3d161d-b8c4-4d20-8e2d-5dd6bdfaa744"],
+	"footprints": [
+		{
+			"statementType": "add_column",
+			"statementTarget": ["column", "public", "work_items", "priority_level"],
+			"writes": [
+				"s|col|public.work_items.priority_level",
+				"n|col|public.work_items.priority_level",
+				"e|col|public.work_items.priority_level"
+			],
+			"reads": ["n|tbl|public.work_items", "n|sch|public"]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_items",
+				"name": "priority_level",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'normal'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		}
+	]
+}

@@ -1243,7 +1243,7 @@ export function syncSource(want: {
 	if (rows.length) return { id: rows[0].id, action: "cancelled; left alone" };
 	if (!want.create) return { id: null, action: "nothing to report" };
 	if (!want.projectId) return { id: null, action: "needs --project" };
-	const made = await work.create_work_items({ title: want.title, description: describe(""), workKind: "research", priority: "medium", projectId: want.projectId, sourceIntentId: want.intent });
+	const made = await work.create_work_items({ title: want.title, description: describe(""), workKind: "research", priority: "normal", projectId: want.projectId, sourceIntentId: want.intent });
 	return { id: made.id, action: "created" };
 }`;
 }

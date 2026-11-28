@@ -88,7 +88,7 @@ function workItemSelection(db: DbQueryClient): typeof workItemStoredColumns {
 	) as typeof workItemStoredColumns;
 }
 
-const priorityScore = { critical: 100, high: 70, medium: 40, low: 10 } as const;
+const priorityScore = { urgent: 100, high: 70, normal: 40, low: 10 } as const;
 const riskPenalty = { low: 0, medium: 5, high: 15, critical: 30 } as const;
 const HARD_FACT_LIMIT = 5000;
 const CAPABILITY_FACT_LIMIT = 1000;
@@ -283,6 +283,7 @@ export async function listReadyWork(
 			and(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.disposition, "accepted"),
+				sql`coalesce(${workItems.dispatchState}, '') <> 'held'`,
 				p.projectId ? eq(workItems.projectId, p.projectId) : undefined,
 				or(
 					activePurposeContext(p.now),
@@ -292,11 +293,11 @@ export async function listReadyWork(
 			),
 		)
 		.orderBy(
+			desc(
+				sql`CASE ${workItems.priority} WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END`,
+			),
 			asc(sql`${workItems.deadline} IS NULL`),
 			asc(workItems.deadline),
-			desc(
-				sql`CASE ${workItems.priority} WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END`,
-			),
 			asc(workItems.createdAt),
 			asc(workItems.id),
 		)
@@ -726,7 +727,10 @@ export async function listReadyWork(
 		});
 	}
 	ready.sort(
-		(a, b) => b.score - a.score || a.workItem.id.localeCompare(b.workItem.id),
+		(a, b) =>
+			priorityScore[b.workItem.priority] - priorityScore[a.workItem.priority] ||
+			b.score - a.score ||
+			a.workItem.id.localeCompare(b.workItem.id),
 	);
 	const start =
 		p.cursor === undefined

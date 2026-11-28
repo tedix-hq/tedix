@@ -2152,6 +2152,10 @@
 		{
 			"name": "20261127121522_work-interactions-open-sweep-index/migration.sql",
 			"sha256": "b969e635077def8743d1f5954a86e1d5840023bcf764f34ddaac42da3eb86a19"
+		},
+		{
+			"name": "20261128113748_work_priority/migration.sql",
+			"sha256": "5a543efca0986cfdf6d0641b6ec38bfa994a459aafa595d28f68686a3236de6b"
 		}
 	]
 }

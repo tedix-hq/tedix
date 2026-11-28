@@ -72,9 +72,9 @@ export const WORK_ITEM_RISK_LEVEL_VALUES = [
 export type WorkItemRiskLevel = (typeof WORK_ITEM_RISK_LEVEL_VALUES)[number];
 
 export const WORK_ITEM_PRIORITY_VALUES = [
-	"critical",
+	"urgent",
 	"high",
-	"medium",
+	"normal",
 	"low",
 ] as const;
 export type WorkItemPriority = (typeof WORK_ITEM_PRIORITY_VALUES)[number];
@@ -240,9 +240,11 @@ export const workItems = sqliteTable(
 		admissionSpecRevision: text("admission_spec_revision")
 			.notNull()
 			.default("legacy"),
-		priority: text("priority", { enum: WORK_ITEM_PRIORITY_VALUES })
+		// Retained so adding priority_level cannot cascade-delete Work history in D1.
+		legacyPriority: text("priority").notNull().default("medium"),
+		priority: text("priority_level", { enum: WORK_ITEM_PRIORITY_VALUES })
 			.notNull()
-			.default("medium"),
+			.default("normal"),
 		accountableOwnerType: text("accountable_owner_type", {
 			enum: WORK_ITEM_ACCOUNTABILITY_PRINCIPAL_TYPE_VALUES,
 		}),
@@ -513,6 +515,7 @@ END;`,
  * the whole table, so they do not reach a caller or an API response.
  */
 export const {
+	legacyPriority: _legacyPriority,
 	repositoryObserver: _repositoryObserver,
 	report: _report,
 	observerWokenAt: _observerWokenAt,
@@ -524,6 +527,7 @@ export const {
 
 export type WorkItem = Omit<
 	typeof workItems.$inferSelect,
+	| "legacyPriority"
 	| "reviewerLeaseExpiresAt"
 	| "repositoryObserver"
 	| "report"

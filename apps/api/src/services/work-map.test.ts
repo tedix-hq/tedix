@@ -35,7 +35,7 @@ function item(
 		id,
 		title: `Item ${id}`,
 		disposition: "accepted",
-		priority: "medium",
+		priority: "normal",
 		projectId: "p1",
 		objectiveId: null,
 		workClass: null,

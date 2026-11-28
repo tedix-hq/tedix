@@ -53,6 +53,7 @@ describe("lane dispatch indexes", () => {
 			backfill,
 			executionContract,
 			generatedColumns,
+			"20261128113748_work_priority",
 		])
 			sqlite.exec(
 				readFileSync(
@@ -164,7 +165,7 @@ describe("dispatch order and readiness", () => {
 	it("lists ready Work by priority, due date, then oldest and ignores plan-less Work", async () => {
 		const sqlite = createMigratedSqlite({ foreignKeys: false });
 		const row = sqlite.prepare(
-			"INSERT INTO work_items(id,org_id,title,disposition,dispatch_state,priority,due_date,created_at,admission_spec_revision,executor_type,executor_id) VALUES(?,?,?,?,?,?,?,?,'r','external_agent','codex')",
+			"INSERT INTO work_items(id,org_id,title,disposition,dispatch_state,priority_level,due_date,created_at,admission_spec_revision,executor_type,executor_id) VALUES(?,?,?,?,?,?,?,?,'r','external_agent','codex')",
 		);
 		const ready = "ready";
 		row.run(
@@ -173,7 +174,7 @@ describe("dispatch order and readiness", () => {
 			"t",
 			"accepted",
 			ready,
-			"medium",
+			"normal",
 			null,
 			"2026-01-01",
 		);
@@ -183,7 +184,7 @@ describe("dispatch order and readiness", () => {
 			"t",
 			"accepted",
 			ready,
-			"critical",
+			"urgent",
 			null,
 			"2026-03-01",
 		);
@@ -223,7 +224,7 @@ describe("dispatch order and readiness", () => {
 			"t",
 			"accepted",
 			null,
-			"critical",
+			"urgent",
 			null,
 			"2025-01-01",
 		);

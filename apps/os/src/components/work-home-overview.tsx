@@ -491,8 +491,8 @@ export function OverviewSections() {
 						{matters.data.data.slice(0, SECTION_ROWS).map((row) => {
 							const dueAt = row.deadline ?? row.dueDate;
 							const reason = [
-								row.priority === "critical"
-									? "Critical priority"
+								row.priority === "urgent"
+									? "Urgent priority"
 									: row.priority === "high"
 										? "High priority"
 										: null,

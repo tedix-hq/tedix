@@ -39,7 +39,7 @@ function workRow(id: string, title: string, view: "board" | "resolve") {
 		workKind: "coding",
 		disposition: "accepted",
 		riskLevel: "medium",
-		priority: "medium",
+		priority: "normal",
 		title,
 		projectId: PROJECT_ID,
 		createdAt: "2026-10-22T12:00:00.000Z",

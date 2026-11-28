@@ -104,7 +104,7 @@ export async function requestHomeDelegationAgentReview(
 			title: delegationWorkItemTitle(input.content),
 			description: reviewDescription(input),
 			workKind: "operations",
-			priority: "medium",
+			priority: "normal",
 			projectId: projectId ?? undefined,
 			requiredAuthorities: [HOME_DELEGATION_AUTHORITY],
 			accountableOwnerType: "tedi",

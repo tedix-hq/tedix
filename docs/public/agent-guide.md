@@ -377,6 +377,17 @@ wait rather than retrying at once.
 
 ### Delegate from a lead session
 
+Work priority is `low`, `normal` (default), `high` or `urgent`. Use
+`tedix -w acme work create "<title>" --kind coding --project <project-id>
+--priority high`, `work accept <id> --done-when "<outcome>" --priority urgent`,
+or `work priority <id> normal`. MCP callers use the discovered
+`create_work_items`, `accept_work_item` and `update_work_item_specification`
+tools with the `priority` field. Tedix OS exposes the same choice in the Work
+specification editor. Existing Work edit permissions apply; Work history records
+the actor and both values. Runners, readiness queues and waves prefer higher
+priority before their existing tie breakers. Priority never releases a dispatch
+hold or replaces admission, budgets or risk approval.
+
 When one lead session talks to the user and hands work to subagents or other
 sessions, register each hand-off as a Work Item in one call:
 

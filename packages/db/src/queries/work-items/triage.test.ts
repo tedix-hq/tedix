@@ -40,14 +40,14 @@ function fixture() {
 	) =>
 		sqlite
 			.prepare(
-				"INSERT INTO work_items(id,org_id,title,disposition,priority,project_id,created_at) VALUES(?,?,?,?,?,?,?)",
+				"INSERT INTO work_items(id,org_id,title,disposition,priority_level,project_id,created_at) VALUES(?,?,?,?,?,?,?)",
 			)
 			.run(
 				id,
 				options.org ?? ORG,
 				id,
 				options.disposition ?? "proposed",
-				options.priority ?? "medium",
+				options.priority ?? "normal",
 				options.projectId ?? null,
 				options.createdAt ?? "2026-11-01T00:00:00.000Z",
 			);
@@ -229,7 +229,7 @@ it("lists proposals per project and organization-wide for work with no project",
 	const { sqlite, db, seed } = fixture();
 	seed("unfiled-old", { createdAt: "2026-11-01T00:00:00.000Z" });
 	seed("unfiled-urgent", {
-		priority: "critical",
+		priority: "urgent",
 		createdAt: "2026-11-10T00:00:00.000Z",
 	});
 	seed("unfiled-new", { createdAt: "2026-11-12T00:00:00.000Z" });

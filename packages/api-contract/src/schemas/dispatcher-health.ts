@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { WorkItemPrioritySchema } from "./work-items";
 import { MachineNameSchema, ReportedMachineToolsSchema } from "./machines";
 
 export const DispatcherHealthSettingsSchema = z.strictObject({
@@ -45,6 +46,7 @@ const BoundedIdSchema = z.string().trim().min(1).max(128);
 
 const SupervisorWorkSchema = z.object({
 	id: z.uuid(),
+	priority: WorkItemPrioritySchema.optional(),
 	title: z.string().min(1).max(200).optional(),
 });
 

@@ -443,7 +443,7 @@ describe("Work item patch defaults", () => {
 			riskLevel: "medium",
 			requiredCapabilities: [],
 			requiredAuthorities: [],
-			priority: "medium",
+			priority: "normal",
 		});
 	});
 

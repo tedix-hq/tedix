@@ -208,7 +208,7 @@ describe("Work approval canonical principal identity", () => {
 		});
 		sqlite
 			.prepare(
-				"UPDATE work_items SET acceptance_contract = json(?), priority = 'critical' WHERE id = ?",
+				"UPDATE work_items SET acceptance_contract = json(?), priority_level = 'urgent' WHERE id = ?",
 			)
 			.run(
 				JSON.stringify({

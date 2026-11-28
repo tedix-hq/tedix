@@ -53,7 +53,7 @@ client.setQueryData(
 		].map((item) => ({
 			...item,
 			projectId: "project",
-			priority: "medium",
+			priority: "normal",
 			version: 1,
 		})),
 		pagination: { total: 3, limit: 100, offset: 0, hasMore: false },

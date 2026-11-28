@@ -627,6 +627,7 @@ export const acceptProcedure = factoryOs.accept.handler(
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				acceptanceContract: input.acceptanceContract,
+				priority: input.priority,
 				actor,
 				acceptedAt: new Date().toISOString(),
 			});

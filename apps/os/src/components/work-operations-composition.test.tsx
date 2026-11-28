@@ -211,7 +211,7 @@ it("completes an eligible task only after confirmation and keeps a refusal visib
 		title: "Verify the export",
 		disposition: "accepted",
 		workKind: "operations",
-		priority: "medium",
+		priority: "normal",
 		accountableOwnerId: null,
 		version: 2,
 	};

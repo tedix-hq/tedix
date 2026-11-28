@@ -65,7 +65,7 @@ const workItemRow = {
 	disposition: "proposed",
 	workKind: "coding",
 	workClass: "objective",
-	priority: "medium",
+	priority: "normal",
 	riskLevel: "medium",
 	description: null,
 	projectId: null,

@@ -1074,7 +1074,7 @@ async function approveHomePlanAssignmentsCore(
 					sourceRequest,
 				}),
 				workKind: "operations",
-				priority: assignment.risk === "high" ? "high" : "medium",
+				priority: assignment.risk === "high" ? "high" : "normal",
 				projectId: projectId ?? undefined,
 				accountableOwnerType: "tedi",
 				accountableOwnerId: assignment.ownerTediId,
