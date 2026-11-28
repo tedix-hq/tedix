@@ -1,7 +1,8 @@
 import { getTableName, is, sql, type SQLWrapper } from "drizzle-orm";
 import { PgTable, type PgDialect } from "drizzle-orm/pg-core";
 import { QueryPromise } from "drizzle-orm/query-promise";
-import { drizzle } from "drizzle-orm/postgres-js";
+import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
 import { relations } from "../schema-pg/relations";
 import postgres from "postgres";
 import { createDbClient, type DbClient } from "../client";
@@ -133,35 +134,52 @@ export function createCoreStore(env: CoreStoreEnv): {
 	if (env.CORE_STORE !== "postgres") throw new Error("Unknown CORE_STORE");
 	if (!env.CORE_HYPERDRIVE)
 		throw new Error("CORE_STORE=postgres requires CORE_HYPERDRIVE");
-	// Per request. Hyperdrive owns pooling. Use Cloudflare's recommended per-request connection limit.
-	// Unnamed statements: Hyperdrive reuses pooled server connections across
-	// clients, so postgres.js named prepared statements collided ("prepared
-	// statement already exists") under production load.
+	// Per request: Hyperdrive owns pooling. Ordinary queries use node-postgres,
+	// Cloudflare's recommended Hyperdrive driver, which sends a parameterized
+	// query in one round trip; postgres.js 4 waited for a Describe first, two
+	// round trips per query. It connects on first use, so a request that never
+	// queries never takes a Hyperdrive slot.
 	const stats = { queries: 0 };
-	const sql = postgres(env.CORE_HYPERDRIVE.connectionString, {
-		prepare: false,
-		fetch_types: false,
-		// postgres.js pipelines parallel queries on one connection, and each
-		// connection costs ~128 KB of a 128 MB isolate.
-		max: 2,
-		// Fail fast when Hyperdrive has no slot, and let idle connections go
-		// so a finished request stops holding one.
-		connect_timeout: 10,
-		idle_timeout: 5,
-		// Counts statements so a scope can report its query load.
-		debug: () => {
-			stats.queries++;
-		},
-	});
-	// int8 as a JS number, as D1 returned it; postgres.js defaults to a string,
-	// which broke counts and bigint reads through D1 table definitions. Set as
-	// a parser, not a custom type: any custom serializer makes postgres.js
-	// describe every query first, an extra round trip per query.
-	sql.options.parsers[20] = Number;
-	const native = drizzle({ client: sql, relations });
+	const connectionString = env.CORE_HYPERDRIVE.connectionString;
+	const client = new LazyPgClient(connectionString, stats);
+	const native = drizzle({ client, relations });
+	// Atomic batches need several statements in one transaction. node-postgres
+	// cannot pipeline them, so a multi-statement batch uses postgres.js, which
+	// sends them as one extended-protocol batch with one Sync (one implicit
+	// transaction), opened only when a request runs such a batch.
+	let batchSql: ReturnType<typeof postgres> | undefined;
+	const batchClient = () => {
+		batchSql ??= postgres(connectionString, {
+			prepare: false,
+			fetch_types: false,
+			max: 1,
+			connect_timeout: 10,
+			idle_timeout: 5,
+		});
+		// A parser, not a custom type: a custom serializer makes postgres.js
+		// describe every statement first.
+		batchSql.options.parsers[20] = Number;
+		return batchSql;
+	};
 	const run: RunAtomicBatch = async (statements) => {
-		// postgres.js 4 sends one extended-protocol batch with one Sync.
-		// PostgreSQL commits it as one implicit transaction, or rolls it all back.
+		if (statements.length === 1) {
+			const [statement] = statements;
+			const result = (await client.query({
+				text: statement!.sql,
+				values: statement!.params,
+				rowMode: "array",
+				types: RAW_TYPES,
+			})) as pg.QueryResult<unknown[]>;
+			return [
+				{
+					rows: result.rows as unknown[][],
+					count: result.rowCount ?? 0,
+					columns: result.fields.map((field: pg.FieldDef) => field.name),
+				},
+			];
+		}
+		stats.queries += statements.length;
+		const sql = batchClient();
 		const queries = statements.map((statement) => {
 			const query = sql.unsafe(
 				statement.sql,
@@ -180,7 +198,55 @@ export function createCoreStore(env: CoreStoreEnv): {
 	};
 	return {
 		db: adaptPostgresClient(native, run),
-		close: () => sql.end(),
+		close: async () => {
+			await Promise.all([client.end(), batchSql?.end()]);
+		},
 		stats,
 	};
+}
+
+// int8 as a JS number, as D1 returned it (pg defaults to a string). Global for
+// this isolate's pg parsers, which Drizzle's node-postgres session falls back to.
+pg.types.setTypeParser(20, Number);
+
+/** Raw statements keep date and time values as stored text, as Drizzle does. */
+const RAW_TYPES = {
+	getTypeParser: ((typeId: number, format?: "text" | "binary") =>
+		RAW_TEXT_TYPES.has(typeId)
+			? (value: string) => value
+			: pg.types.getTypeParser(
+					typeId,
+					format,
+				)) as typeof pg.types.getTypeParser,
+};
+const RAW_TEXT_TYPES = new Set([
+	1082, 1083, 1114, 1184, 1186, 1266, 1115, 1182, 1185, 1187, 1231,
+]);
+
+/** A pg Client that connects on its first query and counts statements. */
+class LazyPgClient extends pg.Client {
+	private connecting?: Promise<void>;
+	constructor(
+		connectionString: string,
+		private readonly stats: { queries: number },
+	) {
+		super({ connectionString });
+		// A dropped connection surfaces on the next query; an unheard 'error'
+		// event would otherwise be an uncaught exception.
+		this.on("error", () => undefined);
+	}
+	override query(...args: unknown[]): never {
+		this.stats.queries++;
+		const connecting = (this.connecting ??= super
+			.connect()
+			.then(() => undefined));
+		return connecting.then(() =>
+			(super.query as (...a: unknown[]) => Promise<unknown>).apply(this, args),
+		) as never;
+	}
+	override async end(): Promise<void> {
+		if (!this.connecting) return;
+		await this.connecting.catch(() => undefined);
+		await super.end();
+	}
 }

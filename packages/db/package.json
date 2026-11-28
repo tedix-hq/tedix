@@ -618,6 +618,7 @@
 		"@tedix/tenant-directory": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
 		"drizzle-orm": "catalog:",
+		"pg": "^8.16.0",
 		"postgres": "^4.1.1",
 		"yaml": "^2.9.1",
 		"zod": "catalog:"
@@ -627,6 +628,7 @@
 		"@cloudflare/workers-types": "catalog:",
 		"@electric-sql/pglite": "^0.6.0",
 		"@tedix/tsconfig": "workspace:*",
+		"@types/pg": "^8.23.1",
 		"dotenv": "^18.0.10",
 		"drizzle-kit": "1.0.0-rc.5",
 		"fast-check": "4.10.3",
