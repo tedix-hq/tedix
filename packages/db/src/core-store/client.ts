@@ -121,6 +121,8 @@ class PostgresRaw<T> extends QueryPromise<T> {
 export function createCoreStore(env: CoreStoreEnv): {
 	db: DbClient;
 	close(): Promise<void>;
+	/** Statement count, Postgres only. */
+	stats?: { queries: number };
 } {
 	if (!env.CORE_STORE || env.CORE_STORE === "d1")
 		return {
@@ -135,6 +137,7 @@ export function createCoreStore(env: CoreStoreEnv): {
 	// Unnamed statements: Hyperdrive reuses pooled server connections across
 	// clients, so postgres.js named prepared statements collided ("prepared
 	// statement already exists") under production load.
+	const stats = { queries: 0 };
 	const sql = postgres(env.CORE_HYPERDRIVE.connectionString, {
 		prepare: false,
 		fetch_types: false,
@@ -145,6 +148,10 @@ export function createCoreStore(env: CoreStoreEnv): {
 		// so a finished request stops holding one.
 		connect_timeout: 10,
 		idle_timeout: 5,
+		// Counts statements so a scope can report its query load.
+		debug: () => {
+			stats.queries++;
+		},
 	});
 	// int8 as a JS number, as D1 returned it; postgres.js defaults to a string,
 	// which broke counts and bigint reads through D1 table definitions. Set as
@@ -171,5 +178,9 @@ export function createCoreStore(env: CoreStoreEnv): {
 			columns: result.columns.map((column) => column.name),
 		}));
 	};
-	return { db: adaptPostgresClient(native, run), close: () => sql.end() };
+	return {
+		db: adaptPostgresClient(native, run),
+		close: () => sql.end(),
+		stats,
+	};
 }

@@ -126,6 +126,7 @@ async function serveFetch(
 				() => handlers.fetch(request, env, tracked(ctx, trackCoreStoreWork)),
 				(promise) => ctx.waitUntil(promise),
 				TRACKED_CLOSE_DELAY_MS,
+				`${request.method} ${new URL(request.url).pathname}`,
 			),
 		{
 			maxInFlight: 6,
@@ -201,6 +202,7 @@ export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 			() => this.serveInternalFetch(request, ctx),
 			(promise) => this.ctx.waitUntil(promise),
 			TRACKED_CLOSE_DELAY_MS,
+			`internal ${request.method} ${new URL(request.url).pathname}`,
 		);
 	}
 

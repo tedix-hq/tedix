@@ -62,6 +62,8 @@ export async function withCoreStore<T>(
 	schedule?: (promise: Promise<unknown>) => void,
 	/** Grace after tracked work; callers that track all waitUntil work pass less. */
 	graceMs = UNTRACKED_CLOSE_DELAY_MS,
+	/** Route or job name for the scope's query-load log line. */
+	label?: string,
 ): Promise<T> {
 	if (isD1CoreStore(env)) return withAuditDelivery(env, fn);
 	// A nested scope (an entrypoint wrapping serveFetch, say) reuses the open
@@ -74,12 +76,22 @@ export async function withCoreStore<T>(
 	// store and LOGS_DB, exactly as the D1 delivery bindings do.
 	configureAuditDelivery(store.db, env);
 	const background: Promise<unknown>[] = [];
+	const startedAt = Date.now();
 	try {
 		return await storage.run(
 			{ db: store.db, close: store.close, background },
 			fn,
 		);
 	} finally {
+		const queries = store.stats?.queries ?? 0;
+		const wallMs = Date.now() - startedAt;
+		if (queries >= HEAVY_SCOPE_QUERIES || wallMs >= HEAVY_SCOPE_WALL_MS)
+			console.info({
+				event: "core_store_scope",
+				label: label ?? null,
+				queries,
+				wallMs,
+			});
 		if (schedule) {
 			// Each open client holds ~190 KB, so a fixed linger multiplied by
 			// the request rate ran tedix-api isolates out of memory. Close once
@@ -104,6 +116,10 @@ export async function withCoreStore<T>(
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** A scope at or past either threshold logs its query count and wall time. */
+const HEAVY_SCOPE_QUERIES = 8;
+const HEAVY_SCOPE_WALL_MS = 1_500;
 
 /** Longest a scope's client waits for its tracked background work. */
 export const BACKGROUND_CLOSE_LIMIT_MS = 30_000;
