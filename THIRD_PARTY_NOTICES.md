@@ -89,9 +89,3 @@ License: Apache-2.0 AND MIT (`LICENSE` restored by `patches/@modelcontextprotoco
 Includes modified debugging and test-audit agent skill instructions from OpenClaw at revision c8931b32d3d, Copyright (c) 2026 OpenClaw Foundation, under the MIT License. They live in .agents/skills/debug-tedix-run/SKILL.md and .agents/skills/test-audit/SKILL.md.
 
 License: MIT (`LICENSES/third-party/openclaw-MIT.txt`)
-
-## postgres-js-untyped-parameters
-
-Includes a patch to postgres 4.1.1 (postgres.js by Rasmus Porsager) that sends untyped text parameters with the first packet of an unnamed statement, letting the server infer their types instead of waiting for a Describe round trip, as postgres.js 3 did. postgres.js is dedicated to the public domain.
-
-License: The Unlicense
