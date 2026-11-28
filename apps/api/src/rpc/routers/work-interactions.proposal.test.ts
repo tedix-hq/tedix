@@ -255,7 +255,7 @@ function setup() {
 	const rows = () =>
 		f.sqlite
 			.prepare(
-				"SELECT id,title,description,source_intent_id,parent_work_item_id,project_id,work_kind,priority_level FROM work_items WHERE source_intent_id IS NOT NULL ORDER BY source_intent_id",
+				"SELECT id,title,description,source_intent_id,parent_work_item_id,project_id,work_kind,priority_level AS priority FROM work_items WHERE source_intent_id IS NOT NULL ORDER BY source_intent_id",
 			)
 			.all();
 	return { ...f, propose, accept, rows };

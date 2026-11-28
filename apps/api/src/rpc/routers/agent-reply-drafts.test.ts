@@ -405,7 +405,7 @@ describe("requestReplyDraft", () => {
 		);
 		// The board is inlined, so the only tool call is the proposal.
 		expect(content).toContain(
-			`Linked Work Item ${WORK_ITEM_ID} [proposed, medium]: Ship drafts`,
+			`Linked Work Item ${WORK_ITEM_ID} [proposed, normal]: Ship drafts`,
 		);
 		// The drafter's only tool is Code Mode: the prompt names it and the
 		// exact call, with this question's id filled in.

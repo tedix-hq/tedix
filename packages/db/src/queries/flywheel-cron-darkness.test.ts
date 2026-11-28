@@ -497,7 +497,7 @@ describe("upsertCronDarknessWorkItems dedupe", () => {
 		expect(second.sourceIntentIds).toEqual([cronDarknessSourceIntentId(TEDI)]);
 		const rows = sqlite
 			.prepare(
-				`SELECT title, description, disposition, priority_level, accountable_owner_type, source_intent_id
+				`SELECT title, description, disposition, priority_level AS priority, accountable_owner_type, source_intent_id
 				 FROM work_items WHERE org_id = ?`,
 			)
 			.all(ORG) as Array<Record<string, unknown>>;

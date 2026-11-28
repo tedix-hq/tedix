@@ -30,7 +30,7 @@ CREATE TABLE tedi_objectives (
  purpose_charter_id TEXT, title TEXT NOT NULL, description TEXT, approach TEXT,
  success_criteria TEXT, constraints TEXT, type TEXT NOT NULL DEFAULT 'standing',
  status TEXT NOT NULL DEFAULT 'active', risk_level TEXT NOT NULL DEFAULT 'medium',
- priority_level INTEGER NOT NULL DEFAULT 0, linked_domains TEXT DEFAULT '[]',
+ priority INTEGER NOT NULL DEFAULT 0, linked_domains TEXT DEFAULT '[]',
  gate_config TEXT DEFAULT '{}', budget_config TEXT DEFAULT '{}', progress TEXT DEFAULT '{}',
  created_at TEXT NOT NULL, updated_at TEXT, completed_at TEXT
 );

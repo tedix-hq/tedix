@@ -1329,7 +1329,7 @@ describe("canonical Work creation purpose", () => {
 				properties: {
 					title: { type: "string" },
 					projectId: { type: "string" },
-					priority: { type: "string", default: "medium" },
+					priority: { type: "string", default: "normal" },
 					requiredCapabilities: {
 						type: "array",
 						items: { type: "string" },
