@@ -155,6 +155,18 @@ export function createCoreStore(env: CoreStoreEnv): {
 			max: 1,
 			connect_timeout: 10,
 			idle_timeout: 5,
+			types: {
+				// Statements are compiled by Drizzle's node-postgres adapter, which
+				// already JSON-encodes jsonb arrays and scalars to text. Encoding
+				// that text again would store a JSON string instead of the value.
+				json: {
+					to: 3802,
+					from: [114, 3802],
+					serialize: (value: unknown) =>
+						typeof value === "string" ? value : JSON.stringify(value),
+					parse: (value: string) => JSON.parse(value),
+				},
+			},
 		});
 		// A parser, not a custom type: a custom serializer makes postgres.js
 		// describe every statement first.
