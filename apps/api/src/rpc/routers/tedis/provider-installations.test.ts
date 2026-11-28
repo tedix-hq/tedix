@@ -29,7 +29,7 @@ vi.mock("@tedix/db/queries/app-records", () => ({
 	getAppByIdForOrganization: mocks.providerApp,
 }));
 vi.mock("@tedix/db/queries/api-keys", () => ({
-	getApiKeyById: mocks.providerKey,
+	getApiKeyAuthorityById: mocks.providerKey,
 }));
 vi.mock("../../../services/provider-customer-provisioning", () => ({
 	ensureProviderCustomer: mocks.ensureCustomer,
