@@ -95,6 +95,7 @@ import {
 } from "./lane-process-recovery";
 import { kernelProcessFacts } from "./process-facts";
 import { unpushedLaneCommits } from "./lane-unpushed";
+import * as executorProbe from "./lane-executor-probe";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 
@@ -3070,6 +3071,91 @@ describe("dispatcher admission", () => {
 			expect(settlements[0]!.args).toContain("succeeded");
 		},
 	);
+	it("replaces a tedi receipt session after a version or model conflict before admitting work", async () => {
+		const probe = spyOn(executorProbe, "probeTediLane").mockReturnValue({
+			available: true,
+		});
+		const configDir = process.env.TEDIX_CONFIG_DIR;
+		const f = fixture({ executor: "tedi" });
+		let runner: LaneDispatcher | undefined;
+		try {
+			process.env.TEDIX_CONFIG_DIR = f.dir;
+			f.config.tedi = "example-tedi";
+			f.items.splice(1);
+			f.control.uniqueAttempts = true;
+			const work = f.items[0]!;
+			work.executorType = "external_agent";
+			const repo = join(f.dir, "runs", `${work.id}-${work.version}`, "repo");
+			mkdirSync(repo, { recursive: true });
+			const oldKey = "tedi:stored-session";
+			writeFileSync(
+				join(f.dir, "old.json"),
+				JSON.stringify({
+					itemId: work.id,
+					version: 1,
+					phase: "settled",
+					outcome: "failed",
+					attemptId: "old-attempt",
+					session: oldKey,
+					repo,
+				}),
+			);
+			f.control.history.data = [{ id: "old-attempt", outcome: "failed" }];
+			const registrations: string[] = [];
+			const cli = f.deps.cli!;
+			f.deps.cli = async (args, env) => {
+				if (args[4] === "agent" && args[5] === "start") {
+					registrations.push(env.TEDIX_AGENT_SESSION!);
+					if (env.TEDIX_AGENT_SESSION === oldKey)
+						throw new CliReadError(
+							"already registered with a different harness version or model",
+							"immutable_session_conflict",
+						);
+				}
+				return cli(args, env);
+			};
+			let launch: string[] | undefined;
+			f.deps.launch = async (args) => {
+				launch = args;
+				return 1;
+			};
+			runner = f.restart();
+			await runner.tick();
+			await runner.drain();
+			const admissions = f.events.filter(
+				(event) => event.args[4] === "work" && event.verb === "start",
+			);
+			expect(admissions).toHaveLength(1);
+			const newKey = admissions[0]!.env.TEDIX_AGENT_SESSION!;
+			expect(newKey).toStartWith("tedi:");
+			expect(newKey).not.toBe(oldKey);
+			expect(registrations).toEqual([oldKey, newKey]);
+			expect(f.control.threadSessions).toEqual(["stored-session", undefined]);
+			expect(
+				JSON.parse(
+					readFileSync(join(f.dir, `${work.id}-${work.version}.json`), "utf8"),
+				).session,
+			).toBe(newKey);
+			expect(launch).toContain("tedi-turn");
+			expect(launch![launch!.indexOf("--session") + 1]).toBe(
+				newKey.slice("tedi:".length),
+			);
+			const handover = f.events.find(
+				(event) =>
+					event.verb === "comment" &&
+					event.args.at(-1)?.includes("different CLI version or model"),
+			);
+			expect(handover?.env.TEDIX_AGENT_SESSION).toBe(newKey);
+			expect(handover?.args.at(-1)).toContain("stored-session");
+			expect(handover?.args.at(-1)).toContain("before admission");
+		} finally {
+			runner?.stop();
+			await runner?.drain();
+			probe.mockRestore();
+			if (configDir === undefined) delete process.env.TEDIX_CONFIG_DIR;
+			else process.env.TEDIX_CONFIG_DIR = configDir;
+		}
+	});
 	it("settles Devin commits under each native session before completing Work", async () => {
 		const { dispatcher, events, releases, control, items, briefs } = fixture({
 			executor: "devin",

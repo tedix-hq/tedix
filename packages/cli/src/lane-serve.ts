@@ -7120,7 +7120,7 @@ export class LaneDispatcher {
 			const identity = await registerSession().catch(async (error: unknown) => {
 				// The child CLI can report this refusal as a diagnostic on stderr.
 				if (
-					executor !== "devin" ||
+					(executor !== "devin" && executor !== "tedi") ||
 					!(error instanceof CliReadError) ||
 					(error.code !== "immutable_session_conflict" &&
 						!error.message.includes("A session key is immutable:"))
@@ -7128,14 +7128,14 @@ export class LaneDispatcher {
 					throw error;
 				if (adopted)
 					throw new RestartResumeFallback(
-						"Devin's CLI version or model changed for the admitted session",
+						`${executor}'s CLI version or model changed for the admitted session`,
 					);
 				if (this.stopping) throw new DispatcherStoppingError();
 				// The permission policy and Work bridge both bind to the native ID.
 				// Allocate a new native session without changing the old identity.
 				const replacement = await fresh();
 				if (replacement.thread.id === thread.thread.id) throw error;
-				sessionRecovery = `Devin session ${thread.thread.id} was registered with a different CLI version or model. Started a fresh session in the same checkout before admission.`;
+				sessionRecovery = `${executor} session ${thread.thread.id} was registered with a different CLI version or model. Started a fresh session in the same checkout before admission.`;
 				this.log("session-replaced", item.id, sessionRecovery);
 				thread = replacement;
 				resumed = false;
