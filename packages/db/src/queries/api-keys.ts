@@ -6,8 +6,9 @@
  * Keys are hashed for security - the raw key is only shown once at creation.
  */
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getColumns, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { coreTable } from "../core-store/client";
 import { coreStore } from "../core-store/dialect";
 import type { DbQueryClient } from "../query-client";
 import type {
@@ -46,8 +47,13 @@ export async function getApiKeyById(
 export async function getApiKeyByHash(
 	db: DbClient,
 	keyHash: string,
-): Promise<ApiKey | undefined> {
-	return db.query.apiKeys.findFirst({ where: { keyHash } });
+): Promise<Omit<ApiKey, "metadata"> | undefined> {
+	// Authentication never reads metadata; leaving it out keeps every API-key
+	// request off a column that can grow (usage details) or was corrupted.
+	return db.query.apiKeys.findFirst({
+		where: { keyHash },
+		columns: { metadata: false },
+	});
 }
 
 /**
@@ -301,18 +307,19 @@ export async function rotateApiKey(
 export async function getApiKeyByPreviousHash(
 	db: DbClient,
 	keyHash: string,
-): Promise<ApiKey | undefined> {
+): Promise<Omit<ApiKey, "metadata"> | undefined> {
 	const now = new Date().toISOString();
-
+	const keys = coreTable(db, apiKeys);
+	const { metadata: _metadata, ...columns } = getColumns(keys);
 	const [result] = await db
-		.select()
-		.from(apiKeys)
+		.select(columns)
+		.from(keys)
 		.where(
 			and(
-				eq(apiKeys.previousKeyHash, keyHash),
-				eq(apiKeys.status, "active"),
-				sql`${apiKeys.previousKeyExpiresAt} IS NOT NULL`,
-				sql`${apiKeys.previousKeyExpiresAt} > ${now}`,
+				eq(keys.previousKeyHash, keyHash),
+				eq(keys.status, "active"),
+				sql`${keys.previousKeyExpiresAt} IS NOT NULL`,
+				sql`${keys.previousKeyExpiresAt} > ${now}`,
 			),
 		)
 		.limit(1);
@@ -396,26 +403,26 @@ export async function recordUsage(
 	metadata?: { userAgent?: string; ipAddress?: string },
 ): Promise<void> {
 	const now = new Date().toISOString();
-
-	const updateData: Record<string, unknown> = {
-		lastUsedAt: now,
-		requestsThisMonth: sql`${apiKeys.requestsThisMonth} + 1`,
-		totalRequests: sql`${apiKeys.totalRequests} + 1`,
-		updatedAt: now,
+	const keys = coreTable(db, apiKeys);
+	const usage = {
+		...(metadata?.userAgent && { lastUserAgent: metadata.userAgent }),
+		...(metadata?.ipAddress && { lastIpAddress: metadata.ipAddress }),
 	};
-
-	// Update metadata if provided
-	if (metadata) {
-		const key = await getApiKeyById(db, id);
-		if (key) {
-			const newMetadata: ApiKeyMetadata = {
-				...key.metadata,
-				...(metadata.userAgent && { lastUserAgent: metadata.userAgent }),
-				...(metadata.ipAddress && { lastIpAddress: metadata.ipAddress }),
-			};
-			updateData.metadata = newMetadata;
-		}
-	}
-
-	await db.update(apiKeys).set(updateData).where(eq(apiKeys.id, id));
+	// One write, no read. On Postgres, metadata that is not an object or has
+	// grown past a few KB is replaced: postgres.js once JSON-encoded it twice,
+	// and each merge then spread the string into one key per character.
+	const merged =
+		coreStore(db) === "postgres"
+			? sql`(CASE WHEN jsonb_typeof(${keys.metadata}) = 'object' AND pg_column_size(${keys.metadata}) < 8192 THEN ${keys.metadata} ELSE '{}'::jsonb END) || ${JSON.stringify(usage)}::text::jsonb`
+			: sql`json_patch(coalesce(${keys.metadata}, '{}'), ${JSON.stringify(usage)})`;
+	await db
+		.update(keys)
+		.set({
+			lastUsedAt: now,
+			requestsThisMonth: sql`${keys.requestsThisMonth} + 1`,
+			totalRequests: sql`${keys.totalRequests} + 1`,
+			updatedAt: now,
+			...(Object.keys(usage).length ? { metadata: merged as never } : {}),
+		})
+		.where(eq(keys.id, id));
 }
