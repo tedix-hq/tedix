@@ -46,11 +46,17 @@ export const waitProcedure = readerOs.wait.handler(
 			);
 		const deadline = Date.now() + input.timeoutMs;
 		let cursor = input.cursor;
+		// Access is checked once: the item cannot change hands within one wait.
+		const item = input.id
+			? await assertWorkItemAccess(context, input.id)
+			: undefined;
+		// Each poll round costs several queries and holds the request's database
+		// client; back off so a long wait stays cheap.
+		let pollMs = WAIT_POLL_INITIAL_MS;
 		while (true) {
 			signal?.throwIfAborted();
-			const page = input.id
+			const page = item
 				? await (async () => {
-						const item = await assertWorkItemAccess(context, input.id!);
 						return readWorkWaitPage(context.db, {
 							orgId: item.orgId,
 							workItemId: item.id,
@@ -124,11 +130,15 @@ export const waitProcedure = readerOs.wait.handler(
 						signal?.removeEventListener("abort", abort);
 						resolve();
 					},
-					Math.min(1000, remaining),
+					Math.min(pollMs, remaining),
 				);
 				signal?.addEventListener("abort", abort, { once: true });
 				if (signal?.aborted) abort();
 			});
+			pollMs = Math.min(pollMs * 2, WAIT_POLL_MAX_MS);
 		}
 	},
 );
+
+const WAIT_POLL_INITIAL_MS = 1_000;
+const WAIT_POLL_MAX_MS = 5_000;
