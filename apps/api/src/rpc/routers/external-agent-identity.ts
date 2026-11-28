@@ -34,7 +34,7 @@ import {
 	verifyGithubActionsWorkloadToken,
 	WorkloadIdentityError,
 } from "@tedix/auth/workload-identity";
-import { getApiKeyById } from "@tedix/db/queries/api-keys";
+import { getApiKeyAuthorityById } from "@tedix/db/queries/api-keys";
 import { createDbSession } from "@tedix/db/client";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
@@ -378,7 +378,10 @@ const createPrincipal = authed.createPrincipal.handler(
 			return createM2mPrincipal(context, organizationId, actor, input);
 		const credentialBindingId = input.credentialBindingId ?? "";
 		if (input.credentialBindingType === "api_key") {
-			const apiKey = await getApiKeyById(context.db, credentialBindingId);
+			const apiKey = await getApiKeyAuthorityById(
+				context.db,
+				credentialBindingId,
+			);
 			if (
 				!apiKey ||
 				apiKey.organizationId !== organizationId ||
@@ -1660,7 +1663,10 @@ async function resolveIssuedMcpLifetime(
 	// checks the persisted deadline on every request.
 	let expiresAtMs = issuedAt.getTime() + Math.min(expiresIn, 600) * 1_000;
 	if (principal.credentialBindingType === "api_key") {
-		const key = await getApiKeyById(context.db, principal.credentialBindingId);
+		const key = await getApiKeyAuthorityById(
+			context.db,
+			principal.credentialBindingId,
+		);
 		if (
 			!key ||
 			key.organizationId !== principal.organizationId ||

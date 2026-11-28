@@ -38,6 +38,21 @@ export async function getApiKeyById(
 }
 
 /**
+ * The key row without its metadata, for authorization checks (status, owner,
+ * expiry, scopes, environment). Keeps hot paths off a column that grows with
+ * usage details and was once corrupted into a self-growing blob.
+ */
+export async function getApiKeyAuthorityById(
+	db: DbClient,
+	id: string,
+): Promise<Omit<ApiKey, "metadata"> | undefined> {
+	return db.query.apiKeys.findFirst({
+		where: { id },
+		columns: { metadata: false },
+	});
+}
+
+/**
  * Get API key by hash
  * Used for authenticating requests
  *

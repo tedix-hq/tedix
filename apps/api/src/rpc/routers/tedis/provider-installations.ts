@@ -11,7 +11,7 @@ import {
 	readEmbeddedTurnQuota,
 	readEmbeddedWidgetAccess,
 } from "@tedix/api-contract/schemas/embedded-widget-access";
-import { getApiKeyById } from "@tedix/db/queries/api-keys";
+import { getApiKeyAuthorityById } from "@tedix/db/queries/api-keys";
 import type { PortableWebMcpProfile } from "@tedix/api-contract/schemas/portable-webmcp";
 import { getPortableWebMcpToolAdmissions } from "@tedix/db/queries/app-gating";
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
@@ -420,7 +420,7 @@ export async function validateProviderInstallationIdentity(
 			input.providerAppId,
 			input.providerOrganizationId,
 		),
-		getApiKeyById(context.db, input.providerApiKeyId),
+		getApiKeyAuthorityById(context.db, input.providerApiKeyId),
 	]);
 	if (!providerApp) {
 		throw createError(
