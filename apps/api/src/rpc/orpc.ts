@@ -2469,6 +2469,7 @@ export async function logProcedureCall(options: {
 			error instanceof ORPCError && CLIENT_ERROR_CODES.has(error.code);
 		const metadata = {
 			...(await safeErrorMetadata(error)),
+			...validationIssuePaths(error),
 			...metrics(),
 			status: "error",
 			code:
@@ -2545,4 +2546,26 @@ export function skipOutputValidation<T>(procedure: T): T {
 		patched["~orpc"] = { ...internal, disableOutputValidation: true };
 	}
 	return patched as T;
+}
+
+/**
+ * Field paths and codes of a schema validation failure (no values), so an
+ * "Output validation failed" names the field that broke the contract.
+ */
+function validationIssuePaths(error: unknown): {
+	validationIssues?: { path: string; code: string }[];
+} {
+	const issues = (error as { cause?: { issues?: unknown } })?.cause?.issues;
+	if (!Array.isArray(issues)) return {};
+	return {
+		validationIssues: issues.slice(0, 10).map((issue) => {
+			const { path, code } = issue as { path?: unknown[]; code?: unknown };
+			return {
+				path: Array.isArray(path)
+					? path.map((part) => String(part).slice(0, 60)).join(".")
+					: "",
+				code: String(code ?? "").slice(0, 40),
+			};
+		}),
+	};
 }
